@@ -8,6 +8,7 @@ import {
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import type {
+  McpDefsAsk,
   AgentOrchestrator,
   StagedSkillsAsk,
 } from ".";
@@ -31,6 +32,7 @@ interface ContinuationDeps {
   blocked: ReadonlyMap<string, string>;
   creation: AgentOrchestratorCreation;
   skillsAsk: StagedSkillsAsk;
+  mcpDefs: McpDefsAsk;
   worktrees: WorktreeProvisioner;
 }
 
@@ -46,6 +48,7 @@ export function createAgentOrchestratorContinuations({
   blocked,
   creation,
   skillsAsk,
+  mcpDefs,
   worktrees,
 }: ContinuationDeps): AgentOrchestratorContinuations {
   const resuming = new Set<string>();
@@ -94,6 +97,7 @@ export function createAgentOrchestratorContinuations({
             { id: workspace.id, instance: workspace.instance },
             record.cwd,
           ),
+          mcpDefs,
         },
         context,
         record.sessionId,
@@ -161,6 +165,7 @@ export function createAgentOrchestratorContinuations({
             cwd,
             yolo,
             stagedSkills: skillsAsk(workspaceRef, cwd),
+            mcpDefs,
           },
           context,
           {

@@ -98,6 +98,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
         branch: "feature/restart",
         yolo: true,
         stagedSkills: expect.any(Function),
+        mcpDefs: expect.any(Function),
       },
       ctx,
       "session-old",

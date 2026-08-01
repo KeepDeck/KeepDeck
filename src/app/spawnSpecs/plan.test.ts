@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentContribution,
   Disposable,
+  McpServerSpec,
+  SpawnMcpInput,
   SpawnSkillsInput,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
@@ -37,6 +39,8 @@ const skillsState = vi.hoisted(() => ({
   views: null as SpawnSkillsInput | null,
 }));
 const stagedSkills = () => Promise.resolve(skillsState.views);
+const mcpState = vi.hoisted(() => ({ servers: [] as McpServerSpec[] }));
+const mcpDefs = () => Promise.resolve(mcpState.servers);
 const pluginRegistries = createContributionRegistries();
 const plugins = {
   pluginRegistries,
@@ -93,6 +97,7 @@ describe("building one plan through the agent hook", () => {
     resetPaneSpawnSpecs();
     hostState.installed = [];
     skillsState.views = null;
+    mcpState.servers = [];
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -114,7 +119,7 @@ describe("building one plan through the agent hook", () => {
           workspace,
           pane,
           ctx,
-          stagedSkills,
+          { stagedSkills, mcpDefs },
         );
       }
     }
@@ -237,12 +242,72 @@ describe("building one plan through the agent hook", () => {
     await buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills },
+      { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills, mcpDefs },
       ctx,
       "old-id",
       "restore",
     );
     expect(inputs).toEqual([skillsState.views, skillsState.views]);
+  });
+
+  it("MCP servers reach the hook input as a LIST, on spawn AND resume", async () => {
+    // A list, not a server: the hook must loop, because the planned bank
+    // contributes more members than the built-in transport.
+    mcpState.servers = [
+      {
+        name: "keepdeck",
+        transport: "stdio",
+        command: "/bin/keepdeck",
+        args: ["--mcp-shim", "/sock"],
+      },
+      {
+        name: "mnemo",
+        transport: "stdio",
+        command: "/bin/mnemo",
+        args: [],
+      },
+    ];
+    const inputs: Array<SpawnMcpInput | undefined> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          inputs.push(input.mcp);
+        },
+        "resume.plan": (input) => {
+          inputs.push(input.mcp);
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    await buildResumeSpec(
+      plugins,
+      "claude",
+      { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills, mcpDefs },
+      ctx,
+      "old-id",
+      "restore",
+    );
+    const expected = { servers: mcpState.servers };
+    expect(inputs).toEqual([expected, expected]);
+  });
+
+  it("no MCP servers leaves the hook input sparse — nothing to tell apart", async () => {
+    // Absent, not an empty list: a hook must not have to tell "the transport
+    // is off" apart from "this host is too old to say".
+    const inputs: Array<SpawnMcpInput | undefined> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          inputs.push(input.mcp);
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(inputs).toEqual([undefined]);
   });
 
   it("an empty library leaves the hook input sparse — no skills key at all", async () => {
@@ -354,7 +419,7 @@ describe("building one plan through the agent hook", () => {
       workspaces[0],
       workspaces[0].panes[0],
       ctx,
-      stagedSkills,
+      { stagedSkills, mcpDefs },
     );
 
     // A failure is a CHANGE, and saying so is what gets the error tile drawn:

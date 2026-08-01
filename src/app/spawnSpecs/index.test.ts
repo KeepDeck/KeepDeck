@@ -118,7 +118,7 @@ describe("the plan builders — live pane, resume, fork", () => {
           workspace,
           pane,
           ctx,
-          stagedSkills,
+          { stagedSkills },
         );
       }
     }

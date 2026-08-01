@@ -8,6 +8,7 @@ import {
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { describeError, log } from "../../ipc/log";
 import type {
+  McpDefsAsk,
   AgentOrchestrator,
   RestartOutcome,
   SessionRegistryPort,
@@ -46,6 +47,7 @@ interface RestartDeps {
   epochs: Map<string, number>;
   startOwed: Set<string>;
   skillsAsk: StagedSkillsAsk;
+  mcpDefs: McpDefsAsk;
   publish(): void;
   schedule(): void;
 }
@@ -78,6 +80,7 @@ export function createAgentOrchestratorRestart({
   epochs,
   startOwed,
   skillsAsk,
+  mcpDefs,
   publish,
   schedule,
 }: RestartDeps): AgentOrchestratorRestart {
@@ -149,6 +152,7 @@ export function createAgentOrchestratorRestart({
         branch: target.branch,
         yolo: target.yolo,
         stagedSkills: skillsAsk(target.workspace),
+        mcpDefs,
       },
       context,
       target.sessionId,

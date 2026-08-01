@@ -107,7 +107,7 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
       ws([{ id: "pane-1", agentType: "claude" }])[0],
       { id: "pane-1", agentType: "claude" },
       ctx,
-      stagedSkills,
+      { stagedSkills },
     );
     expect(heard).toBeGreaterThan(0);
   });

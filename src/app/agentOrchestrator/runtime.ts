@@ -65,6 +65,7 @@ export function createAgentOrchestratorRuntime(
   const inFlight = new Set<string>();
   let booted = false;
   let scheduled = false;
+  const { mcpDefs } = deps;
   const skillsAsk: StagedSkillsAsk = (workspace, landing) => () =>
     worktrees.skillsFor(workspace, landing);
 
@@ -196,6 +197,7 @@ export function createAgentOrchestratorRuntime(
     epochs,
     startOwed,
     skillsAsk,
+    mcpDefs,
     publish,
     schedule,
   });
@@ -206,6 +208,7 @@ export function createAgentOrchestratorRuntime(
     blocked,
     creation,
     skillsAsk,
+    mcpDefs,
     worktrees,
   });
 
@@ -246,6 +249,7 @@ export function createAgentOrchestratorRuntime(
             branch: pane.branch,
             yolo: pane.yolo,
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
+            mcpDefs,
           },
           ctx,
           sessionId,
@@ -304,7 +308,10 @@ export function createAgentOrchestratorRuntime(
           ws,
           pane,
           ctx,
-          skillsAsk({ id: ws.id, instance: ws.instance }),
+          {
+            stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
+            mcpDefs,
+          },
         ).then((changed) => {
           if (!changed) return;
           publish();

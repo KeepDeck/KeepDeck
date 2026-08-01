@@ -17,7 +17,6 @@ import {
   type Workspace,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
-import type { SkillsStagingViews } from "../../ipc/skills";
 import {
   contributionSupportsFork,
   contributionSupportsResume,
@@ -140,7 +139,7 @@ export async function buildLivePaneSpec(
   ws: Workspace,
   pane: Pane,
   ctx: SpawnPlanContext,
-  stagedSkills: () => Promise<SkillsStagingViews | null>,
+  asks: Pick<PaneSpawnFacts, "stagedSkills" | "mcpDefs">,
 ): Promise<boolean> {
   if (!paneHasProcess(pane)) return false;
   if (hasPaneSpawnSpec(pane.id) || isPaneSpawnSpecPending(pane.id) || peekPanePlanError(pane.id)) {
@@ -159,7 +158,7 @@ export async function buildLivePaneSpec(
           cwd: pane.cwd ?? ws.cwd,
           branch: pane.branch,
           yolo: pane.yolo,
-          stagedSkills,
+          ...asks,
           ...(pane.remoteEndpoint
             ? {
                 target: {

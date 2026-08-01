@@ -1,6 +1,7 @@
 import type { AgentRestartMode, ForkTarget, SpawnPlan } from "../../domain/agents";
 import type { Pane, SpawnConfig, WorktreeTarget } from "../../domain/deck";
 import type { SessionHandle } from "../../domain/journal";
+import type { SpawnMcpInput } from "@keepdeck/plugin-api";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { WorkspaceCreationResult } from "../deckActions";
 import type { DeckStore } from "../deckStore";
@@ -112,6 +113,10 @@ export type ResumeRequest =
   | "unavailable"
   | "gone";
 
+/** Delay the MCP lookup until a spawn plan is actually built — and ask per
+ * build, never once: the transport can go up or down between two spawns. */
+export type McpDefsAsk = () => Promise<SpawnMcpInput["servers"]>;
+
 /** Delay staged-skill lookup until a spawn plan is actually built. */
 export type StagedSkillsAsk = (
   workspace: WorkspaceRef,
@@ -161,6 +166,9 @@ export interface AgentOrchestratorDeps {
   probe: WorktreeProbePort;
   /** Narrow role owning pane worktree creation, teardown and staged skills. */
   worktrees: WorktreeProvisioner;
+  /** The MCP servers a spawning pane should be given (empty while the
+   * transport is down) — the injection half of the MCP feature. */
+  mcpDefs: McpDefsAsk;
 }
 
 export function createAgentOrchestrator(

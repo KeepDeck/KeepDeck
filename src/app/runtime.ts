@@ -123,6 +123,7 @@ export function createAppRuntime(
     plugins,
     probe: probeWorktree,
     worktrees,
+    mcpDefs: () => mcp.defs(),
   });
   const application = createApplicationController(
     deckStore,

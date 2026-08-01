@@ -6,6 +6,7 @@
 import type {
   AgentContribution,
   ForkPlanInput,
+  SpawnMcpInput,
   SpawnPlanInput,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
@@ -35,6 +36,10 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
    * Named apart from the hook input's own `skills` (which carries the resolved
    * views) because this is the QUESTION, not the answer. */
   stagedSkills?: () => Promise<SkillsStagingViews | null>;
+  /** This pane's MCP servers, asked for the same way and for the same reason:
+   * the answer moves (the transport toggles, the user's set changes), so it
+   * is a QUESTION the build asks, not a value the caller carries. */
+  mcpDefs?: () => Promise<SpawnMcpInput["servers"]>;
 }
 
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
@@ -71,6 +76,11 @@ export async function buildPlan(
   // which directories get armed for them, is the worktree manager's answer:
   // this only asks.
   const skills = facts.stagedSkills ? await facts.stagedSkills() : null;
+  // Asked alongside the skills, and delivered the same way: WHICH servers is
+  // the MCP owner's answer, and how a CLI is told about them is the hook's.
+  // An empty set leaves the input sparse — a hook must not have to tell
+  // "nothing to inject" apart from "this host is too old to say".
+  const mcpServers = facts.mcpDefs ? await facts.mcpDefs() : [];
   const base: SpawnPlanInput = {
     paneId,
     workspace: facts.workspace,
@@ -78,6 +88,7 @@ export async function buildPlan(
     ...(facts.branch ? { branch: facts.branch } : {}),
     ...(facts.yolo ? { yolo: true } : {}),
     ...(skills ? { skills } : {}),
+    ...(mcpServers.length > 0 ? { mcp: { servers: mcpServers } } : {}),
     ...(facts.target ? { target: facts.target } : {}),
   };
   if (

@@ -16,6 +16,9 @@ export type {
   ResumePlanInput,
   SpawnPlanInput,
   SpawnPlanOutput,
+  McpServerSpec,
+  McpStdioServerSpec,
+  SpawnMcpInput,
   SpawnSkillsInput,
   SpawnTarget,
 } from "./agents.ts";

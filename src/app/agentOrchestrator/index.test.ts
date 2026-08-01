@@ -101,6 +101,7 @@ describe("agent orchestrator —session policy", () => {
         branch: undefined,
         yolo: undefined,
         stagedSkills: expect.any(Function),
+        mcpDefs: expect.any(Function),
       },
       expect.anything(),
       "old",
