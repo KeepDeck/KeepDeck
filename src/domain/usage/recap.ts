@@ -1,3 +1,4 @@
+import { formatTokens, formatUtcDay, PERIOD_LABELS } from "./format";
 import { tokenTotal, type UsageEventV2 } from "./history/event";
 import {
   periodCutoff,
@@ -41,6 +42,38 @@ export function usageRecap(
   };
 }
 
+/** THE Highlights sentence — which highlights appear, their order, the
+ * separator and the sign convention are a product rule, phrased here like
+ * every sibling caption (costCoverage, windowResetCaption, the achievement
+ * captions) so a digest notification or a copy-summary command reuses the
+ * exact wording instead of re-deriving it in a component. Empty string when
+ * the period offers no highlight worth reading. */
+export function recapCaption(
+  recap: UsageRecap,
+  period: UsageStatsPeriod,
+): string {
+  const parts: string[] = [];
+  if (recap.tokensDeltaPct !== null) {
+    const sign = recap.tokensDeltaPct >= 0 ? "+" : "";
+    parts.push(
+      `${sign}${recap.tokensDeltaPct}% vs prior ${PERIOD_LABELS[period]}`,
+    );
+  }
+  if (recap.topModel) {
+    parts.push(
+      `top model ${recap.topModel.model} (${formatTokens(recap.topModel.totalTokens)})`,
+    );
+  }
+  if (recap.busiestDay) {
+    parts.push(
+      `busiest day ${formatUtcDay(recap.busiestDay.dayStart)} (${formatTokens(
+        recap.busiestDay.totalTokens,
+      )})`,
+    );
+  }
+  return parts.join(" · ");
+}
+
 function tokensDeltaPct(
   events: readonly UsageEventV2[],
   period: UsageStatsPeriod,
@@ -76,17 +109,24 @@ function topModel(current: UsageStats): UsageRecap["topModel"] {
 }
 
 /** Heaviest UTC day of the period. UTC buckets keep the answer deterministic
- * everywhere; the display labels the day in UTC to match. */
+ * everywhere; the display labels the day in UTC to match. Only days FULLY
+ * inside the window compete: the partial leading day would run against
+ * whole days with a sliced total and could crown the wrong day (the same
+ * full-bucket rule the timeline axis applies). The trailing day competes
+ * honestly as today-so-far. */
 function busiestDay(
   events: readonly UsageEventV2[],
   period: UsageStatsPeriod,
   now: number,
 ): UsageRecap["busiestDay"] {
   const cutoff = periodCutoff(period, now);
+  const firstFullDay =
+    period === "all" ? -Infinity : Math.ceil(cutoff / DAY_MS) * DAY_MS;
   const days = new Map<number, number>();
   for (const event of events) {
     if (event.occurredAt < cutoff || event.occurredAt > now) continue;
     const dayStart = utcDayStart(event.occurredAt);
+    if (dayStart < firstFullDay) continue;
     days.set(dayStart, (days.get(dayStart) ?? 0) + tokenTotal(event.tokens));
   }
   let top: UsageRecap["busiestDay"] = null;

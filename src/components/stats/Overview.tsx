@@ -3,8 +3,6 @@ import {
   costCoverage,
   displayProviderCost,
   formatTokens,
-  formatUtcDay,
-  PERIOD_LABELS,
 } from "../../domain/usage";
 import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
@@ -12,7 +10,7 @@ import type {
   UsageStats,
   UsageStatsPeriod,
 } from "../../domain/usage/history/query";
-import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
+import { recapCaption, usageRecap } from "../../domain/usage/recap";
 import { ErrorBoundary } from "../../ui/ErrorBoundary";
 
 /** The chart rides its own chunk: recharts is the bundle's single largest
@@ -39,8 +37,10 @@ export function Overview({
   period: UsageStatsPeriod;
   now: number;
 }) {
-  const recap = useMemo(
-    () => usageRecap(events, period, now, stats),
+  // The recap and its sentence are both domain calls — the component only
+  // decides WHEN to compute (mounted means the Overview tab is selected).
+  const caption = useMemo(
+    () => recapCaption(usageRecap(events, period, now, stats), period),
     [events, period, now, stats],
   );
   return (
@@ -69,43 +69,12 @@ export function Overview({
           <UsageChart events={events} period={period} now={now} />
         </Suspense>
       </ErrorBoundary>
-      <Highlights recap={recap} period={period} />
+      {caption !== "" && <p className="stats__recap">{caption}</p>}
       <p className="stats__coverage">
         {costCoverage(stats.costSessionCount, stats.sessionCount)}
       </p>
     </>
   );
-}
-
-/** The period's numbers with their context — movement against the prior
- * equal-length period, the hungriest model, the heaviest day. Renders
- * nothing when the period offers no highlight worth reading. */
-function Highlights({
-  recap,
-  period,
-}: {
-  recap: UsageRecap;
-  period: UsageStatsPeriod;
-}) {
-  const parts: string[] = [];
-  if (recap.tokensDeltaPct !== null) {
-    const sign = recap.tokensDeltaPct >= 0 ? "+" : "";
-    parts.push(`${sign}${recap.tokensDeltaPct}% vs prior ${PERIOD_LABELS[period]}`);
-  }
-  if (recap.topModel) {
-    parts.push(
-      `top model ${recap.topModel.model} (${formatTokens(recap.topModel.totalTokens)})`,
-    );
-  }
-  if (recap.busiestDay) {
-    parts.push(
-      `busiest day ${formatUtcDay(recap.busiestDay.dayStart)} (${formatTokens(
-        recap.busiestDay.totalTokens,
-      )})`,
-    );
-  }
-  if (parts.length === 0) return null;
-  return <p className="stats__recap">{parts.join(" · ")}</p>;
 }
 
 /** The pending-chunk stand-in builds the SAME box as the mounted chart —

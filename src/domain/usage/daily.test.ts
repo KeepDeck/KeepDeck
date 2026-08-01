@@ -23,16 +23,42 @@ describe("usageTimeline", () => {
     );
 
     expect(timeline.bucketMs).toBe(DAY);
-    // 7d cutoff lands on Jul 15 12:00 → its UTC day opens the axis.
-    expect(timeline.buckets).toHaveLength(8);
-    expect(timeline.buckets[0].start).toBe(TODAY - 7 * DAY);
+    // 7d cutoff lands on Jul 15 12:00 → Jul 15 is only HALF in view, so the
+    // axis opens at Jul 16, the first fully covered day: a bar labeled with
+    // a day must cover that whole day.
+    expect(timeline.buckets).toHaveLength(7);
+    expect(timeline.buckets[0].start).toBe(TODAY - 6 * DAY);
     expect(timeline.buckets[timeline.buckets.length - 1]).toEqual({
       start: TODAY,
       byAgent: { codex: 100, claude: 40 },
     });
-    expect(timeline.buckets[5].byAgent).toEqual({ codex: 300 });
+    expect(timeline.buckets[4].byAgent).toEqual({ codex: 300 });
     expect(timeline.buckets[1].byAgent).toEqual({}); // silent day stays visible
     expect(timeline.agents).toEqual(["claude", "codex"]); // fixed alphabetical order
+  });
+
+  it("drops the partial leading bucket but keeps a boundary-aligned one", () => {
+    // An in-window event on the half-covered Jul 15 afternoon must not
+    // produce a "Jul 15" bar that silently understates that day.
+    const sliver = usageTimeline(
+      [
+        event({ occurredAt: NOW - 7 * DAY + 1_000, tokens: { input: 9_999 } }),
+        event({ occurredAt: NOW - 1_000, tokens: { input: 100 } }),
+      ],
+      7,
+      NOW,
+    );
+    expect(sliver.buckets[0].start).toBe(TODAY - 6 * DAY);
+    expect(
+      sliver.buckets.every((bucket) => bucket.byAgent.codex !== 9_999),
+    ).toBe(true);
+    // A cutoff sitting exactly on a bucket boundary loses nothing.
+    const aligned = usageTimeline(
+      [event({ occurredAt: NOW - 1_000, tokens: { input: 100 } })],
+      1,
+      NOW,
+    );
+    expect(aligned.buckets[0].start).toBe(NOW - 24 * HOUR);
   });
 
   it("buckets the 24h period by hour — day bars there read as a broken chart", () => {
@@ -45,7 +71,8 @@ describe("usageTimeline", () => {
       NOW,
     );
     expect(timeline.bucketMs).toBe(HOUR);
-    // NOW sits exactly on 12:00 → hourly buckets 12:00 yesterday … 12:00 today.
+    // NOW sits exactly on 12:00, so the cutoff is bucket-aligned and its
+    // bucket is fully covered: 12:00 yesterday … 12:00 today inclusive.
     expect(timeline.buckets).toHaveLength(25);
     const at = (hoursAgo: number) =>
       timeline.buckets.find((bucket) => bucket.start === NOW - hoursAgo * HOUR)!;

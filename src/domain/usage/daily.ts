@@ -26,8 +26,9 @@ export interface UsageTimeline {
   /** Continuous buckets covering the period (or, for "all", from the first
    * recorded bucket) through now. */
   buckets: TimelineBucket[];
-  /** Every agent present in the span, alphabetical — a FIXED entity order
-   * for stable series colors, never ranked by volume. */
+  /** Every agent present in the EMITTED buckets, alphabetical — a FIXED
+   * entity order, never ranked by volume. (Colors key on the full-ledger
+   * roster from [`usageAgents`], not on this period-scoped list.) */
   agents: string[];
 }
 
@@ -49,25 +50,32 @@ export function usageTimeline(
   const bucketMs = granularity === "hour" ? HOUR_MS : DAY_MS;
   const cutoff = periodCutoff(period, now);
   const totals = new Map<number, Record<string, number>>();
-  const agents = new Set<string>();
   let first = Infinity;
   for (const event of events) {
     if (event.occurredAt < cutoff || event.occurredAt > now) continue;
     const start = Math.floor(event.occurredAt / bucketMs) * bucketMs;
     first = Math.min(first, start);
-    agents.add(event.agent);
     const bucket = totals.get(start) ?? {};
     bucket[event.agent] = (bucket[event.agent] ?? 0) + tokenTotal(event.tokens);
     totals.set(start, bucket);
   }
   if (totals.size === 0) return { granularity, bucketMs, buckets: [], agents: [] };
 
+  // The axis opens at the first bucket ENTIRELY inside the window: a bar
+  // labeled "Jul 15" must cover all of Jul 15, not the slice a rolling
+  // cutoff happens to leave — a partial leading bar reads as "that day was
+  // quiet" when the day simply is not fully in view. Events in the leading
+  // sliver still count toward the cards; the trailing bucket is honest as
+  // today-so-far. A cutoff already on a bucket boundary keeps its bucket.
   const start =
-    period === "all" ? first : Math.floor(cutoff / bucketMs) * bucketMs;
+    period === "all" ? first : Math.ceil(cutoff / bucketMs) * bucketMs;
   const end = Math.floor(now / bucketMs) * bucketMs;
   const buckets: TimelineBucket[] = [];
+  const visible = new Set<string>();
   for (let at = start; at <= end; at += bucketMs) {
-    buckets.push({ start: at, byAgent: totals.get(at) ?? {} });
+    const byAgent = totals.get(at) ?? {};
+    for (const agent of Object.keys(byAgent)) visible.add(agent);
+    buckets.push({ start: at, byAgent });
   }
-  return { granularity, bucketMs, buckets, agents: [...agents].sort() };
+  return { granularity, bucketMs, buckets, agents: [...visible].sort() };
 }

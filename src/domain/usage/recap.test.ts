@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { queryUsageStats } from "./history/query";
-import { usageRecap } from "./recap";
+import { recapCaption, usageRecap } from "./recap";
 
 /** The production call shape: recap describes an already-aggregated period. */
 const recapOf = (
@@ -89,11 +89,60 @@ describe("usageRecap", () => {
     });
   });
 
+  it("never crowns the partial leading day, even when it leads in-window", () => {
+    // Jul 15 is half-covered by the 7d window; its in-window slice out-earns
+    // every full day but must not wear the crown with a sliced total.
+    const recap = recapOf(
+      [
+        event({ occurredAt: NOW - 7 * DAY + 1_000, tokens: { input: 9_999 } }),
+        event({ occurredAt: NOW - 2 * DAY, tokens: { input: 400 } }),
+      ],
+      7,
+      NOW,
+    );
+    expect(recap.busiestDay).toEqual({
+      dayStart: Date.parse("2026-07-20T00:00:00.000Z"),
+      totalTokens: 400,
+    });
+  });
+
   it("is all-null on an empty period", () => {
     expect(recapOf([], 7, NOW)).toEqual({
       tokensDeltaPct: null,
       topModel: null,
       busiestDay: null,
     });
+  });
+});
+
+describe("recapCaption", () => {
+  it("phrases the sentence in the domain: order, separator, sign", () => {
+    expect(
+      recapCaption(
+        {
+          tokensDeltaPct: 12,
+          topModel: { agent: "codex", model: "gpt-5.6-terra", totalTokens: 1_500_000 },
+          busiestDay: {
+            dayStart: Date.parse("2026-07-20T00:00:00.000Z"),
+            totalTokens: 900_000,
+          },
+        },
+        7,
+      ),
+    ).toBe(
+      "+12% vs prior 7d · top model gpt-5.6-terra (1.5M) · busiest day Jul 20 (900k)",
+    );
+    expect(
+      recapCaption(
+        { tokensDeltaPct: -8, topModel: null, busiestDay: null },
+        30,
+      ),
+    ).toBe("-8% vs prior 30d");
+  });
+
+  it("goes silent when the period offers no highlight", () => {
+    expect(
+      recapCaption({ tokensDeltaPct: null, topModel: null, busiestDay: null }, 7),
+    ).toBe("");
   });
 });
