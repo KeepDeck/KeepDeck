@@ -16,7 +16,7 @@ import {
 } from "./downloadManager";
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
-import { METHOD_NOT_FOUND, errorReply } from "../domain/mcp/jsonrpc";
+import { createMcpLineHandler } from "./mcpProjection";
 import { createMcpRequestPump } from "./mcpRequestPump";
 import { createMcpServerPolicy } from "./mcpServerPolicy";
 import { createMinimizePolicy } from "./minimizePolicy";
@@ -65,11 +65,7 @@ export function createAppRuntime(
     mcpServer: () => getSettings()?.mcpServer ?? null,
     subscribe: subscribeSettings,
   });
-  // Until the registry projection lands, socket clients get an immediate,
-  // honest refusal instead of the bridge's 30s webview timeout.
-  const mcpRequestPump = createMcpRequestPump((line) =>
-    errorReply(line, METHOD_NOT_FOUND, "KeepDeck's MCP projection is not wired yet"),
-  );
+  const mcpRequestPump = createMcpRequestPump(createMcpLineHandler());
   const journalPersistence = createJournalPersistence(
     deckStore,
     deckPersistence,

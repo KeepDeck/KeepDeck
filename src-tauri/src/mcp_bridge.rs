@@ -92,11 +92,36 @@ pub fn error_reply(request_line: &str, code: i64, message: &str) -> String {
     .to_string()
 }
 
+/// A JSON-RPC notification: parses to an object that carries no `id`. Only
+/// these forgo a reply — garbage stays a (failed) request, because its
+/// sender clearly wanted an answer and silence would cost it the transport
+/// timeout. The webview projection derives the same split from the same
+/// line, so neither side needs to trust the other's classification.
+fn is_notification(line: &str) -> bool {
+    match serde_json::from_str::<serde_json::Value>(line) {
+        Ok(serde_json::Value::Object(map)) => !map.contains_key("id"),
+        _ => false,
+    }
+}
+
 /// The [`LineHandler`] `mcp_enable` wires: one socket line in, one webview
-/// event out, one parked wait for the answer.
+/// event out, and — for requests — one parked wait for the answer.
+/// Notifications cross fire-and-forget under the reserved id 0: nothing is
+/// parked, so a reply the pump might send anyway lands in `resolve`'s
+/// unknown-id drop.
 pub fn webview_handler(app: AppHandle) -> LineHandler {
     Arc::new(move |line: &str| {
         let bridge = app.state::<McpBridge>();
+        if is_notification(line) {
+            let request = McpRequest {
+                id: 0,
+                line: line.to_string(),
+            };
+            if let Err(e) = app.emit(MCP_REQUEST_EVENT, &request) {
+                log::warn!("mcp: emitting notification failed: {e}");
+            }
+            return None;
+        }
         let (id, reply) = bridge.begin();
         let request = McpRequest {
             id,
@@ -105,17 +130,21 @@ pub fn webview_handler(app: AppHandle) -> LineHandler {
         if let Err(e) = app.emit(MCP_REQUEST_EVENT, &request) {
             bridge.abandon(id);
             log::warn!("mcp: emitting request {id} failed: {e}");
-            return error_reply(line, -32603, "the deck could not receive the request");
+            return Some(error_reply(
+                line,
+                -32603,
+                "the deck could not receive the request",
+            ));
         }
         match reply.recv_timeout(REPLY_TIMEOUT) {
-            Ok(reply) => reply,
+            Ok(reply) => Some(reply),
             Err(_) => {
                 bridge.abandon(id);
-                error_reply(
+                Some(error_reply(
                     line,
                     -32603,
                     "the deck did not answer (webview closed or busy)",
-                )
+                ))
             }
         }
     })
@@ -180,5 +209,16 @@ mod tests {
         let reply = error_reply("not json at all", -32700, "parse");
         let parsed: serde_json::Value = serde_json::from_str(&reply).unwrap();
         assert!(parsed["id"].is_null());
+    }
+
+    #[test]
+    fn only_id_less_objects_are_notifications() {
+        assert!(is_notification(r#"{"method":"notifications/initialized"}"#));
+        assert!(!is_notification(r#"{"id":1,"method":"tools/list"}"#));
+        // Garbage and non-objects stay requests: their senders expect SOME
+        // answer, and the projection replies with a parse/invalid error.
+        assert!(!is_notification("garbage"));
+        assert!(!is_notification("[1,2]"));
+        assert!(!is_notification("42"));
     }
 }

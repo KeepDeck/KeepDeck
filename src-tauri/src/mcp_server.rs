@@ -25,9 +25,11 @@ use std::thread::JoinHandle;
 
 use tauri::State;
 
-/// Answers one request line with one reply line. Shared by every connection
-/// thread, so it must be `Send + Sync` and safe to call concurrently.
-pub type LineHandler = Arc<dyn Fn(&str) -> String + Send + Sync>;
+/// Answers one request line with AT MOST one reply line — `None` for
+/// JSON-RPC notifications, which must never be answered. Shared by every
+/// connection thread, so it must be `Send + Sync` and safe to call
+/// concurrently.
+pub type LineHandler = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// Managed state: the socket server, present while the toggle is on.
 #[derive(Default)]
@@ -149,9 +151,10 @@ fn spawn_connection(
                 if line.trim().is_empty() {
                     continue;
                 }
-                let reply = handler(&line);
-                if writeln!(writer, "{reply}").is_err() {
-                    break;
+                if let Some(reply) = handler(&line) {
+                    if writeln!(writer, "{reply}").is_err() {
+                        break;
+                    }
                 }
             }
             conns.lock().expect("mcp conns poisoned").remove(&id);
@@ -207,7 +210,7 @@ mod tests {
     use std::sync::atomic::AtomicU64;
 
     fn upper() -> LineHandler {
-        Arc::new(|line: &str| line.to_uppercase())
+        Arc::new(|line: &str| Some(line.to_uppercase()))
     }
 
     /// A fresh socket path in a per-test temp dir (unix socket paths have a
@@ -243,6 +246,25 @@ mod tests {
             .mode();
         assert_eq!(mode & 0o777, 0o600);
         assert_eq!(roundtrip(&path, "hello"), "HELLO");
+        stop(running);
+    }
+
+    #[test]
+    fn a_none_reply_writes_nothing_and_keeps_the_connection() {
+        let path = temp_sock();
+        // Notification-style lines (here: a '!' prefix) produce no reply;
+        // the NEXT request's reply must be the first thing the client reads.
+        let handler: LineHandler = Arc::new(|line: &str| {
+            (!line.starts_with('!')).then(|| line.to_uppercase())
+        });
+        let running = start_at(&path, handler).expect("start");
+        let mut stream = UnixStream::connect(&path).expect("connect");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+        writeln!(stream, "!notify").expect("write");
+        writeln!(stream, "request").expect("write");
+        let mut reply = String::new();
+        reader.read_line(&mut reply).expect("read");
+        assert_eq!(reply.trim_end(), "REQUEST");
         stop(running);
     }
 

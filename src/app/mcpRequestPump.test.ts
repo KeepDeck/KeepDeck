@@ -59,6 +59,15 @@ describe("createMcpRequestPump", () => {
     expect(parsed.error.message).toContain("projection exploded");
   });
 
+  it("a null reply (notification) sends nothing back", async () => {
+    const p = ports();
+    createMcpRequestPump(() => null, p.pump);
+    await flush();
+    p.request(3, '{"method":"notifications/initialized"}');
+    await flush();
+    expect(p.respond).not.toHaveBeenCalled();
+  });
+
   it("a failed delivery is logged, not thrown", async () => {
     const p = ports();
     p.respond.mockRejectedValueOnce(new Error("bridge gone"));

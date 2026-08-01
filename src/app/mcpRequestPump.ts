@@ -2,8 +2,12 @@ import { INTERNAL_ERROR, errorReply } from "../domain/mcp/jsonrpc";
 import { describeError, log } from "../ipc/log";
 import { onMcpRequest, respondMcp, type McpRequest } from "../ipc/mcpBridge";
 
-/** Answers one request line with one reply line — the projection layer. */
-export type McpLineHandler = (line: string) => Promise<string> | string;
+/** Answers one request line with at most one reply line — the projection
+ * layer. `null` means "no reply": notifications must never be answered, and
+ * the Rust side parked nothing for them. */
+export type McpLineHandler = (
+  line: string,
+) => Promise<string | null> | string | null;
 
 /** The transport legs the pump sits between — injectable for tests. */
 export interface McpPumpPorts {
@@ -34,12 +38,13 @@ export function createMcpRequestPump(
     .subscribe(({ id, line }) => {
       if (disposed) return;
       void (async () => {
-        let reply: string;
+        let reply: string | null;
         try {
           reply = await handleLine(line);
         } catch (e) {
           reply = errorReply(line, INTERNAL_ERROR, describeError(e));
         }
+        if (reply === null) return;
         try {
           await ports.respond(id, reply);
         } catch (e) {
