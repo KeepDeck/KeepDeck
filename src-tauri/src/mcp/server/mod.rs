@@ -13,24 +13,35 @@
 //! is answered by the injected [`LineHandler`], so this module knows nothing
 //! about MCP itself: the webview bridge owns semantics, and the lifecycle
 //! stays testable with a plain echo handler.
+//!
+//! Two halves live next door: [`claim`] decides whether this process may
+//! serve at the path at all, and [`accept`] runs the loop and the
+//! per-connection threads once it may.
+
+mod accept;
+mod claim;
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
-use std::os::unix::io::AsRawFd;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+
+use claim::{claim, prepare_socket_dir, LOCK_FILE};
 
 /// Answers one request line with AT MOST one reply line — `None` for
 /// JSON-RPC notifications, which must never be answered. Shared by every
 /// connection thread, so it must be `Send + Sync` and safe to call
 /// concurrently.
 pub(crate) type LineHandler = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+/// Teardown handles: one clone per live connection, so Off can actively
+/// disconnect clients instead of leaving them on a dead pipe. A connection
+/// removes its own entry when it ends.
+pub(super) type Conns = Arc<Mutex<HashMap<u64, UnixStream>>>;
 
 /// Managed state: the socket server, present while the toggle is on.
 #[derive(Default)]
@@ -58,9 +69,7 @@ struct Running {
     /// state would otherwise keep claiming On while nothing accepts —
     /// enable() checks this and restarts instead of reporting the corpse.
     dead: Arc<AtomicBool>,
-    /// Teardown handles: a clone per live connection, so Off can actively
-    /// disconnect clients instead of leaving them on a dead pipe.
-    conns: Arc<Mutex<HashMap<u64, UnixStream>>>,
+    conns: Conns,
 }
 
 impl McpServer {
@@ -97,90 +106,6 @@ impl McpServer {
         let mut inner = self.inner.lock().expect("mcp server poisoned");
         if let Some(running) = inner.take() {
             stop(running);
-        }
-    }
-}
-
-/// The lock file that makes ownership of the socket name exclusive.
-const LOCK_FILE: &str = "lock";
-
-/// How long the accept loop waits out a transient accept failure (fd
-/// exhaustion), and how many consecutive failures it tolerates before
-/// declaring the socket dead instead of retrying at 10Hz forever.
-const ACCEPT_FAILURE_BACKOFF: Duration = Duration::from_millis(100);
-const ACCEPT_FAILURE_LIMIT: u32 = 10;
-
-/// Ready the socket's directory and return it. The directory IS the
-/// transport's permission model (see paths::mcp_socket), so it is created
-/// 0700 — never created loose and tightened after, which would leave a
-/// window where another user can open a directory handle that survives the
-/// chmod. A pre-existing directory is validated and retightened; a symlink
-/// or a plain file in its place is refused rather than followed, so the
-/// mode this code enforces is always the mode of the directory it serves
-/// from.
-fn prepare_socket_dir(path: &Path) -> Result<PathBuf, String> {
-    let dir = path
-        .parent()
-        .ok_or_else(|| "the MCP socket path has no directory".to_string())?;
-    if let Some(home) = dir.parent() {
-        std::fs::create_dir_all(home).map_err(|e| e.to_string())?;
-    }
-    match std::fs::DirBuilder::new().mode(0o700).create(dir) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let meta = std::fs::symlink_metadata(dir).map_err(|e| e.to_string())?;
-            if meta.file_type().is_symlink() {
-                return Err(format!(
-                    "{} is a symlink — refusing to serve the MCP socket through it",
-                    dir.display()
-                ));
-            }
-            if !meta.is_dir() {
-                return Err(format!("{} is not a directory", dir.display()));
-            }
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
-                .map_err(|e| e.to_string())?;
-        }
-        Err(e) => return Err(e.to_string()),
-    }
-    Ok(dir.to_path_buf())
-}
-
-/// How long a claim waits out a lock held only in passing, and how often it
-/// re-checks. A released claim is NOT free instantly: every process this app
-/// spawns (a PTY agent, a git child) inherits open descriptors across fork
-/// and keeps our lock alive until it execs, so a claim taken right after a
-/// release can still see the old one — measured at ~3ms under load, which
-/// is exactly the Off→On gap a user produces by flipping the toggle twice.
-/// Waiting costs a genuine refusal a fraction of a second; not waiting costs
-/// a legitimate re-enable a false "another instance owns this".
-const CLAIM_TIMEOUT: Duration = Duration::from_millis(250);
-const CLAIM_RETRY: Duration = Duration::from_millis(5);
-
-/// Take the exclusive claim on the socket name. Contention and failure are
-/// DIFFERENT answers: a name another instance holds is a refusal the user
-/// can act on, while a failed lock call is a fault that must say what it
-/// was — collapsing the two hid an interrupted call behind a wrong
-/// diagnosis. `flock(2)` is interruptible, so a signal is retried too.
-fn claim(lock: &File, path: &Path) -> Result<(), String> {
-    let deadline = std::time::Instant::now() + CLAIM_TIMEOUT;
-    loop {
-        match lock.try_lock() {
-            Ok(()) => return Ok(()),
-            Err(std::fs::TryLockError::WouldBlock) => {
-                if std::time::Instant::now() >= deadline {
-                    return Err(format!(
-                        "{} is already served by another KeepDeck instance",
-                        path.display()
-                    ));
-                }
-                std::thread::sleep(CLAIM_RETRY);
-            }
-            Err(std::fs::TryLockError::Error(e))
-                if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(std::fs::TryLockError::Error(e)) => {
-                return Err(format!("claiming {} failed: {e}", path.display()))
-            }
         }
     }
 }
@@ -224,87 +149,13 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
     // The teardown wake channel (see `Running::wake`).
     let (wake_rx, wake_tx) = UnixStream::pair().map_err(|e| e.to_string())?;
     let dead = Arc::new(AtomicBool::new(false));
-    let conns: Arc<Mutex<HashMap<u64, UnixStream>>> = Arc::default();
+    let conns = Conns::default();
     let accept = {
         let conns = conns.clone();
         let dead = dead.clone();
         std::thread::Builder::new()
             .name("keepdeck mcp accept".into())
-            .spawn(move || {
-                let mut next_id = 0u64;
-                let mut failures = 0u32;
-                loop {
-                    match poll_verdict(&listener, &wake_rx) {
-                        PollVerdict::Teardown => break,
-                        PollVerdict::Broken => {
-                            // Visible death, not a silent one: the flag makes
-                            // the next enable restart instead of reporting a
-                            // corpse as running.
-                            dead.store(true, Ordering::SeqCst);
-                            break;
-                        }
-                        PollVerdict::Accept => {}
-                    }
-                    let stream = match listener.accept() {
-                        Ok((stream, _)) => stream,
-                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
-                        Err(e) => {
-                            // fd exhaustion and kin: the pending connection
-                            // stays queued, so poll re-fires immediately —
-                            // back off instead of spinning a core. A fault
-                            // that never clears must not back off FOREVER,
-                            // logging every 100ms into a capped log budget:
-                            // give up, and let the flag report the death.
-                            failures += 1;
-                            if failures >= ACCEPT_FAILURE_LIMIT {
-                                log::error!(
-                                    "mcp: accept failed {failures} times, socket dead \
-                                     until re-enable: {e}"
-                                );
-                                dead.store(true, Ordering::SeqCst);
-                                break;
-                            }
-                            log::warn!("mcp: accept failed: {e}");
-                            std::thread::sleep(ACCEPT_FAILURE_BACKOFF);
-                            continue;
-                        }
-                    };
-                    failures = 0;
-                    // Connection I/O is blocking (BufReader::lines) — undo
-                    // the listener's inherited non-blocking mode.
-                    if stream.set_nonblocking(false).is_err() {
-                        continue;
-                    }
-                    next_id += 1;
-                    // No teardown handle, no service: a connection Off could
-                    // not disconnect would outlive the toggle and keep
-                    // driving the deck — the one promise this module makes.
-                    match stream.try_clone() {
-                        Ok(clone) => {
-                            conns
-                                .lock()
-                                .expect("mcp conns poisoned")
-                                .insert(next_id, clone);
-                            if let Err(e) =
-                                spawn_connection(next_id, stream, handler.clone(), conns.clone())
-                            {
-                                // No thread, no service — and the teardown
-                                // clone must not keep the doomed connection
-                                // open past this refusal.
-                                log::warn!("mcp: dropping connection, no thread: {e}");
-                                if let Some(conn) =
-                                    conns.lock().expect("mcp conns poisoned").remove(&next_id)
-                                {
-                                    let _ = conn.shutdown(std::net::Shutdown::Both);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("mcp: dropping connection, no teardown handle: {e}");
-                        }
-                    }
-                }
-            })
+            .spawn(move || accept::serve(listener, wake_rx, handler, conns, dead))
             .map_err(|e| e.to_string())?
     };
 
@@ -317,85 +168,6 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
         dead,
         conns,
     })
-}
-
-enum PollVerdict {
-    /// The listener has a pending connection.
-    Accept,
-    /// The wake channel's far end was dropped — orderly teardown.
-    Teardown,
-    /// poll(2) itself failed (not EINTR) — the loop cannot serve on.
-    Broken,
-}
-
-/// Park until the listener is readable or teardown wakes us. poll(2) rather
-/// than a bare blocking accept: the only reliable way OUT of a parked
-/// accept is a connection, and teardown cannot make one once the socket
-/// file is gone.
-fn poll_verdict(listener: &UnixListener, wake: &UnixStream) -> PollVerdict {
-    let mut fds = [
-        libc::pollfd {
-            fd: listener.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        },
-        libc::pollfd {
-            fd: wake.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        },
-    ];
-    loop {
-        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, -1) };
-        if ready < 0 {
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            log::warn!("mcp: poll failed, socket dead until re-enable: {error}");
-            return PollVerdict::Broken;
-        }
-        // Teardown wins over a pending connection: Off means Off.
-        if fds[1].revents != 0 {
-            return PollVerdict::Teardown;
-        }
-        if fds[0].revents != 0 {
-            return PollVerdict::Accept;
-        }
-    }
-}
-
-/// One thread per connection: read a line, answer at most a line. Ends on
-/// client EOF, on a write failure, or when `stop` shuts the stream down —
-/// and then removes its own teardown handle. The spawn error propagates:
-/// the caller must un-register the connection it pre-registered.
-fn spawn_connection(
-    id: u64,
-    stream: UnixStream,
-    handler: LineHandler,
-    conns: Arc<Mutex<HashMap<u64, UnixStream>>>,
-) -> std::io::Result<()> {
-    std::thread::Builder::new()
-        .name("keepdeck mcp conn".into())
-        .spawn(move || {
-            let Ok(mut writer) = stream.try_clone() else {
-                conns.lock().expect("mcp conns poisoned").remove(&id);
-                return;
-            };
-            for line in BufReader::new(stream).lines() {
-                let Ok(line) = line else { break };
-                if line.trim().is_empty() {
-                    continue;
-                }
-                if let Some(reply) = handler(&line) {
-                    if writeln!(writer, "{reply}").is_err() {
-                        break;
-                    }
-                }
-            }
-            conns.lock().expect("mcp conns poisoned").remove(&id);
-        })
-        .map(|_| ())
 }
 
 fn stop(mut running: Running) {
@@ -427,14 +199,9 @@ fn stop(mut running: Running) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(super) mod test_support {
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::Duration;
-
-    fn upper() -> LineHandler {
-        Arc::new(|line: &str| Some(line.to_uppercase()))
-    }
 
     /// A scratch directory THIS call created — the create is the claim, so
     /// a leftover from an earlier run (pids are recycled, and nothing here
@@ -455,15 +222,27 @@ mod tests {
     }
 
     /// A socket directory that does NOT exist yet, inside a fresh root.
-    fn temp_base() -> PathBuf {
+    pub(super) fn temp_base() -> PathBuf {
         temp_root().join("mcp")
     }
 
     /// A fresh socket path whose directory already exists.
-    fn temp_sock() -> PathBuf {
+    pub(super) fn temp_sock() -> PathBuf {
         let dir = temp_base();
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir.join("mcp.sock")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_support::temp_sock;
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::time::Duration;
+
+    fn upper() -> LineHandler {
+        Arc::new(|line: &str| Some(line.to_uppercase()))
     }
 
     /// Connect, send one line, read one reply line.
@@ -494,64 +273,6 @@ mod tests {
         assert_eq!(dir_mode & 0o777, 0o700);
         assert_eq!(roundtrip(&path, "hello"), "HELLO");
         stop(running);
-    }
-
-    #[test]
-    fn a_loosened_leftover_directory_is_retightened() {
-        let path = temp_sock();
-        let parent = path.parent().expect("parent").to_path_buf();
-        std::fs::create_dir_all(&parent).expect("pre-create");
-        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755))
-            .expect("loosen");
-        let running = start_at(&path, upper()).expect("start");
-        let mode = std::fs::metadata(&parent).expect("meta").permissions().mode();
-        assert_eq!(mode & 0o777, 0o700);
-        stop(running);
-    }
-
-    #[test]
-    fn a_none_reply_writes_nothing_and_keeps_the_connection() {
-        let path = temp_sock();
-        // Notification-style lines (here: a '!' prefix) produce no reply;
-        // the NEXT request's reply must be the first thing the client reads.
-        let handler: LineHandler = Arc::new(|line: &str| {
-            (!line.starts_with('!')).then(|| line.to_uppercase())
-        });
-        let running = start_at(&path, handler).expect("start");
-        let mut stream = UnixStream::connect(&path).expect("connect");
-        let mut reader = BufReader::new(stream.try_clone().expect("clone"));
-        writeln!(stream, "!notify").expect("write");
-        writeln!(stream, "request").expect("write");
-        let mut reply = String::new();
-        reader.read_line(&mut reply).expect("read");
-        assert_eq!(reply.trim_end(), "REQUEST");
-        stop(running);
-    }
-
-    #[test]
-    fn a_directory_this_start_creates_is_born_owner_only() {
-        // Not "created loose, tightened after": a window there would let
-        // another user open a dirfd that survives the chmod.
-        let path = temp_base().join("mcp.sock");
-        let running = start_at(&path, upper()).expect("start");
-        let mode = std::fs::metadata(path.parent().unwrap())
-            .expect("meta")
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o700);
-        stop(running);
-    }
-
-    #[test]
-    fn a_symlinked_socket_directory_is_refused() {
-        // Following it would chmod — and serve from — whatever it points at.
-        let base = temp_base();
-        let real = base.join("real");
-        std::fs::create_dir_all(&real).expect("real dir");
-        let link = base.join("link");
-        std::os::unix::fs::symlink(&real, &link).expect("symlink");
-        let refused = start_at(&link.join("mcp.sock"), upper());
-        assert!(refused.is_err(), "a symlinked socket dir must be refused");
     }
 
     #[test]
@@ -589,11 +310,10 @@ mod tests {
 
     #[test]
     fn a_claim_held_only_in_passing_does_not_refuse_a_restart() {
-        // Releasing a claim does not free it instantly: a process that
-        // forked while we held it keeps it alive until it execs, and this
-        // app forks constantly (PTY agents, git). A user flipping the
-        // toggle Off then On lands in exactly that window and must not be
-        // told another instance owns the socket.
+        // The whole start path, not just `claim`: a user flipping the
+        // toggle Off then On lands in the window where a forked child still
+        // holds the released claim, and must not be told another instance
+        // owns the socket.
         let path = temp_sock();
         let holder = File::create(path.parent().unwrap().join(LOCK_FILE)).expect("lock file");
         holder.try_lock().expect("hold the claim");
@@ -694,5 +414,4 @@ mod tests {
         assert_eq!(roundtrip(&path, "back"), "BACK");
         server.disable();
     }
-
 }
