@@ -124,6 +124,16 @@ describe("RunLog", () => {
     xterm.instances.length = 0;
   });
 
+  it("opts the log back into selection — xterm's own selection lives inside it", async () => {
+    await mount("s1", "/wt/b");
+    // The document baseline makes chrome unselectable and reaches in here too;
+    // the host has to ask for the exception by name or the run output stops
+    // being copyable, with nothing else failing to say so.
+    expect(
+      host.querySelector(".run__log")!.classList.contains("kd-selectable"),
+    ).toBe(true);
+  });
+
   it("registers the shared linker on its terminal, resolving against the run's worktree", async () => {
     await mount("s1", "/wt/b");
 

@@ -912,6 +912,10 @@ describe("AgentPane — suspended / parked card", () => {
     const line = document.querySelector<HTMLElement>(".pane__idle-session")!;
     expect(line).not.toBeNull();
     expect(line.textContent).toBe(`Resume session: ${id}`);
+    // The id is here TO BE COPIED, and the document baseline makes chrome
+    // unselectable — so the line has to ask for the exception by name. Losing
+    // this token is invisible without it: nothing else would fail.
+    expect(line.classList.contains("kd-selectable")).toBe(true);
     // A uuid outgrows a narrow tile, so the line ellipsizes and carries the
     // whole id as its tooltip.
     expect(line.title).toBe(id);

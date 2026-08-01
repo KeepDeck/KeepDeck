@@ -63,7 +63,10 @@ export function ConfirmDialog({
     <ModalOverlay>
       <div className="confirm" role="dialog" aria-modal="true">
         <h2 className="confirm__title">{title}</h2>
-        <p className="confirm__message">{message}</p>
+        {/* Alerts route describeError() here (App.tsx's pushAlert), and this
+            dialog has no Copy button — so the body stays selectable, as it was
+            before the document baseline reached portaled surfaces. */}
+        <p className="confirm__message kd-selectable">{message}</p>
         {children}
         {/* A disabled action explains itself in TEXT, not in a `title`: the
             shipping runtimes suppress pointer events on disabled controls, so

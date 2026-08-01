@@ -61,9 +61,13 @@ describe("PluginFailurePanel", () => {
   it("names the plugin, the latest fallen surface, and shows the full log", () => {
     expect(document.body.textContent).toContain("Files isn't working");
     expect(document.body.textContent).toContain('tab "files"');
-    const log = document.querySelector(".plugin-failure__log")!.textContent!;
+    const pre = document.querySelector(".plugin-failure__log")!;
+    const log = pre.textContent!;
     expect(log).toContain('[overlay "viewer"] Error: render died');
     expect(log).toContain('[tab "files"] Error: again');
+    // Copy log is one way out; selecting part of it is the other, and the
+    // document baseline withholds that unless the log asks for it by name.
+    expect(pre.classList.contains("kd-selectable")).toBe(true);
   });
 
   it("Copy log puts the exact log text on the clipboard", () => {

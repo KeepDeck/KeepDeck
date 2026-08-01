@@ -75,7 +75,9 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
         Extremely experimental — recognition and commands are rough, and this
         may change or break between versions.
       </div>
-      {listError && <div className="voice-models__error">{listError}</div>}
+      {listError && (
+        <div className="voice-models__error kd-selectable">{listError}</div>
+      )}
       {models?.map((m) => {
         // Retired = the source is gone: an install keeps working (and shows
         // a Legacy badge), an absent one has nothing to offer — hide it.
@@ -177,7 +179,11 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                 />
               </span>
             )}
-            {error && <div className="voice-models__card-error">{error}</div>}
+            {error && (
+              <div className="voice-models__card-error kd-selectable">
+                {error}
+              </div>
+            )}
           </div>
         );
       })}

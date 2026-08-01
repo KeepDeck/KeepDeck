@@ -366,12 +366,13 @@
   white-space: nowrap;
 }
 
-/* "Resume session: <id>" on a stopped pane's card ellipsizes (a uuid outgrows
-   a narrow tile) and stays selectable so the id can be copied — it wears
-   .kd-selectable (base.css) for that, and needs nothing of its own here. */
-
 /* The id itself: monospace, so it can be read and compared character by
-   character against a session list. */
+   character against a session list. Its parent line ("Resume session: <id>")
+   has NO rule here on purpose: it takes its layout from .pane__card-path and
+   its selectability from .kd-selectable (base.css). The bare
+   `pane__idle-session` class it still carries is the line's name — the handle
+   three tests reach for, and the parent half of this class pair — so don't
+   read its absence from this file as dead markup and delete it. */
 .pane__idle-session-id {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;

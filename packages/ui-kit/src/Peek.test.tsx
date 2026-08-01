@@ -51,6 +51,16 @@ describe("Peek", () => {
     expect(host.querySelector(`.peek[${DROP_BLOCKER_ATTR}]`)).not.toBeNull();
   });
 
+  it("opts its content back into selection — a peek exists to be read and copied", () => {
+    render();
+    // Every consumer (a file preview, a diff) inherits this: the panel is the
+    // island, and its gutters opt back out with .kd-inert. Drop the token and
+    // peeked code silently stops being copyable, with nothing else failing.
+    expect(
+      host.querySelector(".peek__panel")!.classList.contains("kd-selectable"),
+    ).toBe(true);
+  });
+
   it("a new content identity puts the body back at the top, both axes", () => {
     render();
     scrollAway();

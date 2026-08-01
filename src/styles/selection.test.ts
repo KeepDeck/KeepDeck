@@ -18,28 +18,43 @@ const appCss = stripComments(
 );
 
 /**
- * Every stylesheet the app ships — the host sheet AND each plugin's, which
- * loads into the SAME document and so obeys the same baseline. Enumerated from
- * disk rather than listed, because a list is one more thing to forget: the
- * whole point of the ownership test below is that a NEW sheet is covered on the
- * day it is added, not on the day someone remembers to add it here.
+ * Every stylesheet this repo AUTHORS — host, plugins and shared packages alike.
+ * They all load into the same document, so they all live under the same
+ * baseline. Walked recursively from the source roots rather than listed or
+ * globbed one level deep: a list is one more thing to forget, and a plugin
+ * that outgrows a single styles.css and splits per component (its .tsx files
+ * already live under src/components/) would drop straight out of a shallow
+ * scan while looking covered.
+ *
+ * Vendor CSS is deliberately out of scope and cannot be brought in: xterm
+ * ships `.xterm { cursor: text; user-select: none }` and manages the
+ * terminal's selection itself (see src/domain/terminal/clipboard.ts). So the
+ * rule this file enforces is "nothing WE write states these properties outside
+ * base.css" — not "nothing in the bundle does".
  */
-function ownStylesheets(): { path: string; css: string }[] {
-  const paths = readdirSync(STYLES_DIR)
-    .filter((f) => f.endsWith(".css"))
-    .map((f) => join(STYLES_DIR, f));
-  for (const plugin of readdirSync(PLUGINS_DIR)) {
-    const dir = join(PLUGINS_DIR, plugin, "src");
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      continue; // a plugin without a src/ of its own
-    }
-    paths.push(
-      ...entries.filter((f) => f.endsWith(".css")).map((f) => join(dir, f)),
-    );
+const SOURCE_ROOTS = [STYLES_DIR, PLUGINS_DIR, "packages"];
+const SKIP_DIRS = new Set(["node_modules", "dist", "target", ".git"]);
+
+function collectCss(dir: string, out: string[]): void {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return; // a root that does not exist in this checkout
   }
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!SKIP_DIRS.has(entry.name)) collectCss(path, out);
+    } else if (entry.name.endsWith(".css")) {
+      out.push(path);
+    }
+  }
+}
+
+function ownStylesheets(): { path: string; css: string }[] {
+  const paths: string[] = [];
+  for (const root of SOURCE_ROOTS) collectCss(root, paths);
   return paths.map((path) => ({
     path,
     css: stripComments(readFileSync(path, "utf8")),

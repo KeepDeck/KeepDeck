@@ -79,7 +79,7 @@ export function UsageStats() {
       {!history.ready ? (
         <p className="stats__empty">Loading usage history…</p>
       ) : history.error && history.events.length === 0 ? (
-        <p className="stats__empty" role="alert">
+        <p className="stats__empty kd-selectable" role="alert">
           Usage history is unavailable: {history.error}
         </p>
       ) : stats.eventCount === 0 ? (
@@ -87,7 +87,7 @@ export function UsageStats() {
       ) : (
         <>
           {history.error && (
-            <p className="stats__warning">
+            <p className="stats__warning kd-selectable">
               Some history could not be loaded: {history.error}
             </p>
           )}
