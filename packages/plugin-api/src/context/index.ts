@@ -22,6 +22,7 @@ export type {
   SpawnSkillsInput,
   SpawnTarget,
 } from "./agents.ts";
+export { mapMcpServers } from "./agents.ts";
 export type {
   AccountUsage,
   AgentUsage,

@@ -13,6 +13,7 @@ import type {
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
+import { mcpArgs } from "./mcp";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
 
@@ -113,6 +114,7 @@ const plugin: KeepDeckPlugin = {
           output.args = [
             ...(await hookArgs(ctx.resources)),
             ...skillsArgs(input.skills),
+            ...mcpArgs(input.mcp),
             ...yoloArgs(input.yolo),
           ];
         },
@@ -120,6 +122,7 @@ const plugin: KeepDeckPlugin = {
           output.args = [
             ...(await hookArgs(ctx.resources)),
             ...skillsArgs(input.skills),
+            ...mcpArgs(input.mcp),
             ...yoloArgs(input.yolo),
             "--resume",
             input.sessionId,
@@ -161,6 +164,7 @@ const plugin: KeepDeckPlugin = {
           output.args = [
             ...(await hookArgs(ctx.resources)),
             ...skillsArgs(input.skills),
+            ...mcpArgs(input.mcp),
             ...yoloArgs(input.yolo),
             "--resume",
             input.sessionId,

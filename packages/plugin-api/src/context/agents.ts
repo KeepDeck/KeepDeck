@@ -184,6 +184,30 @@ export interface McpStdioServerSpec {
 
 export type McpServerSpec = McpStdioServerSpec;
 
+/**
+ * Render each injected server by transport, in order.
+ *
+ * The one place a CLI dialect fans out over transports: when a second arm
+ * (remote servers) lands, every renderer that has not been taught it stops
+ * compiling here instead of quietly emitting a config with the server
+ * missing.
+ */
+export function mapMcpServers<T>(
+  servers: readonly McpServerSpec[],
+  visit: { stdio(server: McpStdioServerSpec): T },
+): T[] {
+  return servers.map((server) => {
+    switch (server.transport) {
+      case "stdio":
+        return visit.stdio(server);
+      default: {
+        const unsupported: never = server.transport;
+        throw new Error(`unsupported MCP transport: ${String(unsupported)}`);
+      }
+    }
+  });
+}
+
 export interface ResumePlanInput extends SpawnPlanInput {
   /** The recorded session to resume. */
   sessionId: string;

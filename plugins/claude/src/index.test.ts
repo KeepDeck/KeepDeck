@@ -91,6 +91,34 @@ describe("claude plugin hooks", () => {
     expect(settings.statusLine.command).toContain("kd-usage-statusline.sh");
   });
 
+  it("injected MCP servers ride --mcp-config on spawn AND resume", async () => {
+    const agent = activate(SESSION_HOOK);
+    const mcp = {
+      servers: [
+        {
+          name: "keepdeck",
+          transport: "stdio" as const,
+          command: "/bin/keepdeck",
+          args: ["--mcp-shim", "/home/mcp.sock"],
+        },
+      ],
+    };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, mcp }, spawn);
+    expect(spawn.args).toContain("--mcp-config");
+
+    // A resumed pane is the same session to the user, so it gets the same
+    // servers — the resume hook must not be the one that forgets.
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...input, mcp, sessionId: "s" }, resume);
+    expect(resume.args).toContain("--mcp-config");
+
+    const bare = output();
+    await agent.hooks["spawn.plan"]!(input, bare);
+    expect(bare.args).not.toContain("--mcp-config");
+  });
+
   it("staged skills load as a local plugin via --plugin-dir", async () => {
     const agent = activate(SESSION_HOOK);
     const skills = {

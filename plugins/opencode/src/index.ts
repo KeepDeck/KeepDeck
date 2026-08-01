@@ -12,20 +12,30 @@ import type {
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
+import { mcpConfigFragment } from "./mcp";
 import { opencodeHistory } from "./history";
 import { relocatingForkId } from "./fork";
 import { normalizeOpencodeUsage } from "./usage";
 
 /** The per-invocation config injecting the reporter; `[]` when the reporter
  * file is missing (identity off, the spawn itself still fine). */
-async function reporterEnv(
+async function sessionConfigEnv(
   resources: PluginResources,
+  mcp: SpawnPlanInput["mcp"],
 ): Promise<[string, string][]> {
   const reporter = await resources.path("session-reporter.js");
-  if (!reporter) return [];
-  // The array form is additive (plugin origins concatenate) — nothing in
-  // the user's own config is replaced.
-  return [["OPENCODE_CONFIG_CONTENT", JSON.stringify({ plugin: [reporter] })]];
+  const servers = mcpConfigFragment(mcp);
+  // ONE variable carries both: opencode reads `OPENCODE_CONFIG_CONTENT`
+  // once, so a second assignment would silently drop the first.
+  const config = {
+    // The array form is additive (plugin origins concatenate) — nothing in
+    // the user's own config is replaced.
+    ...(reporter ? { plugin: [reporter] } : {}),
+    ...(servers ?? {}),
+  };
+  return Object.keys(config).length > 0
+    ? [["OPENCODE_CONFIG_CONTENT", JSON.stringify(config)]]
+    : [];
 }
 
 /** opencode's YOLO switch: auto-allows every ask prompt while explicit deny
@@ -79,7 +89,7 @@ const plugin: KeepDeckPlugin = {
       },
       hooks: {
         "spawn.plan": async (input, output) => {
-          output.env.push(...(await reporterEnv(ctx.resources)));
+          output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
           const remote = remoteAttachArgs(input.target, input.yolo);
           if (remote) {
@@ -89,7 +99,7 @@ const plugin: KeepDeckPlugin = {
           output.args = yoloArgs(input.yolo);
         },
         "resume.plan": async (input, output) => {
-          output.env.push(...(await reporterEnv(ctx.resources)));
+          output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
           const remote = remoteAttachArgs(input.target, input.yolo);
           if (remote) {
@@ -107,7 +117,7 @@ const plugin: KeepDeckPlugin = {
         // Remote short-circuits all of this: attach to the server, where the
         // fork runs server-side.
         "fork.plan": async (input, output) => {
-          output.env.push(...(await reporterEnv(ctx.resources)));
+          output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
           const remote = remoteAttachArgs(input.target, input.yolo);
           if (remote) {
