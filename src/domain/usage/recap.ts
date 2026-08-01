@@ -25,12 +25,16 @@ export interface UsageRecap {
   busiestDay: { dayStart: number; totalTokens: number } | null;
 }
 
+/** `current` is the caller's already-aggregated period stats — the recap
+ * DESCRIBES the numbers rendered beside it, so re-aggregating here (at a
+ * potentially different clock) would let "+12%" talk about a total the
+ * user is not looking at, and would triple the full-ledger scans. */
 export function usageRecap(
   events: readonly UsageEventV2[],
   period: UsageStatsPeriod,
   now: number,
+  current: UsageStats,
 ): UsageRecap {
-  const current = queryUsageStats(events, period, now);
   return {
     tokensDeltaPct: tokensDeltaPct(events, period, now, current),
     topModel: topModel(current),

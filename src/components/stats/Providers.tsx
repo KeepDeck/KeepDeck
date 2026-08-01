@@ -101,6 +101,8 @@ function ledgerCaption(ledger: ProviderWindowLedger): string {
   const sessions = `${ledger.sessionCount} session${
     ledger.sessionCount === 1 ? "" : "s"
   }`;
-  const cost = displayProviderCost(ledger.providerCostUsd, ledger.costEvents);
-  return cost === "—" ? sessions : `${sessions} · ${cost}`;
+  // Branch on the FACT the caller holds, never on the formatter's sentinel
+  // string — a reworded "no data" dash must not silently change layout.
+  if (ledger.costEvents === 0) return sessions;
+  return `${sessions} · ${displayProviderCost(ledger.providerCostUsd, ledger.costEvents)}`;
 }

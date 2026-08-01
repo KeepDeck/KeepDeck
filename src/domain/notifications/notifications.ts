@@ -1,3 +1,4 @@
+import type { StatsTab } from "../usage/statsTabs";
 import type {
   WorkspaceInstance,
   WorkspaceRef,
@@ -34,9 +35,11 @@ export type NotificationSource =
       dockTab?: string;
     }
   | { type: "app" }
-  /** Opens the Usage statistics dialog, optionally on a named tab —
-   * achievement unlocks land on the trophy case, not in Settings. */
-  | { type: "stats"; tab?: string };
+  /** Opens the Statistics dialog, optionally on a named tab — achievement
+   * unlocks land on the trophy case, not in Settings. Typed vocabulary:
+   * renaming a tab breaks producers at compile time instead of silently
+   * rerouting every deep link to Overview. */
+  | { type: "stats"; tab?: StatsTab };
 
 export type NotificationSeverity = "info" | "warning" | "error";
 

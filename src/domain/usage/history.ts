@@ -377,6 +377,9 @@ export interface UsageStats {
   period: UsageStatsPeriod;
   eventCount: number;
   sessionCount: number;
+  /** Sessions with at least one provider-reported cost event — the cost
+   * coverage the disclaimer under the cards is phrased from. */
+  costSessionCount: number;
   totals: UsageStatsTotals;
   byModel: UsageStatsRow[];
   sessions: UsageStatsRow[];
@@ -429,6 +432,9 @@ export function queryUsageStats(
     period,
     eventCount: selected.length,
     sessionCount: sessionRows.size,
+    costSessionCount: [...sessionRows.values()].filter(
+      (row) => row.costEvents > 0,
+    ).length,
     totals,
     byModel: ranked(modelRows),
     sessions: ranked(sessionRows),

@@ -5,7 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { isStatsTab, type StatsTab } from "../components/stats/tabs";
+import { isStatsTab, type StatsTab } from "../domain/usage/statsTabs";
 import { useAgentDialog } from "./useAgentDialog";
 import { useAgentRunView } from "./useAgentRunView";
 import { useAgents } from "./useAgents";
@@ -143,7 +143,7 @@ export function useAppController() {
    * through here, so the tab can never go stale and a deep link arriving
    * while the dialog is already open switches tabs instead of being
    * swallowed. */
-  const openStats = (tab?: string | null): boolean => {
+  const openStats = (tab?: StatsTab | null): boolean => {
     const next = isStatsTab(tab) ? tab : undefined;
     if (statsOpen) {
       if (next !== undefined) setStatsTab(next);

@@ -1,3 +1,4 @@
+import type { UsageStatsPeriod } from "./history";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 
 /**
@@ -152,6 +153,33 @@ export function formatUtcDay(at: number, withYear = false): string {
     ...(withYear ? { year: "numeric" } : {}),
     timeZone: "UTC",
   });
+}
+
+/** The period switcher's order and labels — exhaustive by construction: a
+ * new UsageStatsPeriod member fails to compile until it names itself, so a
+ * period can never exist that the switcher silently omits or that renders
+ * as an empty string inside the Highlights sentence. */
+export const USAGE_PERIODS: readonly UsageStatsPeriod[] = [1, 7, 30, 90, "all"];
+
+export const PERIOD_LABELS: Record<UsageStatsPeriod, string> = {
+  1: "24h",
+  7: "7d",
+  30: "30d",
+  90: "90d",
+  all: "All",
+};
+
+/** The cost-provenance disclaimer under the Overview cards — the one text
+ * in the app that distinguishes provider API estimates from subscription
+ * charges, so it lives with the other money captions, not in a view. */
+export function costCoverage(costSessions: number, sessionCount: number): string {
+  if (costSessions === 0) {
+    return "No CLI reported a cost estimate. Token totals remain available.";
+  }
+  if (costSessions === sessionCount) {
+    return "Provider-reported API estimates, not subscription charges.";
+  }
+  return `Provider estimates available for ${costSessions} of ${sessionCount} sessions; unreported sessions are excluded.`;
 }
 
 /** Dollars, the ONE way: four decimals while sub-cent amounts would vanish,

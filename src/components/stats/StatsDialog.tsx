@@ -2,9 +2,12 @@ import { lazy, Suspense, useMemo, useState } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import {
+  costCoverage,
   displayProviderCost,
   formatTokens,
   formatUtcDay,
+  PERIOD_LABELS,
+  USAGE_PERIODS,
 } from "../../domain/usage";
 import {
   queryUsageStats,
@@ -27,14 +30,6 @@ import { PERIODLESS_TABS, STATS_TABS, type StatsTab } from "./tabs";
 const UsageChart = lazy(() =>
   import("./UsageChart").then((module) => ({ default: module.UsageChart })),
 );
-
-const PERIODS: readonly { period: UsageStatsPeriod; label: string }[] = [
-  { period: 1, label: "24h" },
-  { period: 7, label: "7d" },
-  { period: 30, label: "30d" },
-  { period: 90, label: "90d" },
-  { period: "all", label: "All" },
-];
 
 /** Global usage analytics has its own app surface: it is observational data,
  * not a setting, and it spans every workspace and CLI. The tab is CONTROLLED
@@ -102,8 +97,9 @@ export function UsageStats({
     [history.events, period, now],
   );
   const recap = useMemo(
-    () => (tab === "overview" ? usageRecap(history.events, period, now) : null),
-    [tab, history.events, period, now],
+    () =>
+      tab === "overview" ? usageRecap(history.events, period, now, stats) : null,
+    [tab, history.events, period, now, stats],
   );
   const periodless = PERIODLESS_TABS.includes(tab);
   const periodEmpty = (
@@ -133,16 +129,16 @@ export function UsageStats({
           // hiding would jump the header layout.
           aria-disabled={periodless}
         >
-          {PERIODS.map((candidate) => (
+          {USAGE_PERIODS.map((candidate) => (
             <button
-              key={candidate.label}
+              key={PERIOD_LABELS[candidate]}
               type="button"
-              className={candidate.period === period ? "stats__period--active" : ""}
-              aria-pressed={candidate.period === period}
+              className={candidate === period ? "stats__period--active" : ""}
+              aria-pressed={candidate === period}
               disabled={periodless}
-              onClick={() => setPeriod(candidate.period)}
+              onClick={() => setPeriod(candidate)}
             >
-              {candidate.label}
+              {PERIOD_LABELS[candidate]}
             </button>
           ))}
         </div>
@@ -201,10 +197,7 @@ export function UsageStats({
                 </Suspense>
                 {recap && <Highlights recap={recap} period={period} />}
                 <p className="stats__coverage">
-                  {costCoverage(
-                    stats.sessions.filter((row) => row.costEvents > 0).length,
-                    stats.sessionCount,
-                  )}
+                  {costCoverage(stats.costSessionCount, stats.sessionCount)}
                 </p>
               </>
             ))}
@@ -253,7 +246,7 @@ function Highlights({
   const parts: string[] = [];
   if (recap.tokensDeltaPct !== null) {
     const sign = recap.tokensDeltaPct >= 0 ? "+" : "";
-    parts.push(`${sign}${recap.tokensDeltaPct}% vs prior ${periodLabel(period)}`);
+    parts.push(`${sign}${recap.tokensDeltaPct}% vs prior ${PERIOD_LABELS[period]}`);
   }
   if (recap.topModel) {
     parts.push(
@@ -271,10 +264,6 @@ function Highlights({
   return <p className="stats__recap">{parts.join(" · ")}</p>;
 }
 
-function periodLabel(period: UsageStatsPeriod): string {
-  return PERIODS.find((candidate) => candidate.period === period)?.label ?? "";
-}
-
 function Summary({ label, value }: { label: string; value: string }) {
   return (
     <div className="stats__card">
@@ -282,14 +271,4 @@ function Summary({ label, value }: { label: string; value: string }) {
       <b>{value}</b>
     </div>
   );
-}
-
-function costCoverage(costSessions: number, sessionCount: number): string {
-  if (costSessions === 0) {
-    return "No CLI reported a cost estimate. Token totals remain available.";
-  }
-  if (costSessions === sessionCount) {
-    return "Provider-reported API estimates, not subscription charges.";
-  }
-  return `Provider estimates available for ${costSessions} of ${sessionCount} sessions; unreported sessions are excluded.`;
 }

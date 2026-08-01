@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { queryUsageStats } from "./history";
 import { usageRecap } from "./recap";
+
+/** The production call shape: recap describes an already-aggregated period. */
+const recapOf = (
+  events: Parameters<typeof usageRecap>[0],
+  period: Parameters<typeof usageRecap>[1],
+  now: number,
+) => usageRecap(events, period, now, queryUsageStats(events, period, now));
 
 const DAY = 24 * 60 * 60 * 1_000;
 import { TEST_NOW, usageEvent as event } from "./history.testSupport";
@@ -9,8 +17,7 @@ const NOW = TEST_NOW;
 
 describe("usageRecap", () => {
   it("compares the period against the preceding equal-length period", () => {
-    const recap = usageRecap(
-      [
+    const recap = recapOf(      [
         event({ tokens: { input: 300 } }),
         event({ occurredAt: NOW - 8 * DAY, tokens: { input: 150 } }),
       ],
@@ -22,8 +29,7 @@ describe("usageRecap", () => {
 
   it("never counts a boundary-instant event in both comparison windows", () => {
     const boundary = NOW - 7 * DAY;
-    const recap = usageRecap(
-      [
+    const recap = recapOf(      [
         event({ tokens: { input: 300 } }),
         event({ occurredAt: boundary, tokens: { input: 100 } }),
         event({ occurredAt: boundary - 1_000, tokens: { input: 100 } }),
@@ -38,10 +44,9 @@ describe("usageRecap", () => {
 
   it("declines the delta without a predecessor: empty prior window or all-time", () => {
     const events = [event({ tokens: { input: 300 } })];
-    expect(usageRecap(events, 7, NOW).tokensDeltaPct).toBeNull();
+    expect(recapOf(events, 7, NOW).tokensDeltaPct).toBeNull();
     expect(
-      usageRecap(
-        [...events, event({ occurredAt: NOW - 8 * DAY })],
+      recapOf(        [...events, event({ occurredAt: NOW - 8 * DAY })],
         "all",
         NOW,
       ).tokensDeltaPct,
@@ -49,8 +54,7 @@ describe("usageRecap", () => {
   });
 
   it("crowns the model with the most tokens, not the most cost", () => {
-    const recap = usageRecap(
-      [
+    const recap = recapOf(      [
         event({
           model: "small-but-costed",
           tokens: { input: 100 },
@@ -70,8 +74,7 @@ describe("usageRecap", () => {
   });
 
   it("finds the heaviest UTC day inside the period only", () => {
-    const recap = usageRecap(
-      [
+    const recap = recapOf(      [
         event({ occurredAt: NOW - 1_000, tokens: { input: 100 } }),
         event({ occurredAt: NOW - 2 * DAY, tokens: { input: 400 } }),
         event({ occurredAt: NOW - 2 * DAY + 1, tokens: { input: 50 } }),
@@ -87,7 +90,7 @@ describe("usageRecap", () => {
   });
 
   it("is all-null on an empty period", () => {
-    expect(usageRecap([], 7, NOW)).toEqual({
+    expect(recapOf([], 7, NOW)).toEqual({
       tokensDeltaPct: null,
       topModel: null,
       busiestDay: null,
