@@ -146,6 +146,45 @@ fn prepare_socket_dir(path: &Path) -> Result<PathBuf, String> {
     Ok(dir.to_path_buf())
 }
 
+/// How long a claim waits out a lock held only in passing, and how often it
+/// re-checks. A released claim is NOT free instantly: every process this app
+/// spawns (a PTY agent, a git child) inherits open descriptors across fork
+/// and keeps our lock alive until it execs, so a claim taken right after a
+/// release can still see the old one — measured at ~3ms under load, which
+/// is exactly the Off→On gap a user produces by flipping the toggle twice.
+/// Waiting costs a genuine refusal a fraction of a second; not waiting costs
+/// a legitimate re-enable a false "another instance owns this".
+const CLAIM_TIMEOUT: Duration = Duration::from_millis(250);
+const CLAIM_RETRY: Duration = Duration::from_millis(5);
+
+/// Take the exclusive claim on the socket name. Contention and failure are
+/// DIFFERENT answers: a name another instance holds is a refusal the user
+/// can act on, while a failed lock call is a fault that must say what it
+/// was — collapsing the two hid an interrupted call behind a wrong
+/// diagnosis. `flock(2)` is interruptible, so a signal is retried too.
+fn claim(lock: &File, path: &Path) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + CLAIM_TIMEOUT;
+    loop {
+        match lock.try_lock() {
+            Ok(()) => return Ok(()),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(format!(
+                        "{} is already served by another KeepDeck instance",
+                        path.display()
+                    ));
+                }
+                std::thread::sleep(CLAIM_RETRY);
+            }
+            Err(std::fs::TryLockError::Error(e))
+                if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(std::fs::TryLockError::Error(e)) => {
+                return Err(format!("claiming {} failed: {e}", path.display()))
+            }
+        }
+    }
+}
+
 fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
     let dir = prepare_socket_dir(path)?;
     // Own the NAME before touching it. bind(2) alone cannot arbitrate: the
@@ -154,12 +193,7 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
     // — and a teardown would then delete a live one. The kernel frees this
     // lock on process death, so a killed run leaves no stale claim.
     let lock = File::create(dir.join(LOCK_FILE)).map_err(|e| e.to_string())?;
-    lock.try_lock().map_err(|_| {
-        format!(
-            "{} is already served by another KeepDeck instance",
-            path.display()
-        )
-    })?;
+    claim(&lock, path)?;
     // Under the lock, "something is in the way" is decided by
     // symlink_metadata: `exists()` follows links, so a DANGLING symlink at
     // the socket path would read as absent and then wedge bind(2) forever.
@@ -402,15 +436,27 @@ mod tests {
         Arc::new(|line: &str| Some(line.to_uppercase()))
     }
 
-    /// A unique, NOT-yet-created directory path (unix socket paths have a
-    /// ~104-byte cap on macOS, so the name stays short).
-    fn temp_base() -> PathBuf {
+    /// A scratch directory THIS call created — the create is the claim, so
+    /// a leftover from an earlier run (pids are recycled, and nothing here
+    /// sweeps /tmp) can never be handed to a test as if it were fresh.
+    /// Names stay short: unix socket paths cap at ~104 bytes on macOS.
+    fn temp_root() -> PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
-        std::env::temp_dir().join(format!(
-            "kd-mcp-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::SeqCst)
-        ))
+        loop {
+            let dir = std::env::temp_dir().join(format!(
+                "kd-mcp-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, Ordering::SeqCst)
+            ));
+            if std::fs::create_dir(&dir).is_ok() {
+                return dir;
+            }
+        }
+    }
+
+    /// A socket directory that does NOT exist yet, inside a fresh root.
+    fn temp_base() -> PathBuf {
+        temp_root().join("mcp")
     }
 
     /// A fresh socket path whose directory already exists.
@@ -533,9 +579,31 @@ mod tests {
             "the name must stay owned while its server lives"
         );
         stop(first);
-        // Owner gone → the name is free again.
-        let second = start_at(&path, upper()).expect("second after release");
+        // Owner gone → the name is free again. Not necessarily INSTANTLY:
+        // a claim survives in any process that forked while we held it,
+        // until that child execs — which is what `claim`'s wait covers.
+        let second = start_at(&path, upper())
+            .unwrap_or_else(|e| panic!("the name must be free once its owner stopped: {e}"));
         stop(second);
+    }
+
+    #[test]
+    fn a_claim_held_only_in_passing_does_not_refuse_a_restart() {
+        // Releasing a claim does not free it instantly: a process that
+        // forked while we held it keeps it alive until it execs, and this
+        // app forks constantly (PTY agents, git). A user flipping the
+        // toggle Off then On lands in exactly that window and must not be
+        // told another instance owns the socket.
+        let path = temp_sock();
+        let holder = File::create(path.parent().unwrap().join(LOCK_FILE)).expect("lock file");
+        holder.try_lock().expect("hold the claim");
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            drop(holder);
+        });
+        let running =
+            start_at(&path, upper()).expect("a claim held in passing must not refuse a restart");
+        stop(running);
     }
 
     #[test]

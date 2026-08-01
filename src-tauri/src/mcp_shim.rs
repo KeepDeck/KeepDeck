@@ -168,10 +168,22 @@ mod tests {
         }
     }
 
-    fn temp_sock(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("kd-shim-{}-{tag}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        dir.join("mcp.sock")
+    /// A socket path in a directory THIS call created — the create is the
+    /// claim, so a recycled pid can never hand a test an earlier run's
+    /// leftovers (nothing here sweeps /tmp).
+    fn temp_sock() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        loop {
+            let dir = std::env::temp_dir().join(format!(
+                "kd-shim-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, Ordering::SeqCst)
+            ));
+            if std::fs::create_dir(&dir).is_ok() {
+                return dir.join("mcp.sock");
+            }
+        }
     }
 
     #[test]
@@ -179,7 +191,7 @@ mod tests {
         // The real server (mcp_server) and the real pump, joined by the real
         // socket: client EOF propagates through the shim to the server, whose
         // connection close ends the pump — the whole life of a session.
-        let path = temp_sock("e2e");
+        let path = temp_sock();
         let handler: crate::mcp_server::LineHandler =
             std::sync::Arc::new(|line: &str| Some(line.to_uppercase()));
         let server = crate::mcp_server::McpServer::default();
@@ -195,7 +207,7 @@ mod tests {
 
     #[test]
     fn disabling_the_server_releases_a_connected_shim() {
-        let path = temp_sock("disable");
+        let path = temp_sock();
         let handler: crate::mcp_server::LineHandler =
             std::sync::Arc::new(|line: &str| Some(line.to_uppercase()));
         let server = crate::mcp_server::McpServer::default();
