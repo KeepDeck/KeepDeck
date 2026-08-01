@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AGENT_FEATURE,
   hasAgentFeature,
@@ -9,6 +9,7 @@ import {
   chipWindows,
   formatAge,
   formatPct,
+  latestReportedAt,
   panelWindows,
   usageStale,
   windowExpired,
@@ -161,8 +162,11 @@ export function UsageChips({
   }, [openProvider, providersKey]);
 
   // Countdowns and staleness drift with wall time — the shared slow-tick
-  // clock advances them; nothing else here depends on it.
-  const now = useWallClock(accounts.size > 0);
+  // clock advances them. The newest report floors the clock: a report
+  // landing on a long-idle chip must never read as stale (or negative-aged)
+  // against a now that last ticked before it arrived.
+  const latestReport = useMemo(() => latestReportedAt(accounts.values()), [accounts]);
+  const now = useWallClock(latestReport);
 
   // Light-dismiss: any pointer press outside (or Escape) closes the panel.
   const open = openProvider !== null;

@@ -117,6 +117,30 @@ describe("UsageStats", () => {
     expect(host.textContent).toContain("KeepDeck · codex · session-…");
   });
 
+  it("shows a just-appended event immediately, not after the next clock tick", () => {
+    act(() => root.render(createElement(Host)));
+    expect(host.textContent).toContain("1.6k");
+
+    // An agent finishes a turn seconds AFTER the dialog's slow clock last
+    // ticked: the appended event's instant is ahead of that clock, and the
+    // `occurredAt <= now` filter must not hide it for up to 30s.
+    history.snapshot = {
+      ready: true,
+      events: [
+        usageEvent(),
+        usageEvent({
+          occurredAt: NOW + 5_000,
+          capturedAt: NOW + 5_000,
+          tokens: { input: 100_000 },
+          observation: { tokens: { input: 100_000 } },
+        }),
+      ],
+      error: null,
+    };
+    act(() => root.render(createElement(Host)));
+    expect(host.textContent).toContain("101.6k");
+  });
+
   it("switches time ranges without remounting", () => {
     history.snapshot = {
       ready: true,

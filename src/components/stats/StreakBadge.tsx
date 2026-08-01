@@ -1,5 +1,6 @@
 import { useId, useMemo } from "react";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
+import { latestOccurredAt } from "../../domain/usage/history/query";
 import {
   currentStreakDays,
   streakHeat,
@@ -25,8 +26,14 @@ export function StreakBadge() {
   const history = useUsageHistorySnapshot();
   // Wall-clock-derived: a dialog left open across midnight must notice the
   // day change without a ledger append. Memoized on the shared clock — the
-  // full-ledger scan runs per tick/append, never per render.
-  const now = useWallClock();
+  // full-ledger scan runs per tick/append, never per render. The ledger's
+  // newest instant floors the clock: an event recorded on a fresh UTC day
+  // extends the streak immediately, not on the next tick.
+  const latest = useMemo(
+    () => latestOccurredAt(history.events),
+    [history.events],
+  );
+  const now = useWallClock(latest);
   const days = useMemo(
     () => currentStreakDays(history.events, now),
     [history.events, now],

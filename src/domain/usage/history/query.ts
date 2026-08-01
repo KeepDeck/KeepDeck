@@ -53,6 +53,16 @@ export function periodCutoff(period: UsageStatsPeriod, now: number): number {
   return period === "all" ? -Infinity : now - period * DAY_MS;
 }
 
+/** The newest instant the ledger claims — what a live surface feeds the
+ * wall clock's `atLeast`, so a just-appended event clears the queries'
+ * `occurredAt <= now` upper bound immediately instead of hiding until the
+ * next slow tick. */
+export function latestOccurredAt(events: readonly UsageEventV2[]): number {
+  let latest = 0;
+  for (const event of events) latest = Math.max(latest, event.occurredAt);
+  return latest;
+}
+
 /** Aggregate immutable deltas for the Stats screen. `now` is injected so
  * period boundaries and tests stay deterministic. */
 export function queryUsageStats(

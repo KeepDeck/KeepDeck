@@ -29,6 +29,17 @@ export type {
   UsageWindow,
 } from "@keepdeck/plugin-api";
 
+/** The newest report instant across accounts — what a live surface feeds
+ * the wall clock's `atLeast`, so a report landing on a long-idle chip
+ * never reads as stale against a clock that last ticked before it. */
+export function latestReportedAt(accounts: Iterable<AccountUsage>): number {
+  let latest = 0;
+  for (const account of accounts) {
+    latest = Math.max(latest, account.reportedAt);
+  }
+  return latest;
+}
+
 /** Freshest-wins collapse for account reports: a newer report replaces an
  * older one; ties keep the incumbent (stability under same-ms bursts). */
 export function freshest(

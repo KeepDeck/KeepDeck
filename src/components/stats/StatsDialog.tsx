@@ -3,6 +3,7 @@ import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { PERIOD_LABELS, USAGE_PERIODS } from "../../domain/usage";
 import {
+  latestOccurredAt,
   queryUsageStats,
   type UsageStatsPeriod,
 } from "../../domain/usage/history/query";
@@ -77,8 +78,14 @@ export function UsageStats({
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
   // THE tab body's one clock: stable between 30s ticks, so it sits in every
   // memo's deps — aggregates, captions and bars all agree on the same now,
-  // and a reset passing while the dialog idles demotes the whole card.
-  const now = useWallClock();
+  // and a reset passing while the dialog idles demotes the whole card. The
+  // ledger's newest instant floors it, so an append seconds after a tick is
+  // inside the queries' `<= now` bound immediately.
+  const latest = useMemo(
+    () => latestOccurredAt(history.events),
+    [history.events],
+  );
+  const now = useWallClock(latest);
   const stats = useMemo(
     () => queryUsageStats(history.events, period, now),
     [history.events, period, now],
