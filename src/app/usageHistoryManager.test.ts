@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeUsageEvent, type UsageEventV2 } from "../domain/usage/history";
+import { usageEvent } from "../domain/usage/history.testSupport";
 
 const ipc = vi.hoisted(() => ({
   loadUsageHistory: vi.fn<() => Promise<string[]>>(),
@@ -25,25 +26,20 @@ const context = {
   sessionId: "session-1",
 };
 
+/** This file's personality over the shared builder: the manager tests speak
+ * opencode and key everything on the capture context's session-1. */
 const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
-  ({
-  schemaVersion: 2,
-  eventId: "event-1",
-  occurredAt: NOW - 1_000,
-  capturedAt: NOW - 900,
-  agent: "opencode",
-  workspaceId: "ws-1",
-  workspaceName: "KeepDeck",
-  workspaceCwd: "/repo",
-  paneId: "pane-1",
-  paneName: "Agent 1",
-  sessionId: "session-1",
-  rootSessionId: "session-1",
-  tokens: { input: 10 },
-  costSource: "unavailable",
-  observation: { tokens: { input: 10 } },
+  usageEvent({
+    eventId: "event-1",
+    capturedAt: NOW - 900,
+    agent: "opencode",
+    model: undefined,
+    sessionId: "session-1",
+    rootSessionId: "session-1",
+    tokens: { input: 10 },
+    observation: { tokens: { input: 10 } },
     ...over,
-  }) as UsageEventV2;
+  });
 
 describe("usageHistoryManager", () => {
   beforeEach(() => {

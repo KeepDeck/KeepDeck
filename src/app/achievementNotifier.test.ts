@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { UsageEventV2 } from "../domain/usage/history";
 import {
   createAchievementNotifier,
   type AchievementNotifierDeps,
@@ -7,28 +6,8 @@ import {
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
-let seq = 0;
-const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
-  ({
-    schemaVersion: 2,
-    eventId: `event-${(seq += 1)}`,
-    occurredAt: NOW - 1_000,
-    capturedAt: NOW - 1_000,
-    agent: "codex",
-    model: "gpt-5.6-terra",
-    workspaceId: "ws-1",
-    workspaceName: "KeepDeck",
-    workspaceCwd: "/repo",
-    paneId: "pane-1",
-    paneName: "Agent 1",
-    sessionId: "s1",
-    rootSessionId: "s1",
-    tokens: { input: 100 },
-    costSource: "unavailable",
-    observation: { tokens: { input: 100 } },
-    ...over,
-  }) as UsageEventV2;
+import { usageEvent as event } from "../domain/usage/history.testSupport";
+
 
 // 2M tokens + provider cost earns: First Million, Warm Afternoon,
 // Hello Agent, First Dollar — four fresh awards.
@@ -212,6 +191,42 @@ describe("createAchievementNotifier", () => {
     await settle();
     expect(saved.length).toBeGreaterThan(0);
     notifier.dispose();
+  });
+
+  it("persists the congratulated set sorted, for stable diffs on disk", async () => {
+    const { deps, saved, history } = fakeDeps();
+    history.set({ ready: true, events: richEvents(), error: null });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    await settle();
+    const persisted = JSON.parse(saved[saved.length - 1]) as {
+      notified: string[];
+    };
+    expect(persisted.notified).toEqual([...persisted.notified].sort());
+    notifier.dispose();
+  });
+
+  it("tolerates a wrong-typed baseline: non-array resets, mixed array filters", async () => {
+    // notified as a plain string → empty baseline → everything announces.
+    const wrongType = fakeDeps({
+      loadNotified: async () => JSON.stringify({ version: 1, notified: "oops" }),
+    });
+    wrongType.history.set({ ready: true, events: [event()], error: null });
+    const first = createAchievementNotifier(wrongType.deps);
+    await settle();
+    expect(wrongType.notify).toHaveBeenCalledTimes(1);
+    first.dispose();
+
+    // Mixed-type array → the valid id survives and stays congratulated.
+    const mixed = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({ version: 1, notified: [42, "sessions-1", null] }),
+    });
+    mixed.history.set({ ready: true, events: [event()], error: null });
+    const second = createAchievementNotifier(mixed.deps);
+    await settle();
+    expect(mixed.notify).not.toHaveBeenCalled();
+    second.dispose();
   });
 
   it("treats an unreadable baseline as empty instead of staying silent", async () => {

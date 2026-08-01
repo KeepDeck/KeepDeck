@@ -1,32 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { usageAgents, usageTimeline } from "./daily";
-import type { UsageEventV2 } from "./history";
 
 const HOUR = 60 * 60 * 1_000;
 const DAY = 24 * HOUR;
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+import { TEST_NOW, usageEvent as event } from "./history.testSupport";
+
+const NOW = TEST_NOW;
 const TODAY = Date.parse("2026-07-22T00:00:00.000Z");
 
-let seq = 0;
-const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
-  ({
-    schemaVersion: 2,
-    eventId: `event-${(seq += 1)}`,
-    occurredAt: NOW - 1_000,
-    capturedAt: NOW - 1_000,
-    agent: "codex",
-    workspaceId: "ws-1",
-    workspaceName: "KeepDeck",
-    workspaceCwd: "/repo",
-    paneId: "pane-1",
-    paneName: "Agent 1",
-    sessionId: "s1",
-    rootSessionId: "s1",
-    tokens: { input: 100 },
-    costSource: "unavailable",
-    observation: { tokens: { input: 100 } },
-    ...over,
-  }) as UsageEventV2;
 
 describe("usageTimeline", () => {
   it("buckets by UTC day, zero-filling silent days across the period", () => {

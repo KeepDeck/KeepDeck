@@ -1,29 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { UsageEventV2 } from "./history";
+import { TEST_NOW, usageEvent } from "./history.testSupport";
 import { currentStreakDays, streakHeat } from "./streak";
 
 const DAY = 24 * 60 * 60 * 1_000;
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+const NOW = TEST_NOW;
 
-let seq = 0;
-const event = (occurredAt: number): UsageEventV2 =>
-  ({
-    schemaVersion: 2,
-    eventId: `event-${(seq += 1)}`,
-    occurredAt,
-    capturedAt: occurredAt,
-    agent: "codex",
-    workspaceId: "ws-1",
-    workspaceName: "KeepDeck",
-    workspaceCwd: "/repo",
-    paneId: "pane-1",
-    paneName: "Agent 1",
-    sessionId: "s1",
-    rootSessionId: "s1",
-    tokens: { input: 100 },
-    costSource: "unavailable",
-    observation: { tokens: { input: 100 } },
-  }) as UsageEventV2;
+const event = (occurredAt: number) =>
+  usageEvent({ occurredAt, capturedAt: occurredAt });
 
 describe("currentStreakDays", () => {
   it("counts consecutive days ending today", () => {

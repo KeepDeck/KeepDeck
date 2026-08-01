@@ -8,32 +8,12 @@ import {
   usageAchievementLadders,
   type UsageAchievementLadder,
 } from "./achievements";
-import type { UsageEventV2 } from "./history";
 
 const DAY = 24 * 60 * 60 * 1_000;
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+import { TEST_NOW, usageEvent as event } from "./history.testSupport";
 
-let seq = 0;
-const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
-  ({
-    schemaVersion: 2,
-    eventId: `event-${(seq += 1)}`,
-    occurredAt: NOW - 1_000,
-    capturedAt: NOW - 1_000,
-    agent: "codex",
-    model: "gpt-5.6-terra",
-    workspaceId: "ws-1",
-    workspaceName: "KeepDeck",
-    workspaceCwd: "/repo",
-    paneId: "pane-1",
-    paneName: "Agent 1",
-    sessionId: "s1",
-    rootSessionId: "s1",
-    tokens: { input: 100 },
-    costSource: "unavailable",
-    observation: { tokens: { input: 100 } },
-    ...over,
-  }) as UsageEventV2;
+const NOW = TEST_NOW;
+
 
 const ladder = (
   ladders: UsageAchievementLadder[],
@@ -140,6 +120,17 @@ describe("usageAchievementLadders", () => {
       title: "Full House",
       achievedAt: NOW - 200,
     });
+  });
+
+  it("attributes a crossing shared by same-instant events to that instant", () => {
+    const at = NOW - 2 * DAY;
+    const ladders = usageAchievementLadders([
+      event({ occurredAt: at, tokens: { input: 600_000 } }),
+      event({ occurredAt: at, tokens: { input: 600_000 }, sessionId: "s2" }),
+    ]);
+    // Whichever of the two ties fires the crossing, the date is the shared
+    // instant — tie order cannot change the observable result.
+    expect(ladder(ladders, "tokens").tiers[0].achievedAt).toBe(at);
   });
 
   it("sums output and cache-read tokens on their own ladders", () => {
