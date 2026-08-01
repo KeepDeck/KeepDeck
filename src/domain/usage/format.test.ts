@@ -183,6 +183,18 @@ describe("formatTokens", () => {
     expect(formatTokens(999_999)).toBe("1M");
   });
 
+  it("abbreviates billions past the M boundary", () => {
+    expect(formatTokens(1_200_000_000)).toBe("1.2B");
+    expect(formatTokens(5_044_500_000)).toBe("5B");
+    expect(formatTokens(123_456_000_000)).toBe("123.5B");
+  });
+
+  it("promotes M→B at the boundary so nothing renders as 1000M", () => {
+    expect(formatTokens(999_000_000)).toBe("999M");
+    expect(formatTokens(999_949_999)).toBe("999.9M");
+    expect(formatTokens(999_950_000)).toBe("1B");
+  });
+
   it("is 0 for non-finite or negative input", () => {
     expect(formatTokens(-5)).toBe("0");
     expect(formatTokens(Number.NaN)).toBe("0");

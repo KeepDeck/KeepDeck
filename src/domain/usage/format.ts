@@ -119,10 +119,10 @@ export function formatAge(reportedAt: number, now: number): string {
   return `${Math.floor(s / 86_400)}d ago`;
 }
 
-/** A token count as a compact, glanceable string: "812", "15.5k", "1.2M".
- * One decimal that a whole number drops ("15.0k" → "15k"); sub-thousand
- * counts stay exact. Non-finite or ≤0 is "0". The k→M boundary promotes at
- * 999.95k so a value never renders as "1000k". */
+/** A token count as a compact, glanceable string: "812", "15.5k", "1.2M",
+ * "5B". One decimal that a whole number drops ("15.0k" → "15k"); sub-thousand
+ * counts stay exact. Non-finite or ≤0 is "0". Every boundary promotes at
+ * 999.95 of the lower unit so a value never renders as "1000k" or "1000M". */
 export function formatTokens(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "0";
   if (n < 1000) return String(Math.round(n));
@@ -131,5 +131,7 @@ export function formatTokens(n: number): string {
     return Number.isInteger(v) ? String(v) : v.toFixed(1);
   };
   const k = n / 1000;
-  return k < 999.95 ? `${oneDp(k)}k` : `${oneDp(n / 1_000_000)}M`;
+  if (k < 999.95) return `${oneDp(k)}k`;
+  const m = n / 1_000_000;
+  return m < 999.95 ? `${oneDp(m)}M` : `${oneDp(n / 1_000_000_000)}B`;
 }
