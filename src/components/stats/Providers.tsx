@@ -51,7 +51,7 @@ export function Providers({
   return (
     <section className="stats__section">
       <h3>Providers</h3>
-      <div className="stats__providers" aria-label="Providers">
+      <div className="stats__providers" role="group" aria-label="Providers">
         {groups.map((group) => (
           <article className="stats__provider" key={group.agent}>
             <header className="stats__provider-head">

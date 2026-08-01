@@ -197,7 +197,12 @@ export function formatBucket(
 /** The period switcher's order and labels — exhaustive by construction: a
  * new UsageStatsPeriod member fails to compile until it names itself, so a
  * period can never exist that the switcher silently omits or that renders
- * as an empty string inside the Highlights sentence. */
+ * as an empty string inside the Highlights sentence.
+ *
+ * Placement rule, since tab labels chose the VIEW (tabs.ts): labels live
+ * with the view unless the domain itself phrases sentences with them —
+ * "vs prior 7d" in recapCaption makes these domain vocabulary, not UI
+ * chrome. */
 export const USAGE_PERIODS: readonly UsageStatsPeriod[] = [1, 7, 30, 90, "all"];
 
 export const PERIOD_LABELS: Record<UsageStatsPeriod, string> = {

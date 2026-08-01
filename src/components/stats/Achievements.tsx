@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   achievementExact,
   achievementPercent,
@@ -55,6 +55,11 @@ function AchievementSection({
   );
 }
 
+/** Room the downward tooltip needs below a card; a card closer than this
+ * to the scroll container's bottom edge flips its tip upward instead of
+ * opening below the fold (where scrolling to it would drop the hover). */
+const TIP_CLEARANCE_PX = 110;
+
 function AchievementCard({
   item,
   future,
@@ -63,11 +68,23 @@ function AchievementCard({
   future: boolean;
 }) {
   const locked = item.achievedAt === null;
+  // Purely geometric hover state: measured on entry because CSS alone
+  // cannot know where the card sits relative to the scroller's fold.
+  const [tipAbove, setTipAbove] = useState(false);
   return (
     <article
       className={`stats__achievement${
         locked ? " stats__achievement--locked" : ""
-      }${future ? " stats__achievement--future" : ""}`}
+      }${future ? " stats__achievement--future" : ""}${
+        tipAbove ? " stats__achievement--tip-up" : ""
+      }`}
+      onMouseEnter={(hover) => {
+        const scroller = hover.currentTarget.closest(".stats-dialog__body");
+        if (!scroller) return;
+        const card = hover.currentTarget.getBoundingClientRect();
+        const fold = scroller.getBoundingClientRect().bottom;
+        setTipAbove(card.bottom + TIP_CLEARANCE_PX > fold);
+      }}
     >
       <span className="stats__achievement-icon" aria-hidden>
         {item.icon}

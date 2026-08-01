@@ -54,6 +54,15 @@
   z-index: 1;
 }
 
+/* A card near the scroll container's bottom edge flips its tip upward
+   (measured by the component on hover) — a below-the-fold tip is clipped
+   by the scroller, and scrolling to it moves the card out from under the
+   pointer. */
+.stats__achievement--tip-up .stats__achievement-tip {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .stats__achievement:hover .stats__achievement-tip {
   display: flex;
   animation: stats-tip-in 0.15s ease 0.45s backwards;

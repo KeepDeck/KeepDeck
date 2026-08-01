@@ -110,6 +110,11 @@
   transform-box: fill-box;
 }
 
+/* The chip carries stats__streak--{none,ember,flame,blaze,inferno} for
+   every tier; only blaze and inferno style the OUTER chip (molten /
+   shimmering number). The lower tiers are differentiated entirely by the
+   inner mark (.stats__streak-coal / .stats__streak-fire) — their modifiers
+   are intentionally rule-less state hooks, not dead selectors. */
 /* blaze (30+): the number goes molten. */
 .stats__streak--blaze,
 .stats__streak--inferno {

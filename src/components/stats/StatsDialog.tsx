@@ -143,6 +143,9 @@ export function UsageStats({
         </p>
         <div
           className={`stats__period${periodless ? " stats__period--idle" : ""}`}
+          // role=group makes the label perceivable — on a bare div (implicit
+          // role generic) aria-label is ignored by assistive tech.
+          role="group"
           aria-label="Statistics period"
           // A switcher that silently does nothing reads as broken, so it
           // disables on period-independent tabs. Disabled, not hidden:
@@ -163,13 +166,35 @@ export function UsageStats({
           ))}
         </div>
       </div>
-      <div className="stats__tabs" role="tablist" aria-label="Statistics sections">
+      {/* The ARIA tabs pattern in full: roving tabIndex (one tab stop for
+          the strip, arrows move within it) and an explicit tab↔panel
+          association — without these a screen reader hears "tab, selected"
+          with no panel to land on. */}
+      <div
+        className="stats__tabs"
+        role="tablist"
+        aria-label="Statistics sections"
+        onKeyDown={(keyEvent) => {
+          if (keyEvent.key !== "ArrowLeft" && keyEvent.key !== "ArrowRight") {
+            return;
+          }
+          keyEvent.preventDefault();
+          const ids = STATS_TABS.map((candidate) => candidate.id);
+          const step = keyEvent.key === "ArrowRight" ? 1 : ids.length - 1;
+          const next = ids[(ids.indexOf(tab) + step) % ids.length];
+          onSelectTab(next);
+          document.getElementById(`stats-tab-${next}`)?.focus();
+        }}
+      >
         {STATS_TABS.map((candidate) => (
           <button
             key={candidate.id}
+            id={`stats-tab-${candidate.id}`}
             type="button"
             role="tab"
             aria-selected={candidate.id === tab}
+            aria-controls="stats-tabpanel"
+            tabIndex={candidate.id === tab ? 0 : -1}
             className={`stats__tab${candidate.id === tab ? " stats__tab--active" : ""}`}
             onClick={() => onSelectTab(candidate.id)}
           >
@@ -178,18 +203,25 @@ export function UsageStats({
         ))}
       </div>
 
-      {!history.ready ? (
-        <p className="stats__empty">Loading usage history…</p>
-      ) : (
-        <>
-          {history.error !== null && !historyDead && (
-            <p className="stats__warning">
-              Some history could not be loaded: {history.error}
-            </p>
-          )}
-          {tabBody(tab)}
-        </>
-      )}
+      <div
+        id="stats-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`stats-tab-${tab}`}
+        className="stats__tabpanel"
+      >
+        {!history.ready ? (
+          <p className="stats__empty">Loading usage history…</p>
+        ) : (
+          <>
+            {history.error !== null && !historyDead && (
+              <p className="stats__warning">
+                Some history could not be loaded: {history.error}
+              </p>
+            )}
+            {tabBody(tab)}
+          </>
+        )}
+      </div>
     </div>
   );
 }
