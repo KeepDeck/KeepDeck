@@ -1,20 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeUsageEvent, type UsageEventV2 } from "../domain/usage/history/event";
 import { TEST_NOW, usageEvent } from "../domain/usage/history/event.testSupport";
+import { createUsageHistoryManager } from "./usageHistoryManager";
 
-const ipc = vi.hoisted(() => ({
+// The manager is a factory over an injected persistence port — each test
+// builds a fresh instance over these fakes; there is no shared state and
+// no reset hook.
+const ipc = {
   loadUsageHistory: vi.fn<() => Promise<string[]>>(),
   appendUsageHistory: vi.fn<(lines: string[]) => Promise<void>>(),
   compactUsageHistory: vi.fn<(lines: string[]) => Promise<void>>(),
-}));
-vi.mock("../ipc/usageHistory", () => ipc);
-
-import {
-  getUsageHistorySnapshot,
-  initUsageHistory,
-  recordPaneUsage,
-  resetUsageHistoryManager,
-} from "./usageHistoryManager";
+};
+let manager: ReturnType<typeof createUsageHistoryManager>;
+const initUsageHistory = () => manager.init();
+const recordPaneUsage: ReturnType<typeof createUsageHistoryManager>["record"] = (
+  ...args
+) => manager.record(...args);
+const getUsageHistorySnapshot = () => manager.getSnapshot();
 
 const NOW = TEST_NOW;
 const context = {
@@ -43,13 +45,11 @@ const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
 
 describe("usageHistoryManager", () => {
   beforeEach(() => {
-    resetUsageHistoryManager();
     ipc.loadUsageHistory.mockReset().mockResolvedValue([]);
     ipc.appendUsageHistory.mockReset().mockResolvedValue(undefined);
     ipc.compactUsageHistory.mockReset().mockResolvedValue(undefined);
+    manager = createUsageHistoryManager(ipc);
   });
-
-  afterEach(() => resetUsageHistoryManager());
 
   it("records only positive deltas from cumulative pane snapshots", async () => {
     await initUsageHistory();
