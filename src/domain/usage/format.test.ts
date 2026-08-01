@@ -183,6 +183,12 @@ describe("staleness and age", () => {
     expect(formatAge(NOW - 3 * 60_000, NOW)).toBe("3m ago");
     expect(formatAge(NOW - 2 * 3_600_000, NOW)).toBe("2h ago");
   });
+
+  it("drops only the suffix in the bare form — thresholds never fork", () => {
+    expect(formatAge(NOW - 5000, NOW, "bare")).toBe("now");
+    expect(formatAge(NOW - 3 * 60_000, NOW, "bare")).toBe("3m");
+    expect(formatAge(NOW - 2 * 86_400_000, NOW, "bare")).toBe("2d");
+  });
 });
 
 describe("formatBucket", () => {

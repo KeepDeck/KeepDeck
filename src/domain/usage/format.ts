@@ -135,12 +135,21 @@ export function windowResetCaption(
 }
 
 /** "now" / "3m ago" / "2h ago" — the popover's "Updated …" line. */
-export function formatAge(reportedAt: number, now: number): string {
+/** THE relative-age formatter — the usage chips/tables and the
+ * notification bell are the two surfaces a user compares when asking
+ * "when did this happen", so they share one set of thresholds. The bell
+ * drops the suffix; the thresholds and flooring never fork. */
+export function formatAge(
+  reportedAt: number,
+  now: number,
+  form: "ago" | "bare" = "ago",
+): string {
   const s = Math.max(0, Math.floor((now - reportedAt) / 1000));
+  const suffix = form === "ago" ? " ago" : "";
   if (s < 60) return "now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86_400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86_400)}d ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m${suffix}`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h${suffix}`;
+  return `${Math.floor(s / 86_400)}d${suffix}`;
 }
 
 /** "Jul 22" / "Jul 22, 2026" — labeled in UTC because every stats day
