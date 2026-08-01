@@ -95,11 +95,21 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let listener = UnixListener::bind(path).map_err(|e| e.to_string())?;
-    // Owner-only, set before anyone could race a connection in: the file IS
-    // the permission model — any process that can open it can drive the deck.
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-        .map_err(|e| e.to_string())?;
+    // The file IS the permission model — any process that can open it can
+    // drive the deck. bind(2) creates it with umask-derived permissions, so
+    // under a permissive umask there would be a window between bind and
+    // chmod where anyone may connect. Bind under a private name instead,
+    // tighten, then rename into place: the public name only ever exists at
+    // 0600 (renaming a bound socket moves the name, not the binding).
+    let staging = path.with_file_name(format!(".mcp.sock.{}", std::process::id()));
+    let _ = std::fs::remove_file(&staging);
+    let listener = UnixListener::bind(&staging).map_err(|e| e.to_string())?;
+    let armed = std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o600))
+        .and_then(|()| std::fs::rename(&staging, path));
+    if let Err(e) = armed {
+        let _ = std::fs::remove_file(&staging);
+        return Err(e.to_string());
+    }
 
     // The teardown wake channel (see `Running::wake`).
     let (wake_rx, wake_tx) = UnixStream::pair().map_err(|e| e.to_string())?;
