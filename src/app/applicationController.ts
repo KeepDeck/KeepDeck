@@ -22,7 +22,7 @@ export interface ApplicationUi {
   agents(): AgentInfo[];
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
   openSettings(sectionId: string | null): boolean;
-  openUsage(): boolean;
+  openUsage(tab: string | null): boolean;
   setCreating(creating: boolean): void;
   pushAlert(title: string, message: string): void;
 }
@@ -80,7 +80,7 @@ export function createApplicationController(
         createPane: orchestrator.createPane,
         openSettings: (sectionId) =>
           ui?.openSettings(sectionId) ?? false,
-        openUsage: () => ui?.openUsage() ?? false,
+        openUsage: () => ui?.openUsage(null) ?? false,
       });
     },
 
@@ -146,6 +146,10 @@ export function createApplicationController(
           ui?.openSettings(
             settingsSectionForNotification(notification.source),
           );
+          return;
+        }
+        case "stats": {
+          ui?.openUsage(notification.source.tab ?? null);
           return;
         }
         default: {

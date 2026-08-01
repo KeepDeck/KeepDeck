@@ -33,7 +33,10 @@ export type NotificationSource =
       workspace?: NotificationWorkspace;
       dockTab?: string;
     }
-  | { type: "app" };
+  | { type: "app" }
+  /** Opens the Usage statistics dialog, optionally on a named tab —
+   * achievement unlocks land on the trophy case, not in Settings. */
+  | { type: "stats"; tab?: string };
 
 export type NotificationSeverity = "info" | "warning" | "error";
 
@@ -117,7 +120,7 @@ export function unreadByWorkspace(
   const counts = new Map<WorkspaceInstance, number>();
   for (const n of items) {
     if (n.readAt !== undefined) continue;
-    const workspace = n.source.type === "app" ? undefined : n.source.workspace;
+    const workspace = "workspace" in n.source ? n.source.workspace : undefined;
     if (!workspace) continue;
     counts.set(workspace.instance, (counts.get(workspace.instance) ?? 0) + 1);
   }

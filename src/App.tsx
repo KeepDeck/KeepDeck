@@ -85,6 +85,7 @@ function App() {
     setSettingsSection,
     setSkillsOpen,
     setStatsOpen,
+    setStatsTab,
     settings,
     settingsOpen,
     settingsSection,
@@ -93,6 +94,7 @@ function App() {
     skillsOpen,
     specByPane,
     statsOpen,
+    statsTab,
     unavailableReasons,
     updateState,
     usageLiveAgents,
@@ -416,7 +418,15 @@ function App() {
               }}
             />
           )}
-          {statsOpen && <StatsDialog onClose={() => setStatsOpen(false)} />}
+          {statsOpen && (
+            <StatsDialog
+              initialTab={statsTab}
+              onClose={() => {
+                setStatsOpen(false);
+                setStatsTab(undefined);
+              }}
+            />
+          )}
           {skillsOpen && (
             <SkillsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}

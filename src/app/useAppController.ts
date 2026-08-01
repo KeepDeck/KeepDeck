@@ -110,6 +110,7 @@ export function useAppController() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<string | undefined>();
+  const [statsTab, setStatsTab] = useState<string | undefined>();
   const agentFlow = useAgentDialog(deck, agents, {
     onResumeFailed: (message) =>
       pushAlert("Could not resume the session", message),
@@ -144,6 +145,7 @@ export function useAppController() {
     setSettingsOpen,
     setSettingsSection,
     setStatsOpen,
+    setStatsTab,
   });
   applicationUi.current = {
     agents,
@@ -154,6 +156,7 @@ export function useAppController() {
     setSettingsOpen,
     setSettingsSection,
     setStatsOpen,
+    setStatsTab,
   };
   useEffect(() => {
     const current = () => applicationUi.current;
@@ -167,8 +170,9 @@ export function useAppController() {
         current().setSettingsOpen(true);
         return true;
       },
-      openUsage: () => {
+      openUsage: (tab) => {
         if (!current().canOpenDialog) return false;
+        current().setStatsTab(tab ?? undefined);
         current().setStatsOpen(true);
         return true;
       },
@@ -371,6 +375,7 @@ export function useAppController() {
     setSettingsSection,
     setSkillsOpen,
     setStatsOpen,
+    setStatsTab,
     settings,
     settingsOpen,
     settingsSection,
@@ -379,6 +384,7 @@ export function useAppController() {
     skillsOpen,
     specByPane,
     statsOpen,
+    statsTab,
     unavailableReasons,
     updateState,
     usageLiveAgents,
