@@ -125,8 +125,19 @@ describe("ExperimentalSection", () => {
     mcpStatus.current = { socket: null, error: "already served by another process" };
     mount();
     await settle();
-    expect(host.textContent).toContain("could not start");
+    expect(host.textContent).toContain("reported a problem");
     expect(host.textContent).toContain("already served by another process");
+  });
+
+  it("a failed disable is visible even though the setting is already Off", async () => {
+    // The one report that says "the socket may still be serving" arrives
+    // exactly when the toggle reads Off — a setting-gated row would eat it.
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: false };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: "ipc failure" };
+    mount();
+    await settle();
+    expect(host.textContent).toContain("reported a problem");
+    expect(host.textContent).toContain("ipc failure");
   });
 
   it("a failed command fetch says so — the server IS serving", async () => {

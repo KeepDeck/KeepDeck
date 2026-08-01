@@ -103,6 +103,21 @@ describe("createMcpService", () => {
     expect(service.status().error).toContain("already served");
   });
 
+  it("a failed disable KEEPS the socket claim — nothing confirmed teardown", async () => {
+    const h = harness();
+    const service = createMcpService(h.settings, h.deps);
+    h.set(true);
+    await flush();
+    expect(service.status().socket).toBe("/home/mcp.sock");
+    h.disable.mockRejectedValueOnce(new Error("ipc failure"));
+    h.set(false);
+    await flush();
+    // Asserting "down" here would hide a socket that is almost certainly
+    // still serving — keep the confirmed claim and carry the error.
+    expect(service.status().socket).toBe("/home/mcp.sock");
+    expect(service.status().error).toContain("ipc failure");
+  });
+
   it("serves registry commands as the external mcp source, journaled", async () => {
     const h = harness();
     let seen: CommandSource | null = null;

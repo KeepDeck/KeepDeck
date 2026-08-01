@@ -12,15 +12,35 @@ import {
   createMcpServerPolicy,
   type McpServerPolicy,
   type McpSettingsPort,
+  type McpTransition,
   type McpTransportPort,
 } from "./mcpServerPolicy";
 
-/** What the app knows about the transport RIGHT NOW — as confirmed by the
- * backend, not as wished by the setting. `socket` is the served path while
- * the transport is actually up; `error` is why the last transition failed. */
+/** What the app knows about the transport as of the LAST SETTLED
+ * transition — confirmed by the backend, not wished by the setting, and
+ * not re-probed in between. `socket` is the served path the backend last
+ * confirmed; `error` is why the last transition failed — and after a
+ * failure the socket claim is KEPT, because nothing confirmed a change
+ * (a failed disable most likely leaves the socket serving). */
 export interface McpStatus {
   socket: string | null;
   error: string | null;
+}
+
+/** The status after one settled transition (see [`McpStatus`] for why a
+ * failure keeps the previous socket claim). */
+function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus {
+  if (!transition.ok) {
+    return { socket: previous.socket, error: transition.detail };
+  }
+  if (!transition.desired) {
+    return { socket: null, error: null };
+  }
+  return transition.detail !== null
+    ? { socket: transition.detail, error: null }
+    : // Defensive: mcp_enable's contract is a path string; a confirmation
+      // without one must degrade LOUDLY, not into a blank served-less On.
+      { socket: null, error: "the backend confirmed On without a socket path" };
 }
 
 export interface McpService {
@@ -94,14 +114,7 @@ export function createMcpService(
   void pump.ready.then(() => {
     if (disposed) return;
     policy = createMcpServerPolicy(settings, transport, (transition) => {
-      publish(
-        transition.ok
-          ? {
-              socket: transition.desired ? transition.detail : null,
-              error: null,
-            }
-          : { socket: null, error: transition.detail },
-      );
+      publish(statusAfter(current, transition));
     });
   });
 

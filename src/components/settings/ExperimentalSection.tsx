@@ -99,9 +99,12 @@ export function ExperimentalSection() {
         experimental.
       </span>
 
-      {mcpServer && mcpStatus.error !== null && (
+      {mcpStatus.error !== null && (
+        // Unconditional: a failed DISABLE happens exactly when the setting
+        // is already Off — gating on the setting would hide the one report
+        // that says the socket may still be serving.
         <span className="settings__hint">
-          The MCP server could not start: {mcpStatus.error}
+          The MCP transport reported a problem: {mcpStatus.error}
         </span>
       )}
 
