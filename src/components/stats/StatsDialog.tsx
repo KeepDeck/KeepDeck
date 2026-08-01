@@ -73,7 +73,8 @@ export function StatsDialog({
         <div className="stats-dialog__body">
           <UsageStats initialTab={initialTab} />
         </div>
-        <div className="confirm__actions">
+        <div className="confirm__actions stats-dialog__actions">
+          <StreakBadge />
           <button type="button" className="form__create" onClick={onClose} autoFocus>
             Done
           </button>
@@ -149,22 +150,19 @@ export function UsageStats({ initialTab }: { initialTab?: string }) {
           ))}
         </div>
       </div>
-      <div className="stats__tabrow">
-        <div className="stats__tabs" role="tablist" aria-label="Statistics sections">
-          {TABS.map((candidate) => (
-            <button
-              key={candidate.id}
-              type="button"
-              role="tab"
-              aria-selected={candidate.id === tab}
-              className={`stats__tab${candidate.id === tab ? " stats__tab--active" : ""}`}
-              onClick={() => setTab(candidate.id)}
-            >
-              {candidate.label}
-            </button>
-          ))}
-        </div>
-        <StreakBadge />
+      <div className="stats__tabs" role="tablist" aria-label="Statistics sections">
+        {TABS.map((candidate) => (
+          <button
+            key={candidate.id}
+            type="button"
+            role="tab"
+            aria-selected={candidate.id === tab}
+            className={`stats__tab${candidate.id === tab ? " stats__tab--active" : ""}`}
+            onClick={() => setTab(candidate.id)}
+          >
+            {candidate.label}
+          </button>
+        ))}
       </div>
 
       {!history.ready ? (

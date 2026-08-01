@@ -233,7 +233,7 @@ describe("UsageStats", () => {
     expect(earnedTip.textContent).toContain("Earned Jul 22, 2026");
   });
 
-  it("shows the live streak chip at the tab row's edge with its heat tier", () => {
+  it("shows the live streak chip in the footer corner with its heat tier", () => {
     const DAY = 24 * 60 * 60 * 1_000;
     history.snapshot = {
       ready: true,
@@ -242,10 +242,10 @@ describe("UsageStats", () => {
       ),
       error: null,
     };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(StatsDialog, { onClose: vi.fn() })));
 
-    const row = host.querySelector(".stats__tabrow")!;
-    const chip = row.querySelector(".stats__streak")!;
+    const footer = document.body.querySelector(".stats-dialog__actions")!;
+    const chip = footer.querySelector(".stats__streak")!;
     expect(chip.getAttribute("aria-label")).toBe("4-day streak");
     expect(chip.className).toContain("stats__streak--ember");
     expect(chip.querySelector(".stats__streak-flame")).not.toBeNull();
@@ -259,8 +259,8 @@ describe("UsageStats", () => {
       ],
       error: null,
     };
-    act(() => root.render(createElement(UsageStats)));
-    expect(host.querySelector(".stats__streak")).toBeNull();
+    act(() => root.render(createElement(StatsDialog, { onClose: vi.fn() })));
+    expect(document.body.querySelector(".stats__streak")).toBeNull();
   });
 
   it("opens directly on a deep-linked tab", () => {
