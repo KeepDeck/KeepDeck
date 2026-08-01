@@ -1,6 +1,7 @@
 import {
   asNonEmptyString,
   isJsonRecord,
+  statusSourceInstant,
   type AgentStatusEvent,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
@@ -30,7 +31,12 @@ export const normalizeClaudeStatus: StatusNormalizer = (
   at,
 ): AgentStatusEvent | null => {
   if (!isJsonRecord(payload)) return null;
-  if (payload.kind === "session.interrupt") return { kind: "interrupted", at };
+  if (payload.kind === "session.interrupt") {
+    // The marker's OWN time, not receipt: the tail polls, so receipt runs
+    // up to an interval late — stamped honestly, a marker that predates the
+    // next turn's start is droppable as stale.
+    return { kind: "interrupted", at: statusSourceInstant(payload, at) };
+  }
   if (!isJsonRecord(payload.event)) return null;
   const event = payload.event;
   switch (event.hook_event_name) {

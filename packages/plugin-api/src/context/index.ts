@@ -25,6 +25,7 @@ export type {
   StatusNormalizer,
   StatusWaitReason,
 } from "./status.ts";
+export { statusSourceInstant } from "./status.ts";
 export type {
   AccountUsage,
   AgentUsage,

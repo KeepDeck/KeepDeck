@@ -11,8 +11,9 @@ import type { AgentStatusEvent, StatusWaitReason } from "@keepdeck/plugin-api";
  * would resurrect next launch as a claim about a process that no longer
  * exists.
  *
- * Timestamps are receipt-time unix milliseconds; the UI ages them
- * (`formatAge`), the reducer never compares them.
+ * Timestamps are unix milliseconds — receipt time for hook edges, the
+ * marker's own source time for tail-recovered interrupts. The one compare
+ * lives in the `interrupted` case; everything else only displays them.
  */
 export type PaneActivity =
   /** A turn is running. `since` is when THIS running phase began — a wait
@@ -49,11 +50,22 @@ export function reduceActivity(
     case "turn-end":
       return { state: "done", at: event.at, interrupted: false };
     case "interrupted":
-      // An interrupt marker can trail the edge that already ended the turn
-      // (the transcript tailer is a second, slower channel): re-labelling a
-      // completed turn as interrupted would be false. It only ends a turn
-      // that still reads as in flight.
+      // An interrupt marker arrives on a second, slower channel (the
+      // transcript tailer polls), so it can trail the turn it aborted by
+      // seconds — two orderings must not corrupt the state it lands on:
+      // a marker after the edge that already ENDED its turn (re-labelling
+      // a completed turn would be false), and a marker after the NEXT
+      // turn's start — the hook lane is near-instant, so a user who Escs
+      // and re-prompts within the poll interval has a running turn the
+      // stale marker must not end. The marker carries its own source
+      // time; one that predates the current phase is the old turn's.
       if (current?.state === "done" || current?.state === "failed") {
+        return current;
+      }
+      if (
+        (current?.state === "working" || current?.state === "waiting") &&
+        event.at < current.since
+      ) {
         return current;
       }
       return { state: "done", at: event.at, interrupted: true };

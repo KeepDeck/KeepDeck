@@ -107,6 +107,10 @@ struct TailedEvent {
     payload: Value,
     source_at: Option<SourceTimestamp>,
     source_mtime_ms: Option<u64>,
+    /// From the session's ROOT file (false = a claude subagent transcript).
+    /// An interrupt marker is pane-level only when the ROOT turn was
+    /// aborted; a subagent's own abort must not relabel the pane.
+    root: bool,
 }
 
 /// Kimi's running per-tail token cumulative. Kimi writes only per-request
@@ -250,9 +254,12 @@ fn claude_event(line: &[u8]) -> Option<TailedEvent> {
             .and_then(Value::as_str)
             .map(|at| SourceTimestamp::Iso(at.to_string()));
         return Some(TailedEvent {
-            payload: json!({ "type": "session.interrupt" }),
+            // claude's marker exists only for the user's own Esc — the
+            // reason is fixed, spelled out for one wire shape with codex.
+            payload: json!({ "type": "session.interrupt", "reason": "interrupted" }),
             source_at,
             source_mtime_ms: None,
+            root: true,
         });
     }
     if kind != "assistant" {
@@ -294,6 +301,7 @@ fn claude_event(line: &[u8]) -> Option<TailedEvent> {
         }),
         source_at,
         source_mtime_ms: None,
+        root: true,
     })
 }
 
@@ -313,9 +321,14 @@ fn rollout_event(line: &[u8]) -> Option<TailedEvent> {
                 "token_count" => payload.clone(),
                 // codex pushes NO hook on a user interrupt; the rollout's
                 // `turn_aborted` record is the witness. The record TYPE is
-                // the marker (assistant text can't trip it), and the other
-                // abort reasons rightly count too — an aborted turn ended.
-                "turn_aborted" => json!({ "type": "session.interrupt" }),
+                // the marker (assistant text can't trip it). The reason
+                // rides along: only "interrupted" is the user's hand — the
+                // other aborts still END the turn, but labelling them
+                // "Interrupted" would claim an Esc nobody pressed.
+                "turn_aborted" => json!({
+                    "type": "session.interrupt",
+                    "reason": payload.get("reason").and_then(Value::as_str).unwrap_or("interrupted"),
+                }),
                 _ => return None,
             }
         }
@@ -330,6 +343,7 @@ fn rollout_event(line: &[u8]) -> Option<TailedEvent> {
         payload,
         source_at,
         source_mtime_ms: None,
+        root: true,
     })
 }
 
@@ -361,6 +375,7 @@ fn wire_event(line: &[u8]) -> Option<TailedEvent> {
         payload,
         source_at,
         source_mtime_ms: None,
+        root: true,
     })
 }
 
@@ -497,18 +512,29 @@ fn claude_subagent_paths(root: &std::path::Path) -> Vec<PathBuf> {
     paths
 }
 
-fn drain_all(state: &mut TailState) -> Vec<TailedEvent> {
-    let mut events = drain(state);
+/// Drain the root file and any subagent transcripts. The bool reports a
+/// ROOT rotation: the whole file was re-read from offset 0, so this batch is
+/// a REPLAY, not live appends — the deliverer must treat it as catch-up, or
+/// every historical interrupt marker in the file fires again as if fresh.
+fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, bool) {
+    let (mut events, rotated) = drain_file(&state.path, &mut state.root, state.format);
+    if rotated {
+        state.totals = SessionTotals::default();
+    }
     if state.format != TailFormat::Claude {
-        return events;
+        return (events, rotated);
     }
     let paths = claude_subagent_paths(&state.path);
     for path in paths {
         let cursor = state.subagents.entry(path.clone()).or_default();
-        let (mut appended, _) = drain_file(&path, cursor, TailFormat::Claude);
-        events.append(&mut appended);
+        let (appended, _) = drain_file(&path, cursor, TailFormat::Claude);
+        for mut event in appended {
+            // A subagent's abort is its own, never the pane's.
+            event.root = false;
+            events.push(event);
+        }
     }
-    events
+    (events, rotated)
 }
 
 /// The catch-up summary: of everything drained from an existing file, only
@@ -653,9 +679,19 @@ fn spawn_tailer(
                 }
                 let Ok(mut s) = state.lock() else { break };
                 let format = s.format;
-                for mut event in drain_all(&mut s) {
+                let (events, rotated) = drain_all(&mut s);
+                for mut event in events {
+                    // A subagent transcript's abort is the subagent's own
+                    // story: pane-level status reads only ROOT markers.
+                    if !event.root && event.payload["type"] == "session.interrupt" {
+                        continue;
+                    }
                     accumulate_session_totals(&mut s.totals, format, &mut event);
-                    deliver(report(&s, event, false));
+                    // A rotated tick re-read the WHOLE file: that is a
+                    // replay wearing the poller's clothes, and it must say
+                    // so — catch-up is what keeps a historical interrupt
+                    // from firing as if it just happened.
+                    deliver(report(&s, event, rotated));
                 }
             }
         })
@@ -698,17 +734,30 @@ pub fn usage_watch_session_file(
     let emitter = app.clone();
     let watcher = spawn_tailer(state.clone(), POLL_INTERVAL, move |payload| {
         // An interrupt marker is a STATUS edge, not usage — reroute it with
-        // the same correlation. Live appends only: the catch-up summary
-        // keeps declared usage kinds exclusively (`last_of_each`), so an
-        // old abort in the file can never relabel a fresh resume.
+        // the same correlation. Live appends only, twice over: the catch-up
+        // summary keeps declared usage kinds exclusively (`last_of_each`),
+        // and a rotated poll tick arrives marked catchUp — either way an old
+        // abort in the file can never relabel a fresh resume. Source time
+        // rides along so the tracker can drop a marker that predates the
+        // turn it would end.
         if payload.payload["event"]["type"] == "session.interrupt" {
+            if payload.payload["catchUp"] == true {
+                return;
+            }
+            let mut body = json!({
+                "agent": payload.payload["agent"],
+                "kind": "session.interrupt",
+                "reason": payload.payload["event"]["reason"],
+            });
+            for key in ["sourceAt", "sourceMtimeMs"] {
+                if !payload.payload[key].is_null() {
+                    body[key] = payload.payload[key].clone();
+                }
+            }
             let status = StatusReport {
                 pane_id: payload.pane_id.clone(),
                 token: payload.token.clone(),
-                payload: json!({
-                    "agent": payload.payload["agent"],
-                    "kind": "session.interrupt",
-                }),
+                payload: body,
             };
             log::debug!("usage tail: pane={} interrupt marker", status.pane_id);
             let _ = emitter.emit(AGENT_STATUS_EVENT, &status);
@@ -726,7 +775,7 @@ pub fn usage_watch_session_file(
         // Fold the WHOLE catch-up drain into the running cumulative in file
         // order BEFORE last_of_each collapses it — the surviving last
         // usage.record then carries the session total of everything before it.
-        let mut drained = drain_all(&mut s);
+        let (mut drained, _) = drain_all(&mut s);
         for event in &mut drained {
             accumulate_session_totals(&mut s.totals, format, event);
         }
@@ -991,7 +1040,7 @@ mod tests {
         let event = claude_event(claude_marker.as_bytes()).expect("interrupt");
         assert_eq!(
             event.payload,
-            serde_json::json!({ "type": "session.interrupt" })
+            serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })
         );
         assert_eq!(
             event.source_at,
@@ -1016,8 +1065,67 @@ mod tests {
         let event = rollout_event(codex_marker.as_bytes()).expect("interrupt");
         assert_eq!(
             event.payload,
-            serde_json::json!({ "type": "session.interrupt" })
+            serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })
         );
+        // Non-user aborts keep their reason — the turn ended, but nobody
+        // pressed Esc, and the label must be able to say so.
+        let budget_marker = r#"{"type":"event_msg","payload":{"type":"turn_aborted","reason":"budget_exceeded"}}"#;
+        let event = rollout_event(budget_marker.as_bytes()).expect("abort");
+        assert_eq!(event.payload["reason"], "budget_exceeded");
+    }
+
+    // A subagent transcript's interrupt marker must never become the PANE's
+    // interrupt: drain_all tags subagent events, and the poller drops the
+    // non-root markers before delivery.
+    #[test]
+    fn subagent_interrupts_are_tagged_off_root() {
+        let dir = temp_dir();
+        let path = dir.join("session-sub.jsonl");
+        fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
+        let subagents = dir.join("session-sub/subagents");
+        fs::create_dir_all(&subagents).unwrap();
+        fs::write(
+            subagents.join("agent-a.jsonl"),
+            "{\"type\":\"user\",\"interruptedMessageId\":\"msg-9\",\"message\":{\"role\":\"user\",\"content\":[]}}\n",
+        )
+        .unwrap();
+
+        let mut state = tail(path);
+        state.format = TailFormat::Claude;
+        let (drained, _) = drain_all(&mut state);
+        let interrupt = drained
+            .iter()
+            .find(|event| event.payload["type"] == "session.interrupt")
+            .expect("subagent marker drained");
+        assert!(!interrupt.root, "a subagent marker must not read as root");
+        assert!(
+            drained
+                .iter()
+                .filter(|event| event.payload["type"] != "session.interrupt")
+                .all(|event| event.root),
+            "root events keep their root tag"
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // A truncated/replaced session file re-reads from offset 0: that batch
+    // is a REPLAY and drain_all must say so, or every historical abort in
+    // the file would fire again as a live interrupt.
+    #[test]
+    fn a_rotated_root_drain_reports_itself_as_replay() {
+        let dir = temp_dir();
+        let path = dir.join("rollout-rot.jsonl");
+        fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
+        let mut state = tail(path.clone());
+        state.format = TailFormat::Claude;
+        let (_, rotated) = drain_all(&mut state);
+        assert!(!rotated, "first drain is a plain read");
+
+        // Replace the file with SHORTER content — len < offset.
+        fs::write(&path, "{}\n").unwrap();
+        let (_, rotated) = drain_all(&mut state);
+        assert!(rotated, "a shrunken file is a rotation, not appends");
+        fs::remove_dir_all(&dir).ok();
     }
 
     // An old abort in the file must never relabel a fresh resume: the
@@ -1028,6 +1136,7 @@ mod tests {
             payload: serde_json::json!({ "type": "session.interrupt" }),
             source_at: None,
             source_mtime_ms: None,
+            root: true,
         };
         let kept = last_of_each(
             vec![interrupt],
@@ -1330,7 +1439,7 @@ mod tests {
 
         let mut state = tail(path);
         state.format = TailFormat::Claude;
-        let mut drained = drain_all(&mut state);
+        let (mut drained, _) = drain_all(&mut state);
         assert_eq!(drained.len(), 2);
         assert!(
             drained
@@ -1359,7 +1468,7 @@ mod tests {
         fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
         let mut state = tail(path);
         state.format = TailFormat::Claude;
-        for mut event in drain_all(&mut state) {
+        for mut event in drain_all(&mut state).0 {
             accumulate_session_totals(&mut state.totals, TailFormat::Claude, &mut event);
         }
 
@@ -1370,11 +1479,11 @@ mod tests {
             .replace(r#""output_tokens":30"#, r#""output_tokens":5"#);
         fs::write(subagents.join("agent-late.jsonl"), format!("{subagent}\n")).unwrap();
 
-        let mut appended = drain_all(&mut state);
+        let (mut appended, _) = drain_all(&mut state);
         assert_eq!(appended.len(), 1);
         accumulate_session_totals(&mut state.totals, TailFormat::Claude, &mut appended[0]);
         assert_eq!(appended[0].payload["sessionTotals"]["output_tokens"], 35);
-        assert!(drain_all(&mut state).is_empty());
+        assert!(drain_all(&mut state).0.is_empty());
 
         fs::remove_dir_all(&dir).ok();
     }

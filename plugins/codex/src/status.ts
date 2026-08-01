@@ -1,5 +1,6 @@
 import {
   isJsonRecord,
+  statusSourceInstant,
   type AgentStatusEvent,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
@@ -13,14 +14,22 @@ import {
  * invisible to hooks (a known gap; only the rollout could tell). A user
  * interrupt pushes no hook either — that edge arrives from the host's
  * rollout tailer as `kind: "session.interrupt"` (marker = a record of TYPE
- * `turn_aborted`, so assistant text can't trip it).
+ * `turn_aborted`, so assistant text can't trip it), stamped with the
+ * marker's own time and carrying codex's abort reason: only "interrupted"
+ * is the user's hand, every other abort still ENDS the turn but labelling
+ * it "Interrupted" would claim an Esc nobody pressed.
  */
 export const normalizeCodexStatus: StatusNormalizer = (
   payload,
   at,
 ): AgentStatusEvent | null => {
   if (!isJsonRecord(payload)) return null;
-  if (payload.kind === "session.interrupt") return { kind: "interrupted", at };
+  if (payload.kind === "session.interrupt") {
+    const instant = statusSourceInstant(payload, at);
+    return payload.reason === "interrupted"
+      ? { kind: "interrupted", at: instant }
+      : { kind: "turn-end", at: instant };
+  }
   if (!isJsonRecord(payload.event)) return null;
   switch (payload.event.hook_event_name) {
     case "UserPromptSubmit":

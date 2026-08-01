@@ -58,3 +58,26 @@ export interface AgentStatus {
    * host tailer's interrupt markers — whatever its reporters emit). */
   normalize: StatusNormalizer;
 }
+
+/* ---- Authoring helpers ----------------------------------------------- */
+
+/** The instant a host-relayed payload names (`sourceAt` as an ISO string or
+ * unix milliseconds, `sourceMtimeMs` as the file-mtime fallback), or
+ * `fallback` when it names none. The transcript tailer's markers arrive up
+ * to a poll interval late — their HONEST time is the marker's own, and an
+ * edge stamped with it lets the host drop a marker that predates the turn
+ * it would end. */
+export function statusSourceInstant(
+  payload: Record<string, unknown>,
+  fallback: number,
+): number {
+  for (const key of ["sourceAt", "sourceMtimeMs"] as const) {
+    const value = payload[key];
+    const instant =
+      typeof value === "string" ? Date.parse(value) : (value as unknown);
+    if (typeof instant === "number" && Number.isFinite(instant) && instant > 0) {
+      return instant;
+    }
+  }
+  return fallback;
+}

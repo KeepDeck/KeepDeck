@@ -80,6 +80,28 @@ describe("reduceActivity", () => {
     );
   });
 
+  it("a stale interrupt never ends the NEXT turn", () => {
+    // The tail lane polls (seconds); the hook lane is near-instant. A user
+    // who Escs at T and re-prompts at T+800ms has a running turn when the
+    // T-stamped marker finally lands — it belongs to the PREVIOUS turn.
+    const next: PaneActivity = { state: "working", since: 800 };
+    expect(reduceActivity(next, { kind: "interrupted", at: 500 })).toBe(next);
+    const askedAgain: PaneActivity = {
+      state: "waiting",
+      since: 800,
+      reason: "permission",
+    };
+    expect(reduceActivity(askedAgain, { kind: "interrupted", at: 500 })).toBe(
+      askedAgain,
+    );
+    // A marker NEWER than the phase start is this turn's own abort.
+    expect(reduceActivity(next, { kind: "interrupted", at: 900 })).toEqual({
+      state: "done",
+      at: 900,
+      interrupted: true,
+    });
+  });
+
   it("an interrupt with no prior state still ends the turn", () => {
     expect(reduceActivity(null, { kind: "interrupted", at: 400 })).toEqual({
       state: "done",

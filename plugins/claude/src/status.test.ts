@@ -74,7 +74,24 @@ describe("normalizeClaudeStatus", () => {
     ).toBeNull();
   });
 
-  it("maps the tailer's interrupt marker", () => {
+  it("maps the tailer's interrupt marker at the marker's own time", () => {
+    expect(
+      normalizeClaudeStatus(
+        {
+          agent: "claude",
+          kind: "session.interrupt",
+          sourceAt: "2026-08-01T10:00:00Z",
+        },
+        500,
+      ),
+    ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-01T10:00:00Z") });
+    // The mtime fallback, then receipt time when the marker names nothing.
+    expect(
+      normalizeClaudeStatus(
+        { agent: "claude", kind: "session.interrupt", sourceMtimeMs: 1234 },
+        500,
+      ),
+    ).toEqual({ kind: "interrupted", at: 1234 });
     expect(
       normalizeClaudeStatus({ agent: "claude", kind: "session.interrupt" }, 500),
     ).toEqual({ kind: "interrupted", at: 500 });
