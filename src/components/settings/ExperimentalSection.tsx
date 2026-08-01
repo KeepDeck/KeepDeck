@@ -2,16 +2,9 @@ import { useEffect, useState } from "react";
 import { updateSettings } from "../../app/settingsManager";
 import { useMcpStatus } from "../../app/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
+import { shellLine } from "../../domain/mcp";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
-import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
-
-/** The {command,args} invocation as one copy-pasteable shell line — quoting
- * only what needs it, so the common spaceless path stays clean. */
-function shellLine({ command, args }: McpConnection): string {
-  const word = (w: string) =>
-    /[\s"'\\]/.test(w) ? `"${w.replace(/[\\"]/g, "\\$&")}"` : w;
-  return [command, ...args].map(word).join(" ");
-}
+import { mcpConnectionCommand } from "../../ipc/mcp";
 
 /**
  * Experimental features ([F6] → Experimental) — opt-in capabilities that ship

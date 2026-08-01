@@ -16,3 +16,4 @@ export {
   type McpCommandPort,
   type McpServerIdentity,
 } from "./protocol";
+export { shellLine } from "./shellLine";

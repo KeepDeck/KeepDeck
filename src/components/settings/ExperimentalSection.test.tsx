@@ -21,7 +21,10 @@ vi.mock("../../app/useMcpStatus", () => ({
 }));
 const mcpIpc = vi.hoisted(() => ({
   mcpConnectionCommand: vi.fn(() =>
-    Promise.resolve({ command: "/Applications/KeepDeck", args: ["--mcp-shim"] }),
+    Promise.resolve({
+      command: "/Applications/KeepDeck",
+      args: ["--mcp-shim", "/Users/u/.config/keepdeck/mcp/mcp.sock"],
+    }),
   ),
 }));
 vi.mock("../../ipc/mcp", () => mcpIpc);
@@ -99,7 +102,9 @@ describe("ExperimentalSection", () => {
     mount();
     await settle();
     const input = connectInput();
-    expect(input?.value).toBe("/Applications/KeepDeck --mcp-shim");
+    expect(input?.value).toBe(
+      "/Applications/KeepDeck --mcp-shim /Users/u/.config/keepdeck/mcp/mcp.sock",
+    );
     expect(input?.readOnly).toBe(true);
   });
 

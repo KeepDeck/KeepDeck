@@ -46,8 +46,10 @@ pub fn mcp_respond(bridge: State<McpBridge>, id: u64, reply: String) {
 /// The stdio invocation an MCP client spawns to reach the deck — command
 /// and args SEPARATELY, because that is the shape client configs take (a
 /// concatenated string breaks the moment the install path holds a space).
-/// It names THIS binary: the shim rides the app executable (mcp_shim.rs),
-/// so the command is valid per install, wherever it lives.
+/// It names THIS binary and THIS socket explicitly: the shim has a
+/// default-path fallback, but that resolves from the CLIENT's environment —
+/// a shell that sets XDG_CONFIG_HOME (or KEEPDECK_HOME) would derive a
+/// different home than the Finder-launched app and connect to nothing.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpConnection {
@@ -60,6 +62,6 @@ pub fn mcp_connection_command(app: tauri::AppHandle) -> Result<McpConnection, St
     let binary = tauri::process::current_binary(&app.env()).map_err(|e| e.to_string())?;
     Ok(McpConnection {
         command: binary.display().to_string(),
-        args: vec![SHIM_FLAG.to_string()],
+        args: vec![SHIM_FLAG.to_string(), socket_path()?.display().to_string()],
     })
 }
