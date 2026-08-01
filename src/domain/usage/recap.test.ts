@@ -40,6 +40,22 @@ describe("usageRecap", () => {
     expect(recap.tokensDeltaPct).toBe(100);
   });
 
+  it("never counts a boundary-instant event in both comparison windows", () => {
+    const boundary = NOW - 7 * DAY;
+    const recap = usageRecap(
+      [
+        event({ tokens: { input: 300 } }),
+        event({ occurredAt: boundary, tokens: { input: 100 } }),
+        event({ occurredAt: boundary - 1_000, tokens: { input: 100 } }),
+      ],
+      7,
+      NOW,
+    );
+    // Boundary event belongs to the CURRENT window only: current = 400,
+    // prior = 100 → +300%. Double-counting would have yielded +100%.
+    expect(recap.tokensDeltaPct).toBe(300);
+  });
+
   it("declines the delta without a predecessor: empty prior window or all-time", () => {
     const events = [event({ tokens: { input: 300 } })];
     expect(usageRecap(events, 7, NOW).tokensDeltaPct).toBeNull();

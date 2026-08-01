@@ -46,7 +46,9 @@ function tokensDeltaPct(
   current: UsageStats,
 ): number | null {
   if (period === "all") return null;
-  const prior = queryUsageStats(events, period, now - period * DAY_MS);
+  // Both period bounds are inclusive, so the prior window ends one instant
+  // BEFORE the current one opens — a boundary event must not count twice.
+  const prior = queryUsageStats(events, period, now - period * DAY_MS - 1);
   if (prior.totals.totalTokens <= 0) return null;
   return Math.round(
     ((current.totals.totalTokens - prior.totals.totalTokens) /
