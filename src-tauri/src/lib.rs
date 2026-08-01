@@ -12,6 +12,7 @@ mod head_watch;
 mod kimi_usage;
 mod links;
 mod logging;
+mod mcp_bridge;
 mod mcp_server;
 mod menu;
 mod migration;
@@ -100,6 +101,7 @@ pub fn run() {
         .manage(app_updater::AppUpdaterState::default())
         .manage(voice::VoiceState::default())
         .manage(mcp_server::McpServer::default())
+        .manage(mcp_bridge::McpBridge::default())
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();
@@ -147,6 +149,7 @@ pub fn run() {
             links::open_path_with,
             mcp_server::mcp_enable,
             mcp_server::mcp_disable,
+            mcp_bridge::mcp_respond,
             session::session_spawn,
             session::session_write,
             session::session_resize,

@@ -187,31 +187,10 @@ fn socket_path() -> Result<PathBuf, String> {
         .ok_or_else(|| "no home directory to hold the MCP socket".to_string())
 }
 
-/// Until the webview bridge lands, every request is answered with a JSON-RPC
-/// error — an honest "not wired" beats silence, and echoing the caller's id
-/// lets a conforming client correlate the refusal.
-fn placeholder_handler() -> LineHandler {
-    Arc::new(|line: &str| {
-        let id = serde_json::from_str::<serde_json::Value>(line)
-            .ok()
-            .and_then(|v| v.get("id").cloned())
-            .unwrap_or(serde_json::Value::Null);
-        serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": {
-                "code": -32603,
-                "message": "KeepDeck's MCP bridge is not connected yet",
-            },
-        })
-        .to_string()
-    })
-}
-
 #[tauri::command(async)]
-pub fn mcp_enable(server: State<McpServer>) -> Result<String, String> {
+pub fn mcp_enable(app: tauri::AppHandle, server: State<McpServer>) -> Result<String, String> {
     let path = socket_path()?;
-    let served = server.enable(&path, placeholder_handler())?;
+    let served = server.enable(&path, crate::mcp_bridge::webview_handler(app))?;
     log::info!("mcp: socket up at {}", served.display());
     Ok(served.display().to_string())
 }
@@ -323,11 +302,4 @@ mod tests {
         server.disable();
     }
 
-    #[test]
-    fn placeholder_reply_echoes_the_request_id() {
-        let reply = placeholder_handler()(r#"{"jsonrpc":"2.0","id":7,"method":"tools/list"}"#);
-        let parsed: serde_json::Value = serde_json::from_str(&reply).expect("json");
-        assert_eq!(parsed["id"], 7);
-        assert_eq!(parsed["error"]["code"], -32603);
-    }
 }

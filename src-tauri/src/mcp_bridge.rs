@@ -1,0 +1,184 @@
+//! The socket→webview bridge: MCP requests cross into the webview, where the
+//! command registry lives, and the reply crosses back.
+//!
+//! Why the round-trip: the registry — the deck's single point of command
+//! execution — is TypeScript in the webview. Executing in Rust would mean a
+//! second command surface; forwarding keeps one executor, one validation,
+//! one journal. Each socket line becomes one `deck://mcp/request` event; the
+//! per-connection thread parks on a rendezvous channel under a correlation
+//! id until the webview answers via `mcp_respond`. A webview that cannot
+//! answer (closed, reloading, wedged) turns into a bounded JSON-RPC error
+//! instead of a hang.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, State};
+
+use crate::mcp_server::LineHandler;
+
+/// Mirrored by `MCP_REQUEST_EVENT` in src/ipc/mcpBridge.ts.
+pub const MCP_REQUEST_EVENT: &str = "deck://mcp/request";
+
+/// How long a request may wait for the webview. Commands are interactive
+/// scale (the slowest, agent.spawn, returns at pane creation, not task
+/// delivery), so silence beyond this bound means the webview is gone or
+/// wedged — the client then gets an error it can act on, not a dead wait.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct McpRequest {
+    id: u64,
+    line: String,
+}
+
+/// Managed state: replies in flight, keyed by correlation id.
+#[derive(Default)]
+pub struct McpBridge {
+    next: AtomicU64,
+    pending: Mutex<HashMap<u64, SyncSender<String>>>,
+}
+
+impl McpBridge {
+    /// Park a fresh request slot; the returned receiver rendezvouses with
+    /// [`resolve`](Self::resolve).
+    fn begin(&self) -> (u64, Receiver<String>) {
+        let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        self.pending
+            .lock()
+            .expect("mcp bridge poisoned")
+            .insert(id, tx);
+        (id, rx)
+    }
+
+    /// Deliver the webview's reply. False when the slot is gone — the
+    /// request already timed out and answered its client, so a late reply
+    /// is dropped rather than delivered twice.
+    fn resolve(&self, id: u64, reply: String) -> bool {
+        let sender = self
+            .pending
+            .lock()
+            .expect("mcp bridge poisoned")
+            .remove(&id);
+        match sender {
+            Some(tx) => tx.send(reply).is_ok(),
+            None => false,
+        }
+    }
+
+    fn abandon(&self, id: u64) {
+        self.pending.lock().expect("mcp bridge poisoned").remove(&id);
+    }
+}
+
+/// A JSON-RPC error reply that echoes the request's id when the line parses
+/// — a conforming client correlates by id; garbage gets id null.
+pub fn error_reply(request_line: &str, code: i64, message: &str) -> String {
+    let id = serde_json::from_str::<serde_json::Value>(request_line)
+        .ok()
+        .and_then(|v| v.get("id").cloned())
+        .unwrap_or(serde_json::Value::Null);
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": code, "message": message },
+    })
+    .to_string()
+}
+
+/// The [`LineHandler`] `mcp_enable` wires: one socket line in, one webview
+/// event out, one parked wait for the answer.
+pub fn webview_handler(app: AppHandle) -> LineHandler {
+    Arc::new(move |line: &str| {
+        let bridge = app.state::<McpBridge>();
+        let (id, reply) = bridge.begin();
+        let request = McpRequest {
+            id,
+            line: line.to_string(),
+        };
+        if let Err(e) = app.emit(MCP_REQUEST_EVENT, &request) {
+            bridge.abandon(id);
+            log::warn!("mcp: emitting request {id} failed: {e}");
+            return error_reply(line, -32603, "the deck could not receive the request");
+        }
+        match reply.recv_timeout(REPLY_TIMEOUT) {
+            Ok(reply) => reply,
+            Err(_) => {
+                bridge.abandon(id);
+                error_reply(
+                    line,
+                    -32603,
+                    "the deck did not answer (webview closed or busy)",
+                )
+            }
+        }
+    })
+}
+
+#[tauri::command]
+pub fn mcp_respond(bridge: State<McpBridge>, id: u64, reply: String) {
+    if !bridge.resolve(id, reply) {
+        log::debug!("mcp: reply {id} arrived after its request was abandoned");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_delivers_to_the_parked_receiver() {
+        let bridge = McpBridge::default();
+        let (id, rx) = bridge.begin();
+        assert!(bridge.resolve(id, "reply".into()));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), "reply");
+    }
+
+    #[test]
+    fn ids_are_distinct_per_request() {
+        let bridge = McpBridge::default();
+        let (a, _rx_a) = bridge.begin();
+        let (b, _rx_b) = bridge.begin();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn resolve_after_abandon_reports_the_drop() {
+        let bridge = McpBridge::default();
+        let (id, rx) = bridge.begin();
+        bridge.abandon(id);
+        assert!(!bridge.resolve(id, "late".into()));
+        assert!(rx.recv_timeout(Duration::from_millis(10)).is_err());
+    }
+
+    #[test]
+    fn resolve_of_an_unknown_id_is_refused() {
+        let bridge = McpBridge::default();
+        assert!(!bridge.resolve(42, "ghost".into()));
+    }
+
+    #[test]
+    fn error_reply_echoes_the_request_id() {
+        let reply = error_reply(r#"{"jsonrpc":"2.0","id":7,"method":"x"}"#, -32603, "down");
+        let parsed: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(parsed["id"], 7);
+        assert_eq!(parsed["error"]["code"], -32603);
+
+        let string_id = error_reply(r#"{"id":"abc"}"#, -32603, "down");
+        let parsed: serde_json::Value = serde_json::from_str(&string_id).unwrap();
+        assert_eq!(parsed["id"], "abc");
+    }
+
+    #[test]
+    fn error_reply_for_garbage_gets_a_null_id() {
+        let reply = error_reply("not json at all", -32700, "parse");
+        let parsed: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert!(parsed["id"].is_null());
+    }
+}
