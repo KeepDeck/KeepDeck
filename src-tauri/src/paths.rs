@@ -42,11 +42,18 @@ pub fn logs_dir() -> Option<PathBuf> {
     keepdeck_home().map(|home| home.join("logs"))
 }
 
-/// The MCP transport's unix socket: `<keepdeck_home>/mcp.sock`. The ONE home
-/// of this location — the server binds it and the shim connects to it, and
-/// the two must never derive it independently.
+/// The MCP transport's unix socket: `<keepdeck_home>/mcp/mcp.sock`. The ONE
+/// home of this location — the server binds it and the shim connects to it,
+/// and the two must never derive it independently.
+///
+/// The `mcp/` directory is the transport's PERMISSION MODEL: the server
+/// forces it to 0700, and connecting to a unix socket requires traversal of
+/// every path component — so no other user reaches the socket regardless of
+/// the mode bind(2) gave the file itself. That closes the bind-to-chmod
+/// window at the filesystem, where a chmod-after-bind (or a staged rename,
+/// which moves the name but not the inode's mode) provably cannot.
 pub fn mcp_socket() -> Option<PathBuf> {
-    keepdeck_home().map(|home| home.join("mcp.sock"))
+    keepdeck_home().map(|home| home.join("mcp").join("mcp.sock"))
 }
 
 /// An explicit `$KEEPDECK_HOME` IS the home; otherwise `dir` goes under

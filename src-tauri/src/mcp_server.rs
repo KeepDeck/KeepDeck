@@ -92,24 +92,26 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
         }
         std::fs::remove_file(path).map_err(|e| e.to_string())?;
     }
+    // The PARENT DIRECTORY is the permission model (see paths::mcp_socket):
+    // forced to 0700 before the socket exists, it makes the file unreachable
+    // by other users no matter what mode bind(2) creates it with — there is
+    // no bind-to-chmod window to race, because traversal is denied at the
+    // directory. Enforced on every start, not just creation: a loosened
+    // leftover directory must not silently weaken the model.
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
     }
-    // The file IS the permission model — any process that can open it can
-    // drive the deck. bind(2) creates it with umask-derived permissions, so
-    // under a permissive umask there would be a window between bind and
-    // chmod where anyone may connect. Bind under a private name instead,
-    // tighten, then rename into place: the public name only ever exists at
-    // 0600 (renaming a bound socket moves the name, not the binding).
-    let staging = path.with_file_name(format!(".mcp.sock.{}", std::process::id()));
-    let _ = std::fs::remove_file(&staging);
-    let listener = UnixListener::bind(&staging).map_err(|e| e.to_string())?;
-    let armed = std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o600))
-        .and_then(|()| std::fs::rename(&staging, path));
-    if let Err(e) = armed {
-        let _ = std::fs::remove_file(&staging);
-        return Err(e.to_string());
-    }
+    // A DIRECT bind, deliberately: it fails with EADDRINUSE if another
+    // process bound the name between our liveness probe and here — the
+    // kernel enforces "refuse rather than steal" against a concurrent
+    // instance, a guarantee a rename-into-place provably destroys (rename
+    // replaces a live socket's name and orphans its listener).
+    let listener = UnixListener::bind(path).map_err(|e| e.to_string())?;
+    // Depth in defense only — the directory already gates access.
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| e.to_string())?;
 
     // The teardown wake channel (see `Running::wake`).
     let (wake_rx, wake_tx) = UnixStream::pair().map_err(|e| e.to_string())?;
@@ -280,7 +282,27 @@ mod tests {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600);
+        // The directory is the load-bearing permission: 0700 even if it
+        // pre-existed looser (start_at enforces, not just creates).
+        let dir_mode = std::fs::metadata(path.parent().expect("parent"))
+            .expect("dir metadata")
+            .permissions()
+            .mode();
+        assert_eq!(dir_mode & 0o777, 0o700);
         assert_eq!(roundtrip(&path, "hello"), "HELLO");
+        stop(running);
+    }
+
+    #[test]
+    fn a_loosened_leftover_directory_is_retightened() {
+        let path = temp_sock();
+        let parent = path.parent().expect("parent").to_path_buf();
+        std::fs::create_dir_all(&parent).expect("pre-create");
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755))
+            .expect("loosen");
+        let running = start_at(&path, upper()).expect("start");
+        let mode = std::fs::metadata(&parent).expect("meta").permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
         stop(running);
     }
 
