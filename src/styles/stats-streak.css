@@ -9,7 +9,7 @@
   padding: 5px 12px;
   border: 1px solid #1c2230;
   border-radius: 999px;
-  background: #0b0e14;
+  background: var(--kd-bg);
   color: #9aa3af;
   font-size: 12px;
   line-height: 1;

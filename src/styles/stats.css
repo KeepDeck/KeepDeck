@@ -51,7 +51,7 @@
   padding: 2px;
   border: 1px solid #1c2230;
   border-radius: 7px;
-  background: #0b0e14;
+  background: var(--kd-bg);
 }
 
 .stats__period button {
@@ -120,7 +120,7 @@
 
 .stats__tab--active {
   color: #c5c8c6;
-  border-bottom-color: #58b368;
+  border-bottom-color: var(--kd-ok);
 }
 
 .stats__empty {
@@ -152,7 +152,7 @@
   padding: 10px 12px;
   border: 1px solid #1c2230;
   border-radius: 8px;
-  background: #0b0e14;
+  background: var(--kd-bg);
 }
 
 .stats__card span {
