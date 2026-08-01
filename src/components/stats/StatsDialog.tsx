@@ -26,6 +26,7 @@ import {
   achievementProgress,
   achievementRequirement,
   earnedAchievements,
+  lockedAchievements,
   nextAchievements,
   usageAchievementLadders,
   type UsageAchievement,
@@ -346,61 +347,70 @@ function providerRowKey(row: ProviderWindowRow): string {
   );
 }
 
-/** The achievements tab, Steam-style: the trophy case of earned badges
- * (freshest first) above, the still-earnable goals below — one next goal
- * per ladder with progress; distant tiers stay hidden until the previous
- * one is won. */
+/** The achievements tab in three sections: the goals being walked toward
+ * (one per ladder, with progress) first — they are the pull; the trophy
+ * case of earned badges (freshest first); and the locked tail — every tier
+ * still ahead, visible but inert until its predecessor is won. */
 function Achievements({ events }: { events: readonly UsageEventV2[] }) {
   const ladders = usageAchievementLadders(events);
+  const inProgress = nextAchievements(ladders);
   const earned = earnedAchievements(ladders);
-  const upNext = nextAchievements(ladders);
+  const locked = lockedAchievements(ladders);
   return (
     <>
-      <section className="stats__section">
-        <h3>Earned</h3>
-        {earned.length === 0 ? (
-          <p className="stats__empty">
-            Nothing earned yet — the goals below are waiting.
-          </p>
-        ) : (
-          <div className="stats__achievements">
-            {earned.map((item) => (
-              <AchievementCard key={item.id} item={item} />
-            ))}
-          </div>
-        )}
-      </section>
-      {upNext.length > 0 && (
-        <section className="stats__section">
-          <h3>Up next</h3>
-          <div className="stats__achievements">
-            {upNext.map((item) => (
-              <AchievementCard key={item.id} item={item} />
-            ))}
-          </div>
-        </section>
-      )}
+      <AchievementSection title="In progress" items={inProgress} />
+      <AchievementSection title="Earned" items={earned} />
+      <AchievementSection title="Locked" items={locked} future />
     </>
   );
 }
 
-function AchievementCard({ item }: { item: UsageAchievement }) {
+function AchievementSection({
+  title,
+  items,
+  future,
+}: {
+  title: string;
+  items: UsageAchievement[];
+  future?: boolean;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <section className="stats__section">
+      <h3>{title}</h3>
+      <div className="stats__achievements">
+        {items.map((item) => (
+          <AchievementCard key={item.id} item={item} future={future === true} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AchievementCard({
+  item,
+  future,
+}: {
+  item: UsageAchievement;
+  future: boolean;
+}) {
+  const locked = item.achievedAt === null;
   return (
     <article
       className={`stats__achievement${
-        item.achievedAt === null ? " stats__achievement--locked" : ""
-      }`}
+        locked ? " stats__achievement--locked" : ""
+      }${future ? " stats__achievement--future" : ""}`}
     >
       <span className="stats__achievement-icon" aria-hidden>
         {item.icon}
       </span>
       <b>{item.title}</b>
       <small>{achievementRequirement(item)}</small>
-      {item.achievedAt !== null ? (
+      {!locked ? (
         <small className="stats__achievement-earned">
-          earned {formatUtcDay(item.achievedAt, true)}
+          earned {formatUtcDay(item.achievedAt ?? 0, true)}
         </small>
-      ) : (
+      ) : future ? null : (
         <>
           <span className="stats__achievement-progress" aria-hidden>
             <i
@@ -412,8 +422,30 @@ function AchievementCard({ item }: { item: UsageAchievement }) {
           <small>{achievementProgress(item)}</small>
         </>
       )}
+      <span className="stats__achievement-tip" role="tooltip">
+        <b>
+          {item.icon} {item.title}
+        </b>
+        <span>{achievementRequirement(item)}</span>
+        <span>{achievementTipStatus(item)}</span>
+      </span>
     </article>
   );
+}
+
+/** The hover tooltip's status line — exact numbers, not the card's compact
+ * abbreviations. */
+function achievementTipStatus(item: UsageAchievement): string {
+  if (item.achievedAt !== null) {
+    return `Earned ${formatUtcDay(item.achievedAt, true)}`;
+  }
+  const pct = Math.min(100, Math.floor((item.progress / item.threshold) * 100));
+  const exact = (value: number) => Math.floor(value).toLocaleString("en-US");
+  const money = item.metric === "spendUsd" || item.metric === "sessionSpendUsd";
+  const pair = money
+    ? `$${item.progress.toFixed(2)} of $${item.threshold.toLocaleString("en-US")}`
+    : `${exact(item.progress)} of ${exact(item.threshold)}`;
+  return `${pair} — ${pct}%`;
 }
 
 /** The period's numbers with their context — movement against the prior

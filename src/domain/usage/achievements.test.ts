@@ -3,6 +3,7 @@ import {
   achievementProgress,
   achievementRequirement,
   earnedAchievements,
+  lockedAchievements,
   nextAchievements,
   usageAchievementLadders,
   type UsageAchievementLadder,
@@ -119,15 +120,54 @@ describe("usageAchievementLadders", () => {
     expect(models[0]).toMatchObject({ title: "Curious", achievedAt: NOW - 800 });
   });
 
+  it("counts one-session and one-day extremes: turns, span, spend, providers", () => {
+    const sessionEvents = Array.from({ length: 100 }, (_, index) =>
+      event({ occurredAt: NOW - 9 * 60 * 60 * 1_000 + index * 60_000 }),
+    );
+    const ladders = usageAchievementLadders([
+      ...sessionEvents,
+      event({ agent: "claude", occurredAt: NOW - 400 }),
+      event({ agent: "kimi", occurredAt: NOW - 300 }),
+      event({ agent: "opencode", occurredAt: NOW - 200 }),
+    ]);
+    // 100 turns in one session, spanning 99 minutes — turns earned, span not.
+    expect(ladder(ladders, "sessionTurns").tiers[0].achievedAt).not.toBeNull();
+    expect(ladder(ladders, "sessionHours").tiers[0]).toMatchObject({
+      achievedAt: null,
+    });
+    // codex + claude + kimi + opencode within the same UTC day → Full House.
+    expect(ladder(ladders, "dayProviders").tiers[0]).toMatchObject({
+      title: "Full House",
+      achievedAt: NOW - 200,
+    });
+  });
+
+  it("sums output and cache-read tokens on their own ladders", () => {
+    const ladders = usageAchievementLadders([
+      event({ tokens: { input: 10, output: 1_500_000, cacheRead: 200_000_000 } }),
+    ]);
+    expect(ladder(ladders, "outputTokens").tiers[0]).toMatchObject({
+      title: "Prolific",
+      achievedAt: NOW - 1_000,
+    });
+    expect(ladder(ladders, "cacheTokens").tiers[0]).toMatchObject({
+      title: "Warm Cache",
+      achievedAt: NOW - 1_000,
+    });
+  });
+
   it("keeps every ladder locked at zero on an empty ledger", () => {
     const ladders = usageAchievementLadders([]);
-    expect(ladders).toHaveLength(7);
+    expect(ladders).toHaveLength(16);
     expect(earnedAchievements(ladders)).toEqual([]);
     for (const entry of ladders) {
       expect(entry.tiers.every((tier) => tier.achievedAt === null)).toBe(true);
     }
-    // Every ladder still offers its first goal.
-    expect(nextAchievements(ladders)).toHaveLength(7);
+    // Every ladder still offers its first goal; nothing is earned, so the
+    // locked tail is everything beyond those first goals.
+    expect(nextAchievements(ladders)).toHaveLength(16);
+    const total = ladders.reduce((sum, entry) => sum + entry.tiers.length, 0);
+    expect(lockedAchievements(ladders)).toHaveLength(total - 16);
   });
 });
 
@@ -162,6 +202,25 @@ describe("earned and next views", () => {
     expect(
       nextAchievements(ladders).find((tier) => tier.metric === "tokens"),
     ).toBeUndefined();
+    expect(
+      lockedAchievements(ladders).find((tier) => tier.metric === "tokens"),
+    ).toBeUndefined();
+  });
+
+  it("locks every tier beyond the in-progress goal, in order", () => {
+    const ladders = usageAchievementLadders([
+      event({ tokens: { input: 15_000_000 } }),
+    ]);
+    const lockedTokens = lockedAchievements(ladders)
+      .filter((tier) => tier.metric === "tokens")
+      .map((tier) => tier.title);
+    // 1M and 10M earned, 100M in progress → the rest are the locked tail.
+    expect(lockedTokens).toEqual([
+      "Billion Club",
+      "Token Tycoon",
+      "Galactic Scale",
+      "Trillionaire",
+    ]);
   });
 });
 

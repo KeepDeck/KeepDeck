@@ -173,7 +173,7 @@ describe("UsageStats", () => {
     expect(card.querySelectorAll(".usage-bar")).toHaveLength(2);
   });
 
-  it("splits the achievements tab into Earned and Up next, hiding distant tiers", () => {
+  it("splits the achievements tab into In progress, Earned and Locked", () => {
     history.snapshot = {
       ready: true,
       events: [
@@ -185,33 +185,59 @@ describe("UsageStats", () => {
     clickTab("Achievements");
 
     const sections = [...host.querySelectorAll(".stats__section")];
-    const earned = sections.find(
-      (section) => section.querySelector("h3")?.textContent === "Earned",
-    )!;
-    const upNext = sections.find(
-      (section) => section.querySelector("h3")?.textContent === "Up next",
-    )!;
+    const byTitle = (title: string) =>
+      sections.find(
+        (section) => section.querySelector("h3")?.textContent === title,
+      )!;
+    const inProgress = byTitle("In progress");
+    const earned = byTitle("Earned");
+    const locked = byTitle("Locked");
+
+    // The sections appear in that order — in-progress goals lead.
+    expect(sections.indexOf(inProgress)).toBeLessThan(sections.indexOf(earned));
+    expect(sections.indexOf(earned)).toBeLessThan(sections.indexOf(locked));
 
     expect(earned.textContent).toContain("First Million");
     expect(earned.textContent).toContain("earned Jul 22, 2026");
     expect(earned.textContent).toContain("Hello, Agent");
 
-    // One next goal per ladder, with progress…
-    expect(upNext.textContent).toContain("Picking Up Steam");
-    expect(upNext.textContent).toContain("2M / 10M");
-    expect(upNext.textContent).toContain("First Dollar");
-    expect(upNext.textContent).toContain("$0.25 / $1");
-    expect(upNext.textContent).toContain("Hat-Trick");
-    // …and the tiers beyond stay hidden until the previous one is won.
-    expect(host.textContent).not.toContain("Heavy Rotation");
-    expect(host.textContent).not.toContain("Trillionaire");
+    // One goal per ladder, with progress…
+    expect(inProgress.textContent).toContain("Picking Up Steam");
+    expect(inProgress.textContent).toContain("2M / 10M");
+    expect(inProgress.textContent).toContain("First Dollar");
+    expect(inProgress.textContent).toContain("$0.25 / $1");
+    // …while the tiers beyond it are visible but inert: present in Locked,
+    // without a progress bar.
+    expect(locked.textContent).toContain("Heavy Rotation");
+    expect(locked.textContent).toContain("Trillionaire");
+    expect(locked.querySelector(".stats__achievement-progress")).toBeNull();
+    expect(
+      locked.querySelector(".stats__achievement--future"),
+    ).not.toBeNull();
+  });
+
+  it("carries a hover tooltip with exact numbers on every card", () => {
+    history.snapshot = {
+      ready: true,
+      events: [usageEvent({ tokens: { input: 2_000_000 } })],
+      error: null,
+    };
+    act(() => root.render(createElement(UsageStats)));
+    clickTab("Achievements");
+
+    const tips = [...host.querySelectorAll('[role="tooltip"]')];
+    expect(tips.length).toBeGreaterThan(0);
+    const steam = tips.find((tip) => tip.textContent?.includes("Picking Up Steam"))!;
+    expect(steam.textContent).toContain("2,000,000 of 10,000,000 — 20%");
+    const earnedTip = tips.find((tip) => tip.textContent?.includes("First Million"))!;
+    expect(earnedTip.textContent).toContain("Earned Jul 22, 2026");
   });
 
   it("opens directly on a deep-linked tab", () => {
     act(() =>
       root.render(createElement(UsageStats, { initialTab: "achievements" })),
     );
-    expect(host.textContent).toContain("Up next");
+    expect(host.textContent).toContain("In progress");
     expect(host.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toBe(
       "Achievements",
     );

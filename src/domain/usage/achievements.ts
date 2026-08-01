@@ -7,26 +7,35 @@ import {
 } from "./history";
 
 /**
- * Achievements — cumulative ladders recomputed from the never-pruned
- * ledger. Crossing instants are derivable on every run, so nothing needs
- * persisting: the ledger IS the trophy cabinet.
+ * Achievements — cumulative ladders and one-off badges (a one-off is simply
+ * a single-tier ladder), recomputed from the never-pruned ledger. Crossing
+ * instants are derivable on every run, so nothing needs persisting: the
+ * ledger IS the trophy cabinet.
  *
- * Presentation contract (the user's rule): within a ladder, earned tiers
- * show as earned, exactly ONE next tier shows with progress, and the tiers
- * beyond it stay hidden until the previous one is won — a single next goal,
- * not a wall of distant ones. The domain returns full ladders;
- * [`visibleTiers`] applies that rule.
+ * Presentation contract (the user's rule): a ladder exposes its earned
+ * tiers, ONE in-progress goal (the first locked tier), and the rest as
+ * visibly locked future tiers — [`earnedAchievements`],
+ * [`nextAchievements`] and [`lockedAchievements`] are those three views.
  */
 
 /** What a ladder counts. Determines both the metric and the captions. */
 export type AchievementMetric =
   | "tokens"
+  | "outputTokens"
+  | "cacheTokens"
   | "sessions"
   | "spendUsd"
   | "dayTokens"
+  | "daySessions"
+  | "dayProviders"
+  | "sessionTokens"
+  | "sessionTurns"
+  | "sessionHours"
+  | "sessionSpendUsd"
   | "streakDays"
   | "providers"
-  | "models";
+  | "models"
+  | "workspaces";
 
 export interface UsageAchievement {
   id: string;
@@ -66,6 +75,23 @@ const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
     ],
   },
   {
+    metric: "outputTokens",
+    tiers: [
+      { threshold: 1e6, title: "Prolific", icon: "✍️" },
+      { threshold: 1e7, title: "Author", icon: "📝" },
+      { threshold: 1e8, title: "Novelist", icon: "📚" },
+      { threshold: 1e9, title: "Printing Press", icon: "🖨️" },
+    ],
+  },
+  {
+    metric: "cacheTokens",
+    tiers: [
+      { threshold: 1e8, title: "Warm Cache", icon: "💾" },
+      { threshold: 1e9, title: "Total Recall", icon: "🧠" },
+      { threshold: 1e10, title: "Cache Money", icon: "🏛️" },
+    ],
+  },
+  {
     metric: "sessions",
     tiers: [
       { threshold: 1, title: "Hello, Agent", icon: "🤝" },
@@ -96,6 +122,42 @@ const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
     ],
   },
   {
+    metric: "daySessions",
+    tiers: [
+      { threshold: 5, title: "Juggler", icon: "🤹" },
+      { threshold: 15, title: "Ringmaster", icon: "🎪" },
+      { threshold: 40, title: "Hive Mind", icon: "🐝" },
+    ],
+  },
+  {
+    // One-off: every provider at the table on the same day.
+    metric: "dayProviders",
+    tiers: [{ threshold: 4, title: "Full House", icon: "🎴" }],
+  },
+  {
+    metric: "sessionTokens",
+    tiers: [
+      { threshold: 1e7, title: "Deep Dive", icon: "🤿" },
+      { threshold: 1e8, title: "Leviathan", icon: "🐋" },
+      { threshold: 1e9, title: "White Whale", icon: "🦭" },
+    ],
+  },
+  {
+    // One-off: a hundred recorded turns inside one session.
+    metric: "sessionTurns",
+    tiers: [{ threshold: 100, title: "The Grind", icon: "🪨" }],
+  },
+  {
+    // One-off: a session that ran for a working day.
+    metric: "sessionHours",
+    tiers: [{ threshold: 8, title: "Marathon Session", icon: "🌙" }],
+  },
+  {
+    // One-off: three digits of provider-reported cost in one session.
+    metric: "sessionSpendUsd",
+    tiers: [{ threshold: 100, title: "All In", icon: "🃏" }],
+  },
+  {
     metric: "streakDays",
     tiers: [
       { threshold: 3, title: "Hat-Trick", icon: "🎩" },
@@ -121,9 +183,18 @@ const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
       { threshold: 25, title: "Cartographer", icon: "🗺️" },
     ],
   },
+  {
+    metric: "workspaces",
+    tiers: [
+      { threshold: 2, title: "Side Project", icon: "🗂️" },
+      { threshold: 5, title: "Portfolio", icon: "🏗️" },
+      { threshold: 10, title: "Empire Builder", icon: "🌆" },
+    ],
+  },
 ];
 
-const DAY_MS = 24 * 60 * 60 * 1_000;
+const HOUR_MS = 60 * 60 * 1_000;
+const DAY_MS = 24 * HOUR_MS;
 
 /** All ladders with crossing dates and current progress, in catalog order. */
 export function usageAchievementLadders(
@@ -134,40 +205,96 @@ export function usageAchievementLadders(
   const sessions = new Set<string>();
   const providers = new Set<string>();
   const models = new Set<string>();
-  const dayTotals = new Map<number, number>();
+  const workspaces = new Set<string>();
+  const dayTokenTotals = new Map<number, number>();
+  const daySessionSets = new Map<number, Set<string>>();
+  const dayProviderSets = new Map<number, Set<string>>();
+  const sessionTokenTotals = new Map<string, number>();
+  const sessionTurnCounts = new Map<string, number>();
+  const sessionFirstAt = new Map<string, number>();
+  const sessionSpendTotals = new Map<string, number>();
   let tokens = 0;
+  let outputTokens = 0;
+  let cacheTokens = 0;
   let spendUsd = 0;
   let maxDayTokens = 0;
+  let maxDaySessions = 0;
+  let maxDayProviders = 0;
+  let maxSessionTokens = 0;
+  let maxSessionTurns = 0;
+  let maxSessionSpanMs = 0;
+  let maxSessionSpendUsd = 0;
   let streakDay = Number.NaN;
   let streak = 0;
   let longestStreak = 0;
 
   const metrics: Record<AchievementMetric, () => number> = {
     tokens: () => tokens,
+    outputTokens: () => outputTokens,
+    cacheTokens: () => cacheTokens,
     sessions: () => sessions.size,
     spendUsd: () => spendUsd,
     dayTokens: () => maxDayTokens,
+    daySessions: () => maxDaySessions,
+    dayProviders: () => maxDayProviders,
+    sessionTokens: () => maxSessionTokens,
+    sessionTurns: () => maxSessionTurns,
+    sessionHours: () => maxSessionSpanMs / HOUR_MS,
+    sessionSpendUsd: () => maxSessionSpendUsd,
     streakDays: () => longestStreak,
     providers: () => providers.size,
     models: () => models.size,
+    workspaces: () => workspaces.size,
   };
 
   const next = LADDERS.map(() => 0);
   const crossings = LADDERS.map(() => new Map<number, number>());
 
   for (const event of ordered) {
-    tokens += tokenTotal(event.tokens);
-    sessions.add(usageSessionKey(event));
+    const eventTokens = tokenTotal(event.tokens);
+    tokens += eventTokens;
+    outputTokens += event.tokens.output ?? 0;
+    cacheTokens += event.tokens.cacheRead ?? 0;
     providers.add(event.agent);
+    workspaces.add(event.workspaceId);
     if (event.model !== undefined) models.add(event.model);
     if (event.costSource === "provider") {
       spendUsd = addMoney(spendUsd, event.costUsd);
     }
 
     const day = Math.floor(event.occurredAt / DAY_MS) * DAY_MS;
-    const dayTotal = (dayTotals.get(day) ?? 0) + tokenTotal(event.tokens);
-    dayTotals.set(day, dayTotal);
-    maxDayTokens = Math.max(maxDayTokens, dayTotal);
+    const dayTokens = (dayTokenTotals.get(day) ?? 0) + eventTokens;
+    dayTokenTotals.set(day, dayTokens);
+    maxDayTokens = Math.max(maxDayTokens, dayTokens);
+
+    const key = usageSessionKey(event);
+    sessions.add(key);
+    const daySessions = daySessionSets.get(day) ?? new Set();
+    daySessions.add(key);
+    daySessionSets.set(day, daySessions);
+    maxDaySessions = Math.max(maxDaySessions, daySessions.size);
+    const dayProviders = dayProviderSets.get(day) ?? new Set();
+    dayProviders.add(event.agent);
+    dayProviderSets.set(day, dayProviders);
+    maxDayProviders = Math.max(maxDayProviders, dayProviders.size);
+
+    const sessionTokens = (sessionTokenTotals.get(key) ?? 0) + eventTokens;
+    sessionTokenTotals.set(key, sessionTokens);
+    maxSessionTokens = Math.max(maxSessionTokens, sessionTokens);
+    const sessionTurns = (sessionTurnCounts.get(key) ?? 0) + 1;
+    sessionTurnCounts.set(key, sessionTurns);
+    maxSessionTurns = Math.max(maxSessionTurns, sessionTurns);
+    const firstAt = sessionFirstAt.get(key) ?? event.occurredAt;
+    sessionFirstAt.set(key, firstAt);
+    maxSessionSpanMs = Math.max(maxSessionSpanMs, event.occurredAt - firstAt);
+    if (event.costSource === "provider") {
+      const sessionSpend = addMoney(
+        sessionSpendTotals.get(key) ?? 0,
+        event.costUsd,
+      );
+      sessionSpendTotals.set(key, sessionSpend);
+      maxSessionSpendUsd = Math.max(maxSessionSpendUsd, sessionSpend);
+    }
 
     // Events arrive time-sorted, so days are non-decreasing: a same-day
     // event keeps the streak, the very next day extends it, a gap resets.
@@ -216,9 +343,9 @@ export function earnedAchievements(
     .sort((left, right) => (right.achievedAt ?? 0) - (left.achievedAt ?? 0));
 }
 
-/** The user's disclosure rule, one goal per ladder: only the FIRST locked
- * tier is ever visible — tiers beyond it stay hidden until it is won. A
- * completed ladder contributes nothing. */
+/** The in-progress view, one goal per ladder: the FIRST locked tier — the
+ * one the user is actively walking toward. A completed ladder contributes
+ * nothing. */
 export function nextAchievements(
   ladders: readonly UsageAchievementLadder[],
 ): UsageAchievement[] {
@@ -228,36 +355,73 @@ export function nextAchievements(
   });
 }
 
+/** The locked tail: every tier BEYOND each ladder's in-progress goal —
+ * earnable in theory, reachable only after the previous tier is won. */
+export function lockedAchievements(
+  ladders: readonly UsageAchievementLadder[],
+): UsageAchievement[] {
+  return ladders.flatMap((ladder) => {
+    const first = ladder.tiers.findIndex((tier) => tier.achievedAt === null);
+    return first === -1 ? [] : ladder.tiers.slice(first + 1);
+  });
+}
+
 /** "10M tokens all-time", "7 active days in a row" — the requirement line
  * under a badge title; shared with the unlock notification body. */
 export function achievementRequirement(item: UsageAchievement): string {
   switch (item.metric) {
     case "tokens":
       return `${formatTokens(item.threshold)} tokens all-time`;
+    case "outputTokens":
+      return `${formatTokens(item.threshold)} output tokens all-time`;
+    case "cacheTokens":
+      return `${formatTokens(item.threshold)} cache-read tokens all-time`;
     case "sessions":
       return `${item.threshold} session${item.threshold === 1 ? "" : "s"} all-time`;
     case "spendUsd":
       return `$${item.threshold.toLocaleString("en-US")} provider-reported spend`;
     case "dayTokens":
       return `${formatTokens(item.threshold)} tokens in one day`;
+    case "daySessions":
+      return `${item.threshold} sessions in one day`;
+    case "dayProviders":
+      return `${item.threshold} providers in one day`;
+    case "sessionTokens":
+      return `${formatTokens(item.threshold)} tokens in one session`;
+    case "sessionTurns":
+      return `${item.threshold} turns in one session`;
+    case "sessionHours":
+      return `a session ${item.threshold} hours long`;
+    case "sessionSpendUsd":
+      return `$${item.threshold.toLocaleString("en-US")} in one session`;
     case "streakDays":
       return `${item.threshold} active days in a row`;
     case "providers":
       return `${item.threshold} providers used`;
     case "models":
       return `${item.threshold} models used`;
+    case "workspaces":
+      return `${item.threshold} workspaces used`;
   }
 }
 
-/** "5.5B / 10B" — the progress caption on the one visible locked tier. */
+/** "5.5B / 10B" — the progress caption on an in-progress goal. */
 export function achievementProgress(item: UsageAchievement): string {
   switch (item.metric) {
     case "tokens":
+    case "outputTokens":
+    case "cacheTokens":
     case "dayTokens":
+    case "sessionTokens":
       return `${formatTokens(item.progress)} / ${formatTokens(item.threshold)}`;
     case "spendUsd":
-      return `$${item.progress < 100 ? item.progress.toFixed(2) : Math.round(item.progress).toLocaleString("en-US")} / $${item.threshold.toLocaleString("en-US")}`;
+    case "sessionSpendUsd":
+      return `$${
+        item.progress < 100
+          ? item.progress.toFixed(2)
+          : Math.round(item.progress).toLocaleString("en-US")
+      } / $${item.threshold.toLocaleString("en-US")}`;
     default:
-      return `${item.progress} / ${item.threshold}`;
+      return `${Math.floor(item.progress)} / ${item.threshold}`;
   }
 }
