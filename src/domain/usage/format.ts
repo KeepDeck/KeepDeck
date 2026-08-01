@@ -154,6 +154,27 @@ export function formatUtcDay(at: number, withYear = false): string {
   });
 }
 
+/** Dollars, the ONE way: four decimals while sub-cent amounts would vanish,
+ * cents while they matter, whole grouped dollars once they don't. `approx`
+ * prefixes "≈" — provider costs are estimates, not invoices. */
+export function formatUsd(value: number, opts: { approx?: boolean } = {}): string {
+  const magnitude =
+    value === 0
+      ? "0.00"
+      : value < 0.01
+        ? value.toFixed(4)
+        : value < 1_000
+          ? value.toFixed(2)
+          : Math.round(value).toLocaleString("en-US");
+  return `${opts.approx === true ? "≈" : ""}$${magnitude}`;
+}
+
+/** A provider-cost aggregate: "—" until at least one event carried a cost —
+ * zero-with-no-reports must never read as "free". */
+export function displayProviderCost(value: number, costEvents: number): string {
+  return costEvents === 0 ? "—" : formatUsd(value, { approx: true });
+}
+
 /** A token count as a compact, glanceable string: "812", "15.5k", "1.2M",
  * "5B". One decimal that a whole number drops ("15.0k" → "15k"); sub-thousand
  * counts stay exact. Non-finite or ≤0 is "0". Every boundary promotes at

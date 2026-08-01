@@ -1,4 +1,4 @@
-import { formatTokens } from "./format";
+import { formatTokens, formatUsd } from "./format";
 import {
   addMoney,
   tokenTotal,
@@ -366,62 +366,74 @@ export function lockedAchievements(
   });
 }
 
-/** "10M tokens all-time", "7 active days in a row" — the requirement line
- * under a badge title; shared with the unlock notification body. */
-export function achievementRequirement(item: UsageAchievement): string {
-  switch (item.metric) {
-    case "tokens":
-      return `${formatTokens(item.threshold)} tokens all-time`;
-    case "outputTokens":
-      return `${formatTokens(item.threshold)} output tokens all-time`;
-    case "cacheTokens":
-      return `${formatTokens(item.threshold)} cache-read tokens all-time`;
-    case "sessions":
-      return `${item.threshold} session${item.threshold === 1 ? "" : "s"} all-time`;
-    case "spendUsd":
-      return `$${item.threshold.toLocaleString("en-US")} provider-reported spend`;
-    case "dayTokens":
-      return `${formatTokens(item.threshold)} tokens in one day`;
-    case "daySessions":
-      return `${item.threshold} sessions in one day`;
-    case "dayProviders":
-      return `${item.threshold} providers in one day`;
-    case "sessionTokens":
-      return `${formatTokens(item.threshold)} tokens in one session`;
-    case "sessionTurns":
-      return `${item.threshold} turns in one session`;
-    case "sessionHours":
-      return `a session ${item.threshold} hours long`;
-    case "sessionSpendUsd":
-      return `$${item.threshold.toLocaleString("en-US")} in one session`;
-    case "streakDays":
-      return `${item.threshold} active days in a row`;
-    case "providers":
-      return `${item.threshold} providers used`;
-    case "models":
-      return `${item.threshold} models used`;
-    case "workspaces":
-      return `${item.threshold} workspaces used`;
-  }
+/* ---- Captions: one spec per metric, exhaustive by construction -------- *
+ * The Record type forces every new metric to bring its full caption set —
+ * a ladder addition that forgets one fails to compile instead of silently
+ * rendering "3 / 500" where "$3.42 / $500" was meant. */
+
+interface MetricSpec {
+  /** "10M tokens all-time" — the requirement line under a badge title;
+   * shared with the unlock notification body. */
+  requirement(threshold: number): string;
+  /** "5.5B / 10B" — the compact progress caption on an in-progress goal. */
+  progress(progress: number, threshold: number): string;
+  /** "5,471,316,706 of 10,000,000,000 — 54%" — the tooltip's exact line. */
+  exact(progress: number, threshold: number): string;
 }
 
-/** "5.5B / 10B" — the progress caption on an in-progress goal. */
+const pctOf = (progress: number, threshold: number) =>
+  Math.min(100, Math.floor((progress / threshold) * 100));
+const exactInt = (value: number) => Math.floor(value).toLocaleString("en-US");
+
+const tokensSpec = (requirement: (t: string) => string): MetricSpec => ({
+  requirement: (t) => requirement(formatTokens(t)),
+  progress: (p, t) => `${formatTokens(p)} / ${formatTokens(t)}`,
+  exact: (p, t) => `${exactInt(p)} of ${exactInt(t)} — ${pctOf(p, t)}%`,
+});
+
+const countSpec = (requirement: (t: number) => string): MetricSpec => ({
+  requirement,
+  progress: (p, t) => `${Math.floor(p)} / ${t}`,
+  exact: (p, t) => `${exactInt(p)} of ${exactInt(t)} — ${pctOf(p, t)}%`,
+});
+
+const moneySpec = (requirement: (t: string) => string): MetricSpec => ({
+  requirement: (t) => requirement(t.toLocaleString("en-US")),
+  progress: (p, t) => `${formatUsd(p)} / $${t.toLocaleString("en-US")}`,
+  exact: (p, t) =>
+    `${formatUsd(p)} of $${t.toLocaleString("en-US")} — ${pctOf(p, t)}%`,
+});
+
+const METRIC_SPECS: Record<AchievementMetric, MetricSpec> = {
+  tokens: tokensSpec((t) => `${t} tokens all-time`),
+  outputTokens: tokensSpec((t) => `${t} output tokens all-time`),
+  cacheTokens: tokensSpec((t) => `${t} cache-read tokens all-time`),
+  sessions: countSpec((t) => `${t} session${t === 1 ? "" : "s"} all-time`),
+  spendUsd: moneySpec((t) => `$${t} provider-reported spend`),
+  dayTokens: tokensSpec((t) => `${t} tokens in one day`),
+  daySessions: countSpec((t) => `${t} sessions in one day`),
+  dayProviders: countSpec((t) => `${t} providers in one day`),
+  sessionTokens: tokensSpec((t) => `${t} tokens in one session`),
+  sessionTurns: countSpec((t) => `${t} usage updates in one session`),
+  sessionHours: countSpec((t) => `a session ${t} hours long`),
+  sessionSpendUsd: moneySpec((t) => `$${t} in one session`),
+  streakDays: countSpec((t) => `${t} active days in a row`),
+  providers: countSpec((t) => `${t} providers used`),
+  models: countSpec((t) => `${t} models used`),
+  workspaces: countSpec((t) => `${t} workspaces used`),
+};
+
+/** The requirement line under a badge title. */
+export function achievementRequirement(item: UsageAchievement): string {
+  return METRIC_SPECS[item.metric].requirement(item.threshold);
+}
+
+/** The compact progress caption on an in-progress goal. */
 export function achievementProgress(item: UsageAchievement): string {
-  switch (item.metric) {
-    case "tokens":
-    case "outputTokens":
-    case "cacheTokens":
-    case "dayTokens":
-    case "sessionTokens":
-      return `${formatTokens(item.progress)} / ${formatTokens(item.threshold)}`;
-    case "spendUsd":
-    case "sessionSpendUsd":
-      return `$${
-        item.progress < 100
-          ? item.progress.toFixed(2)
-          : Math.round(item.progress).toLocaleString("en-US")
-      } / $${item.threshold.toLocaleString("en-US")}`;
-    default:
-      return `${Math.floor(item.progress)} / ${item.threshold}`;
-  }
+  return METRIC_SPECS[item.metric].progress(item.progress, item.threshold);
+}
+
+/** The exact-numbers line behind the compact caption (hover tooltip). */
+export function achievementExact(item: UsageAchievement): string {
+  return METRIC_SPECS[item.metric].exact(item.progress, item.threshold);
 }

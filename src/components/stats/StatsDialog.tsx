@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import {
+  displayProviderCost,
   formatAge,
   formatPct,
   formatTokens,
@@ -23,6 +24,7 @@ import {
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
 import {
+  achievementExact,
   achievementProgress,
   achievementRequirement,
   earnedAchievements,
@@ -190,7 +192,7 @@ export function UsageStats({ initialTab }: { initialTab?: string }) {
                   />
                   <Summary
                     label="Cost"
-                    value={displayCost(
+                    value={displayProviderCost(
                       stats.totals.providerCostUsd,
                       stats.totals.costEvents,
                     )}
@@ -333,7 +335,7 @@ function ledgerCaption(ledger: ProviderWindowLedger): string {
   const sessions = `${ledger.sessionCount} session${
     ledger.sessionCount === 1 ? "" : "s"
   }`;
-  const cost = displayCost(ledger.providerCostUsd, ledger.costEvents);
+  const cost = displayProviderCost(ledger.providerCostUsd, ledger.costEvents);
   return cost === "—" ? sessions : `${sessions} · ${cost}`;
 }
 
@@ -433,18 +435,12 @@ function AchievementCard({
 }
 
 /** The hover tooltip's status line — exact numbers, not the card's compact
- * abbreviations. */
+ * abbreviations. The per-metric formatting lives with the metric specs. */
 function achievementTipStatus(item: UsageAchievement): string {
   if (item.achievedAt !== null) {
     return `Earned ${formatUtcDay(item.achievedAt, true)}`;
   }
-  const pct = Math.min(100, Math.floor((item.progress / item.threshold) * 100));
-  const exact = (value: number) => Math.floor(value).toLocaleString("en-US");
-  const money = item.metric === "spendUsd" || item.metric === "sessionSpendUsd";
-  const pair = money
-    ? `$${item.progress.toFixed(2)} of $${item.threshold.toLocaleString("en-US")}`
-    : `${exact(item.progress)} of ${exact(item.threshold)}`;
-  return `${pair} — ${pct}%`;
+  return achievementExact(item);
 }
 
 /** The period's numbers with their context — movement against the prior
@@ -528,7 +524,7 @@ function StatsTable({
               <small>{tokenBreakdown(row)}</small>
             </span>
             <span className="stats__cost" role="cell">
-              {displayCost(row.providerCostUsd, row.costEvents)}
+              {displayProviderCost(row.providerCostUsd, row.costEvents)}
               <small>{formatAge(row.lastOccurredAt, now)}</small>
             </span>
           </div>
@@ -547,16 +543,6 @@ function tokenBreakdown(row: UsageStatsRow): string {
       : "",
   ].filter(Boolean);
   return values.join(" · ");
-}
-
-function formatCost(value: number): string {
-  if (value === 0) return "$0.00";
-  return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
-}
-
-function displayCost(value: number, costEvents: number): string {
-  if (costEvents === 0) return "—";
-  return `≈${formatCost(value)}`;
 }
 
 function costCoverage(costSessions: number, sessionCount: number): string {
