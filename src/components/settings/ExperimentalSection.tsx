@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { updateSettings } from "../../app/settingsManager";
-import { useMcpStatus } from "../../app/useMcpStatus";
+import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
 import { shellLine } from "../../domain/mcp";
 import { DEFAULT_SETTINGS } from "../../domain/settings";

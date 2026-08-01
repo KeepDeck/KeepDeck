@@ -16,7 +16,7 @@ vi.mock("../../app/settingsManager", () => ({
 const mcpStatus = vi.hoisted(() => ({
   current: { socket: null as string | null, error: null as string | null },
 }));
-vi.mock("../../app/useMcpStatus", () => ({
+vi.mock("../../app/mcp/useMcpStatus", () => ({
   useMcpStatus: () => mcpStatus.current,
 }));
 const mcpIpc = vi.hoisted(() => ({

@@ -21,7 +21,7 @@ import {
 } from "./downloadManager";
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
-import { createMcpService } from "./mcpService";
+import { createMcpService } from "./mcp";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";

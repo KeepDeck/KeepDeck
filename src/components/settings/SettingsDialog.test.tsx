@@ -32,7 +32,7 @@ vi.mock("../../ipc/settings", () => ipc);
 // The Experimental section reads the MCP transport's confirmed status from
 // the app runtime; the dialog tests run without a runtime provider, so the
 // hook is answered directly — transport off, no error.
-vi.mock("../../app/useMcpStatus", () => ({
+vi.mock("../../app/mcp/useMcpStatus", () => ({
   useMcpStatus: () => ({ socket: null, error: null }),
 }));
 

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { McpStatus } from "./mcpService";
-import { useAppRuntime } from "./runtimeContext";
+import type { McpStatus } from ".";
+import { useAppRuntime } from "../runtimeContext";
 
 /** The MCP transport's confirmed status (see [`McpStatus`]) — the bridge
  * every settings surface reads instead of re-deriving "the server is on"

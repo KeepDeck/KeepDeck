@@ -1,6 +1,6 @@
-import { INTERNAL_ERROR, errorReply } from "../domain/mcp";
-import { describeError, log } from "../ipc/log";
-import { onMcpRequest, respondMcp, type McpRequest } from "../ipc/mcpBridge";
+import { INTERNAL_ERROR, errorReply } from "../../domain/mcp";
+import { describeError, log } from "../../ipc/log";
+import { onMcpRequest, respondMcp, type McpRequest } from "../../ipc/mcpBridge";
 
 /** Answers one request line with at most one reply line — the projection
  * layer. `null` means "no reply": notifications must never be answered, and

@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../ipc/log", () => ({
+vi.mock("../../ipc/log", () => ({
   log: { warn: vi.fn() },
   describeError: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
-import { log } from "../ipc/log";
-import type { McpRequest } from "../ipc/mcpBridge";
-import { createMcpRequestPump, type McpPumpPorts } from "./mcpRequestPump";
+import { log } from "../../ipc/log";
+import type { McpRequest } from "../../ipc/mcpBridge";
+import { createMcpRequestPump, type McpPumpPorts } from "./pump";
 
 function ports() {
   let deliver: ((request: McpRequest) => void) | null = null;

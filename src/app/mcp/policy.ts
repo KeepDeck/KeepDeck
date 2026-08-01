@@ -1,4 +1,4 @@
-import { describeError, log } from "../ipc/log";
+import { describeError, log } from "../../ipc/log";
 
 export interface McpSettingsPort {
   /** The toggle's value, or `null` until the settings load settles. */

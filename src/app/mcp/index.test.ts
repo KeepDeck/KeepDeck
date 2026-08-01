@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../ipc/log", () => ({
+vi.mock("../../ipc/log", () => ({
   log: { warn: vi.fn() },
   describeError: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
-import { createCommandRegistry, type CommandSource } from "../domain/commands";
-import type { McpRequest } from "../ipc/mcpBridge";
-import { createMcpService, type McpServiceDeps } from "./mcpService";
+import { createCommandRegistry, type CommandSource } from "../../domain/commands";
+import type { McpRequest } from "../../ipc/mcpBridge";
+import { createMcpService, type McpServiceDeps } from ".";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 

@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../ipc/log", () => ({
+vi.mock("../../ipc/log", () => ({
   log: { warn: vi.fn() },
   describeError: (e: unknown) => String(e),
 }));
 
-import { createCommandRegistry } from "../domain/commands";
-import type { McpRequest } from "../ipc/mcpBridge";
-import { createMcpService } from "./mcpService";
+import { createCommandRegistry } from "../../domain/commands";
+import type { McpRequest } from "../../ipc/mcpBridge";
+import { createMcpService } from ".";
 
 /**
  * The webview chain assembled through its one front door — createMcpService,

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../ipc/log", () => ({
+vi.mock("../../ipc/log", () => ({
   log: { warn: vi.fn() },
   describeError: (e: unknown) => String(e),
 }));
@@ -9,7 +9,7 @@ import {
   createMcpServerPolicy,
   type McpSettingsPort,
   type McpTransportPort,
-} from "./mcpServerPolicy";
+} from "./policy";
 
 function settingsPort(initial: boolean | null) {
   let value = initial;

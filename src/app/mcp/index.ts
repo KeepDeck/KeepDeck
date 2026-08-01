@@ -1,20 +1,20 @@
-import type { CommandRegistry } from "../domain/commands";
+import type { CommandRegistry } from "../../domain/commands";
 import {
   handleMcpLine,
   type McpCommandPort,
   type McpServerIdentity,
-} from "../domain/mcp";
-import { fetchAppInfo } from "../ipc/app";
-import { mcpDisable, mcpEnable } from "../ipc/mcp";
-import { commands } from "./commandRegistry";
-import { createMcpRequestPump, type McpPumpPorts } from "./mcpRequestPump";
+} from "../../domain/mcp";
+import { fetchAppInfo } from "../../ipc/app";
+import { mcpDisable, mcpEnable } from "../../ipc/mcp";
+import { commands } from "../commandRegistry";
+import { createMcpRequestPump, type McpPumpPorts } from "./pump";
 import {
   createMcpServerPolicy,
   type McpServerPolicy,
   type McpSettingsPort,
   type McpTransition,
   type McpTransportPort,
-} from "./mcpServerPolicy";
+} from "./policy";
 
 /** What the app knows about the transport as of the LAST SETTLED
  * transition — confirmed by the backend, not wished by the setting, and
