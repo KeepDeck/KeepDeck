@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use tauri::State;
+use tauri::{Manager, State};
 
 /// Answers one request line with AT MOST one reply line — `None` for
 /// JSON-RPC notifications, which must never be answered. Shared by every
@@ -202,6 +202,17 @@ pub fn mcp_enable(app: tauri::AppHandle, server: State<McpServer>) -> Result<Str
 pub fn mcp_disable(server: State<McpServer>) {
     server.disable();
     log::info!("mcp: socket down");
+}
+
+/// The stdio command an MCP client spawns to reach the deck — shown beside
+/// the settings toggle so connecting is copy-paste. It names THIS binary:
+/// the shim rides the app executable (see mcp_shim.rs), so the command is
+/// valid on any machine the app is installed on, per install location.
+#[tauri::command]
+pub fn mcp_connection_command(app: tauri::AppHandle) -> Result<String, String> {
+    let binary =
+        tauri::process::current_binary(&app.env()).map_err(|e| e.to_string())?;
+    Ok(format!("{} --mcp-shim", binary.display()))
 }
 
 #[cfg(test)]

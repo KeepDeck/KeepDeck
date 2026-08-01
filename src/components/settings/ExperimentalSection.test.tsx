@@ -13,6 +13,10 @@ vi.mock("../../app/settingsManager", () => ({
   subscribeSettings: () => () => {},
   updateSettings: settingsManager.updateSettings,
 }));
+const mcpIpc = vi.hoisted(() => ({
+  mcpConnectionCommand: vi.fn(() => Promise.resolve("/Applications/KeepDeck --mcp-shim")),
+}));
+vi.mock("../../ipc/mcp", () => mcpIpc);
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -55,6 +59,17 @@ describe("ExperimentalSection", () => {
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       remoteAgents: true,
     });
+  });
+
+  it("shows the connect command only while the server is on", async () => {
+    mount();
+    expect(host.querySelector("input.form__input")).toBeNull();
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mount();
+    await act(() => Promise.resolve()); // the command fetch settles
+    const input = host.querySelector<HTMLInputElement>("input.form__input");
+    expect(input?.value).toBe("/Applications/KeepDeck --mcp-shim");
+    expect(input?.readOnly).toBe(true);
   });
 
   it("marks the stored value active per row, not shared across rows", () => {

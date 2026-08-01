@@ -11,3 +11,9 @@ export async function mcpEnable(): Promise<string> {
 export async function mcpDisable(): Promise<void> {
   await invoke("mcp_disable");
 }
+
+/** The stdio command MCP clients spawn to reach the deck (the app binary in
+ * shim mode) — what the settings page offers for copy-paste. */
+export async function mcpConnectionCommand(): Promise<string> {
+  return await invoke<string>("mcp_connection_command");
+}

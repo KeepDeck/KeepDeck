@@ -14,6 +14,7 @@ mod links;
 mod logging;
 mod mcp_bridge;
 mod mcp_server;
+mod mcp_shim;
 mod menu;
 mod migration;
 mod paths;
@@ -68,6 +69,9 @@ fn app_info(app: tauri::AppHandle) -> AppInfo {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+// The shim entry points main() consults before booting Tauri (mcp_shim.rs).
+pub use mcp_shim::{run as run_mcp_shim, shim_mode as mcp_shim_mode};
+
 pub fn run() {
     // Trim past runs' log files before the plugin opens this run's own.
     let collected = logging::collect_garbage();
@@ -150,6 +154,7 @@ pub fn run() {
             mcp_server::mcp_enable,
             mcp_server::mcp_disable,
             mcp_bridge::mcp_respond,
+            mcp_server::mcp_connection_command,
             session::session_spawn,
             session::session_write,
             session::session_resize,

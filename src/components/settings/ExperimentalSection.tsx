@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
+import { mcpConnectionCommand } from "../../ipc/mcp";
 
 /**
  * Experimental features ([F6] → Experimental) — opt-in capabilities that ship
@@ -21,6 +23,25 @@ export function ExperimentalSection() {
   const remoteAgents =
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
   const mcpServer = settings?.mcpServer ?? DEFAULT_SETTINGS.mcpServer;
+  // The connect command is fetched, not computed: only the backend knows
+  // where this install's binary lives. Absent until it answers (or when the
+  // server is off) — the row simply doesn't render.
+  const [connect, setConnect] = useState<string | null>(null);
+  useEffect(() => {
+    if (!mcpServer) {
+      setConnect(null);
+      return;
+    }
+    let stale = false;
+    void mcpConnectionCommand()
+      .then((command) => {
+        if (!stale) setConnect(command);
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [mcpServer]);
 
   return (
     <>
@@ -63,6 +84,22 @@ export function ExperimentalSection() {
         its clients — no restart needed. Off by default — the feature is
         experimental.
       </span>
+
+      {connect !== null && (
+        <>
+          <span className="form__label">MCP connect</span>
+          <input
+            className="form__input"
+            readOnly
+            value={connect}
+            onFocus={(e) => e.currentTarget.select()}
+          />
+          <span className="settings__hint">
+            The stdio command an MCP client spawns to reach the deck — add it
+            to any client as a stdio server.
+          </span>
+        </>
+      )}
     </>
   );
 }
