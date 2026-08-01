@@ -97,14 +97,37 @@ export function usageStale(reportedAt: number, now: number): boolean {
   return now - reportedAt > USAGE_STALE_AFTER_MS;
 }
 
+/** The threshold color a window may WEAR — null means none: an expired
+ * window's percentage describes the previous window, so it never carries
+ * confident color, and an ok-level window stays calm. THE one home of the
+ * expired-suppression rule; every surface (chip value, fill bar, provider
+ * card) asks here instead of re-deriving it. */
+export function windowLevel(
+  window: UsageWindow,
+  now: number,
+): Exclude<UsageLevel, "ok"> | null {
+  if (windowExpired(window, now)) return null;
+  const level = limitLevel(window.usedPct);
+  return level === "ok" ? null : level;
+}
+
 /** The caption under a window's percentage — the full window-kind semantics
  * in ONE place (its label sibling is [`windowLabel`]): a live countdown, a
  * rolling window whose reset the CLI didn't share, or a clockless plan BALANCE
  * (kimi's totalQuota — spent and topped up, never reset). An EXPIRED window
- * gets NO caption (empty): the dimmed percentage already reads as stale, so the
- * "awaiting report" note was just noise. */
-export function windowResetCaption(window: UsageWindow, now: number): string {
-  if (windowExpired(window, now)) return "";
+ * splits by surface, and both answers are deliberate: the chip popover
+ * ("short") stays EMPTY — the dimmed percentage reads as stale and the extra
+ * note was noise (field decision) — while the Stats card ("long") spells the
+ * state out, because the gray bar alone read as a bug even to the tool's
+ * author. */
+export function windowResetCaption(
+  window: UsageWindow,
+  now: number,
+  form: "short" | "long" = "short",
+): string {
+  if (windowExpired(window, now)) {
+    return form === "long" ? "reset passed · % is from the previous window" : "";
+  }
   const countdown = formatCountdown(window.resetsAt, now);
   if (countdown) return `resets in ${countdown}`;
   return window.windowMinutes !== null ? "reset unknown" : "plan allowance";

@@ -6,8 +6,8 @@ import {
   formatPct,
   formatTokens,
   formatUtcDay,
-  limitLevel,
   windowLabel,
+  windowLevel,
   windowResetCaption,
   type AccountUsage,
 } from "../../domain/usage";
@@ -303,29 +303,19 @@ function Providers({
 }
 
 function ProviderWindow({ row, now }: { row: ProviderWindowRow; now: number }) {
-  const level = limitLevel(row.window.usedPct);
+  const level = windowLevel(row.window, now);
   return (
     <div
       className={`stats__window${row.expired ? " stats__window--expired" : ""}`}
     >
       <div className="stats__window-head">
         <span>{windowLabel(row.window, "long")}</span>
-        <span
-          className={
-            !row.expired && level !== "ok" ? `usage-level--${level}` : ""
-          }
-        >
+        <span className={level ? `usage-level--${level}` : ""}>
           {formatPct(row.window.usedPct, "used")}
         </span>
       </div>
       <UsageWindowBar window={row.window} now={now} />
-      <small>
-        {row.expired
-          ? // Spelled out because the gray bar alone read as a bug even to
-            // the tool's author: the stale % deliberately wears no color.
-            "reset passed · % is from the previous window"
-          : windowResetCaption(row.window, now)}
-      </small>
+      <small>{windowResetCaption(row.window, now, "long")}</small>
       {row.ledger && (
         <small>
           {row.ledger.sessionCount > 0

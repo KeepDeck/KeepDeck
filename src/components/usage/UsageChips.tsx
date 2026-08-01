@@ -9,10 +9,10 @@ import {
   chipWindows,
   formatAge,
   formatPct,
-  limitLevel,
   panelWindows,
   usageStale,
   windowExpired,
+  windowLevel,
   windowLabel,
   windowResetCaption,
   type AccountUsage,
@@ -50,11 +50,12 @@ function WindowValue({
   now: number;
 }) {
   const expired = windowExpired(window, now);
-  const level = limitLevel(window.usedPct);
-  const cls = expired || level === "ok" ? "" : ` usage-level--${level}`;
+  const level = windowLevel(window, now);
   return (
     <span
-      className={`usage-window__value${cls}${expired ? " usage-window--expired" : ""}`}
+      className={`usage-window__value${level ? ` usage-level--${level}` : ""}${
+        expired ? " usage-window--expired" : ""
+      }`}
     >
       {formatPct(window.usedPct, display)}
     </span>

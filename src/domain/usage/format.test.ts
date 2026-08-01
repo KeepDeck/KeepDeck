@@ -10,6 +10,7 @@ import {
   panelWindows,
   usageStale,
   windowLabel,
+  windowLevel,
   windowResetCaption,
 } from "./format";
 import type { AccountUsage, UsageWindow } from "./usage";
@@ -122,8 +123,29 @@ describe("formatPct", () => {
   });
 });
 
+describe("windowLevel", () => {
+  const NOW = 1_000_000_000_000;
+  it("grants threshold color only to live windows past the thresholds", () => {
+    expect(windowLevel({ usedPct: 59, resetsAt: null, windowMinutes: 300 }, NOW)).toBeNull();
+    expect(windowLevel({ usedPct: 65, resetsAt: null, windowMinutes: 300 }, NOW)).toBe("warn");
+    expect(windowLevel({ usedPct: 90, resetsAt: null, windowMinutes: 300 }, NOW)).toBe("critical");
+    // An expired window's % describes the PREVIOUS window: never colored.
+    expect(
+      windowLevel({ usedPct: 90, resetsAt: NOW - 1, windowMinutes: 300 }, NOW),
+    ).toBeNull();
+  });
+});
+
 describe("windowResetCaption", () => {
   const NOW = 1_000_000_000_000;
+  it("splits the expired caption by surface, both on purpose", () => {
+    const expired = { usedPct: 1, resetsAt: NOW - 1, windowMinutes: 300 };
+    expect(windowResetCaption(expired, NOW)).toBe(""); // popover stays quiet
+    expect(windowResetCaption(expired, NOW, "long")).toBe(
+      "reset passed · % is from the previous window",
+    );
+  });
+
   it("covers all four window kinds", () => {
     // An expired window has no caption — the dimmed % already reads as stale.
     expect(
