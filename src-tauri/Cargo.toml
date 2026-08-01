@@ -21,7 +21,11 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `float_roundtrip`: the default float parser is NOT correctly rounded, so
+# a JSON number written in float syntax can parse to a different value here
+# than in the webview — the MCP transport mirrors id rules across the two
+# (src-tauri/src/mcp_bridge.rs), and that mirror is only exact with this on.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 keepdeck-pty = { path = "../crates/keepdeck-pty" }
 keepdeck-git = { path = "../crates/keepdeck-git" }
 keepdeck-index = { path = "../crates/keepdeck-index" }

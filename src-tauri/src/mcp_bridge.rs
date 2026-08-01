@@ -26,7 +26,8 @@ pub const MCP_REQUEST_EVENT: &str = "deck://mcp/request";
 
 /// The transport id notifications cross under: nothing is parked for it,
 /// and the webview pump keys "send no reply" on exactly this value.
-/// [`McpBridge::begin`] never allocates it — pinned by test.
+/// [`McpBridge::begin`] allocates from 1 upward, so a parked request can
+/// never collide with it — pinned by test.
 pub(crate) const NOTIFICATION_ID: u64 = 0;
 
 /// How long a request may wait for the webview. Commands are interactive
@@ -120,14 +121,29 @@ fn is_notification(line: &str) -> bool {
 /// `1e2` as a float where JSON.parse yields the integer 100, so filtering
 /// on serde's integer types alone made the two sides answer the same
 /// request with different ids (round-2 finding).
+///
+/// Integer tokens are read as integers and never routed through f64 —
+/// exactness there must not depend on a float parser. Float-syntax tokens
+/// have no other route, which is why this crate enables serde_json's
+/// `float_roundtrip` (see Cargo.toml): without it that parser is not
+/// correctly rounded, and ids like `9007199254740991.0` land one ULP away
+/// from what JSON.parse produces.
 fn echoable_id(id: serde_json::Value) -> Option<serde_json::Value> {
-    const SAFE_MAX: f64 = 9_007_199_254_740_991.0;
+    const SAFE_MAX: i64 = 9_007_199_254_740_991;
+    let echo = |value: i64| serde_json::Value::from(value);
     match id {
         serde_json::Value::String(_) => Some(id),
-        serde_json::Value::Number(ref n) => n
-            .as_f64()
-            .filter(|f| f.fract() == 0.0 && f.abs() <= SAFE_MAX)
-            .map(|f| serde_json::Value::from(f as i64)),
+        serde_json::Value::Number(ref n) => {
+            if let Some(value) = n.as_i64() {
+                return (-SAFE_MAX..=SAFE_MAX).contains(&value).then(|| echo(value));
+            }
+            if let Some(value) = n.as_u64() {
+                return (value <= SAFE_MAX as u64).then(|| echo(value as i64));
+            }
+            n.as_f64()
+                .filter(|f| f.fract() == 0.0 && f.abs() <= SAFE_MAX as f64)
+                .map(|f| echo(f as i64))
+        }
         _ => None,
     }
 }
@@ -259,7 +275,14 @@ mod tests {
         // Mirrors jsonrpc.test.ts: serde parses these as FLOATS, JSON.parse
         // as integers — the shared rule tests the value, not the token, so
         // both sides answer 100 and 1.
-        for (line, want) in [(r#"{"id":1e2}"#, 100), (r#"{"id":1.0}"#, 1)] {
+        for (line, want) in [
+            (r#"{"id":1e2}"#, 100i64),
+            (r#"{"id":1.0}"#, 1),
+            // The parser's own precision is part of the mirror: without
+            // float_roundtrip these land one ULP off what JSON.parse gives.
+            (r#"{"id":9007199254740991.0}"#, 9_007_199_254_740_991),
+            (r#"{"id":9007199254740991.4}"#, 9_007_199_254_740_991),
+        ] {
             let parsed: serde_json::Value =
                 serde_json::from_str(&error_reply(line, -32603, "x")).unwrap();
             assert_eq!(parsed["id"], want, "for {line}");

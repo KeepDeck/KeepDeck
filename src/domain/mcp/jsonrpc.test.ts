@@ -10,6 +10,10 @@ describe("requestIdOf", () => {
     // integer.
     expect(requestIdOf('{"id":1e2}')).toBe(100);
     expect(requestIdOf('{"id":1.0}')).toBe(1);
+    // The parser's precision is part of the mirror too — pinned on the
+    // Rust side by serde_json's float_roundtrip feature.
+    expect(requestIdOf('{"id":9007199254740991.0}')).toBe(9_007_199_254_740_991);
+    expect(requestIdOf('{"id":9007199254740991.4}')).toBe(9_007_199_254_740_991);
   });
 
   it("degrades everything unroutable to null", () => {

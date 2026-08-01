@@ -71,7 +71,14 @@ fn home_from(
     let base = xdg
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .or_else(|| home.map(|h| PathBuf::from(h).join(".config")))?;
+        .or_else(|| {
+            // $HOME is filtered too: a relative home would yield paths that
+            // resolve against each process's OWN cwd — the app and the shim
+            // would then disagree about where the socket is.
+            home.map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .map(|h| h.join(".config"))
+        })?;
     Some(base.join(dir))
 }
 

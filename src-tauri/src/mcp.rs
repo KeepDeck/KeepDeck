@@ -22,8 +22,23 @@ fn socket_path() -> Result<PathBuf, String> {
         .ok_or_else(|| "no home directory to hold the MCP socket".to_string())
 }
 
+/// Builds before the socket moved into `mcp/` left a `<home>/mcp.sock`
+/// behind. Best-effort tidy, and only when nothing answers on it — an
+/// older build still serving its own socket is left alone.
+fn sweep_legacy_socket() {
+    let Some(legacy) = crate::paths::keepdeck_home().map(|home| home.join("mcp.sock")) else {
+        return;
+    };
+    if std::fs::symlink_metadata(&legacy).is_ok()
+        && std::os::unix::net::UnixStream::connect(&legacy).is_err()
+    {
+        let _ = std::fs::remove_file(&legacy);
+    }
+}
+
 #[tauri::command(async)]
 pub fn mcp_enable(app: tauri::AppHandle, server: State<McpServer>) -> Result<String, String> {
+    sweep_legacy_socket();
     let path = socket_path()?;
     let served = server.enable(&path, mcp_bridge::webview_handler(app))?;
     log::info!("mcp: socket up at {}", served.display());

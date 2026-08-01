@@ -21,8 +21,9 @@ use std::path::PathBuf;
 pub(crate) const SHIM_FLAG: &str = "--mcp-shim";
 
 /// A parsed `--mcp-shim` invocation. `socket` overrides the default
-/// `<keepdeck_home>/mcp.sock` — test isolation and deliberate cross-flavor
-/// connects.
+/// `<keepdeck_home>/mcp/mcp.sock` — the connect command always passes it
+/// explicitly (the client's environment may resolve a different home), and
+/// it also serves test isolation and cross-flavor connects.
 pub struct ShimMode {
     pub socket: Option<PathBuf>,
 }

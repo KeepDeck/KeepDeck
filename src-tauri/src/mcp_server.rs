@@ -1,7 +1,7 @@
 //! The MCP transport's socket — lifecycle only.
 //!
 //! The command registry's external transport listens on ONE unix socket at
-//! `<keepdeck_home>/mcp.sock`. This module owns that socket's life: the
+//! `<keepdeck_home>/mcp/mcp.sock`. This module owns that socket's life: the
 //! settings toggle maps 1:1 onto [`McpServer::enable`] / [`McpServer::disable`],
 //! so On means "the file exists and accepts connections" and Off means "the
 //! file is gone and every client was disconnected" — while the app keeps
@@ -15,8 +15,9 @@
 //! stays testable with a plain echo handler.
 
 use std::collections::HashMap;
+use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -39,6 +40,13 @@ pub struct McpServer {
 
 struct Running {
     path: PathBuf,
+    /// Exclusive claim on the socket NAME, held for this server's whole
+    /// life; the kernel releases it if the process dies. Dropped last.
+    _lock: File,
+    /// The socket this server actually bound, as (device, inode). Teardown
+    /// unlinks the path ONLY while it still resolves to this — otherwise
+    /// the name has moved on and deleting it would kill someone else's.
+    node: (u64, u64),
     /// Dropping this wakes the accept loop's poll(2) (peer EOF) — a wake
     /// that needs no socket FILE, so Off cannot hang even after the file
     /// was deleted out from under the server. A self-connect wake had
@@ -93,12 +101,72 @@ impl McpServer {
     }
 }
 
+/// The lock file that makes ownership of the socket name exclusive.
+const LOCK_FILE: &str = "lock";
+
+/// How long the accept loop waits out a transient accept failure (fd
+/// exhaustion), and how many consecutive failures it tolerates before
+/// declaring the socket dead instead of retrying at 10Hz forever.
+const ACCEPT_FAILURE_BACKOFF: Duration = Duration::from_millis(100);
+const ACCEPT_FAILURE_LIMIT: u32 = 10;
+
+/// Ready the socket's directory and return it. The directory IS the
+/// transport's permission model (see paths::mcp_socket), so it is created
+/// 0700 — never created loose and tightened after, which would leave a
+/// window where another user can open a directory handle that survives the
+/// chmod. A pre-existing directory is validated and retightened; a symlink
+/// or a plain file in its place is refused rather than followed, so the
+/// mode this code enforces is always the mode of the directory it serves
+/// from.
+fn prepare_socket_dir(path: &Path) -> Result<PathBuf, String> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| "the MCP socket path has no directory".to_string())?;
+    if let Some(home) = dir.parent() {
+        std::fs::create_dir_all(home).map_err(|e| e.to_string())?;
+    }
+    match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let meta = std::fs::symlink_metadata(dir).map_err(|e| e.to_string())?;
+            if meta.file_type().is_symlink() {
+                return Err(format!(
+                    "{} is a symlink — refusing to serve the MCP socket through it",
+                    dir.display()
+                ));
+            }
+            if !meta.is_dir() {
+                return Err(format!("{} is not a directory", dir.display()));
+            }
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| e.to_string())?;
+        }
+        Err(e) => return Err(e.to_string()),
+    }
+    Ok(dir.to_path_buf())
+}
+
 fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
-    if path.exists() {
-        // A connectable socket is a LIVE server — most likely a second app
-        // instance sharing this home. Stealing its name would silently break
-        // its clients, so refuse; anything not answering is a leftover from
-        // a killed run and is cleared.
+    let dir = prepare_socket_dir(path)?;
+    // Own the NAME before touching it. bind(2) alone cannot arbitrate: the
+    // stale-socket cleanup below UNLINKS the name first, so two instances
+    // interleaving here would each remove the other's freshly bound socket
+    // — and a teardown would then delete a live one. The kernel frees this
+    // lock on process death, so a killed run leaves no stale claim.
+    let lock = File::create(dir.join(LOCK_FILE)).map_err(|e| e.to_string())?;
+    lock.try_lock().map_err(|_| {
+        format!(
+            "{} is already served by another KeepDeck instance",
+            path.display()
+        )
+    })?;
+    // Under the lock, "something is in the way" is decided by
+    // symlink_metadata: `exists()` follows links, so a DANGLING symlink at
+    // the socket path would read as absent and then wedge bind(2) forever.
+    if std::fs::symlink_metadata(path).is_ok() {
+        // A connectable socket means a server we do not own is live on this
+        // name (an older build, a foreign process) — refuse rather than
+        // steal. Anything not answering is a killed run's leftover.
         if UnixStream::connect(path).is_ok() {
             return Err(format!(
                 "{} is already served by another process",
@@ -107,25 +175,12 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
         }
         std::fs::remove_file(path).map_err(|e| e.to_string())?;
     }
-    // The PARENT DIRECTORY is the permission model (see paths::mcp_socket):
-    // forced to 0700 before the socket exists, it makes the file unreachable
-    // by other users no matter what mode bind(2) creates it with — there is
-    // no bind-to-chmod window to race, because traversal is denied at the
-    // directory. Enforced on every start, not just creation: a loosened
-    // leftover directory must not silently weaken the model.
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
-            .map_err(|e| e.to_string())?;
-    }
-    // A DIRECT bind, deliberately: it fails with EADDRINUSE if another
-    // process bound the name between our liveness probe and here — the
-    // kernel enforces "refuse rather than steal" against a concurrent
-    // instance, a guarantee a rename-into-place provably destroys (rename
-    // replaces a live socket's name and orphans its listener).
     let listener = UnixListener::bind(path).map_err(|e| e.to_string())?;
     // Depth in defense only — the directory already gates access.
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|e| e.to_string())?;
+    let node = std::fs::metadata(path)
+        .map(|meta| (meta.dev(), meta.ino()))
         .map_err(|e| e.to_string())?;
     // Non-blocking: poll(2) readiness is a hint, not a guarantee — accept
     // after POLLIN must never be able to park the loop where the teardown
@@ -143,6 +198,7 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
             .name("keepdeck mcp accept".into())
             .spawn(move || {
                 let mut next_id = 0u64;
+                let mut failures = 0u32;
                 loop {
                     match poll_verdict(&listener, &wake_rx) {
                         PollVerdict::Teardown => break,
@@ -161,12 +217,25 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
                         Err(e) => {
                             // fd exhaustion and kin: the pending connection
                             // stays queued, so poll re-fires immediately —
-                            // back off instead of spinning a core.
+                            // back off instead of spinning a core. A fault
+                            // that never clears must not back off FOREVER,
+                            // logging every 100ms into a capped log budget:
+                            // give up, and let the flag report the death.
+                            failures += 1;
+                            if failures >= ACCEPT_FAILURE_LIMIT {
+                                log::error!(
+                                    "mcp: accept failed {failures} times, socket dead \
+                                     until re-enable: {e}"
+                                );
+                                dead.store(true, Ordering::SeqCst);
+                                break;
+                            }
                             log::warn!("mcp: accept failed: {e}");
-                            std::thread::sleep(Duration::from_millis(100));
+                            std::thread::sleep(ACCEPT_FAILURE_BACKOFF);
                             continue;
                         }
                     };
+                    failures = 0;
                     // Connection I/O is blocking (BufReader::lines) — undo
                     // the listener's inherited non-blocking mode.
                     if stream.set_nonblocking(false).is_err() {
@@ -207,6 +276,8 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
 
     Ok(Running {
         path: path.to_path_buf(),
+        _lock: lock,
+        node,
         wake: Some(wake_tx),
         accept: Some(accept),
         dead,
@@ -309,7 +380,16 @@ fn stop(mut running: Running) {
     for conn in drained {
         let _ = conn.shutdown(std::net::Shutdown::Both);
     }
-    let _ = std::fs::remove_file(&running.path);
+    // Unlink the name only while it still resolves to the socket THIS
+    // server bound. The lock makes another instance's claim impossible
+    // while we hold it, but a name that has moved on (an external rm, a
+    // future path change) must never be deleted on someone else's behalf.
+    let ours = std::fs::metadata(&running.path)
+        .map(|meta| (meta.dev(), meta.ino()) == running.node)
+        .unwrap_or(false);
+    if ours {
+        let _ = std::fs::remove_file(&running.path);
+    }
 }
 
 #[cfg(test)]
@@ -322,15 +402,20 @@ mod tests {
         Arc::new(|line: &str| Some(line.to_uppercase()))
     }
 
-    /// A fresh socket path in a per-test temp dir (unix socket paths have a
-    /// ~104-byte cap on macOS, so the dir name stays short).
-    fn temp_sock() -> PathBuf {
+    /// A unique, NOT-yet-created directory path (unix socket paths have a
+    /// ~104-byte cap on macOS, so the name stays short).
+    fn temp_base() -> PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
-        let dir = std::env::temp_dir().join(format!(
+        std::env::temp_dir().join(format!(
             "kd-mcp-{}-{}",
             std::process::id(),
             N.fetch_add(1, Ordering::SeqCst)
-        ));
+        ))
+    }
+
+    /// A fresh socket path whose directory already exists.
+    fn temp_sock() -> PathBuf {
+        let dir = temp_base();
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir.join("mcp.sock")
     }
@@ -395,6 +480,76 @@ mod tests {
         reader.read_line(&mut reply).expect("read");
         assert_eq!(reply.trim_end(), "REQUEST");
         stop(running);
+    }
+
+    #[test]
+    fn a_directory_this_start_creates_is_born_owner_only() {
+        // Not "created loose, tightened after": a window there would let
+        // another user open a dirfd that survives the chmod.
+        let path = temp_base().join("mcp.sock");
+        let running = start_at(&path, upper()).expect("start");
+        let mode = std::fs::metadata(path.parent().unwrap())
+            .expect("meta")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
+        stop(running);
+    }
+
+    #[test]
+    fn a_symlinked_socket_directory_is_refused() {
+        // Following it would chmod — and serve from — whatever it points at.
+        let base = temp_base();
+        let real = base.join("real");
+        std::fs::create_dir_all(&real).expect("real dir");
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+        let refused = start_at(&link.join("mcp.sock"), upper());
+        assert!(refused.is_err(), "a symlinked socket dir must be refused");
+    }
+
+    #[test]
+    fn a_dangling_symlink_at_the_socket_path_is_cleared() {
+        // `exists()` follows links, so a dangling one reads as absent and
+        // then wedges bind(2) forever — the staleness check must not.
+        let path = temp_sock();
+        std::os::unix::fs::symlink(path.with_extension("gone"), &path).expect("symlink");
+        let running = start_at(&path, upper()).expect("start over a dangling symlink");
+        assert_eq!(roundtrip(&path, "up"), "UP");
+        stop(running);
+    }
+
+    #[test]
+    fn the_name_stays_owned_even_when_the_socket_file_vanishes() {
+        // The teardown UNLINKS the name, and the stale-file cleanup unlinks
+        // it too — so without an owner's claim a second server could bind
+        // over a live one and later delete its socket. The claim outlives
+        // the file: only the owning process going away frees the name.
+        let path = temp_sock();
+        let first = start_at(&path, upper()).expect("first");
+        std::fs::remove_file(&path).expect("the file vanishes");
+        assert!(
+            start_at(&path, upper()).is_err(),
+            "the name must stay owned while its server lives"
+        );
+        stop(first);
+        // Owner gone → the name is free again.
+        let second = start_at(&path, upper()).expect("second after release");
+        stop(second);
+    }
+
+    #[test]
+    fn teardown_leaves_a_socket_it_no_longer_owns_alone() {
+        let path = temp_sock();
+        let running = start_at(&path, upper()).expect("start");
+        // The name moves on to a different inode (an external rm plus
+        // whatever took its place). Deleting THAT would be deleting on
+        // someone else's behalf.
+        std::fs::remove_file(&path).expect("rm");
+        std::fs::write(&path, b"not ours").expect("replace");
+        stop(running);
+        assert!(path.exists(), "a foreign file at the name must survive Off");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
