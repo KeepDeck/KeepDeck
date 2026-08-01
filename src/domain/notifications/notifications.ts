@@ -1,3 +1,4 @@
+import type { StatsTab } from "../usage/statsTabs";
 import type {
   WorkspaceInstance,
   WorkspaceRef,
@@ -33,7 +34,12 @@ export type NotificationSource =
       workspace?: NotificationWorkspace;
       dockTab?: string;
     }
-  | { type: "app" };
+  | { type: "app" }
+  /** Opens the Statistics dialog, optionally on a named tab — achievement
+   * unlocks land on the trophy case, not in Settings. Typed vocabulary:
+   * renaming a tab breaks producers at compile time instead of silently
+   * rerouting every deep link to Overview. */
+  | { type: "stats"; tab?: StatsTab };
 
 export type NotificationSeverity = "info" | "warning" | "error";
 
@@ -44,6 +50,9 @@ export interface Notification {
   id: string;
   title: string;
   body?: string;
+  /** Optional emoji glyph rendered in place of the severity dot — an
+   * achievement badge carries its own icon into the bell. */
+  icon?: string;
   severity: NotificationSeverity;
   source: NotificationSource;
   /** Replace-not-stack key (the Web Notifications `tag` semantics): a new
@@ -117,7 +126,7 @@ export function unreadByWorkspace(
   const counts = new Map<WorkspaceInstance, number>();
   for (const n of items) {
     if (n.readAt !== undefined) continue;
-    const workspace = n.source.type === "app" ? undefined : n.source.workspace;
+    const workspace = "workspace" in n.source ? n.source.workspace : undefined;
     if (!workspace) continue;
     counts.set(workspace.instance, (counts.get(workspace.instance) ?? 0) + 1);
   }
@@ -143,13 +152,24 @@ export interface BannerContext {
  * a banner would point at what the user is looking at), or the same tag
  * bannered within the cooldown window.
  */
-export function shouldBanner(ctx: BannerContext): boolean {
-  if (ctx.windowFocused && ctx.sourceVisible) return false;
+export type BannerVerdict = "banner" | "seen-in-place" | "cooldown";
+
+/** WHY a banner is or is not sent — the reason is part of the contract:
+ * "seen-in-place" means the user is looking at the source surface, which
+ * delivery accounting treats as delivered, while "cooldown" reached nobody
+ * this time. Callers must consume the verdict, never re-derive a reason
+ * from the context. */
+export function bannerVerdict(ctx: BannerContext): BannerVerdict {
+  if (ctx.windowFocused && ctx.sourceVisible) return "seen-in-place";
   if (
     ctx.lastBannerAt !== undefined &&
     ctx.now - ctx.lastBannerAt < BANNER_COOLDOWN_MS
   ) {
-    return false;
+    return "cooldown";
   }
-  return true;
+  return "banner";
+}
+
+export function shouldBanner(ctx: BannerContext): boolean {
+  return bannerVerdict(ctx) === "banner";
 }

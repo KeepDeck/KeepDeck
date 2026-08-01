@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AGENT_FEATURE,
   hasAgentFeature,
@@ -9,10 +9,11 @@ import {
   chipWindows,
   formatAge,
   formatPct,
-  limitLevel,
+  latestReportedAt,
   panelWindows,
   usageStale,
   windowExpired,
+  windowLevel,
   windowLabel,
   windowResetCaption,
   type AccountUsage,
@@ -23,6 +24,8 @@ import { useSettings } from "../../app/useSettings";
 import { useUsage } from "../../app/useUsage";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
+import { useWallClock } from "../../ui/useWallClock";
+import { UsageWindowBar } from "./UsageWindowBar";
 
 /**
  * The top-bar usage cluster: one chip per ACCOUNT-LIMIT-capable agent with a
@@ -49,33 +52,23 @@ function WindowValue({
   now: number;
 }) {
   const expired = windowExpired(window, now);
-  const level = limitLevel(window.usedPct);
-  const cls = expired || level === "ok" ? "" : ` usage-level--${level}`;
+  const level = windowLevel(window, now);
   return (
     <span
-      className={`usage-window__value${cls}${expired ? " usage-window--expired" : ""}`}
+      className={`usage-window__value${level ? ` usage-level--${level}` : ""}${
+        expired ? " usage-window--expired" : ""
+      }`}
     >
       {formatPct(window.usedPct, display)}
     </span>
   );
 }
 
-/** The panel's fill bar. Chips deliberately carry NONE: a bar next to one
- * number but not its neighbor read as noise (field report) — the chip is
- * numbers only, the panel visualizes. */
-function Bar({ window, now }: { window: UsageWindow; now: number }) {
-  const level = limitLevel(window.usedPct);
-  return (
-    <span className="usage-bar" aria-hidden>
-      <i
-        className={
-          windowExpired(window, now) || level === "ok" ? "" : `usage-level--${level}`
-        }
-        style={{ width: `${Math.round(window.usedPct)}%` }}
-      />
-    </span>
-  );
-}
+/** The panel's fill bar — shared with the Stats Providers cards. Chips
+ * deliberately carry NONE: a bar next to one number but not its neighbor
+ * read as noise (field report) — the chip is numbers only, the panel
+ * visualizes. */
+const Bar = UsageWindowBar;
 
 function UsageChip({
   agent,
@@ -168,14 +161,12 @@ export function UsageChips({
     }
   }, [openProvider, providersKey]);
 
-  // Countdowns and staleness drift with wall time — a slow tick re-renders
-  // them; nothing else here depends on it.
-  const [, tick] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
-    if (accounts.size === 0) return;
-    const timer = setInterval(tick, 30_000);
-    return () => clearInterval(timer);
-  }, [accounts.size]);
+  // Countdowns and staleness drift with wall time — the shared slow-tick
+  // clock advances them. The newest report floors the clock: a report
+  // landing on a long-idle chip must never read as stale (or negative-aged)
+  // against a now that last ticked before it arrived.
+  const latestReport = useMemo(() => latestReportedAt(accounts.values()), [accounts]);
+  const now = useWallClock(latestReport);
 
   // Light-dismiss: any pointer press outside (or Escape) closes the panel.
   const open = openProvider !== null;
@@ -196,7 +187,6 @@ export function UsageChips({
   }, [open]);
 
   if (providers.length === 0) return null;
-  const now = Date.now();
   return (
     <span className="usage" ref={rootRef}>
       {providers.map((agent) => (
@@ -282,7 +272,7 @@ export function UsageChips({
               onOpenStats();
             }}
           >
-            Open usage statistics
+            Open statistics
             <span aria-hidden>→</span>
           </button>
         </div>

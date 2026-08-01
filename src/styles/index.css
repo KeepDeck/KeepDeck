@@ -20,6 +20,9 @@
 @import "./confirm.css";
 @import "./settings.css";
 @import "./stats.css";
+@import "./stats-streak.css";
+@import "./stats-providers.css";
+@import "./stats-achievements.css";
 @import "./skills.css";
 @import "./notifications.css";
 @import "./usage.css";

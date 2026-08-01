@@ -81,10 +81,13 @@ function App() {
     setForkDialog,
     setFrozenAck,
     setRailCollapsed,
-    setSettingsOpen,
-    setSettingsSection,
-    setSkillsOpen,
-    setStatsOpen,
+    openSettings,
+    closeSettings,
+    openSkills,
+    closeSkills,
+    openStats,
+    closeStats,
+    selectStatsTab,
     settings,
     settingsOpen,
     settingsSection,
@@ -93,6 +96,7 @@ function App() {
     skillsOpen,
     specByPane,
     statsOpen,
+    statsTab,
     unavailableReasons,
     updateState,
     usageLiveAgents,
@@ -126,9 +130,8 @@ function App() {
               onClick={() => {
                 if (updateState.phase === "ready") {
                   void restartToUpdate();
-                } else if (canOpenDialog) {
-                  setSettingsSection("updates");
-                  setSettingsOpen(true);
+                } else {
+                  openSettings("updates");
                 }
               }}
               disabled={
@@ -152,7 +155,7 @@ function App() {
           <UsageChips
             agents={agents}
             liveAgents={usageLiveAgents}
-            onOpenStats={() => canOpenDialog && setStatsOpen(true)}
+            onOpenStats={() => void openStats()}
           />
           <button
             type="button"
@@ -195,10 +198,10 @@ function App() {
           <button
             type="button"
             className="bar__icon"
-            onClick={() => setStatsOpen(true)}
+            onClick={() => void openStats()}
             disabled={!canOpenDialog}
-            title="Usage statistics"
-            aria-label="Open usage statistics"
+            title="Statistics"
+            aria-label="Open statistics"
           >
             <StatsIcon />
           </button>
@@ -206,7 +209,7 @@ function App() {
           <button
             type="button"
             className="bar__icon"
-            onClick={() => setSkillsOpen(true)}
+            onClick={() => void openSkills()}
             disabled={!canOpenDialog}
             title="Skills"
             aria-label="Open skills"
@@ -216,10 +219,7 @@ function App() {
           <button
             type="button"
             className="bar__icon"
-            onClick={() => {
-              setSettingsSection(undefined);
-              setSettingsOpen(true);
-            }}
+            onClick={() => void openSettings()}
             disabled={!canOpenDialog}
             title="Settings"
             aria-label="Open settings"
@@ -410,17 +410,20 @@ function App() {
           {settingsOpen && (
             <SettingsDialog
               initialSectionId={settingsSection}
-              onClose={() => {
-                setSettingsOpen(false);
-                setSettingsSection(undefined);
-              }}
+              onClose={closeSettings}
             />
           )}
-          {statsOpen && <StatsDialog onClose={() => setStatsOpen(false)} />}
+          {statsOpen && (
+            <StatsDialog
+              tab={statsTab}
+              onSelectTab={selectStatsTab}
+              onClose={closeStats}
+            />
+          )}
           {skillsOpen && (
             <SkillsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}
-              onClose={() => setSkillsOpen(false)}
+              onClose={closeSkills}
             />
           )}
           {closeFlow.closing && (

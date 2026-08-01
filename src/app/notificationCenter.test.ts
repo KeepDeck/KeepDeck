@@ -118,6 +118,21 @@ describe("notificationCenter", () => {
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
   });
 
+  it("counts watched-in-place as delivered in system mode; cooldown as not", () => {
+    withNotificationPrefs({ mode: "system" });
+    setWindowFocusForTest(true);
+    setSourceVisibilityProbe(() => true);
+    // The user is looking at the source surface: no banner, but the event
+    // announced itself in place — a persisting caller must not re-announce.
+    expect(notify({ title: "t", source: paneSource, tag: "a" })).toBe(true);
+    expect(notifyIpc.sendSystemNotification).not.toHaveBeenCalled();
+
+    // Cooldown suppression reaches nobody THIS time — stays undelivered.
+    setSourceVisibilityProbe(() => false);
+    expect(notify({ title: "t", source: paneSource, tag: "b" })).toBe(true);
+    expect(notify({ title: "t", source: paneSource, tag: "b" })).toBe(false);
+  });
+
   it("same-tag banners respect the cooldown; the entry still updates", () => {
     notify({ title: "first", source: paneSource, tag: "x" });
     vi.advanceTimersByTime(1_000);

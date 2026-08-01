@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 const DECK_FILE: &str = "deck.json";
 const SETTINGS_FILE: &str = "settings.json";
 const USAGE_CACHE_FILE: &str = "usage-cache.json";
+const ACHIEVEMENTS_FILE: &str = "achievements.json";
 
 /// The stored deck JSON, or `None` on first run. `(async)`, like every
 /// command here: disk IO stays off the main thread (the frontend already
@@ -54,6 +55,20 @@ pub fn usage_cache_save(json: String) -> Result<(), String> {
     save_atomic(&usage_cache_path()?, &json).map_err(|e| e.to_string())
 }
 
+/// The achievement ids the user has already been congratulated for. A CACHE
+/// like the usage snapshot — tolerant webview read, no quarantine: the worst
+/// a bad file causes is one repeated congratulation.
+#[tauri::command(async)]
+pub fn achievements_load() -> Result<Option<String>, String> {
+    load(&achievements_path()?).map_err(|e| e.to_string())
+}
+
+/// Persist the congratulated set (already serialized by the webview).
+#[tauri::command(async)]
+pub fn achievements_save(json: String) -> Result<(), String> {
+    save_atomic(&achievements_path()?, &json).map_err(|e| e.to_string())
+}
+
 /// The stored settings JSON, or `None` on first run ([F6]).
 #[tauri::command(async)]
 pub fn settings_load() -> Result<Option<String>, String> {
@@ -84,6 +99,10 @@ fn settings_path() -> Result<PathBuf, String> {
 
 fn usage_cache_path() -> Result<PathBuf, String> {
     doc_path(USAGE_CACHE_FILE)
+}
+
+fn achievements_path() -> Result<PathBuf, String> {
+    doc_path(ACHIEVEMENTS_FILE)
 }
 
 fn doc_path(file: &str) -> Result<PathBuf, String> {

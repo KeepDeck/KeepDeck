@@ -19,10 +19,14 @@
 }
 
 .stats-dialog__body {
-  min-height: 240px;
-  max-height: min(640px, 70vh);
+  /* FIXED height, not a range: tabs carry different amounts of content, and
+     a dialog that resizes on every tab switch reads as jumping. Short tabs
+     keep the air; long ones scroll. */
+  height: min(640px, 70vh);
   margin-bottom: 8px;
-  padding-right: 4px;
+  /* Gutter for the native overlay scrollbar (deliberately unstyled, see
+     base.css): without it the thumb rides ON the right-aligned numbers. */
+  padding-right: 12px;
   overflow-y: auto;
 }
 
@@ -47,7 +51,7 @@
   padding: 2px;
   border: 1px solid #1c2230;
   border-radius: 7px;
-  background: #0b0e14;
+  background: var(--kd-bg);
 }
 
 .stats__period button {
@@ -67,6 +71,58 @@
   color: #c5c8c6;
 }
 
+/* The active tab doesn't consume the period (Providers): the switcher goes
+   quiet instead of pretending to work — including the hover highlight,
+   which pointer-events kills on the disabled buttons. */
+.stats__period--idle {
+  opacity: 0.4;
+}
+
+.stats__period--idle button {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Tab strip — the dock panel's pattern: quiet labels, an underline carries
+   the selection. */
+.stats__tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #1c2230;
+}
+
+/* The footer: the streak chip holds the bottom-left corner, Done keeps the
+   right regardless of whether a streak is alive. */
+.stats-dialog__actions {
+  display: flex;
+  align-items: center;
+}
+
+.stats-dialog__actions .form__create {
+  margin-left: auto;
+}
+
+.stats__tab {
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #6b7280;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.stats__tab:hover {
+  color: #c5c8c6;
+}
+
+.stats__tab--active {
+  color: #c5c8c6;
+  border-bottom-color: var(--kd-ok);
+}
+
 .stats__empty {
   margin: 30px 0;
   color: #6b7280;
@@ -84,6 +140,9 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  /* The cards are not a .stats__section, so the section spacing rule never
+     reaches them — without this the chart heading sits ON the cards. */
+  margin-bottom: 18px;
 }
 
 .stats__card {
@@ -93,7 +152,7 @@
   padding: 10px 12px;
   border: 1px solid #1c2230;
   border-radius: 8px;
-  background: #0b0e14;
+  background: var(--kd-bg);
 }
 
 .stats__card span {
@@ -107,6 +166,13 @@
   color: #e6e8eb;
   font-size: 18px;
   font-weight: 600;
+}
+
+.stats__recap {
+  margin: 8px 2px 0;
+  color: #9aa3af;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .stats__coverage {
@@ -183,6 +249,7 @@
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
+
 
 @media (max-width: 720px) {
   .stats-dialog {

@@ -253,7 +253,7 @@ describe("UsageChips", () => {
     });
 
     const open = host.querySelector<HTMLButtonElement>(".usage-panel__stats")!;
-    expect(open.textContent).toContain("Open usage statistics");
+    expect(open.textContent).toContain("Open statistics");
     act(() => open.click());
 
     expect(openStats).toHaveBeenCalledOnce();

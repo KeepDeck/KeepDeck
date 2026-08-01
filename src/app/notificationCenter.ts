@@ -2,7 +2,7 @@ import {
   addNotification,
   markAllRead,
   markRead,
-  shouldBanner,
+  bannerVerdict,
   type Notification,
   type NotificationSeverity,
   type NotificationSource,
@@ -27,6 +27,9 @@ import { isWindowFocused } from "./windowFocus";
 export interface NotifyInput {
   title: string;
   body?: string;
+  /** Emoji glyph shown in place of the severity dot; see
+   * [`Notification.icon`]. */
+  icon?: string;
   /** Defaults to `info`. */
   severity?: NotificationSeverity;
   source: NotificationSource;
@@ -61,15 +64,18 @@ export function setSourceVisibilityProbe(
 }
 
 /** Post a notification. Honors the master switch, the delivery mode and
- * per-plugin mutes; decides the OS banner via the domain rule. */
-export function notify(input: NotifyInput): void {
+ * per-plugin mutes; decides the OS banner via the domain rule. Returns
+ * whether a delivery channel ACCEPTED it — false means the user could not
+ * have seen it (disabled or muted), which the achievements notifier uses to
+ * defer its congratulated-set write instead of losing the award forever. */
+export function notify(input: NotifyInput): boolean {
   const prefs = getSettings()?.notifications ?? DEFAULT_SETTINGS.notifications;
-  if (!prefs.enabled) return;
+  if (!prefs.enabled) return false;
   if (
     input.source.type === "plugin" &&
     prefs.mutedPlugins.includes(input.source.pluginId)
   ) {
-    return;
+    return false;
   }
   const now = Date.now();
   seq += 1;
@@ -77,27 +83,40 @@ export function notify(input: NotifyInput): void {
     id: `ntf-${seq}`,
     title: input.title,
     body: input.body,
+    ...(input.icon !== undefined ? { icon: input.icon } : {}),
     severity: input.severity ?? "info",
     source: input.source,
     tag: input.tag,
     at: now,
   };
+  // Honest delivery accounting: the return value states whether the user
+  // was actually reached, channel by channel — callers that PERSIST a
+  // delivery decision (the achievement notifier) depend on it.
+  let delivered = false;
   if (prefs.mode !== "system") {
     items = addNotification(items, notification);
     emit();
+    delivered = true;
   }
   if (prefs.mode !== "app") {
-    const allowed = shouldBanner({
+    const verdict = bannerVerdict({
       windowFocused: isWindowFocused(),
       sourceVisible: sourceVisible?.(notification.source) ?? false,
       now,
-      // A miss is undefined — exactly shouldBanner's "never bannered".
+      // A miss is undefined — exactly the verdict's "never bannered".
       lastBannerAt:
         notification.tag !== undefined
           ? lastBannerAt.get(notification.tag)
           : undefined,
     });
-    if (allowed) {
+    if (verdict === "seen-in-place") {
+      // The user is looking at the source surface: the event announced
+      // itself in place, so it counts as delivered — otherwise system mode
+      // would re-banner an award the user watched land. Cooldown
+      // suppression stays undelivered: nothing reached the user THIS time.
+      delivered = true;
+    }
+    if (verdict === "banner") {
       if (notification.tag !== undefined) {
         lastBannerAt.delete(notification.tag); // re-set → back of the order
         lastBannerAt.set(notification.tag, now);
@@ -105,9 +124,17 @@ export function notify(input: NotifyInput): void {
           lastBannerAt.delete(lastBannerAt.keys().next().value as string);
         }
       }
-      sendSystemNotification(notification.title, notification.body);
+      // The OS banner has no icon slot of ours — the emoji rides the title.
+      sendSystemNotification(
+        notification.icon !== undefined
+          ? `${notification.icon} ${notification.title}`
+          : notification.title,
+        notification.body,
+      );
+      delivered = true;
     }
   }
+  return delivered;
 }
 
 /** The live list, newest first (stable between changes — the

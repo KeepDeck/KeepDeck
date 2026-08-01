@@ -1,3 +1,4 @@
+import type { UsageStatsPeriod } from "./history/query";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 
 /**
@@ -29,8 +30,18 @@ export function chipWindows(account: AccountUsage, max = 2): UsageWindow[] {
   if (account.kind !== "reported") return [];
   return [...account.windows]
     .filter((w) => w.scope === undefined)
-    .sort((a, b) => (a.windowMinutes ?? Infinity) - (b.windowMinutes ?? Infinity))
+    .sort((a, b) => byWindowMinutes(a, b))
     .slice(0, max);
+}
+
+/** Shortest window first; duration-less windows last, as EQUALS — spelled
+ * out, because `Infinity - Infinity` is NaN and the old subtraction only
+ * kept insertion order by a SortCompare footnote (NaN coerces to +0). */
+function byWindowMinutes(a: UsageWindow, b: UsageWindow): number {
+  const left = a.windowMinutes ?? Infinity;
+  const right = b.windowMinutes ?? Infinity;
+  if (left === right) return 0;
+  return left - right;
 }
 
 /** Every window for the PANEL, scoped ones after account-wide. */
@@ -39,7 +50,7 @@ export function panelWindows(account: AccountUsage): UsageWindow[] {
   return [...account.windows].sort(
     (a, b) =>
       Number(a.scope !== undefined) - Number(b.scope !== undefined) ||
-      (a.windowMinutes ?? Infinity) - (b.windowMinutes ?? Infinity),
+      byWindowMinutes(a, b),
   );
 }
 
@@ -97,32 +108,157 @@ export function usageStale(reportedAt: number, now: number): boolean {
   return now - reportedAt > USAGE_STALE_AFTER_MS;
 }
 
+/** The threshold color a window may WEAR — null means none: an expired
+ * window's percentage describes the previous window, so it never carries
+ * confident color, and an ok-level window stays calm. THE one home of the
+ * expired-suppression rule; every surface (chip value, fill bar, provider
+ * card) asks here instead of re-deriving it. */
+export function windowLevel(
+  window: UsageWindow,
+  now: number,
+): Exclude<UsageLevel, "ok"> | null {
+  if (windowExpired(window, now)) return null;
+  const level = limitLevel(window.usedPct);
+  return level === "ok" ? null : level;
+}
+
 /** The caption under a window's percentage — the full window-kind semantics
  * in ONE place (its label sibling is [`windowLabel`]): a live countdown, a
  * rolling window whose reset the CLI didn't share, or a clockless plan BALANCE
  * (kimi's totalQuota — spent and topped up, never reset). An EXPIRED window
- * gets NO caption (empty): the dimmed percentage already reads as stale, so the
- * "awaiting report" note was just noise. */
-export function windowResetCaption(window: UsageWindow, now: number): string {
-  if (windowExpired(window, now)) return "";
+ * splits by surface, and both answers are deliberate: the chip popover
+ * ("short") stays EMPTY — the dimmed percentage reads as stale and the extra
+ * note was noise (field decision) — while the Stats card ("long") spells the
+ * state out, because the gray bar alone read as a bug even to the tool's
+ * author. */
+export function windowResetCaption(
+  window: UsageWindow,
+  now: number,
+  form: "short" | "long" = "short",
+): string {
+  if (windowExpired(window, now)) {
+    return form === "long" ? "reset passed · % is from the previous window" : "";
+  }
   const countdown = formatCountdown(window.resetsAt, now);
   if (countdown) return `resets in ${countdown}`;
   return window.windowMinutes !== null ? "reset unknown" : "plan allowance";
 }
 
 /** "now" / "3m ago" / "2h ago" — the popover's "Updated …" line. */
-export function formatAge(reportedAt: number, now: number): string {
+/** THE relative-age formatter — the usage chips/tables and the
+ * notification bell are the two surfaces a user compares when asking
+ * "when did this happen", so they share one set of thresholds. The bell
+ * drops the suffix; the thresholds and flooring never fork. */
+export function formatAge(
+  reportedAt: number,
+  now: number,
+  form: "ago" | "bare" = "ago",
+): string {
   const s = Math.max(0, Math.floor((now - reportedAt) / 1000));
+  const suffix = form === "ago" ? " ago" : "";
   if (s < 60) return "now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86_400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86_400)}d ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m${suffix}`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h${suffix}`;
+  return `${Math.floor(s / 86_400)}d${suffix}`;
 }
 
-/** A token count as a compact, glanceable string: "812", "15.5k", "1.2M".
- * One decimal that a whole number drops ("15.0k" → "15k"); sub-thousand
- * counts stay exact. Non-finite or ≤0 is "0". The k→M boundary promotes at
- * 999.95k so a value never renders as "1000k". */
+/** "Jul 22" / "Jul 22, 2026" — labeled in UTC because every stats day
+ * bucket (recap, daily chart, milestone dates) is a UTC day; a local-time
+ * label would drift off its own bucket. */
+export function formatUtcDay(at: number, withYear = false): string {
+  return new Date(at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(withYear ? { year: "numeric" } : {}),
+    timeZone: "UTC",
+  });
+}
+
+/** THE chart bucket label, both granularities and both surfaces (axis tick
+ * and tooltip). Buckets are UTC-aligned instants, so labels speak UTC too —
+ * a local-zone rendering of a UTC-hour bucket reads as half-hours in
+ * :30/:45-offset zones. The long (tooltip) form names the day and marks
+ * the zone; the short ticks stay uncluttered. */
+export function formatBucket(
+  start: number,
+  granularity: "hour" | "day",
+  form: "short" | "long" = "short",
+): string {
+  if (granularity === "day") return formatUtcDay(start, form === "long");
+  const time = new Date(start).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  });
+  return form === "short" ? time : `${formatUtcDay(start)}, ${time} UTC`;
+}
+
+/** The period switcher's order and labels — exhaustive by construction: a
+ * new UsageStatsPeriod member fails to compile until it names itself, so a
+ * period can never exist that the switcher silently omits or that renders
+ * as an empty string inside the Highlights sentence.
+ *
+ * Placement rule, since tab labels chose the VIEW (tabs.ts): labels live
+ * with the view unless the domain itself phrases sentences with them —
+ * "vs prior 7d" in recapCaption makes these domain vocabulary, not UI
+ * chrome. */
+export const USAGE_PERIODS: readonly UsageStatsPeriod[] = [1, 7, 30, 90, "all"];
+
+export const PERIOD_LABELS: Record<UsageStatsPeriod, string> = {
+  1: "24h",
+  7: "7d",
+  30: "30d",
+  90: "90d",
+  all: "All",
+};
+
+/** The cost-provenance disclaimer under the Overview cards — the one text
+ * in the app that distinguishes provider API estimates from subscription
+ * charges, so it lives with the other money captions, not in a view. */
+export function costCoverage(costSessions: number, sessionCount: number): string {
+  if (costSessions === 0) {
+    return "No CLI reported a cost estimate. Token totals remain available.";
+  }
+  if (costSessions === sessionCount) {
+    return "Provider-reported API estimates, not subscription charges.";
+  }
+  return `Provider estimates available for ${costSessions} of ${sessionCount} sessions; unreported sessions are excluded.`;
+}
+
+/** Dollars, the ONE way: four decimals while sub-cent amounts would vanish,
+ * cents while they matter, whole grouped dollars once they don't. `approx`
+ * prefixes "≈" — provider costs are estimates, not invoices. The display
+ * value is rounded BEFORE its format branch is chosen: toFixed can promote
+ * 999.995 across the grouping boundary the branch is gated on, rendering
+ * an ungrouped "1000.00". A positive amount too small for four decimals
+ * shows a floor ("<$0.0001") instead of a "$0.0000" that reads as free. */
+export function formatUsd(value: number, opts: { approx?: boolean } = {}): string {
+  const prefix = opts.approx === true ? "≈" : "";
+  if (value === 0) return `${prefix}$0.00`;
+  if (value < 0.01) {
+    return value < 0.00005
+      ? `${prefix}<$0.0001`
+      : `${prefix}$${value.toFixed(4)}`;
+  }
+  const cents = Math.round(value * 100) / 100;
+  return cents < 1_000
+    ? `${prefix}$${cents.toFixed(2)}`
+    : `${prefix}$${Math.round(value).toLocaleString("en-US")}`;
+}
+
+/** A provider-cost aggregate: "—" until at least one event carried a cost —
+ * zero-with-no-reports must never read as "free". */
+export function displayProviderCost(value: number, costEvents: number): string {
+  return costEvents === 0 ? "—" : formatUsd(value, { approx: true });
+}
+
+/** A token count as a compact, glanceable string: "812", "15.5k", "1.2M",
+ * "5B", "1T". One decimal that a whole number drops ("15.0k" → "15k");
+ * sub-thousand counts stay exact. Non-finite or ≤0 is "0". Every boundary
+ * promotes at 999.95 of the lower unit so a value never renders as "1000k",
+ * "1000M" or "1000B" — the T tier exists because the achievements ladder
+ * already names a trillion. */
 export function formatTokens(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "0";
   if (n < 1000) return String(Math.round(n));
@@ -131,5 +267,9 @@ export function formatTokens(n: number): string {
     return Number.isInteger(v) ? String(v) : v.toFixed(1);
   };
   const k = n / 1000;
-  return k < 999.95 ? `${oneDp(k)}k` : `${oneDp(n / 1_000_000)}M`;
+  if (k < 999.95) return `${oneDp(k)}k`;
+  const m = n / 1_000_000;
+  if (m < 999.95) return `${oneDp(m)}M`;
+  const b = n / 1_000_000_000;
+  return b < 999.95 ? `${oneDp(b)}B` : `${oneDp(n / 1_000_000_000_000)}T`;
 }

@@ -3,6 +3,11 @@ import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
 import {
+  loadNotifiedAchievements,
+  saveNotifiedAchievements,
+} from "../ipc/achievements";
+import { createAchievementNotifier } from "./achievementNotifier";
+import {
   createAgentOrchestrator,
   type AgentCatalogPort,
 } from "./agentOrchestrator";
@@ -28,9 +33,14 @@ import {
   subscribeSessions,
 } from "./ptyManager";
 import { createSessionBinding } from "./sessionBinding";
-import { getSettings, subscribeSettings } from "./settingsManager";
+import { notify } from "./notificationCenter";
+import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
 import { createUsageChannel } from "./usageChannel";
+import {
+  getUsageHistorySnapshot,
+  subscribeUsageHistory,
+} from "./usageHistoryManager";
 import { createWorktreeManager } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 
@@ -122,6 +132,8 @@ export function createAppRuntime(
   );
   const pluginDeckBridge = createPluginDeckBridge(deckStore, plugins);
   let usageChannel: ReturnType<typeof createUsageChannel> | null = null;
+  let achievementNotifier: ReturnType<typeof createAchievementNotifier> | null =
+    null;
   let disposed = false;
 
   return {
@@ -140,12 +152,23 @@ export function createAppRuntime(
         deckStore,
         plugins.pluginRegistries.agents,
       );
+      achievementNotifier ??= createAchievementNotifier({
+        loadNotified: loadNotifiedAchievements,
+        saveNotified: saveNotifiedAchievements,
+        settingsReady: initSettings,
+        notify,
+        history: {
+          getSnapshot: getUsageHistorySnapshot,
+          subscribe: subscribeUsageHistory,
+        },
+      });
       application.start();
     },
     dispose() {
       if (disposed) return;
       disposed = true;
       application.dispose();
+      achievementNotifier?.dispose();
       usageChannel?.dispose();
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();

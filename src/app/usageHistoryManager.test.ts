@@ -1,25 +1,24 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  encodeUsageEvent,
-  USAGE_HISTORY_RETENTION_MS,
-  type UsageEventV2,
-} from "../domain/usage/history";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { encodeUsageEvent, type UsageEventV2 } from "../domain/usage/history/event";
+import { TEST_NOW, usageEvent } from "../domain/usage/history/event.testSupport";
+import { createUsageHistoryManager } from "./usageHistoryManager";
 
-const ipc = vi.hoisted(() => ({
+// The manager is a factory over an injected persistence port — each test
+// builds a fresh instance over these fakes; there is no shared state and
+// no reset hook.
+const ipc = {
   loadUsageHistory: vi.fn<() => Promise<string[]>>(),
   appendUsageHistory: vi.fn<(lines: string[]) => Promise<void>>(),
   compactUsageHistory: vi.fn<(lines: string[]) => Promise<void>>(),
-}));
-vi.mock("../ipc/usageHistory", () => ipc);
+};
+let manager: ReturnType<typeof createUsageHistoryManager>;
+const initUsageHistory = () => manager.init();
+const recordPaneUsage: ReturnType<typeof createUsageHistoryManager>["record"] = (
+  ...args
+) => manager.record(...args);
+const getUsageHistorySnapshot = () => manager.getSnapshot();
 
-import {
-  getUsageHistorySnapshot,
-  initUsageHistory,
-  recordPaneUsage,
-  resetUsageHistoryManager,
-} from "./usageHistoryManager";
-
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+const NOW = TEST_NOW;
 const context = {
   workspaceId: "ws-1",
   workspaceName: "KeepDeck",
@@ -29,38 +28,31 @@ const context = {
   sessionId: "session-1",
 };
 
+/** This file's personality over the shared builder: the manager tests speak
+ * opencode and key everything on the capture context's session-1. */
 const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
-  ({
-  schemaVersion: 2,
-  eventId: "event-1",
-  occurredAt: NOW - 1_000,
-  capturedAt: NOW - 900,
-  agent: "opencode",
-  workspaceId: "ws-1",
-  workspaceName: "KeepDeck",
-  workspaceCwd: "/repo",
-  paneId: "pane-1",
-  paneName: "Agent 1",
-  sessionId: "session-1",
-  rootSessionId: "session-1",
-  tokens: { input: 10 },
-  costSource: "unavailable",
-  observation: { tokens: { input: 10 } },
+  usageEvent({
+    eventId: "event-1",
+    capturedAt: NOW - 900,
+    agent: "opencode",
+    model: undefined,
+    sessionId: "session-1",
+    rootSessionId: "session-1",
+    tokens: { input: 10 },
+    observation: { tokens: { input: 10 } },
     ...over,
-  }) as UsageEventV2;
+  });
 
 describe("usageHistoryManager", () => {
   beforeEach(() => {
-    resetUsageHistoryManager();
     ipc.loadUsageHistory.mockReset().mockResolvedValue([]);
     ipc.appendUsageHistory.mockReset().mockResolvedValue(undefined);
     ipc.compactUsageHistory.mockReset().mockResolvedValue(undefined);
+    manager = createUsageHistoryManager(ipc);
   });
 
-  afterEach(() => resetUsageHistoryManager());
-
   it("records only positive deltas from cumulative pane snapshots", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     await recordPaneUsage(
       {
         agent: "opencode",
@@ -105,7 +97,7 @@ describe("usageHistoryManager", () => {
         }),
       ),
     ]);
-    await initUsageHistory(NOW);
+    await initUsageHistory();
 
     await recordPaneUsage(
       {
@@ -122,7 +114,7 @@ describe("usageHistoryManager", () => {
   });
 
   it("never invents a monetary cost when the CLI reports none", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     await recordPaneUsage(
       {
         agent: "codex",
@@ -141,7 +133,7 @@ describe("usageHistoryManager", () => {
   });
 
   it("records an explicit initial provider cost of zero", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     await recordPaneUsage(
       {
         agent: "opencode",
@@ -160,7 +152,7 @@ describe("usageHistoryManager", () => {
   });
 
   it("merges independent cumulative token and provider-cost snapshots", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     const claudeContext = { ...context, sessionId: "claude-session" };
     await recordPaneUsage(
       {
@@ -203,7 +195,7 @@ describe("usageHistoryManager", () => {
   });
 
   it("uses the first resumed cumulative report only as a baseline", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     const claudeContext = {
       ...context,
       sessionId: "resumed-claude",
@@ -254,39 +246,93 @@ describe("usageHistoryManager", () => {
     });
   });
 
-  it("deduplicates damage and retains one expired baseline checkpoint", async () => {
-    const expired = event({
+  it("clamps an epoch-stamped report to its capture instant", async () => {
+    await initUsageHistory();
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 100 },
+        reportedAt: 0, // catch-up replay with no usable timestamp
+      },
+      context,
+      NOW,
+    );
+    const appended = JSON.parse(ipc.appendUsageHistory.mock.calls[0][0][0]);
+    expect(appended.occurredAt).toBe(NOW);
+  });
+
+  it("deduplicates damage while keeping history whole — age never prunes", async () => {
+    const yearsOld = event({
       eventId: "old-latest",
-      occurredAt: NOW - USAGE_HISTORY_RETENTION_MS - 1,
+      occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000,
       capturedAt: NOW - 10,
       observation: { tokens: { input: 50 } },
     });
     const older = event({
       eventId: "old-older",
-      occurredAt: NOW - USAGE_HISTORY_RETENTION_MS - 2,
+      occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 - 1,
       capturedAt: NOW - 20,
     });
     const current = event({ eventId: "current", sessionId: "session-2", rootSessionId: "session-2" });
     ipc.loadUsageHistory.mockResolvedValue([
       encodeUsageEvent(older),
       "torn{",
-      encodeUsageEvent(expired),
+      encodeUsageEvent(yearsOld),
       encodeUsageEvent(current),
       encodeUsageEvent(current),
     ]);
 
-    await initUsageHistory(NOW);
+    await initUsageHistory();
 
     expect(getUsageHistorySnapshot().events.map((item) => item.eventId)).toEqual([
+      "old-older",
+      "old-latest",
       "current",
     ]);
     const compacted = ipc.compactUsageHistory.mock.calls[0][0].map((line) =>
       JSON.parse(line),
     );
     expect(compacted.map((item) => item.eventId)).toEqual([
+      "old-older",
       "old-latest",
       "current",
     ]);
+  });
+
+  it("carries future-schema lines through compaction — a downgrade loses nothing", async () => {
+    const futureLine = JSON.stringify({
+      ...event({ eventId: "from-the-future" }),
+      schemaVersion: 3,
+      newField: "this build cannot read it",
+    });
+    ipc.loadUsageHistory.mockResolvedValue([
+      futureLine,
+      "torn{", // real damage: forces the compaction rewrite
+      encodeUsageEvent(event({ eventId: "current" })),
+    ]);
+
+    await initUsageHistory();
+
+    // Unreadable-by-age is not damage: the line stays out of the snapshot
+    // but rides the rewrite verbatim for the build that wrote it.
+    expect(getUsageHistorySnapshot().events.map((e) => e.eventId)).toEqual([
+      "current",
+    ]);
+    expect(ipc.compactUsageHistory.mock.calls[0][0]).toContain(futureLine);
+  });
+
+  it("does not rewrite the ledger when future-schema lines are the only oddity", async () => {
+    const futureLine = JSON.stringify({
+      ...event({ eventId: "from-the-future" }),
+      schemaVersion: 3,
+    });
+    ipc.loadUsageHistory.mockResolvedValue([
+      encodeUsageEvent(event({ eventId: "current" })),
+      futureLine,
+    ]);
+    await initUsageHistory();
+    expect(ipc.compactUsageHistory).not.toHaveBeenCalled();
   });
 
   it("migrates v1 lines and compacts them as v2 instead of erasing history", async () => {
@@ -300,7 +346,7 @@ describe("usageHistoryManager", () => {
       }),
     ]);
 
-    await initUsageHistory(NOW);
+    await initUsageHistory();
 
     expect(getUsageHistorySnapshot().events).toHaveLength(1);
     expect(getUsageHistorySnapshot().events[0]).toMatchObject({

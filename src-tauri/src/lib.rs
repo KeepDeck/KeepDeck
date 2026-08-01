@@ -168,6 +168,8 @@ pub fn run() {
             state::settings_quarantine,
             state::usage_cache_load,
             state::usage_cache_save,
+            state::achievements_load,
+            state::achievements_save,
             usage_history::usage_history_load,
             usage_history::usage_history_append,
             usage_history::usage_history_compact,

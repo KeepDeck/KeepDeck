@@ -3,13 +3,16 @@ import {
   chipWindows,
   contextLevel,
   formatAge,
+  formatBucket,
   formatCountdown,
   formatPct,
   formatTokens,
+  formatUsd,
   limitLevel,
   panelWindows,
   usageStale,
   windowLabel,
+  windowLevel,
   windowResetCaption,
 } from "./format";
 import type { AccountUsage, UsageWindow } from "./usage";
@@ -122,8 +125,29 @@ describe("formatPct", () => {
   });
 });
 
+describe("windowLevel", () => {
+  const NOW = 1_000_000_000_000;
+  it("grants threshold color only to live windows past the thresholds", () => {
+    expect(windowLevel({ usedPct: 59, resetsAt: null, windowMinutes: 300 }, NOW)).toBeNull();
+    expect(windowLevel({ usedPct: 65, resetsAt: null, windowMinutes: 300 }, NOW)).toBe("warn");
+    expect(windowLevel({ usedPct: 90, resetsAt: null, windowMinutes: 300 }, NOW)).toBe("critical");
+    // An expired window's % describes the PREVIOUS window: never colored.
+    expect(
+      windowLevel({ usedPct: 90, resetsAt: NOW - 1, windowMinutes: 300 }, NOW),
+    ).toBeNull();
+  });
+});
+
 describe("windowResetCaption", () => {
   const NOW = 1_000_000_000_000;
+  it("splits the expired caption by surface, both on purpose", () => {
+    const expired = { usedPct: 1, resetsAt: NOW - 1, windowMinutes: 300 };
+    expect(windowResetCaption(expired, NOW)).toBe(""); // popover stays quiet
+    expect(windowResetCaption(expired, NOW, "long")).toBe(
+      "reset passed · % is from the previous window",
+    );
+  });
+
   it("covers all four window kinds", () => {
     // An expired window has no caption — the dimmed % already reads as stale.
     expect(
@@ -159,6 +183,46 @@ describe("staleness and age", () => {
     expect(formatAge(NOW - 3 * 60_000, NOW)).toBe("3m ago");
     expect(formatAge(NOW - 2 * 3_600_000, NOW)).toBe("2h ago");
   });
+
+  it("drops only the suffix in the bare form — thresholds never fork", () => {
+    expect(formatAge(NOW - 5000, NOW, "bare")).toBe("now");
+    expect(formatAge(NOW - 3 * 60_000, NOW, "bare")).toBe("3m");
+    expect(formatAge(NOW - 2 * 86_400_000, NOW, "bare")).toBe("2d");
+  });
+});
+
+describe("formatBucket", () => {
+  const AT = Date.parse("2026-07-22T14:00:00.000Z");
+  it("labels hour buckets in UTC — the buckets themselves are UTC-aligned", () => {
+    // In a :30/:45-offset zone a local rendering would read "19:30" for a
+    // UTC-hour bucket; the label speaks the bucket's own clock instead.
+    expect(formatBucket(AT, "hour")).toBe("14:00");
+    expect(formatBucket(AT, "hour", "long")).toBe("Jul 22, 14:00 UTC");
+    expect(formatBucket(Date.parse("2026-07-22T00:00:00.000Z"), "hour")).toBe(
+      "00:00",
+    );
+  });
+
+  it("labels day buckets as UTC days, dated fully in the long form", () => {
+    expect(formatBucket(AT, "day")).toBe("Jul 22");
+    expect(formatBucket(AT, "day", "long")).toBe("Jul 22, 2026");
+  });
+});
+
+describe("formatUsd", () => {
+  it("rounds before choosing the format, so the grouping boundary holds", () => {
+    expect(formatUsd(999.99)).toBe("$999.99");
+    expect(formatUsd(999.995)).toBe("$1,000"); // toFixed would say "1000.00"
+    expect(formatUsd(1_000)).toBe("$1,000");
+    expect(formatUsd(5258.27)).toBe("$5,258");
+  });
+
+  it("never renders a positive amount as free", () => {
+    expect(formatUsd(0)).toBe("$0.00");
+    expect(formatUsd(0.00004)).toBe("<$0.0001"); // toFixed(4) would say $0.0000
+    expect(formatUsd(0.0004)).toBe("$0.0004");
+    expect(formatUsd(0.25, { approx: true })).toBe("≈$0.25");
+  });
 });
 
 describe("formatTokens", () => {
@@ -181,6 +245,25 @@ describe("formatTokens", () => {
   it("promotes k→M at the boundary so nothing renders as 1000k", () => {
     expect(formatTokens(999_000)).toBe("999k");
     expect(formatTokens(999_999)).toBe("1M");
+  });
+
+  it("abbreviates billions past the M boundary", () => {
+    expect(formatTokens(1_200_000_000)).toBe("1.2B");
+    expect(formatTokens(5_044_500_000)).toBe("5B");
+    expect(formatTokens(123_456_000_000)).toBe("123.5B");
+  });
+
+  it("promotes M→B at the boundary so nothing renders as 1000M", () => {
+    expect(formatTokens(999_000_000)).toBe("999M");
+    expect(formatTokens(999_949_999)).toBe("999.9M");
+    expect(formatTokens(999_950_000)).toBe("1B");
+  });
+
+  it("promotes B→T at the boundary — the ladder names a trillion", () => {
+    expect(formatTokens(999_000_000_000)).toBe("999B");
+    expect(formatTokens(999_950_000_000)).toBe("1T");
+    expect(formatTokens(1e12)).toBe("1T");
+    expect(formatTokens(2_340_000_000_000)).toBe("2.3T");
   });
 
   it("is 0 for non-finite or negative input", () => {

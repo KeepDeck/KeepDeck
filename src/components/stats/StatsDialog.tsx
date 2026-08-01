@@ -1,25 +1,37 @@
-import { useState } from "react";
+import { useMemo, useState, type ReactElement } from "react";
+import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
-import { formatAge, formatTokens } from "../../domain/usage";
+import { PERIOD_LABELS, USAGE_PERIODS } from "../../domain/usage";
 import {
+  latestOccurredAt,
   queryUsageStats,
-  type UsageStatsPeriodDays,
-  type UsageStatsRow,
-} from "../../domain/usage/history";
+  type UsageStatsPeriod,
+} from "../../domain/usage/history/query";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
-
-const PERIODS: readonly { days: UsageStatsPeriodDays; label: string }[] = [
-  { days: 1, label: "24h" },
-  { days: 7, label: "7d" },
-  { days: 30, label: "30d" },
-  { days: 90, label: "90d" },
-];
+import { useWallClock } from "../../ui/useWallClock";
+import { Achievements } from "./Achievements";
+import { Overview } from "./Overview";
+import { Providers } from "./Providers";
+import { StatsTable } from "./StatsTable";
+import { StreakBadge } from "./StreakBadge";
+import type { StatsTab } from "../../domain/usage/statsTabs";
+import { PERIODLESS_TABS, STATS_TABS, TAB_SPECS } from "./tabs";
 
 /** Global usage analytics has its own app surface: it is observational data,
- * not a setting, and it spans every workspace and CLI. */
-export function StatsDialog({ onClose }: { onClose(): void }) {
+ * not a setting, and it spans every workspace and CLI. The tab is CONTROLLED
+ * by the app-layer owner (openStats/closeStats/selectStatsTab), so a deep
+ * link can land on a tab whether or not the dialog is already open. */
+export function StatsDialog({
+  tab,
+  onSelectTab,
+  onClose,
+}: {
+  tab: StatsTab;
+  onSelectTab(tab: StatsTab): void;
+  onClose(): void;
+}) {
   useEscape(onClose);
   return (
     <ModalOverlay>
@@ -27,16 +39,17 @@ export function StatsDialog({ onClose }: { onClose(): void }) {
         className="form stats-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Usage statistics"
+        aria-label="Statistics"
       >
         <div className="stats-dialog__head">
-          <h2 className="form__title stats-dialog__title">Usage statistics</h2>
-          <CloseButton label="Close usage statistics" onClick={onClose} />
+          <h2 className="form__title stats-dialog__title">Statistics</h2>
+          <CloseButton label="Close statistics" onClick={onClose} />
         </div>
         <div className="stats-dialog__body">
-          <UsageStats />
+          <UsageStats tab={tab} onSelectTab={onSelectTab} />
         </div>
-        <div className="confirm__actions">
+        <div className="confirm__actions stats-dialog__actions">
+          <StreakBadge />
           <button type="button" className="form__create" onClick={onClose} autoFocus>
             Done
           </button>
@@ -47,164 +60,168 @@ export function StatsDialog({ onClose }: { onClose(): void }) {
 }
 
 /** Detailed local usage analytics. Account-limit windows deliberately remain
- * in the top-bar popover; this view consumes only the durable pane ledger. */
-export function UsageStats() {
+ * in the top-bar popover; this view consumes the durable pane ledger plus
+ * the live account snapshot for the Providers tab. The period switcher is
+ * global; the Providers tab ignores it (subscription windows run on the
+ * provider's clock) and achievements are all-time by definition. Period
+ * aggregates are memoized on their inputs — a ledger append recomputes them
+ * once, not once per render. */
+export function UsageStats({
+  tab,
+  onSelectTab,
+}: {
+  tab: StatsTab;
+  onSelectTab(tab: StatsTab): void;
+}) {
   const history = useUsageHistorySnapshot();
-  const [period, setPeriod] = useState<UsageStatsPeriodDays>(7);
-  const now = Date.now();
-  const stats = queryUsageStats(history.events, period, now);
+  const { accounts } = useUsage();
+  const [period, setPeriod] = useState<UsageStatsPeriod>(7);
+  // THE tab body's one clock: stable between 30s ticks, so it sits in every
+  // memo's deps — aggregates, captions and bars all agree on the same now,
+  // and a reset passing while the dialog idles demotes the whole card. The
+  // ledger's newest instant floors it, so an append seconds after a tick is
+  // inside the queries' `<= now` bound immediately.
+  const latest = useMemo(
+    () => latestOccurredAt(history.events),
+    [history.events],
+  );
+  const now = useWallClock(latest);
+  const stats = useMemo(
+    () => queryUsageStats(history.events, period, now),
+    [history.events, period, now],
+  );
+  const periodless = PERIODLESS_TABS.includes(tab);
+  /** A dead ledger blocks only the tabs that read it — Providers renders
+   * from the independent account snapshot regardless. */
+  const historyDead = history.error !== null && history.events.length === 0;
+
+  /** The tab body, driven entirely by the TAB_SPECS policy table: the two
+   * gates read the spec's data field (never a hand-listed tab check), and
+   * the switch is exhaustive — a new tab id fails to compile here until it
+   * brings a body. */
+  const tabBody = (current: StatsTab): ReactElement => {
+    const spec = TAB_SPECS[current];
+    if (spec.data !== "live-accounts" && historyDead) {
+      return (
+        <p className="stats__empty" role="alert">
+          Usage history is unavailable: {history.error}
+        </p>
+      );
+    }
+    if (spec.data === "period-ledger" && stats.eventCount === 0) {
+      return <p className="stats__empty">No usage recorded in this period yet.</p>;
+    }
+    switch (current) {
+      case "overview":
+        return (
+          <Overview
+            events={history.events}
+            stats={stats}
+            period={period}
+            now={now}
+          />
+        );
+      case "providers":
+        return <Providers accounts={accounts} events={history.events} now={now} />;
+      case "models":
+        return <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />;
+      case "sessions":
+        return (
+          <StatsTable title="Sessions" rows={stats.sessions} now={now} mode="session" />
+        );
+      case "achievements":
+        return <Achievements events={history.events} />;
+    }
+  };
 
   return (
     <div className="stats">
       <div className="stats__head">
         <p className="stats__intro">
           Local token history and provider-reported cost estimates across every CLI
-          and workspace. Retained for 90 days.
+          and workspace.
         </p>
-        <div className="stats__period" aria-label="Statistics period">
-          {PERIODS.map((candidate) => (
+        <div
+          className={`stats__period${periodless ? " stats__period--idle" : ""}`}
+          // role=group makes the label perceivable — on a bare div (implicit
+          // role generic) aria-label is ignored by assistive tech.
+          role="group"
+          aria-label="Statistics period"
+          // A switcher that silently does nothing reads as broken, so it
+          // disables on period-independent tabs. Disabled, not hidden:
+          // hiding would jump the header layout.
+          aria-disabled={periodless}
+        >
+          {USAGE_PERIODS.map((candidate) => (
             <button
-              key={candidate.days}
+              key={PERIOD_LABELS[candidate]}
               type="button"
-              className={candidate.days === period ? "stats__period--active" : ""}
-              aria-pressed={candidate.days === period}
-              onClick={() => setPeriod(candidate.days)}
+              className={candidate === period ? "stats__period--active" : ""}
+              aria-pressed={candidate === period}
+              disabled={periodless}
+              onClick={() => setPeriod(candidate)}
             >
-              {candidate.label}
+              {PERIOD_LABELS[candidate]}
             </button>
           ))}
         </div>
       </div>
-
-      {!history.ready ? (
-        <p className="stats__empty">Loading usage history…</p>
-      ) : history.error && history.events.length === 0 ? (
-        <p className="stats__empty" role="alert">
-          Usage history is unavailable: {history.error}
-        </p>
-      ) : stats.eventCount === 0 ? (
-        <p className="stats__empty">No usage recorded in this period yet.</p>
-      ) : (
-        <>
-          {history.error && (
-            <p className="stats__warning">
-              Some history could not be loaded: {history.error}
-            </p>
-          )}
-          <div className="stats__summary">
-            <Summary label="Tokens" value={formatTokens(stats.totals.totalTokens)} />
-            <Summary
-              label="Cost"
-              value={displayCost(
-                stats.totals.providerCostUsd,
-                stats.totals.costEvents,
-              )}
-            />
-            <Summary label="Sessions" value={String(stats.sessionCount)} />
-          </div>
-          <p className="stats__coverage">
-            {costCoverage(
-              stats.sessions.filter((row) => row.costEvents > 0).length,
-              stats.sessionCount,
-            )}
-          </p>
-
-          <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
-          <StatsTable title="Sessions" rows={stats.sessions} now={now} mode="session" />
-        </>
-      )}
-    </div>
-  );
-}
-
-function Summary({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="stats__card">
-      <span>{label}</span>
-      <b>{value}</b>
-    </div>
-  );
-}
-
-function StatsTable({
-  title,
-  rows,
-  now,
-  mode,
-}: {
-  title: string;
-  rows: UsageStatsRow[];
-  now: number;
-  mode: "model" | "session";
-}) {
-  if (rows.length === 0) return null;
-  return (
-    <section className="stats__section">
-      <h3>{title}</h3>
-      <div className="stats__table" role="table" aria-label={title}>
-        {rows.map((row) => (
-          <div className="stats__row" role="row" key={row.key}>
-            <span className="stats__identity" role="cell">
-              <b>
-                {mode === "model"
-                  ? row.model || "Unknown model"
-                  : row.paneName || shortSession(row.sessionId)}
-              </b>
-              <small>
-                {mode === "model"
-                  ? row.agent
-                  : [row.workspaceName, row.agent, shortSession(row.sessionId)]
-                      .filter(Boolean)
-                      .join(" · ")}
-              </small>
-            </span>
-            <span className="stats__tokens" role="cell">
-              {formatTokens(row.totalTokens)}
-              <small>{tokenBreakdown(row)}</small>
-            </span>
-            <span className="stats__cost" role="cell">
-              {displayCost(row.providerCostUsd, row.costEvents)}
-              <small>{formatAge(row.lastOccurredAt, now)}</small>
-            </span>
-          </div>
+      {/* The ARIA tabs pattern in full: roving tabIndex (one tab stop for
+          the strip, arrows move within it) and an explicit tab↔panel
+          association — without these a screen reader hears "tab, selected"
+          with no panel to land on. */}
+      <div
+        className="stats__tabs"
+        role="tablist"
+        aria-label="Statistics sections"
+        onKeyDown={(keyEvent) => {
+          if (keyEvent.key !== "ArrowLeft" && keyEvent.key !== "ArrowRight") {
+            return;
+          }
+          keyEvent.preventDefault();
+          const ids = STATS_TABS.map((candidate) => candidate.id);
+          const step = keyEvent.key === "ArrowRight" ? 1 : ids.length - 1;
+          const next = ids[(ids.indexOf(tab) + step) % ids.length];
+          onSelectTab(next);
+          document.getElementById(`stats-tab-${next}`)?.focus();
+        }}
+      >
+        {STATS_TABS.map((candidate) => (
+          <button
+            key={candidate.id}
+            id={`stats-tab-${candidate.id}`}
+            type="button"
+            role="tab"
+            aria-selected={candidate.id === tab}
+            aria-controls="stats-tabpanel"
+            tabIndex={candidate.id === tab ? 0 : -1}
+            className={`stats__tab${candidate.id === tab ? " stats__tab--active" : ""}`}
+            onClick={() => onSelectTab(candidate.id)}
+          >
+            {candidate.label}
+          </button>
         ))}
       </div>
-    </section>
+
+      <div
+        id="stats-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`stats-tab-${tab}`}
+        className="stats__tabpanel"
+      >
+        {!history.ready ? (
+          <p className="stats__empty">Loading usage history…</p>
+        ) : (
+          <>
+            {history.error !== null && !historyDead && (
+              <p className="stats__warning">
+                Some history could not be loaded: {history.error}
+              </p>
+            )}
+            {tabBody(tab)}
+          </>
+        )}
+      </div>
+    </div>
   );
-}
-
-function tokenBreakdown(row: UsageStatsRow): string {
-  const values = [
-    row.tokens.input !== undefined ? `↑${formatTokens(row.tokens.input)}` : "",
-    row.tokens.output !== undefined ? `↓${formatTokens(row.tokens.output)}` : "",
-    row.tokens.cacheRead !== undefined
-      ? `cache ${formatTokens(row.tokens.cacheRead)}`
-      : "",
-  ].filter(Boolean);
-  return values.join(" · ");
-}
-
-function formatCost(value: number): string {
-  if (value === 0) return "$0.00";
-  return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
-}
-
-function displayCost(value: number, costEvents: number): string {
-  if (costEvents === 0) return "—";
-  return `≈${formatCost(value)}`;
-}
-
-function costCoverage(costSessions: number, sessionCount: number): string {
-  if (costSessions === 0) {
-    return "No CLI reported a cost estimate. Token totals remain available.";
-  }
-  if (costSessions === sessionCount) {
-    return "Provider-reported API estimates, not subscription charges.";
-  }
-  return `Provider estimates available for ${costSessions} of ${sessionCount} sessions; unreported sessions are excluded.`;
-}
-
-function shortSession(value: string | undefined): string {
-  if (!value) return "Unknown session";
-  return value.length > 12 ? `${value.slice(0, 8)}…` : value;
 }

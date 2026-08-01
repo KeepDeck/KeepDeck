@@ -22,6 +22,7 @@ void initSettings();
 initUsagePersistence();
 // Detailed Stats: load the durable delta log before live pane snapshots begin
 // appending. Capture itself is deck-aware and mounts with the usage channel.
+// The achievements notifier that consumes it is a runtime-owned service.
 void initUsageHistory();
 // Update checks are background-only chatter — nothing gates on them. In dev
 // builds the manager probes app_info once and stays disabled.

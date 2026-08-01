@@ -6,22 +6,13 @@ import {
 } from "../../app/notificationCenter";
 import { useNotifications } from "../../app/useNotifications";
 import { unreadCount, type Notification } from "../../domain/notifications";
+import { formatAge } from "../../domain/usage";
 
 interface NotificationBellProps {
   /** Navigate to the notification's source — the composition root resolves
    * each origin (pane / plugin / app). Called after the entry is marked read
    * and the panel closes. */
   onOpen(notification: Notification): void;
-}
-
-/** "5m", "2h", "3d" — the coarse age a glance needs; anything fresher than a
- * minute is "now". */
-function age(at: number, now: number): string {
-  const s = Math.max(0, Math.floor((now - at) / 1000));
-  if (s < 60) return "now";
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86_400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86_400)}d`;
 }
 
 /**
@@ -117,17 +108,23 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
                       onOpen(n);
                     }}
                   >
-                    <span
-                      className={`bell__dot bell__dot--${n.severity}`}
-                      aria-hidden
-                    />
+                    {n.icon !== undefined ? (
+                      <span className="bell__icon" aria-hidden>
+                        {n.icon}
+                      </span>
+                    ) : (
+                      <span
+                        className={`bell__dot bell__dot--${n.severity}`}
+                        aria-hidden
+                      />
+                    )}
                     <span className="bell__text">
                       <span className="bell__item-title">{n.title}</span>
                       {n.body !== undefined && (
                         <span className="bell__body">{n.body}</span>
                       )}
                     </span>
-                    <span className="bell__age">{age(n.at, now)}</span>
+                    <span className="bell__age">{formatAge(n.at, now, "bare")}</span>
                   </button>
                 </li>
               ))}
