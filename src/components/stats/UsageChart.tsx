@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -48,15 +49,16 @@ function bucketLabel(start: number, bucketMs: number, long = false): string {
 export function UsageChart({
   events,
   period,
-  now,
 }: {
   events: readonly UsageEventV2[];
   period: UsageStatsPeriod;
-  now: number;
 }) {
-  const timeline = usageTimeline(events, period, now);
+  const timeline = useMemo(
+    () => usageTimeline(events, period, Date.now()),
+    [events, period],
+  );
+  const colors = useMemo(() => agentSeriesColors(usageAgents(events)), [events]);
   if (timeline.buckets.length === 0) return null;
-  const colors = agentSeriesColors(usageAgents(events));
   const title = timeline.bucketMs === HOUR_MS ? "Hourly tokens" : "Daily tokens";
 
   return (

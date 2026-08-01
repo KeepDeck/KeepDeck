@@ -1,46 +1,25 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import {
   displayProviderCost,
-  formatAge,
-  formatPct,
   formatTokens,
   formatUtcDay,
-  windowLabel,
-  windowLevel,
-  windowResetCaption,
-  type AccountUsage,
 } from "../../domain/usage";
 import {
   queryUsageStats,
-  type UsageEventV2,
   type UsageStatsPeriod,
-  type UsageStatsRow,
 } from "../../domain/usage/history";
-import {
-  providerWindowGroups,
-  type ProviderWindowLedger,
-  type ProviderWindowRow,
-} from "../../domain/usage/providerWindows";
-import {
-  achievementExact,
-  achievementProgress,
-  achievementRequirement,
-  earnedAchievements,
-  lockedAchievements,
-  nextAchievements,
-  usageAchievementLadders,
-  type UsageAchievement,
-} from "../../domain/usage/achievements";
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
-import { UsageWindowBar } from "../usage/UsageWindowBar";
-import { StreakBadge } from "./StreakBadge";
-import { PERIODLESS_TABS, STATS_TABS, type StatsTab } from "./tabs";
-import { UsageChart } from "./UsageChart";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
+import { Achievements } from "./Achievements";
+import { Providers } from "./Providers";
+import { StatsTable } from "./StatsTable";
+import { StreakBadge } from "./StreakBadge";
+import { PERIODLESS_TABS, STATS_TABS, type StatsTab } from "./tabs";
+import { UsageChart } from "./UsageChart";
 
 const PERIODS: readonly { period: UsageStatsPeriod; label: string }[] = [
   { period: 1, label: "24h" },
@@ -94,7 +73,9 @@ export function StatsDialog({
  * in the top-bar popover; this view consumes the durable pane ledger plus
  * the live account snapshot for the Providers tab. The period switcher is
  * global; the Providers tab ignores it (subscription windows run on the
- * provider's clock) and achievements are all-time by definition. */
+ * provider's clock) and achievements are all-time by definition. Period
+ * aggregates are memoized on their inputs — a ledger append recomputes them
+ * once, not once per render. */
 export function UsageStats({
   tab,
   onSelectTab,
@@ -106,7 +87,15 @@ export function UsageStats({
   const { accounts } = useUsage();
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
   const now = Date.now();
-  const stats = queryUsageStats(history.events, period, now);
+  const stats = useMemo(
+    () => queryUsageStats(history.events, period, Date.now()),
+    [history.events, period],
+  );
+  const recap = useMemo(
+    () =>
+      tab === "overview" ? usageRecap(history.events, period, Date.now()) : null,
+    [tab, history.events, period],
+  );
   const periodless = PERIODLESS_TABS.includes(tab);
   const periodEmpty = (
     <p className="stats__empty">No usage recorded in this period yet.</p>
@@ -194,11 +183,8 @@ export function UsageStats({
                   />
                   <Summary label="Sessions" value={String(stats.sessionCount)} />
                 </div>
-                <UsageChart events={history.events} period={period} now={now} />
-                <Highlights
-                  recap={usageRecap(history.events, period, now)}
-                  period={period}
-                />
+                <UsageChart events={history.events} period={period} />
+                {recap && <Highlights recap={recap} period={period} />}
                 <p className="stats__coverage">
                   {costCoverage(
                     stats.sessions.filter((row) => row.costEvents > 0).length,
@@ -237,186 +223,6 @@ export function UsageStats({
       )}
     </div>
   );
-}
-
-/** Per-provider rate-limit windows joined with ledger spend inside each
- * window's current interval — one card per provider, so the name and the
- * report age appear once instead of repeating on every window. Provider %,
- * reset countdown and the ledger numbers keep separate sources — the
- * section never derives one from the other. Period-independent by design:
- * a subscription window is the provider's clock, not the user's selected
- * range. */
-function Providers({
-  accounts,
-  events,
-  now,
-}: {
-  accounts: ReadonlyMap<string, AccountUsage>;
-  events: readonly UsageEventV2[];
-  now: number;
-}) {
-  const groups = providerWindowGroups(accounts, events, now);
-  if (groups.length === 0) {
-    return (
-      <p className="stats__empty">
-        No provider reports yet. Windows appear once a CLI reports its account
-        limits.
-      </p>
-    );
-  }
-  return (
-    <section className="stats__section">
-      <h3>Providers</h3>
-      <div className="stats__providers" aria-label="Providers">
-        {groups.map((group) => (
-          <article className="stats__provider" key={group.agent}>
-            <header className="stats__provider-head">
-              <b>{group.agent}</b>
-              <small className={group.stale ? "usage-level--warn" : ""}>
-                updated {formatAge(group.reportedAt, now)}
-              </small>
-            </header>
-            {group.rows.map((row) => (
-              <ProviderWindow key={row.id} row={row} now={now} />
-            ))}
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ProviderWindow({ row, now }: { row: ProviderWindowRow; now: number }) {
-  const level = windowLevel(row.window, now);
-  return (
-    <div
-      className={`stats__window${row.expired ? " stats__window--expired" : ""}`}
-    >
-      <div className="stats__window-head">
-        <span>{windowLabel(row.window, "long")}</span>
-        <span className={level ? `usage-level--${level}` : ""}>
-          {formatPct(row.window.usedPct, "used")}
-        </span>
-      </div>
-      <UsageWindowBar window={row.window} now={now} />
-      <small>{windowResetCaption(row.window, now, "long")}</small>
-      {row.ledger && (
-        <small>
-          {row.ledger.sessionCount > 0
-            ? `${formatTokens(row.ledger.totalTokens)} · ${ledgerCaption(
-                row.ledger,
-              )} this window`
-            : "no usage this window"}
-        </small>
-      )}
-    </div>
-  );
-}
-
-function ledgerCaption(ledger: ProviderWindowLedger): string {
-  const sessions = `${ledger.sessionCount} session${
-    ledger.sessionCount === 1 ? "" : "s"
-  }`;
-  const cost = displayProviderCost(ledger.providerCostUsd, ledger.costEvents);
-  return cost === "—" ? sessions : `${sessions} · ${cost}`;
-}
-
-/** The achievements tab in three sections: the goals being walked toward
- * (one per ladder, with progress) first — they are the pull; the trophy
- * case of earned badges (freshest first); and the locked tail — every tier
- * still ahead, visible but inert until its predecessor is won. */
-function Achievements({ events }: { events: readonly UsageEventV2[] }) {
-  const ladders = usageAchievementLadders(events);
-  const inProgress = nextAchievements(ladders);
-  const earned = earnedAchievements(ladders);
-  const locked = lockedAchievements(ladders);
-  return (
-    <>
-      <AchievementSection title="In progress" items={inProgress} />
-      <AchievementSection title="Earned" items={earned} />
-      <AchievementSection title="Locked" items={locked} future />
-    </>
-  );
-}
-
-function AchievementSection({
-  title,
-  items,
-  future,
-}: {
-  title: string;
-  items: UsageAchievement[];
-  future?: boolean;
-}) {
-  if (items.length === 0) return null;
-  return (
-    <section className="stats__section">
-      <h3>{title}</h3>
-      <div className="stats__achievements">
-        {items.map((item) => (
-          <AchievementCard key={item.id} item={item} future={future === true} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function AchievementCard({
-  item,
-  future,
-}: {
-  item: UsageAchievement;
-  future: boolean;
-}) {
-  const locked = item.achievedAt === null;
-  return (
-    <article
-      className={`stats__achievement${
-        locked ? " stats__achievement--locked" : ""
-      }${future ? " stats__achievement--future" : ""}`}
-    >
-      <span className="stats__achievement-icon" aria-hidden>
-        {item.icon}
-      </span>
-      <b>{item.title}</b>
-      <small>{achievementRequirement(item)}</small>
-      {!locked ? (
-        <small className="stats__achievement-earned">
-          earned {formatUtcDay(item.achievedAt ?? 0, true)}
-        </small>
-      ) : future ? null : (
-        <>
-          <span className="stats__achievement-progress" aria-hidden>
-            <i
-              style={{
-                width: `${Math.min(100, (item.progress / item.threshold) * 100)}%`,
-              }}
-            />
-          </span>
-          <small>{achievementProgress(item)}</small>
-        </>
-      )}
-      <span className="stats__achievement-tip" role="tooltip">
-        <b>
-          <span className="stats__achievement-tip-icon" aria-hidden>
-            {item.icon}
-          </span>{" "}
-          {item.title}
-        </b>
-        <span>{achievementRequirement(item)}</span>
-        <span>{achievementTipStatus(item)}</span>
-      </span>
-    </article>
-  );
-}
-
-/** The hover tooltip's status line — exact numbers, not the card's compact
- * abbreviations. The per-metric formatting lives with the metric specs. */
-function achievementTipStatus(item: UsageAchievement): string {
-  if (item.achievedAt !== null) {
-    return `Earned ${formatUtcDay(item.achievedAt, true)}`;
-  }
-  return achievementExact(item);
 }
 
 /** The period's numbers with their context — movement against the prior
@@ -463,64 +269,6 @@ function Summary({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StatsTable({
-  title,
-  rows,
-  now,
-  mode,
-}: {
-  title: string;
-  rows: UsageStatsRow[];
-  now: number;
-  mode: "model" | "session";
-}) {
-  if (rows.length === 0) return null;
-  return (
-    <section className="stats__section">
-      <h3>{title}</h3>
-      <div className="stats__table" role="table" aria-label={title}>
-        {rows.map((row) => (
-          <div className="stats__row" role="row" key={row.key}>
-            <span className="stats__identity" role="cell">
-              <b>
-                {mode === "model"
-                  ? row.model || "Unknown model"
-                  : row.paneName || shortSession(row.sessionId)}
-              </b>
-              <small>
-                {mode === "model"
-                  ? row.agent
-                  : [row.workspaceName, row.agent, shortSession(row.sessionId)]
-                      .filter(Boolean)
-                      .join(" · ")}
-              </small>
-            </span>
-            <span className="stats__tokens" role="cell">
-              {formatTokens(row.totalTokens)}
-              <small>{tokenBreakdown(row)}</small>
-            </span>
-            <span className="stats__cost" role="cell">
-              {displayProviderCost(row.providerCostUsd, row.costEvents)}
-              <small>{formatAge(row.lastOccurredAt, now)}</small>
-            </span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function tokenBreakdown(row: UsageStatsRow): string {
-  const values = [
-    row.tokens.input !== undefined ? `↑${formatTokens(row.tokens.input)}` : "",
-    row.tokens.output !== undefined ? `↓${formatTokens(row.tokens.output)}` : "",
-    row.tokens.cacheRead !== undefined
-      ? `cache ${formatTokens(row.tokens.cacheRead)}`
-      : "",
-  ].filter(Boolean);
-  return values.join(" · ");
-}
-
 function costCoverage(costSessions: number, sessionCount: number): string {
   if (costSessions === 0) {
     return "No CLI reported a cost estimate. Token totals remain available.";
@@ -529,9 +277,4 @@ function costCoverage(costSessions: number, sessionCount: number): string {
     return "Provider-reported API estimates, not subscription charges.";
   }
   return `Provider estimates available for ${costSessions} of ${sessionCount} sessions; unreported sessions are excluded.`;
-}
-
-function shortSession(value: string | undefined): string {
-  if (!value) return "Unknown session";
-  return value.length > 12 ? `${value.slice(0, 8)}…` : value;
 }
