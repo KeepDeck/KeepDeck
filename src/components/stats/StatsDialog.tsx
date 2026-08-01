@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import {
@@ -19,7 +19,13 @@ import { Providers } from "./Providers";
 import { StatsTable } from "./StatsTable";
 import { StreakBadge } from "./StreakBadge";
 import { PERIODLESS_TABS, STATS_TABS, type StatsTab } from "./tabs";
-import { UsageChart } from "./UsageChart";
+
+/** The chart rides its own chunk: recharts is the bundle's single largest
+ * dependency (+45% gzip over the whole app), parsed at cold launch if
+ * imported statically — for a chart behind a dialog tab. */
+const UsageChart = lazy(() =>
+  import("./UsageChart").then((module) => ({ default: module.UsageChart })),
+);
 
 const PERIODS: readonly { period: UsageStatsPeriod; label: string }[] = [
   { period: 1, label: "24h" },
@@ -183,7 +189,13 @@ export function UsageStats({
                   />
                   <Summary label="Sessions" value={String(stats.sessionCount)} />
                 </div>
-                <UsageChart events={history.events} period={period} />
+                <Suspense
+                  // Same footprint as the mounted chart, so the section
+                  // below doesn't jump when the chunk lands.
+                  fallback={<section className="stats__section" style={{ height: 216 }} aria-hidden />}
+                >
+                  <UsageChart events={history.events} period={period} />
+                </Suspense>
                 {recap && <Highlights recap={recap} period={period} />}
                 <p className="stats__coverage">
                   {costCoverage(

@@ -99,13 +99,16 @@ describe("UsageStats", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("shows period totals on Overview with model and session drill-down tabs", () => {
+  it("shows period totals on Overview with model and session drill-down tabs", async () => {
     act(() => root.render(createElement(Host)));
 
     expect(host.textContent).toContain("1.6k");
     expect(host.textContent).toContain("≈$0.25");
     expect(host.textContent).toContain("API estimates");
-    expect(host.querySelector('[aria-label="Daily tokens"]')).not.toBeNull();
+    // The chart rides a lazy chunk — poll until the import lands.
+    await vi.waitFor(() => {
+      expect(host.querySelector('[aria-label="Daily tokens"]')).not.toBeNull();
+    });
 
     clickTab("Models");
     expect(host.textContent).toContain("gpt-5.6-terra");
