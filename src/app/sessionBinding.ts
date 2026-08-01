@@ -7,7 +7,7 @@ import {
   bindPaneSpawnSpecSession,
   peekPaneSpawnSpec,
 } from "./spawnSpecs";
-import { beginPaneUsageSession } from "./usageManager";
+import { beginPaneTelemetrySession } from "./paneTelemetry";
 import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 
@@ -67,7 +67,7 @@ export function createSessionBinding(deck: DeckStore): SessionBinding {
       bindPaneSpawnSpecSession(paneId, sessionId);
       const previousSessionId = pane?.session?.id;
       if (previousSessionId && previousSessionId !== sessionId) {
-        beginPaneUsageSession(paneId, sessionId);
+        beginPaneTelemetrySession(paneId, sessionId);
       }
       // Same-session reports keep the instant at which it was first bound.
       const boundAt =

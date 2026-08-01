@@ -14,8 +14,7 @@ import type {
 import type { DeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 import { dropPaneSpawnSpec } from "./spawnSpecs";
-import { agentStatusTracker } from "./agentStatusTracker";
-import { clearPaneUsage } from "./usageManager";
+import { retirePaneTelemetry } from "./paneTelemetry";
 import type { WorktreeProvisioner } from "./worktrees";
 
 interface ClosingDeps {
@@ -61,8 +60,7 @@ export function createAgentOrchestratorClosing({
       log.info("web:orchestrator", `${paneId}: suspending`);
       actions.suspendPane(wsId, paneId, suspendPolicy.moveToTray());
       dropPaneSpawnSpec(paneId);
-      clearPaneUsage(paneId);
-      agentStatusTracker.clear(paneId);
+      retirePaneTelemetry(paneId);
       await sessions.close(paneId);
       return "suspended";
     } finally {
@@ -81,8 +79,7 @@ export function createAgentOrchestratorClosing({
         : (workspace?.panes.map((pane) => pane.id) ?? []);
     for (const paneId of paneIds) {
       dropPaneSpawnSpec(paneId);
-      clearPaneUsage(paneId);
-      agentStatusTracker.clear(paneId);
+      retirePaneTelemetry(paneId);
       worktrees.clearPostProvision(paneId);
     }
     const created = (

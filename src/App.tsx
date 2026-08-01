@@ -20,6 +20,7 @@ import { AgentDialog } from "./components/workspace/AgentDialog";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
+import { retirePaneTelemetry } from "./app/paneTelemetry";
 import {
   DECK_STATE_VERSION,
   findWorkspace,
@@ -288,6 +289,11 @@ function App() {
             }}
             onRetryProvision={orchestrator.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {
+              // A dead process's telemetry is no longer a fact about the
+              // pane — retiring it here is what keeps a hook envelope that
+              // outlives its process (a Stop racing a crash) from painting
+              // "finished" over the crash banner.
+              retirePaneTelemetry(paneId);
               const recovering = orchestrator.recoverRejectedResume(
                 wsId,
                 paneId,

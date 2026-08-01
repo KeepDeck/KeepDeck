@@ -1,12 +1,10 @@
 import type { AgentContribution } from "@keepdeck/plugin-api";
-import { log } from "../ipc/log";
 import { onAgentStatus } from "../ipc/status";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
 import { agentStatusTracker } from "./agentStatusTracker";
 import type { DeckStore } from "./deckStore";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
-import { peekPaneSpawnSpec } from "./spawnSpecs";
-import { postbackAccepted } from "./sessionBinding";
+import { createVerifiedPaneReports } from "./verifiedPaneReports";
 
 export interface AgentStatusChannel {
   dispose(): void;
@@ -18,7 +16,10 @@ export interface AgentStatusChannel {
  * because status has no tails, no polling and no persistence:
  *
  * - plugin `status.normalize` declarations ⇄ tracker registrations;
- * - bridge reports, token-verified, into the tracker;
+ * - bridge reports through the shared verification — WITH the live-process
+ *   requirement: activity is a claim about a running process, and a hook
+ *   envelope that outlives its process (a Stop racing a crash) must not
+ *   paint "finished" over the crash;
  * - tracker hygiene as panes close.
  */
 export function createAgentStatusChannel(
@@ -46,35 +47,12 @@ export function createAgentStatusChannel(
     if (!disposed) registerNormalizers();
   });
 
-  let unlisten: (() => void) | null = null;
-  void onAgentStatus(({ paneId, token, payload }) => {
-    if (disposed) return;
-    const livePanes = paneMembership(paneMembershipKey(deck.getSnapshot()));
-    if (!livePanes.has(paneId)) {
-      log.warn(
-        "web:bridge",
-        `status report for closed pane ${paneId} — ignored`,
-      );
-      return;
-    }
-    if (!postbackAccepted(peekPaneSpawnSpec(paneId), token)) {
-      log.warn(
-        "web:bridge",
-        `status report for ${paneId} with a wrong token — ignored`,
-      );
-      return;
-    }
-    agentStatusTracker.report(paneId, payload);
-  })
-    .then((unsubscribe) => {
-      if (disposed) unsubscribe();
-      else unlisten = unsubscribe;
-    })
-    .catch((error) => {
-      if (!disposed) {
-        log.warn("web:bridge", `status report listener failed: ${error}`);
-      }
-    });
+  const reports = createVerifiedPaneReports(deck, {
+    label: "status report",
+    subscribe: onAgentStatus,
+    requireLiveProcess: true,
+    apply: (paneId, payload) => agentStatusTracker.report(paneId, payload),
+  });
 
   let membershipKey: string | null = null;
   const retainLivePanes = () => {
@@ -92,7 +70,7 @@ export function createAgentStatusChannel(
       disposed = true;
       unsubscribeAgents();
       unsubscribeDeck();
-      unlisten?.();
+      reports.dispose();
       for (const unregister of normalizerDisposers) unregister();
       normalizerDisposers = [];
     },
