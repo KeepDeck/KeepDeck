@@ -135,7 +135,7 @@ export function RunLog({
   // The inner host is what FitAddon measures — padding lives on the outer box
   // so the text never touches the border, without lying to the fit.
   return (
-    <div className="run__log">
+    <div className="run__log kd-selectable">
       <div ref={hostRef} className="run__log-host" />
       <PaneHintView hint={hint} />
     </div>

@@ -217,7 +217,9 @@ export function DiffPeek({
             // Hunks are positional and never reordered — index keys are
             // stable for one render's diff.
             <div key={h}>
-              {hunk.header && <div className="git__hunkhead">{hunk.header}</div>}
+              {hunk.header && (
+                <div className="git__hunkhead kd-inert">{hunk.header}</div>
+              )}
               {hunk.lines.map((line, i) => {
                 // Meta lines ("\ No newline…") aren't code — keep their dim
                 // CSS color instead of the tokenizer's guess.
@@ -233,10 +235,10 @@ export function DiffPeek({
                         the diff CSS leans on this as the hue-free add/del
                         cue; don't fill both gutters without giving that
                         signal a new home. */}
-                    <span className="git__lineno" aria-hidden>
+                    <span className="git__lineno kd-inert" aria-hidden>
                       {line.oldNo ?? ""}
                     </span>
-                    <span className="git__lineno" aria-hidden>
+                    <span className="git__lineno kd-inert" aria-hidden>
                       {line.newNo ?? ""}
                     </span>
                     {/* A space keeps an empty line's row height under

@@ -127,7 +127,9 @@ export function SkillEditor({
         spellCheck={false}
       />
 
-      {error && <div className="form__error">{error}</div>}
+      {/* Backend text, not authored copy — selectable so it can be copied into
+          a bug report, unlike the fixed guidance in the fields above. */}
+      {error && <div className="form__error kd-selectable">{error}</div>}
       <div className="skills__actions">
         {!creating && <DestructiveButton onClick={onDelete}>Delete</DestructiveButton>}
         <span className="skills__actions-gap" />

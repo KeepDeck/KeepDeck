@@ -213,7 +213,7 @@ function TextView({
         {lines.map((line, index) => (
           // Lines are positional and never reordered — index is a stable key.
           <div className="files__coderow" key={index}>
-            <span className="files__lineno" aria-hidden>
+            <span className="files__lineno kd-inert" aria-hidden>
               {index + 1}
             </span>
             {/* A space keeps an empty line's row height under white-space: pre. */}

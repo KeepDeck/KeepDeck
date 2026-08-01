@@ -366,17 +366,9 @@
   white-space: nowrap;
 }
 
-/* "Resume session: <id>" on a stopped pane's card. The line ellipsizes (a
-   uuid outgrows a narrow tile) and stays selectable so the id can be copied. */
-.pane__idle-session {
-  /* Both spellings, like every other selection re-enable: the document root
-     sets `-webkit-user-select: none` (base.css), and on a WebKit build where
-     the prefixed property is the effective one the unprefixed override alone
-     loses — the id would look copyable and refuse to select. */
-  cursor: text;
-  user-select: text;
-  -webkit-user-select: text;
-}
+/* "Resume session: <id>" on a stopped pane's card ellipsizes (a uuid outgrows
+   a narrow tile) and stays selectable so the id can be copied — it wears
+   .kd-selectable (base.css) for that, and needs nothing of its own here. */
 
 /* The id itself: monospace, so it can be read and compared character by
    character against a session list. */

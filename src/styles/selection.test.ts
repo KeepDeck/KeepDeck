@@ -1,20 +1,50 @@
 // @vitest-environment happy-dom
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const STYLES_DIR = "src/styles";
+const PLUGINS_DIR = "plugins";
+
+const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
+
 const stylesIndex = readFileSync(join(STYLES_DIR, "index.css"), "utf8");
-const appCss = [...stylesIndex.matchAll(/@import\s+"([^"]+)"\s*;/g)]
-  .map((match) =>
-    readFileSync(join(STYLES_DIR, match[1].replace(/^\.\//, "")), "utf8"),
-  )
-  .join("\n")
-  // Comments out, exactly as the browser drops them. Not cosmetic: these
-  // stylesheets explain themselves, so a comment naming a property is common —
-  // .peek__panel opens by citing the `user-select: none` it overrides — and a
-  // reader that keeps them attributes prose to the rule below it.
-  .replace(/\/\*[\s\S]*?\*\//g, "");
+const appCss = stripComments(
+  [...stylesIndex.matchAll(/@import\s+"([^"]+)"\s*;/g)]
+    .map((match) =>
+      readFileSync(join(STYLES_DIR, match[1].replace(/^\.\//, "")), "utf8"),
+    )
+    .join("\n"),
+);
+
+/**
+ * Every stylesheet the app ships — the host sheet AND each plugin's, which
+ * loads into the SAME document and so obeys the same baseline. Enumerated from
+ * disk rather than listed, because a list is one more thing to forget: the
+ * whole point of the ownership test below is that a NEW sheet is covered on the
+ * day it is added, not on the day someone remembers to add it here.
+ */
+function ownStylesheets(): { path: string; css: string }[] {
+  const paths = readdirSync(STYLES_DIR)
+    .filter((f) => f.endsWith(".css"))
+    .map((f) => join(STYLES_DIR, f));
+  for (const plugin of readdirSync(PLUGINS_DIR)) {
+    const dir = join(PLUGINS_DIR, plugin, "src");
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue; // a plugin without a src/ of its own
+    }
+    paths.push(
+      ...entries.filter((f) => f.endsWith(".css")).map((f) => join(dir, f)),
+    );
+  }
+  return paths.map((path) => ({
+    path,
+    css: stripComments(readFileSync(path, "utf8")),
+  }));
+}
 
 /**
  * happy-dom implements neither `user-select` nor a usable `cursor` readback —
@@ -23,7 +53,7 @@ const appCss = [...stylesIndex.matchAll(/@import\s+"([^"]+)"\s*;/g)]
  * custom properties inherit exactly as these two do, so happy-dom's own
  * selector engine still decides every winner — specificity and source order —
  * rather than this test re-implementing a partial cascade. Both spellings of
- * user-select fold onto one property; every block declares them together and
+ * user-select fold onto one property; base.css declares them together and
  * equal, so the collapse cannot invent a value.
  */
 function track(css: string): string {
@@ -59,6 +89,10 @@ function mount(html: string): void {
  * therefore means something precise and worth asserting: NOTHING anywhere
  * above this node states a policy. That was the bug — for every portaled
  * surface, the answer used to be exactly this.
+ *
+ * The emulation cannot model an explicit `initial`/`unset`/`revert`, which
+ * would reset rather than inherit; the ownership test forbids those outright
+ * so the gap stays closed rather than merely documented.
  */
 function resolve(selector: string, property: string): string {
   const element = document.querySelector(selector);
@@ -150,59 +184,76 @@ describe("selection and cursor baseline", () => {
     expect(behaviorOf("button.form__input").selection).toBe("none");
   });
 
-  it("offers the I-beam on the islands that really are selectable", () => {
+  it("carries selection and cursor together on the opt-in and opt-out classes", () => {
+    // Diagnostic text inside a portaled dialog is the case that regressed once
+    // already: it was selectable only because the portal escaped the old rule,
+    // and the baseline silently took that away. It now says so for itself.
     mount(`
+      <div class="modal-overlay">
+        <span class="settings__hint kd-selectable">keepdeck.git · failed: boom</span>
+      </div>
       <div id="root"><div class="deck">
-        <div class="pane__idle-session">Resume session: abc-123</div>
-        <div class="peek"><div class="peek__panel"><pre><span class="diff-line">+ line</span></pre></div></div>
+        <div class="peek__panel kd-selectable">
+          <pre><span class="git__lineno kd-inert">12</span><span class="diff-line">+ line</span></pre>
+        </div>
       </div></div>
     `);
 
     for (const selector of [
-      ".pane__idle-session",
+      ".settings__hint",
       ".peek__panel",
-      // Reaches the peeked content itself — the island the git and files
-      // plugins' line-number gutters opt back out of (in their own
-      // stylesheets, not loaded here) so a copied diff carries no numbers.
+      // Inherits the island's opt-in — this is the peeked content itself.
       ".diff-line",
     ]) {
+      // `auto`, not `text`, so the I-beam lands on an actual glyph run and the
+      // arrow stays on the island's padding, header and empty space.
       expect(behaviorOf(selector), selector).toEqual({
-        cursor: "text",
+        cursor: "auto",
         selection: "text",
       });
     }
+    // The gutter opts back OUT inside that island, so a copied hunk carries no
+    // line numbers — and the cursor stops promising a selection you cannot make.
+    expect(behaviorOf(".git__lineno")).toEqual({
+      cursor: "default",
+      selection: "none",
+    });
   });
 
-  it("never lets the cursor disagree with what the text can actually do", () => {
-    // The invariant the two rules above are instances of, checked against the
-    // stylesheet as a whole so a NEW island cannot land half-done: opting text
-    // back into selection without saying so with the cursor is exactly the bug
-    // this file exists for, and it is invisible until someone hovers.
-    // Declaration blocks only — the plugins ship their own sheets and carry the
-    // same pairing (run/voice logs, the git and files gutters).
-    const paired: Record<string, string[]> = {
-      none: ["default"],
-      text: ["text", "auto"],
-    };
-    const blocks = [...appCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-    const selecting = blocks.filter(([, , body]) =>
-      /(^|[;\s])(?:-webkit-)?user-select\s*:/.test(body),
-    );
-    // Guards the regex itself: a parse that silently matched nothing would let
-    // every assertion below pass while checking absolutely nothing.
-    expect(selecting.length).toBeGreaterThanOrEqual(5);
+  it("lets no stylesheet but base.css decide what is selectable", () => {
+    // The pair — "can this be selected" and "what does the cursor say about
+    // that" — is one decision, and the bug that shipped was the two halves
+    // disagreeing. Binding them into .kd-selectable / .kd-inert only helps if
+    // nothing else can state them, so that is what this asserts, over EVERY
+    // sheet the app ships including the plugins'.
+    //
+    // Deliberately a property-presence check per file rather than a parse:
+    // a regex that splits declaration blocks silently mis-reads CSS nesting
+    // (`&:hover { … }` routes the real declarations into the selector half) and
+    // would go green on exactly the regression it exists to catch.
+    const sheets = ownStylesheets();
+    // Guards the enumeration: an empty or truncated file list would make every
+    // assertion below vacuously true.
+    expect(sheets.length).toBeGreaterThanOrEqual(20);
+    expect(sheets.map((s) => s.path)).toContain(join(STYLES_DIR, "base.css"));
+    expect(sheets.some((s) => s.path.startsWith(PLUGINS_DIR))).toBe(true);
 
-    for (const [, selector, body] of selecting) {
-      const selection = body.match(/(?:^|[;\s])user-select\s*:\s*([\w-]+)/)?.[1];
-      const cursor = body.match(/(?:^|[;\s])cursor\s*:\s*([\w-]+)/)?.[1];
+    for (const { path, css } of sheets) {
+      const declaresSelection = /(?:^|[;{\s])(?:-webkit-)?user-select\s*:/.test(
+        css,
+      );
       expect(
-        cursor,
-        `${selector.trim()} sets user-select but no cursor`,
-      ).toBeDefined();
-      expect(
-        paired[selection!],
-        `${selector.trim()} has an unpaired user-select: ${selection}`,
-      ).toContain(cursor);
+        declaresSelection,
+        `${path} declares user-select; use .kd-selectable / .kd-inert instead`,
+      ).toBe(path === join(STYLES_DIR, "base.css"));
+
+      // `initial`/`unset`/`revert` reset instead of inheriting, which neither
+      // this file's ancestor walk nor a reader skimming the baseline models
+      // correctly. Nothing needs them: the two classes cover both directions.
+      const reset = css.match(/(?:^|[;{\s])cursor\s*:\s*(initial|unset|revert)/);
+      expect(reset?.[1], `${path} resets the cursor with ${reset?.[1]}`).toBe(
+        undefined,
+      );
     }
   });
 });

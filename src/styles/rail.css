@@ -70,7 +70,9 @@
 }
 
 /* While dragging, the whole list shows the grab cursor so the reorder reads as
-   a drag rather than a click. */
+   a drag rather than a click. Only once a drag is ARMED: at rest the rows
+   inherit the document's plain arrow (base.css), so a workspace row never
+   advertises itself as click-draggable. */
 .rail__list--reordering,
 .rail__list--reordering .rail__select {
   cursor: grabbing;
@@ -125,9 +127,6 @@
   font: inherit;
   font-size: 13px;
   text-align: left;
-  /* Plain arrow on hover; the grab cursor appears only once a drag is armed
-     (.rail__list--reordering), so the item doesn't look click-draggable. */
-  cursor: default;
 }
 
 .rail__dot {

@@ -180,11 +180,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  /* The app chrome disables selection globally; transcripts are MEANT to be
-     copied out. */
-  user-select: text;
-  -webkit-user-select: text;
-  cursor: text;
+  /* Transcripts are MEANT to be copied out; .kd-selectable on the element
+     (VoiceTab.tsx) re-enables that against the document baseline. */
 }
 
 .voice__empty {

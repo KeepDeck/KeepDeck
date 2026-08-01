@@ -62,7 +62,10 @@ export function PluginPage({
                 </span>
               )}
             </span>
-            <span className="settings__hint">
+            {/* Identity plus, when it broke, the reason why — the line you
+                copy into a bug report, so it stays selectable against the
+                document baseline. */}
+            <span className="settings__hint kd-selectable">
               {plugin.manifest.id} · {plugin.manifest.version}
               {plugin.status.kind === "failed" &&
                 ` · failed: ${plugin.status.reason}`}
