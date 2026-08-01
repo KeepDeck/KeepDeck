@@ -119,6 +119,18 @@ export function formatAge(reportedAt: number, now: number): string {
   return `${Math.floor(s / 86_400)}d ago`;
 }
 
+/** "Jul 22" / "Jul 22, 2026" — labeled in UTC because every stats day
+ * bucket (recap, daily chart, milestone dates) is a UTC day; a local-time
+ * label would drift off its own bucket. */
+export function formatUtcDay(at: number, withYear = false): string {
+  return new Date(at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(withYear ? { year: "numeric" } : {}),
+    timeZone: "UTC",
+  });
+}
+
 /** A token count as a compact, glanceable string: "812", "15.5k", "1.2M",
  * "5B". One decimal that a whole number drops ("15.0k" → "15k"); sub-thousand
  * counts stay exact. Non-finite or ≤0 is "0". Every boundary promotes at

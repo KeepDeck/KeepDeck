@@ -92,6 +92,7 @@ describe("UsageStats", () => {
     expect(host.textContent).toContain("1.6k");
     expect(host.textContent).toContain("≈$0.25");
     expect(host.textContent).toContain("API estimates");
+    expect(host.querySelector('[aria-label="Daily tokens"]')).not.toBeNull();
 
     clickTab("Models");
     expect(host.textContent).toContain("gpt-5.6-terra");

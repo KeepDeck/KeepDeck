@@ -5,6 +5,7 @@ import {
   formatAge,
   formatPct,
   formatTokens,
+  formatUtcDay,
   windowLabel,
   windowResetCaption,
   type AccountUsage,
@@ -26,6 +27,7 @@ import {
   type UsageMilestone,
 } from "../../domain/usage/milestones";
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
+import { UsageChart } from "./UsageChart";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
@@ -161,6 +163,7 @@ export function UsageStats() {
                     />
                     <Summary label="Sessions" value={String(stats.sessionCount)} />
                   </div>
+                  <UsageChart events={history.events} period={period} now={now} />
                   <Highlights
                     recap={usageRecap(history.events, period, now)}
                     period={period}
@@ -311,7 +314,7 @@ function Milestones({ events }: { events: readonly UsageEventV2[] }) {
             key={`${milestone.kind}-${milestone.threshold}`}
           >
             {milestoneLabel(milestone)}
-            <small>{milestoneDayLabel(milestone.achievedAt)}</small>
+            <small>{formatUtcDay(milestone.achievedAt, true)}</small>
           </span>
         ))}
       </div>
@@ -323,17 +326,6 @@ function milestoneLabel(milestone: UsageMilestone): string {
   return milestone.kind === "tokens"
     ? `${formatTokens(milestone.threshold)} tokens`
     : `${milestone.threshold} sessions`;
-}
-
-/** Achievement dates carry the year — a trophy from last spring should say
- * so. UTC for the same determinism as the recap's day buckets. */
-function milestoneDayLabel(achievedAt: number): string {
-  return new Date(achievedAt).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
 }
 
 /** The period's numbers with their context — movement against the prior
@@ -358,7 +350,7 @@ function Highlights({
   }
   if (recap.busiestDay) {
     parts.push(
-      `busiest day ${utcDayLabel(recap.busiestDay.dayStart)} (${formatTokens(
+      `busiest day ${formatUtcDay(recap.busiestDay.dayStart)} (${formatTokens(
         recap.busiestDay.totalTokens,
       )})`,
     );
@@ -369,15 +361,6 @@ function Highlights({
 
 function periodLabel(period: UsageStatsPeriod): string {
   return PERIODS.find((candidate) => candidate.period === period)?.label ?? "";
-}
-
-/** Labeled in UTC because recap day buckets are UTC days. */
-function utcDayLabel(dayStart: number): string {
-  return new Date(dayStart).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
