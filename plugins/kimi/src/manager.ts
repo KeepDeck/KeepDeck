@@ -24,7 +24,6 @@ export interface KimiCompanionDescriptor {
   version: string;
   displayName: string;
   resourceDirectoryName: string;
-  hookCount: number;
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -44,10 +43,6 @@ interface PluginSummary {
   hasErrors: boolean;
   source: "local-path" | "zip-url" | "github";
   originalSource?: string;
-  skillCount: number;
-  mcpServerCount: number;
-  hookCount: number;
-  commandCount: number;
 }
 
 /** Performs reporter RPC transactions on the one server owned by
@@ -270,6 +265,16 @@ function installationFrom(
   };
 }
 
+/** Whether the installed plugin is OUR companion — any version of it.
+ *
+ * Identity is judged on the facts that stay true across every version we
+ * ship: our id, our display name, a local-path install, and our resource
+ * directory's name. Deliberately NOT on manifest shape (hook/skill/command
+ * counts): those change whenever the companion grows a feature, and pinning
+ * them turned the 1.2.0→1.3.0 hook additions into a permanent "Plugin ID
+ * conflict" with no way out — the ownership gate fires before the version
+ * gate, and both configure() and remove() refuse unowned plugins. An old
+ * version of ours must read as OURS-but-outdated, never as a stranger. */
 function isOwnedCompanion(
   plugin: PluginSummary,
   companion: KimiCompanionDescriptor,
@@ -282,11 +287,7 @@ function isOwnedCompanion(
     plugin.id === companion.id &&
     plugin.displayName === companion.displayName &&
     plugin.source === "local-path" &&
-    sourceName === companion.resourceDirectoryName &&
-    plugin.skillCount === 0 &&
-    plugin.mcpServerCount === 0 &&
-    plugin.hookCount === companion.hookCount &&
-    plugin.commandCount === 0
+    sourceName === companion.resourceDirectoryName
   );
 }
 
