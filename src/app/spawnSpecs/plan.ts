@@ -1,0 +1,198 @@
+/**
+ * Building ONE plan: the agent hook that fills in argv and env, and the host
+ * facts that are not the hook's to decide (staged skills in, bridge arming
+ * out).
+ */
+import type {
+  AgentContribution,
+  ForkPlanInput,
+  SpawnPlanInput,
+  SpawnPlanOutput,
+} from "@keepdeck/plugin-api";
+import {
+  BRIDGE_PROTOCOL_VERSION,
+  type ResumeOrigin,
+  type SpawnPlan,
+  type SpawnPlanContext,
+} from "../../domain/agents";
+import { describeError, log } from "../../ipc/log";
+import type { SkillsStagingViews } from "../../ipc/skills";
+import { execCovers } from "../../plugins/capabilities/execCovers";
+import { mintBridgeToken } from "../ids";
+import { postbackCount } from "../postbacks";
+import { peekPaneSpawnSpec } from "./cache";
+import type { SpawnPluginAccess } from "./index";
+
+/** The pane-side facts a plan is built from — the hook input's shape minus
+ * the resume session (that arrives with the resume request, not the pane). */
+export interface PaneSpawnFacts extends SpawnPlanInput {
+  /** This workspace's staged shared skills, resolved by whoever owns the
+   * worktrees — asked for here, never computed here. A build path that worked
+   * out the arming set itself is how a directory being deleted got armed, so
+   * the set is deliberately not expressible in these facts. Absent = this
+   * build has no skills source and the hook input stays sparse.
+   *
+   * Named apart from the hook input's own `skills` (which carries the resolved
+   * views) because this is the QUESTION, not the answer. */
+  stagedSkills?: () => Promise<SkillsStagingViews | null>;
+}
+
+/** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
+ * their session facts; the hook that runs is the variant's. */
+type PlanVariant =
+  | { kind: "spawn" }
+  | { kind: "resume"; sessionId: string; origin: ResumeOrigin }
+  | { kind: "fork"; sessionId: string; sourceCwd: string; transcriptPath?: string };
+
+/** Build one plan through the agent's hook. A throwing SPAWN hook degrades
+ * to a bare spawn (no identity) rather than a dead pane; a throwing resume
+ * or fork hook REJECTS — degrading a requested continuation (or a fork whose
+ * surgery failed) into a fresh conversation would be silent data loss. */
+export async function buildPlan(
+  plugins: SpawnPluginAccess,
+  agent: { entry: AgentContribution; pluginId: string },
+  facts: PaneSpawnFacts,
+  ctx: SpawnPlanContext,
+  variant: PlanVariant = { kind: "spawn" },
+): Promise<SpawnPlan> {
+  const { entry, pluginId } = agent;
+  const { paneId } = facts;
+  const output: SpawnPlanOutput = {
+    // Prefilled with the detected command; a hook may override (null = the
+    // user's shell).
+    command: entry.detect.bin,
+    args: [],
+    env: [],
+    envDefaults: [],
+  };
+  // Staged shared skills are a host fact like the bridge — but delivered as
+  // hook INPUT, because loading them is per-CLI dialect (a flag here, an env
+  // var there), and dialects are exactly what hooks own. WHICH skills, and
+  // which directories get armed for them, is the worktree manager's answer:
+  // this only asks.
+  const skills = facts.stagedSkills ? await facts.stagedSkills() : null;
+  const base: SpawnPlanInput = {
+    paneId,
+    workspace: facts.workspace,
+    cwd: facts.cwd,
+    ...(facts.branch ? { branch: facts.branch } : {}),
+    ...(facts.yolo ? { yolo: true } : {}),
+    ...(skills ? { skills } : {}),
+    ...(facts.target ? { target: facts.target } : {}),
+  };
+  if (
+    variant.kind === "spawn" &&
+    facts.target &&
+    typeof entry.hooks["spawn.plan"] !== "function"
+  ) {
+    throw new Error(
+      `${entry.id}: remote target requires a spawn.plan implementation`,
+    );
+  }
+  try {
+    if (variant.kind === "resume") {
+      await entry.hooks["resume.plan"]?.(
+        { ...base, sessionId: variant.sessionId },
+        output,
+      );
+    } else if (variant.kind === "fork") {
+      const input: ForkPlanInput = {
+        ...base,
+        sessionId: variant.sessionId,
+        sourceCwd: variant.sourceCwd,
+        ...(variant.transcriptPath !== undefined && {
+          transcriptPath: variant.transcriptPath,
+        }),
+      };
+      await entry.hooks["fork.plan"]?.(input, output);
+    } else {
+      await entry.hooks["spawn.plan"]?.(base, output);
+    }
+  } catch (e) {
+    // Resume/fork already propagate; a spawn degrades to bare so the pane
+    // lives — UNLESS the pane is remote: a bare spawn would run the agent
+    // LOCALLY (silently dropping the endpoint), a wrong-target execution the
+    // user couldn't tell apart from a working remote pane. Surface it instead.
+    if (variant.kind !== "spawn" || facts.target) throw e;
+    log.warn(
+      "web:agents",
+      `${entry.id} spawn.plan failed — bare spawn: ${describeError(e)}`,
+    );
+    return { command: entry.detect.bin, args: [], env: [] };
+  }
+  // The hook's command must be covered by its plugin's exec capability —
+  // warn for a trusted built-in (a bug to fix), CLAMP for an external
+  // (falling back to the agent's own binary, which the registration gate
+  // proved covered): a sandboxed plugin must not pick the program.
+  const owner = plugins.pluginHost
+    .getInstalled()
+    .find((installed) => installed.manifest.id === pluginId);
+  if (
+    owner &&
+    !execCovers(owner.manifest.capabilities, output.command ?? "$SHELL")
+  ) {
+    log.warn(
+      "web:agents",
+      `${entry.id}: plan command "${output.command}" is not exec-covered by ${pluginId}`,
+    );
+    if (owner.source === "external") {
+      output.command = entry.detect.bin;
+      output.args = [];
+      output.env = [];
+      output.envDefaults = [];
+    }
+  }
+  // Bridge arming is host business: reporters read this var; hooks only
+  // make the CLI load a reporter. Armed whenever the bridge exists.
+  //
+  // The token is PER PANE, not per build: a rebuild while the pane's
+  // process is alive (observed: a double-revive rebuilding the resume
+  // plan) must not orphan the token that process's reporters echo — every
+  // postback would fail verification forever. Every path that RETIRES a
+  // process drops the spec first (`dropPaneSpawnSpec` — restart, suspend,
+  // close), so a genuinely new process still gets a fresh token and the
+  // dead one's credential stops being accepted.
+  const token = ctx.bridgeDir
+    ? (peekPaneSpawnSpec(paneId)?.token ?? mintBridgeToken())
+    : null;
+  const env: [string, string][] = token
+    ? [
+        ...output.env,
+        [
+          "KEEPDECK_BRIDGE",
+          JSON.stringify({
+            v: BRIDGE_PROTOCOL_VERSION,
+            dir: ctx.bridgeDir,
+            pane: paneId,
+            token,
+          }),
+        ],
+      ]
+    : output.env;
+  return {
+    command: output.command,
+    args: output.args,
+    env,
+    ...(output.envDefaults?.length ? { envDefaults: output.envDefaults } : {}),
+    ...(token ? { token } : {}),
+    ...(variant.kind === "resume"
+      ? {
+          resumeOf: variant.sessionId,
+          resumeOrigin: variant.origin,
+          postbackMark: postbackCount(paneId),
+        }
+      : variant.kind === "fork"
+        ? { forkOf: variant.sessionId }
+        : {}),
+  };
+}
+
+export function findAgent(
+  plugins: SpawnPluginAccess,
+  agentType: string,
+): { entry: AgentContribution; pluginId: string } | undefined {
+  return plugins.pluginRegistries.agents
+    .list()
+    .find((c) => c.entry.id === agentType);
+}
+
