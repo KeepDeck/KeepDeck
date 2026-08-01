@@ -44,6 +44,8 @@ function harness(opts: { initial?: boolean | null } = {}) {
     pumpPorts,
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
+    connection: () =>
+      Promise.resolve({ command: "/bin/keepdeck", args: ["--mcp-shim", "/s"] }),
   };
   return {
     settings,
@@ -217,5 +219,19 @@ describe("createMcpService", () => {
     // and the disposed guard must keep the policy from ever being built.
     expect(h.disable).toHaveBeenCalled();
     expect(h.enable).not.toHaveBeenCalled();
+  });
+
+  it("offers a server def only while the transport is CONFIRMED up", async () => {
+    // The wiring this pins: the injection reads the SETTLED status through
+    // the service, so a pane asking mid-Off gets nothing — the setting alone
+    // never decides.
+    const h = harness({ initial: true });
+    const service = createMcpService(h.settings, h.deps);
+    await flush();
+    expect((await service.defs()).map((d) => d.name)).toEqual(["keepdeck"]);
+
+    h.set(false);
+    await flush();
+    expect(await service.defs()).toEqual([]);
   });
 });

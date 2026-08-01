@@ -7,6 +7,11 @@ import {
 import { fetchAppInfo } from "../../ipc/app";
 import { mcpDisable, mcpEnable } from "../../ipc/mcp";
 import { commands } from "../commandRegistry";
+import {
+  createMcpInjection,
+  type McpInjection,
+  type McpInjectionDeps,
+} from "./injection";
 import { createMcpRequestPump, type McpPumpPorts } from "./pump";
 import {
   createMcpServerPolicy,
@@ -53,6 +58,10 @@ function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus 
 export interface McpService {
   status(): McpStatus;
   subscribe(listener: () => void): () => void;
+  /** The MCP servers a spawning pane should be given — empty while the
+   * transport is not confirmed up. The injection half of the feature; see
+   * [`createMcpInjection`]. */
+  defs: McpInjection["defs"];
   dispose(): void;
 }
 
@@ -63,6 +72,7 @@ export interface McpServiceDeps {
   transport?: McpTransportPort;
   pumpPorts?: McpPumpPorts;
   identitySource?: () => Promise<{ name: string; version: string }>;
+  connection?: McpInjectionDeps["connection"];
 }
 
 /**
@@ -112,6 +122,12 @@ export function createMcpService(
     execute: (id, args) =>
       registry.execute(id, args, { kind: "external", client: "mcp" }),
   };
+  // Reads the CONFIRMED status through a closure rather than a snapshot:
+  // `current` moves with every settled transition.
+  const injection = createMcpInjection({
+    socket: () => current.socket,
+    ...(deps.connection ? { connection: deps.connection } : {}),
+  });
   const pump = createMcpRequestPump(
     (line) => handleMcpLine(port, () => identity, line),
     deps.pumpPorts,
@@ -138,6 +154,7 @@ export function createMcpService(
 
   return {
     status: () => current,
+    defs: injection.defs,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

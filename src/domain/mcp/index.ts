@@ -16,4 +16,11 @@ export {
   type McpCommandPort,
   type McpServerIdentity,
 } from "./protocol";
+export {
+  acceptMcpServers,
+  isValidMcpServerName,
+  type McpServerDef,
+  type McpServerRejection,
+  type McpStdioServer,
+} from "./servers";
 export { shellLine } from "./shellLine";
