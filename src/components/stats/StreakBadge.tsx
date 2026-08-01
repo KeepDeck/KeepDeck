@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useReducer } from "react";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import {
   currentStreakDays,
@@ -22,6 +22,13 @@ import {
  */
 export function StreakBadge() {
   const history = useUsageHistorySnapshot();
+  // Wall-clock-derived: a dialog left open across midnight must notice the
+  // day change without a ledger append — the chips' slow-tick idiom.
+  const [, tick] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    const timer = setInterval(tick, 30_000);
+    return () => clearInterval(timer);
+  }, []);
   const days = currentStreakDays(history.events, Date.now());
   if (days === 0) return null;
   const heat = streakHeat(days);
