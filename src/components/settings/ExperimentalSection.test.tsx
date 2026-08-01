@@ -140,6 +140,19 @@ describe("ExperimentalSection", () => {
     expect(host.textContent).toContain("ipc failure");
   });
 
+  it("a kept socket claim and a problem render together, and the hint says so", async () => {
+    // After a failed disable the socket is (probably) still up: the
+    // connect row stays truthful, but must not read as an unqualified
+    // invitation while the transport is reporting a problem.
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: false };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: "ipc failure" };
+    mount();
+    await settle();
+    expect(connectInput()).not.toBeNull();
+    expect(host.textContent).toContain("reported a problem");
+    expect(host.textContent).toContain("no longer reachable");
+  });
+
   it("a failed command fetch says so — the server IS serving", async () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
     mcpStatus.current = { socket: "/home/mcp.sock", error: null };

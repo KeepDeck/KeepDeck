@@ -120,6 +120,8 @@ export function ExperimentalSection() {
           <span className="settings__hint">
             The stdio command an MCP client spawns to reach the deck — add it
             to any client as a stdio server.
+            {mcpStatus.error !== null &&
+              " This was the last confirmed socket; the problem above may mean it is no longer reachable."}
           </span>
         </>
       )}

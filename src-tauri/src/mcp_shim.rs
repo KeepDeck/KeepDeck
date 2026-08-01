@@ -227,6 +227,40 @@ mod tests {
     }
 
     #[test]
+    fn an_interrupted_read_is_retried_not_read_as_end_of_input() {
+        /// Yields EINTR once, then the payload, then EOF.
+        struct Interrupting {
+            step: u8,
+        }
+        impl Read for Interrupting {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.step += 1;
+                match self.step {
+                    1 => Err(std::io::Error::from(std::io::ErrorKind::Interrupted)),
+                    2 => {
+                        let payload = b"after the signal\n";
+                        buf[..payload.len()].copy_from_slice(payload);
+                        Ok(payload.len())
+                    }
+                    _ => Ok(0),
+                }
+            }
+        }
+
+        let (near, far) = UnixStream::pair().expect("socketpair");
+        let server = std::thread::spawn(move || {
+            let mut far = far;
+            let mut received = Vec::new();
+            far.read_to_end(&mut received).expect("read to EOF");
+            received
+        });
+        // A signal must not masquerade as client EOF: treating it as one
+        // would half-close the session and drop the line that follows.
+        pump(Interrupting { step: 0 }, &mut Vec::new(), near).expect("pump");
+        assert_eq!(server.join().unwrap(), b"after the signal\n");
+    }
+
+    #[test]
     fn pump_carries_both_directions_and_propagates_input_eof() {
         let (near, far) = UnixStream::pair().expect("socketpair");
         let server = std::thread::spawn(move || {

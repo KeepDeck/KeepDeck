@@ -175,6 +175,28 @@ describe("createMcpServerPolicy", () => {
     expect(enable).not.toHaveBeenCalled();
   });
 
+  it("a settings notification that outlives dispose cannot re-enable", async () => {
+    // A notifier iterating a SNAPSHOT of its listeners can still call a
+    // listener disposed earlier in the same pass; queueing an enable then
+    // would undo the final disable.
+    let value: boolean | null = null;
+    let notify!: () => void;
+    const settings: McpSettingsPort = {
+      mcpServer: () => value,
+      subscribe(listener) {
+        notify = listener;
+        return () => {};
+      },
+    };
+    const { transport, enable } = transportPort();
+    const policy = createMcpServerPolicy(settings, transport, () => {});
+    policy.dispose({ disable: true });
+    value = true;
+    notify();
+    await flush();
+    expect(enable).not.toHaveBeenCalled();
+  });
+
   it("dispose({disable}) queues the final disable BEHIND an in-flight enable", async () => {
     const { settings, set } = settingsPort(null);
     let releaseEnable!: () => void;

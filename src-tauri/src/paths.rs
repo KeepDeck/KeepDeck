@@ -149,4 +149,22 @@ mod tests {
         let home = home_from("keepdeck", None, os("/xdg"), None).unwrap();
         assert_eq!(home.join("logs"), PathBuf::from("/xdg/keepdeck/logs"));
     }
+
+    #[test]
+    fn the_mcp_socket_lives_in_its_own_directory() {
+        // Not flat in the home: that directory IS the socket's permission
+        // model (0700), so the nesting is load-bearing, not cosmetic.
+        let home = home_from("keepdeck", None, os("/xdg"), None).unwrap();
+        assert_eq!(
+            home.join("mcp").join("mcp.sock"),
+            PathBuf::from("/xdg/keepdeck/mcp/mcp.sock"),
+        );
+    }
+
+    #[test]
+    fn a_relative_home_is_ignored_like_the_other_roots() {
+        // A relative root would resolve against each process's own cwd —
+        // the app and the shim would disagree about the socket's location.
+        assert_eq!(home_from("keepdeck", None, None, os("relative/home")), None);
+    }
 }

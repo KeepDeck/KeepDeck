@@ -16,10 +16,12 @@ export interface McpPumpPorts {
 }
 
 export interface McpRequestPump {
-  /** Settles once the event subscription has REGISTERED on the backend (or
-   * failed — settled either way, never rejected). Until then, requests the
-   * socket forwards reach nobody; the service gates the policy on this. */
-  ready: Promise<void>;
+  /** Resolves once the event subscription has settled: `true` when it
+   * REGISTERED on the backend, `false` when it failed — never rejects.
+   * Until it resolves, requests the socket forwards reach nobody; and a
+   * `false` means they never will, so the caller must not bring a socket
+   * up behind this pump. */
+  ready: Promise<boolean>;
   dispose(): void;
 }
 
@@ -76,11 +78,14 @@ export function createMcpRequestPump(
       // or the dead pump would keep consuming events forever.
       if (disposed) un();
       else unlisten = un;
+      return true;
     })
     .catch((e) => {
-      // No subscription means no inbound requests, ever — worth a warning,
-      // not a crash: the socket side still answers with its own timeout.
+      // No subscription means no inbound requests, EVER. Reported, not
+      // thrown — and reported as `false`, because the caller's decision
+      // (whether to serve at all) depends on it.
       log.warn("web:mcp", `request subscription failed: ${describeError(e)}`);
+      return false;
     });
 
   return {

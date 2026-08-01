@@ -106,6 +106,31 @@ describe("createMcpRequestPump", () => {
     expect(p.respond).not.toHaveBeenCalled();
   });
 
+  it("ready resolves true only once the subscription has registered", async () => {
+    let register!: (un: () => void) => void;
+    const pump = createMcpRequestPump((line) => line, {
+      subscribe: () => new Promise((resolve) => (register = resolve)),
+      respond: vi.fn((_id: number, _reply: string) => Promise.resolve()),
+    });
+    let settled: boolean | "pending" = "pending";
+    void pump.ready.then((value) => (settled = value));
+    await flush();
+    expect(settled).toBe("pending");
+    register(() => {});
+    await flush();
+    expect(settled).toBe(true);
+  });
+
+  it("ready RESOLVES false on a failed subscription — never rejects", async () => {
+    // The service awaits this to decide whether to serve at all; a
+    // rejection here would be an unhandled one AND would strand it.
+    const pump = createMcpRequestPump((line) => line, {
+      subscribe: () => Promise.reject(new Error("no event channel")),
+      respond: vi.fn((_id: number, _reply: string) => Promise.resolve()),
+    });
+    await expect(pump.ready).resolves.toBe(false);
+  });
+
   it("a failed subscription is logged, never an unhandled rejection", async () => {
     createMcpRequestPump((line) => line, {
       subscribe: () => Promise.reject(new Error("no tauri window")),

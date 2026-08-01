@@ -54,9 +54,14 @@ export function createMcpServerPolicy(
    * "unknown", which always reconciles on the next event. */
   let applied: boolean | null = null;
   let epoch = 0;
+  let disposed = false;
   let chain: Promise<void> = Promise.resolve();
 
   const reconcile = () => {
+    // Unsubscribing is not enough: a notifier that iterates a SNAPSHOT of
+    // its listeners can still call us after dispose, and queueing an
+    // enable behind the final disable would undo the teardown.
+    if (disposed) return;
     const desired = settings.mcpServer();
     if (desired === null || desired === applied) return;
     applied = desired;
@@ -88,6 +93,7 @@ export function createMcpServerPolicy(
 
   return {
     dispose(options = {}) {
+      disposed = true;
       unsubscribe();
       if (options.disable) {
         chain = chain.then(async () => {

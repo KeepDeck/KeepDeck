@@ -27,11 +27,18 @@ export interface McpStatus {
   error: string | null;
 }
 
+/** A failure's detail, guaranteed to READ as a problem: an Error carrying
+ * an empty message would otherwise render as a dangling "problem: ". */
+function problem(detail: string | null): string {
+  const text = detail?.trim();
+  return text ? text : "the transport reported no detail";
+}
+
 /** The status after one settled transition (see [`McpStatus`] for why a
  * failure keeps the previous socket claim). */
 function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus {
   if (!transition.ok) {
-    return { socket: previous.socket, error: transition.detail };
+    return { socket: previous.socket, error: problem(transition.detail) };
   }
   if (!transition.desired) {
     return { socket: null, error: null };
@@ -111,8 +118,19 @@ export function createMcpService(
   );
   let policy: McpServerPolicy | null = null;
   let disposed = false;
-  void pump.ready.then(() => {
+  void pump.ready.then((registered) => {
     if (disposed) return;
+    if (!registered) {
+      // A socket in front of a pump that can never hear it is worse than
+      // no socket: every client request would park until the bridge times
+      // it out, while the UI advertised a working server. Stay down, and
+      // say why.
+      publish({
+        socket: null,
+        error: "the deck cannot receive MCP requests — the event channel failed",
+      });
+      return;
+    }
     policy = createMcpServerPolicy(settings, transport, (transition) => {
       publish(statusAfter(current, transition));
     });
@@ -125,6 +143,7 @@ export function createMcpService(
       return () => listeners.delete(listener);
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
       if (policy) {
         // The teardown rides the policy's chain — a webview on its way out
@@ -140,7 +159,9 @@ export function createMcpService(
           .catch(() => {});
       }
       pump.dispose();
-      listeners.clear();
+      // Listeners are deliberately NOT cleared: a mounted subscriber's
+      // teardown is its own unsubscribe, and evicting it here would leave
+      // it permanently deaf if the page outlives the service (HMR, tests).
     },
   };
 }

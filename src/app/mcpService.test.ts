@@ -167,6 +167,41 @@ describe("createMcpService", () => {
     expect(h.disable).toHaveBeenCalled();
   });
 
+  it("a pump that could not register keeps the socket DOWN and says why", async () => {
+    // Serving behind a pump nothing can reach costs every client the
+    // bridge timeout while the UI advertises a working server.
+    const h = harness({ initial: true });
+    h.deps.pumpPorts = {
+      subscribe: () => Promise.reject(new Error("no event channel")),
+      respond: vi.fn((_id: number, _reply: string) => Promise.resolve()),
+    };
+    const service = createMcpService(h.settings, h.deps);
+    await flush();
+    expect(h.enable).not.toHaveBeenCalled();
+    expect(service.status().socket).toBeNull();
+    expect(service.status().error).toContain("cannot receive MCP requests");
+  });
+
+  it("dispose is idempotent — extra calls queue no extra teardown", async () => {
+    const h = harness();
+    const service = createMcpService(h.settings, h.deps);
+    await flush();
+    service.dispose();
+    service.dispose();
+    service.dispose();
+    await flush();
+    expect(h.disable).toHaveBeenCalledTimes(1);
+  });
+
+  it("an errorless failure still reads as a problem, not a blank", async () => {
+    const h = harness();
+    h.enable.mockRejectedValueOnce(new Error(""));
+    const service = createMcpService(h.settings, h.deps);
+    h.set(true);
+    await flush();
+    expect(service.status().error).toBe("the transport reported no detail");
+  });
+
   it("dispose before the subscription registers still takes the socket down", async () => {
     const h = harness({ initial: true });
     let register!: (un: () => void) => void;
