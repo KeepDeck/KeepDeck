@@ -6,20 +6,18 @@
  * deep link on Overview.
  */
 
-export type StatsTab =
-  | "overview"
-  | "providers"
-  | "models"
-  | "sessions"
-  | "achievements";
-
-export const STATS_TAB_IDS: readonly StatsTab[] = [
+/** THE tab id list; the type is derived from it, so the two can never
+ * drift — a new tab is added here once, and the view's TAB_SPECS plus the
+ * switchboard's exhaustive body switch are compiler-demanded to follow. */
+export const STATS_TAB_IDS = [
   "overview",
   "providers",
   "models",
   "sessions",
   "achievements",
-];
+] as const;
+
+export type StatsTab = (typeof STATS_TAB_IDS)[number];
 
 export function isStatsTab(value: unknown): value is StatsTab {
   return (

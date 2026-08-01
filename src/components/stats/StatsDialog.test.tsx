@@ -24,7 +24,7 @@ import {
   usageEvent as baseEvent,
 } from "../../domain/usage/history/event.testSupport";
 import { StatsDialog, UsageStats } from "./StatsDialog";
-import type { StatsTab } from "./tabs";
+import type { StatsTab } from "../../domain/usage/statsTabs";
 
 /** The dialog's tab is controlled by the app-layer owner; tests host that
  * ownership in a tiny stateful wrapper. */

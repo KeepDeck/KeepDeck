@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { PERIOD_LABELS, USAGE_PERIODS } from "../../domain/usage";
@@ -15,7 +15,8 @@ import { Overview } from "./Overview";
 import { Providers } from "./Providers";
 import { StatsTable } from "./StatsTable";
 import { StreakBadge } from "./StreakBadge";
-import { PERIODLESS_TABS, STATS_TABS, type StatsTab } from "./tabs";
+import type { StatsTab } from "../../domain/usage/statsTabs";
+import { PERIODLESS_TABS, STATS_TABS, TAB_SPECS } from "./tabs";
 
 /** Global usage analytics has its own app surface: it is observational data,
  * not a setting, and it spans every workspace and CLI. The tab is CONTROLLED
@@ -83,17 +84,48 @@ export function UsageStats({
     [history.events, period, now],
   );
   const periodless = PERIODLESS_TABS.includes(tab);
-  const periodEmpty = (
-    <p className="stats__empty">No usage recorded in this period yet.</p>
-  );
   /** A dead ledger blocks only the tabs that read it — Providers renders
    * from the independent account snapshot regardless. */
   const historyDead = history.error !== null && history.events.length === 0;
-  const ledgerBlocked = (
-    <p className="stats__empty" role="alert">
-      Usage history is unavailable: {history.error}
-    </p>
-  );
+
+  /** The tab body, driven entirely by the TAB_SPECS policy table: the two
+   * gates read the spec's data field (never a hand-listed tab check), and
+   * the switch is exhaustive — a new tab id fails to compile here until it
+   * brings a body. */
+  const tabBody = (current: StatsTab): ReactElement => {
+    const spec = TAB_SPECS[current];
+    if (spec.data !== "live-accounts" && historyDead) {
+      return (
+        <p className="stats__empty" role="alert">
+          Usage history is unavailable: {history.error}
+        </p>
+      );
+    }
+    if (spec.data === "period-ledger" && stats.eventCount === 0) {
+      return <p className="stats__empty">No usage recorded in this period yet.</p>;
+    }
+    switch (current) {
+      case "overview":
+        return (
+          <Overview
+            events={history.events}
+            stats={stats}
+            period={period}
+            now={now}
+          />
+        );
+      case "providers":
+        return <Providers accounts={accounts} events={history.events} now={now} />;
+      case "models":
+        return <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />;
+      case "sessions":
+        return (
+          <StatsTable title="Sessions" rows={stats.sessions} now={now} mode="session" />
+        );
+      case "achievements":
+        return <Achievements events={history.events} />;
+    }
+  };
 
   return (
     <div className="stats">
@@ -148,45 +180,7 @@ export function UsageStats({
               Some history could not be loaded: {history.error}
             </p>
           )}
-          {tab === "overview" &&
-            (historyDead ? (
-              ledgerBlocked
-            ) : stats.eventCount === 0 ? (
-              periodEmpty
-            ) : (
-              <Overview
-                events={history.events}
-                stats={stats}
-                period={period}
-                now={now}
-              />
-            ))}
-          {tab === "providers" && (
-            <Providers accounts={accounts} events={history.events} now={now} />
-          )}
-          {tab === "models" &&
-            (historyDead ? (
-              ledgerBlocked
-            ) : stats.eventCount === 0 ? (
-              periodEmpty
-            ) : (
-              <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
-            ))}
-          {tab === "sessions" &&
-            (historyDead ? (
-              ledgerBlocked
-            ) : stats.eventCount === 0 ? (
-              periodEmpty
-            ) : (
-              <StatsTable
-                title="Sessions"
-                rows={stats.sessions}
-                now={now}
-                mode="session"
-              />
-            ))}
-          {tab === "achievements" &&
-            (historyDead ? ledgerBlocked : <Achievements events={history.events} />)}
+          {tabBody(tab)}
         </>
       )}
     </div>
