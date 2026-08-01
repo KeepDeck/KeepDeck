@@ -23,6 +23,10 @@ export interface ProviderWindowLedger {
 }
 
 export interface ProviderWindowRow {
+  /** Unique within one snapshot — two windows sharing a duration and scope
+   * (codex can report several duration-less account windows) still get
+   * distinct identities, so list rendering never collides. */
+  id: string;
   agent: string;
   window: UsageWindow;
   /** When the account report carrying this window arrived. */
@@ -42,30 +46,57 @@ export interface ProviderWindowRow {
   ledger: ProviderWindowLedger | null;
 }
 
-/** Every reported provider's windows with their ledger joins: providers
- * alphabetical, each provider's windows account-wide first, shortest first
- * (the panel order users already know from the chip popover). */
-export function providerWindowRows(
+/** One provider's card: identity and report freshness once, windows inside.
+ * The grouping is domain data, not a view fold — every row of a group comes
+ * from the same account report by construction. */
+export interface ProviderWindowGroup {
+  agent: string;
+  reportedAt: number;
+  stale: boolean;
+  rows: ProviderWindowRow[];
+}
+
+/** Every reported provider as a group: providers alphabetical, each
+ * provider's windows account-wide first, shortest first (the panel order
+ * users already know from the chip popover). */
+export function providerWindowGroups(
   accounts: ReadonlyMap<string, AccountUsage>,
   events: readonly UsageEventV2[],
   now: number,
-): ProviderWindowRow[] {
-  const rows: ProviderWindowRow[] = [];
+): ProviderWindowGroup[] {
+  const groups: ProviderWindowGroup[] = [];
   for (const agent of [...accounts.keys()].sort()) {
     const account = accounts.get(agent);
     if (account?.kind !== "reported") continue;
-    for (const window of panelWindows(account)) {
-      rows.push({
+    const windows = panelWindows(account);
+    groups.push({
+      agent,
+      reportedAt: account.reportedAt,
+      stale: usageStale(account.reportedAt, now),
+      rows: windows.map((window, index) => ({
+        id: `${agent}\0${window.windowMinutes ?? "?"}\0${window.scope ?? ""}\0${index}`,
         agent,
         window,
         reportedAt: account.reportedAt,
         expired: windowExpired(window, now),
         stale: usageStale(account.reportedAt, now),
         ledger: windowLedger(agent, window, events, now),
-      });
-    }
+      })),
+    });
   }
-  return rows;
+  return groups;
+}
+
+/** The flat view of [`providerWindowGroups`] — kept for consumers that need
+ * rows without card structure; one derivation, never a second grouping. */
+export function providerWindowRows(
+  accounts: ReadonlyMap<string, AccountUsage>,
+  events: readonly UsageEventV2[],
+  now: number,
+): ProviderWindowRow[] {
+  return providerWindowGroups(accounts, events, now).flatMap(
+    (group) => group.rows,
+  );
 }
 
 function windowLedger(

@@ -19,7 +19,7 @@ import {
   type UsageStatsRow,
 } from "../../domain/usage/history";
 import {
-  providerWindowRows,
+  providerWindowGroups,
   type ProviderWindowLedger,
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
@@ -255,32 +255,14 @@ function Providers({
   events: readonly UsageEventV2[];
   now: number;
 }) {
-  const rows = providerWindowRows(accounts, events, now);
-  if (rows.length === 0) {
+  const groups = providerWindowGroups(accounts, events, now);
+  if (groups.length === 0) {
     return (
       <p className="stats__empty">
         No provider reports yet. Windows appear once a CLI reports its account
         limits.
       </p>
     );
-  }
-  const groups: {
-    agent: string;
-    reportedAt: number;
-    stale: boolean;
-    rows: ProviderWindowRow[];
-  }[] = [];
-  for (const row of rows) {
-    const last = groups[groups.length - 1];
-    if (last?.agent === row.agent) last.rows.push(row);
-    else {
-      groups.push({
-        agent: row.agent,
-        reportedAt: row.reportedAt,
-        stale: row.stale,
-        rows: [row],
-      });
-    }
   }
   return (
     <section className="stats__section">
@@ -295,7 +277,7 @@ function Providers({
               </small>
             </header>
             {group.rows.map((row) => (
-              <ProviderWindow key={providerRowKey(row)} row={row} now={now} />
+              <ProviderWindow key={row.id} row={row} now={now} />
             ))}
           </article>
         ))}
@@ -337,12 +319,6 @@ function ledgerCaption(ledger: ProviderWindowLedger): string {
   }`;
   const cost = displayProviderCost(ledger.providerCostUsd, ledger.costEvents);
   return cost === "—" ? sessions : `${sessions} · ${cost}`;
-}
-
-function providerRowKey(row: ProviderWindowRow): string {
-  return [row.agent, row.window.windowMinutes ?? "", row.window.scope ?? ""].join(
-    "\0",
-  );
 }
 
 /** The achievements tab in three sections: the goals being walked toward

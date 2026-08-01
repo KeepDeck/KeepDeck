@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UsageEventV2 } from "./history";
-import { providerWindowRows } from "./providerWindows";
+import { providerWindowGroups, providerWindowRows } from "./providerWindows";
 import type { AccountUsage, UsageWindow } from "./usage";
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
@@ -119,6 +119,49 @@ describe("providerWindowRows", () => {
     const rows = providerWindowRows(accounts, [event({ agent: "kimi" })], NOW);
     expect(rows).toHaveLength(3);
     expect(rows.map((row) => row.ledger)).toEqual([null, null, null]);
+  });
+
+  it("groups a provider's windows under one card identity", () => {
+    const accounts = new Map<string, AccountUsage>([
+      [
+        "claude",
+        reported(
+          [
+            { usedPct: 3, resetsAt: null, windowMinutes: 10_080 },
+            { usedPct: 4, resetsAt: null, windowMinutes: 300 },
+          ],
+          NOW - 2 * HOUR,
+        ),
+      ],
+      ["opencode", { kind: "unavailable", reason: "api-key", reportedAt: NOW }],
+    ]);
+    const groups = providerWindowGroups(accounts, [], NOW);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      agent: "claude",
+      reportedAt: NOW - 2 * HOUR,
+      stale: true,
+    });
+    expect(groups[0].rows.map((row) => row.window.windowMinutes)).toEqual([
+      300, 10_080,
+    ]);
+  });
+
+  it("mints distinct row ids even for windows sharing duration and scope", () => {
+    // Codex's app-server can report several account windows with no stated
+    // duration — identity must not collapse them.
+    const accounts = new Map([
+      [
+        "codex",
+        reported([
+          { usedPct: 34, resetsAt: NOW + 2 * HOUR, windowMinutes: null },
+          { usedPct: 71, resetsAt: NOW + 5 * HOUR, windowMinutes: null },
+        ]),
+      ],
+    ]);
+    const rows = providerWindowRows(accounts, [], NOW);
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.id)).size).toBe(2);
   });
 
   it("orders providers alphabetically, windows account-wide first then shortest", () => {
