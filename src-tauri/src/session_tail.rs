@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::bridge::{UsageReport, USAGE_REPORT_EVENT};
+use crate::bridge::{StatusReport, UsageReport, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 use crate::fswatch;
 
 /// Which session-file dialect a tail parses. Chosen by the webview (it
@@ -231,7 +231,31 @@ impl Drop for TailPoller {
 /// deduplication happens while accumulating session totals below.
 fn claude_event(line: &[u8]) -> Option<TailedEvent> {
     let value: Value = serde_json::from_slice(line).ok()?;
-    if value.get("type")?.as_str()? != "assistant" {
+    let kind = value.get("type")?.as_str()?;
+    // The interrupt marker: claude pushes NO hook when the user aborts a
+    // turn (Esc) — the transcript is the only witness. Keyed on the
+    // STRUCTURED `interruptedMessageId` field of the appended user record,
+    // never on the "[Request interrupted…]" text, so an assistant merely
+    // quoting the phrase cannot trip it.
+    if kind == "user" {
+        let interrupted = value
+            .get("interruptedMessageId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| !id.is_empty());
+        if !interrupted {
+            return None;
+        }
+        let source_at = value
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .map(|at| SourceTimestamp::Iso(at.to_string()));
+        return Some(TailedEvent {
+            payload: json!({ "type": "session.interrupt" }),
+            source_at,
+            source_mtime_ms: None,
+        });
+    }
+    if kind != "assistant" {
         return None;
     }
     let message = value.get("message")?.as_object()?;
@@ -285,10 +309,14 @@ fn rollout_event(line: &[u8]) -> Option<TailedEvent> {
     let payload = match value.get("type")?.as_str()? {
         "event_msg" => {
             let payload = value.get("payload")?;
-            if payload.get("type")?.as_str()? == "token_count" {
-                payload.clone()
-            } else {
-                return None;
+            match payload.get("type")?.as_str()? {
+                "token_count" => payload.clone(),
+                // codex pushes NO hook on a user interrupt; the rollout's
+                // `turn_aborted` record is the witness. The record TYPE is
+                // the marker (assistant text can't trip it), and the other
+                // abort reasons rightly count too — an aborted turn ended.
+                "turn_aborted" => json!({ "type": "session.interrupt" }),
+                _ => return None,
             }
         }
         "turn_context" => {
@@ -669,6 +697,23 @@ pub fn usage_watch_session_file(
     // summary is marked catchUp so a replay can never outrank them.
     let emitter = app.clone();
     let watcher = spawn_tailer(state.clone(), POLL_INTERVAL, move |payload| {
+        // An interrupt marker is a STATUS edge, not usage — reroute it with
+        // the same correlation. Live appends only: the catch-up summary
+        // keeps declared usage kinds exclusively (`last_of_each`), so an
+        // old abort in the file can never relabel a fresh resume.
+        if payload.payload["event"]["type"] == "session.interrupt" {
+            let status = StatusReport {
+                pane_id: payload.pane_id.clone(),
+                token: payload.token.clone(),
+                payload: json!({
+                    "agent": payload.payload["agent"],
+                    "kind": "session.interrupt",
+                }),
+            };
+            log::debug!("usage tail: pane={} interrupt marker", status.pane_id);
+            let _ = emitter.emit(AGENT_STATUS_EVENT, &status);
+            return;
+        }
         log::debug!(
             "usage tail: pane={} live {} event",
             payload.pane_id,
@@ -933,6 +978,62 @@ mod tests {
             None
         );
         assert_eq!(claude_event(b"not json"), None);
+    }
+
+    // The interrupt markers ride on the record's STRUCTURE, never its prose:
+    // claude's dedicated `interruptedMessageId` field, codex's `turn_aborted`
+    // record type — an assistant merely quoting the phrase trips neither.
+    #[test]
+    fn interrupt_markers_become_session_interrupt_events() {
+        let claude_marker = format!(
+            r#"{{"type":"user","interruptedMessageId":"msg-7","timestamp":"{SOURCE_ISO}","message":{{"role":"user","content":[{{"type":"text","text":"[Request interrupted by user]"}}]}}}}"#
+        );
+        let event = claude_event(claude_marker.as_bytes()).expect("interrupt");
+        assert_eq!(
+            event.payload,
+            serde_json::json!({ "type": "session.interrupt" })
+        );
+        assert_eq!(
+            event.source_at,
+            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
+        );
+        // An ordinary user record — even one QUOTING the marker text — is
+        // not an interrupt.
+        assert_eq!(
+            claude_event(
+                br#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#
+            ),
+            None
+        );
+        assert_eq!(
+            claude_event(br#"{"type":"user","interruptedMessageId":""}"#),
+            None
+        );
+
+        let codex_marker = format!(
+            r#"{{"timestamp":"{SOURCE_ISO}","type":"event_msg","payload":{{"type":"turn_aborted","turn_id":"t-1","reason":"interrupted"}}}}"#
+        );
+        let event = rollout_event(codex_marker.as_bytes()).expect("interrupt");
+        assert_eq!(
+            event.payload,
+            serde_json::json!({ "type": "session.interrupt" })
+        );
+    }
+
+    // An old abort in the file must never relabel a fresh resume: the
+    // catch-up summary keeps only the declared usage kinds.
+    #[test]
+    fn catch_up_never_replays_an_interrupt() {
+        let interrupt = TailedEvent {
+            payload: serde_json::json!({ "type": "session.interrupt" }),
+            source_at: None,
+            source_mtime_ms: None,
+        };
+        let kept = last_of_each(
+            vec![interrupt],
+            TailFormat::Claude.catch_up_order(),
+        );
+        assert!(kept.is_empty());
     }
 
     #[test]
