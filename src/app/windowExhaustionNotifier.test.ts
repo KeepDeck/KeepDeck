@@ -9,16 +9,15 @@ import {
   accountWindowKeys,
   type WindowReport,
 } from "../domain/usage/reportJournal";
-import type { AccountUsage, UsageWindow } from "../domain/usage";
+import type { AccountUsage } from "../domain/usage";
+import {
+  FIVE_H,
+  TEST_NOW,
+  windowReport,
+} from "../domain/usage/reportJournal.testSupport";
 
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+const NOW = TEST_NOW;
 const MIN = 60_000;
-
-const FIVE_H: UsageWindow = {
-  usedPct: 88,
-  resetsAt: NOW + 155 * MIN,
-  windowMinutes: 300,
-};
 
 const ACCOUNTS = new Map<string, AccountUsage>([
   [
@@ -40,13 +39,10 @@ const KEY = accountWindowKeys("claude", [FIVE_H]).get(FIVE_H)!.key;
 const series = (pctPerMin: number): WindowReport[] =>
   Array.from({ length: 5 }, (_, index) => {
     const minutesAgo = (4 - index) * 10;
-    return {
-      agent: "claude",
-      windowMinutes: 300,
+    return windowReport({
       usedPct: 88 - pctPerMin * minutesAgo,
       reportedAt: NOW - minutesAgo * MIN,
-      resetsAt: FIVE_H.resetsAt,
-    };
+    });
   });
 
 const snapshotOf = (reports: WindowReport[]): WindowReportsSnapshot => ({
@@ -87,14 +83,18 @@ function fakeDeps(over: Partial<WindowExhaustionNotifierDeps> = {}) {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("createWindowExhaustionNotifier", () => {
+  let notifier: { dispose(): void } | undefined;
+
   afterEach(() => {
+    notifier?.dispose();
+    notifier = undefined;
     vi.useRealTimers();
   });
 
   it("announces a critical window once, with the popover's phrasing", async () => {
     const { deps, notify, journal } = fakeDeps();
     journal.set(snapshotOf(series(1)));
-    const notifier = createWindowExhaustionNotifier(deps);
+    notifier = createWindowExhaustionNotifier(deps);
     await settle();
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify).toHaveBeenCalledWith({
@@ -107,7 +107,6 @@ describe("createWindowExhaustionNotifier", () => {
     });
     journal.set(snapshotOf(series(1))); // same condition — an edge, not a level
     expect(notify).toHaveBeenCalledTimes(1);
-    notifier.dispose();
   });
 
   it("waits for settings before its first fold", async () => {
@@ -117,23 +116,67 @@ describe("createWindowExhaustionNotifier", () => {
     });
     const { deps, notify, journal } = fakeDeps({ settingsReady: () => gate });
     journal.set(snapshotOf(series(1)));
-    const notifier = createWindowExhaustionNotifier(deps);
+    notifier = createWindowExhaustionNotifier(deps);
     await settle();
     expect(notify).not.toHaveBeenCalled();
     releaseSettings();
     await settle();
     expect(notify).toHaveBeenCalledTimes(1);
-    notifier.dispose();
+  });
+
+  it("holds a journal emit that lands while settings are still pending", async () => {
+    let releaseSettings = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseSettings = resolve;
+    });
+    const { deps, notify, journal } = fakeDeps({ settingsReady: () => gate });
+    notifier = createWindowExhaustionNotifier(deps);
+    await settle();
+    journal.set(snapshotOf(series(1))); // the LISTENER fires, gate still down
+    expect(notify).not.toHaveBeenCalled();
+    releaseSettings();
+    await settle();
+    expect(notify).toHaveBeenCalledTimes(1); // recovered by the ready-time fold
   });
 
   it("stays silent while the journal is not ready", async () => {
     const { deps, notify, journal } = fakeDeps();
-    const notifier = createWindowExhaustionNotifier(deps);
+    notifier = createWindowExhaustionNotifier(deps);
     await settle();
     expect(notify).not.toHaveBeenCalled();
     journal.set(snapshotOf(series(1)));
     expect(notify).toHaveBeenCalledTimes(1);
-    notifier.dispose();
+  });
+
+  it("delivers each critical window its own notification", async () => {
+    const codexKey = accountWindowKeys("codex", [FIVE_H]).get(FIVE_H)!.key;
+    const accounts = new Map<string, AccountUsage>([
+      ...ACCOUNTS,
+      [
+        "codex",
+        {
+          kind: "reported",
+          windows: [FIVE_H],
+          reportedAt: NOW - MIN,
+          sourcePaneId: "p",
+        },
+      ],
+    ]);
+    const { deps, notify, journal } = fakeDeps({
+      usage: { getSnapshot: () => ({ accounts }) },
+    });
+    journal.set({
+      ready: true,
+      byKey: new Map([
+        [KEY, series(1)],
+        [codexKey, series(1).map((r) => ({ ...r, agent: "codex" }))],
+      ]),
+    });
+    notifier = createWindowExhaustionNotifier(deps);
+    await settle();
+    expect(notify).toHaveBeenCalledTimes(2);
+    const tags = notify.mock.calls.map(([input]) => input.tag);
+    expect(new Set(tags).size).toBe(2);
   });
 
   it("catches a time-driven edge on the minute tick", async () => {
@@ -141,20 +184,32 @@ describe("createWindowExhaustionNotifier", () => {
     let clock = NOW;
     const { deps, notify, journal } = fakeDeps({ now: () => clock });
     journal.set(snapshotOf(series(0.2))); // out in 60m — warn, one minute shy
-    const notifier = createWindowExhaustionNotifier(deps);
+    notifier = createWindowExhaustionNotifier(deps);
     await vi.advanceTimersByTimeAsync(0); // settle the settings gate
     expect(notify).not.toHaveBeenCalled();
     clock = NOW + MIN; // out in 59m now — inside the critical hour
     await vi.advanceTimersByTimeAsync(MIN);
     expect(notify).toHaveBeenCalledTimes(1);
-    notifier.dispose();
+  });
+
+  it("re-notifies nothing on bare ticks — time alone is idempotent", async () => {
+    vi.useFakeTimers();
+    const { deps, notify, journal } = fakeDeps();
+    journal.set(snapshotOf(series(1)));
+    notifier = createWindowExhaustionNotifier(deps);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notify).toHaveBeenCalledTimes(1);
+    // Three ticks with the same clock and the same journal: the armed
+    // alarm must hold — a re-notify storm here is the regression.
+    await vi.advanceTimersByTimeAsync(3 * MIN);
+    expect(notify).toHaveBeenCalledTimes(1);
   });
 
   it("retries an undelivered alarm until a channel accepts it", async () => {
     const { deps, notify, journal } = fakeDeps();
     notify.mockReturnValue(false);
     journal.set(snapshotOf(series(1)));
-    const notifier = createWindowExhaustionNotifier(deps);
+    notifier = createWindowExhaustionNotifier(deps);
     await settle();
     expect(notify).toHaveBeenCalledTimes(1);
     journal.set(snapshotOf(series(1))); // still undelivered — retry
@@ -164,14 +219,14 @@ describe("createWindowExhaustionNotifier", () => {
     expect(notify).toHaveBeenCalledTimes(3);
     journal.set(snapshotOf(series(1)));
     expect(notify).toHaveBeenCalledTimes(3);
-    notifier.dispose();
   });
 
   it("folds nothing after dispose", async () => {
     const { deps, notify, journal } = fakeDeps();
-    const notifier = createWindowExhaustionNotifier(deps);
+    const created = createWindowExhaustionNotifier(deps);
+    notifier = created;
     await settle();
-    notifier.dispose();
+    created.dispose();
     journal.set(snapshotOf(series(1)));
     expect(notify).not.toHaveBeenCalled();
   });

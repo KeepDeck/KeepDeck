@@ -20,17 +20,10 @@ import { NO_REPORTS } from "./reportJournal";
 import { windowBurn } from "./windowBurn";
 import type { AccountUsage, UsageWindow } from "./usage";
 
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
-const MIN = 60_000;
+import { TEST_NOW, windowReport as report } from "./reportJournal.testSupport";
 
-const report = (over: Partial<WindowReport> = {}): WindowReport => ({
-  agent: "claude",
-  windowMinutes: 300,
-  usedPct: 10,
-  reportedAt: NOW - 30 * MIN,
-  resetsAt: NOW + 155 * MIN,
-  ...over,
-});
+const NOW = TEST_NOW;
+const MIN = 60_000;
 
 /** A steady ramp: `pctPerMin` growth, newest report at `now`. */
 const ramp = (

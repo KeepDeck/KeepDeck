@@ -2,24 +2,16 @@ import { describe, expect, it } from "vitest";
 import { foldExhaustionAlerts, type ExhaustionAlerts } from "./exhaustionAlerts";
 import { accountWindowKeys, type WindowReport } from "./reportJournal";
 import type { AccountUsage, UsageWindow } from "./usage";
+import { windowForecast } from "./windowForecast";
 
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+import {
+  FIVE_H,
+  TEST_NOW,
+  windowReport as report,
+} from "./reportJournal.testSupport";
+
+const NOW = TEST_NOW;
 const MIN = 60_000;
-
-const FIVE_H: UsageWindow = {
-  usedPct: 88,
-  resetsAt: NOW + 155 * MIN,
-  windowMinutes: 300,
-};
-
-const report = (over: Partial<WindowReport> = {}): WindowReport => ({
-  agent: "claude",
-  windowMinutes: 300,
-  usedPct: 10,
-  reportedAt: NOW - 30 * MIN,
-  resetsAt: NOW + 155 * MIN,
-  ...over,
-});
 
 /** A steady ramp ending `endAgoMin` minutes before NOW at `lastPct`. */
 const ramp = (
@@ -60,13 +52,31 @@ const seriesOf = (
 // Verdict recipes (through the real forecast): 1%/min on 12% left → out in
 // ~12m = critical; 0.29%/min → out in ~41m... beyond an hour? no: 12/0.29 ≈
 // 41m — still critical. Warn needs out >1h away yet before the reset:
-// 0.15%/min → 80m. Ok: 0.05%/min → 240m, past the 155m reset.
+// 0.15%/min → 80m. Ok: 0.05%/min → 240m, past the 155m reset. The recipes
+// are PINNED against the real forecast below, so a moved threshold fails
+// there instead of silently degrading a test into a duplicate.
 const CRITICAL = () => ramp(1, 88);
 const WARN = () => ramp(0.15, 88);
 const OK = () => ramp(0.05, 88);
+/** CRITICAL()'s segment head — the anchor every held alarm carries. */
+const ANCHOR = NOW - 40 * MIN;
 
 describe("foldExhaustionAlerts", () => {
   const NONE: ExhaustionAlerts = new Map();
+
+  it("keeps the verdict recipes honest against the real forecast", () => {
+    // A moved HOUR_MS or margin must fail HERE — not by silently turning
+    // the hold-through-warn test into a duplicate still-critical test.
+    expect(windowForecast(CRITICAL(), FIVE_H, NOW)).toMatchObject({
+      kind: "out",
+      level: "critical",
+    });
+    expect(windowForecast(WARN(), FIVE_H, NOW)).toMatchObject({
+      kind: "out",
+      level: "warn",
+    });
+    expect(windowForecast(OK(), FIVE_H, NOW).kind).toBe("ok");
+  });
 
   it("fires on ENTERING critical and holds silent while it lasts", () => {
     const windows = [FIVE_H];
@@ -119,6 +129,7 @@ describe("foldExhaustionAlerts", () => {
       NOW,
     );
     expect(eased.notices).toHaveLength(0);
+    expect(eased.alerts.get(keyOf(windows))).toEqual({ anchor: ANCHOR });
     const reCritical = foldExhaustionAlerts(
       eased.alerts,
       accountsOf(windows),
@@ -277,6 +288,97 @@ describe("foldExhaustionAlerts", () => {
       later,
     );
     expect(held.notices).toHaveLength(0);
+  });
+
+  it("alarms one window of an account without touching its siblings", () => {
+    // The commonest production shape: one account, several windows, only
+    // one on pace to run out.
+    const week: UsageWindow = {
+      usedPct: 30,
+      resetsAt: NOW + 6 * 24 * 60 * MIN,
+      windowMinutes: 10_080,
+    };
+    const windows = [FIVE_H, week];
+    const { alerts, notices } = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    expect(notices).toHaveLength(1);
+    expect(notices[0].key).toBe(keyOf(windows));
+    expect(alerts.size).toBe(1);
+    expect(alerts.get(keyOf(windows))).toEqual({ anchor: ANCHOR });
+  });
+
+  it("drops the memory when the account stops reporting — and re-alarms on return", () => {
+    const windows = [FIVE_H];
+    const fired = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    const gone = foldExhaustionAlerts(
+      fired.alerts,
+      new Map<string, AccountUsage>([
+        ["claude", { kind: "unavailable", reason: "api-key", reportedAt: NOW }],
+      ]),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    expect(gone.notices).toHaveLength(0);
+    expect(gone.alerts.size).toBe(0);
+    const returned = foldExhaustionAlerts(
+      gone.alerts,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    expect(returned.notices).toHaveLength(1); // still-critical earns a fresh alarm
+  });
+
+  it("holds through expiry — a passed reset is a data gap, not a recovery", () => {
+    const windows = [FIVE_H];
+    const fired = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    // The reset instant passes with no fresh report: the forecast hides
+    // behind expiry (unknown); the alarm keeps its instance memory.
+    const later = FIVE_H.resetsAt! + MIN;
+    const expired = foldExhaustionAlerts(
+      fired.alerts,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      later,
+    );
+    expect(expired.notices).toHaveLength(0);
+    expect(expired.alerts.get(keyOf(windows))).toEqual({ anchor: ANCHOR });
+  });
+
+  it("drops a vanished window's memory while the account keeps reporting", () => {
+    const windows = [FIVE_H];
+    const fired = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    const week: UsageWindow = {
+      usedPct: 30,
+      resetsAt: NOW + 6 * 24 * 60 * MIN,
+      windowMinutes: 10_080,
+    };
+    const without = foldExhaustionAlerts(
+      fired.alerts,
+      accountsOf([week]),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    expect(without.alerts.size).toBe(0);
   });
 
   it("ignores accounts that never reported and windows without series", () => {
