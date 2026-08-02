@@ -9,7 +9,7 @@ import { listen } from "@tauri-apps/api/event";
  */
 export const AGENT_STATUS_EVENT = "deck://agent/status";
 
-/** Mirrors the Rust `StatusReport` (camelCase). The payload is opaque here —
+/** Mirrors the Rust `Report` wire shape (camelCase). The payload is opaque here —
  * the per-agent status normalizers own its schema; `token` is the per-spawn
  * bridge secret verified against the pane's spawn plan. */
 export interface AgentStatusReportEvent {

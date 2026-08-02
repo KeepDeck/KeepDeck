@@ -102,12 +102,18 @@ fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
     None
 }
 
+/// Codex's day-partitioned session store. `None` (no HOME) fails as a
+/// quiet "nothing found" at both call sites — a pane just stays unbound.
+fn codex_sessions_root() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(PathBuf::from(home).join(".codex/sessions"))
+}
+
 /// The boot catch-up: the newest on-disk usage event. The event rides
 /// verbatim (payloads are opaque to Rust); source time (or mtime), never
 /// receipt time, is its honest age.
 pub(super) fn latest_codex_rollout() -> Option<LatestRollout> {
-    let home = std::env::var_os("HOME")?;
-    latest_rollout_usage_in(&PathBuf::from(home).join(".codex/sessions"))
+    latest_rollout_usage_in(&codex_sessions_root()?)
 }
 
 /// The fallback resolver. The id is sanitized to uuid characters — it names
@@ -120,9 +126,8 @@ pub(super) fn find_codex_rollout(session_id: &str) -> Option<String> {
     {
         return None;
     }
-    let home = std::env::var_os("HOME")?;
-    let root = PathBuf::from(home).join(".codex/sessions");
-    find_rollout_in(&root, session_id).map(|p| p.to_string_lossy().into_owned())
+    find_rollout_in(&codex_sessions_root()?, session_id)
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]

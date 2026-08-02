@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import type { Workspace } from "../domain/deck";
-import type { PaneFrame } from "../domain/status";
+import type { StatusFrame } from "../domain/status";
 import {
   createAgentStatusTracker,
   type AgentStatusTracker,
@@ -20,9 +20,11 @@ import { useWorkspaceFrames } from "./useWorkspaceFrames";
 const workspaces = [
   { id: "ws-1", panes: [{ id: "pane-1" }, { id: "pane-2" }] },
   { id: "ws-2", panes: [{ id: "pane-3" }] },
+  // A just-created workspace has no panes yet — the dot must still answer.
+  { id: "ws-3", panes: [] },
 ] as unknown as Workspace[];
 
-let latest: ReadonlyMap<string, PaneFrame>;
+let latest: ReadonlyMap<string, StatusFrame>;
 function Probe({ activeId }: { activeId: string }) {
   latest = useWorkspaceFrames(workspaces, activeId);
   return null;
@@ -67,6 +69,12 @@ describe("useWorkspaceFrames", () => {
     render("ws-1");
     expect(latest.get("ws-1")).toBe("selected");
     expect(latest.get("ws-2")).toBe("none");
+    expect(latest.get("ws-3")).toBe("none");
+  });
+
+  it("an empty ACTIVE workspace keeps its green dot", () => {
+    render("ws-3");
+    expect(latest.get("ws-3")).toBe("selected");
   });
 
   it("re-folds when an edge lands — attention pierces the active green", () => {

@@ -1,6 +1,6 @@
 import {
-  asNonEmptyString,
   isJsonRecord,
+  turnFailedEvent,
   type AgentStatusEvent,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
@@ -33,15 +33,8 @@ export const normalizeKimiStatus: StatusNormalizer = (
       return { kind: "turn-end", at };
     case "Interrupt":
       return { kind: "interrupted", at };
-    case "StopFailure": {
-      const detail = asNonEmptyString(event.error_message);
-      return {
-        kind: "turn-failed",
-        at,
-        error: asNonEmptyString(event.error_type) ?? "unknown",
-        ...(detail !== undefined ? { detail } : {}),
-      };
-    }
+    case "StopFailure":
+      return turnFailedEvent(at, event.error_type, event.error_message);
     case "PermissionRequest":
       return { kind: "waiting", at, reason: "permission" };
     case "PermissionResult":

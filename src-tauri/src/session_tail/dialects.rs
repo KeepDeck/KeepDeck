@@ -59,6 +59,18 @@ pub(super) enum SourceTimestamp {
     UnixMillis(u64),
 }
 
+/// The ISO `timestamp` a claude/codex record carries, when it does. One
+/// extractor for every dialect that reads it: this field is LOAD-BEARING
+/// for the stale-marker guard (`route` forwards it as `sourceAt`), so a
+/// key drifting in one copy would silently disarm the guard for that
+/// dialect.
+fn iso_timestamp(value: &Value) -> Option<SourceTimestamp> {
+    value
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .map(|at| SourceTimestamp::Iso(at.to_string()))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct TailedEvent {
     pub(super) payload: Value,
@@ -90,10 +102,7 @@ pub(super) fn claude_event(line: &[u8]) -> Option<TailedEvent> {
         if !interrupted {
             return None;
         }
-        let source_at = value
-            .get("timestamp")
-            .and_then(Value::as_str)
-            .map(|at| SourceTimestamp::Iso(at.to_string()));
+        let source_at = iso_timestamp(&value);
         return Some(TailedEvent {
             // claude's marker exists only for the user's own Esc — the
             // reason is fixed, spelled out for one wire shape with codex.
@@ -130,10 +139,7 @@ pub(super) fn claude_event(line: &[u8]) -> Option<TailedEvent> {
         return None;
     }
 
-    let source_at = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .map(|at| SourceTimestamp::Iso(at.to_string()));
+    let source_at = iso_timestamp(&value);
     Some(TailedEvent {
         payload: json!({
             "type": "assistant.usage",
@@ -152,10 +158,7 @@ pub(super) fn claude_event(line: &[u8]) -> Option<TailedEvent> {
 /// calls, garbage — is `None`.
 pub(super) fn rollout_event(line: &[u8]) -> Option<TailedEvent> {
     let value: Value = serde_json::from_slice(line).ok()?;
-    let source_at = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .map(|at| SourceTimestamp::Iso(at.to_string()));
+    let source_at = iso_timestamp(&value);
     let payload = match value.get("type")?.as_str()? {
         "event_msg" => {
             let payload = value.get("payload")?;

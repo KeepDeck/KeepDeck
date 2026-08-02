@@ -2,6 +2,12 @@
 //! report facts back to KeepDeck: its session id (identity) and its usage
 //! reports (rate-limit windows, tokens, cost).
 //!
+//! The WIRE types ([`Report`], the `*_EVENT` names) are shared with one
+//! non-inbox producer: the session tailer (`session_tail`) emits the same
+//! shapes for what it recovers from transcripts, so the webview has one
+//! schema per event regardless of which side observed it. Everything else
+//! in this module is inbox transport, which the tailer never touches.
+//!
 //! Transport: a per-RUN inbox directory. Each launch mints
 //! `<keepdeck_home>/bridge/run-<uuid>/`, holds an OS file lock on `lock`
 //! inside it for the process's lifetime, and watches for `*.json` envelope
@@ -364,11 +370,9 @@ fn interpret(content: &str) -> Result<Inbound, String> {
                 transcript_path,
             }))
         }
-        kind if OPAQUE_CHANNELS.iter().any(|(t, _)| *t == kind) => {
-            let (_, event) = OPAQUE_CHANNELS
-                .iter()
-                .find(|(t, _)| *t == kind)
-                .expect("guarded by the match arm");
+        // One scan, no guard to re-prove: this module's contract is that
+        // malformed input degrades to a logged reason, never a panic path.
+        kind if let Some((_, event)) = OPAQUE_CHANNELS.iter().find(|(t, _)| *t == kind) => {
             let agent = envelope
                 .payload
                 .get("agent")

@@ -1,7 +1,7 @@
 import {
-  asNonEmptyString,
   isJsonRecord,
   statusSourceInstant,
+  turnFailedEvent,
   type AgentStatusEvent,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
@@ -55,15 +55,8 @@ export const normalizeClaudeStatus: StatusNormalizer = (
       return { kind: "turn-end", at };
     case "PostToolUse":
       return { kind: "resumed", at };
-    case "StopFailure": {
-      const detail = asNonEmptyString(event.error_details);
-      return {
-        kind: "turn-failed",
-        at,
-        error: asNonEmptyString(event.error) ?? "unknown",
-        ...(detail !== undefined ? { detail } : {}),
-      };
-    }
+    case "StopFailure":
+      return turnFailedEvent(at, event.error, event.error_details);
     case "Notification":
       switch (event.notification_type) {
         case "permission_prompt":

@@ -139,20 +139,13 @@
 }
 
 /* Live activity badge: what the agent is doing right now. A dot at every
-   state — the frame ladder (status.css) carries attention, so the header
-   keeps one density and the words live in the tooltip. Waiting/failed ride
-   Chip's own warn/error tones (one chrome palette, one home); only
-   working/done are hues the chrome doesn't have. */
+   state — the frame ladder carries attention, so the header keeps one
+   density and the words live in the tooltip. This block owns only the
+   badge's PLACE in the header; every hue and rhythm lives in status.css
+   (.pane__activity--*), the one home of the status palette. */
 .pane__activity {
   flex: none;
   font-size: 12px;
-}
-
-/* The dot takes the badge's colour. Chip paints its icon slot structural
-   gray by default and yields to the tone only for its OWN tones — the two
-   custom hues need the same yield, or the dot stays gray forever. */
-.pane__activity .chip__icon {
-  color: inherit;
 }
 
 .pane__activity-dot {
@@ -160,28 +153,6 @@
   height: 8px;
   border-radius: 999px;
   background: currentColor;
-}
-
-.pane__activity--working {
-  color: #7aa2f7;
-}
-
-.pane__activity--working .pane__activity-dot {
-  animation: pane-activity-pulse 1.6s ease-in-out infinite;
-}
-
-.pane__activity--done {
-  color: #6b7c62;
-}
-
-@keyframes pane-activity-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
 }
 
 /* Standing YOLO warning dot: the shared ui-kit YoloBadge (squared in
@@ -239,7 +210,10 @@
 /* Narrower: the branch chip yields entirely — identity goes first, window
    controls last. */
 @container (max-width: 200px) {
-  .pane__branch {
+  .pane__branch,
+  /* The activity dot yields with it: the FRAME still carries the state,
+     and a header this narrow must never squeeze maximize/close out. */
+  .pane__activity {
     display: none;
   }
 }
@@ -249,8 +223,7 @@
    want to maximize or close. */
 @container (max-width: 150px) {
   .pane__action--minimize,
-  .pane__yolo,
-  .pane__activity {
+  .pane__yolo {
     display: none;
   }
 }

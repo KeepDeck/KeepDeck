@@ -298,10 +298,8 @@ describe("AgentPane — activity badge", () => {
     reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
 
     let badge = document.querySelector<HTMLElement>(".pane__activity");
+    // The tone class alone carries the hue (status.css owns the palette).
     expect(badge!.className).toContain("pane__activity--waiting");
-    // The chrome's own warn tone, not a duplicated hue — and the tone is
-    // what colours the dot through Chip's icon-yield rule.
-    expect(badge!.className).toContain("chip--warn");
     // No spelled label: the words live in the tooltip, the attention lives
     // on the pane frame.
     expect(badge!.textContent).toBe("");
@@ -317,7 +315,6 @@ describe("AgentPane — activity badge", () => {
     });
     badge = document.querySelector<HTMLElement>(".pane__activity");
     expect(badge!.className).toContain("pane__activity--failed");
-    expect(badge!.className).toContain("chip--error");
     expect(badge!.textContent).toBe("");
     // The prose rides the tooltip, not the header.
     expect(badge!.title).toBe("Rate limited — Weekly limit reached · now");

@@ -15,7 +15,6 @@ describe("activityBadge", () => {
       tone: "waiting",
       label: "Needs approval",
       sentence: "needs approval",
-      chipTone: "warn",
       at: 200,
     });
     expect(
@@ -24,7 +23,6 @@ describe("activityBadge", () => {
       tone: "waiting",
       label: "Needs your input",
       sentence: "needs your input",
-      chipTone: "warn",
       at: 200,
     });
     expect(
@@ -57,13 +55,12 @@ describe("activityBadge", () => {
       tone: "failed",
       label: "Rate limited",
       sentence: "rate limited",
-      chipTone: "error",
       detail: "Weekly limit reached",
       at: 400,
     });
     expect(
       activityBadge({ state: "failed", at: 400, error: "authentication_failed" }),
-    ).toMatchObject({ label: "Authentication failed", chipTone: "error" });
+    ).toMatchObject({ label: "Authentication failed", tone: "failed" });
   });
 
   it("keeps an unknown failure type's own casing in both label and sentence", () => {

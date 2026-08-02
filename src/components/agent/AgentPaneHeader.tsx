@@ -113,7 +113,6 @@ export function AgentPaneHeader({
           // so the header stays at one density; words live in the tooltip.
           <Chip
             className={`pane__activity pane__activity--${activityView.tone}`}
-            {...(activityView.chipTone ? { tone: activityView.chipTone } : {})}
             role="img"
             aria-label={activityView.label}
             title={`${activityView.label}${

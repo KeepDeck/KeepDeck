@@ -57,6 +57,10 @@ describe("workspaceFrame", () => {
   it("quiet panes leave the dot to the active/none default", () => {
     expect(workspaceFrame([working, undefined], true)).toBe("selected");
     expect(workspaceFrame([working, undefined], false)).toBe("none");
+  });
+
+  it("an empty workspace still answers: active green, background gray", () => {
+    expect(workspaceFrame([], true)).toBe("selected");
     expect(workspaceFrame([], false)).toBe("none");
   });
 });

@@ -7,6 +7,13 @@ use serde_json::json;
 use super::dialects::TailedEvent;
 use crate::bridge::Report;
 
+/// The transport keys `wrap` writes and `route` reads back. One set of
+/// names on purpose: `Value` indexing on a missing key yields `Null`, not
+/// an error, so a rename drifting between the two functions would silently
+/// classify every interrupt as plain usage.
+const EVENT_KEY: &str = "event";
+const CATCH_UP_KEY: &str = "catchUp";
+
 /// Wrap one session-file event into the bridge's wire shape. `agent` and
 /// `catchUp` are HOST-owned transport keys on the payload: `catchUp` marks
 /// events replayed from the EXISTING file (arm-time drain, or a rotated poll
@@ -20,8 +27,8 @@ pub(super) fn wrap(
 ) -> Report {
     let mut payload = json!({
         "agent": agent,
-        "event": event.payload,
-        "catchUp": catch_up,
+        EVENT_KEY: event.payload,
+        CATCH_UP_KEY: catch_up,
     });
     if let Some(source_at) = event.source_at {
         payload["sourceAt"] = json!(source_at);
@@ -53,16 +60,16 @@ pub(super) enum Routed {
 /// time so the tracker can drop a marker that predates the turn it would
 /// end. Everything else is usage, catch-up or live alike.
 pub(super) fn route(report: Report) -> Routed {
-    if report.payload["event"]["type"] != "session.interrupt" {
+    if report.payload[EVENT_KEY]["type"] != "session.interrupt" {
         return Routed::Usage(report);
     }
-    if report.payload["catchUp"] == true {
+    if report.payload[CATCH_UP_KEY] == true {
         return Routed::Drop;
     }
     let mut body = json!({
         "agent": report.payload["agent"],
         "kind": "session.interrupt",
-        "reason": report.payload["event"]["reason"],
+        "reason": report.payload[EVENT_KEY]["reason"],
     });
     for key in ["sourceAt", "sourceMtimeMs"] {
         if !report.payload[key].is_null() {

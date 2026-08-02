@@ -11,7 +11,7 @@ import {
   type ElementRectSnapshot,
 } from "../../app/dragManager";
 import { railItemAtY } from "../../domain/deck";
-import type { PaneFrame } from "../../domain/status";
+import type { StatusFrame } from "../../domain/status";
 
 /** View model for the rail (the domain `Workspace` lives in `../workspaces`). */
 export interface WorkspaceItem {
@@ -22,7 +22,7 @@ export interface WorkspaceItem {
   unread?: number;
   /** The workspace's status frame, folded by the domain ladder — the dot
    * paints it verbatim. Absent = the plain gray dot. */
-  dot?: PaneFrame;
+  dot?: StatusFrame;
 }
 
 interface WorkspacesRailProps {

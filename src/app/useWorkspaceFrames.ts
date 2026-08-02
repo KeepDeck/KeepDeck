@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { Workspace } from "../domain/deck";
-import { workspaceFrame, type PaneFrame } from "../domain/status";
+import { workspaceFrame, type StatusFrame } from "../domain/status";
 import { useAppRuntime } from "./runtimeContext";
 
 /**
@@ -12,14 +12,14 @@ import { useAppRuntime } from "./runtimeContext";
 export function useWorkspaceFrames(
   workspaces: Workspace[],
   activeId: string,
-): ReadonlyMap<string, PaneFrame> {
+): ReadonlyMap<string, StatusFrame> {
   const { statusTracker } = useAppRuntime();
   const snapshot = useSyncExternalStore(
     statusTracker.subscribe,
     statusTracker.getSnapshot,
   );
   return useMemo(() => {
-    const frames = new Map<string, PaneFrame>();
+    const frames = new Map<string, StatusFrame>();
     for (const workspace of workspaces) {
       frames.set(
         workspace.id,

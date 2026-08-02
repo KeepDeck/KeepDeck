@@ -72,27 +72,22 @@ describe("AgentPaneHeader", () => {
     expect(chip.title).toBe("Working · now");
 
     render({
-      activityView: badge({
-        tone: "waiting",
-        label: "Needs approval",
-        chipTone: "warn",
-      }),
+      activityView: badge({ tone: "waiting", label: "Needs approval" }),
     });
     chip = host.querySelector<HTMLElement>(".pane__activity")!;
+    // The tone class alone carries the hue — status.css owns the palette.
     expect(chip.className).toContain("pane__activity--waiting");
-    expect(chip.className).toContain("chip--warn");
     expect(chip.textContent).toBe("");
 
     render({
       activityView: badge({
         tone: "failed",
         label: "Rate limited",
-        chipTone: "error",
         detail: "Weekly limit reached",
       }),
     });
     chip = host.querySelector<HTMLElement>(".pane__activity")!;
-    expect(chip.className).toContain("chip--error");
+    expect(chip.className).toContain("pane__activity--failed");
     expect(chip.title).toBe("Rate limited — Weekly limit reached · now");
 
     render({ activityView: null });

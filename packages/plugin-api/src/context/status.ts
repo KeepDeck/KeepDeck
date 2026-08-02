@@ -12,13 +12,18 @@
  * enum cannot.
  */
 
+import { asNonEmptyString } from "./usage.ts";
+
 /** Why an agent is waiting on the user. `permission` = a tool-approval
  * prompt is up; `question` = the agent itself asked for input. */
 export type StatusWaitReason = "permission" | "question";
 
 /** One turn-lifecycle edge, as a normalizer reports it. `at` is unix
- * milliseconds — injected by the host at receipt, never read from the
- * payload (reporters are shell scripts with no clock discipline). */
+ * milliseconds — the host's receipt time for hook edges (reporters are
+ * shell scripts with no clock discipline), OVERRIDDEN with the marker's
+ * own source time for tail-recovered markers via [`statusSourceInstant`]:
+ * a marker trails its turn by up to a poll interval, and only its honest
+ * age lets the reducer drop one that predates the turn it would end. */
 export type AgentStatusEvent =
   /** The user submitted a prompt — the turn is running. */
   | { kind: "turn-start"; at: number }
@@ -85,4 +90,23 @@ export function statusSourceInstant(
     }
   }
   return fallback;
+}
+
+/** A `turn-failed` edge from a CLI's raw failure fields — the shared shape
+ * of every StopFailure-style hook (claude `error`/`error_details`, kimi
+ * `error_type`/`error_message`): a non-empty error or the honest
+ * "unknown", and the prose only when the CLI sent any (never a
+ * `detail: undefined` key). */
+export function turnFailedEvent(
+  at: number,
+  error: unknown,
+  detail: unknown,
+): AgentStatusEvent {
+  const prose = asNonEmptyString(detail);
+  return {
+    kind: "turn-failed",
+    at,
+    error: asNonEmptyString(error) ?? "unknown",
+    ...(prose !== undefined ? { detail: prose } : {}),
+  };
 }

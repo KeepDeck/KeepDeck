@@ -14,9 +14,6 @@ export interface ActivityBadge {
    * approval"): casing settled HERE, because lowercasing the label would
    * mangle a CLI's own error identifier ("failed: quotacliff"). */
   sentence: string;
-  /** The chip's own tone ladder, when one of its tones fits — so the badge
-   * inherits the chrome's warn/error palette instead of duplicating it. */
-  chipTone?: "warn" | "error";
   /** Tooltip prose beyond the label, when the state carries any. */
   detail?: string;
   /** The instant the badge ages from — "· 12m ago" in the tooltip. */
@@ -55,7 +52,6 @@ export function activityBadge(activity: PaneActivity): ActivityBadge {
         tone: "waiting",
         label,
         sentence: label.toLowerCase(),
-        chipTone: "warn",
         at: activity.since,
       };
     }
@@ -81,7 +77,6 @@ export function activityBadge(activity: PaneActivity): ActivityBadge {
         // A known label lowercases safely (it is our own prose); a raw CLI
         // identifier keeps its casing.
         sentence: known ? known.toLowerCase() : `failed: ${activity.error}`,
-        chipTone: "error",
         ...(activity.detail !== undefined ? { detail: activity.detail } : {}),
         at: activity.at,
       };

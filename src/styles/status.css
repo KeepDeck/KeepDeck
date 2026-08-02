@@ -7,10 +7,52 @@
    waiting always breathes at 2s — a frame never changes rhythm, so the
    pace itself names the state from across the room. */
 :root {
+  --status-working: #7aa2f7;
   --status-waiting: #e0af68;
   --status-failed: #f7768e;
   --status-done: #6b7c62;
   --status-selected: #58b368;
+}
+
+/* The header dot's hues — the SAME four names as the frames, so "change
+   the waiting colour" is one edit, never a near-match hunt across files.
+   Chip paints its icon slot structural gray by default; the yield rule
+   below is what lets these tones reach the dot at all. Working keeps its
+   own soft 1.6s pulse — a third rhythm on purpose: it must read as alive
+   without ever being mistaken for waiting's 2s breathe or failed's 1s
+   alarm. */
+.pane__activity .chip__icon {
+  color: inherit;
+}
+
+.pane__activity--working {
+  color: var(--status-working);
+}
+
+.pane__activity--working .pane__activity-dot {
+  animation: status-dot-working 1.6s ease-in-out infinite;
+}
+
+.pane__activity--waiting {
+  color: var(--status-waiting);
+}
+
+.pane__activity--done {
+  color: var(--status-done);
+}
+
+.pane__activity--failed {
+  color: var(--status-failed);
+}
+
+@keyframes status-dot-working {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 /* Pane frames: colour the reserved 2px border (.pane keeps the layout). */
@@ -35,15 +77,10 @@
 /* Minimized stand-ins wear the same ladder on their border — attention
    must survive minimizing; these are exactly the panes nobody is watching.
    The chip recolours the border it already has; the bar gains one inside
-   its box (border-box keeps the 30px height). No selection rung: a hidden
-   pane is never the selected one. Doubled class beats the chip's own
-   border AND its :hover recolour at equal specificity by source order. */
-.minimized.minimized--frame-done,
-.minimized.minimized--frame-waiting,
-.minimized.minimized--frame-failed {
-  box-sizing: border-box;
-}
-
+   its border-box (its geometry never moves — minimize.css owns that). No
+   selection rung: a hidden pane is never the selected one. Doubled class
+   beats the chip's own border AND its :hover recolour at equal
+   specificity by source order. */
 .minimized.minimized--frame-done {
   border: 1px solid var(--status-done);
 }
@@ -115,7 +152,8 @@
   .minimized.minimized--frame-waiting,
   .minimized.minimized--frame-failed,
   .rail__dot--waiting,
-  .rail__dot--failed {
+  .rail__dot--failed,
+  .pane__activity--working .pane__activity-dot {
     animation: none;
   }
 }
