@@ -55,10 +55,7 @@ pub(super) fn drain_file(
 
     let mut events = Vec::new();
     let mut chunk = [0_u8; 64 * 1024];
-    loop {
-        let Ok(read) = file.read(&mut chunk) else {
-            break;
-        };
+    while let Ok(read) = file.read(&mut chunk) {
         if read == 0 {
             break;
         }
