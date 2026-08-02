@@ -2,6 +2,7 @@ import type { AgentInfo } from "../domain/agents";
 import {
   findWorkspaceOfPane,
   paneDisplayTitle,
+  paneExecutionCwd,
   skillRootsOf,
   type Pane,
 } from "../domain/deck";
@@ -28,7 +29,7 @@ import {
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { createMcpService } from "./mcp";
-import { mcpArm } from "../ipc/mcpArming";
+import { mcpArm, mcpDisarm } from "../ipc/mcpArming";
 import { paneIdByMcpToken } from "./spawnSpecs";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
@@ -105,11 +106,26 @@ export function createAppRuntime(
       subscribe: subscribeSettings,
     },
     {
+      // How many live panes run in a directory: a config planted there is ONE
+      // file, so the injection needs to know when it cannot belong to a single
+      // pane. Counted off the live deck, not remembered.
+      panesIn: (cwd) =>
+        deckStore
+          .getSnapshot()
+          .workspaces.reduce(
+            (count, workspace) =>
+              count +
+              workspace.panes.filter(
+                (pane) => paneExecutionCwd(workspace, pane) === cwd,
+              ).length,
+            0,
+          ),
       // kimi's config is planted in a pane's cwd, so it takes the same queue
       // slot as everything else that lands there — `worktrees` is constructed
       // below and only ever called from a spawn, long after.
       arm: (workspaceId, entries) =>
         worktrees.inOrder(() => mcpArm(workspaceId, entries)),
+      disarm: (roots) => worktrees.inOrder(() => mcpDisarm(roots)),
       // A secret names a pane only while that pane's plan is the live one;
       // the label is snapshot at CALL time, because `pane-N` is a slot a
       // later pane can inherit and a journal entry has to stay readable.

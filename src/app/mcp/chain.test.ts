@@ -44,6 +44,7 @@ describe("mcp webview chain", () => {
           },
           respond,
         },
+        panesIn: () => 1,
         identitySource: () =>
           Promise.resolve({ name: "KeepDeck", version: "1.0.0" }),
       },

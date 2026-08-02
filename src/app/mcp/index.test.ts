@@ -42,6 +42,7 @@ function harness(opts: { initial?: boolean | null } = {}) {
     registry,
     transport: { enable, disable },
     pumpPorts,
+    panesIn: () => 1,
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
     connection: () =>

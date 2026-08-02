@@ -30,6 +30,26 @@ import {
 /** The transport every external call is journaled under. */
 const MCP_TRANSPORT = "mcp";
 
+/** Whether two refusal lists say the same thing. Content, not length: the
+ * same directory can refuse for a different reason, and the reason is the
+ * whole message the settings page carries. */
+function sameRefusals(
+  next: readonly { root: string; reason: string }[],
+  previous: readonly { root: string; reason: string }[],
+): boolean {
+  return (
+    next.length === previous.length &&
+    next.every((refusal, i) => {
+      const before = previous[i];
+      return (
+        before !== undefined &&
+        refusal.root === before.root &&
+        refusal.reason === before.reason
+      );
+    })
+  );
+}
+
 export interface McpStatus {
   socket: string | null;
   error: string | null;
@@ -81,15 +101,18 @@ export interface McpService {
   dispose(): void;
 }
 
-/** Everything the service touches beyond its own parts — injectable for
- * tests; production uses the defaults. */
+/** Everything the service touches beyond its own parts. `panesIn` is
+ * production wiring; the rest are test seams with production defaults. */
 export interface McpServiceDeps {
+  /** How many live panes run in a directory — see [`McpInjectionDeps`]. */
+  panesIn: McpInjectionDeps["panesIn"];
   registry?: CommandRegistry;
   transport?: McpTransportPort;
   pumpPorts?: McpPumpPorts;
   identitySource?: () => Promise<{ name: string; version: string }>;
   connection?: McpInjectionDeps["connection"];
   arm?: McpInjectionDeps["arm"];
+  disarm?: McpInjectionDeps["disarm"];
   /** Resolve a connection's secret to the pane that announced it. Injected:
    * which pane holds which secret is the spawn layer's knowledge, and the
    * deck's — neither belongs to the transport. */
@@ -123,7 +146,7 @@ export interface McpPaneIdentity {
  */
 export function createMcpService(
   settings: McpSettingsPort,
-  deps: McpServiceDeps = {},
+  deps: McpServiceDeps,
 ): McpService {
   const registry = deps.registry ?? commands;
   const transport = deps.transport ?? { enable: mcpEnable, disable: mcpDisable };
@@ -168,6 +191,7 @@ export function createMcpService(
   // `current` moves with every settled transition.
   const injection = createMcpInjection({
     socket: () => current.socket,
+    panesIn: deps.panesIn,
     onRefused: (refusals) => {
       // Replace by directory, keep the rest: an arming pass speaks only for
       // the cwds it tried, and dropping the others would make a refusal
@@ -177,7 +201,10 @@ export function createMcpService(
       for (const root of armedRoots) byRoot.delete(root);
       armedRoots.clear();
       const refused = [...byRoot.values()];
-      if (refused.length !== current.refused.length) {
+      // Compared by CONTENT: a refusal whose reason changed — the user
+      // deleted their file but the directory is read-only now — keeps the
+      // list the same length while saying something else entirely.
+      if (!sameRefusals(refused, current.refused)) {
         publish({ ...current, refused });
       }
     },
@@ -186,6 +213,7 @@ export function createMcpService(
     },
     ...(deps.connection ? { connection: deps.connection } : {}),
     ...(deps.arm ? { arm: deps.arm } : {}),
+    ...(deps.disarm ? { disarm: deps.disarm } : {}),
   });
   const pump = createMcpRequestPump(
     (line, client) => handleMcpLine(port, () => identity, line, client),
@@ -209,6 +237,13 @@ export function createMcpService(
     }
     policy = createMcpServerPolicy(settings, transport, (transition) => {
       publish(statusAfter(current, transition));
+      // A confirmed Off takes the planted configs with it: the socket they
+      // name is gone, and a kimi pane reading one would spawn a shim that
+      // cannot connect. Fire-and-forget — the backend's armed manifest still
+      // records anything this fails to remove, and the boot sweep reads it.
+      if (transition.ok && !transition.desired) {
+        void injection.retract();
+      }
     });
   });
 
