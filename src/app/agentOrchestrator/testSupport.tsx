@@ -14,8 +14,11 @@ import type { WorkspaceCreationResult } from "../deckActions";
 import type { SetupStep } from "../provisioning";
 import type { SuspendOutcome } from "../suspendOutcome";
 // From the module, not the barrel: the barrel is mocked below, and these are
-// plain shapes with no cache state to fake.
-import { EMPTY_SPAWN_CONTEXT } from "../spawnSpecs/plans";
+// plain shapes and pure predicates with no cache state to fake.
+import {
+  EMPTY_SPAWN_CONTEXT,
+  resumeDiedSilently as realResumeDiedSilently,
+} from "../spawnSpecs/plans";
 import { createWorkspaceInstance as createWorkspaceInstanceImpl } from "../../domain/workspaceInstance";
 import type { SessionHandle } from "../../domain/journal";
 import {
@@ -102,15 +105,11 @@ vi.mock("../spawnSpecs", () => {
       plans.failed.delete(id);
       notify();
     }),
-    // The real predicate's shape: a RESTORE resume whose process died without
-    // ever posting back. A manual one is ineligible by design.
-    resumeDiedSilently: (
-      spec: { resumeOf?: string; resumeOrigin?: string; postbackMark?: number } | undefined,
-      count: number,
-    ) =>
-      spec?.resumeOrigin === "restore" &&
-      !!spec.resumeOf &&
-      spec.postbackMark === count,
+    // The REAL predicate, not a copy of it. It is pure and holds no module
+    // state, so there is nothing to fake — and a hand-copied one meant these
+    // suites went on asserting that auto-recovery is wired to a rule the
+    // production code had since changed.
+    resumeDiedSilently: realResumeDiedSilently,
     buildResumeSpec: vi.fn(
       async (
         _plugins: unknown,

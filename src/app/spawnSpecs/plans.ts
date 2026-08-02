@@ -83,6 +83,29 @@ export interface SpawnPlan {
   resumeOrigin?: ResumeOrigin;
   /** Host bookkeeping: the pane's accepted-postback count when this plan
    * was built. An exit with the count still here means the resume never
-   * became a session (see `resumeDiedSilently`). */
+   * became a session (see [`resumeDiedSilently`]). */
   postbackMark?: number;
+}
+
+/** Whether a pane's boot-restoration RESUME died before ever becoming a
+ * session: the plan came from restore, and not one accepted postback has
+ * arrived since it was built — a working resume always reports first (every
+ * agent's startup hook posts through the bridge). Such an exit is the CLI
+ * refusing the recorded id (deleted, GC'd, never materialized): the binding
+ * is dead and the pane deserves the one-shot fresh fallback. Manual resumes
+ * deliberately stay exited so another spawn only happens on another click.
+ *
+ * Here, beside the shape it reads, rather than in the cache's barrel: it holds
+ * no cache state, and living there meant every suite that mocks the barrel had
+ * to hand-copy it — so they went on asserting that auto-recovery is wired to a
+ * rule the production code could have changed underneath them. */
+export function resumeDiedSilently(
+  spec: SpawnPlan | undefined,
+  currentPostbacks: number,
+): boolean {
+  return (
+    spec?.resumeOrigin === "restore" &&
+    !!spec.resumeOf &&
+    spec.postbackMark === currentPostbacks
+  );
 }

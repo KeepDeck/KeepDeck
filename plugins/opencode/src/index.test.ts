@@ -121,6 +121,49 @@ describe("opencode plugin hooks", () => {
     });
   });
 
+  it("carries them on resume and fork too, not only on a fresh spawn", async () => {
+    // All three hooks call the same helper, but only spawn was covered —
+    // reverting either of the other two to the reporter-only call would have
+    // passed every existing test.
+    const agent = activate("/App/resources/session-reporter.js");
+    const mcp = {
+      servers: [
+        {
+          name: "keepdeck",
+          transport: "stdio" as const,
+          command: "/bin/keepdeck",
+          args: ["--mcp-shim", "/home/mcp.sock"],
+        },
+      ],
+    };
+    const carries = (out: SpawnPlanOutput) => {
+      const assignments = out.env.filter(
+        ([key]) => key === "OPENCODE_CONFIG_CONTENT",
+      );
+      expect(assignments).toHaveLength(1);
+      return JSON.parse(assignments[0]![1]).mcp?.keepdeck?.command;
+    };
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...input, mcp, sessionId: "s" }, resume);
+    expect(carries(resume)).toEqual([
+      "/bin/keepdeck",
+      "--mcp-shim",
+      "/home/mcp.sock",
+    ]);
+
+    const fork = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, mcp, sessionId: "s", sourceCwd: "/old" },
+      fork,
+    );
+    expect(carries(fork)).toEqual([
+      "/bin/keepdeck",
+      "--mcp-shim",
+      "/home/mcp.sock",
+    ]);
+  });
+
   it("carries the servers even when the reporter file is missing", async () => {
     // Identity off must not take injection down with it — they are separate
     // features sharing one variable.

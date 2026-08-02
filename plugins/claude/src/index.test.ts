@@ -230,6 +230,41 @@ describe("claude fork.plan", () => {
     expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
   });
 
+  it("carries the injected MCP servers too — a fork is a spawn like any other", async () => {
+    // The other fork assertions slice the argv's head and tail, so dropping
+    // `mcpArgs(input.mcp)` from this hook would pass every one of them.
+    const agent = activate(SESSION_HOOK, []);
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      {
+        ...forkInput,
+        cwd: "/repo/wt_2.x",
+        mcp: {
+          servers: [
+            {
+              name: "keepdeck",
+              transport: "stdio" as const,
+              command: "/bin/keepdeck",
+              args: ["--mcp-shim", "/home/mcp.sock"],
+            },
+          ],
+        },
+      },
+      out,
+    );
+
+    const at = out.args.indexOf("--mcp-config");
+    expect(at).toBeGreaterThan(-1);
+    expect(JSON.parse(out.args[at + 1]!)).toEqual({
+      mcpServers: {
+        keepdeck: {
+          command: "/bin/keepdeck",
+          args: ["--mcp-shim", "/home/mcp.sock"],
+        },
+      },
+    });
+  });
+
   it("rejects without a recorded transcript path — no guessing, no surgery", async () => {
     const copies: [string, string][] = [];
     const agent = activate(null, copies);

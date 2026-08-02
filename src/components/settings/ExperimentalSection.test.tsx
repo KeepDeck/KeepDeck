@@ -185,6 +185,65 @@ describe("ExperimentalSection", () => {
     expect(host.textContent).toContain("no longer reachable");
   });
 
+  it("says the server is up while the lookup is still out — never nothing at all", async () => {
+    // The one publishable combination with no row and no message. It is
+    // transient by design, but silence is the failure mode here: the user sees
+    // the toggle On and no sign the deck agrees.
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mcpStatus.current = up({ connect: null, connectError: null });
+    mount();
+    await settle();
+
+    expect(connectLine()).toBeNull();
+    expect(host.textContent).toContain("New agent panes connect to it");
+  });
+
+  it("drops the Copied confirmation when the command changes under it", async () => {
+    // The confirmation may never stand over a line the user has not copied —
+    // a re-enable on a different socket produces exactly that.
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mcpStatus.current = up();
+    mount();
+    await settle();
+    const copy = Array.from(host.querySelectorAll("button")).find(
+      (b) => b.textContent === "Copy",
+    );
+    act(() => copy!.click());
+    await settle();
+    expect(host.textContent).toContain("Copied");
+
+    mcpStatus.current = up({
+      connect: { ...invocation, args: ["--mcp-shim", "/home/other.sock"] },
+    });
+    mount();
+    await settle();
+
+    expect(host.textContent).not.toContain("Copied");
+    expect(connectLine()?.textContent).toContain("/home/other.sock");
+  });
+
+  it("keeps it through a status change the row does not show", async () => {
+    // The reset keys on the rendered command, not on the status object: a
+    // refusal appearing elsewhere must not wipe the confirmation.
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mcpStatus.current = up();
+    mount();
+    await settle();
+    const copy = Array.from(host.querySelectorAll("button")).find(
+      (b) => b.textContent === "Copy",
+    );
+    act(() => copy!.click());
+    await settle();
+
+    mcpStatus.current = up({
+      refused: [{ root: "/repo/api", reason: "theirs" }],
+    });
+    mount();
+    await settle();
+
+    expect(host.textContent).toContain("Copied");
+  });
+
   it("a failed command lookup says so — the server IS serving", async () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
     mcpStatus.current = up({

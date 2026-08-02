@@ -1,4 +1,4 @@
-import { panesRunningIn, skillRootsOf } from "../domain/deck";
+import { panesRunningIn } from "../domain/deck";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
@@ -43,7 +43,7 @@ import {
   getUsageHistorySnapshot,
   subscribeUsageHistory,
 } from "./usageHistoryManager";
-import { createWorktreeManager } from "./worktrees";
+import { createWorktreeManager, deckViewOf } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
@@ -105,24 +105,9 @@ export function createAppRuntime(
   );
   let sessionBinding: ReturnType<typeof createSessionBinding> | null = null;
   const spawnContext = createSpawnContextSource();
-  const worktrees = createWorktreeManager({
-    rootsOf: (ref) => {
-      const workspace = deckStore
-        .getSnapshot()
-        .workspaces.find(
-          (candidate) =>
-            candidate.id === ref.id && candidate.instance === ref.instance,
-        );
-      return workspace ? skillRootsOf(workspace) : [];
-    },
-    live: () =>
-      deckStore
-        .getSnapshot()
-        .workspaces.map((workspace) => ({
-          id: workspace.id,
-          roots: skillRootsOf(workspace),
-        })),
-  });
+  const worktrees = createWorktreeManager(
+    deckViewOf(() => deckStore.getSnapshot().workspaces),
+  );
   const orchestrator = createAgentOrchestrator({
     deck: deckStore,
     spawnContext,

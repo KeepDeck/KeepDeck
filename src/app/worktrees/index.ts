@@ -17,7 +17,12 @@
  * exactly the shape of bug this module exists to prevent.
  */
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
-import type { Pane, WorktreeTarget } from "../../domain/deck";
+import {
+  skillRootsOf,
+  type Pane,
+  type Workspace,
+  type WorktreeTarget,
+} from "../../domain/deck";
 import type { McpArmEntry, McpArmReport } from "../../ipc/mcpArming";
 import type { SkillsStagingViews } from "../../ipc/skills";
 import type { ProvisionCallbacks, SetupStep } from "../provisioning";
@@ -187,6 +192,34 @@ export type WorktreeManager = WorktreeProvisioner &
   WorktreeHousekeeping &
   SkillsInvalidation &
   McpPlanting;
+
+/**
+ * The deck view over a live snapshot — the one projection of "which
+ * directories does this workspace claim".
+ *
+ * Here rather than assembled at the composition root: the LIFETIME match is
+ * load-bearing (ids are reusable, instances are not, so a reborn workspace
+ * must never be handed the dead one's roots) and it was stated only in a
+ * closure with no test, while the worktree suites' fake re-implemented it
+ * correctly on their own. A regression in the real one would have broken
+ * nothing that runs.
+ */
+export function deckViewOf(workspaces: () => Workspace[]): WorktreeDeckView {
+  return {
+    rootsOf: (ref) => {
+      const workspace = workspaces().find(
+        (candidate) =>
+          candidate.id === ref.id && candidate.instance === ref.instance,
+      );
+      return workspace ? skillRootsOf(workspace) : [];
+    },
+    live: () =>
+      workspaces().map((workspace) => ({
+        id: workspace.id,
+        roots: skillRootsOf(workspace),
+      })),
+  };
+}
 
 export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
   const inOrder = createOrderQueue();
