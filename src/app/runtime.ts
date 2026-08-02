@@ -45,7 +45,7 @@ import {
   getUsageHistorySnapshot,
   subscribeUsageHistory,
 } from "./usageHistoryManager";
-import { windowReportJournal } from "./windowReportJournal";
+import { createAppWindowReportJournal } from "./windowReportJournal";
 import { createWorktreeManager } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
@@ -94,6 +94,7 @@ export function createAppRuntime(
   const usageManager = createUsageManager();
   const statusTracker = createAgentStatusTracker();
   const telemetry = createPaneTelemetry(usageManager, statusTracker);
+  const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager({
     rootsOf: (ref) => {
       const workspace = deckStore
@@ -169,6 +170,7 @@ export function createAppRuntime(
     usageManager,
     statusTracker,
     telemetry,
+    windowReportJournal,
     start() {
       if (disposed) return;
       sessionBinding ??= createSessionBinding(deckStore, telemetry);

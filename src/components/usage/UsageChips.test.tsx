@@ -46,6 +46,9 @@ const OPENCODE: AgentInfo = {
 
 const AT = 1_738_400_000_000;
 
+/** The journal stub's ONE snapshot (identity-stable for the store hook). */
+const EMPTY_REPORTS = { ready: false, byKey: new Map() };
+
 /** Payloads carry the pre-normalized result — the chips are under test,
  * not a plugin's parser (those are tested with their plugins). */
 const limitsReport = (usedPct: number): { agent: string; result: NormalizedUsage } => ({
@@ -117,7 +120,19 @@ describe("UsageChips", () => {
       root.render(
         createElement(
           AppRuntimeProvider,
-          { runtime: { usageManager: usage } as unknown as AppRuntime },
+          {
+            runtime: {
+              usageManager: usage,
+              // The forecast surface reads the report journal off the same
+              // runtime; these tests exercise the chips, not the journal.
+              // ONE snapshot object — useSyncExternalStore re-renders
+              // forever on a fresh identity per read.
+              windowReportJournal: {
+                subscribe: () => () => {},
+                getSnapshot: () => EMPTY_REPORTS,
+              },
+            } as unknown as AppRuntime,
+          },
           createElement(UsageChips, {
             agents,
             liveAgents,
