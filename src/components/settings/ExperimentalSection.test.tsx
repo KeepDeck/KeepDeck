@@ -175,12 +175,12 @@ describe("ExperimentalSection", () => {
     // spawn, so saying so with the transport down would be a lie.
     mount();
     await settle();
-    expect(host.textContent).not.toContain("every new pane is given this server");
+    expect(host.textContent).not.toContain("New agent panes connect to it");
 
     mcpStatus.current = { socket: "/s.sock", error: null, refused: [] };
     mount();
     await settle();
-    expect(host.textContent).toContain("every new pane is given this server");
+    expect(host.textContent).toContain("New agent panes connect to it");
   });
 
   it("names the folders where a kimi pane kept its own config", async () => {

@@ -103,9 +103,9 @@ export function ExperimentalSection() {
         // Said only while the socket is CONFIRMED up: a pane is given the
         // server at spawn, so this promise is only true when there is one.
         <span className="settings__hint">
-          Agents started from now on reach it without any setup — every new
-          pane is given this server. Panes that are already running keep what
-          they started with until they restart.
+          New agent panes connect to it automatically — nothing to add on the
+          agent’s side. Panes that are already running pick it up when they
+          restart.
         </span>
       )}
 
