@@ -48,7 +48,7 @@ fn rollouts_newest_first(root: &std::path::Path) -> Vec<(std::time::SystemTime, 
 /// and `exec resume` but NOT in the interactive `resume`, so no binding
 /// carries the path. Rollout names end `-<session_id>.jsonl`; the newest
 /// match wins.
-pub(super) fn find_rollout_in(root: &std::path::Path, session_id: &str) -> Option<PathBuf> {
+fn find_rollout_in(root: &std::path::Path, session_id: &str) -> Option<PathBuf> {
     let suffix = format!("-{session_id}.jsonl");
     rollouts_newest_first(root)
         .into_iter()
@@ -78,7 +78,7 @@ pub struct LatestRollout {
 /// never scan an unbounded history for an account that has none.
 const BOOT_SWEEP_MAX_FILES: usize = 10;
 
-pub(super) fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
+fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
     let files = rollouts_newest_first(root);
     for (modified, path) in files.into_iter().take(BOOT_SWEEP_MAX_FILES) {
         // A cold read needs no TailState — one cursor from offset zero.
@@ -123,4 +123,85 @@ pub(super) fn find_codex_rollout(session_id: &str) -> Option<String> {
     let home = std::env::var_os("HOME")?;
     let root = PathBuf::from(home).join(".codex/sessions");
     find_rollout_in(&root, session_id).map(|p| p.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::super::dialects::SourceTimestamp;
+    use super::super::test_support::*;
+    use super::*;
+
+    #[test]
+    fn find_rollout_walks_the_day_tree_and_prefers_the_newest_match() {
+        let root = temp_dir();
+        let sid = "019f7683-d6f4-7b00-8e66-00c4694731be";
+        let old_day = root.join("2026/07/17");
+        let new_day = root.join("2026/07/18");
+        fs::create_dir_all(&old_day).unwrap();
+        fs::create_dir_all(&new_day).unwrap();
+        fs::write(
+            old_day.join(format!("rollout-2026-07-17T01-00-00-{sid}.jsonl")),
+            "x",
+        )
+        .unwrap();
+        fs::write(new_day.join("rollout-2026-07-18T02-00-00-other.jsonl"), "x").unwrap();
+        let newest = new_day.join(format!("rollout-2026-07-18T03-00-00-{sid}.jsonl"));
+        fs::write(&newest, "x").unwrap();
+
+        assert_eq!(find_rollout_in(&root, sid), Some(newest));
+        assert_eq!(find_rollout_in(&root, "0000-none"), None);
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn boot_sweep_returns_the_newest_rollout_that_carries_usage() {
+        let root = temp_dir();
+        let day = root.join("2026/07/19");
+        fs::create_dir_all(&day).unwrap();
+
+        // Oldest: real usage. Newer: usage with a distinct marker. Newest:
+        // a fresh session with no token_count yet — must be walked past.
+        let oldest = day.join("rollout-2026-07-19T01-00-00-aaaa.jsonl");
+        fs::write(&oldest, format!("{TOKEN_COUNT_LINE}\n")).unwrap();
+        set_mtime(&oldest, 1_000);
+        let with_usage = day.join("rollout-2026-07-19T02-00-00-bbbb.jsonl");
+        let marked = TOKEN_COUNT_LINE.replace("75.0", "33.0");
+        fs::write(&with_usage, format!("{TURN_CONTEXT_LINE}\n{marked}\n")).unwrap();
+        set_mtime(&with_usage, 2_000);
+        let empty_of_usage = day.join("rollout-2026-07-19T03-00-00-cccc.jsonl");
+        fs::write(&empty_of_usage, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
+        set_mtime(&empty_of_usage, 3_000);
+
+        let found = latest_rollout_usage_in(&root).expect("usage found");
+        assert_eq!(found.event["type"], "token_count");
+        assert_eq!(found.event["rate_limits"]["primary"]["used_percent"], 33.0);
+        assert_eq!(
+            found.source_at,
+            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
+        );
+        assert_eq!(found.mtime_ms, 2_000_000, "stamped with the FILE's age");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn boot_sweep_finds_nothing_in_an_empty_or_usage_free_tree() {
+        let root = temp_dir();
+        assert_eq!(latest_rollout_usage_in(&root), None);
+
+        let day = root.join("2026/07/19");
+        fs::create_dir_all(&day).unwrap();
+        fs::write(
+            day.join("rollout-2026-07-19T01-00-00-aaaa.jsonl"),
+            format!("{TURN_CONTEXT_LINE}\n"),
+        )
+        .unwrap();
+        // Non-rollout siblings never count as sessions.
+        fs::write(day.join("notes.jsonl"), format!("{TOKEN_COUNT_LINE}\n")).unwrap();
+        assert_eq!(latest_rollout_usage_in(&root), None);
+
+        fs::remove_dir_all(&root).ok();
+    }
 }

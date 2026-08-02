@@ -30,6 +30,8 @@ mod dialects;
 mod reader;
 mod rollouts;
 mod route;
+#[cfg(test)]
+mod test_support;
 mod totals;
 
 use std::collections::HashMap;
@@ -281,8 +283,6 @@ pub fn usage_find_codex_rollout(session_id: String) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::dialects::*;
-    use super::reader::*;
-    use super::rollouts::*;
     use super::route::*;
     use super::totals::*;
     use super::*;
@@ -307,25 +307,10 @@ mod tests {
     }
     use std::fs::{self, OpenOptions};
     use std::io::Write;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc;
     use std::time::Duration;
 
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    fn temp_dir() -> PathBuf {
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("keepdeck-rollout-{}-{n}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    const SOURCE_ISO: &str = "2026-07-16T22:13:08.000Z";
-    const TOKEN_COUNT_LINE: &str = r#"{"timestamp":"2026-07-16T22:13:08.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100},"last_token_usage":{"total_tokens":40},"model_context_window":258400},"rate_limits":{"primary":{"used_percent":75.0,"window_minutes":10080,"resets_at":1784834810},"secondary":null,"plan_type":"plus"}}}"#;
-    const TURN_CONTEXT_LINE: &str = r#"{"timestamp":"2026-07-16T22:13:08.000Z","type":"turn_context","payload":{"model":"gpt-5.6-sol","effort":"xhigh","cwd":"/x"}}"#;
-    const USAGE_RECORD_LINE: &str = r#"{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":1200,"output":300,"inputCacheRead":40000,"inputCacheCreation":900},"usageScope":"turn","time":1784800000000}"#;
-    const LLM_REQUEST_LINE: &str = r#"{"type":"llm.request","model":"kimi-code/k3","maxTokens":1048576,"messages":[{"role":"user","content":"SECRET PROMPT"}]}"#;
-    const CLAUDE_ASSISTANT_LINE: &str = r#"{"type":"assistant","message":{"id":"msg-1","model":"claude-opus-4-8","content":[{"type":"text","text":"SECRET ANSWER"}],"usage":{"input_tokens":12,"output_tokens":30,"cache_read_input_tokens":40000,"cache_creation_input_tokens":900}},"timestamp":"2026-07-16T22:13:08.000Z"}"#;
+    use super::test_support::*;
 
     fn tail(path: PathBuf) -> TailState {
         TailState {
@@ -337,116 +322,6 @@ mod tests {
             subagents: HashMap::new(),
             totals: SessionTotals::default(),
         }
-    }
-
-    #[test]
-    fn rollout_event_forwards_usage_and_context_only() {
-        let token = rollout_event(TOKEN_COUNT_LINE.as_bytes()).expect("token_count");
-        assert_eq!(token.payload["type"], "token_count");
-        assert_eq!(
-            token.payload["rate_limits"]["primary"]["used_percent"],
-            75.0
-        );
-        assert_eq!(
-            token.source_at,
-            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
-        );
-
-        let turn = rollout_event(TURN_CONTEXT_LINE.as_bytes()).expect("turn_context");
-        assert_eq!(turn.payload["type"], "turn_context");
-        assert_eq!(turn.payload["model"], "gpt-5.6-sol");
-
-        // Other event kinds, other line types and garbage are all skipped.
-        assert_eq!(
-            rollout_event(br#"{"type":"event_msg","payload":{"type":"agent_message"}}"#),
-            None
-        );
-        assert_eq!(rollout_event(br#"{"type":"session_meta"}"#), None);
-        assert_eq!(rollout_event(b"not json"), None);
-    }
-
-    #[test]
-    fn claude_event_forwards_only_message_identity_and_token_buckets() {
-        let event = claude_event(CLAUDE_ASSISTANT_LINE.as_bytes()).expect("assistant usage");
-        assert_eq!(
-            event.payload,
-            serde_json::json!({
-                "type": "assistant.usage",
-                "messageId": "msg-1",
-                "usage": {
-                    "input_tokens": 12,
-                    "output_tokens": 30,
-                    "cache_read_input_tokens": 40000,
-                    "cache_creation_input_tokens": 900,
-                }
-            })
-        );
-        assert_eq!(
-            event.source_at,
-            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
-        );
-        assert!(
-            !event.payload.to_string().contains("SECRET"),
-            "transcript content must never ride the event bus"
-        );
-
-        assert_eq!(claude_event(br#"{"type":"user","message":{}}"#), None);
-        assert_eq!(
-            claude_event(
-                br#"{"type":"assistant","message":{"id":"x","model":"<synthetic>","usage":{"output_tokens":2}}}"#
-            ),
-            None
-        );
-        assert_eq!(
-            claude_event(br#"{"type":"assistant","message":{"id":"x","usage":{}}}"#),
-            None
-        );
-        assert_eq!(claude_event(b"not json"), None);
-    }
-
-    // The interrupt markers ride on the record's STRUCTURE, never its prose:
-    // claude's dedicated `interruptedMessageId` field, codex's `turn_aborted`
-    // record type — an assistant merely quoting the phrase trips neither.
-    #[test]
-    fn interrupt_markers_become_session_interrupt_events() {
-        let claude_marker = format!(
-            r#"{{"type":"user","interruptedMessageId":"msg-7","timestamp":"{SOURCE_ISO}","message":{{"role":"user","content":[{{"type":"text","text":"[Request interrupted by user]"}}]}}}}"#
-        );
-        let event = claude_event(claude_marker.as_bytes()).expect("interrupt");
-        assert_eq!(
-            event.payload,
-            serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })
-        );
-        assert_eq!(
-            event.source_at,
-            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
-        );
-        // An ordinary user record — even one QUOTING the marker text — is
-        // not an interrupt.
-        assert_eq!(
-            claude_event(
-                br#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#
-            ),
-            None
-        );
-        assert_eq!(
-            claude_event(br#"{"type":"user","interruptedMessageId":""}"#),
-            None
-        );
-
-        let codex_marker = format!(
-            r#"{{"timestamp":"{SOURCE_ISO}","type":"event_msg","payload":{{"type":"turn_aborted","turn_id":"t-1","reason":"interrupted"}}}}"#
-        );
-        let event = rollout_event(codex_marker.as_bytes()).expect("interrupt");
-        assert_eq!(
-            event.payload,
-            serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })
-        );
-        // Non-user aborts keep their reason — the turn ended, but nobody
-        // pressed Esc, and the label must be able to say so.
-        let budget_marker = r#"{"type":"event_msg","payload":{"type":"turn_aborted","reason":"budget_exceeded"}}"#;
-        let event = rollout_event(budget_marker.as_bytes()).expect("abort");
-        assert_eq!(event.payload["reason"], "budget_exceeded");
     }
 
     // A subagent transcript's interrupt marker must never become the PANE's
@@ -500,32 +375,6 @@ mod tests {
         fs::write(&path, "{}\n").unwrap();
         let (_, rotated) = drain_all(&mut state);
         assert!(rotated, "a shrunken file is a rotation, not appends");
-        fs::remove_dir_all(&dir).ok();
-    }
-
-    // Rotation must also catch a rename-replacement whose new file is at
-    // least as long as the old offset — the shrink test alone reads its
-    // tail as appends and delivers history as live.
-    #[test]
-    fn a_same_path_replacement_rotates_even_when_longer() {
-        let dir = temp_dir();
-        let path = dir.join("rollout-swap.jsonl");
-        fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
-        let mut state = tail(path.clone());
-        let (events, replayed) = drain_all(&mut state);
-        assert_eq!(events.len(), 1);
-        assert!(!replayed);
-
-        let staged = dir.join("rollout-swap.jsonl.staged");
-        fs::write(
-            &staged,
-            format!("{TURN_CONTEXT_LINE}\n{TOKEN_COUNT_LINE}\n{TURN_CONTEXT_LINE}\n"),
-        )
-        .unwrap();
-        fs::rename(&staged, &path).unwrap();
-        let (events, replayed) = drain_all(&mut state);
-        assert_eq!(events.len(), 3, "the whole new file re-reads from zero");
-        assert!(replayed, "a different inode at the same path is a rotation");
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -586,197 +435,7 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
-    // An old abort in the file must never relabel a fresh resume: the
-    // catch-up summary keeps only the declared usage kinds.
-    #[test]
-    fn catch_up_never_replays_an_interrupt() {
-        let interrupt = TailedEvent {
-            payload: serde_json::json!({ "type": "session.interrupt" }),
-            source_at: None,
-            source_mtime_ms: None,
-            root: true,
-        };
-        let kept = last_of_each(
-            vec![interrupt],
-            TailFormat::Claude.catch_up_order(),
-        );
-        assert!(kept.is_empty());
-    }
 
-    #[test]
-    fn drain_reads_incrementally_and_carries_torn_lines() {
-        let dir = temp_dir();
-        let path = dir.join("rollout.jsonl");
-        let mut state = tail(path.clone());
-
-        // Nothing yet — the file doesn't even exist.
-        assert!(drain(&mut state).is_empty());
-
-        // A torn write: half a line, no newline — nothing to parse, carried.
-        let (head, rest) = TOKEN_COUNT_LINE.split_at(50);
-        fs::write(&path, head).unwrap();
-        assert!(drain(&mut state).is_empty());
-
-        // The rest lands (plus a full second line): both parse now.
-        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
-        write!(file, "{rest}\n{TURN_CONTEXT_LINE}\n").unwrap();
-        drop(file);
-        let events = drain(&mut state);
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].payload["type"], "token_count");
-        assert_eq!(events[1].payload["type"], "turn_context");
-
-        // Already consumed — nothing new.
-        assert!(drain(&mut state).is_empty());
-
-        // A shrunk file (rotation) restarts from zero instead of misreading.
-        fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
-        let events = drain(&mut state);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload["type"], "turn_context");
-
-        fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn wire_event_forwards_usage_and_trims_prompt_content() {
-        let record = wire_event(USAGE_RECORD_LINE.as_bytes()).expect("usage.record");
-        assert_eq!(record.payload["type"], "usage.record");
-        assert_eq!(record.payload["usage"]["inputCacheRead"], 40000);
-        assert_eq!(
-            record.source_at,
-            Some(SourceTimestamp::UnixMillis(1_784_800_000_000))
-        );
-
-        // llm.request keeps ONLY the scalars — the prompt must not ride the
-        // event bus.
-        let request = wire_event(LLM_REQUEST_LINE.as_bytes()).expect("llm.request");
-        assert_eq!(
-            request.payload,
-            serde_json::json!({
-                "type": "llm.request", "model": "kimi-code/k3", "maxTokens": 1048576,
-            })
-        );
-
-        assert_eq!(wire_event(br#"{"type":"turn.prompt","text":"hi"}"#), None);
-        assert_eq!(wire_event(b"not json"), None);
-    }
-
-    #[test]
-    fn kimi_session_totals_sum_each_bucket_separately() {
-        let mut totals = SessionTotals::default();
-        // USAGE_RECORD_LINE: inputOther 1200, output 300, inputCacheRead 40000,
-        // inputCacheCreation 900.
-        let mut first = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
-        accumulate_session_totals(&mut totals, TailFormat::KimiWire, &mut first);
-        assert_eq!(
-            first.payload["sessionTotals"],
-            serde_json::json!({
-                "inputOther": 1200, "output": 300,
-                "inputCacheRead": 40000, "inputCacheCreation": 900
-            })
-        );
-
-        let line2 = r#"{"type":"usage.record","usage":{"inputOther":800,"output":50,"inputCacheRead":41000,"inputCacheCreation":0},"usageScope":"turn","time":1784800001000}"#;
-        let mut second = wire_event(line2.as_bytes()).unwrap();
-        accumulate_session_totals(&mut totals, TailFormat::KimiWire, &mut second);
-        // Fresh input (inputOther) and the re-read prefix (inputCacheRead) sum
-        // in SEPARATE buckets — the prefix never inflates fresh input.
-        assert_eq!(
-            second.payload["sessionTotals"],
-            serde_json::json!({
-                "inputOther": 2000, "output": 350,
-                "inputCacheRead": 81000, "inputCacheCreation": 900
-            })
-        );
-        assert_eq!(
-            totals.kimi,
-            KimiTotals {
-                input_other: 2000,
-                output: 350,
-                input_cache_read: 81000,
-                input_cache_creation: 900,
-            }
-        );
-    }
-
-    #[test]
-    fn accumulate_leaves_codex_and_non_usage_events_alone() {
-        let mut totals = SessionTotals::default();
-        // Codex owns a native cumulative — never stamped, even for a
-        // usage.record-shaped line under the codex format.
-        let mut codex = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
-        accumulate_session_totals(&mut totals, TailFormat::Codex, &mut codex);
-        assert!(codex.payload.get("sessionTotals").is_none());
-        assert_eq!(totals, SessionTotals::default());
-        // A kimi llm.request carries no counts — untouched.
-        let mut request = wire_event(LLM_REQUEST_LINE.as_bytes()).unwrap();
-        accumulate_session_totals(&mut totals, TailFormat::KimiWire, &mut request);
-        assert!(request.payload.get("sessionTotals").is_none());
-        assert_eq!(totals, SessionTotals::default());
-    }
-
-    #[test]
-    fn claude_session_totals_deduplicate_repeated_message_rows() {
-        let mut totals = SessionTotals::default();
-        let mut first = claude_event(CLAUDE_ASSISTANT_LINE.as_bytes()).unwrap();
-        accumulate_session_totals(&mut totals, TailFormat::Claude, &mut first);
-        assert_eq!(
-            first.payload["sessionTotals"],
-            serde_json::json!({
-                "input_tokens": 12,
-                "output_tokens": 30,
-                "cache_read_input_tokens": 40000,
-                "cache_creation_input_tokens": 900,
-            })
-        );
-
-        // Same id: each bucket advances only to its maximum, never sums the
-        // repeated transcript row.
-        let repeated = CLAUDE_ASSISTANT_LINE
-            .replace(r#""output_tokens":30"#, r#""output_tokens":45"#)
-            .replace(
-                r#""cache_creation_input_tokens":900"#,
-                r#""cache_creation_input_tokens":800"#,
-            );
-        let mut second = claude_event(repeated.as_bytes()).unwrap();
-        accumulate_session_totals(&mut totals, TailFormat::Claude, &mut second);
-        assert_eq!(
-            second.payload["sessionTotals"],
-            serde_json::json!({
-                "input_tokens": 12,
-                "output_tokens": 45,
-                "cache_read_input_tokens": 40000,
-                "cache_creation_input_tokens": 900,
-            })
-        );
-
-        // A different assistant message contributes its own maxima.
-        let next_message = CLAUDE_ASSISTANT_LINE
-            .replace("msg-1", "msg-2")
-            .replace(r#""input_tokens":12"#, r#""input_tokens":2"#)
-            .replace(r#""output_tokens":30"#, r#""output_tokens":5"#)
-            .replace(
-                r#""cache_read_input_tokens":40000"#,
-                r#""cache_read_input_tokens":100"#,
-            )
-            .replace(
-                r#""cache_creation_input_tokens":900"#,
-                r#""cache_creation_input_tokens":3"#,
-            );
-        let mut third = claude_event(next_message.as_bytes()).unwrap();
-        accumulate_session_totals(&mut totals, TailFormat::Claude, &mut third);
-        assert_eq!(
-            third.payload["sessionTotals"],
-            serde_json::json!({
-                "input_tokens": 14,
-                "output_tokens": 50,
-                "cache_read_input_tokens": 40100,
-                "cache_creation_input_tokens": 903,
-            })
-        );
-        assert_eq!(totals.claude.by_message.len(), 2);
-    }
 
     #[test]
     fn drain_rotation_resets_the_kimi_cumulative() {
@@ -946,27 +605,6 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
-    #[test]
-    fn catch_up_keeps_only_the_last_of_each_kind_context_first() {
-        let old = rollout_event(TURN_CONTEXT_LINE.as_bytes()).unwrap();
-        let mut newer = old.clone();
-        newer.payload["model"] = "gpt-6".into();
-        let count = rollout_event(TOKEN_COUNT_LINE.as_bytes()).unwrap();
-
-        let order = TailFormat::Codex.catch_up_order();
-        let kept = last_of_each(vec![old, count.clone(), newer.clone()], order);
-        assert_eq!(kept, vec![newer, count]);
-        assert!(last_of_each(Vec::new(), order).is_empty());
-
-        // The kimi order: window/model (llm.request) before the numbers.
-        let request = wire_event(LLM_REQUEST_LINE.as_bytes()).unwrap();
-        let record = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
-        let kept = last_of_each(
-            vec![record.clone(), request.clone()],
-            TailFormat::KimiWire.catch_up_order(),
-        );
-        assert_eq!(kept, vec![request, record]);
-    }
 
     #[test]
     fn reports_carry_the_agent_tag_and_the_catch_up_mark() {
@@ -994,87 +632,6 @@ mod tests {
         let wrapped = report(&state, event, true);
         assert_eq!(wrapped.payload["agent"], "claude");
         assert_eq!(wrapped.payload["event"]["type"], "assistant.usage");
-    }
-
-    #[test]
-    fn an_oversized_line_is_abandoned_and_the_tail_resyncs() {
-        let dir = temp_dir();
-        let path = dir.join("wire.jsonl");
-        let mut state = tail(path.clone());
-
-        // A monster line spilling past the cap, no newline yet.
-        fs::write(&path, vec![b'x'; MAX_PARTIAL_BYTES + 64]).unwrap();
-        assert!(drain(&mut state).is_empty());
-        assert!(state.root.skipping, "the line is abandoned, not buffered");
-        assert!(state.root.partial.is_empty());
-
-        // Its newline finally lands, followed by a healthy line — the tail
-        // resyncs and parses only the healthy one.
-        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
-        write!(file, "tail-of-monster\n{TURN_CONTEXT_LINE}\n").unwrap();
-        drop(file);
-        let events = drain(&mut state);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload["type"], "turn_context");
-        assert!(!state.root.skipping);
-
-        fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn a_rotation_while_skipping_keeps_the_new_files_first_line() {
-        let dir = temp_dir();
-        let path = dir.join("wire.jsonl");
-        let mut state = tail(path.clone());
-
-        // Monster line puts the tail into skip mode…
-        fs::write(&path, vec![b'x'; MAX_PARTIAL_BYTES + 64]).unwrap();
-        assert!(drain(&mut state).is_empty());
-        assert!(state.root.skipping);
-
-        // …then the file is ROTATED before the monster's newline arrives.
-        // The fresh file's first line must parse, not vanish as the
-        // monster's imagined tail.
-        fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
-        let events = drain(&mut state);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload["type"], "turn_context");
-        assert!(!state.root.skipping);
-
-        fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn find_rollout_walks_the_day_tree_and_prefers_the_newest_match() {
-        let root = temp_dir();
-        let sid = "019f7683-d6f4-7b00-8e66-00c4694731be";
-        let old_day = root.join("2026/07/17");
-        let new_day = root.join("2026/07/18");
-        fs::create_dir_all(&old_day).unwrap();
-        fs::create_dir_all(&new_day).unwrap();
-        fs::write(
-            old_day.join(format!("rollout-2026-07-17T01-00-00-{sid}.jsonl")),
-            "x",
-        )
-        .unwrap();
-        fs::write(new_day.join("rollout-2026-07-18T02-00-00-other.jsonl"), "x").unwrap();
-        let newest = new_day.join(format!("rollout-2026-07-18T03-00-00-{sid}.jsonl"));
-        fs::write(&newest, "x").unwrap();
-
-        assert_eq!(find_rollout_in(&root, sid), Some(newest));
-        assert_eq!(find_rollout_in(&root, "0000-none"), None);
-        fs::remove_dir_all(&root).ok();
-    }
-
-    /// Pin a file's mtime so newest-first ordering is deterministic even
-    /// when the test writes everything within one clock tick.
-    fn set_mtime(path: &std::path::Path, secs_after_epoch: u64) {
-        OpenOptions::new()
-            .write(true)
-            .open(path)
-            .unwrap()
-            .set_modified(std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(secs_after_epoch))
-            .unwrap();
     }
 
     #[test]
@@ -1113,56 +670,6 @@ mod tests {
         assert_eq!(wrapped.payload["sourceAt"], "not-an-iso-time");
         assert_eq!(wrapped.payload["sourceMtimeMs"], 1_234_000_u64);
         fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn boot_sweep_returns_the_newest_rollout_that_carries_usage() {
-        let root = temp_dir();
-        let day = root.join("2026/07/19");
-        fs::create_dir_all(&day).unwrap();
-
-        // Oldest: real usage. Newer: usage with a distinct marker. Newest:
-        // a fresh session with no token_count yet — must be walked past.
-        let oldest = day.join("rollout-2026-07-19T01-00-00-aaaa.jsonl");
-        fs::write(&oldest, format!("{TOKEN_COUNT_LINE}\n")).unwrap();
-        set_mtime(&oldest, 1_000);
-        let with_usage = day.join("rollout-2026-07-19T02-00-00-bbbb.jsonl");
-        let marked = TOKEN_COUNT_LINE.replace("75.0", "33.0");
-        fs::write(&with_usage, format!("{TURN_CONTEXT_LINE}\n{marked}\n")).unwrap();
-        set_mtime(&with_usage, 2_000);
-        let empty_of_usage = day.join("rollout-2026-07-19T03-00-00-cccc.jsonl");
-        fs::write(&empty_of_usage, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
-        set_mtime(&empty_of_usage, 3_000);
-
-        let found = latest_rollout_usage_in(&root).expect("usage found");
-        assert_eq!(found.event["type"], "token_count");
-        assert_eq!(found.event["rate_limits"]["primary"]["used_percent"], 33.0);
-        assert_eq!(
-            found.source_at,
-            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
-        );
-        assert_eq!(found.mtime_ms, 2_000_000, "stamped with the FILE's age");
-
-        fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn boot_sweep_finds_nothing_in_an_empty_or_usage_free_tree() {
-        let root = temp_dir();
-        assert_eq!(latest_rollout_usage_in(&root), None);
-
-        let day = root.join("2026/07/19");
-        fs::create_dir_all(&day).unwrap();
-        fs::write(
-            day.join("rollout-2026-07-19T01-00-00-aaaa.jsonl"),
-            format!("{TURN_CONTEXT_LINE}\n"),
-        )
-        .unwrap();
-        // Non-rollout siblings never count as sessions.
-        fs::write(day.join("notes.jsonl"), format!("{TOKEN_COUNT_LINE}\n")).unwrap();
-        assert_eq!(latest_rollout_usage_in(&root), None);
-
-        fs::remove_dir_all(&root).ok();
     }
 
     #[test]

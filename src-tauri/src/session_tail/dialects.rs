@@ -256,3 +256,180 @@ pub(super) fn last_of_each(events: Vec<TailedEvent>, order: &[&str]) -> Vec<Tail
     }
     last.into_iter().flatten().collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+
+    #[test]
+    fn rollout_event_forwards_usage_and_context_only() {
+        let token = rollout_event(TOKEN_COUNT_LINE.as_bytes()).expect("token_count");
+        assert_eq!(token.payload["type"], "token_count");
+        assert_eq!(
+            token.payload["rate_limits"]["primary"]["used_percent"],
+            75.0
+        );
+        assert_eq!(
+            token.source_at,
+            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
+        );
+
+        let turn = rollout_event(TURN_CONTEXT_LINE.as_bytes()).expect("turn_context");
+        assert_eq!(turn.payload["type"], "turn_context");
+        assert_eq!(turn.payload["model"], "gpt-5.6-sol");
+
+        // Other event kinds, other line types and garbage are all skipped.
+        assert_eq!(
+            rollout_event(br#"{"type":"event_msg","payload":{"type":"agent_message"}}"#),
+            None
+        );
+        assert_eq!(rollout_event(br#"{"type":"session_meta"}"#), None);
+        assert_eq!(rollout_event(b"not json"), None);
+    }
+
+    #[test]
+    fn claude_event_forwards_only_message_identity_and_token_buckets() {
+        let event = claude_event(CLAUDE_ASSISTANT_LINE.as_bytes()).expect("assistant usage");
+        assert_eq!(
+            event.payload,
+            serde_json::json!({
+                "type": "assistant.usage",
+                "messageId": "msg-1",
+                "usage": {
+                    "input_tokens": 12,
+                    "output_tokens": 30,
+                    "cache_read_input_tokens": 40000,
+                    "cache_creation_input_tokens": 900,
+                }
+            })
+        );
+        assert_eq!(
+            event.source_at,
+            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
+        );
+        assert!(
+            !event.payload.to_string().contains("SECRET"),
+            "transcript content must never ride the event bus"
+        );
+
+        assert_eq!(claude_event(br#"{"type":"user","message":{}}"#), None);
+        assert_eq!(
+            claude_event(
+                br#"{"type":"assistant","message":{"id":"x","model":"<synthetic>","usage":{"output_tokens":2}}}"#
+            ),
+            None
+        );
+        assert_eq!(
+            claude_event(br#"{"type":"assistant","message":{"id":"x","usage":{}}}"#),
+            None
+        );
+        assert_eq!(claude_event(b"not json"), None);
+    }
+
+    // The interrupt markers ride on the record's STRUCTURE, never its prose:
+    // claude's dedicated `interruptedMessageId` field, codex's `turn_aborted`
+    // record type — an assistant merely quoting the phrase trips neither.
+    #[test]
+    fn interrupt_markers_become_session_interrupt_events() {
+        let claude_marker = format!(
+            r#"{{"type":"user","interruptedMessageId":"msg-7","timestamp":"{SOURCE_ISO}","message":{{"role":"user","content":[{{"type":"text","text":"[Request interrupted by user]"}}]}}}}"#
+        );
+        let event = claude_event(claude_marker.as_bytes()).expect("interrupt");
+        assert_eq!(
+            event.payload,
+            serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })
+        );
+        assert_eq!(
+            event.source_at,
+            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
+        );
+        // An ordinary user record — even one QUOTING the marker text — is
+        // not an interrupt.
+        assert_eq!(
+            claude_event(
+                br#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#
+            ),
+            None
+        );
+        assert_eq!(
+            claude_event(br#"{"type":"user","interruptedMessageId":""}"#),
+            None
+        );
+
+        let codex_marker = format!(
+            r#"{{"timestamp":"{SOURCE_ISO}","type":"event_msg","payload":{{"type":"turn_aborted","turn_id":"t-1","reason":"interrupted"}}}}"#
+        );
+        let event = rollout_event(codex_marker.as_bytes()).expect("interrupt");
+        assert_eq!(
+            event.payload,
+            serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })
+        );
+        // Non-user aborts keep their reason — the turn ended, but nobody
+        // pressed Esc, and the label must be able to say so.
+        let budget_marker = r#"{"type":"event_msg","payload":{"type":"turn_aborted","reason":"budget_exceeded"}}"#;
+        let event = rollout_event(budget_marker.as_bytes()).expect("abort");
+        assert_eq!(event.payload["reason"], "budget_exceeded");
+    }
+
+    #[test]
+    fn wire_event_forwards_usage_and_trims_prompt_content() {
+        let record = wire_event(USAGE_RECORD_LINE.as_bytes()).expect("usage.record");
+        assert_eq!(record.payload["type"], "usage.record");
+        assert_eq!(record.payload["usage"]["inputCacheRead"], 40000);
+        assert_eq!(
+            record.source_at,
+            Some(SourceTimestamp::UnixMillis(1_784_800_000_000))
+        );
+
+        // llm.request keeps ONLY the scalars — the prompt must not ride the
+        // event bus.
+        let request = wire_event(LLM_REQUEST_LINE.as_bytes()).expect("llm.request");
+        assert_eq!(
+            request.payload,
+            serde_json::json!({
+                "type": "llm.request", "model": "kimi-code/k3", "maxTokens": 1048576,
+            })
+        );
+
+        assert_eq!(wire_event(br#"{"type":"turn.prompt","text":"hi"}"#), None);
+        assert_eq!(wire_event(b"not json"), None);
+    }
+
+    #[test]
+    fn catch_up_keeps_only_the_last_of_each_kind_context_first() {
+        let old = rollout_event(TURN_CONTEXT_LINE.as_bytes()).unwrap();
+        let mut newer = old.clone();
+        newer.payload["model"] = "gpt-6".into();
+        let count = rollout_event(TOKEN_COUNT_LINE.as_bytes()).unwrap();
+
+        let order = TailFormat::Codex.catch_up_order();
+        let kept = last_of_each(vec![old, count.clone(), newer.clone()], order);
+        assert_eq!(kept, vec![newer, count]);
+        assert!(last_of_each(Vec::new(), order).is_empty());
+
+        // The kimi order: window/model (llm.request) before the numbers.
+        let request = wire_event(LLM_REQUEST_LINE.as_bytes()).unwrap();
+        let record = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
+        let kept = last_of_each(
+            vec![record.clone(), request.clone()],
+            TailFormat::KimiWire.catch_up_order(),
+        );
+        assert_eq!(kept, vec![request, record]);
+    }
+
+    #[test]
+    fn catch_up_never_replays_an_interrupt() {
+        let interrupt = TailedEvent {
+            payload: serde_json::json!({ "type": "session.interrupt" }),
+            source_at: None,
+            source_mtime_ms: None,
+            root: true,
+        };
+        let kept = last_of_each(
+            vec![interrupt],
+            TailFormat::Claude.catch_up_order(),
+        );
+        assert!(kept.is_empty());
+    }
+}

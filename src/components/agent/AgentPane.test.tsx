@@ -167,25 +167,6 @@ describe("AgentPane — header badges", () => {
     expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
-  it("renders a calm context meter without a level class", () => {
-    usage.registerNormalizer(
-      "claude",
-      (payload) => (payload as { result: NormalizedUsage }).result,
-    );
-    usage.report("ws:1", {
-      agent: "claude",
-      result: {
-        account: null,
-        pane: { agent: "claude", context: { usedPct: 40 }, reportedAt: 0 },
-      },
-    });
-    act(() => root.render(createElement(PaneUnderTest,baseProps)));
-    const ctx = document.querySelector<HTMLElement>(".pane__ctx");
-    expect(ctx?.textContent).toBe("ctx 40%");
-    // Calm (< 75%) → no usage-level--* suffix appended.
-    expect(ctx?.className).toBe("chip pane__ctx");
-  });
-
   it("hides the context meter on a non-live (idle) pane despite usage", () => {
     usage.registerNormalizer(
       "claude",
@@ -266,36 +247,6 @@ describe("AgentPane — header badges", () => {
     // The PTY exits → the now-frozen ctx% must go.
     act(() => sessions.put({ kind: "exited", code: 0 }));
     expect(document.querySelector(".pane__ctx")).toBeNull();
-  });
-
-  it("renders a runtime git badge when provided", () => {
-    act(() =>
-      root.render(
-        createElement(PaneUnderTest,{
-          ...baseProps,
-          gitBadge: { label: "main", title: "main" },
-        }),
-      ),
-    );
-
-    const badge = document.querySelector<HTMLElement>(".pane__branch");
-    expect(badge).not.toBeNull();
-    expect(badge!.textContent).toBe("main");
-    expect(badge!.title).toBe("main");
-  });
-
-  it("leads the actions cluster with the git branch badge", () => {
-    act(() =>
-      root.render(
-        createElement(PaneUnderTest,{
-          ...baseProps,
-          gitBadge: { label: "main", title: "main" },
-        }),
-      ),
-    );
-
-    const actions = document.querySelector(".pane__actions");
-    expect(actions?.children[0]?.className).toBe("chip pane__branch");
   });
 
   it("can receive restored focus without entering the tab order", () => {

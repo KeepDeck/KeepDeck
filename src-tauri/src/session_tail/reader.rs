@@ -34,7 +34,7 @@ fn file_identity(_metadata: &std::fs::Metadata) -> Option<(u64, u64)> {
 /// A pathological line (megabytes with no newline yet) must not buffer
 /// forever — past this cap the line is abandoned and the tail resyncs at
 /// the next newline. Generous: real usage lines are a few KB.
-pub(super) const MAX_PARTIAL_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PARTIAL_BYTES: usize = 8 * 1024 * 1024;
 
 /// Read appended bytes in fixed-size chunks, returning events from complete
 /// lines while carrying at most one bounded partial line. No prefix is ever
@@ -94,7 +94,7 @@ pub(super) fn drain_file(
     (events, rotated)
 }
 
-pub(super) fn parse_chunk(
+fn parse_chunk(
     cursor: &mut TailCursor,
     chunk: &[u8],
     format: TailFormat,
@@ -136,7 +136,7 @@ pub(super) fn parse_chunk(
     }
 }
 
-pub(super) fn push_event(
+fn push_event(
     format: TailFormat,
     line: &[u8],
     file_mtime_ms: Option<u64>,
@@ -148,5 +148,127 @@ pub(super) fn push_event(
             event.source_at = file_mtime_ms.map(SourceTimestamp::UnixMillis);
         }
         events.push(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::{self, OpenOptions};
+    use std::io::Write;
+
+    use super::super::test_support::*;
+    use super::*;
+
+    fn drain(path: &std::path::Path, cursor: &mut TailCursor) -> Vec<TailedEvent> {
+        drain_file(path, cursor, TailFormat::Codex).0
+    }
+
+    #[test]
+    fn drain_reads_incrementally_and_carries_torn_lines() {
+        let dir = temp_dir();
+        let path = dir.join("rollout.jsonl");
+        let mut cursor = TailCursor::default();
+
+        // Nothing yet — the file doesn't even exist.
+        assert!(drain(&path, &mut cursor).is_empty());
+
+        // A torn write: half a line, no newline — nothing to parse, carried.
+        let (head, rest) = TOKEN_COUNT_LINE.split_at(50);
+        fs::write(&path, head).unwrap();
+        assert!(drain(&path, &mut cursor).is_empty());
+
+        // The rest lands (plus a full second line): both parse now.
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        write!(file, "{rest}\n{TURN_CONTEXT_LINE}\n").unwrap();
+        drop(file);
+        let events = drain(&path, &mut cursor);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].payload["type"], "token_count");
+        assert_eq!(events[1].payload["type"], "turn_context");
+
+        // Already consumed — nothing new.
+        assert!(drain(&path, &mut cursor).is_empty());
+
+        // A shrunk file (rotation) restarts from zero instead of misreading.
+        fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
+        let events = drain(&path, &mut cursor);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload["type"], "turn_context");
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_oversized_line_is_abandoned_and_the_tail_resyncs() {
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        let mut cursor = TailCursor::default();
+
+        // A monster line spilling past the cap, no newline yet.
+        fs::write(&path, vec![b'x'; MAX_PARTIAL_BYTES + 64]).unwrap();
+        assert!(drain(&path, &mut cursor).is_empty());
+        assert!(cursor.skipping, "the line is abandoned, not buffered");
+        assert!(cursor.partial.is_empty());
+
+        // Its newline finally lands, followed by a healthy line — the tail
+        // resyncs and parses only the healthy one.
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        write!(file, "tail-of-monster\n{TURN_CONTEXT_LINE}\n").unwrap();
+        drop(file);
+        let events = drain(&path, &mut cursor);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload["type"], "turn_context");
+        assert!(!cursor.skipping);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_rotation_while_skipping_keeps_the_new_files_first_line() {
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        let mut cursor = TailCursor::default();
+
+        // Monster line puts the tail into skip mode…
+        fs::write(&path, vec![b'x'; MAX_PARTIAL_BYTES + 64]).unwrap();
+        assert!(drain(&path, &mut cursor).is_empty());
+        assert!(cursor.skipping);
+
+        // …then the file is ROTATED before the monster's newline arrives.
+        // The fresh file's first line must parse, not vanish as the
+        // monster's imagined tail.
+        fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
+        let events = drain(&path, &mut cursor);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload["type"], "turn_context");
+        assert!(!cursor.skipping);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // Rotation must also catch a rename-replacement whose new file is at
+    // least as long as the old offset — the shrink test alone reads its
+    // tail as appends and delivers history as live.
+    #[test]
+    fn a_same_path_replacement_rotates_even_when_longer() {
+        let dir = temp_dir();
+        let path = dir.join("rollout-swap.jsonl");
+        let mut cursor = TailCursor::default();
+        fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
+        let (events, rotated) = drain_file(&path, &mut cursor, TailFormat::Codex);
+        assert_eq!(events.len(), 1);
+        assert!(!rotated);
+
+        let staged = dir.join("rollout-swap.jsonl.staged");
+        fs::write(
+            &staged,
+            format!("{TURN_CONTEXT_LINE}\n{TOKEN_COUNT_LINE}\n{TURN_CONTEXT_LINE}\n"),
+        )
+        .unwrap();
+        fs::rename(&staged, &path).unwrap();
+        let (events, rotated) = drain_file(&path, &mut cursor, TailFormat::Codex);
+        assert_eq!(events.len(), 3, "the whole new file re-reads from zero");
+        assert!(rotated, "a different inode at the same path is a rotation");
+        fs::remove_dir_all(&dir).ok();
     }
 }
