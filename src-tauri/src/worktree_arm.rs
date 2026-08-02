@@ -56,8 +56,15 @@ pub(crate) fn claimed_by_others(root: &Path, except: &str) -> Vec<String> {
     claimed
 }
 
-/// Record what a key has armed. An empty set drops the manifest: nothing is
-/// armed, so nothing is owed a sweep.
+/// Record what a key has armed, REPLACING what was recorded before.
+///
+/// The caller must speak for the key's WHOLE set — this is the shape a
+/// staging pass has, where every one of a workspace's roots is armed (or
+/// deliberately not) in one call. A caller that speaks for a single cwd must
+/// use [`add_armed`] instead, or it erases the cwds it did not mention.
+///
+/// An empty set drops the manifest: nothing is armed, so nothing is owed a
+/// sweep.
 pub(crate) fn record_armed(root: &Path, key: &str, armed: &[String], what: &str) {
     let path = armed_manifest(root, key);
     let result = if armed.is_empty() {
@@ -72,6 +79,27 @@ pub(crate) fn record_armed(root: &Path, key: &str, armed: &[String], what: &str)
     if let Err(e) = result {
         log::warn!("{what}: recording armed cwds for {key} failed: {e}");
     }
+}
+
+/// Add to what a key has armed, keeping every cwd already recorded.
+///
+/// For callers that arrive ONE cwd at a time — a pane spawning is such a
+/// caller, and it knows nothing about its workspace's other panes. Replacing
+/// there would erase the record of every earlier pane, and a pass that armed
+/// nothing would delete the manifest outright, orphaning what those panes
+/// planted: files, markers and `info/exclude` lines that only this record can
+/// find again after a crash.
+pub(crate) fn add_armed(root: &Path, key: &str, armed: &[String], what: &str) {
+    if armed.is_empty() {
+        return;
+    }
+    let mut recorded = manifest_roots(root, key);
+    for cwd in armed {
+        if !recorded.contains(cwd) {
+            recorded.push(cwd.clone());
+        }
+    }
+    record_armed(root, key, &recorded, what);
 }
 
 /// Sweep the manifests of keys that are no longer live, handing each dead

@@ -20,9 +20,7 @@ use std::io::{self, ErrorKind};
 use std::path::Path;
 
 use crate::state::write_atomic;
-use crate::worktree_arm::{
-    ensure_excluded, prune_manifests, record_armed, remove_excluded,
-};
+use crate::worktree_arm::{add_armed, ensure_excluded, prune_manifests, remove_excluded};
 
 /// What arming plants in a pane's cwd — the directory git must stay blind to,
 /// and the one kimi reads its MCP config from.
@@ -63,6 +61,11 @@ pub struct McpArmReport {
 /// Arm every entry's cwd, and record what landed so a crashed workspace can
 /// still be swept at the next boot. Best-effort per cwd: one odd directory
 /// must not cost the others their servers.
+///
+/// The record is ADDED to, never replaced: a pane arms its own cwd and knows
+/// nothing about its workspace's other panes, so replacing would erase them —
+/// and a pass whose only cwd refused would delete the manifest, orphaning
+/// everything the earlier panes planted.
 pub(crate) fn arm(root: &Path, key: &str, entries: &[McpArmEntry]) -> McpArmReport {
     let mut report = McpArmReport::default();
     for entry in entries {
@@ -78,7 +81,7 @@ pub(crate) fn arm(root: &Path, key: &str, entries: &[McpArmEntry]) -> McpArmRepo
             }),
         }
     }
-    record_armed(root, key, &report.armed, "mcp");
+    add_armed(root, key, &report.armed, "mcp");
     report
 }
 
@@ -273,13 +276,45 @@ mod tests {
     }
 
     #[test]
-    fn arming_nothing_drops_the_manifest_rather_than_recording_an_empty_one() {
+    fn each_pane_adds_to_the_record_instead_of_replacing_it() {
+        // A pane arms its OWN cwd and knows nothing about its workspace's
+        // other panes. Replacing here would erase them, and the sweep would
+        // never find what they planted.
+        let (_tmp, root, cwd) = scratch();
+        let second = cwd.parent().unwrap().join("other-pane");
+        fs::create_dir_all(&second).unwrap();
+
+        arm(&root, "ws-1", &[entry(&cwd, "{}")]);
+        arm(&root, "ws-1", &[entry(&second, "{}")]);
+
+        let recorded: Vec<String> =
+            serde_json::from_slice(&fs::read(root.join("armed").join("ws-1")).unwrap()).unwrap();
+        assert_eq!(
+            recorded,
+            vec![
+                cwd.to_string_lossy().into_owned(),
+                second.to_string_lossy().into_owned(),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_pass_that_arms_nothing_leaves_the_record_alone() {
+        // The destructive shape this replaced: a pane whose cwd holds the
+        // user's own config armed nothing, and the empty result deleted the
+        // whole workspace's record — orphaning every earlier pane's files.
         let (_tmp, root, cwd) = scratch();
         arm(&root, "ws-1", &[entry(&cwd, "{}")]);
-        assert!(root.join("armed").join("ws-1").exists());
 
-        arm(&root, "ws-1", &[]);
+        let theirs = cwd.parent().unwrap().join("theirs");
+        fs::create_dir_all(theirs.join(".kimi-code")).unwrap();
+        fs::write(theirs.join(".kimi-code").join("mcp.json"), "{}").unwrap();
+        let report = arm(&root, "ws-1", &[entry(&theirs, "{}")]);
 
-        assert!(!root.join("armed").join("ws-1").exists());
+        assert_eq!(report.refused.len(), 1);
+        let recorded: Vec<String> =
+            serde_json::from_slice(&fs::read(root.join("armed").join("ws-1")).unwrap()).unwrap();
+        assert_eq!(recorded, vec![cwd.to_string_lossy().into_owned()]);
     }
+
 }
