@@ -545,6 +545,7 @@ export function DeckStage({
                     <MinimizedItem
                       key={entry.id}
                       variant="bar"
+                      paneId={entry.id}
                       title={entry.title}
                       icon={entry.icon}
                       gitBadge={entry.gitBadge}

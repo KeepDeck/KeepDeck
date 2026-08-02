@@ -32,6 +32,32 @@
   animation: status-frame-pulse 1s ease-in-out infinite;
 }
 
+/* Minimized stand-ins wear the same ladder on their border — attention
+   must survive minimizing; these are exactly the panes nobody is watching.
+   The chip recolours the border it already has; the bar gains one inside
+   its box (border-box keeps the 30px height). No selection rung: a hidden
+   pane is never the selected one. Doubled class beats the chip's own
+   border AND its :hover recolour at equal specificity by source order. */
+.minimized.minimized--frame-done,
+.minimized.minimized--frame-waiting,
+.minimized.minimized--frame-failed {
+  box-sizing: border-box;
+}
+
+.minimized.minimized--frame-done {
+  border: 1px solid var(--status-done);
+}
+
+.minimized.minimized--frame-waiting {
+  border: 1px solid var(--status-waiting);
+  animation: status-frame-breathe 2s ease-in-out infinite;
+}
+
+.minimized.minimized--frame-failed {
+  border: 1px solid var(--status-failed);
+  animation: status-frame-pulse 1s ease-in-out infinite;
+}
+
 /* Both rhythms modulate the frame's own colour toward transparent
    (color-mix), so the animation needs one keyframe pair per rhythm, not
    one per colour — and a surface that reuses them stays on palette. */
@@ -50,7 +76,9 @@
 /* The state is still named by colour; only the rhythm rests. */
 @media (prefers-reduced-motion: reduce) {
   .pane--frame-waiting,
-  .pane--frame-failed {
+  .pane--frame-failed,
+  .minimized.minimized--frame-waiting,
+  .minimized.minimized--frame-failed {
     animation: none;
   }
 }
