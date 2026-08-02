@@ -1,159 +1,22 @@
+import {
+  AGENTS,
+  HOST,
+  repoMode,
+  resetCoreCommandTestState,
+  settingsState,
+  setup,
+  workspace,
+} from "./coreCommands.testSupport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentInfo } from "../domain/agents";
-import { createCommandRegistry } from "../domain/commands";
 import {
   WORKSPACE_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
-  type Workspace,
 } from "../domain/deck";
-import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
-import { deliverTask, registerCoreCommands } from "./coreCommands";
-import type {
-  CreatePaneOutcome,
-  CreatePaneRequest,
-  ResumeRequest,
-} from "./agentOrchestrator";
-import type { SuspendOutcome } from "./suspendOutcome";
-import type { Deck } from "./useDeck";
-
-const HOST = { kind: "host" } as const;
-
-// Repo inspection is per-test switchable; suggestions follow the real Rust
-// naming (kd/<ws>/<i> ↔ kd-<ws>-<i>); probes report every path free.
-const repoMode = vi.hoisted(() => ({
-  isRepo: false,
-  inspect: null as null | (() => Promise<{
-    isRepo: boolean;
-    head: string;
-    branch: string;
-  }>),
-}));
-vi.mock("../ipc/worktree", () => ({
-  inspectRepo: () =>
-    repoMode.inspect?.() ??
-    Promise.resolve({ isRepo: repoMode.isRepo, head: "abc", branch: "main" }),
-  suggestWorktree: async (workspace: string, index: number) => ({
-    branch: `kd/${workspace}/${index}`,
-    folder: `kd-${workspace}-${index}`,
-  }),
-  probeWorktree: async () => ({
-    exists: false,
-    isWorktree: false,
-    empty: false,
-    branch: null,
-  }),
-  createWorktree: async () => {
-    throw new Error("not under test");
-  },
-  removeWorktree: async () => {},
-}));
-
-const settingsState = vi.hoisted(() => ({
-  current: null as { defaultYolo?: boolean } | null,
-}));
-vi.mock("./settingsManager", () => ({
-  getSettings: () => settingsState.current,
-}));
-
-const AGENTS: AgentInfo[] = [
-  {
-    id: "claude",
-    label: "Claude",
-    command: "claude",
-    features: [
-      { id: "session.new", label: "New sessions" },
-      { id: "execution.yolo", label: "YOLO mode" },
-    ],
-    installed: true,
-    path: "/c",
-  },
-  {
-    id: "codex",
-    label: "Codex",
-    command: "codex",
-    features: [{ id: "session.new", label: "New sessions" }],
-    installed: true,
-    path: "/x",
-  },
-];
-
-const workspace = (over: Partial<Workspace>): Workspace => ({
-  id: "ws-1",
-  instance: createWorkspaceInstance(),
-  name: "web",
-  cwd: "/repo",
-  worktreeBaseDir: null,
-  panes: [],
-  ...over,
-});
-
-/** A deck stub: the live workspaces array + recording actions. */
-function fakeDeck(workspaces: Workspace[]): Deck {
-  return {
-    workspaces,
-    activeId: workspaces[0]?.id ?? "",
-    viewOf: () => ({}),
-    selectWorkspace: vi.fn(),
-    selectPane: vi.fn(),
-  } as unknown as Deck;
-}
-
-function setup(workspaces: Workspace[]) {
-  const registry = createCommandRegistry();
-  const deck = fakeDeck(workspaces);
-  const requestCloseAgent = vi.fn();
-  const suspendAgent = vi.fn<
-    (wsId: string, paneId: string) => Promise<SuspendOutcome>
-  >(() => Promise.resolve("suspended"));
-  const resumeAgent = vi.fn<(wsId: string, paneId: string) => ResumeRequest>(
-    () => "resuming",
-  );
-  // The orchestrator's landing sequence in miniature: the exact-lifetime
-  // check and the add, mutating the array so follow-up reads see the pane.
-  // What it does with a provisioning card is its own test's subject; these
-  // tests are about what the command hands it.
-  const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
-    ({ workspace: ref, pane }) => {
-      const ws = workspaces.find(
-        (w) => w.id === ref.id && w.instance === ref.instance,
-      );
-      if (!ws) return { kind: "gone" };
-      ws.panes.push(pane);
-      return { kind: "created" };
-    },
-  );
-  // Both answer whether they opened; the default is a free screen, and the
-  // refusal tests below override with `mockReturnValue(false)`.
-  const openSettings = vi.fn(() => true);
-  const openUsage = vi.fn(() => true);
-  const dispose = registerCoreCommands(registry, {
-    deck: () => deck,
-    agents: () => AGENTS,
-    requestCloseAgent,
-    suspendAgent,
-    resumeAgent,
-    createPane,
-    openSettings,
-    openUsage,
-  });
-  return {
-    registry,
-    deck,
-    requestCloseAgent,
-    suspendAgent,
-    resumeAgent,
-    createPane,
-    openSettings,
-    openUsage,
-    dispose,
-  };
-}
+import { deliverTask } from "./coreCommands";
 
 beforeEach(() => {
-  repoMode.isRepo = false;
-  repoMode.inspect = null;
-  settingsState.current = null;
+  resetCoreCommandTestState();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -161,10 +24,13 @@ afterEach(() => {
 
 describe("workspace commands", () => {
   it("lists workspaces with active flag and header titles", async () => {
-    const { registry } = setup([
+    const { registry, deck } = setup([
       workspace({ panes: [{ id: "p1", agentType: "claude" }] }),
       workspace({ id: "ws-2", name: "site", cwd: "/site" }),
     ]);
+    vi.mocked(deck.viewOf).mockImplementation((workspaceId) =>
+      workspaceId === "ws-1" ? { select: "p1" } : {},
+    );
     const result = await registry.execute("workspace.list", {}, HOST);
     expect(result.ok).toBe(true);
     if (result.ok)
@@ -174,6 +40,7 @@ describe("workspace commands", () => {
           name: "web",
           cwd: "/repo",
           active: true,
+          selectedPaneId: "p1",
           panes: [
             {
               id: "p1",
@@ -184,7 +51,14 @@ describe("workspace commands", () => {
             },
           ],
         },
-        { id: "ws-2", name: "site", cwd: "/site", active: false, panes: [] },
+        {
+          id: "ws-2",
+          name: "site",
+          cwd: "/site",
+          active: false,
+          selectedPaneId: null,
+          panes: [],
+        },
       ]);
   });
 
@@ -387,13 +261,14 @@ describe("agent.focus / agent.close / pane.write", () => {
     });
 
   it("focuses a pane by name in the active workspace", async () => {
-    const { registry, deck } = setup([twoPanes()]);
+    const { registry, deck, activatePane } = setup([twoPanes()]);
     const result = await registry.execute("agent.focus", { agent: "reviewer" }, HOST);
     expect(result).toEqual({
       ok: true,
       value: { workspaceId: "ws-1", paneId: "p2" },
     });
     expect(deck.selectPane).toHaveBeenCalledWith("ws-1", "p2");
+    expect(activatePane).toHaveBeenCalledWith("ws-1", "p2");
   });
 
   it("close opens the confirm dialog with the header's label", async () => {
@@ -519,6 +394,27 @@ describe("agent.focus / agent.close / pane.write", () => {
     off();
     expect(result.ok).toBe(true);
     expect(written).toEqual(["hello"]);
+  });
+
+  it("can activate the exact pane after a successful write", async () => {
+    const { registry, activatePane } = setup([twoPanes()]);
+    const off = registerPaneInput("p2", { write: () => {} });
+
+    const result = await registry.execute(
+      "pane.write",
+      {
+        workspace: "ws-1",
+        agent: "p2",
+        text: "dictated",
+        mode: "type",
+        focusInput: true,
+      },
+      HOST,
+    );
+    off();
+
+    expect(result.ok).toBe(true);
+    expect(activatePane).toHaveBeenCalledWith("ws-1", "p2");
   });
 
   it("explicit mode:'paste' routes through the paste channel (acceptance)", async () => {

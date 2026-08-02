@@ -70,6 +70,7 @@ function App() {
     minimizeStyle,
     openNotification,
     orchestrator,
+    paneViewActions,
     pluginDockTabs,
     pluginTopBarActions,
     pushAlert,
@@ -262,7 +263,7 @@ function App() {
             onForkSession={(wsId, record) => setForkDialog({ wsId, record })}
             browser={sessionsBrowser}
             onSelectPane={deck.selectPane}
-            onToggleFocus={deck.toggleFocus}
+            onToggleFocus={paneViewActions.toggleMaximize}
             onToggleMinimize={deck.toggleMinimize}
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}

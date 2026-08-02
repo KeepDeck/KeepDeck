@@ -45,6 +45,7 @@ import {
 import { fetchAppInfo, type AppInfo } from "../ipc/app";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
+import { createPaneViewActions } from "../presentation/paneViewActions";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
 export function useAppController() {
@@ -62,6 +63,10 @@ export function useAppController() {
       });
   }, []);
   const deck = useDeck(runtime.deckStore);
+  const paneViewActions = useMemo(
+    () => createPaneViewActions(deck.toggleFocus, runtime.paneInputFocus),
+    [deck.toggleFocus, runtime.paneInputFocus],
+  );
   const { agents, loading: agentsLoading } = useAgents();
   const installedPlugins = useInstalledPlugins(pluginHost);
   const unavailableReasons = useMemo(
@@ -307,7 +312,7 @@ export function useAppController() {
         deck.viewByWs,
         minimizeOn,
       );
-      if (target) deck.toggleFocus(target.wsId, target.paneId);
+      if (target) paneViewActions.toggleMaximize(target.wsId, target.paneId);
     },
     openSettings: () => void modal.openSettings(),
   });
@@ -362,6 +367,7 @@ export function useAppController() {
     minimizeStyle,
     openNotification,
     orchestrator,
+    paneViewActions,
     pluginDockTabs,
     pluginTopBarActions,
     pushAlert,

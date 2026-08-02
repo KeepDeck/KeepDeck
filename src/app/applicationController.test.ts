@@ -10,6 +10,7 @@ import { createDeckStore } from "./deckStore";
 import { createApplicationController } from "./applicationController";
 import type { createPluginManager } from "./pluginManager";
 import type { createAgentOrchestrator } from "./agentOrchestrator";
+import type { PaneInputFocusPort } from "./paneInputFocusPort";
 
 const workspace = (): Workspace => ({
   id: "ws-1",
@@ -45,6 +46,10 @@ function ui() {
   };
 }
 
+function paneInputFocus(): PaneInputFocusPort {
+  return { requestFocus: vi.fn() };
+}
+
 describe("application controller", () => {
   it("owns command registration and plugin bootstrap for its lifetime", async () => {
     const deck = createDeckStore();
@@ -54,6 +59,7 @@ describe("application controller", () => {
       deck,
       plugins,
       orchestrator,
+      paneInputFocus(),
       registry,
     );
     const view = ui();
@@ -91,10 +97,12 @@ describe("application controller", () => {
       },
     });
     const { plugins, orchestrator } = dependencies();
+    const focus = paneInputFocus();
     const controller = createApplicationController(
       deck,
       plugins,
       orchestrator,
+      focus,
       createCommandRegistry(),
     );
     const view = ui();
@@ -113,6 +121,7 @@ describe("application controller", () => {
       select: "pane-2",
     });
     expect(view.setCreating).toHaveBeenCalledWith(false);
+    expect(focus.requestFocus).toHaveBeenCalledWith("pane-2");
   });
 
   it("reports workspace-allocation failures through the bound UI", () => {
@@ -126,6 +135,7 @@ describe("application controller", () => {
       deck,
       plugins,
       orchestrator,
+      paneInputFocus(),
       createCommandRegistry(),
     );
     const view = ui();

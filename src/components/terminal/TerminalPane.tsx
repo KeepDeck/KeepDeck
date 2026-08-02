@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -30,6 +30,7 @@ import {
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
 import { useAppRuntime } from "../../app/runtimeContext";
+import { usePaneInputFocus } from "../../presentation/usePaneInputFocus";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */
@@ -98,7 +99,7 @@ export function TerminalPane({
   onSpawnError,
   onTitle,
 }: TerminalPaneProps) {
-  const { fileOpen } = useAppRuntime();
+  const { fileOpen, paneInputFocus } = useAppRuntime();
   // Scrollback comes straight from the settings store ([F6]) — no prop
   // threading through the grid. Loaded before panes can mount (App gates the
   // first paint on it); the fallback only covers isolated test mounts.
@@ -106,6 +107,15 @@ export function TerminalPane({
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const [inputVersion, setInputVersion] = useState(0);
+  const focusInput = useCallback(() => termRef.current?.focus(), []);
+  usePaneInputFocus(
+    paneInputFocus,
+    paneId,
+    inputVersion > 0 && visible && selected === true,
+    inputVersion,
+    focusInput,
+  );
   // Transient in-pane notice ([F16]) — "File not found" after a Cmd+click on a
   // stale path (or a failed open). Self-clears; anchored to the click point.
   const [hint, showHint] = useTransient<PaneHint>(HINT_MS);
@@ -159,6 +169,7 @@ export function TerminalPane({
     fit.fit();
     termRef.current = term;
     fitRef.current = fit;
+    setInputVersion((version) => version + 1);
 
     let lastCols = term.cols;
     let lastRows = term.rows;
@@ -393,10 +404,7 @@ export function TerminalPane({
     // clamp it to ~2 cols and rewrap the scrollback.
     if (host && hasSize(host)) fitRef.current?.fit();
     term?.refresh(0, term.rows - 1);
-    // Move keyboard focus to the highlighted pane when it comes on screen (e.g.
-    // after a workspace switch), so you can type without clicking first ([B2]).
-    if (selected) term?.focus();
-  }, [visible, selected]);
+  }, [visible]);
 
   // xterm owns every DOM node inside the host div, so the hint is a SIBLING of
   // the host (React must not reconcile children xterm appended).

@@ -15,6 +15,7 @@ import {
   workspaceForNotification,
 } from "./notificationNavigation";
 import type { createAgentOrchestrator } from "./agentOrchestrator";
+import type { PaneInputFocusPort } from "./paneInputFocusPort";
 
 type Plugins = ReturnType<typeof createPluginManager>;
 type Orchestrator = ReturnType<typeof createAgentOrchestrator>;
@@ -48,6 +49,7 @@ export function createApplicationController(
   deck: DeckStore,
   plugins: Plugins,
   orchestrator: Orchestrator,
+  paneInputFocus: PaneInputFocusPort,
   registry: CommandRegistry = commands,
 ): ApplicationController {
   const actions = createDeckActions(deck);
@@ -66,6 +68,12 @@ export function createApplicationController(
     ui?.setCreating(false);
   };
 
+  const activatePane = (wsId: string, paneId: string) => {
+    selectWorkspace(wsId);
+    actions.selectPane(wsId, paneId);
+    paneInputFocus.requestFocus(paneId);
+  };
+
   return {
     start() {
       if (started || disposed) return;
@@ -74,6 +82,7 @@ export function createApplicationController(
       unregisterCommands = registerCoreCommands(registry, {
         deck: () => readDeck(deck),
         agents: () => ui?.agents() ?? [],
+        activatePane,
         requestCloseAgent: (wsId, paneId, label) =>
           requireUi().requestCloseAgent(wsId, paneId, label),
         suspendAgent: orchestrator.suspend,
@@ -105,7 +114,6 @@ export function createApplicationController(
             workspace,
           );
           if (!target) return;
-          selectWorkspace(target.id);
           const view = state.viewByWs[target.id] ?? {};
           if (view.minimized?.includes(paneId)) {
             actions.toggleMinimize(target.id, paneId);
@@ -114,7 +122,9 @@ export function createApplicationController(
             actions.restoreSuspendedPane(target.id, paneId);
           }
           if (target.panes.some((pane) => pane.id === paneId)) {
-            actions.selectPane(target.id, paneId);
+            activatePane(target.id, paneId);
+          } else {
+            selectWorkspace(target.id);
           }
           return;
         }
