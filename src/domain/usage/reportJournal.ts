@@ -91,6 +91,11 @@ export function shouldRecord(
   return next.reportedAt - last.reportedAt >= HEARTBEAT_MS;
 }
 
+/** Forward reset movement beyond this is a NEW window instance; anything
+ * smaller is reporting jitter. Shared by the journal's segmentation and
+ * the exhaustion alarm's re-arm rule, so "same instance" can never fork. */
+export const INSTANCE_JUMP_MS = 60_000;
+
 /** A window INSTANCE boundary: usage fell (the window reset and started
  * refilling) or the reset instant moved forward past jitter (a new window
  * took over). The current segment is everything since the last boundary —
@@ -106,7 +111,7 @@ export function currentSegment(
     const resetJumped =
       item.resetsAt !== null &&
       prev.resetsAt !== null &&
-      item.resetsAt > prev.resetsAt + 60_000;
+      item.resetsAt > prev.resetsAt + INSTANCE_JUMP_MS;
     if (dropped || resetJumped) start = index;
   }
   return reports.slice(start);

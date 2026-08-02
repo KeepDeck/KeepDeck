@@ -1,5 +1,5 @@
 import { windowLabel, windowResetCaption } from "./format";
-import { currentSegment, type WindowReport } from "./reportJournal";
+import { INSTANCE_JUMP_MS, type WindowReport } from "./reportJournal";
 import type { AccountUsage } from "./usage";
 import { accountWindowForecasts, runOutCountdown } from "./windowForecast";
 
@@ -18,18 +18,26 @@ import { accountWindowForecasts, runOutCountdown } from "./windowForecast";
  */
 
 /** The fired memory per window key: the instance the alarm sounded for,
- * identified the journal's own way — the first report of the window's
- * current segment ([`currentSegment`]). `resetsAt` was the WRONG identity:
- * clockless plan windows (kimi's quota) carry null forever, so a topped-up
- * balance burning hot again could never re-alarm, while a sub-jitter reset
- * drift the journal treats as the SAME instance would re-fire a duplicate.
- * The anchor can outrun a fired memory only when retention prunes the
- * segment's head mid-instance — for rate windows retention is 1.5 window
- * lengths, so the instance is over first; for plan windows that costs at
- * worst one repeated (tag-replaced) alarm a week. */
+ * read off the WINDOW REPORT'S OWN VALUES fold over fold — a reset instant
+ * that jumps forward past jitter ([`INSTANCE_JUMP_MS`], the journal's own
+ * boundary rule), or a balance refilled well below the alarm-era peak.
+ * Deliberately NOT the journal's segment slice: retention pruning moves a
+ * segment's head mid-instance (one alarm PER REPORT on an aged plan-window
+ * journal), and a 1–2pp cross-pane correction restarts a segment without
+ * any reset — both turned one alarm into a drumbeat. Held records track
+ * the drifting reset and the rising peak, so identity compares one fold's
+ * STEP, never an accumulation. */
 export interface ExhaustionAlert {
-  anchor: number;
+  resetsAt: number | null;
+  peakUsedPct: number;
 }
+
+/** A drop from the alarm-era peak this deep is a refill/top-up — a NEW
+ * allowance worth a fresh alarm. Deeper than the journal's 1pp segment
+ * boundary on purpose: segmentation protects pace math and wants every
+ * dip; re-arming faces the user and must shrug off cross-pane corrections
+ * (~1–2pp in the field). Any real top-up moves far more than this. */
+const REFILL_DROP_PCT = 5;
 
 export type ExhaustionAlerts = ReadonlyMap<string, ExhaustionAlert>;
 
@@ -55,36 +63,47 @@ export function foldExhaustionAlerts(
     const rows = accountWindowForecasts(agent, account, byKey, now);
     for (const row of rows.values()) {
       const fired = prev.get(row.key);
-      const segment = currentSegment(row.reports);
-      const anchor = segment.length > 0 ? segment[0].reportedAt : null;
+      const window = row.window;
+      // Did THIS fold's step end the fired instance? A reset jumping past
+      // jitter, or the balance refilled well under the alarm-era peak.
+      const newInstance =
+        fired !== undefined &&
+        ((fired.resetsAt !== null &&
+          window.resetsAt !== null &&
+          window.resetsAt > fired.resetsAt + INSTANCE_JUMP_MS) ||
+          window.usedPct < fired.peakUsedPct - REFILL_DROP_PCT);
       const forecast = row.forecast;
       if (
         forecast.kind === "out" &&
         forecast.level === "critical" &&
-        anchor !== null &&
-        (fired === undefined || fired.anchor !== anchor)
+        (fired === undefined || newInstance)
       ) {
         notices.push({
           key: row.key,
           // The one run-out phrase, composed for a notification — the
           // alarm never invents a second wording for the fact.
-          title: `${agent} ${windowLabel(row.window, "long")} window ${
+          title: `${agent} ${windowLabel(window, "long")} window ${
             runOutCountdown(forecast.outAt, now)
           }`,
-          body: windowResetCaption(row.window, now, "long"),
+          body: windowResetCaption(window, now, "long"),
         });
-        alerts.set(row.key, { anchor });
-      } else if (
-        fired !== undefined &&
-        fired.anchor === anchor &&
-        forecast.kind !== "ok"
-      ) {
-        alerts.set(row.key, fired);
+        alerts.set(row.key, {
+          resetsAt: window.resetsAt ?? null,
+          peakUsedPct: window.usedPct,
+        });
+      } else if (fired !== undefined && !newInstance && forecast.kind !== "ok") {
+        // Re-anchor to the CURRENT values: sub-jitter drift and rising
+        // usage must never accumulate into a false instance change.
+        alerts.set(row.key, {
+          resetsAt: window.resetsAt ?? null,
+          peakUsedPct: Math.max(fired.peakUsedPct, window.usedPct),
+        });
       }
-      // Anything else drops the memory: a real recovery, a new segment the
-      // alarm outlived, or a series pruned away whole. Keys absent from the
-      // accounts drop implicitly — an account returning still-critical
-      // earns a fresh alarm.
+      // Anything else drops the memory: a real recovery, or an instance
+      // the alarm outlived while the pace is not critical (the next
+      // critical then fires fresh). Keys absent from the accounts drop
+      // implicitly — an account returning still-critical earns a fresh
+      // alarm.
     }
   }
   return { alerts, notices };

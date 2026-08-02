@@ -58,8 +58,8 @@ const seriesOf = (
 const CRITICAL = () => ramp(1, 88);
 const WARN = () => ramp(0.15, 88);
 const OK = () => ramp(0.05, 88);
-/** CRITICAL()'s segment head — the anchor every held alarm carries. */
-const ANCHOR = NOW - 40 * MIN;
+/** The record a FIVE_H alarm fires and holds with. */
+const FIRED_88 = { resetsAt: FIVE_H.resetsAt, peakUsedPct: 88 };
 
 describe("foldExhaustionAlerts", () => {
   const NONE: ExhaustionAlerts = new Map();
@@ -94,10 +94,9 @@ describe("foldExhaustionAlerts", () => {
       NOW,
     );
     expect(second.notices).toHaveLength(0);
-    // The instance anchor is the journal's: the segment's first report.
-    expect(second.alerts.get(keyOf(windows))).toEqual({
-      anchor: NOW - 40 * MIN,
-    });
+    // The instance identity is the window's own values, tracked fold
+    // over fold.
+    expect(second.alerts.get(keyOf(windows))).toEqual(FIRED_88);
   });
 
   it("stays quiet on warn and ok verdicts", () => {
@@ -129,7 +128,7 @@ describe("foldExhaustionAlerts", () => {
       NOW,
     );
     expect(eased.notices).toHaveLength(0);
-    expect(eased.alerts.get(keyOf(windows))).toEqual({ anchor: ANCHOR });
+    expect(eased.alerts.get(keyOf(windows))).toEqual(FIRED_88);
     const reCritical = foldExhaustionAlerts(
       eased.alerts,
       accountsOf(windows),
@@ -182,7 +181,7 @@ describe("foldExhaustionAlerts", () => {
       later,
     );
     expect(gap.notices).toHaveLength(0);
-    expect(gap.alerts.get(keyOf(windows))).toEqual({ anchor: NOW - 40 * MIN });
+    expect(gap.alerts.get(keyOf(windows))).toEqual(FIRED_88);
     // Reports resume inside the same burning segment — the alarm holds.
     const resumed = [...series, report({ reportedAt: later, usedPct: 95 })];
     const back = foldExhaustionAlerts(
@@ -202,24 +201,75 @@ describe("foldExhaustionAlerts", () => {
       seriesOf(windows, CRITICAL()),
       NOW,
     );
-    // The window reset: new anchor, and the fresh segment burns hot too.
+    // The window reset: the reset anchor jumps a real distance, and the
+    // fresh instance burns hot too. (The journal stays monotonic — new
+    // reports land AFTER the old ones, as production guarantees.)
+    const later = NOW + 15 * MIN;
     const nextWindow: UsageWindow = { ...FIVE_H, resetsAt: NOW + 300 * MIN };
     const nextSeries = [
       ...CRITICAL(),
-      report({ reportedAt: NOW - 10 * MIN, usedPct: 70, resetsAt: NOW + 300 * MIN }),
-      report({ reportedAt: NOW, usedPct: 88, resetsAt: NOW + 300 * MIN }),
+      report({ reportedAt: NOW + 5 * MIN, usedPct: 70, resetsAt: NOW + 300 * MIN }),
+      report({ reportedAt: later, usedPct: 88, resetsAt: NOW + 300 * MIN }),
     ];
     const next = foldExhaustionAlerts(
       fired.alerts,
       accountsOf([nextWindow]),
       seriesOf([nextWindow], nextSeries),
-      NOW,
+      later,
     );
     expect(next.notices).toHaveLength(1);
-    // The anchor moved to the post-reset segment's first report.
     expect(next.alerts.get(keyOf([nextWindow]))).toEqual({
-      anchor: NOW - 10 * MIN,
+      resetsAt: nextWindow.resetsAt,
+      peakUsedPct: 88,
     });
+  });
+
+  it("survives retention pruning the series' head — no drumbeat", () => {
+    const windows = [FIVE_H];
+    const fired = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    // Retention ate the two oldest reports; the window itself is
+    // unchanged. A journal-slice identity re-fired here on EVERY report.
+    const pruned = CRITICAL().slice(2);
+    const held = foldExhaustionAlerts(
+      fired.alerts,
+      accountsOf(windows),
+      seriesOf(windows, pruned),
+      NOW,
+    );
+    expect(held.notices).toHaveLength(0);
+  });
+
+  it("holds through a sub-refill dip — a correction is not a top-up", () => {
+    const windows = [FIVE_H];
+    const fired = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    // A 1.5pp cross-pane correction restarts the journal's SEGMENT (pace
+    // math wants that sensitivity) — but it is no new allowance, so the
+    // alarm must hold.
+    const later = NOW + 8 * MIN;
+    const dipped: UsageWindow = { ...FIVE_H, usedPct: 92 };
+    const dipSeries = [
+      ...CRITICAL(),
+      report({ reportedAt: NOW + 2 * MIN, usedPct: 86.5 }),
+      report({ reportedAt: NOW + 6 * MIN, usedPct: 90 }),
+      report({ reportedAt: later, usedPct: 92 }),
+    ];
+    const held = foldExhaustionAlerts(
+      fired.alerts,
+      accountsOf([dipped]),
+      seriesOf([dipped], dipSeries),
+      later,
+    );
+    expect(held.notices).toHaveLength(0);
   });
 
   it("re-arms after a top-up — a clockless plan window alarms again", () => {
@@ -252,10 +302,11 @@ describe("foldExhaustionAlerts", () => {
       report({ windowMinutes: null, resetsAt: null, reportedAt: NOW + 5 * MIN, usedPct: 10 }),
       report({ windowMinutes: null, resetsAt: null, reportedAt: later - 5 * MIN, usedPct: 40 }),
     ];
+    const refreshed: UsageWindow = { ...quota, usedPct: 40 };
     const again = foldExhaustionAlerts(
       fired.alerts,
-      accountsOf(windows, "kimi"),
-      seriesOf(windows, topped, "kimi"),
+      accountsOf([refreshed], "kimi"),
+      seriesOf([refreshed], topped, "kimi"),
       later,
     );
     expect(again.notices).toHaveLength(1);
@@ -308,7 +359,7 @@ describe("foldExhaustionAlerts", () => {
     expect(notices).toHaveLength(1);
     expect(notices[0].key).toBe(keyOf(windows));
     expect(alerts.size).toBe(1);
-    expect(alerts.get(keyOf(windows))).toEqual({ anchor: ANCHOR });
+    expect(alerts.get(keyOf(windows))).toEqual(FIRED_88);
   });
 
   it("drops the memory when the account stops reporting — and re-alarms on return", () => {
@@ -356,7 +407,7 @@ describe("foldExhaustionAlerts", () => {
       later,
     );
     expect(expired.notices).toHaveLength(0);
-    expect(expired.alerts.get(keyOf(windows))).toEqual({ anchor: ANCHOR });
+    expect(expired.alerts.get(keyOf(windows))).toEqual(FIRED_88);
   });
 
   it("drops a vanished window's memory while the account keeps reporting", () => {
