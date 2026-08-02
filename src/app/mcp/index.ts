@@ -265,13 +265,21 @@ export function createMcpService(
       // the merge would swallow it.
       for (const root of armedRoots) byRoot.delete(root);
       armedRoots.clear();
-      for (const refusal of refusals) byRoot.set(refusal.root, refusal);
-      // Everything this pass did not speak for has to still have a pane in it.
-      // THIS pass's roots are exempt: a resume or a fork plants before its
-      // pane lands, so the deck cannot count it yet.
+      for (const refusal of refusals) {
+        byRoot.set(refusal.root, refusal);
+        // Noted AT RECORD TIME, because that is the only moment that tells
+        // the two cases apart: a fresh spawn's pane is already in the deck,
+        // a resume's or a fork's is not. Without it every refusal would look
+        // like the second and none would ever be prunable.
+        if (deps.panesIn(refusal.root) > 0) landed.add(refusal.root);
+      }
+      // Everything this pass did not speak for is judged by the same rule the
+      // settings surface applies — a refusal survives until its pane has been
+      // SEEN and then gone. THIS pass's roots skip even that: they were just
+      // refused, and a resume or fork plants before its pane lands.
       const fresh = new Set(refusals.map((refusal) => refusal.root));
       const refused = [...byRoot.values()].filter(
-        (refusal) => fresh.has(refusal.root) || deps.panesIn(refusal.root) > 0,
+        (refusal) => fresh.has(refusal.root) || worthShowing(refusal.root),
       );
       // Compared by CONTENT: a refusal whose reason changed — the user
       // deleted their file but the directory is read-only now — keeps the
@@ -316,14 +324,30 @@ export function createMcpService(
       });
   }
 
-  /** Refusals for directories a live pane still runs in. The list is keyed by
-   * directory and cleared only by a later successful arming of that same
-   * directory, so without this it names folders whose pane closed hours ago
-   * and grows for the life of the session. */
+  /** Directories the deck has counted a pane in since we refused there. Until
+   * it has, "no pane runs here" cannot mean the pane went away — it means the
+   * pane has not LANDED. A resume or a fork plants before it does, and those
+   * refusals are the ones that matter most: the pane silently has no servers
+   * and this list is the only place that says so. */
+  const landed = new Set<string>();
+
+  /** Refusals worth still showing. The list is keyed by directory and cleared
+   * only by a later successful arming of that same directory, so without this
+   * it names folders whose pane closed hours ago and grows for the life of the
+   * session — but a refusal is dropped only once its pane has been seen, and
+   * then gone. */
+  function worthShowing(root: string): boolean {
+    if (deps.panesIn(root) > 0) {
+      landed.add(root);
+      return true;
+    }
+    return !landed.has(root);
+  }
+
   function stillRunning(
     refusals: readonly { root: string; reason: string }[],
   ): { root: string; reason: string }[] {
-    return refusals.filter((refusal) => deps.panesIn(refusal.root) > 0);
+    return refusals.filter((refusal) => worthShowing(refusal.root));
   }
 
   void pump.ready.then((registered) => {

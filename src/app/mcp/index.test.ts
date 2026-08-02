@@ -190,6 +190,35 @@ describe("createMcpService", () => {
     expect(service.status().refused).toEqual([]);
   });
 
+  it("keeps a refusal for a pane the deck has not counted yet", async () => {
+    // A resume and a fork both plant BEFORE their pane lands, so "no pane runs
+    // here" cannot mean the pane went away — and that refusal is the one that
+    // matters most: the pane silently has no servers, and this list is the
+    // only place saying so. Pruning by the live count alone dropped it the
+    // moment the user opened Settings, or any other pane armed anywhere.
+    const h = harness({ initial: true });
+    h.deps.panesIn = () => 0; // the fork's pane has not landed
+    h.deps.plant = async ({ root }) => ({
+      armed: [],
+      refused: [{ root, reason: "theirs" }],
+    });
+    const service = createMcpService(h.settings, h.deps);
+    await flush();
+
+    await (await service.access({ ...fileFed, cwd: "/fork" })).deliver();
+    expect(service.status().refused.map((r) => r.root)).toEqual(["/fork"]);
+
+    service.refresh();
+    expect(service.status().refused.map((r) => r.root)).toEqual(["/fork"]);
+
+    // Another pane arming elsewhere must not evict it either.
+    await (await service.access({ ...fileFed, cwd: "/other" })).deliver();
+    expect(service.status().refused.map((r) => r.root)).toEqual([
+      "/fork",
+      "/other",
+    ]);
+  });
+
   it("says nothing more once disposed, even for a transition already in flight", async () => {
     // The callback rides the policy's own chain, so an enable settling after
     // teardown used to publish to listeners a disposed page never dropped and

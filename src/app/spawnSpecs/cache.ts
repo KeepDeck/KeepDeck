@@ -95,7 +95,13 @@ export async function buildAndCache(
     // not have written a config naming a secret this cache never holds.
     // Before the listeners, because one of them is what starts the process
     // that reads the file.
-    await built.deliver();
+    //
+    // Its failure is NOT this build's failure. The plan is installed and
+    // correct; a delivery that could not land costs the pane its servers,
+    // never its process — and the delivery reports its own reasons. Guarded
+    // rather than trusted: the contract says it never rejects, but a rejection
+    // reaching the catch below would mark this pane cached AND failed at once.
+    await built.deliver().catch(() => {});
     notifySpecs();
     return true;
   } catch (error) {

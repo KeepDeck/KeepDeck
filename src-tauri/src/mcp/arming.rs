@@ -131,17 +131,26 @@ fn arm_one(entry: &McpArmEntry) -> io::Result<Option<String>> {
             entry.name,
         )));
     }
+    // Whether the claim is OURS TO UNDO. A re-arm of a cwd we already own must
+    // not roll back on failure: the marker and config were there before this
+    // call, and removing the marker while its config survives would leave a
+    // KeepDeck file no disarm can find and no later arm will overwrite — it
+    // reads as the user's from then on, and we would have locked ourselves out
+    // of a directory while leaving our own file in it.
+    let claimed_before = marker.exists();
     // The marker NAMES what it claims: a disarm is handed a directory and
     // nothing else, so this is how it knows which file it may remove and
     // which the agent keeps its own state in.
     write_atomic(&marker, entry.name.as_bytes())?;
     if let Err(e) = write_atomic(&config, entry.content.as_bytes()) {
-        // The marker is a CLAIM on the config beside it. Left behind without
-        // that config it is unreachable litter: no exclude line (that comes
-        // below), no manifest entry (this cwd refuses), and every later pass
-        // reads it as "ours" for a file that is not there.
-        let _ = fs::remove_file(&marker);
-        let _ = fs::remove_dir(&dir);
+        // A claim THIS call created, with no config beside it, is unreachable
+        // litter: no exclude line (that comes below), no manifest entry (this
+        // cwd refuses), and every later pass reads it as ours for a file that
+        // is not there.
+        if !claimed_before {
+            let _ = fs::remove_file(&marker);
+            let _ = fs::remove_dir(&dir);
+        }
         return Err(e);
     }
     if let Err(e) = ensure_excluded(cwd, planted) {
@@ -156,9 +165,12 @@ fn arm_one(entry: &McpArmEntry) -> io::Result<Option<String>> {
 /// in it after its files are gone is a claim on a directory nothing owns any
 /// more — and `claimed_by_others` would spare a dead workspace's real arming
 /// on the strength of it.
+/// Only the cwds whose files ACTUALLY went are forgotten. Forgetting one whose
+/// planting survived would strand it: nothing records it any more, so no boot
+/// sweep can ever find it again.
 pub(crate) fn disarm(root: &Path, cwds: &[String]) -> io::Result<()> {
-    let result = disarm_files(cwds);
-    forget_armed(root, cwds, "mcp");
+    let (cleared, result) = disarm_files(cwds);
+    forget_armed(root, &cleared, "mcp");
     result
 }
 
@@ -174,49 +186,97 @@ pub(crate) fn disarm(root: &Path, cwds: &[String]) -> io::Result<()> {
 ///
 /// The manifest is NOT touched here: the prune path deletes the whole record
 /// itself, so only [`disarm`] — the per-directory caller — owes a forget.
-fn disarm_files(cwds: &[String]) -> io::Result<()> {
+///
+/// Returns the cwds it got all the way through, alongside the first error. One
+/// bad directory must not strand the rest: it used to return early, and the
+/// caller forgot every cwd it had been given regardless — so a planting that
+/// was never touched lost the only record that could find it again.
+fn disarm_files(cwds: &[String]) -> (Vec<String>, io::Result<()>) {
+    let mut cleared = Vec::new();
+    let mut failure: io::Result<()> = Ok(());
     for cwd in cwds {
-        let entries = match fs::read_dir(cwd) {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == ErrorKind::NotFound => continue,
-            Err(e) => return Err(e),
-        };
-        for child in entries.flatten() {
-            let dir = child.path();
-            if !dir.is_dir() {
-                continue;
-            }
-            let marker = dir.join(MARKER_FILE);
-            let Ok(claimed) = fs::read_to_string(&marker) else {
-                continue;
-            };
-            let claimed = claimed.trim();
-            if !claimed.is_empty() {
-                match fs::remove_file(dir.join(claimed)) {
-                    Err(e) if e.kind() == ErrorKind::NotFound => {}
-                    other => other?,
+        match disarm_one(Path::new(cwd)) {
+            Ok(()) => cleared.push(cwd.clone()),
+            Err(e) => {
+                log::warn!("mcp: disarming {cwd} failed: {e}");
+                if failure.is_ok() {
+                    failure = Err(e);
                 }
             }
-            match fs::remove_file(&marker) {
-                Err(e) if e.kind() == ErrorKind::NotFound => {}
-                other => other?,
-            }
-            // Only vanishes when our two files were its whole content — the
-            // agent may keep state of its own in there.
-            let _ = fs::remove_dir(&dir);
-            let planted = child.file_name().to_string_lossy().into_owned();
-            if let Err(e) = remove_excluded(Path::new(cwd), &planted) {
-                log::warn!("mcp: exclude cleanup for {cwd} failed: {e}");
-            }
+        }
+    }
+    (cleared, failure)
+}
+
+/// Take our plantings out of ONE cwd.
+fn disarm_one(cwd: &Path) -> io::Result<()> {
+    let entries = match fs::read_dir(cwd) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    for child in entries.flatten() {
+        let dir = child.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let marker = dir.join(MARKER_FILE);
+        let Ok(claimed) = fs::read_to_string(&marker) else {
+            continue;
+        };
+        // The marker's CONTENT becomes a path component, and this scans every
+        // direct child of a directory the user opened — so the content is
+        // repo-supplied and must be validated as strictly as any other input.
+        // `Path::join` REPLACES the base on an absolute argument, and `..`
+        // climbs out of the directory we own: unchecked, a `.keepdeck-managed`
+        // committed to a repository could name any file on disk for deletion.
+        // A plain file name, or we touch nothing here.
+        let Some(name) = plain_file_name(claimed.trim()) else {
+            log::warn!(
+                "mcp: {} claims {:?}, which is not a plain file name — left alone",
+                dir.display(),
+                claimed.trim(),
+            );
+            continue;
+        };
+        match fs::remove_file(dir.join(name)) {
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            other => other?,
+        }
+        match fs::remove_file(&marker) {
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            other => other?,
+        }
+        // Only vanishes when our two files were its whole content — the
+        // agent may keep state of its own in there.
+        let _ = fs::remove_dir(&dir);
+        let planted = child.file_name().to_string_lossy().into_owned();
+        if let Err(e) = remove_excluded(cwd, &planted) {
+            log::warn!("mcp: exclude cleanup for {} failed: {e}", cwd.display());
         }
     }
     Ok(())
 }
 
+/// `Some(name)` when `claimed` is one ordinary file name — no separators, no
+/// `.`/`..`, not absolute, not empty.
+fn plain_file_name(claimed: &str) -> Option<&str> {
+    if claimed.is_empty() {
+        return None;
+    }
+    match Path::new(claimed).file_name() {
+        Some(name) if name == claimed => Some(claimed),
+        _ => None,
+    }
+}
+
 /// Sweep the cwds of workspaces that are gone — the crash path, where the deck
 /// no longer knows the directories but the manifest does.
 pub(crate) fn prune(root: &Path, live: &[String]) -> io::Result<()> {
-    prune_manifests(root, live, "mcp", disarm_files)
+    // The prune deletes each dead key's whole manifest itself, so what it
+    // needs back is only whether the pass worked — the cleared set is the
+    // per-directory caller's business.
+    prune_manifests(root, live, "mcp", |cwds| disarm_files(cwds).1)
 }
 
 /// Plant the MCP config in the given pane cwds — the only door for a CLI that
@@ -452,6 +512,92 @@ mod tests {
         assert_eq!(
             not_ours.refused[0].reason,
             ".kimi-code/mcp.json here is not KeepDeck's",
+        );
+    }
+
+    #[test]
+    fn a_marker_can_only_ever_name_a_file_beside_itself() {
+        // The marker's content becomes a path component, and a disarm scans
+        // EVERY direct child of a directory the user opened — so the content
+        // is repo-supplied. `Path::join` replaces the base on an absolute
+        // argument and `..` climbs out, so a `.keepdeck-managed` committed to
+        // a repository could otherwise name any file on disk for deletion.
+        let (_tmp, root, cwd) = scratch();
+        let victim = cwd.join("precious.txt");
+        fs::write(&victim, "the user's").unwrap();
+        let outside = cwd.parent().unwrap().join("outside.txt");
+        fs::write(&outside, "not even in the repo").unwrap();
+
+        for payload in [
+            "../precious.txt",
+            "../../outside.txt",
+            outside.to_string_lossy().as_ref(), // absolute: join REPLACES
+            "nested/thing",
+            ".",
+            "..",
+        ] {
+            let planted = cwd.join("vendor");
+            fs::create_dir_all(&planted).unwrap();
+            fs::write(planted.join(".keepdeck-managed"), payload).unwrap();
+
+            disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
+
+            assert!(victim.exists(), "{payload} deleted a file beside the cwd");
+            assert!(outside.exists(), "{payload} deleted a file outside the cwd");
+            // And the marker it could not act on is left exactly as found.
+            assert!(planted.join(".keepdeck-managed").exists(), "{payload}");
+        }
+    }
+
+    #[test]
+    fn a_failed_cwd_does_not_strand_the_others_record() {
+        // One unreadable directory used to abort the whole pass while the
+        // caller forgot every cwd it was given — so a planting nothing had
+        // touched lost the only record that could ever find it again.
+        let (_tmp, root, cwd) = scratch();
+        let second = cwd.parent().unwrap().join("second");
+        fs::create_dir_all(&second).unwrap();
+        arm(&root, &[entry(&cwd, "{}"), entry(&second, "{}")]);
+        // A cwd that is now a FILE: `read_dir` fails with something other than
+        // NotFound.
+        let broken = cwd.parent().unwrap().join("broken");
+        fs::write(&broken, "not a directory").unwrap();
+
+        let _ = disarm(
+            &root,
+            &[
+                broken.to_string_lossy().into_owned(),
+                cwd.to_string_lossy().into_owned(),
+                second.to_string_lossy().into_owned(),
+            ],
+        );
+
+        // Both real cwds were cleared despite the bad one leading the list.
+        assert!(!cwd.join(".kimi-code").exists());
+        assert!(!second.join(".kimi-code").exists());
+        assert!(!root.join("armed").join("ws-1").exists());
+    }
+
+    #[test]
+    fn a_re_arm_that_fails_keeps_the_claim_it_did_not_make() {
+        // Rolling back a claim this call did not create leaves a KeepDeck
+        // config with no marker: no disarm can find it, and every later arm
+        // reads it as the user's — we lock ourselves out of the directory and
+        // leave our own file in it.
+        let (_tmp, root, cwd) = scratch();
+        arm(&root, &[entry(&cwd, "{\"first\":true}")]);
+        let dir = cwd.join(".kimi-code");
+        assert!(dir.join(".keepdeck-managed").exists());
+
+        // The config path becomes a DIRECTORY, so rewriting it fails.
+        fs::remove_file(dir.join("mcp.json")).unwrap();
+        fs::create_dir(dir.join("mcp.json")).unwrap();
+        let report = arm(&root, &[entry(&cwd, "{\"second\":true}")]);
+
+        assert_eq!(report.refused.len(), 1);
+        assert!(
+            dir.join(".keepdeck-managed").exists(),
+            "a claim we already held must survive a failed re-arm",
         );
     }
 
