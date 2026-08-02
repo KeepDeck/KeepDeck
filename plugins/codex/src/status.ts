@@ -15,9 +15,12 @@ import {
  * interrupt pushes no hook either — that edge arrives from the host's
  * rollout tailer as `kind: "session.interrupt"` (marker = a record of TYPE
  * `turn_aborted`, so assistant text can't trip it), stamped with the
- * marker's own time and carrying codex's abort reason: only "interrupted"
- * is the user's hand, every other abort still ENDS the turn but labelling
- * it "Interrupted" would claim an Esc nobody pressed.
+ * marker's own time. EVERY abort reason maps to `interrupted`, not just
+ * the user's Esc: an aborted turn did not complete, and `turn-end` would
+ * announce "finished" for a turn that was cut — the smaller lie is a
+ * quiet "Interrupted" (whose announce is suppressed by design). In the
+ * common non-Esc case ("replaced") a new turn's own edge follows at once
+ * and settles the display anyway.
  */
 export const normalizeCodexStatus: StatusNormalizer = (
   payload,
@@ -25,10 +28,7 @@ export const normalizeCodexStatus: StatusNormalizer = (
 ): AgentStatusEvent | null => {
   if (!isJsonRecord(payload)) return null;
   if (payload.kind === "session.interrupt") {
-    const instant = statusSourceInstant(payload, at);
-    return payload.reason === "interrupted"
-      ? { kind: "interrupted", at: instant }
-      : { kind: "turn-end", at: instant };
+    return { kind: "interrupted", at: statusSourceInstant(payload, at) };
   }
   if (!isJsonRecord(payload.event)) return null;
   switch (payload.event.hook_event_name) {

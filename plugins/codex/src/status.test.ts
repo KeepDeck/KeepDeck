@@ -16,8 +16,7 @@ describe("normalizeCodexStatus", () => {
     ).toEqual({ kind: "waiting", at: 300, reason: "permission" });
   });
 
-  it("maps the rollout tailer's marker by its reason, at its own time", () => {
-    // Only "interrupted" is the user's hand.
+  it("maps every abort marker to interrupted, at its own time", () => {
     expect(
       normalizeCodexStatus(
         {
@@ -29,13 +28,14 @@ describe("normalizeCodexStatus", () => {
         400,
       ),
     ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-01T10:00:00Z") });
-    // Any other abort still ENDS the turn — but nobody pressed Esc.
+    // A non-Esc abort did not COMPLETE either — "Done" would announce a
+    // finish nobody got; the quiet "Interrupted" is the smaller lie.
     expect(
       normalizeCodexStatus(
         { agent: "codex", kind: "session.interrupt", reason: "budget_exceeded" },
         400,
       ),
-    ).toEqual({ kind: "turn-end", at: 400 });
+    ).toEqual({ kind: "interrupted", at: 400 });
     // No usable source time falls back to receipt.
     expect(
       normalizeCodexStatus(
