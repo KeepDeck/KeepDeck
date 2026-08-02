@@ -18,6 +18,7 @@ mod mcp_server;
 mod mcp_shim;
 mod menu;
 mod migration;
+mod notify_identity;
 mod paths;
 mod plugins_fs;
 mod plugins_fs_write;
@@ -112,6 +113,10 @@ pub fn run() {
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();
+            // Before anything can post a banner: the notification stack gets
+            // exactly one chance to resolve who we are, and takes it lazily
+            // on the first banner (see `notify_identity`).
+            notify_identity::prepare(&app.config().identifier);
             // The updater's config (pubkey + endpoints) lives only in the
             // release overlay (tauri.release.conf.json); a dev build carries
             // no `plugins.updater` section and the plugin refuses to init
