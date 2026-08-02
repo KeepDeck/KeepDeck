@@ -9,9 +9,11 @@ import type { WindowForecast } from "../../domain/usage/windowForecast";
  * exactly like the fill bar is. The domain hands normalized geometry (x:
  * window start→reset, y: 0→100%); this component only maps it onto one of
  * two plots. The card plot is a full chart with axis labels; the popover
- * plot is a bare sparkline and only renders once there is a projection to
- * glance at — an empty box under every quiet bar is noise, not signal.
- * Decorative by contract (aria-hidden): the caption carries the words.
+ * plot is a bare sparkline. BOTH render only once there is a projection to
+ * draw: the curve exists to explain the verdict, and without a pace the
+ * window-length axis dwarfs minutes of observations into a floating speck
+ * inside an empty frame (live-verified). Decorative by contract
+ * (aria-hidden): the caption carries the words.
  */
 
 const SIZES = {
@@ -35,10 +37,8 @@ export function WindowBurn({
   size?: keyof typeof SIZES;
 }) {
   const geometry = windowBurn(reports, window, forecast, now);
-  // A single observation is not a curve — wait for history instead of
-  // drawing a floating dot.
   if (geometry === null || geometry.observed.length < 2) return null;
-  if (size === "compact" && geometry.projected === null) return null;
+  if (geometry.projected === null) return null;
   const box = SIZES[size];
   const x = (value: number) => box.left + value * (box.right - box.left);
   const y = (value: number) => box.bottom - value * (box.bottom - box.top);
@@ -47,8 +47,6 @@ export function WindowBurn({
   const line = (points: readonly { x: number; y: number }[]) =>
     points.map((point) => `${x(point.x).toFixed(1)},${y(point.y).toFixed(1)}`).join(" ");
   const newest = geometry.observed[geometry.observed.length - 1];
-  // Keep the "now" label clear of the axis corners.
-  const nowLabelX = Math.min(box.right - 18, Math.max(box.left + 14, x(newest.x)));
 
   return (
     <svg
@@ -91,9 +89,6 @@ export function WindowBurn({
           </text>
           <text x={box.right} y={box.height - 6} textAnchor="end">
             reset
-          </text>
-          <text x={nowLabelX} y={box.height - 6} textAnchor="middle">
-            now
           </text>
         </g>
       )}
