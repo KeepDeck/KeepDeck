@@ -72,14 +72,6 @@ export function windowForecast(
   if (tail.length < 2) return { kind: "unknown" };
   const first = tail[0];
   const last = tail[tail.length - 1];
-  // Reports flow at least every HEARTBEAT_MS while a provider is being
-  // polled; a longer silence means the data STOPPED, and extrapolating a
-  // dead stream as ongoing consumption painted a red "runs out in ~0m"
-  // over an idle account. (The 30-minute usageStale guard below stays as
-  // the belt for surfaces that render without a forecast.)
-  if (now - last.reportedAt > HEARTBEAT_MS + 60_000) {
-    return { kind: "unknown" };
-  }
   // A stale journal is dead data — extrapolating it would be a lie, the
   // same rule every stale surface follows (usageStale is the one home).
   if (usageStale(last.reportedAt, now)) return { kind: "unknown" };
@@ -91,7 +83,15 @@ export function windowForecast(
   if (pace <= 0) return { kind: "ok", outAt: null };
   const outAt = last.reportedAt + (100 - last.usedPct) / pace;
   if (outAt <= now) {
-    // Already at the wall by extrapolation — imminent by definition.
+    // The extrapolation says the wall is already here. That is only
+    // credible while reports still flow: with a silent stream (claude is
+    // push-stamped and can sit quiet through a long tool call) the honest
+    // answer is "don't know", not a red "runs out in ~0m" over an idle
+    // account. A verdict computed from a FRESH tail stands untouched
+    // through the same silence — only this escalation needs freshness.
+    if (now - last.reportedAt > HEARTBEAT_MS + 60_000) {
+      return { kind: "unknown" };
+    }
     return { kind: "out", outAt: now, level: "critical", beforeResetMs:
       window.resetsAt !== null ? Math.max(0, window.resetsAt - now) : null };
   }

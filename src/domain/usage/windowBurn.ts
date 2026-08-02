@@ -78,7 +78,8 @@ export function windowBurn(
   const tEnd = projEndAt ?? now;
   if (tEnd <= tMin) return null;
 
-  const observedMax = segment.reduce(
+  const drawn = sampleReports(segment);
+  const observedMax = drawn.reduce(
     (max, report) => Math.max(max, report.usedPct),
     0,
   );
@@ -103,8 +104,7 @@ export function windowBurn(
 
   // A long-lived key can hold thousands of records; a 60px plot cannot use
   // more than a few hundred points, and the SVG string grows linearly.
-  const sampled = sampleReports(segment);
-  const observed = sampled.map((report) =>
+  const observed = drawn.map((report) =>
     point(report.reportedAt, report.usedPct),
   );
   const projected: [BurnPoint, BurnPoint] | null =

@@ -37,7 +37,9 @@ export function windowReportKey(
 
 /** Keys for every window of one account report, by object identity — the
  * writer and both read surfaces must derive keys from the SAME window list
- * (an account's own report order), never from a re-sorted view. */
+ * (an account's own report order), never from a re-sorted view. Assumes
+ * each element is a distinct object — every producer builds fresh window
+ * literals; an aliased element would collapse onto one key. */
 export interface AccountWindowKey {
   key: string;
   /** Set only for duplicated tuples — travels into the stored record so a
@@ -129,18 +131,24 @@ function reportKeepMs(windowMinutes: number | null): number {
   return Math.min(Math.max(span, 6 * HOUR_MS), 45 * DAY_MS);
 }
 
+/** True while a record is inside its own retention horizon (and not
+ * future-stamped) — the writer refuses dead-on-arrival records with it,
+ * and pruneReports drops what ages past it. */
+export function reportAlive(report: WindowReport, now: number): boolean {
+  return (
+    now - report.reportedAt <= reportKeepMs(report.windowMinutes) &&
+    report.reportedAt - now <= 60_000
+  );
+}
+
 export function pruneReports(
   reports: readonly WindowReport[],
   now: number,
 ): WindowReport[] {
-  const kept = reports.filter(
-    (report) =>
-      now - report.reportedAt <= reportKeepMs(report.windowMinutes) &&
-      // A future-stamped record (clock skew before the writer's clamp
-      // existed, or a hand-edited file) would block every later write via
-      // the replay guard — heal it out instead of keeping it forever.
-      report.reportedAt - now <= 60_000,
-  );
+  // reportAlive also heals future-stamped records (clock skew before the
+  // writer's clamp existed, or a hand-edited file): one would block every
+  // later write via the replay guard forever.
+  const kept = reports.filter((report) => reportAlive(report, now));
   return kept.slice(Math.max(0, kept.length - REPORTS_ENTRY_CAP));
 }
 

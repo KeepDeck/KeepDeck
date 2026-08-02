@@ -110,6 +110,12 @@ describe("reportJournal", () => {
     expect(pruneReports([plan8d, plan6d], NOW)).toEqual([plan6d]);
   });
 
+  it("floors short-window retention at 6h — through pruneReports", () => {
+    const at5h = report({ windowMinutes: 60, reportedAt: NOW - 300 * MIN });
+    const at7h = report({ windowMinutes: 60, reportedAt: NOW - 420 * MIN });
+    expect(pruneReports([at7h, at5h], NOW)).toEqual([at5h]);
+  });
+
   it("heals future-stamped records out — they would block every later write", () => {
     const future = report({ reportedAt: NOW + 24 * 60 * MIN });
     const fresh = report({ reportedAt: NOW - 10 * MIN });
@@ -133,6 +139,13 @@ describe("reportJournal", () => {
     const stored = report({ agent: "codex", windowMinutes: null, ordinal: 1 });
     expect(storedReportKey(stored)).toBe(keys.get(b)!.key);
     expect(decodeWindowReport(encodeWindowReport(stored))).toEqual(stored);
+  });
+
+  it("clamps stored usedPct into 0..100 like the cache codec", () => {
+    const wild = report({ usedPct: 1e9 });
+    expect(decodeWindowReport(encodeWindowReport(wild))!.usedPct).toBe(100);
+    const negative = report({ usedPct: -5 });
+    expect(decodeWindowReport(encodeWindowReport(negative))!.usedPct).toBe(0);
   });
 
   it("round-trips the codec and rejects junk", () => {
@@ -165,6 +178,28 @@ describe("windowForecast", () => {
     const before = windowForecast(burst, FIVE_H, NOW);
     const after = windowForecast(burst, FIVE_H, NOW + 2 * MIN);
     expect(after.kind).toBe(before.kind);
+  });
+
+  it("ignores reports older than the lookback behind the newest one", () => {
+    // A 5h window's lookback is 45m behind the NEWEST report: an ancient
+    // steep point must not drive today's pace.
+    const tail = [
+      report({ reportedAt: NOW - 50 * MIN, usedPct: 5 }),
+      report({ reportedAt: NOW - 40 * MIN, usedPct: 62 }),
+      report({ reportedAt: NOW - 20 * MIN, usedPct: 62 }),
+      report({ reportedAt: NOW, usedPct: 62 }),
+    ];
+    // Inside the lookback the usage is flat → ok; including the -50m point
+    // would have called a runaway pace.
+    expect(windowForecast(tail, FIVE_H, NOW)).toEqual({ kind: "ok", outAt: null });
+  });
+
+  it("keeps a fresh-tail verdict through a silent stretch — push data does not age", () => {
+    // claude stamps reports by transcript mtime; a 10-minute tool call is
+    // silence, not idleness. A verdict computed from a fresh tail must
+    // survive it (only the already-at-the-wall escalation needs freshness).
+    const verdict = windowForecast(ramp(0.29, 5, 10, 62), FIVE_H, NOW + 10 * MIN);
+    expect(verdict.kind).toBe("out");
   });
 
   it("goes unknown when the report stream stops — no red alarm on an idle account", () => {

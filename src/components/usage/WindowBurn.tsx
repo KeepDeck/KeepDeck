@@ -1,3 +1,4 @@
+import { OVERFLOW_COLOR } from "../../domain/usage/chartPalette";
 import type { UsageWindow } from "../../domain/usage";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { windowBurn } from "../../domain/usage/windowBurn";
@@ -23,7 +24,7 @@ const PAD = 2;
 const dotLeft = (pct: number) => `clamp(3px, ${pct.toFixed(2)}%, calc(100% - 3px))`;
 
 export function WindowBurn({
-  stroke = "#3d4863",
+  stroke = OVERFLOW_COLOR,
   window,
   reports,
   forecast,

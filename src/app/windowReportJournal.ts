@@ -3,9 +3,9 @@ import {
   decodeWindowReport,
   encodeWindowReport,
   pruneReports,
+  reportAlive,
   shouldRecord,
   storedReportKey,
-  windowReportKey,
   type WindowReport,
 } from "../domain/usage/reportJournal";
 import type { AccountUsage } from "../domain/usage";
@@ -79,17 +79,20 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
           agent,
           windowMinutes: window.windowMinutes ?? null,
           ...(window.scope !== undefined ? { scope: window.scope } : {}),
-          usedPct: window.usedPct,
+          usedPct: Math.min(100, Math.max(0, window.usedPct)),
           // A future-stamped report would poison the key forever (the
           // replay guard rejects everything after it) — clamp to now.
           reportedAt: Math.min(account.reportedAt, now()),
           resetsAt: window.resetsAt ?? null,
         };
-        const entry = keys.get(window);
-        if (entry !== null && entry !== undefined && entry.ordinal !== null) {
-          next.ordinal = entry.ordinal;
-        }
-        const key = entry?.key ?? windowReportKey(agent, window);
+        // A record already beyond its own retention (a cached account
+        // restored hours later) must never enter the journal: pruning it
+        // back out would leave an empty series whose replay guard has
+        // nothing to stand on — the same line then re-appends forever.
+        if (!reportAlive(next, now())) continue;
+        const entry = keys.get(window)!;
+        if (entry.ordinal !== null) next.ordinal = entry.ordinal;
+        const key = entry.key;
         const kept = byKey.get(key);
         const last = kept?.[kept.length - 1];
         if (!shouldRecord(last, next)) continue;

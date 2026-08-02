@@ -194,7 +194,6 @@
   font-size: 11px;
 }
 
-
 .usage-window {
   display: grid;
   grid-template-columns: 74px 1fr 110px;
@@ -229,7 +228,6 @@
   display: block;
   width: 100%;
 }
-
 
 .usage-burn__dot {
   position: absolute;

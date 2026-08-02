@@ -8,7 +8,7 @@ import {
   windowLevel,
   type AccountUsage,
 } from "../../domain/usage";
-import { agentSeriesColors } from "../../domain/usage/chartPalette";
+import { accountSeriesColors } from "../../domain/usage/chartPalette";
 import { usageAgents } from "../../domain/usage/daily";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
@@ -23,7 +23,6 @@ import {
 } from "../../domain/usage/windowForecast";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { WindowBurn } from "../usage/WindowBurn";
-
 
 /** Per-provider rate-limit windows joined with ledger spend inside each
  * window's current interval — one card per provider, so the name and the
@@ -51,9 +50,17 @@ export function Providers({
     () => providerWindowGroups(accounts, events, now),
     [accounts, events, now],
   );
-  // Palette contract: colors key on the FULL ledger roster, so this card
-  // and the Overview chart give an agent the same hue.
-  const colors = useMemo(() => agentSeriesColors(usageAgents(events)), [events]);
+  // Palette contract: the full ledger roster plus the reported accounts —
+  // this card, the chip panel and the Overview chart agree on every hue,
+  // including an account that has no ledger events yet.
+  const colors = useMemo(
+    () =>
+      accountSeriesColors(
+        usageAgents(events),
+        groups.map((group) => group.agent),
+      ),
+    [events, groups],
+  );
   if (groups.length === 0) {
     return (
       <p className="stats__empty">

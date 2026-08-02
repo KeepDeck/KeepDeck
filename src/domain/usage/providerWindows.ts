@@ -1,5 +1,5 @@
 import { panelWindows, usageStale } from "./format";
-import { accountWindowKeys, windowReportKey } from "./reportJournal";
+import { accountWindowKeys } from "./reportJournal";
 import {
   tokenTotal,
   usageSessionKey,
@@ -86,24 +86,24 @@ export function providerWindowGroups(
       reportedAt: account.reportedAt,
       stale: usageStale(account.reportedAt, now),
       rows: windows.map((window, index) => {
-        const reportKey =
-          reportKeys.get(window)?.key ?? windowReportKey(agent, window);
+        // panelWindows sorts a shallow copy, so object identity survives
+        // into the key map minted over the account's own order.
+        const reportKey = reportKeys.get(window)!.key;
         return {
-        id: `${reportKey}\0${index}`,
-        reportKey,
-        agent,
-        window,
-        reportedAt: account.reportedAt,
-        expired: windowExpired(window, now),
-        stale: usageStale(account.reportedAt, now),
-        ledger: windowLedger(agent, window, events, now),
+          id: `${reportKey}\0${index}`,
+          reportKey,
+          agent,
+          window,
+          reportedAt: account.reportedAt,
+          expired: windowExpired(window, now),
+          stale: usageStale(account.reportedAt, now),
+          ledger: windowLedger(agent, window, events, now),
         };
       }),
     });
   }
   return groups;
 }
-
 
 function windowLedger(
   agent: string,

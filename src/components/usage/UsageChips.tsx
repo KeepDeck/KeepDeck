@@ -8,19 +8,16 @@ import { DEFAULT_SETTINGS, type UsageDisplay } from "../../domain/settings";
 import {
   chipWindows,
   formatAge,
-  formatPct,
   latestReportedAt,
   usageStale,
-  windowExpired,
-  windowLevel,
   windowLabel,
   type AccountUsage,
-  type UsageWindow,
 } from "../../domain/usage";
 import { useSettings } from "../../app/useSettings";
 import { useUsage } from "../../app/useUsage";
 import { useWindowReports } from "../../app/useWindowReports";
 import { UsagePanel } from "./UsagePanel";
+import { WindowValue } from "./WindowValue";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
 import { useWallClock } from "../../ui/useWallClock";
@@ -39,28 +36,6 @@ import { useWallClock } from "../../ui/useWallClock";
  * Which windows a chip shows (and in what order) is domain policy:
  * [`chipWindows`]/[`panelWindows`].
  */
-
-export function WindowValue({
-  window,
-  display,
-  now,
-}: {
-  window: UsageWindow;
-  display: UsageDisplay;
-  now: number;
-}) {
-  const expired = windowExpired(window, now);
-  const level = windowLevel(window, now);
-  return (
-    <span
-      className={`usage-window__value${level ? ` usage-level--${level}` : ""}${
-        expired ? " usage-window--expired" : ""
-      }`}
-    >
-      {formatPct(window.usedPct, display)}
-    </span>
-  );
-}
 
 
 function UsageChip({

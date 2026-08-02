@@ -6,7 +6,9 @@ import {
   windowLabel,
   type AccountUsage,
 } from "../../domain/usage";
-import { agentSeriesColors } from "../../domain/usage/chartPalette";
+import { accountSeriesColors } from "../../domain/usage/chartPalette";
+import { usageAgents } from "../../domain/usage/daily";
+import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import {
   accountWindowKeys,
   NO_REPORTS,
@@ -19,7 +21,7 @@ import {
 import { updateSettings } from "../../app/settingsManager";
 import { UsageWindowBar } from "./UsageWindowBar";
 import { WindowBurn } from "./WindowBurn";
-import { WindowValue } from "./UsageChips";
+import { WindowValue } from "./WindowValue";
 
 /**
  * The chips' anchored panel: one provider's windows with bars, the
@@ -46,10 +48,13 @@ export function UsagePanel({
   onOpenStats(): void;
   onClose(): void;
 }) {
-  // Colors keyed on the chip roster — the best roster this surface has.
-  // (The Overview chart keys on the full LEDGER roster; a plugin provider
-  // may differ there until it earns a fixed slot.)
-  const colors = agentSeriesColors(providers.map((provider) => provider.id));
+  // The SAME roster rule as the Providers cards — ledger plus reported —
+  // so a plugin agent wears one hue on every surface.
+  const history = useUsageHistorySnapshot();
+  const colors = accountSeriesColors(
+    usageAgents(history.events),
+    providers.map((provider) => provider.id),
+  );
   return (
     <div
       className="usage-panel"

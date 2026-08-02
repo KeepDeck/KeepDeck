@@ -20,7 +20,7 @@ const AGENT_SLOTS: Record<string, string> = {
 };
 
 const SPARE_SLOTS = ["#d55181", "#008300", "#9085e9", "#e66767"];
-const OVERFLOW_COLOR = "#596273";
+export const OVERFLOW_COLOR = "#596273";
 
 /** The dialog card surface the palette was validated against. Duplicated as
  * a TS constant because SVG fill/stroke props cannot read a CSS custom
@@ -44,6 +44,17 @@ export const CHART_LABEL_INK = "#596273";
 export const CHART_TOOLTIP_BG = "#10141c";
 export const CHART_TOOLTIP_BORDER = "#1c2230";
 export const CHART_CURSOR_FILL = "rgba(255, 255, 255, 0.04)";
+
+/** THE roster rule for account-limit surfaces (Providers cards, chip
+ * panel): the full ledger roster plus every currently reported agent —
+ * so an account with no ledger events yet still gets its slot, and both
+ * surfaces resolve identical colors from identical inputs. */
+export function accountSeriesColors(
+  ledgerRoster: readonly string[],
+  reported: readonly string[],
+): Map<string, string> {
+  return agentSeriesColors([...ledgerRoster, ...reported]);
+}
 
 /** Colors for a roster of agent ids. Spare slots are handed out by an
  * agent's rank among ALL unknown agents in the roster — pass the FULL
