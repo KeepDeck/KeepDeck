@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PaneActivity } from "./activity";
-import { paneFrame } from "./frame";
+import { paneFrame, workspaceFrame } from "./frame";
 
 const working: PaneActivity = { state: "working", since: 1 };
 const waiting: PaneActivity = { state: "waiting", since: 1, reason: "permission" };
@@ -35,5 +35,28 @@ describe("paneFrame", () => {
   it("no activity: selection or nothing", () => {
     expect(paneFrame(undefined, true)).toBe("selected");
     expect(paneFrame(undefined, false)).toBe("none");
+  });
+});
+
+describe("workspaceFrame", () => {
+  it("any pane's attention wins for the workspace, failed over waiting", () => {
+    expect(workspaceFrame([working, waiting, done], false)).toBe("waiting");
+    expect(workspaceFrame([waiting, failed, undefined], false)).toBe("failed");
+  });
+
+  it("attention pierces the active workspace's green", () => {
+    expect(workspaceFrame([waiting], true)).toBe("waiting");
+    expect(workspaceFrame([failed], true)).toBe("failed");
+  });
+
+  it("done marks only a background workspace — the active one is on screen", () => {
+    expect(workspaceFrame([working, done], false)).toBe("done");
+    expect(workspaceFrame([working, done], true)).toBe("selected");
+  });
+
+  it("quiet panes leave the dot to the active/none default", () => {
+    expect(workspaceFrame([working, undefined], true)).toBe("selected");
+    expect(workspaceFrame([working, undefined], false)).toBe("none");
+    expect(workspaceFrame([], false)).toBe("none");
   });
 });
