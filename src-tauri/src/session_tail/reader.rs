@@ -13,6 +13,22 @@ pub(super) struct TailCursor {
     pub(super) partial: Vec<u8>,
     /// Inside an abandoned oversized line — drop bytes until its newline.
     pub(super) skipping: bool,
+    /// (dev, ino) of the file last drained — a same-path REPLACEMENT (the
+    /// CLI rewrote the transcript via rename) changes it even when the new
+    /// file is longer than the old offset, which the shrink test alone
+    /// reads as plain appends and then delivers history as live.
+    identity: Option<(u64, u64)>,
+}
+
+#[cfg(unix)]
+fn file_identity(metadata: &std::fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((metadata.dev(), metadata.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_identity(_metadata: &std::fs::Metadata) -> Option<(u64, u64)> {
+    None
 }
 
 /// A pathological line (megabytes with no newline yet) must not buffer
@@ -32,22 +48,27 @@ pub(super) fn drain_file(
     let Ok(mut file) = File::open(path) else {
         return (Vec::new(), false);
     };
-    let (len, file_mtime_ms) = file
-        .metadata()
-        .map(|metadata| {
-            let modified = metadata
-                .modified()
-                .ok()
-                .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_millis() as u64);
-            (metadata.len(), modified)
-        })
-        .unwrap_or((0, None));
-    let rotated = len < cursor.offset;
+    let metadata = file.metadata().ok();
+    let len = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+    let file_mtime_ms = metadata
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as u64);
+    // Rotation = the file shrank OR it is a different file at the same
+    // path. A transient stat failure keeps the last identity rather than
+    // wiping it — the next successful stat still detects the swap.
+    let identity = metadata.as_ref().and_then(file_identity);
+    let replaced =
+        matches!((cursor.identity, identity), (Some(a), Some(b)) if a != b);
+    let rotated = replaced || len < cursor.offset;
     if rotated {
         cursor.offset = 0;
         cursor.partial.clear();
         cursor.skipping = false;
+    }
+    if identity.is_some() {
+        cursor.identity = identity;
     }
     if len == cursor.offset || file.seek(SeekFrom::Start(cursor.offset)).is_err() {
         return (Vec::new(), rotated);
@@ -55,12 +76,20 @@ pub(super) fn drain_file(
 
     let mut events = Vec::new();
     let mut chunk = [0_u8; 64 * 1024];
-    while let Ok(read) = file.read(&mut chunk) {
-        if read == 0 {
-            break;
+    loop {
+        match file.read(&mut chunk) {
+            // A signal-interrupted read is not EOF: treating it as one
+            // would end this drain mid-file and deliver the remainder next
+            // poll as if it were fresh appends.
+            Err(ref error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                continue;
+            }
+            Err(_) | Ok(0) => break,
+            Ok(read) => {
+                cursor.offset += read as u64;
+                parse_chunk(cursor, &chunk[..read], format, file_mtime_ms, &mut events);
+            }
         }
-        cursor.offset += read as u64;
-        parse_chunk(cursor, &chunk[..read], format, file_mtime_ms, &mut events);
     }
     (events, rotated)
 }

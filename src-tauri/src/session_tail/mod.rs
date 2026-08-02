@@ -93,29 +93,61 @@ impl Drop for TailPoller {
     }
 }
 
-/// Drain the root file and any subagent transcripts. The bool reports a
-/// ROOT rotation: the whole file was re-read from offset 0, so this batch is
-/// a REPLAY, not live appends — the deliverer must treat it as catch-up, or
-/// every historical interrupt marker in the file fires again as if fresh.
+/// Drain the root file and any subagent transcripts. The bool reports that
+/// this batch CONTAINS A REPLAY — some followed file was re-read from
+/// offset 0 — so the deliverer must treat the whole batch as catch-up, or
+/// a historical interrupt marker in it fires again as if fresh.
+///
+/// A ROOT rotation is a new session generation: the totals restart AND
+/// every subagent cursor rewinds, so the subagents' contributions re-fold
+/// into the fresh totals instead of silently vanishing from them. A
+/// subagent's own solo rotation only marks the batch (its re-folded rows
+/// are absorbed by the per-message-id dedup in the totals).
 fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, bool) {
-    let (mut events, rotated) = drain_file(&state.path, &mut state.root, state.format);
-    if rotated {
+    let (mut events, root_rotated) = drain_file(&state.path, &mut state.root, state.format);
+    if root_rotated {
         state.totals = SessionTotals::default();
     }
     if state.format != TailFormat::Claude {
-        return (events, rotated);
+        return (events, root_rotated);
     }
+    let mut replayed = root_rotated;
     let paths = claude_subagent_paths(&state.path);
     for path in paths {
         let cursor = state.subagents.entry(path.clone()).or_default();
-        let (appended, _) = drain_file(&path, cursor, TailFormat::Claude);
+        if root_rotated {
+            *cursor = TailCursor::default();
+        }
+        let (appended, sub_rotated) = drain_file(&path, cursor, TailFormat::Claude);
+        replayed = replayed || sub_rotated;
         for mut event in appended {
             // A subagent's abort is its own, never the pane's.
             event.root = false;
             events.push(event);
         }
     }
-    (events, rotated)
+    (events, replayed)
+}
+
+/// One door out of the tailer: every report — live poll or arm-time
+/// catch-up — routes identically, so a replayed interrupt can never reach
+/// the status lane through a second, unrouted path.
+fn deliver_routed(app: &AppHandle, report: Report) {
+    match route(report) {
+        Routed::Drop => {}
+        Routed::Status(status) => {
+            log::debug!("usage tail: pane={} interrupt marker", status.pane_id);
+            let _ = app.emit(AGENT_STATUS_EVENT, &status);
+        }
+        Routed::Usage(report) => {
+            log::debug!(
+                "usage tail: pane={} {} event",
+                report.pane_id,
+                report.payload["event"]["type"]
+            );
+            let _ = app.emit(USAGE_REPORT_EVENT, &report);
+        }
+    }
 }
 
 /// Start the poll thread for one tail. Delivery is a plain closure so the
@@ -193,21 +225,7 @@ pub fn usage_watch_session_file(
     // summary is marked catchUp so a replay can never outrank them.
     let emitter = app.clone();
     let watcher = spawn_tailer(state.clone(), POLL_INTERVAL, move |payload| {
-        match route(payload) {
-            Routed::Drop => {}
-            Routed::Status(status) => {
-                log::debug!("usage tail: pane={} interrupt marker", status.pane_id);
-                let _ = emitter.emit(AGENT_STATUS_EVENT, &status);
-            }
-            Routed::Usage(report) => {
-                log::debug!(
-                    "usage tail: pane={} live {} event",
-                    report.pane_id,
-                    report.payload["event"]["type"]
-                );
-                let _ = emitter.emit(USAGE_REPORT_EVENT, &report);
-            }
-        }
+        deliver_routed(&emitter, payload);
     })?;
     let caught_up = {
         let mut s = state.lock().expect("tail state poisoned");
@@ -222,7 +240,11 @@ pub fn usage_watch_session_file(
         let count = events.len();
         for event in events {
             let report = wrap(&s.pane_id, &s.token, format.agent(), event, true);
-            let _ = app.emit(USAGE_REPORT_EVENT, &report);
+            // Through the SAME router as the live path — catch-up safety
+            // must not rest on `catch_up_order()` happening to list no
+            // interrupt kinds; the router's replayed-interrupt Drop rule
+            // holds here by construction.
+            deliver_routed(&app, report);
         }
         count
     };
@@ -478,6 +500,89 @@ mod tests {
         fs::write(&path, "{}\n").unwrap();
         let (_, rotated) = drain_all(&mut state);
         assert!(rotated, "a shrunken file is a rotation, not appends");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // Rotation must also catch a rename-replacement whose new file is at
+    // least as long as the old offset — the shrink test alone reads its
+    // tail as appends and delivers history as live.
+    #[test]
+    fn a_same_path_replacement_rotates_even_when_longer() {
+        let dir = temp_dir();
+        let path = dir.join("rollout-swap.jsonl");
+        fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
+        let mut state = tail(path.clone());
+        let (events, replayed) = drain_all(&mut state);
+        assert_eq!(events.len(), 1);
+        assert!(!replayed);
+
+        let staged = dir.join("rollout-swap.jsonl.staged");
+        fs::write(
+            &staged,
+            format!("{TURN_CONTEXT_LINE}\n{TOKEN_COUNT_LINE}\n{TURN_CONTEXT_LINE}\n"),
+        )
+        .unwrap();
+        fs::rename(&staged, &path).unwrap();
+        let (events, replayed) = drain_all(&mut state);
+        assert_eq!(events.len(), 3, "the whole new file re-reads from zero");
+        assert!(replayed, "a different inode at the same path is a rotation");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // A root rotation is a new session generation: the subagent cursors
+    // rewind with the totals, so their contributions re-fold instead of
+    // silently vanishing from the fresh sums.
+    #[test]
+    fn a_root_rotation_rewinds_subagent_cursors() {
+        let dir = temp_dir();
+        let path = dir.join("session-gen.jsonl");
+        fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
+        let subagents = dir.join("session-gen/subagents");
+        fs::create_dir_all(&subagents).unwrap();
+        fs::write(
+            subagents.join("agent-a.jsonl"),
+            format!("{CLAUDE_ASSISTANT_LINE}\n"),
+        )
+        .unwrap();
+
+        let mut state = tail(path.clone());
+        state.format = TailFormat::Claude;
+        let (first, _) = drain_all(&mut state);
+        assert_eq!(first.len(), 2, "root row + subagent row");
+        assert!(drain_all(&mut state).0.is_empty(), "all consumed");
+
+        // The root rotates (shorter file, same subagent content).
+        fs::write(&path, "{}\n").unwrap();
+        let (replayed_events, replayed) = drain_all(&mut state);
+        assert!(replayed);
+        assert!(
+            replayed_events.iter().any(|event| !event.root),
+            "the subagent's rows re-drain into the new generation"
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // A subagent's own rotation replays HISTORY too — the batch must say
+    // so, or its old rows ride out as live events.
+    #[test]
+    fn a_subagent_rotation_marks_the_batch_as_replay() {
+        let dir = temp_dir();
+        let path = dir.join("session-solo.jsonl");
+        fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
+        let subagents = dir.join("session-solo/subagents");
+        fs::create_dir_all(&subagents).unwrap();
+        let sub = subagents.join("agent-a.jsonl");
+        fs::write(&sub, format!("{CLAUDE_ASSISTANT_LINE}\n{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
+
+        let mut state = tail(path.clone());
+        state.format = TailFormat::Claude;
+        drain_all(&mut state);
+
+        // Only the SUBAGENT file shrinks; the root is untouched.
+        fs::write(&sub, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
+        let (events, replayed) = drain_all(&mut state);
+        assert!(replayed, "a subagent replay must mark the whole batch");
+        assert!(events.iter().all(|event| !event.root));
         fs::remove_dir_all(&dir).ok();
     }
 
