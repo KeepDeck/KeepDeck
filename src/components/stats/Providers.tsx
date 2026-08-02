@@ -8,7 +8,7 @@ import {
   windowLevel,
   type AccountUsage,
 } from "../../domain/usage";
-import { accountSeriesColors } from "../../domain/usage/chartPalette";
+import { agentSeriesColors, agentSlotColor } from "../../domain/usage/chartPalette";
 import { usageAgents } from "../../domain/usage/daily";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
@@ -50,17 +50,12 @@ export function Providers({
     () => providerWindowGroups(accounts, events, now),
     [accounts, events, now],
   );
-  // Palette contract: the full ledger roster plus the reported accounts —
-  // this card, the chip panel and the Overview chart agree on every hue,
-  // including an account that has no ledger events yet.
-  const colors = useMemo(
-    () =>
-      accountSeriesColors(
-        usageAgents(events),
-        groups.map((group) => group.agent),
-      ),
-    [events, groups],
-  );
+  // Palette contract: colors key on the FULL ledger roster (data-keyed,
+  // never the clock), so this card and the Overview chart agree on every
+  // hue and a lapsing account can never repaint its neighbours. An account
+  // with no ledger events yet falls back to its fixed slot (or the stable
+  // overflow ink) below.
+  const colors = useMemo(() => agentSeriesColors(usageAgents(events)), [events]);
   if (groups.length === 0) {
     return (
       <p className="stats__empty">
@@ -85,7 +80,7 @@ export function Providers({
               <ProviderWindow
                 key={row.id}
                 row={row}
-                stroke={colors.get(row.agent)}
+                stroke={colors.get(row.agent) ?? agentSlotColor(row.agent)}
                 reports={reportsByKey.get(row.reportKey) ?? NO_REPORTS}
                 now={now}
               />

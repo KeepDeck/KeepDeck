@@ -6,9 +6,7 @@ import {
   windowLabel,
   type AccountUsage,
 } from "../../domain/usage";
-import { accountSeriesColors } from "../../domain/usage/chartPalette";
-import { usageAgents } from "../../domain/usage/daily";
-import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
+import { agentSlotColor } from "../../domain/usage/chartPalette";
 import {
   accountWindowKeys,
   NO_REPORTS,
@@ -48,13 +46,6 @@ export function UsagePanel({
   onOpenStats(): void;
   onClose(): void;
 }) {
-  // The SAME roster rule as the Providers cards — ledger plus reported —
-  // so a plugin agent wears one hue on every surface.
-  const history = useUsageHistorySnapshot();
-  const colors = accountSeriesColors(
-    usageAgents(history.events),
-    providers.map((provider) => provider.id),
-  );
   return (
     <div
       className="usage-panel"
@@ -132,7 +123,7 @@ export function UsagePanel({
                       )}
                     </span>
                     <WindowBurn
-                      stroke={colors.get(agent.id)}
+                      stroke={agentSlotColor(agent.id)}
                       window={window}
                       reports={reports}
                       forecast={forecast}

@@ -129,6 +129,29 @@ describe("windowReportJournal", () => {
     expect(series[1][0].ordinal).toBe(1); // travels into the stored record
   });
 
+  it("refuses dead-on-arrival records at the door — no write loop", async () => {
+    const { journal, ipc, usage } = build();
+    journal.start();
+    await settle();
+    // A cached account restored 100h later: its 5h window is far beyond
+    // retention. Pre-fix this line re-appended on EVERY store emit.
+    const aged = new Map([
+      [
+        "claude",
+        account(
+          [{ usedPct: 41, resetsAt: NOW - 99 * 60 * MIN, windowMinutes: 300 }],
+          NOW - 100 * 60 * MIN,
+        ),
+      ],
+    ]);
+    usage.set(aged);
+    usage.set(aged);
+    usage.set(aged);
+    await settle();
+    expect(ipc.appendUsageReports).not.toHaveBeenCalled();
+    expect(journal.getSnapshot().byKey.size).toBe(0);
+  });
+
   it("revives after dispose instead of playing dead", async () => {
     const { journal, ipc, usage } = build();
     journal.start();

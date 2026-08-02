@@ -202,6 +202,18 @@ describe("windowForecast", () => {
     expect(verdict.kind).toBe("out");
   });
 
+  it("never escalates to critical during silence — amber holds, red needs data", () => {
+    // Pace says out in ~20m, but the stream has been quiet 20m: the
+    // verdict stays (push data does not age) at WARN — a red countdown on
+    // an idle window was the original false-alarm finding.
+    const quiet = [
+      report({ reportedAt: NOW - 40 * MIN, usedPct: 70 }),
+      report({ reportedAt: NOW - 20 * MIN, usedPct: 80 }),
+    ];
+    const verdict = windowForecast(quiet, FIVE_H, NOW);
+    expect(verdict).toMatchObject({ kind: "out", level: "warn" });
+  });
+
   it("goes unknown when the report stream stops — no red alarm on an idle account", () => {
     // Steep pace, but the newest report is 20 minutes old: extrapolating a
     // dead stream painted 'runs out in ~0m' over an idle window.

@@ -70,6 +70,7 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
    * reported window, filtered by the domain's write policy. */
   const capture = () => {
     if (disposed || !snapshot.ready) return;
+    const at = now();
     const lines: string[] = [];
     for (const [agent, account] of deps.usage.getSnapshot().accounts) {
       if (account.kind !== "reported") continue;
@@ -82,14 +83,14 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
           usedPct: Math.min(100, Math.max(0, window.usedPct)),
           // A future-stamped report would poison the key forever (the
           // replay guard rejects everything after it) — clamp to now.
-          reportedAt: Math.min(account.reportedAt, now()),
+          reportedAt: Math.min(account.reportedAt, at),
           resetsAt: window.resetsAt ?? null,
         };
         // A record already beyond its own retention (a cached account
         // restored hours later) must never enter the journal: pruning it
         // back out would leave an empty series whose replay guard has
         // nothing to stand on — the same line then re-appends forever.
-        if (!reportAlive(next, now())) continue;
+        if (!reportAlive(next, at)) continue;
         const entry = keys.get(window)!;
         if (entry.ordinal !== null) next.ordinal = entry.ordinal;
         const key = entry.key;
@@ -99,9 +100,13 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
         // Copy-on-write (consumers memoize on array identity), pruned as it
         // grows — retention is continuous, not a boot-only ceremony.
         const grown = kept ? [...kept, next] : [next];
-        const trimmed = pruneReports(grown, now());
+        const trimmed = pruneReports(grown, at);
         prunedSinceCompact += grown.length - trimmed.length;
-        byKey.set(key, trimmed);
+        // The record just passed reportAlive at the same instant, so
+        // trimmed can never be empty — but an empty series must never be
+        // stored regardless: the replay guard would have nothing to stand
+        // on and the same line would re-append forever.
+        if (trimmed.length > 0) byKey.set(key, trimmed);
         lines.push(encodeWindowReport(next));
       }
     }
@@ -143,7 +148,8 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
           const survivors = pruneReports(reports, now());
           if (survivors.length !== reports.length) {
             pruned = true;
-            byKey.set(key, [...survivors]);
+            if (survivors.length > 0) byKey.set(key, [...survivors]);
+            else byKey.delete(key);
           }
         }
         if (torn || pruned) {

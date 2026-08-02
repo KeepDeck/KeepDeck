@@ -95,7 +95,14 @@ export function windowForecast(
     return { kind: "out", outAt: now, level: "critical", beforeResetMs:
       window.resetsAt !== null ? Math.max(0, window.resetsAt - now) : null };
   }
-  const level: "warn" | "critical" = outAt - now < HOUR_MS ? "critical" : "warn";
+  // Silence must never ESCALATE: a verdict computed from a fresh tail
+  // stands through a quiet stretch (claude is push-stamped — a long tool
+  // call is silence, not idleness), but while the stream is quiet the
+  // countdown may not walk into a red alarm the data never earned. Past
+  // the 30-minute stale belt the whole tail is refused above.
+  const silent = now - last.reportedAt > HEARTBEAT_MS + 60_000;
+  const level: "warn" | "critical" =
+    !silent && outAt - now < HOUR_MS ? "critical" : "warn";
   if (window.resetsAt === null) {
     return { kind: "out", outAt, level, beforeResetMs: null };
   }
