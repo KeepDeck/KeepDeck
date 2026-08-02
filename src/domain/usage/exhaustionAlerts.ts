@@ -51,7 +51,8 @@ export function foldExhaustionAlerts(
   const alerts = new Map<string, ExhaustionAlert>();
   const notices: ExhaustionNotice[] = [];
   for (const [agent, account] of accounts) {
-    if (account.kind !== "reported") continue;
+    // Non-reported accounts yield an empty join — the kind guard is the
+    // join's, not re-stated here.
     const rows = accountWindowForecasts(agent, account, byKey, now);
     for (const row of rows.values()) {
       const fired = prev.get(row.key);

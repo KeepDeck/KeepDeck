@@ -99,9 +99,13 @@ export function UsagePanel({
                 </span>
               </div>
               {panelWindows(account).map((window, i) => {
-                // Same-object lookup into the join above cannot miss:
-                // panelWindows re-sorts a copy of the ARRAY, not its elements.
-                const { reports, forecast } = rows.get(window)!;
+                // Same-object lookup into the join above cannot miss today
+                // (panelWindows re-sorts a copy of the ARRAY, not its
+                // elements) — but if that invariant ever breaks, drop the
+                // ROW, not the whole popover.
+                const row = rows.get(window);
+                if (!row) return null;
+                const { reports, forecast } = row;
                 // THE next relevant event, one per row: the reset while
                 // the pace survives it, the run-out once it does not.
                 const caption = panelWindowCaption(window, forecast, now);

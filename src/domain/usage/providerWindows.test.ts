@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { providerWindowGroups } from "./providerWindows";
 
-/** The production shape IS groups; tests reach rows through them. */
+/** The production shape IS groups; tests reach rows through them. Most
+ * cases exercise the ledger join and need no journal — byKey defaults
+ * empty. */
 const flatRows = (
-  ...args: Parameters<typeof providerWindowGroups>
-) => providerWindowGroups(...args).flatMap((group) => group.rows);
+  accounts: Parameters<typeof providerWindowGroups>[0],
+  events: Parameters<typeof providerWindowGroups>[1],
+  now: number,
+  byKey: Parameters<typeof providerWindowGroups>[2] = new Map(),
+) => providerWindowGroups(accounts, events, byKey, now).flatMap((group) => group.rows);
+import { accountWindowKeys, type WindowReport } from "./reportJournal";
 import type { AccountUsage, UsageWindow } from "./usage";
 
 import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
@@ -29,6 +35,7 @@ describe("providerWindowRows", () => {
       providerWindowGroups(
         new Map([["codex", reported([])]]),
         [event()],
+        new Map(),
         NOW,
       ),
     ).toEqual([]);
@@ -131,7 +138,7 @@ describe("providerWindowRows", () => {
       ],
       ["opencode", { kind: "unavailable", reason: "api-key", reportedAt: NOW }],
     ]);
-    const groups = providerWindowGroups(accounts, [], NOW);
+    const groups = providerWindowGroups(accounts, [], new Map(), NOW);
     expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({
       agent: "claude",
@@ -141,6 +148,23 @@ describe("providerWindowRows", () => {
     expect(groups[0].rows.map((row) => row.window.windowMinutes)).toEqual([
       300, 10_080,
     ]);
+  });
+
+  it("carries each window's journal series and forecast from the join", () => {
+    const window: UsageWindow = {
+      usedPct: 88,
+      resetsAt: NOW + 2 * HOUR,
+      windowMinutes: 300,
+    };
+    const accounts = new Map([["codex", reported([window])]]);
+    const key = accountWindowKeys("codex", [window]).get(window)!.key;
+    const series: WindowReport[] = [
+      { agent: "codex", windowMinutes: 300, usedPct: 58, reportedAt: NOW - 30 * 60_000, resetsAt: NOW + 2 * HOUR },
+      { agent: "codex", windowMinutes: 300, usedPct: 88, reportedAt: NOW, resetsAt: NOW + 2 * HOUR },
+    ];
+    const rows = flatRows(accounts, [], NOW, new Map([[key, series]]));
+    expect(rows[0].reports).toBe(series); // the join's series, not a re-derivation
+    expect(rows[0].forecast.kind).toBe("out");
   });
 
   it("mints distinct row ids even for windows sharing duration and scope", () => {

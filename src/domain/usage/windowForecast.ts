@@ -136,12 +136,13 @@ export interface AccountWindowForecast {
 }
 
 /** THE pairing of an account's windows with their journal series and
- * forecasts — every consumer (the panel's rows, the exhaustion notifier)
- * reads this one join instead of re-deriving key → series → forecast on its
- * own. Keyed by window object identity like [`accountWindowKeys`], and keys
- * are minted over the account's OWN report order — the journal writer's
- * rule — so callers may render any re-sorted view (panelWindows) and still
- * look up the right row. */
+ * forecasts — every consumer (the panel's rows, the provider cards via
+ * providerWindowGroups, the exhaustion notifier) reads this one join
+ * instead of re-deriving key → series → forecast on its own. Keyed by
+ * window object identity like [`accountWindowKeys`], and keys are minted
+ * over the account's OWN report order — the journal writer's rule — so
+ * callers may render any re-sorted view (panelWindows) and still look up
+ * the right row. */
 export function accountWindowForecasts(
   agent: string,
   account: AccountUsage,
