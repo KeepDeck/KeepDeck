@@ -1,4 +1,4 @@
-import { formatCountdown, windowResetCaption } from "./format";
+import { formatCountdown, usageStale, windowResetCaption } from "./format";
 import { currentSegment, type WindowReport } from "./reportJournal";
 import { HOUR_MS } from "./time";
 import { windowExpired, type UsageWindow } from "./usage";
@@ -57,6 +57,9 @@ export function windowForecast(
   if (tail.length < 2) return { kind: "unknown" };
   const first = tail[0];
   const last = tail[tail.length - 1];
+  // A stale journal is dead data — extrapolating it would be a lie, the
+  // same rule every stale surface follows (usageStale is the one home).
+  if (usageStale(last.reportedAt, now)) return { kind: "unknown" };
   const spanMs = last.reportedAt - first.reportedAt;
   if (spanMs < MIN_SPAN_MS) return { kind: "unknown" };
   const pace = (last.usedPct - first.usedPct) / spanMs; // pct per ms
@@ -119,7 +122,7 @@ export function cardCaptionParts(
   forecast: WindowForecast,
   now: number,
 ): ForecastCaptionPart[] {
-  const reset = windowResetCaption(window, now);
+  const reset = windowResetCaption(window, now, "long");
   const clause = forecastClause(forecast, now);
   const parts: ForecastCaptionPart[] = [];
   if (clause !== null && clause.level === "critical") parts.push(clause);

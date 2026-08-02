@@ -15,13 +15,22 @@ import {
   windowExpired,
   windowLevel,
   windowLabel,
-  windowResetCaption,
   type AccountUsage,
   type UsageWindow,
 } from "../../domain/usage";
+import {
+  windowReportKey,
+  type WindowReport,
+} from "../../domain/usage/reportJournal";
+import {
+  panelWindowCaption,
+  windowForecast,
+} from "../../domain/usage/windowForecast";
 import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { useUsage } from "../../app/useUsage";
+import { useWindowReports } from "../../app/useWindowReports";
+import { WindowBurn } from "./WindowBurn";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
 import { useWallClock } from "../../ui/useWallClock";
@@ -69,6 +78,8 @@ function WindowValue({
  * read as noise (field report) — the chip is numbers only, the panel
  * visualizes. */
 const Bar = UsageWindowBar;
+
+const NO_REPORTS: readonly WindowReport[] = [];
 
 function UsageChip({
   agent,
@@ -134,6 +145,7 @@ export function UsageChips({
   onOpenStats(): void;
 }) {
   const { accounts } = useUsage();
+  const journal = useWindowReports();
   const settings = useSettings();
   const display = settings?.usageDisplay ?? DEFAULT_SETTINGS.usageDisplay;
   // The open PANEL is per provider — a chip opens ITS agent's details.
@@ -247,7 +259,13 @@ export function UsageChips({
                   </span>
                 </div>
                 {panelWindows(account).map((window, i) => {
-                  const caption = windowResetCaption(window, now);
+                  const reports =
+                    journal.byKey.get(windowReportKey(agent.id, window)) ??
+                    NO_REPORTS;
+                  const forecast = windowForecast(reports, window, now);
+                  // THE next relevant event, one per row: the reset while
+                  // the pace survives it, the run-out once it does not.
+                  const caption = panelWindowCaption(window, forecast, now);
                   return (
                     <div key={i} className="usage-window">
                       <span className="usage-window__label">
@@ -256,8 +274,26 @@ export function UsageChips({
                       <Bar window={window} now={now} />
                       <span className="usage-window__detail">
                         <WindowValue window={window} display={display} now={now} />
-                        {caption && <small>{caption}</small>}
+                        {caption.text && (
+                          <small
+                            className={
+                              caption.level
+                                ? `usage-level--${caption.level}`
+                                : undefined
+                            }
+                          >
+                            {caption.text}
+                          </small>
+                        )}
                       </span>
+                      <WindowBurn
+                        agent={agent.id}
+                        window={window}
+                        reports={reports}
+                        forecast={forecast}
+                        now={now}
+                        size="compact"
+                      />
                     </div>
                   );
                 })}

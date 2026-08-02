@@ -203,6 +203,34 @@
   padding: 3px 0;
 }
 
+/* The burn curve — shared by the panel (compact) and the Stats Providers
+   cards. Chrome inherits the bar's greys; only the verdict dot wears a
+   level color, matching the usage-level ink. */
+.usage-burn {
+  display: block;
+  width: 100%;
+}
+
+.usage-burn--compact {
+  grid-column: 2; /* aligned under the panel row's fill bar */
+}
+
+.usage-burn__grid {
+  stroke: #232b3a;
+}
+
+.usage-burn__edge {
+  stroke: #3b4658;
+}
+
+.usage-burn__out--warn {
+  fill: #e0b568;
+}
+
+.usage-burn__out--critical {
+  fill: #cf6f6f;
+}
+
 .usage-window__label {
   color: #8b93a3;
 }
