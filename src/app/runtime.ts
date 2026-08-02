@@ -45,6 +45,7 @@ import {
   getUsageHistorySnapshot,
   subscribeUsageHistory,
 } from "./usageHistoryManager";
+import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
 import { createAppWindowReportJournal } from "./windowReportJournal";
 import { createWorktreeManager } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
@@ -154,6 +155,9 @@ export function createAppRuntime(
   let statusChannel: ReturnType<typeof createAgentStatusChannel> | null = null;
   let achievementNotifier: ReturnType<typeof createAchievementNotifier> | null =
     null;
+  let exhaustionNotifier: ReturnType<
+    typeof createWindowExhaustionNotifier
+  > | null = null;
   let disposed = false;
 
   return {
@@ -195,6 +199,15 @@ export function createAppRuntime(
           subscribe: subscribeUsageHistory,
         },
       });
+      exhaustionNotifier ??= createWindowExhaustionNotifier({
+        settingsReady: initSettings,
+        notify,
+        journal: {
+          getSnapshot: windowReportJournal.getSnapshot,
+          subscribe: windowReportJournal.subscribe,
+        },
+        usage: { getSnapshot: usageManager.getSnapshot },
+      });
       windowReportJournal.start();
       application.start();
     },
@@ -203,6 +216,7 @@ export function createAppRuntime(
       disposed = true;
       application.dispose();
       paneInputFocus.dispose();
+      exhaustionNotifier?.dispose();
       windowReportJournal.dispose();
       achievementNotifier?.dispose();
       usageChannel?.dispose();
