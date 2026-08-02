@@ -19,6 +19,10 @@ import type { WindowForecast } from "../../domain/usage/windowForecast";
 const PLOT_HEIGHTS = { card: 60, compact: 20 } as const;
 const PAD = 2;
 
+/** Keep a dot's body inside the plot at the edges — a marker centered on
+ * x=100% would hang half outside its card. */
+const dotLeft = (pct: number) => `clamp(3px, ${pct.toFixed(2)}%, calc(100% - 3px))`;
+
 export function WindowBurn({
   agent,
   window,
@@ -102,7 +106,7 @@ export function WindowBurn({
           <i
             className="usage-burn__dot"
             style={{
-              left: `${xPct(newest.x)}%`,
+              left: dotLeft(xPct(newest.x)),
               top: yPx(newest.y),
               background: stroke,
             }}
@@ -111,7 +115,10 @@ export function WindowBurn({
         {geometry.out && (
           <i
             className={`usage-burn__dot usage-burn__dot--${geometry.out.level}`}
-            style={{ left: `${xPct(geometry.out.x)}%`, top: yPx(geometry.out.y) }}
+            style={{
+              left: dotLeft(xPct(geometry.out.x)),
+              top: yPx(geometry.out.y),
+            }}
           />
         )}
         {size === "card" && (
