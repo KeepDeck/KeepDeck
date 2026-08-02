@@ -37,12 +37,17 @@ describe("codex plugin hooks", () => {
 
     // 4 rules (SessionStart + 3 turn events) ×2 args, ONE combined state
     // table ×2, + 2 paste-burst override args.
-    expect(out.args).toHaveLength(12);
+    expect(out.args).toHaveLength(14);
     expect(out.args[0]).toBe("-c");
     expect(out.args[1]).toContain(
       `command="/bin/sh '/App/resources/kd-session-hook.sh'"`,
     );
-    for (const event of ["UserPromptSubmit", "Stop", "PermissionRequest"]) {
+    for (const event of [
+      "UserPromptSubmit",
+      "Stop",
+      "PermissionRequest",
+      "PostToolUse",
+    ]) {
       expect(
         out.args.filter((a) => a.startsWith(`hooks.${event}=`)),
       ).toHaveLength(1);
@@ -51,7 +56,7 @@ describe("codex plugin hooks", () => {
     // wholesale, so a second table would silently untrust the first.
     const state = out.args.filter((a) => a.startsWith("hooks.state="));
     expect(state).toHaveLength(1);
-    expect(state[0].match(/trusted_hash/g)).toHaveLength(4);
+    expect(state[0].match(/trusted_hash/g)).toHaveLength(5);
     expect(out.args).toContain("disable_paste_burst=true");
   });
 

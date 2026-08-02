@@ -11,6 +11,11 @@ describe("normalizeCodexStatus", () => {
     expect(
       normalizeCodexStatus(wrap({ hook_event_name: "Stop" }), 200),
     ).toEqual({ kind: "turn-end", at: 200 });
+    // The approval-resolution stand-in: an approved tool's completion is
+    // the first post-approval hook codex offers.
+    expect(
+      normalizeCodexStatus(wrap({ hook_event_name: "PostToolUse" }), 250),
+    ).toEqual({ kind: "resumed", at: 250 });
     expect(
       normalizeCodexStatus(wrap({ hook_event_name: "PermissionRequest" }), 300),
     ).toEqual({ kind: "waiting", at: 300, reason: "permission" });

@@ -14,6 +14,14 @@ import {
  * opencode is the one CLI needing no out-of-band recovery: `session.idle`
  * fires on interrupt too, and `permission.replied` supplies the
  * approval-resolution edge claude and codex lack.
+ *
+ * KNOWN LIMIT: the bus carries no abort event, so an Esc'd turn is
+ * indistinguishable from a completed one — both arrive as `session.idle`
+ * and read "Done", and the finish may announce for a turn the user cut.
+ * Bounded in practice: idle lands ~45ms after the Esc, so the user is
+ * still looking at the pane and the visibility rule downgrades the OS
+ * banner to seen-in-place; only the bell entry says "finished" where
+ * "interrupted" would be truer.
  */
 export const normalizeOpencodeStatus: StatusNormalizer = (
   payload,

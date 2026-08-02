@@ -23,6 +23,12 @@ import {
  *   idle they run ≥6s late. The waiting edge is therefore best-effort for
  *   claude; `Stop` still settles the turn either way. `idle_prompt` and
  *   the rest are not turn states — dropped.
+ * - `PostToolUse` → resumed. claude has no approval-REPLY hook, but an
+ *   approved tool RUNS — its completion is the first post-approval hook
+ *   and proves the wait resolved. For a long-running tool the amber
+ *   clears only when the tool finishes (late, but bounded by the tool,
+ *   not the turn); mid-turn repeats are absorbed by the reducer without
+ *   an emit, so per-tool volume costs nothing downstream.
  *
  * A user interrupt (Esc) pushes NO hook — that edge arrives from the
  * host's transcript tailer as a `kind: "session.interrupt"` payload
@@ -47,6 +53,8 @@ export const normalizeClaudeStatus: StatusNormalizer = (
       return { kind: "turn-start", at };
     case "Stop":
       return { kind: "turn-end", at };
+    case "PostToolUse":
+      return { kind: "resumed", at };
     case "StopFailure": {
       const detail = asNonEmptyString(event.error_details);
       return {

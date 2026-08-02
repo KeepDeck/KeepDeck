@@ -51,6 +51,9 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
     // agent id as its argument. StopFailure fires INSTEAD of Stop on an API
     // error — arming Stop without it would strand the pane on "working";
     // Notification is filtered to the two waiting types by the normalizer.
+    // PostToolUse is the approval-RESOLUTION stand-in: claude has no reply
+    // hook, but an approved tool's completion proves the wait resolved —
+    // without it the amber "needs approval" survives the answer until Stop.
     const group = [
       {
         hooks: [
@@ -66,6 +69,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       "Stop",
       "StopFailure",
       "Notification",
+      "PostToolUse",
     ]) {
       hooks[event] = group;
     }

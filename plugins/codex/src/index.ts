@@ -26,7 +26,10 @@ import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
  *
  * codex has no Notification and no StopFailure: PermissionRequest is its
  * only waiting edge, and an API-error turn is invisible to hooks (the
- * rollout tail supplies the interrupt edge; failures stay a known gap). */
+ * rollout tail supplies the interrupt edge; failures stay a known gap).
+ * PostToolUse is the approval-RESOLUTION stand-in — codex has no reply
+ * hook either, but an approved tool's completion proves the wait
+ * resolved; without it the amber "needs approval" survives until Stop. */
 async function hookArgs(resources: PluginResources): Promise<string[]> {
   const session = await resources.path("kd-session-hook.sh");
   const status = await resources.path("kd-status-hook.sh");
@@ -35,10 +38,12 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       ? [{ event: "SessionStart", command: `/bin/sh ${shellQuote(session)}` }]
       : []),
     ...(status
-      ? ["UserPromptSubmit", "Stop", "PermissionRequest"].map((event) => ({
-          event,
-          command: `/bin/sh ${shellQuote(status)} codex`,
-        }))
+      ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse"].map(
+          (event) => ({
+            event,
+            command: `/bin/sh ${shellQuote(status)} codex`,
+          }),
+        )
       : []),
   ];
   if (rules.length === 0) return [];

@@ -12,6 +12,11 @@ describe("normalizeClaudeStatus", () => {
     expect(
       normalizeClaudeStatus(wrap({ hook_event_name: "Stop" }), 200),
     ).toEqual({ kind: "turn-end", at: 200 });
+    // The approval-resolution stand-in: claude has no reply hook, but an
+    // approved tool's completion proves the wait resolved.
+    expect(
+      normalizeClaudeStatus(wrap({ hook_event_name: "PostToolUse" }), 250),
+    ).toEqual({ kind: "resumed", at: 250 });
   });
 
   it("maps StopFailure with claude's typed reason and prose", () => {

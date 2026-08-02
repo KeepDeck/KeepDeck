@@ -38,6 +38,11 @@ export const normalizeCodexStatus: StatusNormalizer = (
       return { kind: "turn-end", at };
     case "PermissionRequest":
       return { kind: "waiting", at, reason: "permission" };
+    case "PostToolUse":
+      // The approval-resolution stand-in: an approved tool's completion is
+      // the first post-approval hook. Mid-turn repeats are absorbed by the
+      // reducer without an emit.
+      return { kind: "resumed", at };
     default:
       return null;
   }
