@@ -4,8 +4,8 @@ import type { UsageWindow } from "./usage";
 
 /** THE window-report builder — replaces the hand-copied builders whose
  * defaults had already drifted across four test files (usedPct 40 vs 10,
- * reportedAt −20m vs −30m, sourcePaneId "p" vs "pane-1"). One default set;
- * a file with different needs overrides per call, visibly. */
+ * reportedAt −20m vs −30m). One default set; a file with different needs
+ * overrides per call, visibly. */
 export const windowReport = (
   over: Partial<WindowReport> = {},
 ): WindowReport => ({

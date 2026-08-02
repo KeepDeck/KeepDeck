@@ -42,7 +42,11 @@ export function Providers({
 }) {
   // Keyed on the SAME clock the captions below render with — a memo that
   // reads its own Date.now() froze expired/stale while the caption beside
-  // them said "reset passed" (round-2 finding).
+  // them said "reset passed" (round-2 finding). reportsByKey joined the
+  // deps with the forecast join: the ledger scan now also re-runs per
+  // journal emit, which the write policy throttles to roughly the 30s
+  // wall-clock cadence already invalidating this memo — measured as the
+  // deliberate price of the join having one home.
   const groups = useMemo(
     () => providerWindowGroups(accounts, events, reportsByKey, now),
     [accounts, events, reportsByKey, now],

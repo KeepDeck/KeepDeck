@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { providerWindowGroups } from "./providerWindows";
 
-/** The production shape IS groups; tests reach rows through them. Most
- * cases exercise the ledger join and need no journal — byKey defaults
- * empty. */
+import { accountWindowKeys, type WindowReport } from "./reportJournal";
+import type { AccountUsage, UsageWindow } from "./usage";
+
+/** The production shape IS groups; tests reach rows through them — same
+ * argument order as providerWindowGroups. Most cases exercise the ledger
+ * join and pass an empty journal. */
 const flatRows = (
   accounts: Parameters<typeof providerWindowGroups>[0],
   events: Parameters<typeof providerWindowGroups>[1],
+  byKey: Parameters<typeof providerWindowGroups>[2],
   now: number,
-  byKey: Parameters<typeof providerWindowGroups>[2] = new Map(),
 ) => providerWindowGroups(accounts, events, byKey, now).flatMap((group) => group.rows);
-import { accountWindowKeys, type WindowReport } from "./reportJournal";
-import type { AccountUsage, UsageWindow } from "./usage";
+const NO_JOURNAL = new Map<string, readonly WindowReport[]>();
 
 import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
 
@@ -61,6 +63,7 @@ describe("providerWindowRows", () => {
         event({ occurredAt: NOW - 4 * HOUR, tokens: { input: 9_999 } }), // before the window opened
         event({ agent: "claude", occurredAt: NOW - HOUR, tokens: { input: 7_777 } }), // other provider
       ],
+      NO_JOURNAL,
       NOW,
     );
 
@@ -84,6 +87,7 @@ describe("providerWindowRows", () => {
     const rows = flatRows(
       accounts,
       [event({ occurredAt: NOW - 30 * 60_000 })],
+      NO_JOURNAL,
       NOW,
     );
     expect(rows[0].expired).toBe(true);
@@ -102,7 +106,7 @@ describe("providerWindowRows", () => {
         ),
       ],
     ]);
-    const rows = flatRows(accounts, [event()], NOW);
+    const rows = flatRows(accounts, [event()], NO_JOURNAL, NOW);
     expect(rows[0].stale).toBe(true);
     expect(rows[0].expired).toBe(false);
     expect(rows[0].ledger?.totalTokens).toBe(100);
@@ -119,7 +123,7 @@ describe("providerWindowRows", () => {
         ]),
       ],
     ]);
-    const rows = flatRows(accounts, [event({ agent: "kimi" })], NOW);
+    const rows = flatRows(accounts, [event({ agent: "kimi" })], NO_JOURNAL, NOW);
     expect(rows).toHaveLength(3);
     expect(rows.map((row) => row.ledger)).toEqual([null, null, null]);
   });
@@ -162,7 +166,7 @@ describe("providerWindowRows", () => {
       { agent: "codex", windowMinutes: 300, usedPct: 58, reportedAt: NOW - 30 * 60_000, resetsAt: NOW + 2 * HOUR },
       { agent: "codex", windowMinutes: 300, usedPct: 88, reportedAt: NOW, resetsAt: NOW + 2 * HOUR },
     ];
-    const rows = flatRows(accounts, [], NOW, new Map([[key, series]]));
+    const rows = flatRows(accounts, [], new Map([[key, series]]), NOW);
     expect(rows[0].reports).toBe(series); // the join's series, not a re-derivation
     expect(rows[0].forecast.kind).toBe("out");
   });
@@ -179,7 +183,7 @@ describe("providerWindowRows", () => {
         ]),
       ],
     ]);
-    const rows = flatRows(accounts, [], NOW);
+    const rows = flatRows(accounts, [], NO_JOURNAL, NOW);
     expect(rows).toHaveLength(2);
     expect(new Set(rows.map((row) => row.id)).size).toBe(2);
   });
@@ -202,7 +206,7 @@ describe("providerWindowRows", () => {
       ],
       ["opencode", { kind: "unavailable", reason: "api-key", reportedAt: NOW }],
     ]);
-    const rows = flatRows(accounts, [], NOW);
+    const rows = flatRows(accounts, [], NO_JOURNAL, NOW);
     expect(
       rows.map((row) => [row.agent, row.window.windowMinutes, row.window.scope]),
     ).toEqual([

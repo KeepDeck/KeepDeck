@@ -86,21 +86,26 @@ export function providerWindowGroups(
       agent,
       reportedAt: account.reportedAt,
       stale: usageStale(account.reportedAt, now),
-      rows: windows.map((window, index) => {
+      rows: windows.flatMap((window, index) => {
         // panelWindows sorts a shallow copy, so object identity survives
-        // into the join's map, minted over the account's own order.
-        const joined = forecasts.get(window)!;
-        return {
-          id: `${joined.key}\0${index}`,
-          agent,
-          window,
-          reports: joined.reports,
-          forecast: joined.forecast,
-          reportedAt: account.reportedAt,
-          expired: windowExpired(window, now),
-          stale: usageStale(account.reportedAt, now),
-          ledger: windowLedger(agent, window, events, now),
-        };
+        // into the join's map, minted over the account's own order. If
+        // that invariant ever breaks, drop the ROW — the same degradation
+        // the popover chose — never throw the whole tab.
+        const joined = forecasts.get(window);
+        if (!joined) return [];
+        return [
+          {
+            id: `${joined.key}\0${index}`,
+            agent,
+            window,
+            reports: joined.reports,
+            forecast: joined.forecast,
+            reportedAt: account.reportedAt,
+            expired: windowExpired(window, now),
+            stale: usageStale(account.reportedAt, now),
+            ledger: windowLedger(agent, window, events, now),
+          },
+        ];
       }),
     });
   }
