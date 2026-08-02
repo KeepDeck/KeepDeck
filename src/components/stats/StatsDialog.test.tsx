@@ -18,7 +18,18 @@ vi.mock("../../app/useUsage", () => ({
   useUsage: () => usage.snapshot,
 }));
 
+const windowReports = vi.hoisted(() => ({
+  snapshot: { ready: true, byKey: new Map() } as {
+    ready: boolean;
+    byKey: Map<string, unknown>;
+  },
+}));
+vi.mock("../../app/useWindowReports", () => ({
+  useWindowReports: () => windowReports.snapshot,
+}));
+
 import type { AccountUsage } from "../../domain/usage";
+import { accountWindowKeys } from "../../domain/usage/reportJournal";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
@@ -67,6 +78,7 @@ describe("UsageStats", () => {
     vi.setSystemTime(NOW);
     history.snapshot = { ready: true, events: [usageEvent()], error: null };
     usage.snapshot = { accounts: new Map(), panes: new Map() };
+    windowReports.snapshot = { ready: true, byKey: new Map() };
     document.body.innerHTML = "<div id='host'></div>";
     host = document.getElementById("host")!;
     root = createRoot(host);
@@ -389,6 +401,57 @@ describe("UsageStats", () => {
     expect(host.querySelector(".stats__window--expired")).not.toBeNull();
     expect(host.textContent).toContain("reset passed");
     expect(host.textContent).not.toContain("this window");
+  });
+
+  it("forecasts the race and draws the burn curve when the journal has pace", () => {
+    const MIN = 60_000;
+    const resetsAt = NOW + 155 * MIN;
+    const account: AccountUsage = {
+      kind: "reported",
+      reportedAt: NOW,
+      sourcePaneId: "pane-1",
+      windows: [{ usedPct: 62, resetsAt, windowMinutes: 300 }],
+    };
+    usage.snapshot = { accounts: new Map([["claude", account]]), panes: new Map() };
+    // 0.29%/min over 40 minutes of reports: 38% left ≈ 131m < 155m to reset.
+    const reports = [50.4, 53.3, 56.2, 59.1, 62].map((usedPct, index) => ({
+      agent: "claude",
+      windowMinutes: 300,
+      usedPct,
+      reportedAt: NOW - (4 - index) * 10 * MIN,
+      resetsAt,
+    }));
+    windowReports.snapshot = {
+      ready: true,
+      byKey: new Map([
+        [
+          accountWindowKeys("claude", account.windows).get(account.windows[0])!
+            .key,
+          reports,
+        ],
+      ]),
+    };
+    act(() => root.render(createElement(Host, { initialTab: "providers" })));
+
+    expect(host.textContent).toContain("on pace to run out");
+    expect(host.textContent).toContain("early");
+    expect(host.textContent).toContain("resets in 2h 35m");
+    expect(host.querySelector(".usage-burn")).not.toBeNull();
+    expect(host.querySelector(".usage-burn__dot--warn")).not.toBeNull();
+  });
+
+  it("stays silent about the race when the journal has no pace yet", () => {
+    const account: AccountUsage = {
+      kind: "reported",
+      reportedAt: NOW,
+      sourcePaneId: "pane-1",
+      windows: [{ usedPct: 62, resetsAt: NOW + 155 * 60_000, windowMinutes: 300 }],
+    };
+    usage.snapshot = { accounts: new Map([["claude", account]]), panes: new Map() };
+    act(() => root.render(createElement(Host, { initialTab: "providers" })));
+    expect(host.textContent).toContain("resets in 2h 35m");
+    expect(host.textContent).not.toContain("on pace");
+    expect(host.querySelector(".usage-burn")).toBeNull();
   });
 
   it("demotes expired and stale provider windows instead of joining them", () => {
