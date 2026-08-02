@@ -188,17 +188,26 @@ describe("skillsFor", () => {
 });
 
 describe("the MCP config planted in a pane's cwd", () => {
-  it("plants what it was handed, keyed by the workspace that owns the root", async () => {
+  /** One entry in the shape the agent's plugin declares it. */
+  const planting = (root: string) => ({
+    workspaceId: "ws-1",
+    root,
+    dir: ".kimi-code",
+    name: "mcp.json",
+    content: "{config}",
+  });
+
+  it("passes the entry through untouched — WHAT is written is not its call", async () => {
+    // The directory, the file name and the body are the agent plugin's
+    // dialect. This owner decides only when the write may happen.
     deck = [{ id: "ws-1", roots: ["/repo"] }];
     mcpArming.mcpArm.mockResolvedValue({ armed: ["/repo"], refused: [] });
 
-    expect(await manager.plantMcp("ws-1", "/repo", "{config}")).toEqual({
+    expect(await manager.plantMcp(planting("/repo"))).toEqual({
       armed: ["/repo"],
       refused: [],
     });
-    expect(mcpArming.mcpArm).toHaveBeenCalledWith("ws-1", [
-      { root: "/repo", content: "{config}" },
-    ]);
+    expect(mcpArming.mcpArm).toHaveBeenCalledWith([planting("/repo")]);
   });
 
   it("waits for a teardown in flight, like every other write into a cwd", async () => {
@@ -222,10 +231,10 @@ describe("the MCP config planted in a pane's cwd", () => {
     });
 
     const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
-    const planting = manager.plantMcp("ws-1", "/wt/a", "{}");
+    const pending = manager.plantMcp(planting("/wt/a"));
     release();
     await removing;
-    await planting;
+    await pending;
 
     expect(order).toEqual(["disarmed", "planted"]);
   });
@@ -239,13 +248,11 @@ describe("the MCP config planted in a pane's cwd", () => {
     deck = [{ id: "ws-1", roots: [] }];
     mcpArming.mcpArm.mockResolvedValue({ armed: ["/wt/landing"], refused: [] });
 
-    expect(await manager.plantMcp("ws-1", "/wt/landing", "{}")).toEqual({
+    expect(await manager.plantMcp(planting("/wt/landing"))).toEqual({
       armed: ["/wt/landing"],
       refused: [],
     });
-    expect(mcpArming.mcpArm).toHaveBeenCalledWith("ws-1", [
-      { root: "/wt/landing", content: "{}" },
-    ]);
+    expect(mcpArming.mcpArm).toHaveBeenCalledWith([planting("/wt/landing")]);
   });
 
   it("takes its configs back from LIVE roots — that is what Off means", async () => {

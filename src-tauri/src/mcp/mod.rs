@@ -97,14 +97,14 @@ pub fn mcp_connection_command(
     })
 }
 
-/// Plant the MCP config in the given pane cwds — kimi's only door (see
-/// [`arming`]). `wsId` keys the record a crash sweep reads.
+/// Plant the MCP config in the given pane cwds — the only door for a CLI that
+/// takes none on argv (see [`arming`]). Each entry names the directory and file
+/// its agent reads, and the workspace whose crash sweep owes it a disarm.
 #[tauri::command(async)]
 pub fn mcp_arm(
-    ws_id: String,
     entries: Vec<arming::McpArmEntry>,
 ) -> Result<arming::McpArmReport, String> {
-    Ok(arming::arm(&arming::arming_root()?, &ws_id, &entries))
+    Ok(arming::arm(&arming::arming_root()?, &entries))
 }
 
 /// Take KeepDeck's MCP config back out of the given cwds. Only what our

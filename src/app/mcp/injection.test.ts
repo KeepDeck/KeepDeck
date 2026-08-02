@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMcpInjection, KEEPDECK_MCP_SERVER } from "./injection";
 import type { McpInjectionTarget } from "./injection";
 import type { McpConnection } from "../../ipc/mcp";
+import type { McpArmEntry } from "../../ipc/mcpArming";
 
 const invocation: McpConnection = {
   command: "/Applications/KeepDeck.app/Contents/MacOS/keepdeck",
@@ -27,11 +28,23 @@ const target: McpInjectionTarget = {
   client: "pane-secret",
 };
 
+/** A file-fed pane: the delivery is DECLARED by the agent's plugin and
+ * travels with the target, so nothing here names an agent to recognise it. */
 const kimi = (cwd: string): McpInjectionTarget => ({
   agentType: "kimi",
   cwd,
   workspaceId: "ws-1",
   client: "pane-secret",
+  file: {
+    dir: ".kimi-code",
+    name: "mcp.json",
+    render: ({ servers }) =>
+      JSON.stringify({
+        mcpServers: Object.fromEntries(
+          servers.map((s) => [s.name, { command: s.command, args: s.args }]),
+        ),
+      }),
+  },
 });
 
 beforeEach(() => {
@@ -115,14 +128,16 @@ describe("the MCP injection", () => {
     expect(plant).not.toHaveBeenCalled();
   });
 
-  it("plants a FILE for kimi when the delivery is taken", async () => {
+  it("plants the file where the AGENT says, rendered by the agent", async () => {
+    // Neither the path nor the body is the host's: it used to branch on the
+    // literal id `kimi` and the backend hardcoded `.kimi-code`, so one CLI's
+    // dialect lived in two host files and its own plugin described an agent it
+    // no longer fully described.
     const planted: { root: string; content: string }[] = [];
-    const plant = vi.fn(
-      async (_workspaceId: string, root: string, content: string) => {
-        planted.push({ root, content });
-        return { armed: [root], refused: [] };
-      },
-    );
+    const plant = vi.fn(async (entry: McpArmEntry) => {
+      planted.push({ root: entry.root, content: entry.content });
+      return { armed: [entry.root], refused: [] };
+    });
     const injection = createMcpInjection({
       ...ports,
       socket: () => socket,
@@ -132,7 +147,13 @@ describe("the MCP injection", () => {
 
     await (await injection.access(kimi("/repo"))).deliver();
 
-    expect(plant).toHaveBeenCalledWith("ws-1", "/repo", expect.any(String));
+    expect(plant).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      root: "/repo",
+      dir: ".kimi-code",
+      name: "mcp.json",
+      content: expect.any(String),
+    });
     expect(JSON.parse(planted[0]!.content)).toEqual({
       mcpServers: {
         keepdeck: { command: invocation.command, args: invocation.args },
@@ -173,7 +194,7 @@ describe("the MCP injection", () => {
       ...ports,
       socket: () => socket,
       connection: async () => invocation,
-      plant: async (_ws, root) => {
+      plant: async ({ root }) => {
         await queued;
         return { armed: [root], refused: [] };
       },
@@ -233,7 +254,7 @@ describe("the MCP injection", () => {
       ...ports,
       socket: () => socket,
       connection: async () => invocation,
-      plant: async (_ws, root) => ({ armed: [root], refused: [] }),
+      plant: async ({ root }) => ({ armed: [root], refused: [] }),
       retract,
     });
     await (await injection.access(kimi("/a"))).deliver();
@@ -255,7 +276,7 @@ describe("the MCP injection", () => {
       ...ports,
       socket: () => socket,
       connection: async () => invocation,
-      plant: async (_ws, root) => ({
+      plant: async ({ root }) => ({
         armed: [],
         refused: [{ root, reason: "the directory keeps its own mcp.json" }],
       }),

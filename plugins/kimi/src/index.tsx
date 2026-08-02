@@ -9,6 +9,7 @@ import {
 } from "./companion";
 import { icon } from "./icon";
 import { createKimiCompanionManager } from "./manager";
+import { mcpFileDelivery } from "./mcp";
 import { createKimiServerManager } from "./serverManager";
 import {
   createKimiSetupController,
@@ -68,6 +69,11 @@ const plugin: KeepDeckPlugin = {
         limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
       },
       history: kimiHistory(ctx),
+      // No flag and no env for MCP servers: kimi reads a file in the pane's
+      // cwd, so the dialect is declared rather than rendered into argv. The
+      // host does the write, because ordering it against a worktree teardown
+      // is its invariant — see [`mcpFileDelivery`].
+      mcp: { file: mcpFileDelivery },
       hooks: {
         "spawn.plan": (input, output) => {
           output.args = [

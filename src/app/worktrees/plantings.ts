@@ -120,7 +120,7 @@ export function createPlantings(
   return {
     disarm,
 
-    plantMcp(workspaceId, root, content) {
+    plantMcp(entry) {
       // Queued, and that is the WHOLE guard: a write that started while a
       // teardown is in flight would land inside git's recursive delete.
       //
@@ -134,7 +134,7 @@ export function createPlantings(
       // pane lands, and each silently got no servers. The case the check was
       // meant to catch — the directory went away while we queued — is refused
       // by the backend, which reports a cwd that is no longer a directory.
-      return inOrder(() => mcpArm(workspaceId, [{ root, content }]));
+      return inOrder(() => mcpArm([entry]));
     },
 
     retractMcp(roots) {

@@ -1,18 +1,23 @@
-//! Delivering MCP servers to kimi, which has no door but the filesystem.
+//! Delivering MCP servers to an agent whose CLI has no door but the
+//! filesystem.
 //!
-//! kimi 0.31 has no flag and no env for MCP config: its loader reads
-//! `<cwd>/.kimi-code/mcp.json` (plus two paths KeepDeck must not touch — the
-//! user's own home config, and the repo-shared `.mcp.json` claude also reads).
-//! So a pane's cwd is ARMED with that file, exactly the way codex's skills are
+//! Some CLIs take no flag and no env for MCP config and read a file in the
+//! working directory instead (kimi 0.31 reads `<cwd>/.kimi-code/mcp.json`). So
+//! a pane's cwd is ARMED with that file, exactly the way codex's skills are
 //! armed with a symlink — same manifest, same exclude, same crash sweep
 //! ([`crate::worktree_arm`]).
 //!
+//! WHICH directory and file is not decided here. It arrives with each entry,
+//! because it is the agent plugin's declaration of its own dialect; this
+//! module knows only how to plant one safely and how to find it again.
+//!
 //! Ownership is a MARKER FILE next to the config, not a guess about its
-//! contents: `.kimi-code/.keepdeck-managed` says this `mcp.json` is ours to
-//! rewrite and ours to take away. A cwd where the user already keeps their own
-//! `mcp.json` is left completely alone — the pane simply gets no KeepDeck
-//! server, which the app surfaces, because merging into a file the user wrote
-//! would be editing their config.
+//! contents: `.keepdeck-managed` says the config beside it is KeepDeck's to
+//! rewrite and ours to take away, and it NAMES that config — which is how a
+//! disarm, handed only a directory, knows what it may remove. A cwd where the
+//! user already keeps their own config is left completely alone: the pane
+//! simply gets no KeepDeck server, which the app surfaces, because merging
+//! into a file the user wrote would be editing their config.
 
 use serde::Deserialize;
 use std::fs;
@@ -24,27 +29,29 @@ use crate::worktree_arm::{
     add_armed, ensure_excluded, forget_armed, prune_manifests, remove_excluded,
 };
 
-/// What arming plants in a pane's cwd — the directory git must stay blind to,
-/// and the one kimi reads its MCP config from.
-const PLANTED: &str = ".kimi-code";
-const CONFIG_FILE: &str = "mcp.json";
-/// Empty, and its mere presence is the claim: with it, the config beside it is
-/// KeepDeck's to rewrite and to remove; without it, the config is the user's.
-/// A marker rather than a shape test, so the day the server bank puts
-/// third-party entries in this file, ownership does not have to be re-derived
-/// from what the entries look like.
+/// Beside the planted config, naming it. Its presence is the claim and its
+/// CONTENT is the file it claims — a marker rather than a shape test, so the
+/// day the server bank puts third-party entries in that file, ownership does
+/// not have to be re-derived from what the entries look like.
 const MARKER_FILE: &str = ".keepdeck-managed";
 
-/// One cwd and the config it should carry (mirrors the TS wire, camelCase).
+/// One cwd, the config it should carry, and where its agent reads it from
+/// (mirrors the TS wire, camelCase).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpArmEntry {
+    /// The workspace whose crash sweep owes this cwd a disarm.
+    pub workspace_id: String,
     pub root: String,
+    /// Directory under `root` — a DIRECT child: it is the unit git is told to
+    /// ignore and the unit a sweep can find again.
+    pub dir: String,
+    pub name: String,
     pub content: String,
 }
 
 /// Why a cwd could not be armed — the app names the pane and says so, rather
-/// than leaving a kimi pane silently without the servers every other agent got.
+/// than leaving a pane silently without the servers every other agent got.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpArmRefusal {
@@ -68,23 +75,28 @@ pub struct McpArmReport {
 /// nothing about its workspace's other panes, so replacing would erase them —
 /// and a pass whose only cwd refused would delete the manifest, orphaning
 /// everything the earlier panes planted.
-pub(crate) fn arm(root: &Path, key: &str, entries: &[McpArmEntry]) -> McpArmReport {
+pub(crate) fn arm(root: &Path, entries: &[McpArmEntry]) -> McpArmReport {
     let mut report = McpArmReport::default();
     for entry in entries {
-        let refusal = match arm_one(Path::new(&entry.root), &entry.content) {
+        let refusal = match arm_one(entry) {
             Ok(None) => None,
             Ok(Some(reason)) => Some(reason),
             Err(e) => Some(e.to_string()),
         };
         match refusal {
-            None => report.armed.push(entry.root.clone()),
+            None => {
+                // Per ENTRY, because entries may name different workspaces:
+                // the record is keyed by the workspace whose sweep owes this
+                // cwd a disarm.
+                add_armed(root, &entry.workspace_id, &[entry.root.clone()], "mcp");
+                report.armed.push(entry.root.clone());
+            }
             Some(reason) => report.refused.push(McpArmRefusal {
                 root: entry.root.clone(),
                 reason,
             }),
         }
     }
-    add_armed(root, key, &report.armed, "mcp");
     report
 }
 
@@ -95,27 +107,35 @@ pub(crate) fn arm(root: &Path, key: &str, entries: &[McpArmEntry]) -> McpArmRepo
 /// these has to name what is actually there. They used to share one sentence
 /// about the user's own config, which meant a directory that had simply been
 /// deleted was reported as holding a file it does not have.
-fn arm_one(cwd: &Path, content: &str) -> io::Result<Option<String>> {
+fn arm_one(entry: &McpArmEntry) -> io::Result<Option<String>> {
+    let cwd = Path::new(&entry.root);
     if !cwd.is_dir() {
         return Ok(Some("this directory no longer exists".into()));
     }
-    let dir = cwd.join(PLANTED);
-    // `.kimi-code` as anything but a real directory (a file, or a symlink into
-    // the user's own tree) is theirs — writing through it would land inside
-    // their target.
+    let planted = &entry.dir;
+    let dir = cwd.join(planted);
+    // The declared directory as anything but a real directory (a file, or a
+    // symlink into the user's own tree) is theirs — writing through it would
+    // land inside their target.
     match fs::symlink_metadata(&dir) {
         Ok(meta) if !meta.file_type().is_dir() => {
-            return Ok(Some(format!("{PLANTED} here is not a directory")));
+            return Ok(Some(format!("{planted} here is not a directory")));
         }
         _ => {}
     }
-    let config = dir.join(CONFIG_FILE);
+    let config = dir.join(&entry.name);
     let marker = dir.join(MARKER_FILE);
     if fs::symlink_metadata(&config).is_ok() && !marker.exists() {
-        return Ok(Some(format!("{PLANTED}/{CONFIG_FILE} here is not KeepDeck's")));
+        return Ok(Some(format!(
+            "{planted}/{} here is not KeepDeck's",
+            entry.name,
+        )));
     }
-    write_atomic(&marker, b"")?;
-    if let Err(e) = write_atomic(&config, content.as_bytes()) {
+    // The marker NAMES what it claims: a disarm is handed a directory and
+    // nothing else, so this is how it knows which file it may remove and
+    // which the agent keeps its own state in.
+    write_atomic(&marker, entry.name.as_bytes())?;
+    if let Err(e) = write_atomic(&config, entry.content.as_bytes()) {
         // The marker is a CLAIM on the config beside it. Left behind without
         // that config it is unreachable litter: no exclude line (that comes
         // below), no manifest entry (this cwd refuses), and every later pass
@@ -124,7 +144,7 @@ fn arm_one(cwd: &Path, content: &str) -> io::Result<Option<String>> {
         let _ = fs::remove_dir(&dir);
         return Err(e);
     }
-    if let Err(e) = ensure_excluded(cwd, PLANTED) {
+    if let Err(e) = ensure_excluded(cwd, planted) {
         log::warn!("mcp: exclude line for {} failed: {e}", cwd.display());
     }
     Ok(None)
@@ -146,25 +166,48 @@ pub(crate) fn disarm(root: &Path, cwds: &[String]) -> io::Result<()> {
 /// empty), and drop the exclude lines arming added. Anything without our
 /// marker stays.
 ///
+/// A disarm is handed DIRECTORIES and nothing else — it runs on a teardown and
+/// on a crash sweep, where no agent is in scope to say which dialect planted
+/// what. So each cwd's direct children are checked for our marker, and the
+/// marker names the file it claims. That is also what makes this work for a
+/// second file-fed CLI without being told about it.
+///
 /// The manifest is NOT touched here: the prune path deletes the whole record
 /// itself, so only [`disarm`] — the per-directory caller — owes a forget.
 fn disarm_files(cwds: &[String]) -> io::Result<()> {
     for cwd in cwds {
-        let dir = Path::new(cwd).join(PLANTED);
-        if !dir.join(MARKER_FILE).exists() {
-            continue;
-        }
-        for file in [CONFIG_FILE, MARKER_FILE] {
-            match fs::remove_file(dir.join(file)) {
+        let entries = match fs::read_dir(cwd) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
+        };
+        for child in entries.flatten() {
+            let dir = child.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            let marker = dir.join(MARKER_FILE);
+            let Ok(claimed) = fs::read_to_string(&marker) else {
+                continue;
+            };
+            let claimed = claimed.trim();
+            if !claimed.is_empty() {
+                match fs::remove_file(dir.join(claimed)) {
+                    Err(e) if e.kind() == ErrorKind::NotFound => {}
+                    other => other?,
+                }
+            }
+            match fs::remove_file(&marker) {
                 Err(e) if e.kind() == ErrorKind::NotFound => {}
                 other => other?,
             }
-        }
-        // Only vanishes when our two files were its whole content — kimi may
-        // keep state of its own in there.
-        let _ = fs::remove_dir(&dir);
-        if let Err(e) = remove_excluded(Path::new(cwd), PLANTED) {
-            log::warn!("mcp: exclude cleanup for {cwd} failed: {e}");
+            // Only vanishes when our two files were its whole content — the
+            // agent may keep state of its own in there.
+            let _ = fs::remove_dir(&dir);
+            let planted = child.file_name().to_string_lossy().into_owned();
+            if let Err(e) = remove_excluded(Path::new(cwd), &planted) {
+                log::warn!("mcp: exclude cleanup for {cwd} failed: {e}");
+            }
         }
     }
     Ok(())
@@ -196,9 +239,17 @@ mod tests {
         (tmp, root, cwd)
     }
 
+    /// An entry for ws-1 in kimi's dialect — the shape the plugin declares.
     fn entry(cwd: &Path, content: &str) -> McpArmEntry {
+        entry_for("ws-1", cwd, content)
+    }
+
+    fn entry_for(ws: &str, cwd: &Path, content: &str) -> McpArmEntry {
         McpArmEntry {
+            workspace_id: ws.to_string(),
             root: cwd.to_string_lossy().into_owned(),
+            dir: ".kimi-code".to_string(),
+            name: "mcp.json".to_string(),
             content: content.to_string(),
         }
     }
@@ -206,7 +257,7 @@ mod tests {
     #[test]
     fn arming_writes_the_config_kimi_reads_and_claims_it_with_a_marker() {
         let (_tmp, root, cwd) = scratch();
-        let report = arm(&root, "ws-1", &[entry(&cwd, "{\"mcpServers\":{}}")]);
+        let report = arm(&root, &[entry(&cwd, "{\"mcpServers\":{}}")]);
 
         assert_eq!(report.armed, vec![cwd.to_string_lossy().into_owned()]);
         assert!(report.refused.is_empty());
@@ -224,7 +275,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("mcp.json"), "{\"mcpServers\":{\"theirs\":{}}}").unwrap();
 
-        let report = arm(&root, "ws-1", &[entry(&cwd, "{\"mcpServers\":{}}")]);
+        let report = arm(&root, &[entry(&cwd, "{\"mcpServers\":{}}")]);
 
         assert!(report.armed.is_empty());
         assert_eq!(report.refused.len(), 1);
@@ -241,8 +292,8 @@ mod tests {
     #[test]
     fn re_arming_rewrites_our_own_config_in_place() {
         let (_tmp, root, cwd) = scratch();
-        arm(&root, "ws-1", &[entry(&cwd, "{\"first\":true}")]);
-        let report = arm(&root, "ws-1", &[entry(&cwd, "{\"second\":true}")]);
+        arm(&root, &[entry(&cwd, "{\"first\":true}")]);
+        let report = arm(&root, &[entry(&cwd, "{\"second\":true}")]);
 
         assert_eq!(report.armed.len(), 1);
         assert_eq!(
@@ -254,7 +305,7 @@ mod tests {
     #[test]
     fn disarming_takes_both_files_and_the_directory_it_emptied() {
         let (_tmp, root, cwd) = scratch();
-        arm(&root, "ws-1", &[entry(&cwd, "{}")]);
+        arm(&root, &[entry(&cwd, "{}")]);
 
         disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
 
@@ -264,7 +315,7 @@ mod tests {
     #[test]
     fn disarming_keeps_a_directory_kimi_still_has_state_in() {
         let (_tmp, root, cwd) = scratch();
-        arm(&root, "ws-1", &[entry(&cwd, "{}")]);
+        arm(&root, &[entry(&cwd, "{}")]);
         fs::write(cwd.join(".kimi-code").join("sessions.json"), "kimi's").unwrap();
 
         disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
@@ -279,7 +330,7 @@ mod tests {
         // by an arming that raced the teardown.
         let (_tmp, root, cwd) = scratch();
         let missing = cwd.join("nope");
-        let report = arm(&root, "ws-1", &[entry(&missing, "{}")]);
+        let report = arm(&root, &[entry(&missing, "{}")]);
 
         assert!(report.armed.is_empty());
         assert!(!missing.exists());
@@ -288,7 +339,7 @@ mod tests {
     #[test]
     fn a_crashed_workspaces_cwds_are_swept_at_the_next_boot() {
         let (_tmp, root, cwd) = scratch();
-        arm(&root, "ws-dead", &[entry(&cwd, "{}")]);
+        arm(&root, &[entry_for("ws-dead", &cwd, "{}")]);
 
         prune(&root, &["ws-live".into()]).unwrap();
 
@@ -300,8 +351,8 @@ mod tests {
         // Two workspaces may legitimately run panes in one folder; one dying
         // must not take the other's servers away.
         let (_tmp, root, cwd) = scratch();
-        arm(&root, "ws-dead", &[entry(&cwd, "{}")]);
-        arm(&root, "ws-live", &[entry(&cwd, "{}")]);
+        arm(&root, &[entry_for("ws-dead", &cwd, "{}")]);
+        arm(&root, &[entry_for("ws-live", &cwd, "{}")]);
 
         prune(&root, &["ws-live".into()]).unwrap();
 
@@ -317,8 +368,8 @@ mod tests {
         let second = cwd.parent().unwrap().join("other-pane");
         fs::create_dir_all(&second).unwrap();
 
-        arm(&root, "ws-1", &[entry(&cwd, "{}")]);
-        arm(&root, "ws-1", &[entry(&second, "{}")]);
+        arm(&root, &[entry(&cwd, "{}")]);
+        arm(&root, &[entry(&second, "{}")]);
 
         let recorded: Vec<String> =
             serde_json::from_slice(&fs::read(root.join("armed").join("ws-1")).unwrap()).unwrap();
@@ -337,12 +388,12 @@ mod tests {
         // user's own config armed nothing, and the empty result deleted the
         // whole workspace's record — orphaning every earlier pane's files.
         let (_tmp, root, cwd) = scratch();
-        arm(&root, "ws-1", &[entry(&cwd, "{}")]);
+        arm(&root, &[entry(&cwd, "{}")]);
 
         let theirs = cwd.parent().unwrap().join("theirs");
         fs::create_dir_all(theirs.join(".kimi-code")).unwrap();
         fs::write(theirs.join(".kimi-code").join("mcp.json"), "{}").unwrap();
-        let report = arm(&root, "ws-1", &[entry(&theirs, "{}")]);
+        let report = arm(&root, &[entry(&theirs, "{}")]);
 
         assert_eq!(report.refused.len(), 1);
         let recorded: Vec<String> =
@@ -358,19 +409,19 @@ mod tests {
         let (_tmp, root, cwd) = scratch();
 
         let gone = cwd.parent().unwrap().join("deleted-worktree");
-        let missing = arm(&root, "ws-1", &[entry(&gone, "{}")]);
+        let missing = arm(&root, &[entry(&gone, "{}")]);
         assert_eq!(missing.refused[0].reason, "this directory no longer exists");
 
         let blocked = cwd.parent().unwrap().join("blocked");
         fs::create_dir_all(&blocked).unwrap();
         fs::write(blocked.join(".kimi-code"), "a file, not a directory").unwrap();
-        let not_a_dir = arm(&root, "ws-1", &[entry(&blocked, "{}")]);
+        let not_a_dir = arm(&root, &[entry(&blocked, "{}")]);
         assert_eq!(not_a_dir.refused[0].reason, ".kimi-code here is not a directory");
 
         let theirs = cwd.parent().unwrap().join("theirs");
         fs::create_dir_all(theirs.join(".kimi-code")).unwrap();
         fs::write(theirs.join(".kimi-code").join("mcp.json"), "{}").unwrap();
-        let not_ours = arm(&root, "ws-1", &[entry(&theirs, "{}")]);
+        let not_ours = arm(&root, &[entry(&theirs, "{}")]);
         assert_eq!(
             not_ours.refused[0].reason,
             ".kimi-code/mcp.json here is not KeepDeck's",
@@ -386,7 +437,7 @@ mod tests {
         let (_tmp, root, cwd) = scratch();
         let second = cwd.parent().unwrap().join("other-pane");
         fs::create_dir_all(&second).unwrap();
-        arm(&root, "ws-1", &[entry(&cwd, "{}"), entry(&second, "{}")]);
+        arm(&root, &[entry(&cwd, "{}"), entry(&second, "{}")]);
 
         disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
 
@@ -398,7 +449,7 @@ mod tests {
     #[test]
     fn disarming_the_last_cwd_drops_the_record_entirely() {
         let (_tmp, root, cwd) = scratch();
-        arm(&root, "ws-1", &[entry(&cwd, "{}")]);
+        arm(&root, &[entry(&cwd, "{}")]);
 
         disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
 
@@ -411,8 +462,8 @@ mod tests {
         // still claims it — but the departed one must not, or a later prune
         // spares that folder forever on a claim nobody is making.
         let (_tmp, root, cwd) = scratch();
-        arm(&root, "ws-1", &[entry(&cwd, "{}")]);
-        arm(&root, "ws-2", &[entry(&cwd, "{}")]);
+        arm(&root, &[entry(&cwd, "{}")]);
+        arm(&root, &[entry_for("ws-2", &cwd, "{}")]);
 
         disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
 

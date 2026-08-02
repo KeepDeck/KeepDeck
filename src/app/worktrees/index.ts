@@ -18,7 +18,7 @@
  */
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { Pane, WorktreeTarget } from "../../domain/deck";
-import type { McpArmReport } from "../../ipc/mcpArming";
+import type { McpArmEntry, McpArmReport } from "../../ipc/mcpArming";
 import type { SkillsStagingViews } from "../../ipc/skills";
 import type { ProvisionCallbacks, SetupStep } from "../provisioning";
 import { createPlantings } from "./plantings";
@@ -166,15 +166,12 @@ export interface SkillsInvalidation {
  * allowed to land, and when.
  */
 export interface McpPlanting {
-  /** Put `content` in `root` for `workspaceId`, once nothing else is touching
-   * that directory — and not at all if the deck stopped claiming it while this
-   * waited. Reports what landed and what refused (a cwd where the user keeps
-   * their own config); never throws. */
-  plantMcp(
-    workspaceId: string,
-    root: string,
-    content: string,
-  ): Promise<McpArmReport>;
+  /** Put the entry's config in its cwd, once nothing else is touching that
+   * directory. WHAT is written — the directory, the file name, the body — is
+   * the agent plugin's dialect and travels in the entry; this owns only the
+   * ordering. Reports what landed and what refused (a cwd where the user keeps
+   * their own config, one that is gone, one it cannot write); never throws. */
+  plantMcp(entry: McpArmEntry): Promise<McpArmReport>;
   /** Take our MCP configs back out of `roots` — every one of them, live or
    * not: this is the transport going down, not a directory leaving. */
   retractMcp(roots: string[]): Promise<boolean>;

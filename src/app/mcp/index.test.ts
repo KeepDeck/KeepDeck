@@ -11,6 +11,16 @@ import { createMcpService, type McpServiceDeps } from ".";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/** A pane whose CLI takes no servers on argv. The delivery is declared by the
+ * agent's plugin and rides the target, so nothing host-side names an agent. */
+const fileFed = {
+  agentType: "kimi",
+  cwd: "/repo",
+  workspaceId: "ws-1",
+  client: "s",
+  file: { dir: ".kimi-code", name: "mcp.json", render: () => "{}" },
+};
+
 function harness(opts: { initial?: boolean | null } = {}) {
   let value = opts.initial ?? null;
   const listeners = new Set<() => void>();
@@ -163,18 +173,13 @@ describe("createMcpService", () => {
     const h = harness({ initial: true });
     const live = new Set(["/repo"]);
     h.deps.panesIn = (cwd) => (live.has(cwd) ? 1 : 0);
-    h.deps.plant = async (_ws, root) => ({
+    h.deps.plant = async ({ root }) => ({
       armed: [],
       refused: [{ root, reason: "theirs" }],
     });
     const service = createMcpService(h.settings, h.deps);
     await flush();
-    const kimi = (cwd: string) => ({
-      agentType: "kimi",
-      cwd,
-      workspaceId: "ws-1",
-      client: "s",
-    });
+    const kimi = (cwd: string) => ({ ...fileFed, cwd });
 
     await (await service.access(kimi("/repo"))).deliver();
     expect(service.status().refused.map((r) => r.root)).toEqual(["/repo"]);
@@ -404,7 +409,7 @@ describe("createMcpService", () => {
     h.deps.plant = async () => report;
     const service = createMcpService(h.settings, h.deps);
     await flush();
-    const kimi = { agentType: "kimi", cwd: "/repo", workspaceId: "ws-1", client: "s" };
+    const kimi = { ...fileFed, cwd: "/repo" };
 
     await (await service.access(kimi)).deliver();
     expect(service.status().refused).toEqual([{ root: "/repo", reason: "theirs" }]);

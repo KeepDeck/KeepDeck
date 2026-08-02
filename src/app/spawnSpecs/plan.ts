@@ -114,6 +114,10 @@ export async function buildPlan(
         cwd: facts.cwd,
         workspaceId: facts.workspace.id,
         client: mcpToken,
+        // Carried from the agent's own contribution, so no host module has to
+        // recognise a CLI by name: a plugin whose command line has no door for
+        // MCP declares where its file goes and what goes in it.
+        ...(entry.mcp?.file ? { file: entry.mcp.file } : {}),
       })
     : null;
   const mcpServers = access?.servers ?? [];

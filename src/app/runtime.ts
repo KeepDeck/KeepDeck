@@ -87,8 +87,7 @@ export function createAppRuntime(
       // decides when it may. These two exist only to break the construction
       // cycle between the two owners — `worktrees` is built below and neither
       // is called before a spawn, long after.
-      plant: (workspaceId, root, content) =>
-        worktrees.plantMcp(workspaceId, root, content),
+      plant: (entry) => worktrees.plantMcp(entry),
       retract: (roots) => worktrees.retractMcp(roots),
       identify: createPaneIdentity({
         workspaces: () => deckStore.getSnapshot().workspaces,
