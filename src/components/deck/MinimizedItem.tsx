@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent } from "react";
-import { paneFrame } from "../../domain/status";
+import { activityBadge, paneFrame } from "../../domain/status";
 import { usePaneActivity } from "../../app/usePaneActivity";
 import { RestoreUpIcon } from "../../ui/icons";
 import { BranchBadge, StoppedMarker, YoloBadge } from "../../ui/badges";
@@ -105,6 +105,9 @@ export function MinimizedItem({
   // pane is never the selected one.
   const activity = usePaneActivity(paneId);
   const frame = paneFrame(activity, false);
+  // The hover details spell out what the frame only colours: the same
+  // settled badge the pane header renders (domain formats, views render).
+  const activityView = activity ? activityBadge(activity) : null;
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const focused = useRef(false);
@@ -176,6 +179,7 @@ export function MinimizedItem({
           anchor={tooltipAnchor}
           id={tooltipId}
           title={title}
+          activity={activityView}
           gitBadge={gitBadge}
           stopped={stopped}
         />
