@@ -12,7 +12,6 @@ export const COMPANION_DESCRIPTOR = {
   version: COMPANION_VERSION,
   displayName: companionManifest.interface.displayName,
   resourceDirectoryName: COMPANION_RESOURCE_DIRECTORY,
-  hookCount: companionManifest.hooks.length,
 } satisfies KimiCompanionDescriptor;
 
 /** PluginResources resolves files, while Kimi installs a directory. Derive

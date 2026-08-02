@@ -1,8 +1,25 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { createAgentStatusTracker } from "../app/agentStatusTracker";
+import { createUsageManager } from "../app/usageManager";
+import { AppRuntimeProvider } from "../app/runtimeContext";
+import type { AppRuntime } from "../app/runtime";
+
+/** The runtime slice the panes under DeckStage read (activity + ctx%). */
+const withRuntime = (el: ReactElement) =>
+  createElement(
+    AppRuntimeProvider,
+    {
+      runtime: {
+        statusTracker: createAgentStatusTracker(),
+        usageManager: createUsageManager(),
+      } as unknown as AppRuntime,
+    },
+    el,
+  );
 
 vi.mock("./terminal/TerminalPane", () => ({
   TerminalPane: vi.fn(() => null),
@@ -133,7 +150,7 @@ describe("DeckStage — suspended agents", () => {
   });
 
   const render = (overrides: Record<string, unknown> = {}) =>
-    act(() => root.render(createElement(DeckStage, props(overrides))));
+    act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
 
   const openOnlyTrayEntry = () => {
     act(() =>

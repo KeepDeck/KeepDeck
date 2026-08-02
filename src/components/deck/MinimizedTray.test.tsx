@@ -1,13 +1,25 @@
 // @vitest-environment happy-dom
-import { act, createElement, useState } from "react";
+import { act, createElement, useState, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createAgentStatusTracker } from "../../app/agentStatusTracker";
+import { AppRuntimeProvider } from "../../app/runtimeContext";
+import type { AppRuntime } from "../../app/runtime";
 import {
   MinimizedTray,
   type MinimizedTrayEntry,
   visibleTrayItemCount,
 } from "./MinimizedTray";
 import { MinimizedItem } from "./MinimizedItem";
+
+/** The runtime slice the stand-ins read (their activity selector). No test
+ * here reports activity, so one instance across the file is inert. */
+const runtime = {
+  statusTracker: createAgentStatusTracker(),
+} as unknown as AppRuntime;
+const withRuntime = (el: ReactElement) => (
+  <AppRuntimeProvider runtime={runtime}>{el}</AppRuntimeProvider>
+);
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -120,7 +132,7 @@ describe("MinimizedTray", () => {
 
   it("keeps one row and exposes only the entries represented by +N", async () => {
     act(() =>
-      root.render(createElement(MinimizedTray, { entries, active: true })),
+      root.render(withRuntime(createElement(MinimizedTray, { entries, active: true }))),
     );
 
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
@@ -180,11 +192,13 @@ describe("MinimizedTray", () => {
   it("uses the supplied state label for a suspended-agent shelf", () => {
     act(() =>
       root.render(
-        createElement(MinimizedTray, {
-          entries,
-          active: true,
-          stateLabel: "Suspended",
-        }),
+        withRuntime(
+          createElement(MinimizedTray, {
+            entries,
+            active: true,
+            stateLabel: "Suspended",
+          }),
+        ),
       ),
     );
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
@@ -204,7 +218,7 @@ describe("MinimizedTray", () => {
 
   it("removes overflow when a resize makes every item fit", () => {
     act(() =>
-      root.render(createElement(MinimizedTray, { entries, active: true })),
+      root.render(withRuntime(createElement(MinimizedTray, { entries, active: true }))),
     );
     expect(document.querySelector(".minimized-overflow__trigger")).not.toBeNull();
 
@@ -219,7 +233,7 @@ describe("MinimizedTray", () => {
 
   it("suppresses its portaled dialog when the source workspace deactivates", () => {
     act(() =>
-      root.render(createElement(MinimizedTray, { entries, active: true })),
+      root.render(withRuntime(createElement(MinimizedTray, { entries, active: true }))),
     );
     const overflow = document.querySelector<HTMLButtonElement>(
       ".minimized-overflow__trigger",
@@ -228,7 +242,7 @@ describe("MinimizedTray", () => {
     expect(document.querySelector("[role='dialog']")).not.toBeNull();
 
     act(() =>
-      root.render(createElement(MinimizedTray, { entries, active: false })),
+      root.render(withRuntime(createElement(MinimizedTray, { entries, active: false }))),
     );
     expect(document.querySelector("[role='dialog']")).toBeNull();
     expect(overflow.getAttribute("aria-expanded")).toBe("false");
@@ -236,7 +250,7 @@ describe("MinimizedTray", () => {
 
   it("keeps focus on a restore action while an open dialog repositions", () => {
     act(() =>
-      root.render(createElement(MinimizedTray, { entries, active: true })),
+      root.render(withRuntime(createElement(MinimizedTray, { entries, active: true }))),
     );
     const overflow = document.querySelector<HTMLButtonElement>(
       ".minimized-overflow__trigger",
@@ -254,10 +268,12 @@ describe("MinimizedTray", () => {
     );
     act(() =>
       root.render(
-        createElement(MinimizedTray, {
-          entries: updatedEntries,
-          active: true,
-        }),
+        withRuntime(
+          createElement(MinimizedTray, {
+            entries: updatedEntries,
+            active: true,
+          }),
+        ),
       ),
     );
 
@@ -296,7 +312,7 @@ describe("MinimizedTray", () => {
       );
     }
 
-    act(() => root.render(<DirectRestoreHarness />));
+    act(() => root.render(withRuntime(<DirectRestoreHarness />)));
     const restore = document.querySelector<HTMLButtonElement>(
       "[aria-label='Restore direct agent']",
     )!;
@@ -335,6 +351,7 @@ describe("MinimizedTray", () => {
       ) : (
         <MinimizedItem
           variant="bar"
+          paneId="shared-pane"
           title="Shared agent"
           label="Restore shared agent from strip"
           active
@@ -344,7 +361,7 @@ describe("MinimizedTray", () => {
       );
     }
 
-    act(() => root.render(<ReplacementHarness />));
+    act(() => root.render(withRuntime(<ReplacementHarness />)));
     const restore = document.querySelector<HTMLButtonElement>(
       "[aria-label='Restore shared agent']",
     )!;
@@ -390,7 +407,7 @@ describe("MinimizedTray", () => {
       );
     }
 
-    act(() => root.render(<LastRestoreHarness />));
+    act(() => root.render(withRuntime(<LastRestoreHarness />)));
     const overflow = document.querySelector<HTMLButtonElement>(
       ".minimized-overflow__trigger",
     )!;

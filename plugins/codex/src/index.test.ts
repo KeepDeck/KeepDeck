@@ -30,18 +30,33 @@ const input = {
 };
 
 describe("codex plugin hooks", () => {
-  it("arms the SessionStart hook via -c overrides, id NOT adopted", async () => {
+  it("arms the identity and status hooks via -c overrides, id NOT adopted", async () => {
     const agent = activate("/App/resources/kd-session-hook.sh");
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
 
-    // 4 hook args + 2 paste-burst override args.
-    expect(out.args).toHaveLength(6);
+    // 4 rules (SessionStart + 3 turn events) ×2 args, ONE combined state
+    // table ×2, + 2 paste-burst override args.
+    expect(out.args).toHaveLength(14);
     expect(out.args[0]).toBe("-c");
     expect(out.args[1]).toContain(
       `command="/bin/sh '/App/resources/kd-session-hook.sh'"`,
     );
-    expect(out.args[3]).toContain("trusted_hash");
+    for (const event of [
+      "UserPromptSubmit",
+      "Stop",
+      "PermissionRequest",
+      "PostToolUse",
+    ]) {
+      expect(
+        out.args.filter((a) => a.startsWith(`hooks.${event}=`)),
+      ).toHaveLength(1);
+    }
+    // Trust must be ONE table: codex takes the last `-c hooks.state=`
+    // wholesale, so a second table would silently untrust the first.
+    const state = out.args.filter((a) => a.startsWith("hooks.state="));
+    expect(state).toHaveLength(1);
+    expect(state[0].match(/trusted_hash/g)).toHaveLength(5);
     expect(out.args).toContain("disable_paste_burst=true");
   });
 

@@ -93,8 +93,11 @@
   min-width: 0;
 }
 
-/* Bar: mirrors a pane header (30px, full width) — the folded agent's own bar. */
+/* Bar: mirrors a pane header (30px, full width) — the folded agent's own
+   bar. border-box, so width:100% + padding never overflows the strip and
+   a status frame's border recolours without moving a pixel. */
 .minimized--bar {
+  box-sizing: border-box;
   height: 30px;
   width: 100%;
   padding: 0 9px 0 11px;

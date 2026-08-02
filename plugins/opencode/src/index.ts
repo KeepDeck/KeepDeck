@@ -14,6 +14,7 @@ import type {
 import { icon } from "./icon";
 import { opencodeHistory } from "./history";
 import { relocatingForkId } from "./fork";
+import { normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
 
 /** The per-invocation config injecting the reporter; `[]` when the reporter
@@ -77,6 +78,11 @@ const plugin: KeepDeckPlugin = {
       usage: {
         normalize: normalizeOpencodeUsage,
       },
+      // Turn lifecycle from the same reporter's bus subscription.
+      // session.idle fires on interrupt too (no transcript recovery
+      // needed), and permission.replied is the approval-resolution edge
+      // claude and codex lack.
+      status: { normalize: normalizeOpencodeStatus },
       hooks: {
         "spawn.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));

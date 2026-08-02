@@ -2,6 +2,12 @@
 //! report facts back to KeepDeck: its session id (identity) and its usage
 //! reports (rate-limit windows, tokens, cost).
 //!
+//! The WIRE types ([`Report`], the `*_EVENT` names) are shared with one
+//! non-inbox producer: the session tailer (`session_tail`) emits the same
+//! shapes for what it recovers from transcripts, so the webview has one
+//! schema per event regardless of which side observed it. Everything else
+//! in this module is inbox transport, which the tailer never touches.
+//!
 //! Transport: a per-RUN inbox directory. Each launch mints
 //! `<keepdeck_home>/bridge/run-<uuid>/`, holds an OS file lock on `lock`
 //! inside it for the process's lifetime, and watches for `*.json` envelope
@@ -42,6 +48,10 @@ pub const SESSION_BOUND_EVENT: &str = "deck://session/bound";
 
 /// Event delivering one usage report to the webview (`src/ipc/usage.ts`).
 pub const USAGE_REPORT_EVENT: &str = "deck://usage/report";
+
+/// Event delivering one agent-status report to the webview
+/// (`src/ipc/status.ts`).
+pub const AGENT_STATUS_EVENT: &str = "deck://agent/status";
 
 /// An envelope larger than this is dropped unread — reporters send small
 /// JSON (a statusline payload runs a few KB; the cap leaves generous
@@ -93,24 +103,36 @@ pub struct SessionBound {
     pub transcript_path: Option<String>,
 }
 
-/// The `usage.report` wire event (see `src/ipc/usage.ts`). The payload stays
-/// opaque JSON — the webview's per-agent normalizers own its schema (same
-/// division as deck.json: TS owns meaning, Rust owns transport). The bridge
-/// guarantees only correlation (pane, token) and the dispatch key
-/// (`payload.agent`).
+/// An OPAQUE pane-correlated report — ONE wire shape for every channel that
+/// passes its payload through verbatim (`usage.report` → `src/ipc/usage.ts`,
+/// `agent.status` → `src/ipc/status.ts`). The webview's per-agent
+/// normalizers own the payload schema (same division as deck.json: TS owns
+/// meaning, Rust owns transport); the bridge guarantees only correlation
+/// (pane, token) and the dispatch key (`payload.agent`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UsageReport {
+pub struct Report {
     pub pane_id: String,
     pub token: String,
     pub payload: serde_json::Value,
 }
 
+/// The opaque channels: envelope `type` → the webview event carrying it.
+/// A new lane is one row here — validation and delivery are shared, so the
+/// correlation contract cannot drift between lanes.
+const OPAQUE_CHANNELS: &[(&str, &str)] = &[
+    ("usage.report", USAGE_REPORT_EVENT),
+    ("agent.status", AGENT_STATUS_EVENT),
+];
+
 /// One interpreted envelope — the dispatch result `deliver` emits from.
 #[derive(Debug, PartialEq)]
 enum Inbound {
     SessionBound(SessionBound),
-    UsageReport(UsageReport),
+    Opaque {
+        event: &'static str,
+        report: Report,
+    },
 }
 
 /// This run's live bridge — kept in Tauri managed state so the lock fd and
@@ -271,12 +293,12 @@ fn deliver(app: &AppHandle, path: &Path) {
                 log::warn!("bridge: emitting {SESSION_BOUND_EVENT} failed: {e}");
             }
         }
-        // Usage reports arrive continuously (per statusline update / turn) —
-        // debug, not info, or they'd dominate keepdeck.log.
-        Ok(Inbound::UsageReport(report)) => {
-            log::debug!("bridge: usage report pane={}", printable(&report.pane_id));
-            if let Err(e) = app.emit(USAGE_REPORT_EVENT, &report) {
-                log::warn!("bridge: emitting {USAGE_REPORT_EVENT} failed: {e}");
+        // Opaque reports arrive continuously (per statusline update / turn
+        // transition) — debug, not info, or they'd dominate keepdeck.log.
+        Ok(Inbound::Opaque { event, report }) => {
+            log::debug!("bridge: {event} pane={}", printable(&report.pane_id));
+            if let Err(e) = app.emit(event, &report) {
+                log::warn!("bridge: emitting {event} failed: {e}");
             }
         }
         Err(Rejected::Transient) => return,
@@ -348,20 +370,25 @@ fn interpret(content: &str) -> Result<Inbound, String> {
                 transcript_path,
             }))
         }
-        "usage.report" => {
+        // One scan, no guard to re-prove: this module's contract is that
+        // malformed input degrades to a logged reason, never a panic path.
+        kind if let Some((_, event)) = OPAQUE_CHANNELS.iter().find(|(t, _)| *t == kind) => {
             let agent = envelope
                 .payload
                 .get("agent")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
             if envelope.pane_id.is_empty() || envelope.token.is_empty() || agent.is_empty() {
-                return Err("usage.report with empty fields".into());
+                return Err(format!("{kind} with empty fields"));
             }
-            Ok(Inbound::UsageReport(UsageReport {
-                pane_id: envelope.pane_id,
-                token: envelope.token,
-                payload: envelope.payload,
-            }))
+            Ok(Inbound::Opaque {
+                event,
+                report: Report {
+                    pane_id: envelope.pane_id,
+                    token: envelope.token,
+                    payload: envelope.payload,
+                },
+            })
         }
         other => Err(format!("unknown type \"{}\"", printable(other))),
     }
@@ -432,7 +459,11 @@ mod tests {
     #[test]
     fn interprets_a_usage_report_passing_the_payload_through() {
         let result = interpret(&usage_envelope("pane-7", "tok", "claude"));
-        let Ok(Inbound::UsageReport(report)) = result else {
+        let Ok(Inbound::Opaque {
+            event: USAGE_REPORT_EVENT,
+            report,
+        }) = result
+        else {
             panic!("expected a usage report, got {result:?}");
         };
         assert_eq!(report.pane_id, "pane-7");
@@ -454,6 +485,39 @@ mod tests {
             serde_json::from_str(&usage_envelope("pane-7", "tok", "claude")).unwrap();
         value["payload"]["agent"] = 7.into();
         assert!(interpret(&value.to_string()).is_err());
+    }
+
+    fn status_envelope(pane: &str, token: &str, agent: &str) -> String {
+        serde_json::json!({
+            "v": 1, "type": "agent.status", "paneId": pane, "token": token,
+            "payload": { "agent": agent, "event": { "hook_event_name": "Stop", "session_id": "abc" } },
+        })
+        .to_string()
+    }
+
+    // Like usage: the payload rides through VERBATIM — the webview's status
+    // normalizers own its schema.
+    #[test]
+    fn interprets_a_status_report_passing_the_payload_through() {
+        let result = interpret(&status_envelope("pane-7", "tok", "claude"));
+        let Ok(Inbound::Opaque {
+            event: AGENT_STATUS_EVENT,
+            report,
+        }) = result
+        else {
+            panic!("expected a status report, got {result:?}");
+        };
+        assert_eq!(report.pane_id, "pane-7");
+        assert_eq!(report.token, "tok");
+        assert_eq!(report.payload["agent"], "claude");
+        assert_eq!(report.payload["event"]["hook_event_name"], "Stop");
+    }
+
+    #[test]
+    fn rejects_status_reports_with_missing_correlation_or_agent() {
+        assert!(interpret(&status_envelope("", "tok", "claude")).is_err());
+        assert!(interpret(&status_envelope("pane-7", "", "claude")).is_err());
+        assert!(interpret(&status_envelope("pane-7", "tok", "")).is_err());
     }
 
     #[test]
@@ -498,10 +562,10 @@ mod tests {
         assert_eq!(json["transcriptPath"], "/x/y.jsonl");
     }
 
-    // Same pin for the usage wire shape (`src/ipc/usage.ts`).
+    // Same pin for the opaque wire shape (`src/ipc/usage.ts`, `status.ts`).
     #[test]
     fn usage_report_serializes_camel_case() {
-        let json = serde_json::to_value(UsageReport {
+        let json = serde_json::to_value(Report {
             pane_id: "pane-7".into(),
             token: "tok".into(),
             payload: serde_json::json!({ "agent": "claude" }),

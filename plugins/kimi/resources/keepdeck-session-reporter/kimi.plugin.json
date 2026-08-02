@@ -1,18 +1,48 @@
 {
   "name": "keepdeck-session-reporter",
-  "version": "1.2.0",
-  "description": "Reports Kimi Code session identity to the KeepDeck pane that launched it.",
+  "version": "1.3.0",
+  "description": "Reports Kimi Code session identity and turn lifecycle to the KeepDeck pane that launched it.",
   "author": "KeepDeck",
   "interface": {
     "displayName": "KeepDeck Session Reporter",
     "shortDescription": "Keeps Kimi Code sessions attached to their KeepDeck panes.",
-    "longDescription": "Reports SessionStart identity only when Kimi Code was launched by KeepDeck. It is inert in every other Kimi session.",
+    "longDescription": "Reports SessionStart identity and turn-lifecycle events (turn start/end, waiting on approval, interrupt, failure) only when Kimi Code was launched by KeepDeck. It is inert in every other Kimi session.",
     "developerName": "KeepDeck"
   },
   "hooks": [
     {
       "event": "SessionStart",
       "command": "/bin/sh ./kd-session-hook.sh",
+      "timeout": 5
+    },
+    {
+      "event": "UserPromptSubmit",
+      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "timeout": 5
+    },
+    {
+      "event": "Stop",
+      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "timeout": 5
+    },
+    {
+      "event": "StopFailure",
+      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "timeout": 5
+    },
+    {
+      "event": "Interrupt",
+      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "timeout": 5
+    },
+    {
+      "event": "PermissionRequest",
+      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "timeout": 5
+    },
+    {
+      "event": "PermissionResult",
+      "command": "/bin/sh ./kd-status-hook.sh kimi",
       "timeout": 5
     }
   ]

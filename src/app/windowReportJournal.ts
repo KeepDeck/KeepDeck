@@ -14,7 +14,7 @@ import {
   compactUsageReports,
   loadUsageReports,
 } from "../ipc/usageReports";
-import { getUsageSnapshot, subscribeUsage } from "./usageManager";
+import type { UsageManager } from "./usageManager";
 
 export interface WindowReportsSnapshot {
   ready: boolean;
@@ -192,9 +192,17 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
   };
 }
 
-/** The app's one journal, wired to the real IPC and the live usage store.
- * The runtime starts and disposes it; the React hook consumes it. */
-export const windowReportJournal = createWindowReportJournal({
-  ipc: { loadUsageReports, appendUsageReports, compactUsageReports },
-  usage: { getSnapshot: getUsageSnapshot, subscribe: subscribeUsage },
-});
+export type WindowReportJournal = ReturnType<typeof createWindowReportJournal>;
+
+/** The app's journal over the real IPC and the RUNTIME's usage store —
+ * the store is a runtime-owned value, not module state, so the journal is
+ * constructed where that value lives (createAppRuntime) and reaches the
+ * React hook through the runtime context. */
+export function createAppWindowReportJournal(
+  usage: UsageManager,
+): WindowReportJournal {
+  return createWindowReportJournal({
+    ipc: { loadUsageReports, appendUsageReports, compactUsageReports },
+    usage,
+  });
+}

@@ -18,6 +18,8 @@ import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useMinimizeMode } from "./useMinimizeMode";
 import { useModalRouter } from "./useModalRouter";
 import { setSourceVisibilityProbe } from "./notificationCenter";
+import { useActivityNotifications } from "./useActivityNotifications";
+import { useWorkspaceFrames } from "./useWorkspaceFrames";
 import { workspaceForNotification } from "./notificationNavigation";
 import { useNotifications } from "./useNotifications";
 import { usePaneDrag } from "./usePaneDrag";
@@ -257,6 +259,11 @@ export function useAppController() {
     });
     return () => setSourceVisibilityProbe(null);
   }, []);
+  // Announce the transitions worth leaving the app for: needs-you, finished,
+  // failed.
+  useActivityNotifications(deck.workspaces, agents);
+  // Each workspace's status folded to one frame for its rail dot.
+  const railFrames = useWorkspaceFrames(deck.workspaces, deck.activeId);
   useMenuHotkeys({
     newWorkspace: () => {
       if (modalOpen) return;
@@ -328,6 +335,7 @@ export function useAppController() {
     name: w.name,
     agentCount: w.panes.length,
     unread: showBell ? (unreadForWs.get(w.instance) ?? 0) : 0,
+    dot: railFrames.get(w.id) ?? ("none" as const),
   }));
   if (restoring || !spawnCtx || !settings) {
     return { ready: false as const };

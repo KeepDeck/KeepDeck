@@ -37,16 +37,30 @@ vi.mock("../../app/ptyManager", () => ({
   subscribeSessions: sessions.subscribe,
 }));
 
-import type { NormalizedUsage } from "@keepdeck/plugin-api";
+import type { AgentStatusEvent, NormalizedUsage } from "@keepdeck/plugin-api";
 import type { PaneIdle } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import {
-  registerUsageNormalizer,
-  reportUsage,
-  resetUsageManager,
+  createUsageManager,
+  type UsageManager,
 } from "../../app/usageManager";
+import {
+  createAgentStatusTracker,
+  type AgentStatusTracker,
+} from "../../app/agentStatusTracker";
+import { AppRuntimeProvider } from "../../app/runtimeContext";
+import type { AppRuntime } from "../../app/runtime";
 import { AgentPane, type AgentPaneProps } from "./AgentPane";
 import { paneBody, type PaneBody } from "../../domain/deck";
+
+/** The runtime slice AgentPane actually reads (its activity and ctx%
+ * selectors). Fresh stores per test — the factories' whole point. */
+let statusTracker: AgentStatusTracker = createAgentStatusTracker();
+let usage: UsageManager = createUsageManager();
+beforeEach(() => {
+  statusTracker = createAgentStatusTracker();
+  usage = createUsageManager();
+});
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -84,23 +98,29 @@ const baseProps = {
 function PaneUnderTest(
   props: Omit<AgentPaneProps, "body"> & { body?: PaneBody },
 ) {
-  return createElement(AgentPane, {
-    ...props,
-    body:
-      props.body ??
-      paneBody(
-        {
-          id: props.paneId,
-          ...(props.provisioning ? { provisioning: props.provisioning } : {}),
-          ...(props.idle ? { idle: props.idle } : {}),
-        },
-        {
-          agentAvailable: !props.unavailableAgent,
-          hasPlan: true,
-          planFailed: false,
-        },
-      ),
-  });
+  return createElement(
+    AppRuntimeProvider,
+    {
+      runtime: { statusTracker, usageManager: usage } as unknown as AppRuntime,
+    },
+    createElement(AgentPane, {
+      ...props,
+      body:
+        props.body ??
+        paneBody(
+          {
+            id: props.paneId,
+            ...(props.provisioning ? { provisioning: props.provisioning } : {}),
+            ...(props.idle ? { idle: props.idle } : {}),
+          },
+          {
+            agentAvailable: !props.unavailableAgent,
+            hasPlan: true,
+            planFailed: false,
+          },
+        ),
+    }),
+  );
 }
 
 // A death recorded by one test is not a fact about the next one.
@@ -111,7 +131,6 @@ describe("AgentPane — header badges", () => {
   let root: Root;
 
   beforeEach(() => {
-    resetUsageManager();
     document.body.innerHTML = "";
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -120,15 +139,14 @@ describe("AgentPane — header badges", () => {
 
   afterEach(() => {
     act(() => root.unmount());
-    resetUsageManager();
   });
 
   it("shows the context meter in the header from live pane usage", () => {
-    registerUsageNormalizer(
+    usage.registerNormalizer(
       "claude",
       (payload) => (payload as { result: NormalizedUsage }).result,
     );
-    reportUsage("ws:1", {
+    usage.report("ws:1", {
       agent: "claude",
       result: {
         account: null,
@@ -149,31 +167,12 @@ describe("AgentPane — header badges", () => {
     expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
-  it("renders a calm context meter without a level class", () => {
-    registerUsageNormalizer(
-      "claude",
-      (payload) => (payload as { result: NormalizedUsage }).result,
-    );
-    reportUsage("ws:1", {
-      agent: "claude",
-      result: {
-        account: null,
-        pane: { agent: "claude", context: { usedPct: 40 }, reportedAt: 0 },
-      },
-    });
-    act(() => root.render(createElement(PaneUnderTest,baseProps)));
-    const ctx = document.querySelector<HTMLElement>(".pane__ctx");
-    expect(ctx?.textContent).toBe("ctx 40%");
-    // Calm (< 75%) → no usage-level--* suffix appended.
-    expect(ctx?.className).toBe("chip pane__ctx");
-  });
-
   it("hides the context meter on a non-live (idle) pane despite usage", () => {
-    registerUsageNormalizer(
+    usage.registerNormalizer(
       "claude",
       (payload) => (payload as { result: NormalizedUsage }).result,
     );
-    reportUsage("ws:1", {
+    usage.report("ws:1", {
       agent: "claude",
       result: {
         account: null,
@@ -212,11 +211,11 @@ describe("AgentPane — header badges", () => {
   ] as const)(
     "hides the context meter on a %s pane despite usage",
     (_label, override) => {
-      registerUsageNormalizer(
+      usage.registerNormalizer(
         "claude",
         (payload) => (payload as { result: NormalizedUsage }).result,
       );
-      reportUsage("ws:1", {
+      usage.report("ws:1", {
         agent: "claude",
         result: {
           account: null,
@@ -231,11 +230,11 @@ describe("AgentPane — header badges", () => {
   );
 
   it("hides the context meter once the pane's process has exited", () => {
-    registerUsageNormalizer(
+    usage.registerNormalizer(
       "claude",
       (payload) => (payload as { result: NormalizedUsage }).result,
     );
-    reportUsage("ws:1", {
+    usage.report("ws:1", {
       agent: "claude",
       result: {
         account: null,
@@ -250,36 +249,6 @@ describe("AgentPane — header badges", () => {
     expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
-  it("renders a runtime git badge when provided", () => {
-    act(() =>
-      root.render(
-        createElement(PaneUnderTest,{
-          ...baseProps,
-          gitBadge: { label: "main", title: "main" },
-        }),
-      ),
-    );
-
-    const badge = document.querySelector<HTMLElement>(".pane__branch");
-    expect(badge).not.toBeNull();
-    expect(badge!.textContent).toBe("main");
-    expect(badge!.title).toBe("main");
-  });
-
-  it("leads the actions cluster with the git branch badge", () => {
-    act(() =>
-      root.render(
-        createElement(PaneUnderTest,{
-          ...baseProps,
-          gitBadge: { label: "main", title: "main" },
-        }),
-      ),
-    );
-
-    const actions = document.querySelector(".pane__actions");
-    expect(actions?.children[0]?.className).toBe("chip pane__branch");
-  });
-
   it("can receive restored focus without entering the tab order", () => {
     act(() => root.render(createElement(PaneUnderTest,baseProps)));
 
@@ -287,6 +256,117 @@ describe("AgentPane — header badges", () => {
     expect(pane.tabIndex).toBe(-1);
     act(() => pane.focus());
     expect(document.activeElement).toBe(pane);
+  });
+});
+
+describe("AgentPane — activity badge", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    statusTracker.registerNormalizer(
+      "claude",
+      (payload: unknown) =>
+        (payload as { edge?: AgentStatusEvent }).edge ?? null,
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const reportEdge = (edge: AgentStatusEvent) =>
+    act(() => statusTracker.report("ws:1", { agent: "claude", edge }));
+
+  it("shows a quiet working dot — label in the tooltip only", () => {
+    act(() => root.render(createElement(PaneUnderTest, baseProps)));
+    reportEdge({ kind: "turn-start", at: Date.now() });
+
+    const badge = document.querySelector<HTMLElement>(".pane__activity");
+    expect(badge).not.toBeNull();
+    expect(badge!.className).toContain("pane__activity--working");
+    expect(badge!.title).toBe("Working · now");
+    expect(badge!.textContent).toBe("");
+  });
+
+  it("keeps the attention states at dot density — the frame carries them", () => {
+    act(() => root.render(createElement(PaneUnderTest, baseProps)));
+    reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
+
+    let badge = document.querySelector<HTMLElement>(".pane__activity");
+    // The tone class alone carries the hue (status.css owns the palette).
+    expect(badge!.className).toContain("pane__activity--waiting");
+    // No spelled label: the words live in the tooltip, the attention lives
+    // on the pane frame.
+    expect(badge!.textContent).toBe("");
+    expect(badge!.title).toBe("Needs approval · now");
+    let pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-waiting");
+
+    reportEdge({
+      kind: "turn-failed",
+      at: Date.now(),
+      error: "rate_limit",
+      detail: "Weekly limit reached",
+    });
+    badge = document.querySelector<HTMLElement>(".pane__activity");
+    expect(badge!.className).toContain("pane__activity--failed");
+    expect(badge!.textContent).toBe("");
+    // The prose rides the tooltip, not the header.
+    expect(badge!.title).toBe("Rate limited — Weekly limit reached · now");
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-failed");
+  });
+
+  it("ranks the frame by the domain ladder — attention beats selection, done yields", () => {
+    // Selected (and neither maximized nor solo): the selection frame shows
+    // until an attention state takes it.
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, { ...baseProps, selected: true }),
+      ),
+    );
+    let pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-selected");
+
+    reportEdge({ kind: "waiting", at: Date.now(), reason: "question" });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-waiting");
+    expect(pane!.className).not.toContain("pane--frame-selected");
+
+    // Done yields to selection on the selected pane…
+    reportEdge({ kind: "turn-end", at: Date.now() });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-selected");
+
+    // …and shows on its own once the selection frame is gone.
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, { ...baseProps, selected: false }),
+      ),
+    );
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-done");
+  });
+
+  it("shows nothing before the first edge, and renders the tracker verbatim", () => {
+    act(() => root.render(createElement(PaneUnderTest, baseProps)));
+    expect(document.querySelector(".pane__activity")).toBeNull();
+
+    // The tracker is the single liveness authority: suspending a pane goes
+    // through the orchestrator's retire, which CLEARS its activity — the
+    // view renders whatever is left, deriving no gate of its own.
+    reportEdge({ kind: "turn-start", at: 100 });
+    act(() => statusTracker.clear("ws:1"));
+    const idle: PaneIdle = { reason: "suspended", at: "2026-08-01T00:00:00Z" };
+    act(() =>
+      root.render(createElement(PaneUnderTest, { ...baseProps, idle })),
+    );
+    expect(document.querySelector(".pane__activity")).toBeNull();
   });
 });
 

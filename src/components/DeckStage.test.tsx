@@ -1,8 +1,25 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { createAgentStatusTracker } from "../app/agentStatusTracker";
+import { createUsageManager } from "../app/usageManager";
+import { AppRuntimeProvider } from "../app/runtimeContext";
+import type { AppRuntime } from "../app/runtime";
+
+/** The runtime slice the panes under DeckStage read (activity + ctx%). */
+const withRuntime = (el: ReactElement) =>
+  createElement(
+    AppRuntimeProvider,
+    {
+      runtime: {
+        statusTracker: createAgentStatusTracker(),
+        usageManager: createUsageManager(),
+      } as unknown as AppRuntime,
+    },
+    el,
+  );
 
 vi.mock("./terminal/TerminalPane", () => ({
   TerminalPane: vi.fn(() => null),
@@ -174,7 +191,7 @@ describe("DeckStage — exited agents across layouts", () => {
   });
 
   const render = (overrides: Record<string, unknown> = {}) =>
-    act(() => root.render(createElement(DeckStage, props(overrides))));
+    act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
 
   it("forwards global keyboard-focus eligibility to terminal panes", () => {
     render({ keyboardFocusEnabled: false, selectedPaneId: "pane-1" });
@@ -295,7 +312,7 @@ describe("DeckStage — agent identity on the pane header", () => {
   });
 
   const render = (overrides: Record<string, unknown> = {}) =>
-    act(() => root.render(createElement(DeckStage, props(overrides))));
+    act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
 
   it("draws the catalog's brand mark with the agent label as tooltip", () => {
     const mark = { viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z" }] };
@@ -370,7 +387,7 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
   });
 
   const render = (overrides: Record<string, unknown> = {}) =>
-    act(() => root.render(createElement(DeckStage, props(overrides))));
+    act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
 
   // happy-dom reports zero widths, so every tray chip lands in the +N
   // popover — the click target for a restore is the popover item.

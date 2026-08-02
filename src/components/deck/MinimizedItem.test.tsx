@@ -1,7 +1,14 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentStatusEvent } from "@keepdeck/plugin-api";
+import {
+  createAgentStatusTracker,
+  type AgentStatusTracker,
+} from "../../app/agentStatusTracker";
+import { AppRuntimeProvider } from "../../app/runtimeContext";
+import type { AppRuntime } from "../../app/runtime";
 import {
   MINIMIZED_TOOLTIP_DELAY_MS,
   MinimizedItem,
@@ -12,27 +19,41 @@ import {
 
 describe("MinimizedItem", () => {
   let root: Root;
+  let statusTracker: AgentStatusTracker;
   const onClick = vi.fn();
+
+  const render = (props: ComponentProps<typeof MinimizedItem>) =>
+    act(() => {
+      root.render(
+        createElement(
+          AppRuntimeProvider,
+          { runtime: { statusTracker } as unknown as AppRuntime },
+          createElement(MinimizedItem, props),
+        ),
+      );
+    });
 
   beforeEach(() => {
     vi.useFakeTimers();
+    statusTracker = createAgentStatusTracker();
+    statusTracker.registerNormalizer(
+      "claude",
+      (payload) => (payload as { edge?: AgentStatusEvent }).edge ?? null,
+    );
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     onClick.mockClear();
-    act(() => {
-      root.render(
-        createElement(MinimizedItem, {
-          variant: "chip",
-          title: "A deliberately long agent title",
-          gitBadge: {
-            label: "fix/a-deliberately-long-branch",
-            title: "fix/a-deliberately-long-branch",
-          },
-          label: "Restore A deliberately long agent title",
-          active: true,
-          onClick,
-        }),
-      );
+    render({
+      variant: "chip",
+      paneId: "pane-1",
+      title: "A deliberately long agent title",
+      gitBadge: {
+        label: "fix/a-deliberately-long-branch",
+        title: "fix/a-deliberately-long-branch",
+      },
+      label: "Restore A deliberately long agent title",
+      active: true,
+      onClick,
     });
   });
 
@@ -42,18 +63,15 @@ describe("MinimizedItem", () => {
   });
 
   it("places the stopped marker right of the title, before the badges", () => {
-    act(() => {
-      root.render(
-        createElement(MinimizedItem, {
-          variant: "bar",
-          title: "Claude 1",
-          label: "Restore Claude 1",
-          stopped: true,
-          yolo: true,
-          active: true,
-          onClick,
-        }),
-      );
+    render({
+      variant: "bar",
+      paneId: "pane-1",
+      title: "Claude 1",
+      label: "Restore Claude 1",
+      stopped: true,
+      yolo: true,
+      active: true,
+      onClick,
     });
     const title = document.querySelector(".minimized__title")!;
     const marker = document.querySelector(".minimized__stopped")!;
@@ -70,17 +88,14 @@ describe("MinimizedItem", () => {
     // The beforeEach mount carries no yolo — the marker must be absent.
     expect(document.querySelector(".minimized__yolo")).toBeNull();
 
-    act(() => {
-      root.render(
-        createElement(MinimizedItem, {
-          variant: "bar",
-          title: "Claude 1",
-          label: "Restore Claude 1",
-          yolo: true,
-          active: true,
-          onClick,
-        }),
-      );
+    render({
+      variant: "bar",
+      paneId: "pane-1",
+      title: "Claude 1",
+      label: "Restore Claude 1",
+      yolo: true,
+      active: true,
+      onClick,
     });
     const marker = document.querySelector<HTMLElement>(".minimized__yolo")!;
     expect(marker.querySelector("svg")).not.toBeNull();
@@ -128,5 +143,53 @@ describe("MinimizedItem", () => {
 
     expect(onClick).toHaveBeenCalledOnce();
     expect(document.querySelector("[role='tooltip']")).toBeNull();
+  });
+
+  it("wears the pane's status frame — attention must survive minimizing", () => {
+    let button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    expect(button.className).not.toContain("minimized--frame");
+
+    act(() =>
+      statusTracker.report("pane-1", {
+        agent: "claude",
+        edge: { kind: "waiting", at: Date.now(), reason: "permission" },
+      }),
+    );
+    button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    expect(button.className).toContain("minimized--frame-waiting");
+
+    act(() =>
+      statusTracker.report("pane-1", {
+        agent: "claude",
+        edge: { kind: "turn-end", at: Date.now() },
+      }),
+    );
+    button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    // No selection in the tray: done shows on its own rung.
+    expect(button.className).toContain("minimized--frame-done");
+  });
+
+  it("a retired pane's stand-in is bare — the tracker is the one authority", () => {
+    // Suspend goes through the orchestrator's retire, which clears the
+    // pane's activity; the stand-in renders the store verbatim and derives
+    // no liveness gate of its own.
+    act(() =>
+      statusTracker.report("pane-1", {
+        agent: "claude",
+        edge: { kind: "waiting", at: Date.now(), reason: "permission" },
+      }),
+    );
+    act(() => statusTracker.clear("pane-1"));
+    render({
+      variant: "chip",
+      paneId: "pane-1",
+      title: "Claude 1",
+      label: "Restore Claude 1",
+      stopped: true,
+      active: true,
+      onClick,
+    });
+    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    expect(button.className).not.toContain("minimized--frame");
   });
 });

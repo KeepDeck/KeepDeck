@@ -65,6 +65,7 @@ export function createAgentOrchestratorRuntime(
     plugins,
     probe,
     worktrees,
+    telemetry,
   } = deps;
   const actions: DeckActions = createDeckActions(deck);
   const blocked = new Map<string, string>();
@@ -230,6 +231,7 @@ export function createAgentOrchestratorRuntime(
     suspendPolicy,
     worktrees,
     blocked,
+    telemetry,
   });
   const restart = createAgentOrchestratorRestart({
     deck,
@@ -242,6 +244,7 @@ export function createAgentOrchestratorRuntime(
     skillsAsk,
     publish,
     schedule,
+    telemetry,
   });
   const continuations = createAgentOrchestratorContinuations({
     deck,

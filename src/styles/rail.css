@@ -129,16 +129,16 @@
   text-align: left;
 }
 
+/* Colour comes from the status ladder (status.css .rail__dot--*): the
+   active workspace's green is the ladder's `selected` rung, attention and
+   done ride the same classes. Bare = the plain gray of a quiet background
+   workspace (and the drag ghost). */
 .rail__dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background-color: #3b4658;
   flex: none;
-}
-
-.rail__item--active .rail__dot {
-  background-color: #58b368;
 }
 
 .rail__name {

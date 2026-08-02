@@ -2,6 +2,7 @@ import {
   addNotification,
   markAllRead,
   markRead,
+  retractByTag,
   bannerVerdict,
   type Notification,
   type NotificationSeverity,
@@ -141,6 +142,22 @@ export function notify(input: NotifyInput): boolean {
  * `useSyncExternalStore` snapshot contract). */
 export function getNotifications(): readonly Notification[] {
   return items;
+}
+
+/** Withdraw a tag's notification — the announced event has been ANSWERED,
+ * not merely superseded (a newer event replaces via `notify`'s same-tag
+ * rule; this is for waits the user resolved at the source, leaving nothing
+ * to announce). The tag's banner cooldown deliberately SURVIVES: an
+ * agent whose permissions auto-resolve flaps ask→answer→ask faster than a
+ * human reads, and resetting the cooldown on every answer would let one
+ * pane hammer the OS with a banner per tool call — the exact flood the
+ * cooldown exists to stop. A genuinely new question inside the 5s window
+ * still lands in the center; only its OS banner waits out the cooldown. */
+export function retractNotification(tag: string): void {
+  const next = retractByTag(items, tag);
+  if (next === items) return;
+  items = next;
+  emit();
 }
 
 export function markNotificationRead(id: string): void {

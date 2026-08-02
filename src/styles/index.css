@@ -12,6 +12,9 @@
 @import "./rail.css";
 @import "./pane.css";
 @import "./minimize.css";
+/* After pane.css AND minimize.css: the frame classes recolour borders those
+   files declare, at equal specificity — source order is the tiebreak. */
+@import "./status.css";
 @import "./terminal.css";
 @import "./setup.css";
 @import "./history.css";

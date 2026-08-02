@@ -10,7 +10,7 @@ import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
 import type { PaneIdle } from "../domain/deck";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
-import { getUsageSnapshot, resetUsageManager } from "./usageManager";
+import { createUsageManager, type UsageManager } from "./usageManager";
 import { createUsageChannel, type UsageChannel } from "./usageChannel";
 import type { DeckStore } from "./deckStore";
 import type { Deck } from "./useDeck";
@@ -83,6 +83,7 @@ interface Bound {
 
 describe("createUsageChannel", () => {
   let channel: UsageChannel | null;
+  let usage: UsageManager;
   let currentDeck: Deck;
   let deckListeners: Set<() => void>;
   let deckStore: DeckStore;
@@ -98,13 +99,13 @@ describe("createUsageChannel", () => {
         list: () => ipc.contributions,
         subscribe: () => () => {},
       } as unknown as ContributionRegistry<AgentContribution>;
-      channel = createUsageChannel(deckStore, agents);
+      channel = createUsageChannel(deckStore, agents, usage);
     }
     await act(async () => {});
   };
 
   beforeEach(() => {
-    resetUsageManager();
+    usage = createUsageManager();
     channel = null;
     currentDeck = deckWith([]);
     deckListeners = new Set();
@@ -172,7 +173,6 @@ describe("createUsageChannel", () => {
 
   afterEach(() => {
     channel?.dispose();
-    resetUsageManager();
   });
 
   it("registers plugin normalizers and applies token-verified reports", async () => {
@@ -180,7 +180,7 @@ describe("createUsageChannel", () => {
     await act(async () => {
       emit({ paneId: "pane-1", token: "tok-1", payload: { agent: "claude" } });
     });
-    expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
+    expect(usage.getSnapshot().accounts.get("claude")).toMatchObject({
       kind: "reported",
       sourcePaneId: "pane-1",
     });
@@ -207,7 +207,7 @@ describe("createUsageChannel", () => {
       });
     });
 
-    expect(getUsageSnapshot().panes.get("pane-1")?.context).toEqual({
+    expect(usage.getSnapshot().panes.get("pane-1")?.context).toEqual({
       usedPct: 10,
       windowTokens: 258_400,
     });
@@ -219,7 +219,7 @@ describe("createUsageChannel", () => {
       emit({ paneId: "pane-1", token: "forged", payload: { agent: "claude" } });
       emit({ paneId: "pane-ghost", token: "tok-1", payload: { agent: "claude" } });
     });
-    expect(getUsageSnapshot().accounts.size).toBe(0);
+    expect(usage.getSnapshot().accounts.size).toBe(0);
   });
 
   it("prunes pane usage when a pane leaves the deck, keeping the account", async () => {
@@ -227,11 +227,11 @@ describe("createUsageChannel", () => {
     await act(async () => {
       emit({ paneId: "pane-1", token: "tok-1", payload: { agent: "claude" } });
     });
-    expect(getUsageSnapshot().panes.has("pane-1")).toBe(true);
+    expect(usage.getSnapshot().panes.has("pane-1")).toBe(true);
 
     await mount(deckWith([]));
-    expect(getUsageSnapshot().panes.has("pane-1")).toBe(false);
-    expect(getUsageSnapshot().accounts.get("claude")).toBeDefined();
+    expect(usage.getSnapshot().panes.has("pane-1")).toBe(false);
+    expect(usage.getSnapshot().accounts.get("claude")).toBeDefined();
   });
 
   it("rejects a late report after close even while its old token is cached", async () => {
@@ -240,7 +240,7 @@ describe("createUsageChannel", () => {
       emit({ paneId: "pane-1", token: "tok-1", payload: { agent: "claude" } });
     });
     await mount(deckWith([]));
-    const afterClose = getUsageSnapshot();
+    const afterClose = usage.getSnapshot();
 
     await act(async () => {
       // The spawn-spec mock deliberately still accepts tok-1. Membership is
@@ -248,8 +248,8 @@ describe("createUsageChannel", () => {
       emit({ paneId: "pane-1", token: "tok-1", payload: { agent: "claude" } });
     });
 
-    expect(getUsageSnapshot()).toBe(afterClose);
-    expect(getUsageSnapshot().panes.has("pane-1")).toBe(false);
+    expect(usage.getSnapshot()).toBe(afterClose);
+    expect(usage.getSnapshot().panes.has("pane-1")).toBe(false);
   });
 
   it("arms the declared tail for a binding carrying a transcript", async () => {
@@ -449,7 +449,7 @@ describe("createUsageChannel", () => {
     );
     await act(async () => {});
     expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(1);
-    expect(getUsageSnapshot().accounts.get("kimi")).toMatchObject({
+    expect(usage.getSnapshot().accounts.get("kimi")).toMatchObject({
       kind: "reported",
     });
 
@@ -472,7 +472,7 @@ describe("createUsageChannel", () => {
     await mount(deckWith([]));
     await act(async () => {});
     expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
-    expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+    expect(usage.getSnapshot().accounts.get("codex")).toMatchObject({
       kind: "reported",
     });
 
@@ -528,7 +528,7 @@ describe("createUsageChannel", () => {
         resolves[0]({ body: "boot", sourceAt: 8_000 }),
       );
       expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
-      expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+      expect(usage.getSnapshot().accounts.get("codex")).toMatchObject({
         reportedAt: 8_000,
       });
 
@@ -543,14 +543,14 @@ describe("createUsageChannel", () => {
         resolves[1]({ body: "live", sourceAt: 10_000 }),
       );
       expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(3);
-      expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+      expect(usage.getSnapshot().accounts.get("codex")).toMatchObject({
         reportedAt: 10_000,
       });
 
       await act(async () =>
         resolves[2]({ body: "visible", sourceAt: 11_000 }),
       );
-      expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+      expect(usage.getSnapshot().accounts.get("codex")).toMatchObject({
         reportedAt: 11_000,
       });
       expect(maxActive).toBe(1);
@@ -568,12 +568,12 @@ describe("createUsageChannel", () => {
     // No codex pane anywhere — the account chip still catches up from disk.
     await mount(deckWith([]));
     await act(async () => {});
-    expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+    expect(usage.getSnapshot().accounts.get("codex")).toMatchObject({
       kind: "reported",
       reportedAt: 2_000,
     });
     // Account state only: without a pane there is nothing to attribute.
-    expect(getUsageSnapshot().panes.size).toBe(0);
+    expect(usage.getSnapshot().panes.size).toBe(0);
 
     // Remounting lanes never re-sweeps.
     await mount(deckWith([{ id: "pane-1" }]));
@@ -590,7 +590,7 @@ describe("createUsageChannel", () => {
 
     await mount(deckWith([]));
     await act(async () => {});
-    expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+    expect(usage.getSnapshot().accounts.get("codex")).toMatchObject({
       kind: "reported",
       reportedAt: 1_234,
     });

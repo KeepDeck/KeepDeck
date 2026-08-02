@@ -288,6 +288,10 @@ function App() {
             }}
             onRetryProvision={orchestrator.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {
+              // Activity cleanup is NOT wired here on purpose: the status
+              // channel watches the session registry and clears a dead
+              // pane's activity itself — before this callback can even
+              // fire, and even when the terminal is unmounted.
               const recovering = orchestrator.recoverRejectedResume(
                 wsId,
                 paneId,

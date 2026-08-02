@@ -23,10 +23,6 @@ function pluginSummary(overrides: Record<string, unknown> = {}) {
     hasErrors: false,
     source: "local-path",
     originalSource: SOURCE_DIRECTORY,
-    skillCount: 0,
-    mcpServerCount: 0,
-    hookCount: COMPANION_DESCRIPTOR.hookCount,
-    commandCount: 0,
     ...overrides,
   };
 }
@@ -146,6 +142,20 @@ describe("Kimi companion manager", () => {
       { code: 40412, msg: "plugin not found", data: null },
     ]);
     await expect(manager.remove()).rejects.toThrow("plugin not found");
+  });
+
+  /** The 1.2.0→1.3.0 lesson: ownership judged on manifest SHAPE (hook
+   * counts) disowned every existing install the moment the companion grew
+   * hooks — and the collision gate fires before the version gate, so the
+   * user got a dead-end "Plugin ID conflict" with configure() and remove()
+   * both refusing. An old version of ours is OURS: owned, then outdated. */
+  it("owns an older install whose manifest shape has since changed", async () => {
+    const oldInstall = pluginSummary({ version: "1.2.0" });
+    const { manager } = harness([{ code: 0, msg: "", data: [oldInstall] }]);
+    await expect(manager.inspect()).resolves.toMatchObject({
+      owned: true,
+      version: "1.2.0",
+    });
   });
 
   it("recognizes an id collision and refuses to overwrite or remove it", async () => {

@@ -6,6 +6,7 @@ import {
   markAllRead,
   markRead,
   NOTIFICATIONS_CAP,
+  retractByTag,
   shouldBanner,
   unreadByWorkspace,
   unreadCount,
@@ -73,6 +74,21 @@ describe("addNotification", () => {
     }
     expect(items).toHaveLength(NOTIFICATIONS_CAP);
     expect(items.some((n) => n.id === first.id)).toBe(false);
+  });
+});
+
+describe("retractByTag", () => {
+  it("withdraws the tag's slot — read or not — and leaves the rest", () => {
+    const answered = make({ tag: "pane:1:activity", readAt: 5 });
+    const other = make({ tag: "pane:2:activity" });
+    const untagged = make();
+    const next = retractByTag([answered, other, untagged], "pane:1:activity");
+    expect(next).toEqual([other, untagged]);
+  });
+
+  it("is a same-reference no-op when the tag holds no slot", () => {
+    const items = [make({ tag: "pane:2:activity" }), make()];
+    expect(retractByTag(items, "pane:1:activity")).toBe(items);
   });
 });
 

@@ -407,6 +407,15 @@ export function buildGuestContext(
             ])
             .catch(noop);
         }
+        // Same boundary, same reason, same loudness for the status half:
+        // the tracker calls `normalize` synchronously per report.
+        if (agent.status !== undefined) {
+          void rpc
+            .call("log.warn", [
+              `agent "${agent.id}": status contributions are not carried across the external tier yet — ignored`,
+            ])
+            .catch(noop);
+        }
         agentHooks.set(agent.id, agent.hooks);
         if (agent.history) agentHistories.set(agent.id, agent.history);
         return registerRemote(

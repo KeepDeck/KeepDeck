@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { MouseEvent } from "react";
+import { paneFrame } from "../../domain/status";
+import { usePaneActivity } from "../../app/usePaneActivity";
 import { RestoreUpIcon } from "../../ui/icons";
 import { BranchBadge, StoppedMarker, YoloBadge } from "../../ui/badges";
 import type { GitBadge } from "../../ui/gitBadge";
@@ -12,6 +14,8 @@ interface MinimizedItemProps {
   /** `chip` = a compact pill for the tray; `bar` = a full-width header bar for
    * the strip. */
   variant: "chip" | "bar";
+  /** The pane this stand-in fronts — the key its live activity is read by. */
+  paneId: string;
   title: string;
   /** The agent's brand mark; absent/null draws the neutral fallback. */
   icon?: AgentGlyphIcon | null;
@@ -83,6 +87,7 @@ export function MinimizedItemContent({
  */
 export function MinimizedItem({
   variant,
+  paneId,
   title,
   icon,
   gitBadge,
@@ -93,6 +98,13 @@ export function MinimizedItem({
   restorePaneId,
   onClick,
 }: MinimizedItemProps) {
+  // The stand-in wears the pane's status frame — attention must survive
+  // minimizing. Same narrow selector and domain decider as the pane's own
+  // border, and the same trust: the status channel keeps the tracker
+  // honest about dead processes, so no gate is re-derived here. A hidden
+  // pane is never the selected one.
+  const activity = usePaneActivity(paneId);
+  const frame = paneFrame(activity, false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const focused = useRef(false);
@@ -122,7 +134,7 @@ export function MinimizedItem({
       <button
         ref={buttonRef}
         type="button"
-        className={`minimized minimized--${variant}`}
+        className={`minimized minimized--${variant}${frame === "none" ? "" : ` minimized--frame-${frame}`}`}
         onMouseEnter={() => {
           if (!active) return;
           cancelHover();

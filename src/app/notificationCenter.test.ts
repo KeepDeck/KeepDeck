@@ -8,6 +8,7 @@ import {
   markNotificationRead,
   notify,
   resetNotificationCenter,
+  retractNotification,
   setSourceVisibilityProbe,
   subscribeNotifications,
 } from "./notificationCenter";
@@ -143,6 +144,38 @@ describe("notificationCenter", () => {
     vi.advanceTimersByTime(10_000);
     notify({ title: "third", source: paneSource, tag: "x" });
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(2);
+  });
+
+  it("retracting removes the tag's entry; the banner cooldown survives", () => {
+    notify({ title: "needs approval", source: paneSource, tag: "x" });
+    expect(getNotifications()).toHaveLength(1);
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
+
+    retractNotification("x");
+    expect(getNotifications()).toHaveLength(0);
+
+    // An agent whose permissions auto-resolve flaps ask→answer→ask faster
+    // than a human reads — the next ask inside the window must NOT hammer
+    // the OS again. The center entry still lands; only the banner waits.
+    vi.advanceTimersByTime(1_000);
+    notify({ title: "needs approval again", source: paneSource, tag: "x" });
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
+    expect(getNotifications()).toHaveLength(1);
+
+    // Out of the window it is a fresh question and banners normally.
+    vi.advanceTimersByTime(10_000);
+    notify({ title: "and again", source: paneSource, tag: "x" });
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(2);
+  });
+
+  it("retracting an unknown tag changes nothing and stays silent", () => {
+    notify({ title: "kept", source: paneSource, tag: "y" });
+    const listener = vi.fn();
+    const unsubscribe = subscribeNotifications(listener);
+    retractNotification("unknown");
+    expect(getNotifications()).toHaveLength(1);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
   });
 
   it("the cooldown is keyed per tag; untagged notifications never share one", () => {
