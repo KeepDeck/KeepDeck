@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { GitBranchIcon } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
+import type { ActivityBadge } from "../../domain/status";
 
 const GAP = 6;
 const VIEWPORT_MARGIN = 8;
@@ -55,6 +56,9 @@ interface MinimizedDetailsTooltipProps {
   anchor: HTMLElement;
   id: string;
   title: string;
+  /** The pane's live status, settled by the domain (working/waiting/done/
+   * failed) — the frame colours the chip, this names the state in words. */
+  activity?: ActivityBadge | null;
   gitBadge?: GitBadge | null;
   /** The pane behind the stand-in has no process. */
   stopped?: boolean;
@@ -70,6 +74,7 @@ export function MinimizedDetailsTooltip({
   anchor,
   id,
   title,
+  activity,
   gitBadge,
   stopped,
 }: MinimizedDetailsTooltipProps) {
@@ -121,6 +126,14 @@ export function MinimizedDetailsTooltip({
       }}
     >
       <div className="minimized-tooltip__title">{title}</div>
+      {activity && (
+        <div
+          className={`minimized-tooltip__status minimized-tooltip__status--${activity.tone}`}
+        >
+          {activity.label}
+          {activity.detail ? ` — ${activity.detail}` : ""}
+        </div>
+      )}
       {/* The chip's own marker is a glyph with a native `title`, which this
           custom tooltip suppresses on the same hover — so the detail layer has
           to carry the state itself or the hover hides what it explains. */}

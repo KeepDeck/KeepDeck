@@ -169,6 +169,46 @@ describe("MinimizedItem", () => {
     expect(button.className).toContain("minimized--frame-done");
   });
 
+  it("names the pane's live status in the hover details", () => {
+    const button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    const hover = () => {
+      act(() => {
+        button.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        vi.advanceTimersByTime(MINIMIZED_TOOLTIP_DELAY_MS);
+      });
+    };
+
+    // No activity yet — no status line at all.
+    hover();
+    expect(
+      document.querySelector(".minimized-tooltip__status"),
+    ).toBeNull();
+
+    act(() =>
+      statusTracker.report("pane-1", {
+        agent: "claude",
+        edge: { kind: "waiting", at: Date.now(), reason: "permission" },
+      }),
+    );
+    hover();
+    const status = document.querySelector<HTMLElement>(
+      ".minimized-tooltip__status",
+    )!;
+    expect(status.textContent).toContain("Needs approval");
+    expect(status.className).toContain("minimized-tooltip__status--waiting");
+
+    act(() =>
+      statusTracker.report("pane-1", {
+        agent: "claude",
+        edge: { kind: "turn-end", at: Date.now() },
+      }),
+    );
+    hover();
+    expect(
+      document.querySelector(".minimized-tooltip__status")?.textContent,
+    ).toContain("Done");
+  });
+
   it("a retired pane's stand-in is bare — the tracker is the one authority", () => {
     // Suspend goes through the orchestrator's retire, which clears the
     // pane's activity; the stand-in renders the store verbatim and derives
