@@ -3,6 +3,7 @@ import { onAgentStatus } from "../ipc/status";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
 import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckStore } from "./deckStore";
+import { paneAgentType } from "../domain/deck";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
 
@@ -42,12 +43,16 @@ export function createAgentStatusChannel(
 ): AgentStatusChannel {
   let disposed = false;
   let normalizerDisposers: (() => void)[] = [];
+  let declaring = new Set<string>();
 
   const registerNormalizers = () => {
+    const previous = declaring;
     for (const unregister of normalizerDisposers) unregister();
     normalizerDisposers = [];
+    const current = new Set<string>();
     for (const { entry } of agents.list()) {
       if (!entry.status) continue;
+      current.add(entry.id);
       normalizerDisposers.push(
         tracker.registerNormalizer(
           entry.id,
@@ -55,6 +60,20 @@ export function createAgentStatusChannel(
         ),
       );
     }
+    // An agent that LOST its status voice (plugin disabled) can never
+    // resolve what it already said — its panes' activity would freeze at
+    // the last edge for as long as the process lives, and every surface
+    // would keep painting it. Silence over a frozen lie. A mere
+    // re-activation replaces the normalizer and clears nothing.
+    for (const agentId of previous) {
+      if (current.has(agentId)) continue;
+      for (const workspace of deck.getSnapshot().workspaces) {
+        for (const pane of workspace.panes) {
+          if (paneAgentType(pane) === agentId) tracker.clear(pane.id);
+        }
+      }
+    }
+    declaring = current;
   };
   registerNormalizers();
   const unsubscribeAgents = agents.subscribe(() => {
@@ -79,12 +98,16 @@ export function createAgentStatusChannel(
   retainLivePanes();
 
   // A dead process's activity is no longer a fact about the pane — clear
-  // it the moment the registry says so. Deliberately narrow: only
-  // `exited` (the process ran and died); the orchestrator's own retire
-  // owns the deliberate teardowns (suspend, close, restart).
+  // it the moment the registry says so. `exited` is the process that ran
+  // and died; `failed` is the spawn that never made it — ingest accepts
+  // reports while `starting` (a hook can beat the spawn promise), so a
+  // rejected spawn can leave accepted activity behind, and without this
+  // rung it would render forever. The orchestrator's own retire owns the
+  // deliberate teardowns (suspend, close, restart).
   const clearDeadPanes = () => {
     for (const paneId of tracker.getSnapshot().panes.keys()) {
-      if (sessions.state(paneId).kind === "exited") tracker.clear(paneId);
+      const kind = sessions.state(paneId).kind;
+      if (kind === "exited" || kind === "failed") tracker.clear(paneId);
     }
   };
   const unsubscribeSessions = sessions.subscribe(clearDeadPanes);

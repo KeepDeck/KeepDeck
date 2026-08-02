@@ -1,7 +1,8 @@
 #!/bin/sh
 # KeepDeck status reporter — a hook shared by the turn-lifecycle events
-# (UserPromptSubmit / Stop / StopFailure / Notification and their codex/kimi
-# equivalents). Armed PER SPAWN beside kd-session-hook.sh; the agent id is
+# (UserPromptSubmit / Stop / StopFailure / Notification / PostToolUse and
+# their codex/kimi equivalents). Armed PER SPAWN beside kd-session-hook.sh;
+# the agent id is
 # $1 because the payload does not name its CLI and the webview dispatches
 # normalizers by agent.
 #

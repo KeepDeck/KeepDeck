@@ -31,7 +31,12 @@ const deckWith = (...paneIds: string[]) => {
   return {
     store: {
       getSnapshot: () => ({
-        workspaces: [{ id: "ws-1", panes: ids.map((id) => ({ id })) }],
+        workspaces: [
+          {
+            id: "ws-1",
+            panes: ids.map((id) => ({ id, agentType: "claude" })),
+          },
+        ],
       }),
       subscribe: (listener: () => void) => {
         listeners.add(listener);
@@ -107,6 +112,23 @@ describe("createAgentStatusChannel — process-death sweep", () => {
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
   });
 
+  it("a failed spawn is swept like an exit — starting-window reports must not outlive it", () => {
+    createAgentStatusChannel(
+      deckWith("pane-1").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+    );
+    // A hook beat the spawn promise; then the spawn rejected.
+    tracker.report("pane-1", {
+      agent: "claude",
+      edge: { kind: "waiting", at: 100, reason: "permission" },
+    });
+    kinds.set("pane-1", "failed");
+    for (const listener of [...sessionListeners]) listener();
+    expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
+  });
+
   it("only dead panes are swept — live neighbours keep their activity", () => {
     createAgentStatusChannel(
       deckWith("pane-1", "pane-2").store,
@@ -159,6 +181,23 @@ describe("createAgentStatusChannel — process-death sweep", () => {
     expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
       state: "done",
     });
+  });
+
+  it("an agent losing its status voice clears its panes — no frozen lie", () => {
+    const deck = deckWith("pane-1");
+    const agents = agentsWith();
+    createAgentStatusChannel(deck.store, agents.registry, tracker, sessions);
+    tracker.report("pane-1", {
+      agent: "claude",
+      edge: { kind: "waiting", at: 100, reason: "permission" },
+    });
+    expect(tracker.getSnapshot().panes.has("pane-1")).toBe(true);
+
+    // The plugin is DISABLED: claude leaves the contribution list whole.
+    // Its process may live on, so no sweep would ever fire — the channel
+    // must clear what the agent can no longer resolve.
+    agents.replace([] as never);
+    expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
   });
 
   it("retains only the deck's panes when membership changes", () => {

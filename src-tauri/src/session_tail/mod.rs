@@ -95,25 +95,39 @@ impl Drop for TailPoller {
     }
 }
 
-/// Drain the root file and any subagent transcripts. The bool reports that
-/// this batch CONTAINS A REPLAY — some followed file was re-read from
-/// offset 0 — so the deliverer must treat the whole batch as catch-up, or
-/// a historical interrupt marker in it fires again as if fresh.
+/// Drain the root file and any subagent transcripts. The flags report
+/// replays PER LANE: `root` = the root file re-read from offset 0, `any` =
+/// some followed file did — so the deliverer can mark each event by ITS
+/// OWN file's fate. One batch-wide flag was tried and reverted: it stamped
+/// a fresh root interrupt catch-up whenever a subagent happened to rotate
+/// in the same tick, and the tail lane is claude's ONLY interrupt source —
+/// the Esc was simply lost (review finding).
 ///
 /// A ROOT rotation is a new session generation: the totals restart AND
 /// every subagent cursor rewinds, so the subagents' contributions re-fold
 /// into the fresh totals instead of silently vanishing from them. A
-/// subagent's own solo rotation only marks the batch (its re-folded rows
-/// are absorbed by the per-message-id dedup in the totals).
-fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, bool) {
+/// subagent's own solo rotation marks only the `any` flag (its re-folded
+/// rows are absorbed by the per-message-id dedup in the totals).
+struct DrainReplay {
+    root: bool,
+    any: bool,
+}
+
+fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
     let (mut events, root_rotated) = drain_file(&state.path, &mut state.root, state.format);
     if root_rotated {
         state.totals = SessionTotals::default();
     }
     if state.format != TailFormat::Claude {
-        return (events, root_rotated);
+        return (
+            events,
+            DrainReplay {
+                root: root_rotated,
+                any: root_rotated,
+            },
+        );
     }
-    let mut replayed = root_rotated;
+    let mut any = root_rotated;
     let paths = claude_subagent_paths(&state.path);
     for path in paths {
         let cursor = state.subagents.entry(path.clone()).or_default();
@@ -121,14 +135,20 @@ fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, bool) {
             *cursor = TailCursor::default();
         }
         let (appended, sub_rotated) = drain_file(&path, cursor, TailFormat::Claude);
-        replayed = replayed || sub_rotated;
+        any = any || sub_rotated;
         for mut event in appended {
             // A subagent's abort is its own, never the pane's.
             event.root = false;
             events.push(event);
         }
     }
-    (events, replayed)
+    (
+        events,
+        DrainReplay {
+            root: root_rotated,
+            any,
+        },
+    )
 }
 
 /// One door out of the tailer: every report — live poll or arm-time
@@ -173,7 +193,7 @@ fn spawn_tailer(
                 }
                 let Ok(mut s) = state.lock() else { break };
                 let format = s.format;
-                let (events, rotated) = drain_all(&mut s);
+                let (events, replay) = drain_all(&mut s);
                 for mut event in events {
                     // A subagent transcript's abort is the subagent's own
                     // story: pane-level status reads only ROOT markers.
@@ -181,11 +201,14 @@ fn spawn_tailer(
                         continue;
                     }
                     accumulate_session_totals(&mut s.totals, format, &mut event);
-                    // A rotated tick re-read the WHOLE file: that is a
-                    // replay wearing the poller's clothes, and it must say
-                    // so — catch-up is what keeps a historical interrupt
-                    // from firing as if it just happened.
-                    deliver(wrap(&s.pane_id, &s.token, format.agent(), event, rotated));
+                    // A rotated file was re-read WHOLE: those events are a
+                    // replay wearing the poller's clothes, and must say so
+                    // — catch-up is what keeps a historical interrupt from
+                    // firing as if it just happened. Marked by the event's
+                    // OWN file, so a subagent's rotation can never cost a
+                    // fresh root Esc its delivery.
+                    let catch_up = if event.root { replay.root } else { replay.any };
+                    deliver(wrap(&s.pane_id, &s.token, format.agent(), event, catch_up));
                 }
             }
         })
@@ -368,13 +391,13 @@ mod tests {
         fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
         let mut state = tail(path.clone());
         state.format = TailFormat::Claude;
-        let (_, rotated) = drain_all(&mut state);
-        assert!(!rotated, "first drain is a plain read");
+        let (_, replay) = drain_all(&mut state);
+        assert!(!replay.root, "first drain is a plain read");
 
         // Replace the file with SHORTER content — len < offset.
         fs::write(&path, "{}\n").unwrap();
-        let (_, rotated) = drain_all(&mut state);
-        assert!(rotated, "a shrunken file is a rotation, not appends");
+        let (_, replay) = drain_all(&mut state);
+        assert!(replay.root, "a shrunken file is a rotation, not appends");
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -402,8 +425,9 @@ mod tests {
 
         // The root rotates (shorter file, same subagent content).
         fs::write(&path, "{}\n").unwrap();
-        let (replayed_events, replayed) = drain_all(&mut state);
-        assert!(replayed);
+        let (replayed_events, replay) = drain_all(&mut state);
+        assert!(replay.root);
+        assert!(replay.any);
         assert!(
             replayed_events.iter().any(|event| !event.root),
             "the subagent's rows re-drain into the new generation"
@@ -411,10 +435,11 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
-    // A subagent's own rotation replays HISTORY too — the batch must say
-    // so, or its old rows ride out as live events.
+    // A subagent's own rotation replays ITS history — but must not cost
+    // the ROOT lane anything: a fresh root Esc in the same tick still
+    // delivers live (the tail is claude's only interrupt source).
     #[test]
-    fn a_subagent_rotation_marks_the_batch_as_replay() {
+    fn a_subagent_rotation_marks_only_its_own_lane() {
         let dir = temp_dir();
         let path = dir.join("session-solo.jsonl");
         fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
@@ -429,8 +454,9 @@ mod tests {
 
         // Only the SUBAGENT file shrinks; the root is untouched.
         fs::write(&sub, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
-        let (events, replayed) = drain_all(&mut state);
-        assert!(replayed, "a subagent replay must mark the whole batch");
+        let (events, replay) = drain_all(&mut state);
+        assert!(replay.any, "the subagent's replay must be marked");
+        assert!(!replay.root, "the root lane stays live — its Esc must land");
         assert!(events.iter().all(|event| !event.root));
         fs::remove_dir_all(&dir).ok();
     }

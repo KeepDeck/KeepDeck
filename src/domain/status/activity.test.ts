@@ -62,6 +62,13 @@ describe("reduceActivity", () => {
     ).toEqual({ state: "waiting", since: 900, reason: "question" });
   });
 
+  it("a wait older than the running phase belongs to the turn before it", () => {
+    const next: PaneActivity = { state: "working", since: 800 };
+    expect(
+      reduceActivity(next, { kind: "waiting", at: 500, reason: "permission" }),
+    ).toBe(next);
+  });
+
   it("a wait never parks an already-ended turn", () => {
     // claude's idle nudge fires up to seconds late; delivered after the
     // Stop that ended the turn it would report a wait nothing can resolve.

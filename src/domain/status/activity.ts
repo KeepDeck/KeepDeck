@@ -13,11 +13,20 @@ import type { AgentStatusEvent, StatusWaitReason } from "@keepdeck/plugin-api";
  *
  * Timestamps are unix milliseconds — receipt time for hook edges, the
  * marker's own source time for tail-recovered markers. Staleness is a
- * property of the EDGE STREAM, not of one edge kind: markers trail the
- * hook lane by up to a poll interval, and hook envelopes themselves can
- * arrive reordered within a tick — so every turn-ending or turn-parking
- * edge is guarded below, and only a fresh `turn-start` wins
- * unconditionally (nothing but the user's own prompt mints one).
+ * property of the EDGE STREAM, not of one edge kind, and the guards below
+ * come in two flavors, each catching what the other cannot:
+ *
+ * - The TIME compare (`at < since`) catches only slow-channel edges — a
+ *   tail marker trails the hook lane by up to a poll interval and carries
+ *   its own honest time. Hook edges are stamped at APPLY time, so their
+ *   `at` is monotonic in processing order and the compare is inert for
+ *   them; it becomes load-bearing for `waiting` too the moment any lane
+ *   mints a wait with a source time.
+ * - The STATE absorbs (done/failed stand) catch reordered HOOK envelopes,
+ *   which a receipt-stamped time cannot see its own reordering in.
+ *
+ * Only a fresh `turn-start` wins unconditionally — nothing but the
+ * user's own prompt mints one.
  */
 export type PaneActivity =
   /** A turn is running. `since` is when THIS running phase began — a wait
@@ -39,7 +48,12 @@ export type PaneActivity =
  * whose own time predates the current phase belongs to the turn BEFORE
  * that phase — the hook lane is near-instant, so a user who ends a turn
  * and re-prompts within a poll interval has a running turn a trailing
- * marker must not end. */
+ * marker must not end.
+ *
+ * The predicate exists so `return current` type-checks non-null in the
+ * true branch. CAVEAT for the next editor: TypeScript narrows the FALSE
+ * branch to `null` — a lie (a fresh working/waiting reaches it too) —
+ * so never read `current` after a false result; mint a new object. */
 function endedTurnStands(
   current: PaneActivity | null,
   at: number,
@@ -75,6 +89,15 @@ export function reduceActivity(
       // trail the Stop that already ended the turn) — a wait it reports
       // has nothing left to resolve it.
       if (current?.state === "done" || current?.state === "failed") {
+        return current;
+      }
+      // The slow-channel time guard, inert for hook waits (receipt-stamped)
+      // but armed the day a tail-recovered wait exists — same rule as the
+      // ending edges: an edge older than the phase belongs to before it.
+      if (
+        (current?.state === "working" || current?.state === "waiting") &&
+        event.at < current.since
+      ) {
         return current;
       }
       // A re-asserted wait is the SAME question: keep the phase start (the

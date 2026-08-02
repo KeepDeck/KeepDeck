@@ -48,17 +48,24 @@ pub(super) fn drain_file(
     let Ok(mut file) = File::open(path) else {
         return (Vec::new(), false);
     };
-    let metadata = file.metadata().ok();
-    let len = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+    // A transient stat failure must not TOUCH the cursor: `len` defaulting
+    // to 0 would fake a shrink, reset the offset, and the next successful
+    // poll would re-read the whole file as LIVE appends (the rotated flag
+    // having been consumed by this tick's empty batch) — history delivered
+    // as fresh events, the exact corruption rotation detection exists to
+    // stop. Skip the tick; the next one resumes from the same offset.
+    let Ok(metadata) = file.metadata() else {
+        return (Vec::new(), false);
+    };
+    let len = metadata.len();
     let file_mtime_ms = metadata
-        .as_ref()
-        .and_then(|m| m.modified().ok())
+        .modified()
+        .ok()
         .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|duration| duration.as_millis() as u64);
     // Rotation = the file shrank OR it is a different file at the same
-    // path. A transient stat failure keeps the last identity rather than
-    // wiping it — the next successful stat still detects the swap.
-    let identity = metadata.as_ref().and_then(file_identity);
+    // path (dev/ino changed under an unchanged-or-longer length).
+    let identity = file_identity(&metadata);
     let replaced =
         matches!((cursor.identity, identity), (Some(a), Some(b)) if a != b);
     let rotated = replaced || len < cursor.offset;
