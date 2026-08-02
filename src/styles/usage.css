@@ -215,6 +215,15 @@
   grid-column: 2; /* aligned under the panel row's fill bar */
 }
 
+.usage-burn--card {
+  margin-top: 2px;
+}
+
+.usage-burn__labels text {
+  fill: #596273;
+  font-size: 9px;
+}
+
 .usage-burn__grid {
   stroke: #232b3a;
 }

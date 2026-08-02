@@ -42,7 +42,14 @@ function verdictMarginMs(windowMinutes: number | null): number {
   return Math.max(2 * 60_000, windowMinutes * 60_000 * 0.02);
 }
 
-const MIN_SPAN_MS = 5 * 60_000;
+/** The evidence span a pace needs, scaled like the lookback: five minutes
+ * of reports can call a 5h window's pace, but extrapolating a WEEK from a
+ * five-minute burst produced "runs out ~6d early" nonsense — a long window
+ * must see at least ~1% of its own length before the race is called. */
+export function forecastMinSpanMs(windowMinutes: number | null): number {
+  if (windowMinutes === null) return 15 * 60_000;
+  return Math.max(5 * 60_000, windowMinutes * 60_000 * 0.01);
+}
 
 export function windowForecast(
   reports: readonly WindowReport[],
@@ -61,7 +68,9 @@ export function windowForecast(
   // same rule every stale surface follows (usageStale is the one home).
   if (usageStale(last.reportedAt, now)) return { kind: "unknown" };
   const spanMs = last.reportedAt - first.reportedAt;
-  if (spanMs < MIN_SPAN_MS) return { kind: "unknown" };
+  if (spanMs < forecastMinSpanMs(window.windowMinutes)) {
+    return { kind: "unknown" };
+  }
   const pace = (last.usedPct - first.usedPct) / spanMs; // pct per ms
   if (pace <= 0) return { kind: "ok", outAt: null };
   const outAt = last.reportedAt + (100 - last.usedPct) / pace;
