@@ -211,15 +211,23 @@ describe("ExperimentalSection", () => {
     expect(host.textContent).toContain("New agent panes connect to it");
   });
 
-  it("names the folders where a kimi pane kept its own config", async () => {
-    // The fix — move or remove that file — is the user's to make, so the
-    // directory has to be on screen rather than only in the log.
+  it("names each refused folder AND why, since the fix differs per reason", async () => {
+    // The fix is the user's to make and it is not the same fix: move your own
+    // config aside, or the folder is gone, or it could not be written. A
+    // single asserted reason sent people looking for a file that is not there.
     mcpStatus.current = up({
-      refused: [{ root: "/repo/api", reason: "not KeepDeck's" }],
+      refused: [
+        { root: "/repo/api", reason: ".kimi-code/mcp.json here is not KeepDeck's" },
+        { root: "/wt/gone", reason: "this directory no longer exists" },
+      ],
     });
     mount();
     await settle();
+
     expect(host.textContent).toContain("/repo/api");
+    expect(host.textContent).toContain("is not KeepDeck's");
+    expect(host.textContent).toContain("/wt/gone");
+    expect(host.textContent).toContain("no longer exists");
   });
 
   it("copies the command to the clipboard, and says it did", async () => {

@@ -135,6 +135,15 @@
   overflow-wrap: anywhere;
 }
 
+/* One refused folder and why. A block per entry rather than a comma list:
+   each carries a path plus a sentence, and run together they read as one
+   sentence about the wrong folder. */
+.settings__refusal {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
 .settings__number {
   width: 140px;
 }

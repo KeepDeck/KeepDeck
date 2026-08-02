@@ -36,13 +36,24 @@ describe("the MCP arming wrappers", () => {
     });
   });
 
-  it("degrades a failed arming to 'nothing was planted'", async () => {
-    // The pane then spawns without KeepDeck's servers — the same outcome as
-    // the transport being off, never a dead spawn.
+  it("reports a failed arming as a refusal of every cwd, not as an empty pass", async () => {
+    // The pane spawns either way — a failure costs it KeepDeck's servers,
+    // never its process. But an empty report is exactly what a fully
+    // successful pass with nothing to do looks like, so degrading to one made
+    // a dead backend indistinguishable from a working one and left the missing
+    // servers with nowhere to surface.
     tauri.invoke.mockRejectedValue(new Error("no home directory"));
-    expect(await mcpArm("ws-1", [{ root: "/repo", content: "{}" }])).toEqual({
+    expect(
+      await mcpArm("ws-1", [
+        { root: "/repo", content: "{}" },
+        { root: "/wt/a", content: "{}" },
+      ]),
+    ).toEqual({
       armed: [],
-      refused: [],
+      refused: [
+        { root: "/repo", reason: "no home directory" },
+        { root: "/wt/a", reason: "no home directory" },
+      ],
     });
   });
 

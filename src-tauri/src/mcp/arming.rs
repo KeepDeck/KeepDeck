@@ -71,15 +71,16 @@ pub struct McpArmReport {
 pub(crate) fn arm(root: &Path, key: &str, entries: &[McpArmEntry]) -> McpArmReport {
     let mut report = McpArmReport::default();
     for entry in entries {
-        match arm_one(Path::new(&entry.root), &entry.content) {
-            Ok(true) => report.armed.push(entry.root.clone()),
-            Ok(false) => report.refused.push(McpArmRefusal {
+        let refusal = match arm_one(Path::new(&entry.root), &entry.content) {
+            Ok(None) => None,
+            Ok(Some(reason)) => Some(reason),
+            Err(e) => Some(e.to_string()),
+        };
+        match refusal {
+            None => report.armed.push(entry.root.clone()),
+            Some(reason) => report.refused.push(McpArmRefusal {
                 root: entry.root.clone(),
-                reason: format!("{PLANTED}/{CONFIG_FILE} in this directory is not KeepDeck's"),
-            }),
-            Err(e) => report.refused.push(McpArmRefusal {
-                root: entry.root.clone(),
-                reason: e.to_string(),
+                reason,
             }),
         }
     }
@@ -87,31 +88,46 @@ pub(crate) fn arm(root: &Path, key: &str, entries: &[McpArmEntry]) -> McpArmRepo
     report
 }
 
-/// Arm one cwd; `Ok(false)` means the directory holds someone else's config
-/// and was left untouched.
-fn arm_one(cwd: &Path, content: &str) -> io::Result<bool> {
+/// Arm one cwd. `Ok(None)` armed it; `Ok(Some(reason))` deliberately left it
+/// alone and SAYS WHY.
+///
+/// The reason is the message the app puts in front of the user, so each of
+/// these has to name what is actually there. They used to share one sentence
+/// about the user's own config, which meant a directory that had simply been
+/// deleted was reported as holding a file it does not have.
+fn arm_one(cwd: &Path, content: &str) -> io::Result<Option<String>> {
     if !cwd.is_dir() {
-        return Ok(false);
+        return Ok(Some("this directory no longer exists".into()));
     }
     let dir = cwd.join(PLANTED);
     // `.kimi-code` as anything but a real directory (a file, or a symlink into
     // the user's own tree) is theirs — writing through it would land inside
     // their target.
     match fs::symlink_metadata(&dir) {
-        Ok(meta) if !meta.file_type().is_dir() => return Ok(false),
+        Ok(meta) if !meta.file_type().is_dir() => {
+            return Ok(Some(format!("{PLANTED} here is not a directory")));
+        }
         _ => {}
     }
     let config = dir.join(CONFIG_FILE);
     let marker = dir.join(MARKER_FILE);
     if fs::symlink_metadata(&config).is_ok() && !marker.exists() {
-        return Ok(false); // the user's own config — hands off
+        return Ok(Some(format!("{PLANTED}/{CONFIG_FILE} here is not KeepDeck's")));
     }
     write_atomic(&marker, b"")?;
-    write_atomic(&config, content.as_bytes())?;
+    if let Err(e) = write_atomic(&config, content.as_bytes()) {
+        // The marker is a CLAIM on the config beside it. Left behind without
+        // that config it is unreachable litter: no exclude line (that comes
+        // below), no manifest entry (this cwd refuses), and every later pass
+        // reads it as "ours" for a file that is not there.
+        let _ = fs::remove_file(&marker);
+        let _ = fs::remove_dir(&dir);
+        return Err(e);
+    }
     if let Err(e) = ensure_excluded(cwd, PLANTED) {
         log::warn!("mcp: exclude line for {} failed: {e}", cwd.display());
     }
-    Ok(true)
+    Ok(None)
 }
 
 /// Take OUR config back out of the given cwds AND forget them.
@@ -332,6 +348,33 @@ mod tests {
         let recorded: Vec<String> =
             serde_json::from_slice(&fs::read(root.join("armed").join("ws-1")).unwrap()).unwrap();
         assert_eq!(recorded, vec![cwd.to_string_lossy().into_owned()]);
+    }
+
+    #[test]
+    fn a_refusal_names_what_is_actually_there() {
+        // The reason is the message the app puts in front of the user, and
+        // the fix differs per reason. One asserted sentence about the user's
+        // own config sent them looking for a file that is not there.
+        let (_tmp, root, cwd) = scratch();
+
+        let gone = cwd.parent().unwrap().join("deleted-worktree");
+        let missing = arm(&root, "ws-1", &[entry(&gone, "{}")]);
+        assert_eq!(missing.refused[0].reason, "this directory no longer exists");
+
+        let blocked = cwd.parent().unwrap().join("blocked");
+        fs::create_dir_all(&blocked).unwrap();
+        fs::write(blocked.join(".kimi-code"), "a file, not a directory").unwrap();
+        let not_a_dir = arm(&root, "ws-1", &[entry(&blocked, "{}")]);
+        assert_eq!(not_a_dir.refused[0].reason, ".kimi-code here is not a directory");
+
+        let theirs = cwd.parent().unwrap().join("theirs");
+        fs::create_dir_all(theirs.join(".kimi-code")).unwrap();
+        fs::write(theirs.join(".kimi-code").join("mcp.json"), "{}").unwrap();
+        let not_ours = arm(&root, "ws-1", &[entry(&theirs, "{}")]);
+        assert_eq!(
+            not_ours.refused[0].reason,
+            ".kimi-code/mcp.json here is not KeepDeck's",
+        );
     }
 
     #[test]

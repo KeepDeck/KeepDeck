@@ -98,12 +98,18 @@ export function ExperimentalSection() {
       )}
 
       {mcpStatus.refused.length > 0 && (
-        // The one case where a pane silently lacks what every other pane got.
-        // Naming the directory is the whole point: the fix is the user's.
+        // The one case where a pane silently lacks what every other pane got,
+        // so the folder AND the reason are on screen: the fix is the user's to
+        // make, and it differs — move your own config aside, or the folder is
+        // gone, or it could not be written. A single asserted reason sent
+        // people looking for a file that was not there.
         <span className="settings__hint kd-selectable">
-          Kimi panes in these folders keep their own MCP config, so KeepDeck’s
-          server was not added there:{" "}
-          {mcpStatus.refused.map((refusal) => refusal.root).join(", ")}
+          KeepDeck’s MCP server was not added for Kimi panes in these folders:
+          {mcpStatus.refused.map((refusal) => (
+            <span key={refusal.root} className="settings__refusal">
+              {refusal.root} — {refusal.reason}
+            </span>
+          ))}
         </span>
       )}
 
