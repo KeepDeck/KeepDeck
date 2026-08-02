@@ -17,9 +17,6 @@ suppressNativeContextMenu();
 // Kick off the settings load with the other boot IO — the first paint gates
 // on it (App renders the bare shell until the store settles).
 void initSettings();
-// Usage snapshots: hydrate last-known limit windows and keep saving them —
-// the bar starts full (honestly aged) instead of blank until CLIs speak.
-initUsagePersistence();
 // Detailed Stats: load the durable delta log before live pane snapshots begin
 // appending. Capture itself is deck-aware and mounts with the usage channel.
 // The achievements notifier that consumes it is a runtime-owned service.
@@ -27,6 +24,11 @@ void initUsageHistory();
 // Update checks are background-only chatter — nothing gates on them. In dev
 // builds the manager probes app_info once and stays disabled.
 const runtime = createAppRuntime();
+// Usage snapshots: hydrate last-known limit windows into the runtime's store
+// and keep saving them — the bar starts full (honestly aged) instead of blank
+// until CLIs speak. Before start(): hydration is freshest-wins either way,
+// but there is no reason to let a live report race an unhydrated store.
+initUsagePersistence(runtime.usageManager);
 runtime.start();
 window.addEventListener("beforeunload", () => runtime.dispose(), { once: true });
 void initUpdates(runtime.downloads);

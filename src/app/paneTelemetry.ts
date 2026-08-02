@@ -1,5 +1,5 @@
 import type { AgentStatusTracker } from "./agentStatusTracker";
-import { beginPaneUsageSession, clearPaneUsage } from "./usageManager";
+import type { UsageManager } from "./usageManager";
 
 /**
  * The one owner of "this pane's telemetry starts over" — the sequence every
@@ -9,8 +9,8 @@ import { beginPaneUsageSession, clearPaneUsage } from "./usageManager";
  * usage but kept the dead conversation's activity, so a `/clear` left the
  * pane wearing last conversation's "Rate limited".
  *
- * Constructed in the runtime over the tracker it retires; the usage store
- * is still a module (its factory migration is its own change).
+ * Constructed in the runtime over the two stores it retires — both reach
+ * it as values, never as importable module state.
  */
 export interface PaneTelemetry {
   /** The pane's process is retiring (restart, suspend, close, exit):
@@ -25,15 +25,16 @@ export interface PaneTelemetry {
 }
 
 export function createPaneTelemetry(
+  usage: UsageManager,
   tracker: AgentStatusTracker,
 ): PaneTelemetry {
   return {
     retire(paneId) {
-      clearPaneUsage(paneId);
+      usage.clearPane(paneId);
       tracker.clear(paneId);
     },
     beginSession(paneId, sessionId) {
-      beginPaneUsageSession(paneId, sessionId);
+      usage.beginPaneSession(paneId, sessionId);
       tracker.clear(paneId);
     },
   };

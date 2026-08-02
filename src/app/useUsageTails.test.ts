@@ -38,6 +38,7 @@ vi.mock("./sessionBinding", () => ({ postbackAccepted: () => true }));
 
 import { createUsageTailsLane } from "./usageChannelTails";
 import type { UsageLane } from "./usageChannelSource";
+import { createUsageManager } from "./usageManager";
 
 const usageByAgent = new Map<string, AgentUsage>([
   ["codex", { tail: "codex" } as AgentUsage],
@@ -76,6 +77,9 @@ describe("usage tails — a suspended pane's watcher", () => {
     deck = createDeckActions(store);
     lane = createUsageTailsLane({
       deck: store,
+      // The tails lane only arms watchers; events reach the store via the
+      // reports lane, so a fresh, unobserved instance satisfies the context.
+      usage: createUsageManager(),
       declarations: {
         current: () => usageByAgent,
         subscribe: () => () => {},

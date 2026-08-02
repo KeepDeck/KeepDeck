@@ -40,6 +40,7 @@ import { createPaneTelemetry } from "./paneTelemetry";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
 import { createUsageChannel } from "./usageChannel";
+import { createUsageManager } from "./usageManager";
 import {
   getUsageHistorySnapshot,
   subscribeUsageHistory,
@@ -87,11 +88,12 @@ export function createAppRuntime(
   );
   let sessionBinding: ReturnType<typeof createSessionBinding> | null = null;
   const spawnContext = createSpawnContextSource();
-  // The live per-pane activity store and the telemetry-retire owner over
-  // it. Runtime state like the deck store: the orchestrator retires panes
-  // and the bridge channel reports into it with no component mounted.
+  // The live telemetry stores (usage, activity) and the retire owner over
+  // the pair. Runtime state like the deck store: the orchestrator retires
+  // panes and the bridge channels report in with no component mounted.
+  const usageManager = createUsageManager();
   const statusTracker = createAgentStatusTracker();
-  const telemetry = createPaneTelemetry(statusTracker);
+  const telemetry = createPaneTelemetry(usageManager, statusTracker);
   const worktrees = createWorktreeManager({
     rootsOf: (ref) => {
       const workspace = deckStore
@@ -164,6 +166,7 @@ export function createAppRuntime(
     paneInputFocus,
     paneViewActions,
     mcp,
+    usageManager,
     statusTracker,
     telemetry,
     start() {
@@ -172,6 +175,7 @@ export function createAppRuntime(
       usageChannel ??= createUsageChannel(
         deckStore,
         plugins.pluginRegistries.agents,
+        usageManager,
       );
       statusChannel ??= createAgentStatusChannel(
         deckStore,

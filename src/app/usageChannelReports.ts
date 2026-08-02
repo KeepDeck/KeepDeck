@@ -1,5 +1,4 @@
 import { onUsageReport } from "../ipc/usage";
-import { reportUsage } from "./usageManager";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
 
@@ -7,10 +6,13 @@ import { createVerifiedPaneReports } from "./verifiedPaneReports";
  * membership and token only: usage describes the session and account, which
  * outlive the process, so a tail's final token_count after a crash still
  * counts. */
-export function createUsageReportsLane({ deck }: UsageLaneContext): UsageLane {
+export function createUsageReportsLane({
+  deck,
+  usage,
+}: UsageLaneContext): UsageLane {
   return createVerifiedPaneReports(deck, {
     label: "usage report",
     subscribe: onUsageReport,
-    apply: reportUsage,
+    apply: (paneId, payload) => usage.report(paneId, payload),
   });
 }

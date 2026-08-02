@@ -41,9 +41,8 @@ import type { AgentStatusEvent, NormalizedUsage } from "@keepdeck/plugin-api";
 import type { PaneIdle } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import {
-  registerUsageNormalizer,
-  reportUsage,
-  resetUsageManager,
+  createUsageManager,
+  type UsageManager,
 } from "../../app/usageManager";
 import {
   createAgentStatusTracker,
@@ -54,11 +53,13 @@ import type { AppRuntime } from "../../app/runtime";
 import { AgentPane, type AgentPaneProps } from "./AgentPane";
 import { paneBody, type PaneBody } from "../../domain/deck";
 
-/** The runtime slice AgentPane actually reads (its activity selector). A
- * fresh tracker per test — the factory's whole point. */
+/** The runtime slice AgentPane actually reads (its activity and ctx%
+ * selectors). Fresh stores per test — the factories' whole point. */
 let statusTracker: AgentStatusTracker = createAgentStatusTracker();
+let usage: UsageManager = createUsageManager();
 beforeEach(() => {
   statusTracker = createAgentStatusTracker();
+  usage = createUsageManager();
 });
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -99,7 +100,9 @@ function PaneUnderTest(
 ) {
   return createElement(
     AppRuntimeProvider,
-    { runtime: { statusTracker } as unknown as AppRuntime },
+    {
+      runtime: { statusTracker, usageManager: usage } as unknown as AppRuntime,
+    },
     createElement(AgentPane, {
       ...props,
       body:
@@ -128,7 +131,6 @@ describe("AgentPane — header badges", () => {
   let root: Root;
 
   beforeEach(() => {
-    resetUsageManager();
     document.body.innerHTML = "";
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -137,15 +139,14 @@ describe("AgentPane — header badges", () => {
 
   afterEach(() => {
     act(() => root.unmount());
-    resetUsageManager();
   });
 
   it("shows the context meter in the header from live pane usage", () => {
-    registerUsageNormalizer(
+    usage.registerNormalizer(
       "claude",
       (payload) => (payload as { result: NormalizedUsage }).result,
     );
-    reportUsage("ws:1", {
+    usage.report("ws:1", {
       agent: "claude",
       result: {
         account: null,
@@ -167,11 +168,11 @@ describe("AgentPane — header badges", () => {
   });
 
   it("renders a calm context meter without a level class", () => {
-    registerUsageNormalizer(
+    usage.registerNormalizer(
       "claude",
       (payload) => (payload as { result: NormalizedUsage }).result,
     );
-    reportUsage("ws:1", {
+    usage.report("ws:1", {
       agent: "claude",
       result: {
         account: null,
@@ -186,11 +187,11 @@ describe("AgentPane — header badges", () => {
   });
 
   it("hides the context meter on a non-live (idle) pane despite usage", () => {
-    registerUsageNormalizer(
+    usage.registerNormalizer(
       "claude",
       (payload) => (payload as { result: NormalizedUsage }).result,
     );
-    reportUsage("ws:1", {
+    usage.report("ws:1", {
       agent: "claude",
       result: {
         account: null,
@@ -229,11 +230,11 @@ describe("AgentPane — header badges", () => {
   ] as const)(
     "hides the context meter on a %s pane despite usage",
     (_label, override) => {
-      registerUsageNormalizer(
+      usage.registerNormalizer(
         "claude",
         (payload) => (payload as { result: NormalizedUsage }).result,
       );
-      reportUsage("ws:1", {
+      usage.report("ws:1", {
         agent: "claude",
         result: {
           account: null,
@@ -248,11 +249,11 @@ describe("AgentPane — header badges", () => {
   );
 
   it("hides the context meter once the pane's process has exited", () => {
-    registerUsageNormalizer(
+    usage.registerNormalizer(
       "claude",
       (payload) => (payload as { result: NormalizedUsage }).result,
     );
-    reportUsage("ws:1", {
+    usage.report("ws:1", {
       agent: "claude",
       result: {
         account: null,

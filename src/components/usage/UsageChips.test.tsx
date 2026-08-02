@@ -4,10 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NormalizedUsage } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
+import type { AppRuntime } from "../../app/runtime";
+import { AppRuntimeProvider } from "../../app/runtimeContext";
 import {
-  registerUsageNormalizer,
-  reportUsage,
-  resetUsageManager,
+  createUsageManager,
+  type UsageManager,
 } from "../../app/usageManager";
 import { UsageChips } from "./UsageChips";
 
@@ -81,13 +82,14 @@ const paneReport = (): { agent: string; result: NormalizedUsage } => ({
 describe("UsageChips", () => {
   let root: Root;
   let host: HTMLElement;
+  let usage: UsageManager;
   const openStats = vi.fn();
 
   beforeEach(() => {
-    resetUsageManager();
+    usage = createUsageManager();
     // The echo normalizer: payloads carry their normalized result, stamped
     // with the report time like a real parser would.
-    registerUsageNormalizer("claude", (payload, at) => {
+    usage.registerNormalizer("claude", (payload, at) => {
       const { result } = payload as { result: NormalizedUsage };
       return {
         account: result.account ? { ...result.account, reportedAt: at } : null,
@@ -104,7 +106,6 @@ describe("UsageChips", () => {
 
   afterEach(() => {
     act(() => root.unmount());
-    resetUsageManager();
     vi.useRealTimers();
   });
 
@@ -114,7 +115,15 @@ describe("UsageChips", () => {
   ) =>
     act(() =>
       root.render(
-        createElement(UsageChips, { agents, liveAgents, onOpenStats: openStats }),
+        createElement(
+          AppRuntimeProvider,
+          { runtime: { usageManager: usage } as unknown as AppRuntime },
+          createElement(UsageChips, {
+            agents,
+            liveAgents,
+            onOpenStats: openStats,
+          }),
+        ),
       ),
     );
 
@@ -141,7 +150,7 @@ describe("UsageChips", () => {
   });
 
   it("shows both account windows, calm below the thresholds", () => {
-    reportUsage("pane-1", limitsReport(42), AT);
+    usage.report("pane-1",limitsReport(42), AT);
     render();
     const chip = host.querySelector(".usage-chip")!;
     expect(chip.textContent).toContain("5h");
@@ -155,7 +164,7 @@ describe("UsageChips", () => {
   });
 
   it("colors only at the thresholds", () => {
-    reportUsage("pane-1", limitsReport(91), AT);
+    usage.report("pane-1",limitsReport(91), AT);
     render();
     expect(host.querySelector(".usage-level--critical")).not.toBeNull();
   });
@@ -163,14 +172,14 @@ describe("UsageChips", () => {
   it("renders no chip for a paneless provider without a REPORTED account", () => {
     // Pane-only data (tokens/context) is not an account claim — without a
     // live pane the chip waits for windows.
-    reportUsage("pane-1", paneReport(), AT);
+    usage.report("pane-1",paneReport(), AT);
     render();
     expect(host.querySelector(".usage-chip")).toBeNull();
   });
 
   it("keeps session tokens and cost out of the account-limits panel", () => {
-    reportUsage("pane-1", limitsReport(42), AT);
-    reportUsage("pane-1", paneReport(), AT);
+    usage.report("pane-1",limitsReport(42), AT);
+    usage.report("pane-1",paneReport(), AT);
     render();
     act(() => {
       (host.querySelector(".usage-chip") as HTMLButtonElement).click();
@@ -182,7 +191,7 @@ describe("UsageChips", () => {
   });
 
   it("marks stale data instead of showing confident numbers", () => {
-    reportUsage("pane-1", limitsReport(42), AT);
+    usage.report("pane-1",limitsReport(42), AT);
     vi.setSystemTime(AT + 31 * 60_000);
     render();
     const chip = host.querySelector(".usage-chip")!;
@@ -191,7 +200,7 @@ describe("UsageChips", () => {
   });
 
   it("labels a balance row as an allowance, not an unknown reset", () => {
-    reportUsage(
+    usage.report(
       "pane-1",
       {
         agent: "claude",
@@ -222,7 +231,7 @@ describe("UsageChips", () => {
   });
 
   it("opens the panel with countdowns and flips the display setting", () => {
-    reportUsage("pane-1", limitsReport(42), AT);
+    usage.report("pane-1",limitsReport(42), AT);
     render();
     const chip = host.querySelector(".usage-chip")!;
     expect(chip.getAttribute("aria-controls")).toBe("usage-panel");
@@ -246,7 +255,7 @@ describe("UsageChips", () => {
   });
 
   it("leaves account limits for the global usage statistics screen", () => {
-    reportUsage("pane-1", limitsReport(42), AT);
+    usage.report("pane-1",limitsReport(42), AT);
     render();
     act(() => {
       (host.querySelector(".usage-chip") as HTMLButtonElement).click();

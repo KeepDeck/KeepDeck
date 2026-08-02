@@ -4,16 +4,18 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createAgentStatusTracker } from "../app/agentStatusTracker";
+import { createUsageManager } from "../app/usageManager";
 import { AppRuntimeProvider } from "../app/runtimeContext";
 import type { AppRuntime } from "../app/runtime";
 
-/** The runtime slice the panes under DeckStage read (activity selector). */
+/** The runtime slice the panes under DeckStage read (activity + ctx%). */
 const withRuntime = (el: ReactElement) =>
   createElement(
     AppRuntimeProvider,
     {
       runtime: {
         statusTracker: createAgentStatusTracker(),
+        usageManager: createUsageManager(),
       } as unknown as AppRuntime,
     },
     el,

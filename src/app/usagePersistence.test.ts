@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { serializeUsageCache } from "../domain/usage";
-import {
-  getUsageSnapshot,
-  resetUsageManager,
-  setAccountUsage,
-} from "./usageManager";
+import { createUsageManager, type UsageManager } from "./usageManager";
 import {
   initUsagePersistence,
   USAGE_SAVE_DEBOUNCE_MS,
@@ -38,9 +34,10 @@ const settle = () => new Promise<void>((r) => setTimeout(r, 0));
 
 describe("initUsagePersistence", () => {
   let dispose: (() => void) | null = null;
+  let usage: UsageManager;
 
   beforeEach(() => {
-    resetUsageManager();
+    usage = createUsageManager();
     ipc.loadUsageCache.mockReset().mockResolvedValue(null);
     ipc.saveUsageCache.mockReset().mockResolvedValue(undefined);
   });
@@ -48,15 +45,14 @@ describe("initUsagePersistence", () => {
   afterEach(() => {
     dispose?.();
     dispose = null;
-    resetUsageManager();
     vi.useRealTimers();
   });
 
   it("hydrates the stored snapshot into the store", async () => {
     ipc.loadUsageCache.mockResolvedValue(SNAPSHOT);
-    dispose = initUsagePersistence();
+    dispose = initUsagePersistence(usage);
     await settle();
-    expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
+    expect(usage.getSnapshot().accounts.get("claude")).toMatchObject({
       kind: "reported",
       reportedAt: 1_000,
     });
@@ -67,9 +63,9 @@ describe("initUsagePersistence", () => {
     ipc.loadUsageCache.mockImplementation(
       () => new Promise<string>((r) => (resolveLoad = r)),
     );
-    dispose = initUsagePersistence();
+    dispose = initUsagePersistence(usage);
     // A live report lands FIRST, fresher than the snapshot.
-    setAccountUsage("claude", {
+    usage.setAccount("claude", {
       kind: "reported",
       windows: [],
       reportedAt: 9_999,
@@ -77,7 +73,7 @@ describe("initUsagePersistence", () => {
     });
     resolveLoad(SNAPSHOT);
     await settle();
-    expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
+    expect(usage.getSnapshot().accounts.get("claude")).toMatchObject({
       reportedAt: 9_999,
     });
   });
@@ -85,7 +81,7 @@ describe("initUsagePersistence", () => {
   it("does not write the cache back at itself on a quiet boot", async () => {
     vi.useFakeTimers();
     ipc.loadUsageCache.mockResolvedValue(SNAPSHOT);
-    dispose = initUsagePersistence();
+    dispose = initUsagePersistence(usage);
     await vi.advanceTimersByTimeAsync(0); // let the load land
     await vi.advanceTimersByTimeAsync(USAGE_SAVE_DEBOUNCE_MS * 2);
     expect(ipc.saveUsageCache).not.toHaveBeenCalled();
@@ -93,9 +89,9 @@ describe("initUsagePersistence", () => {
 
   it("saves account changes on the debounce", async () => {
     vi.useFakeTimers();
-    dispose = initUsagePersistence();
+    dispose = initUsagePersistence(usage);
     await vi.advanceTimersByTimeAsync(0);
-    setAccountUsage("codex", {
+    usage.setAccount("codex", {
       kind: "reported",
       windows: [],
       reportedAt: 5,
