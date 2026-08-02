@@ -78,11 +78,22 @@ pub struct McpConnection {
 }
 
 #[tauri::command]
-pub fn mcp_connection_command(app: tauri::AppHandle) -> Result<McpConnection, String> {
+pub fn mcp_connection_command(
+    app: tauri::AppHandle,
+    client: Option<String>,
+) -> Result<McpConnection, String> {
     let binary = tauri::process::current_binary(&app.env()).map_err(|e| e.to_string())?;
+    let mut args = vec![SHIM_FLAG.to_string(), socket_path()?.display().to_string()];
+    // The pane secret rides the invocation, so every shim argument keeps ONE
+    // home: an injected command carries it, the copy-pasteable one the
+    // settings page hands out does not, and neither side spells the flags.
+    if let Some(client) = client {
+        args.push(shim::CLIENT_FLAG.to_string());
+        args.push(client);
+    }
     Ok(McpConnection {
         command: binary.display().to_string(),
-        args: vec![SHIM_FLAG.to_string(), socket_path()?.display().to_string()],
+        args,
     })
 }
 

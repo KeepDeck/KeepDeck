@@ -160,12 +160,15 @@ fn spawn_connection(
                 conns.lock().expect("mcp conns poisoned").remove(&id);
                 return;
             };
+            // This connection's own handler: what the client says about
+            // itself must not leak into anyone else's requests.
+            let mut answer = handler();
             for line in BufReader::new(stream).lines() {
                 let Ok(line) = line else { break };
                 if line.trim().is_empty() {
                     continue;
                 }
-                if let Some(reply) = handler(&line) {
+                if let Some(reply) = answer(&line) {
                     if writeln!(writer, "{reply}").is_err() {
                         break;
                     }
@@ -185,7 +188,7 @@ mod tests {
         // Notification-style lines (here: a '!' prefix) produce no reply;
         // the NEXT request's reply must be the first thing the client reads.
         let handler: LineHandler =
-            Arc::new(|line: &str| (!line.starts_with('!')).then(|| line.to_uppercase()));
+            Arc::new(|| Box::new(|line: &str| (!line.starts_with('!')).then(|| line.to_uppercase())));
         let (client, served) = UnixStream::pair().expect("socketpair");
         let conns = Conns::default();
         spawn_connection(1, served, handler, conns.clone()).expect("spawn");
@@ -200,11 +203,39 @@ mod tests {
     }
 
     #[test]
+    fn each_connection_gets_its_own_handler() {
+        // What a client says about ITSELF (the `deck/client` preamble) is
+        // remembered by its handler, so two connections sharing one would
+        // answer for each other.
+        let handler: LineHandler = Arc::new(|| {
+            let mut seen = 0u32;
+            Box::new(move |_line: &str| {
+                seen += 1;
+                Some(seen.to_string())
+            })
+        });
+        let conns = Conns::default();
+        let mut replies = Vec::new();
+        for _ in 0..2 {
+            let (client, served) = UnixStream::pair().expect("socketpair");
+            spawn_connection(1, served, handler.clone(), conns.clone()).expect("spawn");
+            let mut writer = client.try_clone().expect("clone");
+            let mut reader = BufReader::new(client);
+            writeln!(writer, "first").expect("write");
+            let mut reply = String::new();
+            reader.read_line(&mut reply).expect("read");
+            replies.push(reply.trim_end().to_string());
+        }
+        // Both connections are on their FIRST line, so both answer "1".
+        assert_eq!(replies, vec!["1", "1"]);
+    }
+
+    #[test]
     fn a_connection_drops_its_teardown_handle_when_the_client_leaves() {
         // The handle map is what Off shuts down; a finished connection that
         // left its entry behind would have Off shutting down a dead stream
         // forever after.
-        let handler: LineHandler = Arc::new(|line: &str| Some(line.to_uppercase()));
+        let handler: LineHandler = Arc::new(|| Box::new(|line: &str| Some(line.to_uppercase())));
         let (client, served) = UnixStream::pair().expect("socketpair");
         let conns = Conns::default();
         conns

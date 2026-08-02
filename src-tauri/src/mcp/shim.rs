@@ -20,12 +20,22 @@ use std::path::PathBuf;
 /// this same constant, so the producer and the parser cannot drift.
 pub(crate) const SHIM_FLAG: &str = "--mcp-shim";
 
+/// Names WHICH pane this shim was spawned for. One home for the string: the
+/// connect invocation is built from this same constant, so producer and
+/// parser cannot drift.
+pub(crate) const CLIENT_FLAG: &str = "--client";
+
 /// A parsed `--mcp-shim` invocation. `socket` overrides the default
 /// `<keepdeck_home>/mcp/mcp.sock` — the connect command always passes it
 /// explicitly (the client's environment may resolve a different home), and
 /// it also serves test isolation and cross-flavor connects.
 pub struct ShimMode {
     pub socket: Option<PathBuf>,
+    /// The pane secret KeepDeck minted for this spawn, when the invocation
+    /// was injected rather than written by hand. Announced once on connect
+    /// (see [`run`]) and never used for anything else here — what it MEANS
+    /// is the deck's to decide.
+    pub client: Option<String>,
 }
 
 /// Detect the shim flag in argv (argv[0] is skipped — a binary named after
@@ -38,12 +48,19 @@ pub fn shim_mode(args: impl IntoIterator<Item = String>) -> Option<ShimMode> {
     let mut args = args.into_iter().skip(1);
     while let Some(arg) = args.next() {
         if arg == SHIM_FLAG {
-            return Some(ShimMode {
-                socket: args
-                    .next()
-                    .filter(|value| !value.starts_with('-'))
-                    .map(PathBuf::from),
-            });
+            let socket = args
+                .next()
+                .filter(|value| !value.starts_with('-'))
+                .map(PathBuf::from);
+            let mut rest = args;
+            let mut client = None;
+            while let Some(arg) = rest.next() {
+                if arg == CLIENT_FLAG {
+                    client = rest.next().filter(|value| !value.starts_with('-'));
+                    break;
+                }
+            }
+            return Some(ShimMode { socket, client });
         }
     }
     None
@@ -69,6 +86,21 @@ pub fn run(mode: ShimMode) -> i32 {
             return 1;
         }
     };
+    // Introduce ourselves before a single byte of the client's own traffic:
+    // the deck binds the name to THIS connection, and a request that arrived
+    // first would be attributed to nobody. A failure here is not fatal — an
+    // anonymous session still works, it just cannot be told apart.
+    if let Some(client) = mode.client {
+        let announced = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "deck/client",
+            "params": { "token": client },
+        });
+        let mut greeting = &socket;
+        if let Err(e) = writeln!(greeting, "{announced}") {
+            eprintln!("keepdeck-mcp: could not announce this pane ({e})");
+        }
+    }
     match pump(std::io::stdin(), &mut std::io::stdout(), socket) {
         Ok(()) => 0,
         Err(e) => {
@@ -146,6 +178,31 @@ mod tests {
     }
 
     #[test]
+    fn shim_mode_reads_the_pane_secret_when_the_invocation_was_injected() {
+        let injected = shim_mode(args(&[
+            "keepdeck",
+            "--mcp-shim",
+            "/tmp/x.sock",
+            "--client",
+            "5f3c",
+        ]))
+        .unwrap();
+        assert_eq!(injected.socket, Some(PathBuf::from("/tmp/x.sock")));
+        assert_eq!(injected.client.as_deref(), Some("5f3c"));
+
+        // The copy-pasteable command the settings page hands out carries no
+        // secret, and such a session is simply anonymous.
+        let by_hand = shim_mode(args(&["keepdeck", "--mcp-shim", "/tmp/x.sock"])).unwrap();
+        assert_eq!(by_hand.client, None);
+
+        // A flag where the secret should be is not a secret.
+        let flagged =
+            shim_mode(args(&["keepdeck", "--mcp-shim", "/tmp/x.sock", "--client", "--verbose"]))
+                .unwrap();
+        assert_eq!(flagged.client, None);
+    }
+
+    #[test]
     fn shim_mode_ignores_argv0_and_flag_like_socket_args() {
         // A binary named after the flag is not an invocation of it.
         assert!(shim_mode(args(&["--mcp-shim"])).is_none());
@@ -193,7 +250,7 @@ mod tests {
         // connection close ends the pump — the whole life of a session.
         let path = temp_sock();
         let handler: crate::mcp::server::LineHandler =
-            std::sync::Arc::new(|line: &str| Some(line.to_uppercase()));
+            std::sync::Arc::new(|| Box::new(|line: &str| Some(line.to_uppercase())));
         let server = crate::mcp::server::McpServer::default();
         server.enable(&path, handler).expect("server");
 
@@ -209,7 +266,7 @@ mod tests {
     fn disabling_the_server_releases_a_connected_shim() {
         let path = temp_sock();
         let handler: crate::mcp::server::LineHandler =
-            std::sync::Arc::new(|line: &str| Some(line.to_uppercase()));
+            std::sync::Arc::new(|| Box::new(|line: &str| Some(line.to_uppercase())));
         let server = crate::mcp::server::McpServer::default();
         server.enable(&path, handler).expect("enable");
 

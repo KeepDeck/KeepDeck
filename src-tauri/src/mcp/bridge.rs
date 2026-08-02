@@ -41,6 +41,10 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 struct McpRequest {
     id: u64,
     line: String,
+    /// Whatever this connection introduced itself as (see [`client_token`]),
+    /// unresolved: the webview owns what a token MEANS, and an unknown one
+    /// must read as an anonymous client rather than as nobody at all.
+    client: Option<String>,
 }
 
 /// Managed state: replies in flight, keyed by correlation id.
@@ -148,18 +152,45 @@ fn echoable_id(id: serde_json::Value) -> Option<serde_json::Value> {
     }
 }
 
+/// The private notification a KeepDeck-injected client opens with, naming
+/// itself: `{"jsonrpc":"2.0","method":"deck/client","params":{"token":"…"}}`.
+/// It is CONSUMED here and never reaches the projection — the webview
+/// receives the token beside each request instead. A connection that sends
+/// none stays anonymous, which is what a server the user wired up by hand
+/// does, and it keeps working exactly as before.
+const CLIENT_PREAMBLE: &str = "deck/client";
+
+fn client_token(line: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("method")?.as_str()? != CLIENT_PREAMBLE {
+        return None;
+    }
+    Some(value.get("params")?.get("token")?.as_str()?.to_string())
+}
+
 /// The [`LineHandler`] `mcp_enable` wires: one socket line in, one webview
 /// event out, and — for requests — one parked wait for the answer.
 /// Notifications cross fire-and-forget under the reserved id 0: nothing is
 /// parked, so a reply the pump might send anyway lands in `resolve`'s
 /// unknown-id drop.
+///
+/// One handler per connection, because the client's own name arrives ON that
+/// connection and must not be read into anyone else's requests.
 pub(crate) fn webview_handler(app: AppHandle) -> LineHandler {
-    Arc::new(move |line: &str| {
+    Arc::new(move || {
+        let app = app.clone();
+        let mut client: Option<String> = None;
+        Box::new(move |line: &str| {
+        if let Some(token) = client_token(line) {
+            client = Some(token);
+            return None;
+        }
         let bridge = app.state::<McpBridge>();
         if is_notification(line) {
             let request = McpRequest {
                 id: NOTIFICATION_ID,
                 line: line.to_string(),
+                client: client.clone(),
             };
             if let Err(e) = app.emit(MCP_REQUEST_EVENT, &request) {
                 log::warn!("mcp: emitting notification failed: {e}");
@@ -170,6 +201,7 @@ pub(crate) fn webview_handler(app: AppHandle) -> LineHandler {
         let request = McpRequest {
             id,
             line: line.to_string(),
+            client: client.clone(),
         };
         if let Err(e) = app.emit(MCP_REQUEST_EVENT, &request) {
             bridge.abandon(id);
@@ -191,12 +223,35 @@ pub(crate) fn webview_handler(app: AppHandle) -> LineHandler {
                 ))
             }
         }
+        })
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_client_preamble_is_recognised_and_nothing_else_is() {
+        assert_eq!(
+            client_token(
+                r#"{"jsonrpc":"2.0","method":"deck/client","params":{"token":"5f3c"}}"#
+            )
+            .as_deref(),
+            Some("5f3c"),
+        );
+        // Everything else is ordinary traffic and must reach the projection:
+        // a request that named itself `deck/client` without a token, another
+        // notification, a real request, and garbage.
+        for line in [
+            r#"{"jsonrpc":"2.0","method":"deck/client","params":{}}"#,
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+            "not json",
+        ] {
+            assert_eq!(client_token(line), None, "{line}");
+        }
+    }
 
     #[test]
     fn resolve_delivers_to_the_parked_receiver() {
