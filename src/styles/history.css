@@ -244,7 +244,6 @@
   border-bottom: 1px solid #151a24;
   font-size: 11px;
   color: #6b7280;
-  user-select: none;
 }
 
 /* The loading tail — a spinner as the LAST element while the next page is

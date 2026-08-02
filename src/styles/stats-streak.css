@@ -13,9 +13,8 @@
   color: #9aa3af;
   font-size: 12px;
   line-height: 1;
-  /* A badge, not text: arrow cursor, no accidental selection. */
-  cursor: default;
-  user-select: none;
+  /* A badge, not text — arrow cursor and no accidental selection, which the
+     document already gives everything (base.css). Nothing to restate. */
 }
 
 .stats__streak b {

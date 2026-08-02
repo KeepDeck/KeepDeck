@@ -414,8 +414,6 @@
   color: var(--kd-info);
   background-color: #10151f;
   font-size: 11px;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .git__diffrow {
@@ -431,8 +429,7 @@
   text-align: right;
   color: #3b4658;
   background-color: var(--kd-bg);
-  user-select: none;
-  -webkit-user-select: none;
+  /* Kept out of a copied hunk by .kd-inert on the element (DiffPeek.tsx). */
 }
 
 /* Two gutters: the first pins at 0, the second right after it. */

@@ -137,7 +137,7 @@ export function Peek({
       }}
     >
       <div
-        className="peek__panel"
+        className="peek__panel kd-selectable"
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}

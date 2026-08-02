@@ -15,9 +15,10 @@
   border: 1px solid #1c2230;
   border-radius: 10px;
   background: var(--kd-bg);
-  /* A badge is not text: keep the arrow cursor and swallow selection. */
-  cursor: default;
-  user-select: none;
+  /* A badge is not text — it keeps the arrow cursor and swallows selection,
+     which is already what the whole document does (base.css). Nothing to
+     restate here; only an island of real text opts out of that, and this
+     card is not inside one. */
 }
 
 /* Hover detail card: exact numbers behind the compact badge. `display:

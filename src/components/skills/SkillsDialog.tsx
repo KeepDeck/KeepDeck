@@ -270,7 +270,10 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
                   // and with nothing selected the editor — the only other
                   // place an error appears — is not mounted. Without this the
                   // dialog claims you simply have no skills.
-                  <span className="skills__placeholder-title" role="alert">
+                  <span
+                    className="skills__placeholder-title kd-selectable"
+                    role="alert"
+                  >
                     {error}
                   </span>
                 ) : (

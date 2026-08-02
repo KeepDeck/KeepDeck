@@ -3,11 +3,6 @@
   flex-direction: column;
   height: 100vh;
   background-color: #0b0e14;
-  /* Desktop-app chrome isn't text-selectable; selecting a pane title was
-     bleeding a selection into xterm's helper elements. The terminal keeps its
-     own (xterm-managed) selection, and inputs re-enable it below. */
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 /* Top bar */
@@ -20,7 +15,6 @@
   flex: none;
   border-bottom: 1px solid #1c2230;
   background-color: #0e121a;
-  user-select: none;
 }
 
 .deck__bar-left {

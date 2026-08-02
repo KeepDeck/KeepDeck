@@ -23,6 +23,26 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+
+  /* Desktop-app chrome, not a web page: none of it is text-selectable, and
+     none of it shows the I-beam over plain text. Those are TWO statements, and
+     this WKWebView needs BOTH said out loud. The tempting shortcut — that an
+     engine only offers the I-beam where a selection could actually start, so
+     `user-select: none` settles the cursor too — is FALSE here: it was measured
+     in the app, on chrome that had carried `user-select: none` for months and
+     drew the I-beam anyway. Selection is worth suppressing on its own account:
+     a dragged pane title used to bleed the selection into xterm's helper
+     elements (the terminal keeps its own, xterm-managed selection).
+
+     Both belong to the DOCUMENT root, not the app root (`.deck`, where the
+     selection half used to sit): dialogs, popovers, tooltips and floating menus
+     portal to <body> as SIBLINGS of the app and inherit nothing from it, so
+     they escaped that rule entirely — which is why several had each grown a
+     private copy. Islands of real text opt back in with .kd-selectable below;
+     nothing else in the app may state these two properties. */
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 html,
@@ -46,6 +66,58 @@ body {
    re-declare it. */
 * {
   overscroll-behavior: none;
+}
+
+/* The single blanket exception. A form control's text is editable and
+   selectable by definition, but WebKit lets the inherited `none` above reach
+   inside the field and kill selection of what you typed. Stated once here, so
+   no individual field has to remember it — they used to, one class at a time,
+   and a field only got it once someone noticed. `cursor: auto` rather than
+   `text`, so the engine still decides per control: an I-beam over a field you
+   type into, an arrow over a checkbox. Controls that merely borrow the input
+   LOOK (the ui-kit Dropdown renders .form__input on a <button>) are
+   deliberately NOT covered: they hold a label, not text you edit. */
+input,
+textarea {
+  cursor: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* THE two ways out of the baseline above — the only place in the app allowed
+   to state `user-select`, enforced by src/styles/selection.test.ts.
+
+   Selectability and the cursor are one decision with two spellings: the
+   cursor's whole job is to say whether the text under it can be selected, so
+   a surface that sets one and forgets the other is lying to the pointer. That
+   is not hypothetical — it shipped: the baseline moved without the cursor and
+   every island looked wrong until someone hovered it. Binding the pair into a
+   class makes the halves impossible to separate, the same reason `.ui-close`
+   exists (see below): defined once so the surfaces cannot drift apart.
+
+   Plugins use these too — they render into the host document and already
+   borrow `.form__input`, `.peek__act` and friends across the bundle boundary.
+
+   `cursor: auto` rather than `text`, because `auto` is per-node: the engine
+   draws the I-beam over an actual glyph run and the arrow over the padding,
+   the header and the empty space below a short file. A blanket `text` puts
+   the I-beam on the whole island including its chrome. */
+.kd-selectable {
+  cursor: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* The opt-out, for chrome sitting INSIDE a .kd-selectable island: a diff's
+   line-number gutter, a hunk header. Keeps them out of a copied selection, so
+   a pasted hunk carries no line numbers, and keeps the cursor honest about
+   that. Both spellings of user-select, always: on a WebKit build where the
+   prefixed property is the effective one, the unprefixed override alone loses
+   and the text would look copyable while refusing to select. */
+.kd-inert {
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Scrollbars are left UNSTYLED on purpose: styling `::-webkit-scrollbar` at all

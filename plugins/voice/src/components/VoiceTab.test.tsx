@@ -90,6 +90,15 @@ describe("VoiceTab history click-to-copy", () => {
   const entries = () =>
     [...stage.querySelectorAll(".voice__entry")] as HTMLElement[];
 
+  it("opts the transcript back into selection — it exists to be copied out", () => {
+    render();
+    // Clicking a row copies it, but a user often wants half a sentence, and
+    // the document baseline withholds selection unless the log asks by name.
+    expect(
+      stage.querySelector(".voice__log")!.classList.contains("kd-selectable"),
+    ).toBe(true);
+  });
+
   it("clicking a row copies its text and flashes the copied state", async () => {
     render();
     const [first] = entries();

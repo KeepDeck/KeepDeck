@@ -178,7 +178,6 @@
   border-radius: 6px;
   font-size: 13px;
   color: #c5c8c6;
-  cursor: default;
 }
 
 .run__cmd:hover {
@@ -377,9 +376,8 @@
      FitAddon (which measures the inner host) sizes the grid to the space
      that's actually available. */
   padding: 6px 4px 6px 8px;
-  /* xterm's own selection works inside. */
-  user-select: text;
-  -webkit-user-select: text;
+  /* Selection comes from .kd-selectable on the element (RunLog.tsx); xterm's
+     own selection works inside. */
 }
 
 .run__log-host {

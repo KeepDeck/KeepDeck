@@ -88,6 +88,15 @@ describe("ConfirmDialog — secondary action", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  it("lets the message be selected — alerts put error text here", () => {
+    render({});
+    // pushAlert routes describeError() into this body and the dialog has no
+    // Copy button, so selection is the only way the text leaves the app. The
+    // document baseline withholds it unless the element asks by name.
+    const message = document.querySelector(".confirm__message")!;
+    expect(message.classList.contains("kd-selectable")).toBe(true);
+  });
+
   it("says nothing while the action is usable", () => {
     render({
       secondaryAction: {

@@ -187,6 +187,11 @@ describe("DiffPeek", () => {
     await mount(changedRow("src/main.ts"), TS_DIFF);
     const gutters = (row: Element) =>
       [...row.querySelectorAll(".git__lineno")].map((n) => n.textContent);
+    // Both gutters opt OUT of the peek's selection island, or a copied hunk
+    // arrives with line numbers welded into it.
+    for (const cell of document.querySelectorAll(".git__lineno")) {
+      expect(cell.classList.contains("kd-inert")).toBe(true);
+    }
     // With the ± column gone, which gutter holds a number is the diff's only
     // hue-free add/del cue — this asserts the invariant the CSS leans on.
     expect(gutters(document.querySelector(".git__diffrow--del")!)).toEqual([

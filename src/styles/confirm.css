@@ -29,8 +29,6 @@
   gap: 10px;
   margin: 0 0 20px;
   cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .confirm__option input {

@@ -153,7 +153,7 @@ export function VoiceTab() {
 
       <DownloadStrip active={dl.active} />
 
-      <div className="voice__log" ref={logRef}>
+      <div className="voice__log kd-selectable" ref={logRef}>
         {snap.history.length === 0 && (
           <div className="voice__empty">
             Hold <kbd>{formatChord(bindings.command)}</kbd> and say a command, or{" "}

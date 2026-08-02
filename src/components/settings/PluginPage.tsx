@@ -62,13 +62,6 @@ export function PluginPage({
                 </span>
               )}
             </span>
-            <span className="settings__hint">
-              {plugin.manifest.id} · {plugin.manifest.version}
-              {plugin.status.kind === "failed" &&
-                ` · failed: ${plugin.status.reason}`}
-              {plugin.status.kind === "unavailable" &&
-                ` · unavailable: ${plugin.status.reason}`}
-            </span>
             {external && plugin.manifest.capabilities.length > 0 && (
               <span className="settings__hint">
                 Wants: {plugin.manifest.capabilities.map(describe).join(", ")}
@@ -87,6 +80,19 @@ export function PluginPage({
           </button>
         )}
       </div>
+
+      {/* Identity, and the reason it broke — the line you copy into a bug
+          report, so it opts back into selection against the document baseline.
+          OUTSIDE the toggle's <label> on purpose: a press-drag to select text
+          inside a label activates that label, and this one's control disables
+          the plugin, so selecting the error would have turned the plugin off. */}
+      <p className="settings__hint settings__plugin-ident kd-selectable">
+        {plugin.manifest.id} · {plugin.manifest.version}
+        {plugin.status.kind === "failed" &&
+          ` · failed: ${plugin.status.reason}`}
+        {plugin.status.kind === "unavailable" &&
+          ` · unavailable: ${plugin.status.reason}`}
+      </p>
 
       {plugin.manifest.description && (
         <p className="settings__hint settings__plugin-about">

@@ -496,7 +496,7 @@ export function AgentPane({
                     tile; the title carries the full id. */}
                 {resumeSessionId ? (
                   <span
-                    className="pane__exit-sub pane__card-path pane__idle-session"
+                    className="pane__exit-sub pane__card-path pane__idle-session kd-selectable"
                     title={resumeSessionId}
                   >
                     Resume session:{" "}

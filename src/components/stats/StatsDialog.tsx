@@ -103,7 +103,7 @@ export function UsageStats({
     const spec = TAB_SPECS[current];
     if (spec.data !== "live-accounts" && historyDead) {
       return (
-        <p className="stats__empty" role="alert">
+        <p className="stats__empty kd-selectable" role="alert">
           Usage history is unavailable: {history.error}
         </p>
       );
@@ -214,7 +214,7 @@ export function UsageStats({
         ) : (
           <>
             {history.error !== null && !historyDead && (
-              <p className="stats__warning">
+              <p className="stats__warning kd-selectable">
                 Some history could not be loaded: {history.error}
               </p>
             )}

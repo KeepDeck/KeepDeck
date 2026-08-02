@@ -87,6 +87,11 @@ describe("FileViewer", () => {
     expect(rowTexts()).toEqual(
       TS_TEXT.split("\n").map((line) => line || " "),
     );
+    // The gutter opts OUT of the peek's selection island, or a copied file
+    // body arrives with line numbers welded into it.
+    for (const cell of document.querySelectorAll(".files__lineno")) {
+      expect(cell.classList.contains("kd-inert")).toBe(true);
+    }
     // And it IS color: the keyword run differs from the string/comment runs.
     const firstRow = document.querySelector(".files__coderow")!;
     const colors = new Set(

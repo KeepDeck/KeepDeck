@@ -103,7 +103,7 @@ export function ExperimentalSection() {
         // Unconditional: a failed DISABLE happens exactly when the setting
         // is already Off — gating on the setting would hide the one report
         // that says the socket may still be serving.
-        <span className="settings__hint">
+        <span className="settings__hint kd-selectable">
           The MCP transport reported a problem: {mcpStatus.error}
         </span>
       )}
@@ -127,7 +127,7 @@ export function ExperimentalSection() {
       )}
 
       {served && connectError !== null && (
-        <span className="settings__hint">
+        <span className="settings__hint kd-selectable">
           The server is up, but the connect command could not be determined:{" "}
           {connectError}
         </span>

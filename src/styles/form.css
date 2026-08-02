@@ -34,8 +34,6 @@
   font: inherit;
   font-size: 13px;
   outline: none;
-  user-select: text;
-  -webkit-user-select: text;
 }
 
 .form__input:focus {
@@ -173,8 +171,6 @@
   gap: 10px;
   margin-bottom: 20px;
   cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .form__yolo input {

@@ -30,7 +30,7 @@ export function PluginFailurePanel({
         {crashes.length > 0 && crashSurfaceLabel(crashes[crashes.length - 1])}
         ). Restarting it usually recovers.
       </p>
-      <pre className="plugin-failure__log">{log}</pre>
+      <pre className="plugin-failure__log kd-selectable">{log}</pre>
       <div className="plugin-failure__actions">
         <button
           type="button"

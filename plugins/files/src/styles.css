@@ -157,8 +157,8 @@
   text-align: right;
   color: #3b4658;
   background-color: #0b0e14;
-  user-select: none;
-  -webkit-user-select: none;
+  /* Kept out of a copied selection by .kd-inert on the element
+     (FileViewer.tsx), so a pasted file body carries no line numbers. */
 }
 
 .files__linetext {

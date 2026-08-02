@@ -193,8 +193,6 @@
   align-items: flex-start;
   gap: 10px;
   cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .settings__toggle input {
@@ -368,6 +366,14 @@
 .settings__plugin-about {
   margin: 10px 0 0;
   line-height: 1.45;
+}
+
+/* Id, version and — when it broke — the reason, on their own line under the
+   row. Its own class rather than borrowing .settings__plugin-about: they are
+   two different lines, and one class matching both makes "the element after
+   the description" ambiguous. */
+.settings__plugin-ident {
+  margin: 8px 0 0;
 }
 
 .settings__plugin-notifications {
