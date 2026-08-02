@@ -43,8 +43,8 @@ function harness(opts: { initial?: boolean | null } = {}) {
     transport: { enable, disable },
     pumpPorts,
     panesIn: () => 1,
-    arm: async () => ({ armed: [], refused: [] }),
-    disarm: async () => true,
+    plant: async () => ({ armed: [], refused: [] }),
+    retract: async () => true,
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
     connection: () =>
@@ -277,16 +277,16 @@ describe("createMcpService", () => {
     // log — and a folder that later accepts must stop being reported.
     const h = harness({ initial: true });
     let report = { armed: [] as string[], refused: [{ root: "/repo", reason: "theirs" }] };
-    h.deps.arm = async () => report;
+    h.deps.plant = async () => report;
     const service = createMcpService(h.settings, h.deps);
     await flush();
     const kimi = { agentType: "kimi", cwd: "/repo", workspaceId: "ws-1", client: "s" };
 
-    await service.defs(kimi);
+    await (await service.access(kimi)).deliver();
     expect(service.status().refused).toEqual([{ root: "/repo", reason: "theirs" }]);
 
     report = { armed: ["/repo"], refused: [] };
-    await service.defs(kimi);
+    await (await service.access(kimi)).deliver();
     expect(service.status().refused).toEqual([]);
   });
 
@@ -294,13 +294,16 @@ describe("createMcpService", () => {
     // The wiring this pins: the injection reads the SETTLED status through
     // the service, so a pane asking mid-Off gets nothing — the setting alone
     // never decides.
+    const claude = { agentType: "claude", cwd: "/repo", workspaceId: "ws-1", client: "s" };
     const h = harness({ initial: true });
     const service = createMcpService(h.settings, h.deps);
     await flush();
-    expect((await service.defs({ agentType: "claude", cwd: "/repo", workspaceId: "ws-1", client: "s" })).map((d) => d.name)).toEqual(["keepdeck"]);
+    expect((await service.access(claude)).servers.map((d) => d.name)).toEqual([
+      "keepdeck",
+    ]);
 
     h.set(false);
     await flush();
-    expect(await service.defs({ agentType: "claude", cwd: "/repo", workspaceId: "ws-1", client: "s" })).toEqual([]);
+    expect((await service.access(claude)).servers).toEqual([]);
   });
 });

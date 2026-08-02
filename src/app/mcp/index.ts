@@ -12,6 +12,14 @@ import {
   type McpInjection,
   type McpInjectionDeps,
 } from "./injection";
+
+/** What the spawn path asks for and hands to a hook — re-exported here so a
+ * consumer depends on the FEATURE, not on the module inside it. */
+export type {
+  McpAccess,
+  McpAccessAsk,
+  McpInjectionTarget,
+} from "./injection";
 import { createMcpRequestPump, type McpPumpPorts } from "./pump";
 import {
   createMcpServerPolicy,
@@ -94,10 +102,10 @@ function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus 
 export interface McpService {
   status(): McpStatus;
   subscribe(listener: () => void): () => void;
-  /** The MCP servers a spawning pane should be given — empty while the
-   * transport is not confirmed up. The injection half of the feature; see
+  /** One pane's access to the MCP servers — empty while the transport is not
+   * confirmed up. The injection half of the feature; see
    * [`createMcpInjection`]. */
-  defs: McpInjection["defs"];
+  access: McpInjection["access"];
   dispose(): void;
 }
 
@@ -106,9 +114,10 @@ export interface McpService {
 export interface McpServiceDeps {
   /** How many live panes run in a directory — see [`McpInjectionDeps`]. */
   panesIn: McpInjectionDeps["panesIn"];
-  /** Plant / retract kimi's config, ordered against worktree teardown. */
-  arm: McpInjectionDeps["arm"];
-  disarm: McpInjectionDeps["disarm"];
+  /** Plant / retract kimi's config through the owner of the directories it
+   * lands in — see [`McpPlanting`]. */
+  plant: McpInjectionDeps["plant"];
+  retract: McpInjectionDeps["retract"];
   registry?: CommandRegistry;
   transport?: McpTransportPort;
   pumpPorts?: McpPumpPorts;
@@ -193,8 +202,8 @@ export function createMcpService(
   const injection = createMcpInjection({
     socket: () => current.socket,
     panesIn: deps.panesIn,
-    arm: deps.arm,
-    disarm: deps.disarm,
+    plant: deps.plant,
+    retract: deps.retract,
     onRefused: (refusals) => {
       // Replace by directory, keep the rest: an arming pass speaks only for
       // the cwds it tried, and dropping the others would make a refusal
@@ -250,7 +259,7 @@ export function createMcpService(
 
   return {
     status: () => current,
-    defs: injection.defs,
+    access: injection.access,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

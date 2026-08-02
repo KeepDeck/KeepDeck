@@ -6,7 +6,6 @@
 import type {
   AgentContribution,
   ForkPlanInput,
-  SpawnMcpInput,
   SpawnPlanInput,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
@@ -18,6 +17,7 @@ import {
 } from "../../domain/agents";
 import { describeError, log } from "../../ipc/log";
 import type { SkillsStagingViews } from "../../ipc/skills";
+import type { McpAccess, McpAccessAsk } from "../mcp";
 import { execCovers } from "../../plugins/capabilities/execCovers";
 import { mintBridgeToken, mintMcpToken } from "../ids";
 import { postbackCount } from "../postbacks";
@@ -36,16 +36,14 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
    * Named apart from the hook input's own `skills` (which carries the resolved
    * views) because this is the QUESTION, not the answer. */
   stagedSkills?: () => Promise<SkillsStagingViews | null>;
-  /** This pane's MCP servers, asked for the same way and for the same reason:
+  /** This pane's MCP access, asked for the same way and for the same reason:
    * the answer moves (the transport toggles, the user's set changes), so it
-   * is a QUESTION the build asks, not a value the caller carries. */
-  mcpDefs?: (target: {
-    agentType: string;
-    cwd: string;
-    workspaceId: string;
-    /** The pane secret an injected client announces on connect. */
-    client: string;
-  }) => Promise<SpawnMcpInput["servers"]>;
+   * is a QUESTION the build asks, not a value the caller carries.
+   *
+   * It answers with BOTH halves — the servers for the hook and the on-disk
+   * delivery for a CLI that takes none — because only this build knows when
+   * the plan is settled enough to write anything. */
+  mcpAccess?: McpAccessAsk;
 }
 
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
@@ -92,14 +90,15 @@ export async function buildPlan(
   // spec first, so a genuinely new process gets a fresh one and the dead
   // one's stops resolving.
   const mcpToken = peekPaneSpawnSpec(paneId)?.mcpToken ?? mintMcpToken();
-  const mcpServers = facts.mcpDefs
-    ? await facts.mcpDefs({
+  const access: McpAccess | null = facts.mcpAccess
+    ? await facts.mcpAccess({
         agentType: entry.id,
         cwd: facts.cwd,
         workspaceId: facts.workspace.id,
         client: mcpToken,
       })
-    : [];
+    : null;
+  const mcpServers = access?.servers ?? [];
   const base: SpawnPlanInput = {
     paneId,
     workspace: facts.workspace,
@@ -148,10 +147,12 @@ export async function buildPlan(
       "web:agents",
       `${entry.id} spawn.plan failed — bare spawn: ${describeError(e)}`,
     );
-    // The secret rides along even here. A kimi pane's config was already
-    // planted by the time a hook could throw, and it names this secret: drop
-    // it and every call that pane makes resolves to nobody, silently losing
-    // the attribution rather than degrading the spawn.
+    // A bare spawn still RUNS the CLI, so the file-fed half is still owed:
+    // kimi reads its cwd whatever argv it was given, and skipping the write
+    // here would leave exactly the panes whose hook failed without servers.
+    // The secret rides along for the same reason — the planted config names
+    // it, and dropping it would resolve that pane's every call to nobody.
+    await access?.deliver();
     return { command: entry.detect.bin, args: [], env: [], mcpToken };
   }
   // The hook's command must be covered by its plugin's exec capability —
@@ -203,6 +204,11 @@ export async function buildPlan(
         ],
       ]
     : output.env;
+  // The on-disk half, once the plan is SETTLED. Last, deliberately: a resume
+  // or fork whose hook threw has already propagated by now, and it must plant
+  // nothing — a config for a pane that will never spawn is a file in the
+  // user's repository that nothing asked for.
+  await access?.deliver();
   return {
     command: output.command,
     args: output.args,

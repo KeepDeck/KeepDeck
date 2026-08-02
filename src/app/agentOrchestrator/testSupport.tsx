@@ -383,8 +383,8 @@ export function Probe() {
         },
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
-        mcpDefs: async () => [],
-    worktrees: {
+        mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
+        worktrees: {
           provision: (panes, _report, setup) => {
             asked.push({ panes, setup });
             return Promise.resolve();

@@ -19,7 +19,10 @@ vi.mock("../../ipc/skills", () => skills);
 // The MCP config is planted in the same directories by the same owner, so the
 // doubles answer `true` like the real wrappers do.
 const mcpArming = vi.hoisted(() => ({
-  mcpArm: vi.fn(async () => ({ armed: [], refused: [] })),
+  mcpArm: vi.fn(async () => ({
+    armed: [] as string[],
+    refused: [] as { root: string; reason: string }[],
+  })),
   mcpDisarm: vi.fn(async (_roots: string[]) => true),
   mcpPrune: vi.fn(async (_liveWsIds: string[]) => true),
 }));
@@ -59,6 +62,7 @@ beforeEach(() => {
   skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
   skills.disarmSkills.mockResolvedValue(true);
   skills.pruneSkills.mockResolvedValue(true);
+  mcpArming.mcpArm.mockResolvedValue({ armed: [], refused: [] });
   mcpArming.mcpDisarm.mockResolvedValue(true);
   mcpArming.mcpPrune.mockResolvedValue(true);
   manager = createWorktreeManager({
@@ -246,6 +250,85 @@ describe("skillsFor", () => {
     expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
     expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
     expect(skills.stageSkills).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the MCP config planted in a pane's cwd", () => {
+  it("plants what it was handed, keyed by the workspace that owns the root", async () => {
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    mcpArming.mcpArm.mockResolvedValue({ armed: ["/repo"], refused: [] });
+
+    expect(await manager.plantMcp("ws-1", "/repo", "{config}")).toEqual({
+      armed: ["/repo"],
+      refused: [],
+    });
+    expect(mcpArming.mcpArm).toHaveBeenCalledWith("ws-1", [
+      { root: "/repo", content: "{config}" },
+    ]);
+  });
+
+  it("waits for a teardown in flight, like every other write into a cwd", async () => {
+    // The ordering the whole owner exists for: a write that landed between
+    // git's recursive delete and its final rmdir leaves a husk git no longer
+    // recognises.
+    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    worktree.removeWorktree.mockImplementation(async () => held);
+    const order: string[] = [];
+    mcpArming.mcpArm.mockImplementation(async () => {
+      order.push("planted");
+      return { armed: ["/wt/a"], refused: [] };
+    });
+    mcpArming.mcpDisarm.mockImplementation(async () => {
+      order.push("disarmed");
+      return true;
+    });
+
+    const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
+    const planting = manager.plantMcp("ws-1", "/wt/a", "{}");
+    release();
+    await removing;
+    await planting;
+
+    expect(order).toEqual(["disarmed", "planted"]);
+  });
+
+  it("refuses a root the deck stopped claiming while the write was queued", async () => {
+    // The pane was live when the plan asked — the deck already held it — so
+    // the root can only have left behind the very teardown this waited on.
+    // Planting then would put a file back into a directory git has just
+    // deleted, and the sweep has already passed over that root.
+    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    worktree.removeWorktree.mockImplementation(async () => held);
+
+    const removing = manager.remove([{ repo: "/r", path: "/wt/a", branch: "b" }]);
+    const planting = manager.plantMcp("ws-1", "/wt/a", "{}");
+    deck = []; // the pane left while we queued
+    release();
+    await removing;
+
+    expect(await planting).toEqual({ armed: [], refused: [] });
+    expect(mcpArming.mcpArm).not.toHaveBeenCalled();
+  });
+
+  it("takes its configs back from LIVE roots — that is what Off means", async () => {
+    // Unlike a teardown's disarm, nothing is leaving here: the socket those
+    // configs name is gone, so the panes still running in those directories
+    // are exactly the ones now pointing at nothing.
+    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
+
+    expect(await manager.retractMcp(["/wt/a"])).toBe(true);
+
+    expect(mcpArming.mcpDisarm).toHaveBeenCalledWith(["/wt/a"]);
+    // And only the MCP half: the skills symlink has nothing to do with it.
+    expect(skills.disarmSkills).not.toHaveBeenCalled();
   });
 });
 

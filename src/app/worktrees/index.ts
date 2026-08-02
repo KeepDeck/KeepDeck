@@ -18,11 +18,12 @@
  */
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { Pane, WorktreeTarget } from "../../domain/deck";
+import type { McpArmReport } from "../../ipc/mcpArming";
 import type { SkillsStagingViews } from "../../ipc/skills";
 import type { ProvisionCallbacks, SetupStep } from "../provisioning";
+import { createPlantings } from "./plantings";
 import { createWorktreeProvisioning } from "./provisioning";
 import { createOrderQueue } from "./queue";
-import { createSkillsStaging } from "./staging";
 import { createWorktreeTeardown } from "./teardown";
 
 /** A worktree a create put on disk: enough for [`WorktreeManager.remove`]. */
@@ -152,37 +153,57 @@ export interface SkillsInvalidation {
 }
 
 /**
+ * The other thing KeepDeck plants in a pane's cwd: the MCP client config a
+ * file-fed CLI reads instead of taking servers on argv.
+ *
+ * Its own role rather than a shared queue handle, because ordering against a
+ * teardown is only HALF of what makes such a write safe — the other half is
+ * refusing a directory no live pane claims any more, and both halves are this
+ * owner's knowledge. Handing out the queue instead let the MCP path take the
+ * ordering and skip the check.
+ *
+ * WHAT to write stays the MCP owner's business; this decides where it is
+ * allowed to land, and when.
+ */
+export interface McpPlanting {
+  /** Put `content` in `root` for `workspaceId`, once nothing else is touching
+   * that directory — and not at all if the deck stopped claiming it while this
+   * waited. Reports what landed and what refused (a cwd where the user keeps
+   * their own config); never throws. */
+  plantMcp(
+    workspaceId: string,
+    root: string,
+    content: string,
+  ): Promise<McpArmReport>;
+  /** Take our MCP configs back out of `roots` — every one of them, live or
+   * not: this is the transport going down, not a directory leaving. */
+  retractMcp(roots: string[]): Promise<boolean>;
+}
+
+/**
  * The whole owner, as the composition root builds it. Consumers take the role
  * they need instead of this: the orchestrator has no business with `sweep`, the
  * sweep trigger has none with provisioning, and a fake that has to stub methods
  * its subject never calls is a fake that stops catching anything.
  */
-/** The one queue that orders everything KeepDeck plants in a pane's cwd
- * against the removal of that cwd. Exposed as its own role because the MCP
- * injection plants a file of its own and must take the same slot — running it
- * outside this queue is exactly the arming-inside-a-teardown bug the owner
- * exists to prevent. */
-export interface WorktreeOrdering {
-  inOrder<T>(work: () => Promise<T>): Promise<T>;
-}
-
 export type WorktreeManager = WorktreeProvisioner &
   WorktreeHousekeeping &
   SkillsInvalidation &
-  WorktreeOrdering;
+  McpPlanting;
 
 export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
   const inOrder = createOrderQueue();
-  const staging = createSkillsStaging(deck, inOrder);
-  const teardown = createWorktreeTeardown(inOrder, staging.disarm);
+  const plantings = createPlantings(deck, inOrder);
+  const teardown = createWorktreeTeardown(inOrder, plantings.disarm);
   const provisioning = createWorktreeProvisioning(inOrder, teardown.rollback);
 
   return {
-    inOrder,
     ...provisioning,
-    skillsFor: staging.skillsFor,
-    invalidateSkills: staging.invalidateSkills,
-    sweep: staging.sweep,
+    skillsFor: plantings.skillsFor,
+    invalidateSkills: plantings.invalidateSkills,
+    sweep: plantings.sweep,
+    plantMcp: plantings.plantMcp,
+    retractMcp: plantings.retractMcp,
     remove: teardown.remove,
   };
 }

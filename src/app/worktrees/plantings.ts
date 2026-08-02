@@ -1,12 +1,20 @@
 /**
- * The workspace's staged shared skills, and the housekeeping that retires
- * what no live workspace claims any more.
+ * Everything KeepDeck puts INSIDE a pane's working directory — the workspace's
+ * staged shared skills, and the MCP client config a file-fed CLI reads — plus
+ * the housekeeping that retires what no live workspace claims any more.
  *
- * Staging ARMS directories (a `.agents/skills` symlink in every live spawn
- * root), so every call here runs in the manager's one queue: an arming that
- * landed inside a worktree removal is the bug this whole owner exists to
- * prevent. The memo below caches the RESULT of a call whose SIDE EFFECT was
- * that arming, which is why disarming always invalidates it.
+ * One module for both, because they are the same operation with different
+ * payloads: each ARMS a spawn root, each has to be undone when that root
+ * leaves, and each is only safe under two conditions this owner is the only
+ * place that can state — it runs in the manager's queue (an arming that landed
+ * inside a worktree removal is the bug this whole owner exists to prevent), and
+ * it is re-checked against the LIVE deck at the moment it runs, not at the
+ * moment it was asked for. Planting from anywhere else means writing those two
+ * conditions out a second time, and a second copy is how the skills path came
+ * to have guards the MCP path did not.
+ *
+ * The memo below caches the RESULT of a call whose SIDE EFFECT was an arming,
+ * which is why disarming always invalidates it.
  */
 import {
   disarmSkills,
@@ -14,9 +22,15 @@ import {
   stageSkills,
   type SkillsStagingViews,
 } from "../../ipc/skills";
-import { mcpDisarm, mcpPrune } from "../../ipc/mcpArming";
+import {
+  mcpArm,
+  mcpDisarm,
+  mcpPrune,
+  type McpArmReport,
+} from "../../ipc/mcpArming";
 import type {
   LiveWorkspace,
+  McpPlanting,
   SkillsInvalidation,
   WorktreeDeckView,
   WorktreeHousekeeping,
@@ -24,7 +38,8 @@ import type {
 } from "./index";
 import type { InOrder } from "./queue";
 
-export type SkillsStaging = Pick<WorktreeProvisioner, "skillsFor"> &
+export type WorktreePlantings = Pick<WorktreeProvisioner, "skillsFor"> &
+  McpPlanting &
   WorktreeHousekeeping &
   SkillsInvalidation & {
     /** Take our own hooks out of `roots` and forget the stagings that put
@@ -32,10 +47,13 @@ export type SkillsStaging = Pick<WorktreeProvisioner, "skillsFor"> &
     disarm(roots: string[]): Promise<boolean>;
   };
 
-export function createSkillsStaging(
+/** Nothing landed and nothing refused — what a skipped planting reports. */
+const PLANTED_NOTHING: McpArmReport = { armed: [], refused: [] };
+
+export function createPlantings(
   deck: WorktreeDeckView,
   inOrder: InOrder,
-): SkillsStaging {
+): WorktreePlantings {
   /** In-flight and completed stagings, keyed by workspace instance + root set
    * (see [`WorktreeManager.skillsFor`]). A `null` result is remembered too. The
    * roots ride along because a teardown has to find the entries that stood for
@@ -109,6 +127,31 @@ export function createSkillsStaging(
 
   return {
     disarm,
+
+    plantMcp(workspaceId, root, content) {
+      // Queued for the same reason staging is: a write that started while a
+      // teardown is in flight would land inside git's recursive delete.
+      return inOrder(() => {
+        // Re-checked at EXECUTION time, against the same rule the sweep and
+        // every teardown apply. The root was a live spawn cwd when the plan
+        // asked — the pane building that plan is one the deck already holds —
+        // so it can only have left while this waited in the queue, behind the
+        // very teardown that removed it. Planting then would put a file back
+        // into a directory git has just deleted, and nothing would take it
+        // away again: the sweep has already passed over that root.
+        if (unclaimed([root], deck.live()).length > 0) {
+          return Promise.resolve(PLANTED_NOTHING);
+        }
+        return mcpArm(workspaceId, [{ root, content }]);
+      });
+    },
+
+    retractMcp(roots) {
+      // NOT filtered by `unclaimed`, unlike a teardown's disarm: this is the
+      // transport going down, and the configs to take back are exactly the
+      // LIVE ones — they name a socket that no longer exists.
+      return inOrder(() => mcpDisarm(roots));
+    },
 
     skillsFor(workspace, landing) {
       const keyFor = (roots: string[]) =>

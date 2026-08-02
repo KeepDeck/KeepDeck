@@ -35,13 +35,36 @@ export interface McpInjectionTarget {
   client: string;
 }
 
+/**
+ * One pane's access to KeepDeck's MCP servers, in the two forms a CLI can
+ * take delivery of them — and deliberately BOTH: a single answer that hid the
+ * on-disk half behind a list of argv defs is what let a query write to a
+ * spawning pane's working directory with no caller able to see it.
+ */
+export interface McpAccess {
+  /** The servers this pane is given THROUGH ITS ARGV — the hook's material.
+   * Empty when the transport is not confirmed up, when the backend cannot say
+   * how to reach it (in both cases the pane spawns with no KeepDeck server
+   * rather than a broken one), and for a CLI that reads a file instead. */
+  servers: McpServerDef[];
+  /**
+   * Put the file-delivered half on disk. A no-op for the argv CLIs.
+   *
+   * Split out of the answer, and called only once the plan is settled, so a
+   * plan that is REJECTED (a resume whose hook threw) plants nothing: a
+   * config naming a pane that will never spawn is a file the user never asked
+   * for in a directory they own. Never rejects — a delivery that failed
+   * leaves the pane serverless, never unspawned.
+   */
+  deliver(): Promise<void>;
+}
+
+/** Ask for one pane's access, at the moment its plan is built — never once
+ * per session: the transport toggles, and the answer moves with it. */
+export type McpAccessAsk = (target: McpInjectionTarget) => Promise<McpAccess>;
+
 export interface McpInjection {
-  /** The servers this pane should be given THROUGH ITS ARGV. Empty when the
-   * transport is not confirmed up, when the backend cannot say how to reach
-   * it — in both cases the pane spawns with no KeepDeck server rather than a
-   * broken one — and for kimi, whose servers are delivered as a file instead
-   * (planted here, so the answer stays "nothing for the hook to add"). */
-  defs(target: McpInjectionTarget): Promise<McpServerDef[]>;
+  access: McpAccessAsk;
   /** Take back everything planted so far. Off means the socket is gone, so a
    * config still naming it would point kimi at nothing — and the settings
    * page promises the toggle tears its clients down. */
@@ -53,21 +76,23 @@ export interface McpInjectionDeps {
    * between two spawns, and a remembered answer would outlive the fact. */
   socket: () => string | null;
   connection?: (client?: string) => Promise<McpConnection>;
-  /** Plant kimi's config in a pane cwd. REQUIRED, not defaulted: the write
-   * must be ORDERED against worktree teardown — arming a directory that is
-   * being deleted is the mistake the worktree owner's queue exists to
-   * prevent — and that queue is not this module's to hold. A default would be
-   * the unordered call, i.e. the unsafe form would be the easy one. */
-  arm: (
+  /** Plant a config in a pane's cwd. REQUIRED, not defaulted: the write must
+   * be ORDERED against worktree teardown, and REFUSED for a directory no live
+   * pane claims any more — both of which are the worktree owner's knowledge,
+   * not this module's. A default would be the unguarded call, i.e. the unsafe
+   * form would be the easy one. */
+  plant: (
     workspaceId: string,
-    entries: { root: string; content: string }[],
+    root: string,
+    content: string,
   ) => Promise<McpArmReport>;
-  /** Take a planted config back out of these directories. Paired with `arm`,
-   * and ordered the same way. */
-  disarm: (roots: string[]) => Promise<boolean>;
+  /** Take a planted config back out of these directories. Paired with
+   * `plant`, and ordered the same way. */
+  retract: (roots: string[]) => Promise<boolean>;
   /** How many live panes run in this directory. A config is ONE file, so a
    * directory shared by two panes cannot carry a per-pane secret — see
-   * [`defs`]. Asked per call: panes come and go between spawns. */
+   * [`McpInjection.access`]. Asked per call: panes come and go between
+   * spawns. */
   panesIn: (cwd: string) => number;
   /** Where a directory kept its own config instead. Reported rather than
    * only logged: those panes are the only ones silently lacking what every
@@ -78,11 +103,19 @@ export interface McpInjectionDeps {
   onArmed?: (roots: string[]) => void;
 }
 
+/** A pane that gets nothing: no servers on argv, and nothing to put on disk. */
+const NO_ACCESS: McpAccess = { servers: [], deliver: () => Promise.resolve() };
+
+/** A pane served entirely through its argv — every CLI but kimi. */
+function argvOnly(servers: McpServerDef[]): McpAccess {
+  return { servers, deliver: () => Promise.resolve() };
+}
+
 export function createMcpInjection({
   socket,
   panesIn,
-  arm,
-  disarm,
+  plant,
+  retract,
   connection = mcpConnectionCommand,
   onRefused = () => {},
   onArmed = () => {},
@@ -111,9 +144,29 @@ export function createMcpInjection({
     }
   }
 
+  /** kimi's half of a delivery: the config into the pane's cwd, and what came
+   * back reported. A cwd holding the user's own config refuses, and the
+   * refusal is surfaced rather than silently leaving that pane serverless. */
+  async function deliverFile(
+    target: McpInjectionTarget,
+    content: string,
+  ): Promise<void> {
+    // Re-checked here and not only at `access`: the plan is built between the
+    // two, and a toggle that went Off in that window has already run its
+    // retract — a config planted after it would be one nothing takes back.
+    if (socket() === null) return;
+    const report = await plant(target.workspaceId, target.cwd, content);
+    for (const { root, reason } of report.refused) {
+      log.warn("web:mcp", `${root} kept its own MCP config: ${reason}`);
+    }
+    for (const root of report.armed) planted.add(root);
+    onArmed(report.armed);
+    onRefused(report.refused);
+  }
+
   return {
-    async defs(target) {
-      if (socket() === null) return [];
+    async access(target) {
+      if (socket() === null) return NO_ACCESS;
       // A shared directory gets an ANONYMOUS invocation. kimi's config is one
       // file per directory, so two panes running there would both announce
       // whichever secret was written last — and the journal would name the
@@ -121,11 +174,11 @@ export function createMcpInjection({
       const shared =
         target.agentType === KIMI_AGENT && panesIn(target.cwd) > 1;
       const invoked = await resolve(shared ? null : target.client);
-      if (!invoked) return [];
+      if (!invoked) return NO_ACCESS;
       // Re-checked after the await: the toggle may have gone Off while the
       // backend was answering, and a def minted then would be handed to a
       // pane whose socket no longer exists.
-      if (socket() === null) return [];
+      if (socket() === null) return NO_ACCESS;
       const { accepted, rejected } = acceptMcpServers([
         {
           name: KEEPDECK_MCP_SERVER,
@@ -137,32 +190,24 @@ export function createMcpInjection({
       for (const { name, reason } of rejected) {
         log.warn("web:mcp", `server "${name}" not injected: ${reason}`);
       }
-      if (target.agentType !== KIMI_AGENT) return accepted;
-      // kimi reads a FILE and takes nothing on argv, so the delivery happens
-      // here and the hook is told there is nothing to add. A cwd holding the
-      // user's own config refuses, and the refusal is reported rather than
-      // silently leaving that pane serverless.
-      const report = await arm(target.workspaceId, [
-        { root: target.cwd, content: kimiMcpConfig(accepted) },
-      ]);
-      for (const { root, reason } of report.refused) {
-        log.warn("web:mcp", `${root} kept its own MCP config: ${reason}`);
-      }
-      for (const root of report.armed) planted.add(root);
-      onArmed(report.armed);
-      onRefused(report.refused);
-      return [];
+      if (target.agentType !== KIMI_AGENT) return argvOnly(accepted);
+      // kimi reads a FILE and takes nothing on argv, so its servers ride the
+      // delivery instead and the hook is told there is nothing to add. The
+      // content is rendered NOW, against the invocation this pane was
+      // answered with, and written later.
+      const content = kimiMcpConfig(accepted);
+      return { servers: [], deliver: () => deliverFile(target, content) };
     },
 
     async retract() {
       if (planted.size === 0) return;
       const roots = [...planted];
-      // Cleared up front: a failed disarm must not keep re-trying the same
+      // Cleared up front: a failed retract must not keep re-trying the same
       // directories on every later Off, and what survives on disk is still
       // recorded in the backend's own armed manifest, which the boot sweep
       // reads.
       planted.clear();
-      await disarm(roots);
+      await retract(roots);
       onArmed(roots);
       onRefused([]);
     },

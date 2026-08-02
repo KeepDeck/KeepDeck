@@ -29,7 +29,6 @@ import {
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { createMcpService } from "./mcp";
-import { mcpArm, mcpDisarm } from "../ipc/mcpArming";
 import { paneIdByMcpToken } from "./spawnSpecs";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
@@ -120,12 +119,13 @@ export function createAppRuntime(
               ).length,
             0,
           ),
-      // kimi's config is planted in a pane's cwd, so it takes the same queue
-      // slot as everything else that lands there — `worktrees` is constructed
-      // below and only ever called from a spawn, long after.
-      arm: (workspaceId, entries) =>
-        worktrees.inOrder(() => mcpArm(workspaceId, entries)),
-      disarm: (roots) => worktrees.inOrder(() => mcpDisarm(roots)),
+      // kimi's config lands in a pane's cwd, so the owner of those directories
+      // decides when it may — ordered against teardown, and refused for a root
+      // the deck no longer claims. `worktrees` is constructed below and only
+      // ever called from a spawn, long after.
+      plant: (workspaceId, root, content) =>
+        worktrees.plantMcp(workspaceId, root, content),
+      retract: (roots) => worktrees.retractMcp(roots),
       // A secret names a pane only while that pane's plan is the live one;
       // the label is snapshot at CALL time, because `pane-N` is a slot a
       // later pane can inherit and a journal entry has to stay readable.
@@ -191,7 +191,7 @@ export function createAppRuntime(
     plugins,
     probe: probeWorktree,
     worktrees,
-    mcpDefs: (target) => mcp.defs(target),
+    mcpAccess: (target) => mcp.access(target),
   });
   const application = createApplicationController(
     deckStore,

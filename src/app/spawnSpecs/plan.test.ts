@@ -39,8 +39,21 @@ const skillsState = vi.hoisted(() => ({
   views: null as SpawnSkillsInput | null,
 }));
 const stagedSkills = () => Promise.resolve(skillsState.views);
-const mcpState = vi.hoisted(() => ({ servers: [] as McpServerSpec[] }));
-const mcpDefs = () => Promise.resolve(mcpState.servers);
+// MCP access is asked for the same way, and answers with BOTH halves: the
+// servers a hook puts on argv, and the on-disk delivery for a CLI that takes
+// none. `delivered` records when that write actually happened, which is the
+// whole point of it being separate from the answer.
+const mcpState = vi.hoisted(() => ({
+  servers: [] as McpServerSpec[],
+  delivered: [] as string[],
+}));
+const mcpAccess = (target: { paneId?: string; cwd: string }) =>
+  Promise.resolve({
+    servers: mcpState.servers,
+    deliver: async () => {
+      mcpState.delivered.push(target.cwd);
+    },
+  });
 const pluginRegistries = createContributionRegistries();
 const plugins = {
   pluginRegistries,
@@ -98,6 +111,7 @@ describe("building one plan through the agent hook", () => {
     hostState.installed = [];
     skillsState.views = null;
     mcpState.servers = [];
+    mcpState.delivered = [];
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -119,7 +133,7 @@ describe("building one plan through the agent hook", () => {
           workspace,
           pane,
           ctx,
-          { stagedSkills, mcpDefs },
+          { stagedSkills, mcpAccess },
         );
       }
     }
@@ -242,7 +256,7 @@ describe("building one plan through the agent hook", () => {
     await buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills, mcpDefs },
+      { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills, mcpAccess },
       ctx,
       "old-id",
       "restore",
@@ -284,7 +298,7 @@ describe("building one plan through the agent hook", () => {
     await buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills, mcpDefs },
+      { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills, mcpAccess },
       ctx,
       "old-id",
       "restore",
@@ -308,6 +322,73 @@ describe("building one plan through the agent hook", () => {
     await mount(ws([{ id: "pane-1", agentType: "claude" }]));
     await settle();
     expect(inputs).toEqual([undefined]);
+  });
+
+  it("takes the MCP delivery only AFTER the hook has run", async () => {
+    // The file-fed half is a WRITE into the user's working directory, so it
+    // waits for a plan that is going to be used. Asking is a question; the
+    // answer's delivery is the command, and only this build knows when the
+    // plan has settled enough to run it.
+    const at: string[] = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          at.push(`hook, delivered=${mcpState.delivered.length}`);
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(at).toEqual(["hook, delivered=0"]);
+    expect(mcpState.delivered).toEqual(["/repo"]);
+  });
+
+  it("still delivers when a spawn hook threw and the pane degrades to bare", async () => {
+    // A bare spawn still RUNS the CLI, and a file-fed one reads its cwd
+    // whatever argv it was handed: skipping the write here would leave exactly
+    // the panes whose hook failed without any servers at all.
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(seen["pane-1"].args).toEqual([]);
+    expect(mcpState.delivered).toEqual(["/repo"]);
+  });
+
+  it("plants NOTHING for a resume whose hook rejected the plan", async () => {
+    // A resume that throws propagates — no process will ever start — so a
+    // config naming that pane is a file in the user's repository that nothing
+    // asked for and nothing would take away.
+    register({
+      ...adopting,
+      hooks: {
+        "resume.plan": () => {
+          throw new Error("no such session");
+        },
+      },
+    });
+
+    await expect(
+      buildResumeSpec(
+        plugins,
+        "claude",
+        { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills, mcpAccess },
+        ctx,
+        "old-id",
+        "restore",
+      ),
+    ).rejects.toThrow("no such session");
+
+    expect(mcpState.delivered).toEqual([]);
   });
 
   it("an empty library leaves the hook input sparse — no skills key at all", async () => {
@@ -427,7 +508,7 @@ describe("building one plan through the agent hook", () => {
       workspaces[0],
       workspaces[0].panes[0],
       ctx,
-      { stagedSkills, mcpDefs },
+      { stagedSkills, mcpAccess },
     );
 
     // A failure is a CHANGE, and saying so is what gets the error tile drawn:
