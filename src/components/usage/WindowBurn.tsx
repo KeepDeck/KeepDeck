@@ -6,18 +6,16 @@ import type { WindowForecast } from "../../domain/usage/windowForecast";
 
 /**
  * The burn curve, shared by the Providers cards and the chip popover —
- * exactly like the fill bar is. The domain hands normalized geometry (x:
- * window start→reset, y: 0→100%); this component only maps it onto one of
- * two plots. The card plot is a full chart with axis labels; the popover
- * plot is a bare sparkline. BOTH render only once there is a projection to
- * draw: the curve exists to explain the verdict, and without a pace the
- * window-length axis dwarfs minutes of observations into a floating speck
- * inside an empty frame (live-verified). Decorative by contract
- * (aria-hidden): the caption carries the words.
+ * exactly like the fill bar is. The domain hands data-axis geometry (see
+ * windowBurn.ts), so the curve fills its frame from the second report on;
+ * this component only maps it onto one of two plots. The card plot carries
+ * a y-scale label and the reset edge tick; the popover plot is a bare
+ * sparkline. Decorative by contract (aria-hidden): the caption beside it
+ * carries the words.
  */
 
 const SIZES = {
-  card: { width: 340, height: 128, top: 8, bottom: 104, left: 26, right: 336 },
+  card: { width: 340, height: 92, top: 8, bottom: 76, left: 30, right: 336 },
   compact: { width: 288, height: 24, top: 4, bottom: 20, left: 1, right: 287 },
 } as const;
 
@@ -37,8 +35,9 @@ export function WindowBurn({
   size?: keyof typeof SIZES;
 }) {
   const geometry = windowBurn(reports, window, forecast, now);
-  if (geometry === null || geometry.observed.length < 2) return null;
-  if (geometry.projected === null) return null;
+  // A single observation is not a curve — the chart earns its place with
+  // the second report and never renders as an empty frame.
+  if (geometry === null) return null;
   const box = SIZES[size];
   const x = (value: number) => box.left + value * (box.right - box.left);
   const y = (value: number) => box.bottom - value * (box.bottom - box.top);
@@ -69,27 +68,28 @@ export function WindowBurn({
         x2={box.right}
         y2={y(0)}
       />
-      <line
-        className="usage-burn__edge"
-        x1={box.right}
-        y1={box.top - 3}
-        x2={box.right}
-        y2={box.bottom + 3}
-      />
+      {geometry.resetAtEdge && (
+        <line
+          className="usage-burn__edge"
+          x1={box.right}
+          y1={box.top - 3}
+          x2={box.right}
+          y2={box.bottom + 3}
+        />
+      )}
       {size === "card" && (
         <g className="usage-burn__labels">
           <text x={box.left - 4} y={y(1) + 3} textAnchor="end">
-            100%
+            {Math.round(geometry.yMaxPct)}%
           </text>
           <text x={box.left - 4} y={y(0) + 3} textAnchor="end">
             0
           </text>
-          <text x={box.left} y={box.height - 6} textAnchor="start">
-            start
-          </text>
-          <text x={box.right} y={box.height - 6} textAnchor="end">
-            reset
-          </text>
+          {geometry.resetAtEdge && (
+            <text x={box.right} y={box.height - 4} textAnchor="end">
+              reset
+            </text>
+          )}
         </g>
       )}
       <polyline
