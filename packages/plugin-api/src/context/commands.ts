@@ -32,7 +32,6 @@ export interface CommandInfo {
   id: string;
   title: string;
   args: CommandArgSpec[];
-  destructive: boolean;
 }
 
 export interface CommandError {
@@ -50,8 +49,6 @@ export interface PluginCommandSpec {
   id: string;
   title: string;
   args: CommandArgSpec[];
-  /** Hard to undo (close, delete) — invokers decide what to do with it. */
-  destructive?: boolean;
   /** The effect. Return value must be serializable; throwing reports
    * `failed` with the message. */
   run(args: CommandArgs): Promise<unknown> | unknown;

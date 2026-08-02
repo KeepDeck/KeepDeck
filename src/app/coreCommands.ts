@@ -370,7 +370,6 @@ export function registerCoreCommands(
           description: "Workspace name or id; the active one when omitted",
         },
       ],
-      destructive: true,
       run: (args) => {
         const deck = deps.deck();
         const agents = deps.agents();

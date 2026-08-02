@@ -82,7 +82,6 @@ function projectTools(list: CommandInfo[]): {
       name,
       description: info.title,
       inputSchema: schemaOf(info.args),
-      annotations: { destructiveHint: info.destructive },
     });
   }
   return { tools, byName };

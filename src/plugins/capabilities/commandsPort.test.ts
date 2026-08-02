@@ -72,7 +72,7 @@ describe("createPluginCommandsPort", () => {
     registry.register({ id: "agent.spawn", title: "S", args: [], run: () => null });
     const port = createPluginCommandsPort(manifest(), registry, logger());
     expect(await port.list()).toEqual([
-      { id: "agent.spawn", title: "S", args: [], destructive: false },
+      { id: "agent.spawn", title: "S", args: [] },
     ]);
   });
 });

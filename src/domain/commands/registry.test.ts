@@ -27,7 +27,6 @@ describe("createCommandRegistry", () => {
         id: "agent.spawn",
         title: "Spawn agent",
         args: spawnSpec().args,
-        destructive: false,
       },
     ]);
     off();

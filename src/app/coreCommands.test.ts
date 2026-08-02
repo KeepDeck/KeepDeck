@@ -304,12 +304,6 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(requestCloseAgent).toHaveBeenCalledWith("ws-1", "p1", "Claude 1");
   });
 
-  it("close is declared destructive", () => {
-    const { registry } = setup([twoPanes()]);
-    const info = registry.list().find((c) => c.id === "agent.close");
-    expect(info?.destructive).toBe(true);
-  });
-
   it("suspends the addressed pane without the confirm dialog", async () => {
     const { registry, suspendAgent, requestCloseAgent } = setup([twoPanes()]);
     const result = await registry.execute("agent.suspend", { agent: "reviewer" }, HOST);
@@ -320,8 +314,6 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(suspendAgent).toHaveBeenCalledWith("ws-1", "p2");
     // Nothing is destroyed, so it does not borrow the close flow's gate.
     expect(requestCloseAgent).not.toHaveBeenCalled();
-    const info = registry.list().find((c) => c.id === "agent.suspend");
-    expect(info?.destructive).toBeFalsy();
   });
 
   it("reports the flow's own reason for refusing, not a second guess at it", async () => {

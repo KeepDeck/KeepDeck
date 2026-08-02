@@ -37,7 +37,6 @@ export function createPluginCommandsPort(
         id: `${pluginId}.${spec.id}`,
         title: spec.title,
         args: spec.args,
-        destructive: spec.destructive,
         run: spec.run,
       });
       return { dispose: off };

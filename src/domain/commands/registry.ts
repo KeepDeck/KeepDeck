@@ -19,9 +19,6 @@ export interface CommandSpec {
   /** Human-readable name, shown in journals/pickers and to external clients. */
   title: string;
   args: ArgSpec[];
-  /** Marks a command whose effect is hard to undo (close, delete). Invokers
-   * decide what to do with it (confirm, badge); the registry only records it. */
-  destructive?: boolean;
   /** The effect. `source` is who invoked it (host / a plugin / an external
    * client) — a handler that scopes to the caller reads it (e.g. `settings.open`
    * lands on the calling plugin's own section); most ignore it. A returned
@@ -35,7 +32,6 @@ export interface CommandInfo {
   id: string;
   title: string;
   args: ArgSpec[];
-  destructive: boolean;
 }
 
 /** Who asked. Journaled with every call — the voice history reads it, and
@@ -174,7 +170,6 @@ export function createCommandRegistry(
         id: s.id,
         title: s.title,
         args: s.args,
-        destructive: s.destructive ?? false,
       })),
 
     async execute(id, args, source) {

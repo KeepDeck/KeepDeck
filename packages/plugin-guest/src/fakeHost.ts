@@ -206,7 +206,6 @@ export function createFakeHost(
           id: s.id,
           title: s.title,
           args: s.args,
-          destructive: s.destructive ?? false,
         })),
     },
     resources: { path: async () => null },
