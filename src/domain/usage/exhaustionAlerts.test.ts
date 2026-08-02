@@ -64,7 +64,6 @@ const seriesOf = (
 const CRITICAL = () => ramp(1, 88);
 const WARN = () => ramp(0.15, 88);
 const OK = () => ramp(0.05, 88);
-const STALE_CRITICAL = () => ramp(1, 88, 45); // fresh pace, tail 45m old
 
 describe("foldExhaustionAlerts", () => {
   const NONE: ExhaustionAlerts = new Map();
@@ -85,8 +84,9 @@ describe("foldExhaustionAlerts", () => {
       NOW,
     );
     expect(second.notices).toHaveLength(0);
+    // The instance anchor is the journal's: the segment's first report.
     expect(second.alerts.get(keyOf(windows))).toEqual({
-      resetsAt: FIVE_H.resetsAt,
+      anchor: NOW - 40 * MIN,
     });
   });
 
@@ -154,25 +154,31 @@ describe("foldExhaustionAlerts", () => {
 
   it("never re-arms on unknown — a data gap is not a recovery", () => {
     const windows = [FIVE_H];
+    const series = CRITICAL();
     const fired = foldExhaustionAlerts(
       NONE,
       accountsOf(windows),
-      seriesOf(windows, CRITICAL()),
+      seriesOf(windows, series),
       NOW,
     );
+    // 45 quiet minutes: the SAME journal, only the clock moved — the tail
+    // is past the stale belt, so the forecast reads unknown.
+    const later = NOW + 45 * MIN;
     const gap = foldExhaustionAlerts(
       fired.alerts,
       accountsOf(windows),
-      seriesOf(windows, STALE_CRITICAL()),
-      NOW,
+      seriesOf(windows, series),
+      later,
     );
     expect(gap.notices).toHaveLength(0);
-    expect(gap.alerts.get(keyOf(windows))).toBeDefined();
+    expect(gap.alerts.get(keyOf(windows))).toEqual({ anchor: NOW - 40 * MIN });
+    // Reports resume inside the same burning segment — the alarm holds.
+    const resumed = [...series, report({ reportedAt: later, usedPct: 95 })];
     const back = foldExhaustionAlerts(
       gap.alerts,
       accountsOf(windows),
-      seriesOf(windows, CRITICAL()),
-      NOW,
+      seriesOf(windows, resumed),
+      later,
     );
     expect(back.notices).toHaveLength(0); // still the same instance
   });
@@ -199,9 +205,78 @@ describe("foldExhaustionAlerts", () => {
       NOW,
     );
     expect(next.notices).toHaveLength(1);
+    // The anchor moved to the post-reset segment's first report.
     expect(next.alerts.get(keyOf([nextWindow]))).toEqual({
-      resetsAt: nextWindow.resetsAt,
+      anchor: NOW - 10 * MIN,
     });
+  });
+
+  it("re-arms after a top-up — a clockless plan window alarms again", () => {
+    // kimi's quota has no reset clock: resetsAt stays null forever, so the
+    // instance identity must come from the journal's segments, not the
+    // reset anchor (which never moves).
+    const quota: UsageWindow = {
+      usedPct: 90,
+      resetsAt: null,
+      windowMinutes: null,
+      scope: "quota",
+    };
+    const windows = [quota];
+    const burn = [
+      report({ windowMinutes: null, resetsAt: null, reportedAt: NOW - 30 * MIN, usedPct: 60 }),
+      report({ windowMinutes: null, resetsAt: null, reportedAt: NOW, usedPct: 90 }),
+    ];
+    const fired = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows, "kimi"),
+      seriesOf(windows, burn, "kimi"),
+      NOW,
+    );
+    expect(fired.notices).toHaveLength(1);
+    // Top-up: usage drops (a new segment), then the fresh allowance burns
+    // hot again — a SECOND alarm is due.
+    const later = NOW + 40 * MIN;
+    const topped = [
+      ...burn,
+      report({ windowMinutes: null, resetsAt: null, reportedAt: NOW + 5 * MIN, usedPct: 10 }),
+      report({ windowMinutes: null, resetsAt: null, reportedAt: later - 5 * MIN, usedPct: 40 }),
+    ];
+    const again = foldExhaustionAlerts(
+      fired.alerts,
+      accountsOf(windows, "kimi"),
+      seriesOf(windows, topped, "kimi"),
+      later,
+    );
+    expect(again.notices).toHaveLength(1);
+  });
+
+  it("holds through sub-jitter reset drift — the journal calls it one instance", () => {
+    const windows = [FIVE_H];
+    const fired = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    expect(fired.notices).toHaveLength(1);
+    // The provider re-reports the same window with resetsAt drifted +30s —
+    // inside currentSegment's 60s jitter belt, so the SAME segment.
+    const drifted: UsageWindow = {
+      ...FIVE_H,
+      resetsAt: FIVE_H.resetsAt! + 30_000,
+    };
+    const later = NOW + MIN;
+    const series = [
+      ...CRITICAL(),
+      report({ reportedAt: later, usedPct: 89, resetsAt: drifted.resetsAt }),
+    ];
+    const held = foldExhaustionAlerts(
+      fired.alerts,
+      accountsOf([drifted]),
+      seriesOf([drifted], series),
+      later,
+    );
+    expect(held.notices).toHaveLength(0);
   });
 
   it("ignores accounts that never reported and windows without series", () => {
