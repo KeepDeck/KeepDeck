@@ -1,4 +1,3 @@
-import { agentSeriesColors } from "../../domain/usage/chartPalette";
 import type { UsageWindow } from "../../domain/usage";
 import type { WindowReport } from "../../domain/usage/reportJournal";
 import { windowBurn } from "../../domain/usage/windowBurn";
@@ -24,14 +23,17 @@ const PAD = 2;
 const dotLeft = (pct: number) => `clamp(3px, ${pct.toFixed(2)}%, calc(100% - 3px))`;
 
 export function WindowBurn({
-  agent,
+  stroke = "#3d4863",
   window,
   reports,
   forecast,
   now,
   size = "card",
 }: {
-  agent: string;
+  /** Series color — supplied by the surface, which owns the roster the
+   * palette contract requires (agentSeriesColors on a one-agent roster
+   * breaks spare-slot ranking). */
+  stroke?: string;
   window: UsageWindow;
   reports: readonly WindowReport[];
   forecast: WindowForecast;
@@ -45,7 +47,6 @@ export function WindowBurn({
   const height = PLOT_HEIGHTS[size];
   const xPct = (value: number) => value * 100;
   const yPx = (value: number) => PAD + (1 - value) * (height - 2 * PAD);
-  const stroke = agentSeriesColors([agent]).get(agent);
   const line = (points: readonly { x: number; y: number }[]) =>
     points
       .map((point) => `${xPct(point.x).toFixed(2)},${yPx(point.y).toFixed(2)}`)
@@ -55,7 +56,14 @@ export function WindowBurn({
   return (
     <span className={`usage-burn usage-burn--${size}`} aria-hidden>
       <span className="usage-burn__plot">
-        <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none">
+        {/* height set HERE, the one home PLOT_HEIGHTS — a CSS copy once
+            drifted and the HTML dots (positioned in these units) slid off
+            the line. */}
+        <svg
+          viewBox={`0 0 100 ${height}`}
+          preserveAspectRatio="none"
+          style={{ height }}
+        >
           <line
             className="usage-burn__grid"
             x1="0"

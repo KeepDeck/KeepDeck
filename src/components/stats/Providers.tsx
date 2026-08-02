@@ -8,16 +8,15 @@ import {
   windowLevel,
   type AccountUsage,
 } from "../../domain/usage";
+import { agentSeriesColors } from "../../domain/usage/chartPalette";
+import { usageAgents } from "../../domain/usage/daily";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
   providerWindowGroups,
   type ProviderWindowLedger,
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
-import {
-  windowReportKey,
-  type WindowReport,
-} from "../../domain/usage/reportJournal";
+import { NO_REPORTS, type WindowReport } from "../../domain/usage/reportJournal";
 import {
   cardCaptionParts,
   windowForecast,
@@ -25,7 +24,6 @@ import {
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { WindowBurn } from "../usage/WindowBurn";
 
-const NO_REPORTS: readonly WindowReport[] = [];
 
 /** Per-provider rate-limit windows joined with ledger spend inside each
  * window's current interval — one card per provider, so the name and the
@@ -53,6 +51,9 @@ export function Providers({
     () => providerWindowGroups(accounts, events, now),
     [accounts, events, now],
   );
+  // Palette contract: colors key on the FULL ledger roster, so this card
+  // and the Overview chart give an agent the same hue.
+  const colors = useMemo(() => agentSeriesColors(usageAgents(events)), [events]);
   if (groups.length === 0) {
     return (
       <p className="stats__empty">
@@ -77,10 +78,8 @@ export function Providers({
               <ProviderWindow
                 key={row.id}
                 row={row}
-                reports={
-                  reportsByKey.get(windowReportKey(row.agent, row.window)) ??
-                  NO_REPORTS
-                }
+                stroke={colors.get(row.agent)}
+                reports={reportsByKey.get(row.reportKey) ?? NO_REPORTS}
                 now={now}
               />
             ))}
@@ -94,10 +93,12 @@ export function Providers({
 function ProviderWindow({
   row,
   reports,
+  stroke,
   now,
 }: {
   row: ProviderWindowRow;
   reports: readonly WindowReport[];
+  stroke: string | undefined;
   now: number;
 }) {
   const level = windowLevel(row.window, now);
@@ -118,14 +119,13 @@ function ProviderWindow({
       </div>
       <UsageWindowBar window={row.window} now={now} />
       <WindowBurn
-        agent={row.agent}
+        stroke={stroke}
         window={row.window}
         reports={reports}
         forecast={forecast}
         now={now}
       />
-      {caption.length > 0 && (
-        <small>
+      <small>
           {caption.map((part, index) => (
             <Fragment key={index}>
               {index > 0 && " · "}
@@ -137,7 +137,6 @@ function ProviderWindow({
             </Fragment>
           ))}
         </small>
-      )}
       {row.ledger && (
         <small>
           {row.ledger.sessionCount > 0

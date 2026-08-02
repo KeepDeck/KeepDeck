@@ -230,13 +230,6 @@
   width: 100%;
 }
 
-.usage-burn--card .usage-burn__plot svg {
-  height: 60px;
-}
-
-.usage-burn--compact .usage-burn__plot svg {
-  height: 20px;
-}
 
 .usage-burn__dot {
   position: absolute;
