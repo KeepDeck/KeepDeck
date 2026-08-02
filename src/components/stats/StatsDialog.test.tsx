@@ -29,7 +29,7 @@ vi.mock("../../app/useWindowReports", () => ({
 }));
 
 import type { AccountUsage } from "../../domain/usage";
-import { windowReportKey } from "../../domain/usage/reportJournal";
+import { accountWindowKeys } from "../../domain/usage/reportJournal";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
@@ -424,7 +424,11 @@ describe("UsageStats", () => {
     windowReports.snapshot = {
       ready: true,
       byKey: new Map([
-        [windowReportKey("claude", { windowMinutes: 300 }), reports],
+        [
+          accountWindowKeys("claude", account.windows).get(account.windows[0])!
+            .key,
+          reports,
+        ],
       ]),
     };
     act(() => root.render(createElement(Host, { initialTab: "providers" })));

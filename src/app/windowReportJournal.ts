@@ -92,7 +92,7 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
         // nothing to stand on — the same line then re-appends forever.
         if (!reportAlive(next, at)) continue;
         const entry = keys.get(window)!;
-        if (entry.ordinal !== null) next.ordinal = entry.ordinal;
+        if (entry.ordinal > 0) next.ordinal = entry.ordinal;
         const key = entry.key;
         const kept = byKey.get(key);
         const last = kept?.[kept.length - 1];

@@ -42,41 +42,33 @@ export function windowReportKey(
  * literals; an aliased element would collapse onto one key. */
 export interface AccountWindowKey {
   key: string;
-  /** Set only for duplicated tuples — travels into the stored record so a
-   * reloaded journal regroups under the same key. */
-  ordinal: number | null;
+  /** Ordinal among same-tuple windows of this report, ALWAYS minted — a
+   * conditional ordinal reset a window's history whenever its tuple's
+   * duplicate count changed. Positional by nature: identity survives any
+   * change that keeps the surviving windows' order a stable prefix. */
+  ordinal: number;
 }
 
 export function accountWindowKeys(
   agent: string,
   windows: readonly UsageWindow[],
 ): Map<UsageWindow, AccountWindowKey> {
-  const totals = new Map<string, number>();
-  for (const window of windows) {
-    const base = windowReportKey(agent, window);
-    totals.set(base, (totals.get(base) ?? 0) + 1);
-  }
   const seen = new Map<string, number>();
   const keys = new Map<UsageWindow, AccountWindowKey>();
   for (const window of windows) {
     const base = windowReportKey(agent, window);
     const ordinal = seen.get(base) ?? 0;
     seen.set(base, ordinal + 1);
-    keys.set(
-      window,
-      (totals.get(base) ?? 0) > 1
-        ? { key: `${base}\0${ordinal}`, ordinal }
-        : { key: base, ordinal: null },
-    );
+    keys.set(window, { key: `${base}\0${ordinal}`, ordinal });
   }
   return keys;
 }
 
 /** The key a STORED record files under — the same rule accountWindowKeys
- * minted at write time, reconstructed from the record alone. */
+ * minted at write time, reconstructed from the record alone (records
+ * written before ordinals existed file as ordinal 0). */
 export function storedReportKey(report: WindowReport): string {
-  const base = windowReportKey(report.agent, report);
-  return report.ordinal !== undefined ? `${base}\0${report.ordinal}` : base;
+  return `${windowReportKey(report.agent, report)}\0${report.ordinal ?? 0}`;
 }
 
 /** A frozen empty series — the shared fallback for surfaces whose journal

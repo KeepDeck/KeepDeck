@@ -129,11 +129,12 @@ describe("reportJournal", () => {
     expect(keys.get(a)!.key).not.toBe(keys.get(b)!.key);
     expect(keys.get(a)!.ordinal).toBe(0);
     expect(keys.get(b)!.ordinal).toBe(1);
-    // Unique tuples keep the bare key — existing journals stay valid.
+    // Ordinals are ALWAYS minted, so a tuple's duplicate count changing
+    // between reports cannot re-key (and reset) the surviving window.
     const lone = { usedPct: 10, resetsAt: NOW + 100 * MIN, windowMinutes: 300 };
     expect(accountWindowKeys("claude", [lone]).get(lone)).toEqual({
-      key: windowReportKey("claude", lone),
-      ordinal: null,
+      key: `${windowReportKey("claude", lone)}\x000`,
+      ordinal: 0,
     });
     // A stored record regroups under the SAME key after a reload.
     const stored = report({ agent: "codex", windowMinutes: null, ordinal: 1 });

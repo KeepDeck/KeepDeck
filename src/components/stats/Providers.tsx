@@ -8,7 +8,7 @@ import {
   windowLevel,
   type AccountUsage,
 } from "../../domain/usage";
-import { agentSeriesColors, agentSlotColor } from "../../domain/usage/chartPalette";
+import { agentSeriesColors, seriesColorFor } from "../../domain/usage/chartPalette";
 import { usageAgents } from "../../domain/usage/daily";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
@@ -80,7 +80,7 @@ export function Providers({
               <ProviderWindow
                 key={row.id}
                 row={row}
-                stroke={colors.get(row.agent) ?? agentSlotColor(row.agent)}
+                stroke={seriesColorFor(colors, row.agent)}
                 reports={reportsByKey.get(row.reportKey) ?? NO_REPORTS}
                 now={now}
               />

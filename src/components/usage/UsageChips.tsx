@@ -13,7 +13,10 @@ import {
   windowLabel,
   type AccountUsage,
 } from "../../domain/usage";
+import { agentSeriesColors } from "../../domain/usage/chartPalette";
+import { usageAgents } from "../../domain/usage/daily";
 import { useSettings } from "../../app/useSettings";
+import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useUsage } from "../../app/useUsage";
 import { useWindowReports } from "../../app/useWindowReports";
 import { UsagePanel } from "./UsagePanel";
@@ -103,6 +106,14 @@ export function UsageChips({
 }) {
   const { accounts } = useUsage();
   const journal = useWindowReports();
+  // The SAME ledger-roster palette the Stats surfaces key on — memoized
+  // here (the owner), so the panel stays prop-driven and an unknown
+  // plugin wears one hue everywhere.
+  const history = useUsageHistorySnapshot();
+  const seriesColors = useMemo(
+    () => agentSeriesColors(usageAgents(history.events)),
+    [history.events],
+  );
   const settings = useSettings();
   const display = settings?.usageDisplay ?? DEFAULT_SETTINGS.usageDisplay;
   // The open PANEL is per provider — a chip opens ITS agent's details.
@@ -179,6 +190,7 @@ export function UsageChips({
           display={display}
           now={now}
           reportsByKey={journal.byKey}
+          seriesColors={seriesColors}
           onOpenStats={onOpenStats}
           onClose={() => setOpenProvider(null)}
         />

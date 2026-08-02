@@ -45,11 +45,19 @@ export const CHART_TOOLTIP_BG = "#10141c";
 export const CHART_TOOLTIP_BORDER = "#1c2230";
 export const CHART_CURSOR_FILL = "rgba(255, 255, 255, 0.04)";
 
-/** An agent's fixed slot, or the designated overflow ink — the ROSTERLESS
- * color rule for surfaces that must stay deterministic without a ledger
- * (a reported account with no events yet, the chip panel). Known agents
- * match every roster-keyed surface by construction; unknown plugins wear
- * the stable overflow gray here instead of a roster-dependent spare. */
+/** THE per-surface resolution: the ledger-roster color when the agent has
+ * one, else its fixed slot or the overflow ink — every burn surface calls
+ * this, so an unknown plugin wears one hue on the cards AND the panel. */
+export function seriesColorFor(
+  colors: ReadonlyMap<string, string>,
+  agent: string,
+): string {
+  return colors.get(agent) ?? agentSlotColor(agent);
+}
+
+/** An agent's fixed slot, or the designated overflow ink — the fallback
+ * for an agent absent from the ledger roster (an account with no events
+ * yet). Known agents match every roster-keyed surface by construction. */
 export function agentSlotColor(agent: string): string {
   return Object.prototype.hasOwnProperty.call(AGENT_SLOTS, agent)
     ? AGENT_SLOTS[agent]

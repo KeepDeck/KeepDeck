@@ -6,7 +6,7 @@ import {
   windowLabel,
   type AccountUsage,
 } from "../../domain/usage";
-import { agentSlotColor } from "../../domain/usage/chartPalette";
+import { seriesColorFor } from "../../domain/usage/chartPalette";
 import {
   accountWindowKeys,
   NO_REPORTS,
@@ -34,6 +34,7 @@ export function UsagePanel({
   display,
   now,
   reportsByKey,
+  seriesColors,
   onOpenStats,
   onClose,
 }: {
@@ -43,6 +44,8 @@ export function UsagePanel({
   display: UsageDisplay;
   now: number;
   reportsByKey: ReadonlyMap<string, readonly WindowReport[]>;
+  /** The ledger-roster palette, owned by UsageChips. */
+  seriesColors: ReadonlyMap<string, string>;
   onOpenStats(): void;
   onClose(): void;
 }) {
@@ -123,7 +126,7 @@ export function UsagePanel({
                       )}
                     </span>
                     <WindowBurn
-                      stroke={agentSlotColor(agent.id)}
+                      stroke={seriesColorFor(seriesColors, agent.id)}
                       window={window}
                       reports={reports}
                       forecast={forecast}
