@@ -55,13 +55,26 @@ function setup(partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text
         id: "ws-1",
         name: "KeepDeck",
         active: true,
+        selectedPaneId: "p1",
         panes: [{ id: "p1", title: "Claude 1" }],
       },
-      { id: "ws-2", name: "Website", active: false, panes: [] },
+      {
+        id: "ws-2",
+        name: "Website",
+        active: false,
+        selectedPaneId: null,
+        panes: [],
+      },
     ],
   });
   const controller = createVoiceController(ctx, () => 42, installedModels);
-  return { host, controller, cancelCapture, level: () => onLevel };
+  return {
+    host,
+    controller,
+    cancelCapture,
+    stopCapture,
+    level: () => onLevel,
+  };
 }
 
 const texts = (c: ReturnType<typeof createVoiceController>) =>
@@ -137,13 +150,67 @@ describe("createVoiceController", () => {
       { id: "workspace.list", args: {} },
       {
         id: "pane.write",
-        args: { text: "please refactor the parser", mode: "type" },
+        args: {
+          workspace: "ws-1",
+          agent: "p1",
+          text: "please refactor the parser",
+          mode: "type",
+          focusInput: true,
+        },
       },
     ]);
     expect(texts(controller)).toEqual([
       ["heard", "please refactor the parser"],
       ["done", "typed into the input"],
     ]);
+  });
+
+  it("pins the selected pane while transcription is in flight", async () => {
+    const { host, controller, stopCapture } = setup({
+      text: "pinned transcript",
+      silence: false,
+    });
+    let finishTranscript!: (value: SpeechTranscript) => void;
+    stopCapture.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishTranscript = resolve;
+        }),
+    );
+    await controller.start("dictation");
+    const stopping = controller.stop();
+    await vi.waitFor(() => expect(stopCapture).toHaveBeenCalledOnce());
+
+    host.commandResults.set("workspace.list", {
+      ok: true,
+      value: [
+        {
+          id: "ws-1",
+          name: "KeepDeck",
+          active: true,
+          selectedPaneId: "p2",
+          panes: [{ id: "p2", title: "Codex 1" }],
+        },
+      ],
+    });
+    finishTranscript({
+      text: "pinned transcript",
+      silence: false,
+      seconds: 1,
+      level: 0.1,
+    });
+    await stopping;
+
+    expect(host.executedCommands[host.executedCommands.length - 1]).toEqual({
+      id: "pane.write",
+      args: {
+        workspace: "ws-1",
+        agent: "p1",
+        text: "pinned transcript",
+        mode: "type",
+        focusInput: true,
+      },
+    });
   });
 
   it("waits for the initial model scan before selecting an engine", async () => {

@@ -42,7 +42,23 @@ interface WorkspaceRow {
   id: string;
   name: string;
   active: boolean;
+  selectedPaneId: string | null;
   panes: { id: string; title: string }[];
+}
+
+interface DictationTarget {
+  workspaceId: string;
+  paneId: string;
+}
+
+/** Match pane.write's no-guessing target rule and pin its exact ids at release. */
+function dictationTarget(rows: WorkspaceRow[]): DictationTarget | null {
+  const workspace = rows.find((row) => row.active);
+  if (!workspace) return null;
+  const pane =
+    workspace.panes.find((candidate) => candidate.id === workspace.selectedPaneId) ??
+    (workspace.panes.length === 1 ? workspace.panes[0] : null);
+  return pane ? { workspaceId: workspace.id, paneId: pane.id } : null;
 }
 
 export interface VoiceController {
@@ -233,6 +249,9 @@ export function createVoiceController(
           ctx.settings.read(),
           currentModels(),
         ]);
+        // Transcription is asynchronous and the user may switch panes while it
+        // runs. Dictation must still land in the pane selected at key release.
+        const target = finished === "dictation" ? dictationTarget(rows) : null;
         // The pick persists in the plugin's settings values (settings.json)
         // — the global KV is still a stub, and a choice that silently
         // evaporates on restart is worse than none.
@@ -271,12 +290,22 @@ export function createVoiceController(
           }
         } else if (finished === "dictation") {
           push("heard", transcript.text);
+          if (!target) {
+            push("error", "no agent was selected when dictation stopped");
+            return;
+          }
           // Dictation fills the input as RAW keystrokes (mode: "type") so the
           // transcript lands inline and editable — a paste would collapse into
           // a non-editable [Pasted …] placeholder in most agent TUIs. The user
           // reviews and sends it themselves; no `submit`, or the transcript
           // fires off to the agent the instant push-to-talk is released.
-          await execute("pane.write", { text: transcript.text, mode: "type" });
+          await execute("pane.write", {
+            workspace: target.workspaceId,
+            agent: target.paneId,
+            text: transcript.text,
+            mode: "type",
+            focusInput: true,
+          });
         } else {
           push("heard", transcript.text);
           const parsed = parseCommand(transcript.text);
