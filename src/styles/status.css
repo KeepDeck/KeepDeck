@@ -1,0 +1,56 @@
+/* The status frame ladder — the ONE home of the agent-status palette and
+   rhythms, shared by every surface that renders `paneFrame()` (pane border
+   now; tray items and the rail dot join it). The domain ranks (frame.ts);
+   this file only paints.
+
+   Rhythm is state IDENTITY, not urgency: failed always pulses at 1s,
+   waiting always breathes at 2s — a frame never changes rhythm, so the
+   pace itself names the state from across the room. */
+:root {
+  --status-waiting: #e0af68;
+  --status-failed: #f7768e;
+  --status-done: #6b7c62;
+  --status-selected: #58b368;
+}
+
+/* Pane frames: colour the reserved 2px border (.pane keeps the layout). */
+.pane--frame-selected {
+  border-color: var(--status-selected);
+}
+
+.pane--frame-done {
+  border-color: var(--status-done);
+}
+
+.pane--frame-waiting {
+  border-color: var(--status-waiting);
+  animation: status-frame-breathe 2s ease-in-out infinite;
+}
+
+.pane--frame-failed {
+  border-color: var(--status-failed);
+  animation: status-frame-pulse 1s ease-in-out infinite;
+}
+
+/* Both rhythms modulate the frame's own colour toward transparent
+   (color-mix), so the animation needs one keyframe pair per rhythm, not
+   one per colour — and a surface that reuses them stays on palette. */
+@keyframes status-frame-breathe {
+  50% {
+    border-color: color-mix(in srgb, var(--status-waiting) 40%, transparent);
+  }
+}
+
+@keyframes status-frame-pulse {
+  50% {
+    border-color: color-mix(in srgb, var(--status-failed) 30%, transparent);
+  }
+}
+
+/* The state is still named by colour; only the rhythm rests. */
+@media (prefers-reduced-motion: reduce) {
+  .pane--frame-waiting,
+  .pane--frame-failed {
+    animation: none;
+  }
+}

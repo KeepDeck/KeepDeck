@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import { activityBadge } from "./format";
 
 describe("activityBadge", () => {
-  it("labels each state, ages from its own instant, and settles density", () => {
+  it("labels each state and ages from its own instant", () => {
     expect(activityBadge({ state: "working", since: 100 })).toEqual({
       tone: "working",
       label: "Working",
       sentence: "working",
-      emphasis: "quiet",
       at: 100,
     });
     expect(
@@ -16,7 +15,6 @@ describe("activityBadge", () => {
       tone: "waiting",
       label: "Needs approval",
       sentence: "needs approval",
-      emphasis: "spoken",
       chipTone: "warn",
       at: 200,
     });
@@ -26,7 +24,6 @@ describe("activityBadge", () => {
       tone: "waiting",
       label: "Needs your input",
       sentence: "needs your input",
-      emphasis: "spoken",
       chipTone: "warn",
       at: 200,
     });
@@ -36,7 +33,6 @@ describe("activityBadge", () => {
       tone: "done",
       label: "Done",
       sentence: "finished",
-      emphasis: "quiet",
       at: 300,
     });
     expect(
@@ -45,7 +41,6 @@ describe("activityBadge", () => {
       tone: "done",
       label: "Interrupted",
       sentence: "interrupted",
-      emphasis: "quiet",
       at: 300,
     });
   });
@@ -62,7 +57,6 @@ describe("activityBadge", () => {
       tone: "failed",
       label: "Rate limited",
       sentence: "rate limited",
-      emphasis: "spoken",
       chipTone: "error",
       detail: "Weekly limit reached",
       at: 400,

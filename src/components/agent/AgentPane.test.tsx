@@ -342,7 +342,7 @@ describe("AgentPane — activity badge", () => {
     expect(badge!.textContent).toBe("");
   });
 
-  it("spells out the attention states", () => {
+  it("keeps the attention states at dot density — the frame carries them", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
     reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
 
@@ -351,7 +351,12 @@ describe("AgentPane — activity badge", () => {
     // The chrome's own warn tone, not a duplicated hue — and the tone is
     // what colours the dot through Chip's icon-yield rule.
     expect(badge!.className).toContain("chip--warn");
-    expect(badge!.textContent).toBe("Needs approval");
+    // No spelled label: the words live in the tooltip, the attention lives
+    // on the pane frame.
+    expect(badge!.textContent).toBe("");
+    expect(badge!.title).toBe("Needs approval · now");
+    let pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-waiting");
 
     reportEdge({
       kind: "turn-failed",
@@ -362,9 +367,42 @@ describe("AgentPane — activity badge", () => {
     badge = document.querySelector<HTMLElement>(".pane__activity");
     expect(badge!.className).toContain("pane__activity--failed");
     expect(badge!.className).toContain("chip--error");
-    expect(badge!.textContent).toBe("Rate limited");
+    expect(badge!.textContent).toBe("");
     // The prose rides the tooltip, not the header.
     expect(badge!.title).toBe("Rate limited — Weekly limit reached · now");
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-failed");
+  });
+
+  it("ranks the frame by the domain ladder — attention beats selection, done yields", () => {
+    // Selected (and neither maximized nor solo): the selection frame shows
+    // until an attention state takes it.
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, { ...baseProps, selected: true }),
+      ),
+    );
+    let pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-selected");
+
+    reportEdge({ kind: "waiting", at: Date.now(), reason: "question" });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-waiting");
+    expect(pane!.className).not.toContain("pane--frame-selected");
+
+    // Done yields to selection on the selected pane…
+    reportEdge({ kind: "turn-end", at: Date.now() });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-selected");
+
+    // …and shows on its own once the selection frame is gone.
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, { ...baseProps, selected: false }),
+      ),
+    );
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-done");
   });
 
   it("shows nothing before the first edge, and nothing on a stopped pane", () => {

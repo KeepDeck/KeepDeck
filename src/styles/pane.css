@@ -61,10 +61,8 @@
   color: #c5c8c6;
 }
 
-/* The focused pane — colour the reserved border. Content stays fully inside it. */
-.pane--active {
-  border-color: #58b368;
-}
+/* The reserved border is coloured by the status frame ladder — see
+   status.css (.pane--frame-*); the domain's paneFrame() decides which. */
 
 .pane__bar {
   display: flex;
@@ -140,12 +138,11 @@
   outline: none;
 }
 
-/* Live activity badge: what the agent is doing right now. A dot for the
-   common states (working pulses, done sits still); the label is spelled only
-   for the two ATTENTION states (waiting, failed) — words appear exactly when
-   the user must act, the density rule the header chips already follow.
-   Waiting/failed ride Chip's own warn/error tones (one chrome palette, one
-   home); only working/done are hues the chrome doesn't have. */
+/* Live activity badge: what the agent is doing right now. A dot at every
+   state — the frame ladder (status.css) carries attention, so the header
+   keeps one density and the words live in the tooltip. Waiting/failed ride
+   Chip's own warn/error tones (one chrome palette, one home); only
+   working/done are hues the chrome doesn't have. */
 .pane__activity {
   flex: none;
   font-size: 12px;
@@ -229,19 +226,6 @@
   }
 
   .pane__branch .chip__label {
-    display: none;
-  }
-
-  /* The activity label collapses to its dot the same way — the tone colour
-     still says waiting/failed, the tooltip still names it. */
-  .pane__activity {
-    flex: none;
-    width: 22px;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .pane__activity .chip__label {
     display: none;
   }
 

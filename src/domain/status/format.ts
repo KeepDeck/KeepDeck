@@ -14,10 +14,6 @@ export interface ActivityBadge {
    * approval"): casing settled HERE, because lowercasing the label would
    * mangle a CLI's own error identifier ("failed: quotacliff"). */
   sentence: string;
-  /** Whether the label is SPELLED in the header or lives in the tooltip
-   * only. The density decision, not the view's: words appear exactly when
-   * the user must act. */
-  emphasis: "quiet" | "spoken";
   /** The chip's own tone ladder, when one of its tones fits — so the badge
    * inherits the chrome's warn/error palette instead of duplicating it. */
   chipTone?: "warn" | "error";
@@ -50,7 +46,6 @@ export function activityBadge(activity: PaneActivity): ActivityBadge {
         tone: "working",
         label: "Working",
         sentence: "working",
-        emphasis: "quiet",
         at: activity.since,
       };
     case "waiting": {
@@ -60,7 +55,6 @@ export function activityBadge(activity: PaneActivity): ActivityBadge {
         tone: "waiting",
         label,
         sentence: label.toLowerCase(),
-        emphasis: "spoken",
         chipTone: "warn",
         at: activity.since,
       };
@@ -71,14 +65,12 @@ export function activityBadge(activity: PaneActivity): ActivityBadge {
             tone: "done",
             label: "Interrupted",
             sentence: "interrupted",
-            emphasis: "quiet",
             at: activity.at,
           }
         : {
             tone: "done",
             label: "Done",
             sentence: "finished",
-            emphasis: "quiet",
             at: activity.at,
           };
     case "failed": {
@@ -89,7 +81,6 @@ export function activityBadge(activity: PaneActivity): ActivityBadge {
         // A known label lowercases safely (it is our own prose); a raw CLI
         // identifier keeps its casing.
         sentence: known ? known.toLowerCase() : `failed: ${activity.error}`,
-        emphasis: "spoken",
         chipTone: "error",
         ...(activity.detail !== undefined ? { detail: activity.detail } : {}),
         at: activity.at,

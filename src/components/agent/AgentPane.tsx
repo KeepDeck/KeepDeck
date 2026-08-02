@@ -11,7 +11,7 @@ import {
 // formatters; the idle card dates itself with the same wording the usage
 // popover uses, rather than growing a second one.
 import { formatAge } from "../../domain/usage";
-import { activityBadge } from "../../domain/status";
+import { activityBadge, paneFrame } from "../../domain/status";
 import { usePaneActivity } from "../../app/usePaneActivity";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { usePaneSessionState } from "../../app/usePaneSessionState";
@@ -270,7 +270,12 @@ export function AgentPane({
   // The domain's answer, not a second derivation of it: a frozen ctx% on an
   // exited / idle / unavailable / provisioning pane would read as live.
   const paneLive = !ended && body === "terminal";
-  const activityView = activity && paneLive ? activityBadge(activity) : null;
+  const liveActivity = paneLive ? activity : undefined;
+  const activityView = liveActivity ? activityBadge(liveActivity) : null;
+  // The ONE frame this pane wears — the domain ranks attention, selection
+  // and done; this view only appends the class. The selection-visibility
+  // rule (not maximized, not the only pane) predates the ladder and stays.
+  const frame = paneFrame(liveActivity, selected && !focused && !solo);
   return (
     <section
       data-pane-id={paneId}
@@ -278,7 +283,7 @@ export function AgentPane({
       // A stopped pane is dimmed so a grid of six reads at a glance: which
       // ones are actually running is otherwise only visible by looking into
       // each body.
-      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}${stopped ? " pane--idle" : ""}`}
+      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${frame === "none" ? "" : ` pane--frame-${frame}`}${stopped ? " pane--idle" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       // A folded row expands only from an EXPLICIT header click (below), never
       // from raw mousedown/focus: descendant focus bubbling would expand rows
