@@ -41,6 +41,7 @@ import {
   getUsageHistorySnapshot,
   subscribeUsageHistory,
 } from "./usageHistoryManager";
+import { windowReportJournal } from "./windowReportJournal";
 import { createWorktreeManager } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
@@ -170,6 +171,7 @@ export function createAppRuntime(
           subscribe: subscribeUsageHistory,
         },
       });
+      windowReportJournal.start();
       application.start();
     },
     dispose() {
@@ -177,6 +179,7 @@ export function createAppRuntime(
       disposed = true;
       application.dispose();
       paneInputFocus.dispose();
+      windowReportJournal.dispose();
       achievementNotifier?.dispose();
       usageChannel?.dispose();
       pluginDeckBridge.dispose();
