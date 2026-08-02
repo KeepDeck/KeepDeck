@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  acceptMcpServers,
-  isValidMcpServerName,
-  type McpServerDef,
-} from "./servers";
+import type { McpServerSpec } from "@keepdeck/plugin-api";
+import { acceptMcpServers, isValidMcpServerName } from "./servers";
 
-const def = (name: string): McpServerDef => ({
+const def = (name: string): McpServerSpec => ({
   name,
   transport: "stdio",
   command: "/bin/keepdeck",

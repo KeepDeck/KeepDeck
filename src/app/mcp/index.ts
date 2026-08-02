@@ -13,6 +13,7 @@ import {
   type McpConnection,
 } from "../../ipc/mcp";
 import { commands } from "../commandRegistry";
+import type { McpPaneIdentity } from "./paneIdentity";
 import {
   createMcpInjection,
   type McpInjection,
@@ -173,16 +174,11 @@ export interface McpServiceDeps {
   connection?: McpInjectionDeps["connection"];
   /** Resolve a connection's secret to the pane that announced it. Injected:
    * which pane holds which secret is the spawn layer's knowledge, and the
-   * deck's — neither belongs to the transport. */
+   * deck's — neither belongs to the transport. See [`createPaneIdentity`]. */
   identify?: (client: string) => McpPaneIdentity | null;
 }
 
-/** How a pane reads in the journal at the moment it acted. */
-export interface McpPaneIdentity {
-  id: string;
-  workspaceId: string;
-  label: string;
-}
+export type { McpPaneIdentity } from "./paneIdentity";
 
 /**
  * The MCP feature's one owner in the webview. Everything the feature IS —

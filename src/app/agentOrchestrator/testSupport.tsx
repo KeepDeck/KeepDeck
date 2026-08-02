@@ -13,7 +13,9 @@ import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
 import type { WorkspaceCreationResult } from "../deckActions";
 import type { SetupStep } from "../provisioning";
 import type { SuspendOutcome } from "../suspendOutcome";
-import { EMPTY_SPAWN_CONTEXT } from "../../domain/agents";
+// From the module, not the barrel: the barrel is mocked below, and these are
+// plain shapes with no cache state to fake.
+import { EMPTY_SPAWN_CONTEXT } from "../spawnSpecs/plans";
 import { createWorkspaceInstance as createWorkspaceInstanceImpl } from "../../domain/workspaceInstance";
 import type { SessionHandle } from "../../domain/journal";
 import {

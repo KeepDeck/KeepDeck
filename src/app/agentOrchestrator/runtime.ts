@@ -1,4 +1,5 @@
-import type { ResumeOrigin, SpawnPlanContext } from "../../domain/agents";
+import type { ResumeOrigin } from "../../domain/agents";
+import type { SpawnPlanContext } from "../spawnSpecs";
 import {
   findPane,
   findWorkspace,

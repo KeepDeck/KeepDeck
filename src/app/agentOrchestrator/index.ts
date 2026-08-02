@@ -1,4 +1,5 @@
-import type { AgentRestartMode, ForkTarget, SpawnPlan } from "../../domain/agents";
+import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
+import type { SpawnPlan } from "../spawnSpecs";
 import type { Pane, SpawnConfig, WorktreeTarget } from "../../domain/deck";
 import type { SessionHandle } from "../../domain/journal";
 import type { McpAccessAsk } from "../mcp";

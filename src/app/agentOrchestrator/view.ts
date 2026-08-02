@@ -10,7 +10,7 @@
  * out the map hands out the ability to write it without publishing, which is
  * the one thing a render snapshot cannot survive.
  */
-import type { SpawnPlan } from "../../domain/agents";
+import type { SpawnPlan } from "../spawnSpecs";
 import { peekPanePlanError, peekPaneSpawnSpec } from "../spawnSpecs";
 import type { DeckStore } from "../deckStore";
 import type { AgentRunView } from ".";

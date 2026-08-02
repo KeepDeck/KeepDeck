@@ -16,8 +16,4 @@ export {
   type McpCommandPort,
   type McpServerIdentity,
 } from "./protocol";
-// `isValidMcpServerName` stays unexported on purpose: reaching for it alone
-// skips the duplicate-name half of the policy, which is what keeps the
-// built-in server unshadowable.
-export { acceptMcpServers, type McpServerDef } from "./servers";
 export { shellLine } from "./shellLine";

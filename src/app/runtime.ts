@@ -1,11 +1,4 @@
-import type { AgentInfo } from "../domain/agents";
-import {
-  findWorkspaceOfPane,
-  paneDisplayTitle,
-  paneExecutionCwd,
-  skillRootsOf,
-  type Pane,
-} from "../domain/deck";
+import { panesRunningIn, skillRootsOf } from "../domain/deck";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
@@ -29,6 +22,7 @@ import {
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { createMcpService } from "./mcp";
+import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdByMcpToken } from "./spawnSpecs";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
@@ -81,68 +75,29 @@ export function createAppRuntime(
     minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
     subscribe: subscribeSettings,
   });
-  /** How a pane reads to a person: its own name if it has one, else the
-   * agent's label and position. The plugin registry is the only place the
-   * pretty label lives, and it is read at CALL time — a journal entry keeps
-   * the name the pane had when it acted. */
-  const paneLabel = (pane: Pane, index: number): string =>
-    paneDisplayTitle(
-      pane,
-      index,
-      plugins.pluginRegistries.agents.list().map(({ entry }) => ({
-        id: entry.id,
-        label: entry.label,
-        command: entry.detect.bin,
-        features: {},
-        installed: true,
-        path: null,
-      })) as AgentInfo[],
-    );
-
   const mcp = createMcpService(
     {
       mcpServer: () => getSettings()?.mcpServer ?? null,
       subscribe: subscribeSettings,
     },
     {
-      // How many live panes run in a directory: a config planted there is ONE
-      // file, so the injection needs to know when it cannot belong to a single
-      // pane. Counted off the live deck, not remembered.
       panesIn: (cwd) =>
-        deckStore
-          .getSnapshot()
-          .workspaces.reduce(
-            (count, workspace) =>
-              count +
-              workspace.panes.filter(
-                (pane) => paneExecutionCwd(workspace, pane) === cwd,
-              ).length,
-            0,
-          ),
+        panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
       // kimi's config lands in a pane's cwd, so the owner of those directories
-      // decides when it may — ordered against teardown, and refused for a root
-      // the deck no longer claims. `worktrees` is constructed below and only
-      // ever called from a spawn, long after.
+      // decides when it may. These two exist only to break the construction
+      // cycle between the two owners — `worktrees` is built below and neither
+      // is called before a spawn, long after.
       plant: (workspaceId, root, content) =>
         worktrees.plantMcp(workspaceId, root, content),
       retract: (roots) => worktrees.retractMcp(roots),
-      // A secret names a pane only while that pane's plan is the live one;
-      // the label is snapshot at CALL time, because `pane-N` is a slot a
-      // later pane can inherit and a journal entry has to stay readable.
-      identify: (client) => {
-        const paneId = paneIdByMcpToken(client);
-        if (!paneId) return null;
-        const { workspaces } = deckStore.getSnapshot();
-        const workspace = findWorkspaceOfPane(workspaces, paneId);
-        const index = workspace?.panes.findIndex((p) => p.id === paneId) ?? -1;
-        const pane = index >= 0 ? workspace?.panes[index] : undefined;
-        if (!workspace || !pane) return null;
-        return {
-          id: paneId,
-          workspaceId: workspace.id,
-          label: paneLabel(pane, index),
-        };
-      },
+      identify: createPaneIdentity({
+        workspaces: () => deckStore.getSnapshot().workspaces,
+        paneOf: paneIdByMcpToken,
+        agents: () =>
+          plugins.pluginRegistries.agents
+            .list()
+            .map(({ entry }) => ({ id: entry.id, label: entry.label })),
+      }),
     },
   );
   const journalPersistence = createJournalPersistence(

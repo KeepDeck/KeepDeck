@@ -8,7 +8,7 @@ import type {
   SpawnSkillsInput,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "../../domain/agents";
+import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "./plans";
 import type { Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createContributionRegistries } from "../../plugins/registries/contributions";

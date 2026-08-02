@@ -6,7 +6,6 @@
  * reaches for pane lifecycle rules, which is what keeps the reducer's list
  * operations free of "may this pane…" questions.
  */
-import type { AgentInfo } from "../../agents";
 import { MAX_PANES } from "../layout";
 import { paneAgentType } from "./lifecycle";
 import type { Pane } from "./index";
@@ -63,11 +62,17 @@ export function resolveFocus(
 
 /** Display title for the pane at `index`: the manual name wins, then the
  * terminal's auto title, then "<Agent label> N" from the catalog — falling back
- * to the raw agent id while the catalog is still loading ([F11]). */
+ * to the raw agent id while the catalog is still loading ([F11]).
+ *
+ * Takes the two fields it READS, not the catalog entry they come from. Asking
+ * for a full `AgentInfo` made every non-UI caller manufacture one — the
+ * composition root did it behind a cast, asserting an installed state it had
+ * not detected and an empty feature list that does not typecheck — for a
+ * function that looks at `id` and `label`. */
 export function paneDisplayTitle(
   pane: Pane,
   index: number,
-  agents: AgentInfo[],
+  agents: readonly { id: string; label: string }[],
 ): string {
   const agentType = paneAgentType(pane);
   const label = agents.find((a) => a.id === agentType)?.label ?? agentType;

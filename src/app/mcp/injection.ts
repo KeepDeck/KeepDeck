@@ -15,7 +15,8 @@
  * It answers with a LIST because the planned server bank contributes more
  * members later; today the built-in transport is the only one.
  */
-import { acceptMcpServers, type McpServerDef } from "../../domain/mcp";
+import type { McpServerSpec } from "@keepdeck/plugin-api";
+import { acceptMcpServers } from "./servers";
 import { describeError, log } from "../../ipc/log";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
 import type { McpArmReport } from "../../ipc/mcpArming";
@@ -46,7 +47,7 @@ export interface McpAccess {
    * Empty when the transport is not confirmed up, when the backend cannot say
    * how to reach it (in both cases the pane spawns with no KeepDeck server
    * rather than a broken one), and for a CLI that reads a file instead. */
-  servers: McpServerDef[];
+  servers: McpServerSpec[];
   /**
    * Put the file-delivered half on disk. A no-op for the argv CLIs.
    *
@@ -107,7 +108,7 @@ export interface McpInjectionDeps {
 const NO_ACCESS: McpAccess = { servers: [], deliver: () => Promise.resolve() };
 
 /** A pane served entirely through its argv — every CLI but kimi. */
-function argvOnly(servers: McpServerDef[]): McpAccess {
+function argvOnly(servers: McpServerSpec[]): McpAccess {
   return { servers, deliver: () => Promise.resolve() };
 }
 

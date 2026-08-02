@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { SpawnPlanContext } from "../domain/agents";
+import type { SpawnPlanContext } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 
 /**

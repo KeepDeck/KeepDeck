@@ -1,4 +1,4 @@
-import type { SpawnPlan } from "../domain/agents";
+import type { SpawnPlan } from "./spawnSpecs";
 import { findWorkspaceOfPane, paneIsRemoteFresh } from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";

@@ -23,7 +23,7 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use super::arming::{arm_roots, disarm_roots};
-use crate::worktree_arm::{armed_manifest, claimed_by_others, manifest_roots, record_armed};
+use crate::worktree_arm::{record_armed, retire_key};
 use super::library::{sorted_dirs, SKILL_FILE};
 use super::{opencode, SkillStagingDto, SkillsLocks};
 use crate::state::write_atomic;
@@ -72,16 +72,7 @@ pub(crate) fn stage(
         // Disarm everything this workspace ever armed, not only the cwds
         // still in spawn_roots (a closed pane's cwd would otherwise dangle)
         // — sparing any cwd another workspace still claims.
-        let mut roots = manifest_roots(root, ws_id);
-        for r in spawn_roots {
-            if !roots.contains(r) {
-                roots.push(r.clone());
-            }
-        }
-        let claimed = claimed_by_others(root, ws_id);
-        roots.retain(|r| !claimed.contains(r));
-        disarm_roots(root, &roots)?;
-        let _ = fs::remove_file(armed_manifest(root, ws_id));
+        retire_key(root, ws_id, spawn_roots, |roots| disarm_roots(root, roots))?;
         return Ok(None);
     }
 

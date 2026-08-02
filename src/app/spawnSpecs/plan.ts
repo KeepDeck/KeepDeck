@@ -9,12 +9,12 @@ import type {
   SpawnPlanInput,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
+import type { ResumeOrigin } from "../../domain/agents";
 import {
   BRIDGE_PROTOCOL_VERSION,
-  type ResumeOrigin,
   type SpawnPlan,
   type SpawnPlanContext,
-} from "../../domain/agents";
+} from "./plans";
 import { describeError, log } from "../../ipc/log";
 import type { SkillsStagingViews } from "../../ipc/skills";
 import type { McpAccess, McpAccessAsk } from "../mcp";

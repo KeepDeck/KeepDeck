@@ -705,6 +705,19 @@ export function paneExecutionCwd(ws: Workspace, pane: Pane): string | null {
   return pane.cwd ?? ws.cwd;
 }
 
+/** How many live panes run in `cwd`, across every workspace.
+ *
+ * The question a per-directory delivery has to ask: a config file is ONE file,
+ * so a directory two panes run in cannot carry a per-pane secret. Counted off
+ * the deck rather than remembered, because panes come and go between spawns. */
+export function panesRunningIn(workspaces: Workspace[], cwd: string): number {
+  return workspaces.reduce(
+    (count, ws) =>
+      count + ws.panes.filter((pane) => paneExecutionCwd(ws, pane) === cwd).length,
+    0,
+  );
+}
+
 /** The distinct effective directories whose git HEAD the app may observe for
  * pane-header branch badges and worktree cleanup decisions. */
 /** The workspace's pane spawn cwds, deduped: worktree roots and the

@@ -1,8 +1,5 @@
-import type {
-  AgentInfo,
-  AgentRestartMode,
-  SpawnPlan,
-} from "../domain/agents";
+import type { AgentInfo, AgentRestartMode } from "../domain/agents";
+import type { SpawnPlan } from "../app/spawnSpecs";
 import {
   gridTracks,
   paneColumnSpan,

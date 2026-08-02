@@ -135,6 +135,33 @@ pub(crate) fn forget_armed(root: &Path, cwds: &[String], what: &str) {
     }
 }
 
+/// Retire ONE key: disarm everything it ever armed — its manifest plus
+/// `also`, so a cwd the caller knows about but never recorded is not left
+/// behind — minus whatever another key still claims, then drop the manifest.
+///
+/// The single-key half of [`prune_manifests`], and the same five steps in the
+/// same order. Spelled once because they were spelled twice, and a rule added
+/// to one (a grace period before disarming a shared cwd, say) would have to be
+/// remembered into the other.
+pub(crate) fn retire_key(
+    root: &Path,
+    key: &str,
+    also: &[String],
+    disarm: impl Fn(&[String]) -> io::Result<()>,
+) -> io::Result<()> {
+    let mut roots = manifest_roots(root, key);
+    for cwd in also {
+        if !roots.contains(cwd) {
+            roots.push(cwd.clone());
+        }
+    }
+    let claimed = claimed_by_others(root, key);
+    roots.retain(|cwd| !claimed.contains(cwd));
+    disarm(&roots)?;
+    let _ = fs::remove_file(armed_manifest(root, key));
+    Ok(())
+}
+
 /// Sweep the manifests of keys that are no longer live, handing each dead
 /// key's cwds to `disarm` — minus any cwd a surviving key still claims, so a
 /// shared folder does not lose its arming because one workspace died.

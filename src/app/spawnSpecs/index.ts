@@ -5,11 +5,8 @@
  * a fork — and delegates the two halves they share: [`./plan`] builds one
  * through the agent's hook, [`./cache`] remembers it per pane.
  */
-import type {
-  ResumeOrigin,
-  SpawnPlan,
-  SpawnPlanContext,
-} from "../../domain/agents";
+import type { ResumeOrigin } from "../../domain/agents";
+import type { SpawnPlan, SpawnPlanContext } from "./plans";
 import {
   paneAgentType,
   paneHasProcess,
@@ -30,6 +27,7 @@ import {
 } from "./cache";
 import { buildPlan, findAgent, type PaneSpawnFacts } from "./plan";
 
+export * from "./plans";
 export * from "./cache";
 export type { PaneSpawnFacts } from "./plan";
 

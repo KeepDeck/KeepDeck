@@ -6,8 +6,9 @@
  * generation per pane is what makes invalidation real (dropping a spec while
  * its build is in flight must make that build land nowhere).
  */
-import type { ResumeOrigin, SpawnPlan } from "../../domain/agents";
+import type { ResumeOrigin } from "../../domain/agents";
 import type { BuiltPlan } from "./plan";
+import type { SpawnPlan } from "./plans";
 
 /**
  * Spawn plans, built through the cli plugins' hooks ([F7]/[F8] v2).
