@@ -1,8 +1,10 @@
 import {
+  accountWindowKeys,
   decodeWindowReport,
   encodeWindowReport,
   pruneReports,
   shouldRecord,
+  storedReportKey,
   windowReportKey,
   type WindowReport,
 } from "../domain/usage/reportJournal";
@@ -20,7 +22,7 @@ export interface WindowReportsSnapshot {
   byKey: ReadonlyMap<string, readonly WindowReport[]>;
 }
 
-export interface WindowReportJournalDeps {
+interface WindowReportJournalDeps {
   ipc: {
     loadUsageReports(): Promise<string[]>;
     appendUsageReports(lines: string[]): Promise<void>;
@@ -46,6 +48,10 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
   let unsubscribe: (() => void) | null = null;
   let writes: Promise<void> = Promise.resolve();
   let disposed = false;
+  /** In-session retention: pruning trims memory on every append; the FILE
+   * is rewritten only once enough dead lines accumulate. */
+  let prunedSinceCompact = 0;
+  const COMPACT_AFTER_PRUNED = 256;
 
   const emit = () => {
     snapshot = { ready: true, byKey: new Map(byKey) };
@@ -67,26 +73,45 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
     const lines: string[] = [];
     for (const [agent, account] of deps.usage.getSnapshot().accounts) {
       if (account.kind !== "reported") continue;
+      const keys = accountWindowKeys(agent, account.windows);
       for (const window of account.windows) {
         const next: WindowReport = {
           agent,
           windowMinutes: window.windowMinutes ?? null,
           ...(window.scope !== undefined ? { scope: window.scope } : {}),
           usedPct: window.usedPct,
-          reportedAt: account.reportedAt,
+          // A future-stamped report would poison the key forever (the
+          // replay guard rejects everything after it) — clamp to now.
+          reportedAt: Math.min(account.reportedAt, now()),
           resetsAt: window.resetsAt ?? null,
         };
-        const key = windowReportKey(agent, window);
+        const entry = keys.get(window);
+        if (entry !== null && entry !== undefined && entry.ordinal !== null) {
+          next.ordinal = entry.ordinal;
+        }
+        const key = entry?.key ?? windowReportKey(agent, window);
         const kept = byKey.get(key);
         const last = kept?.[kept.length - 1];
         if (!shouldRecord(last, next)) continue;
-        // Copy-on-write: consumers memoize on the array's identity.
-        byKey.set(key, kept ? [...kept, next] : [next]);
+        // Copy-on-write (consumers memoize on array identity), pruned as it
+        // grows — retention is continuous, not a boot-only ceremony.
+        const grown = kept ? [...kept, next] : [next];
+        const trimmed = pruneReports(grown, now());
+        prunedSinceCompact += grown.length - trimmed.length;
+        byKey.set(key, trimmed);
         lines.push(encodeWindowReport(next));
       }
     }
     if (lines.length > 0) {
       queueAppend(lines);
+      if (prunedSinceCompact >= COMPACT_AFTER_PRUNED) {
+        prunedSinceCompact = 0;
+        const survivors = [...byKey.values()].flat().map(encodeWindowReport);
+        writes = writes
+          .catch(() => {})
+          .then(() => deps.ipc.compactUsageReports(survivors))
+          .catch(() => {});
+      }
       emit();
     }
   };
@@ -104,7 +129,7 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
             torn = true;
             continue;
           }
-          const key = windowReportKey(report.agent, report);
+          const key = storedReportKey(report);
           const kept = byKey.get(key);
           if (kept) kept.push(report);
           else byKey.set(key, [report]);
@@ -132,12 +157,16 @@ export function createWindowReportJournal(deps: WindowReportJournalDeps) {
         if (disposed) return;
         // An unreadable journal starts empty — pace returns with reports.
         emit();
+        capture(); // same boot catch-up fold as the success path
       });
     return initialization;
   };
 
   return {
     start() {
+      // Revivable: a start after dispose subscribes again instead of
+      // silently producing a dead journal.
+      disposed = false;
       unsubscribe ??= deps.usage.subscribe(capture);
       void init();
     },

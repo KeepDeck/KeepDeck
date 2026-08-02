@@ -1,4 +1,5 @@
 import { panelWindows, usageStale } from "./format";
+import { accountWindowKeys, windowReportKey } from "./reportJournal";
 import {
   tokenTotal,
   usageSessionKey,
@@ -27,6 +28,9 @@ export interface ProviderWindowRow {
    * (codex can report several duration-less account windows) still get
    * distinct identities, so list rendering never collides. */
   id: string;
+  /** The window's journal key (accountWindowKeys) — the forecast surfaces
+   * look report history up by it; the row id builds on it. */
+  reportKey: string;
   agent: string;
   window: UsageWindow;
   /** When the account report carrying this window arrived. */
@@ -74,19 +78,27 @@ export function providerWindowGroups(
     // "no provider reports yet" empty state. (Today's normalizers never
     // produce one; the invariant is enforced here, not assumed.)
     if (windows.length === 0) continue;
+    // Keys are minted over the account's OWN window order (never the
+    // sorted view), so the writer and every reader agree per window.
+    const reportKeys = accountWindowKeys(agent, account.windows);
     groups.push({
       agent,
       reportedAt: account.reportedAt,
       stale: usageStale(account.reportedAt, now),
-      rows: windows.map((window, index) => ({
-        id: `${agent}\0${window.windowMinutes ?? "?"}\0${window.scope ?? ""}\0${index}`,
+      rows: windows.map((window, index) => {
+        const reportKey =
+          reportKeys.get(window)?.key ?? windowReportKey(agent, window);
+        return {
+        id: `${reportKey}\0${index}`,
+        reportKey,
         agent,
         window,
         reportedAt: account.reportedAt,
         expired: windowExpired(window, now),
         stale: usageStale(account.reportedAt, now),
         ledger: windowLedger(agent, window, events, now),
-      })),
+        };
+      }),
     });
   }
   return groups;

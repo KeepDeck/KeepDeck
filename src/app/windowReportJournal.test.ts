@@ -103,6 +103,51 @@ describe("windowReportJournal", () => {
     expect(after).toHaveLength(2);
   });
 
+  it("journals BOTH duration-less windows of one report under distinct keys", async () => {
+    const { journal, ipc, usage } = build();
+    journal.start();
+    await settle();
+    // codex's duration-less pair — the identity tuple alone collides.
+    usage.set(
+      new Map([
+        [
+          "codex",
+          account([
+            { usedPct: 30, resetsAt: NOW + 100 * MIN, windowMinutes: null },
+            { usedPct: 88, resetsAt: NOW + 900 * MIN, windowMinutes: null },
+          ]),
+        ],
+      ]),
+    );
+    await settle();
+    expect(ipc.appendUsageReports.mock.calls[0][0]).toHaveLength(2);
+    const snapshot = journal.getSnapshot();
+    expect([...snapshot.byKey.keys()]).toHaveLength(2);
+    const series = [...snapshot.byKey.values()];
+    expect(series[0][0].usedPct).toBe(30);
+    expect(series[1][0].usedPct).toBe(88);
+    expect(series[1][0].ordinal).toBe(1); // travels into the stored record
+  });
+
+  it("revives after dispose instead of playing dead", async () => {
+    const { journal, ipc, usage } = build();
+    journal.start();
+    await settle();
+    journal.dispose();
+    journal.start();
+    await settle();
+    usage.set(
+      new Map([
+        [
+          "claude",
+          account([{ usedPct: 5, resetsAt: NOW + 155 * MIN, windowMinutes: 300 }]),
+        ],
+      ]),
+    );
+    await settle();
+    expect(ipc.appendUsageReports).toHaveBeenCalledTimes(1);
+  });
+
   it("loads, sorts, prunes and compacts a damaged journal once", async () => {
     const aged = stored({ reportedAt: NOW - 100 * 60 * MIN }); // beyond 7.5h keep
     const fresh = stored();

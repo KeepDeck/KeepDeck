@@ -17,8 +17,6 @@ import { windowExpired, type UsageWindow } from "./usage";
 export interface BurnPoint {
   x: number;
   y: number;
-  /** The instant behind the point (for hover captions). */
-  at: number;
 }
 
 export interface BurnGeometry {
@@ -34,6 +32,20 @@ export interface BurnGeometry {
   yMaxPct: number;
   /** The right edge IS the reset (the projection was capped by it). */
   resetAtEdge: boolean;
+}
+
+const MAX_OBSERVED_POINTS = 300;
+
+/** Even stride over the interior, always keeping the first and the last
+ * report — endpoints anchor the axis and the projection. */
+function sampleReports(segment: readonly WindowReport[]): readonly WindowReport[] {
+  if (segment.length <= MAX_OBSERVED_POINTS) return segment;
+  const stride = (segment.length - 1) / (MAX_OBSERVED_POINTS - 1);
+  const sampled: WindowReport[] = [];
+  for (let index = 0; index < MAX_OBSERVED_POINTS; index += 1) {
+    sampled.push(segment[Math.round(index * stride)]);
+  }
+  return sampled;
 }
 
 export function windowBurn(
@@ -54,8 +66,11 @@ export function windowBurn(
     (forecast.kind === "out" || forecast.kind === "ok") && forecast.outAt !== null
       ? forecast.outAt
       : null;
+  // >= now, not > now: the "already at the wall" verdict clamps outAt to
+  // now, and the strict comparison silently dropped the projection and the
+  // verdict dot exactly when the forecast was most severe.
   const projEndAt =
-    outAt !== null && outAt > now
+    outAt !== null && outAt >= now
       ? window.resetsAt !== null
         ? Math.min(outAt, window.resetsAt)
         : outAt
@@ -67,11 +82,14 @@ export function windowBurn(
     (max, report) => Math.max(max, report.usedPct),
     0,
   );
+  const projSpan = outAt !== null ? outAt - newest.reportedAt : 0;
   const projEndPct =
     projEndAt !== null && outAt !== null
-      ? newest.usedPct +
-        (100 - newest.usedPct) *
-          ((projEndAt - newest.reportedAt) / (outAt - newest.reportedAt))
+      ? projSpan > 0
+        ? newest.usedPct +
+          (100 - newest.usedPct) *
+            ((projEndAt - newest.reportedAt) / projSpan)
+        : 100 // the wall is at (or before) the newest report
       : null;
   const peak = Math.max(observedMax, projEndPct ?? 0);
   const yMaxPct =
@@ -81,10 +99,12 @@ export function windowBurn(
   const point = (at: number, pct: number): BurnPoint => ({
     x: clamp01((at - tMin) / (tEnd - tMin)),
     y: clamp01(pct / yMaxPct),
-    at,
   });
 
-  const observed = segment.map((report) =>
+  // A long-lived key can hold thousands of records; a 60px plot cannot use
+  // more than a few hundred points, and the SVG string grows linearly.
+  const sampled = sampleReports(segment);
+  const observed = sampled.map((report) =>
     point(report.reportedAt, report.usedPct),
   );
   const projected: [BurnPoint, BurnPoint] | null =

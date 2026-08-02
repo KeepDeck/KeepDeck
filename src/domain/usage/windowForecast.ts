@@ -1,5 +1,5 @@
 import { formatCountdown, usageStale, windowResetCaption } from "./format";
-import { currentSegment, type WindowReport } from "./reportJournal";
+import { currentSegment, HEARTBEAT_MS, type WindowReport } from "./reportJournal";
 import { HOUR_MS } from "./time";
 import { windowExpired, type UsageWindow } from "./usage";
 
@@ -28,7 +28,7 @@ export type WindowForecast =
 /** Pace lookback scales with the window: 45 minutes of reports says a lot
  * about a 5h window and nothing about a week. Null-length (plan) windows
  * get a fixed medium horizon. */
-export function forecastLookbackMs(windowMinutes: number | null): number {
+function forecastLookbackMs(windowMinutes: number | null): number {
   if (windowMinutes === null) return 6 * HOUR_MS;
   const span = windowMinutes * 60_000 * 0.05;
   return Math.min(Math.max(span, 45 * 60_000), 24 * HOUR_MS);
@@ -46,7 +46,7 @@ function verdictMarginMs(windowMinutes: number | null): number {
  * of reports can call a 5h window's pace, but extrapolating a WEEK from a
  * five-minute burst produced "runs out ~6d early" nonsense — a long window
  * must see at least ~1% of its own length before the race is called. */
-export function forecastMinSpanMs(windowMinutes: number | null): number {
+function forecastMinSpanMs(windowMinutes: number | null): number {
   if (windowMinutes === null) return 15 * 60_000;
   return Math.max(5 * 60_000, windowMinutes * 60_000 * 0.01);
 }
@@ -58,12 +58,28 @@ export function windowForecast(
 ): WindowForecast {
   if (windowExpired(window, now)) return { kind: "unknown" };
   const lookback = forecastLookbackMs(window.windowMinutes);
-  const tail = currentSegment(reports).filter(
-    (report) => report.reportedAt >= now - lookback && report.reportedAt <= now,
+  const segment = currentSegment(reports).filter(
+    (report) => report.reportedAt <= now,
+  );
+  // The lookback anchors to the NEWEST REPORT, not the ticking clock: a
+  // clock-anchored window silently dropped its oldest report on a tick,
+  // flipping the verdict with no new data (review finding). Now only new
+  // reports can change the tail.
+  const newestAt = segment.length > 0 ? segment[segment.length - 1].reportedAt : 0;
+  const tail = segment.filter(
+    (report) => report.reportedAt >= newestAt - lookback,
   );
   if (tail.length < 2) return { kind: "unknown" };
   const first = tail[0];
   const last = tail[tail.length - 1];
+  // Reports flow at least every HEARTBEAT_MS while a provider is being
+  // polled; a longer silence means the data STOPPED, and extrapolating a
+  // dead stream as ongoing consumption painted a red "runs out in ~0m"
+  // over an idle account. (The 30-minute usageStale guard below stays as
+  // the belt for surfaces that render without a forecast.)
+  if (now - last.reportedAt > HEARTBEAT_MS + 60_000) {
+    return { kind: "unknown" };
+  }
   // A stale journal is dead data — extrapolating it would be a lie, the
   // same rule every stale surface follows (usageStale is the one home).
   if (usageStale(last.reportedAt, now)) return { kind: "unknown" };
@@ -105,7 +121,7 @@ export interface ForecastCaptionPart {
 /** The card's clause — relative, never a second timestamp: "~25m early"
  * against the reset, a countdown when imminent or when there is no reset
  * to compare with. Null when the forecast has nothing to warn about. */
-export function forecastClause(
+function forecastClause(
   forecast: WindowForecast,
   now: number,
 ): ForecastCaptionPart | null {

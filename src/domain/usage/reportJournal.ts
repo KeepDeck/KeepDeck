@@ -18,15 +18,68 @@ export interface WindowReport {
   usedPct: number;
   reportedAt: number;
   resetsAt: number | null;
+  /** Disambiguates same-tuple windows within one account report (codex's
+   * duration-less pair); present only when the tuple is duplicated. */
+  ordinal?: number;
 }
 
-/** One journal key per window identity — same shape the provider rows use. */
+/** One journal key per window identity. The (length, scope) tuple alone is
+ * NOT unique — codex reports several duration-less account windows — so
+ * keys are minted for a whole account report at once: duplicates gain an
+ * ordinal by report order, unique tuples keep the bare key (existing
+ * journals stay valid). THE one composer of the tuple; row ids build on it. */
 export function windowReportKey(
   agent: string,
   window: Pick<UsageWindow, "windowMinutes" | "scope">,
 ): string {
   return `${agent}\0${window.windowMinutes ?? "?"}\0${window.scope ?? ""}`;
 }
+
+/** Keys for every window of one account report, by object identity — the
+ * writer and both read surfaces must derive keys from the SAME window list
+ * (an account's own report order), never from a re-sorted view. */
+export interface AccountWindowKey {
+  key: string;
+  /** Set only for duplicated tuples — travels into the stored record so a
+   * reloaded journal regroups under the same key. */
+  ordinal: number | null;
+}
+
+export function accountWindowKeys(
+  agent: string,
+  windows: readonly UsageWindow[],
+): Map<UsageWindow, AccountWindowKey> {
+  const totals = new Map<string, number>();
+  for (const window of windows) {
+    const base = windowReportKey(agent, window);
+    totals.set(base, (totals.get(base) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  const keys = new Map<UsageWindow, AccountWindowKey>();
+  for (const window of windows) {
+    const base = windowReportKey(agent, window);
+    const ordinal = seen.get(base) ?? 0;
+    seen.set(base, ordinal + 1);
+    keys.set(
+      window,
+      (totals.get(base) ?? 0) > 1
+        ? { key: `${base}\0${ordinal}`, ordinal }
+        : { key: base, ordinal: null },
+    );
+  }
+  return keys;
+}
+
+/** The key a STORED record files under — the same rule accountWindowKeys
+ * minted at write time, reconstructed from the record alone. */
+export function storedReportKey(report: WindowReport): string {
+  const base = windowReportKey(report.agent, report);
+  return report.ordinal !== undefined ? `${base}\0${report.ordinal}` : base;
+}
+
+/** A frozen empty series — the shared fallback for surfaces whose journal
+ * has nothing for a key (stable identity, memo-safe). */
+export const NO_REPORTS: readonly WindowReport[] = [];
 
 /** Records worth writing: a change in usage or reset instant, or a slow
  * heartbeat so "the pace is ~zero" stays a fresh fact, not a stale guess.
@@ -68,9 +121,9 @@ export function currentSegment(
 /** Retention per key: about 1.5 window lengths (a full instance plus room
  * for the previous one), clamped so plan windows and month windows stay
  * bounded. Entry cap is a backstop against a chattering reporter. */
-export const REPORTS_ENTRY_CAP = 4_000;
+const REPORTS_ENTRY_CAP = 4_000;
 
-export function reportKeepMs(windowMinutes: number | null): number {
+function reportKeepMs(windowMinutes: number | null): number {
   if (windowMinutes === null) return 7 * DAY_MS;
   const span = windowMinutes * 60_000 * 1.5;
   return Math.min(Math.max(span, 6 * HOUR_MS), 45 * DAY_MS);
@@ -81,7 +134,12 @@ export function pruneReports(
   now: number,
 ): WindowReport[] {
   const kept = reports.filter(
-    (report) => now - report.reportedAt <= reportKeepMs(report.windowMinutes),
+    (report) =>
+      now - report.reportedAt <= reportKeepMs(report.windowMinutes) &&
+      // A future-stamped record (clock skew before the writer's clamp
+      // existed, or a hand-edited file) would block every later write via
+      // the replay guard — heal it out instead of keeping it forever.
+      report.reportedAt - now <= 60_000,
   );
   return kept.slice(Math.max(0, kept.length - REPORTS_ENTRY_CAP));
 }
@@ -128,8 +186,13 @@ export function decodeWindowReport(line: string): WindowReport | null {
     ...(typeof raw.scope === "string" && raw.scope !== ""
       ? { scope: raw.scope }
       : {}),
-    usedPct: raw.usedPct,
+    usedPct: Math.min(100, Math.max(0, raw.usedPct)),
     reportedAt: raw.reportedAt,
     resetsAt,
+    ...(typeof raw.ordinal === "number" &&
+    Number.isInteger(raw.ordinal) &&
+    raw.ordinal >= 0
+      ? { ordinal: raw.ordinal }
+      : {}),
   };
 }
