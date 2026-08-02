@@ -55,17 +55,19 @@ function setup(partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text
         id: "ws-1",
         name: "KeepDeck",
         active: true,
-        selectedPaneId: "p1",
         panes: [{ id: "p1", title: "Claude 1" }],
       },
       {
         id: "ws-2",
         name: "Website",
         active: false,
-        selectedPaneId: null,
         panes: [],
       },
     ],
+  });
+  host.commandResults.set("pane.target", {
+    ok: true,
+    value: { workspaceId: "ws-1", paneId: "p1" },
   });
   const controller = createVoiceController(ctx, () => 42, installedModels);
   return {
@@ -147,6 +149,7 @@ describe("createVoiceController", () => {
     await controller.stop();
 
     expect(host.executedCommands).toEqual([
+      { id: "pane.target", args: {} },
       { id: "workspace.list", args: {} },
       {
         id: "pane.write",
@@ -181,17 +184,9 @@ describe("createVoiceController", () => {
     const stopping = controller.stop();
     await vi.waitFor(() => expect(stopCapture).toHaveBeenCalledOnce());
 
-    host.commandResults.set("workspace.list", {
+    host.commandResults.set("pane.target", {
       ok: true,
-      value: [
-        {
-          id: "ws-1",
-          name: "KeepDeck",
-          active: true,
-          selectedPaneId: "p2",
-          panes: [{ id: "p2", title: "Codex 1" }],
-        },
-      ],
+      value: { workspaceId: "ws-1", paneId: "p2" },
     });
     finishTranscript({
       text: "pinned transcript",
@@ -367,7 +362,10 @@ describe("createVoiceController", () => {
     const { host, controller } = setup({ text: "", silence: true, seconds: 0, level: 0 });
     await controller.start("dictation");
     await controller.stop();
-    expect(host.executedCommands.map((e) => e.id)).toEqual(["workspace.list"]);
+    expect(host.executedCommands.map((e) => e.id)).toEqual([
+      "pane.target",
+      "workspace.list",
+    ]);
     expect(texts(controller)).toEqual([
       ["info", "didn't catch that (0.0s, level 0.000)"],
     ]);
@@ -440,6 +438,38 @@ describe("createVoiceController", () => {
     expect(controller.snapshot().phase).toBe("idle");
     expect(cancelCapture).toHaveBeenCalledOnce();
     expect(controller.snapshot().history).toEqual([]);
+  });
+
+  it("cancels an in-flight transcription without a late focus request", async () => {
+    const { host, controller, cancelCapture, stopCapture } = setup({
+      text: "late transcript",
+      silence: false,
+    });
+    let finishTranscript!: (value: SpeechTranscript) => void;
+    stopCapture.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishTranscript = resolve;
+        }),
+    );
+    await controller.start("dictation");
+    const stopping = controller.stop();
+    await vi.waitFor(() => expect(stopCapture).toHaveBeenCalledOnce());
+
+    const cancelling = controller.cancel();
+    expect(cancelCapture).toHaveBeenCalledOnce();
+    finishTranscript({
+      text: "late transcript",
+      silence: false,
+      seconds: 1,
+      level: 0.1,
+    });
+    await Promise.all([stopping, cancelling]);
+
+    expect(host.executedCommands.map((entry) => entry.id)).not.toContain(
+      "pane.write",
+    );
+    expect(controller.snapshot()).toMatchObject({ phase: "idle", history: [] });
   });
 
   it("cancels the native capture when model selection fails", async () => {

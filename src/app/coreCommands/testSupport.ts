@@ -1,16 +1,16 @@
 import { vi } from "vitest";
-import type { AgentInfo } from "../domain/agents";
-import { createCommandRegistry } from "../domain/commands";
-import type { Workspace } from "../domain/deck";
-import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import type { AgentInfo } from "../../domain/agents";
+import { createCommandRegistry } from "../../domain/commands";
+import type { Workspace } from "../../domain/deck";
+import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type {
   CreatePaneOutcome,
   CreatePaneRequest,
   ResumeRequest,
-} from "./agentOrchestrator";
-import { registerCoreCommands } from "./coreCommands";
-import type { SuspendOutcome } from "./suspendOutcome";
-import type { Deck } from "./useDeck";
+} from "../agentOrchestrator";
+import { registerCoreCommands } from "../coreCommands";
+import type { SuspendOutcome } from "../suspendOutcome";
+import type { Deck } from "../useDeck";
 
 export const HOST = { kind: "host" } as const;
 
@@ -25,7 +25,7 @@ const hoistedRepoMode = vi.hoisted(() => ({
   }>),
 }));
 export const repoMode = hoistedRepoMode;
-vi.mock("../ipc/worktree", () => ({
+vi.mock("../../ipc/worktree", () => ({
   inspectRepo: () =>
     hoistedRepoMode.inspect?.() ??
     Promise.resolve({
@@ -53,7 +53,7 @@ const hoistedSettingsState = vi.hoisted(() => ({
   current: null as { defaultYolo?: boolean } | null,
 }));
 export const settingsState = hoistedSettingsState;
-vi.mock("./settingsManager", () => ({
+vi.mock("../settingsManager", () => ({
   getSettings: () => hoistedSettingsState.current,
 }));
 

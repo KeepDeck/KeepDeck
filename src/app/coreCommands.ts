@@ -162,7 +162,6 @@ export function registerCoreCommands(
           name: ws.name,
           cwd: ws.cwd,
           active: ws.id === deck.activeId,
-          selectedPaneId: deck.viewOf(ws.id).select ?? null,
           panes: ws.panes.map((p, i) => ({
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
@@ -171,6 +170,18 @@ export function registerCoreCommands(
             cwd: p.cwd ?? ws.cwd,
           })),
         }));
+      },
+    }),
+
+    registry.register({
+      id: "pane.target",
+      title: "Resolve the active pane input target",
+      args: [],
+      run: () => {
+        const deck = deps.deck();
+        const workspace = targetWorkspace(deck, undefined);
+        const pane = targetPane(deck, deps.agents(), workspace, undefined);
+        return { workspaceId: workspace.id, paneId: pane.id };
       },
     }),
 

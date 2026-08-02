@@ -6,7 +6,7 @@ import {
   settingsState,
   setup,
   workspace,
-} from "./coreCommands.testSupport";
+} from "./coreCommands/testSupport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   WORKSPACE_FULL_MESSAGE,
@@ -40,7 +40,6 @@ describe("workspace commands", () => {
           name: "web",
           cwd: "/repo",
           active: true,
-          selectedPaneId: "p1",
           panes: [
             {
               id: "p1",
@@ -56,10 +55,37 @@ describe("workspace commands", () => {
           name: "site",
           cwd: "/site",
           active: false,
-          selectedPaneId: null,
           panes: [],
         },
       ]);
+  });
+
+  it("resolves the exact active input target without guessing", async () => {
+    const { registry, deck } = setup([
+      workspace({
+        panes: [
+          { id: "p1", agentType: "claude" },
+          { id: "p2", agentType: "codex" },
+        ],
+      }),
+    ]);
+    vi.mocked(deck.viewOf).mockReturnValue({ select: "p2" });
+
+    const selected = await registry.execute("pane.target", {}, HOST);
+    expect(selected).toEqual({
+      ok: true,
+      value: { workspaceId: "ws-1", paneId: "p2" },
+    });
+
+    vi.mocked(deck.viewOf).mockReturnValue({});
+    const ambiguous = await registry.execute("pane.target", {}, HOST);
+    expect(ambiguous).toEqual({
+      ok: false,
+      error: {
+        code: "failed",
+        message: 'no agent selected in workspace "web"',
+      },
+    });
   });
 
   it("switches by case-insensitive name and refuses unknowns", async () => {

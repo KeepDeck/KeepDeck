@@ -42,23 +42,12 @@ interface WorkspaceRow {
   id: string;
   name: string;
   active: boolean;
-  selectedPaneId: string | null;
   panes: { id: string; title: string }[];
 }
 
 interface DictationTarget {
   workspaceId: string;
   paneId: string;
-}
-
-/** Match pane.write's no-guessing target rule and pin its exact ids at release. */
-function dictationTarget(rows: WorkspaceRow[]): DictationTarget | null {
-  const workspace = rows.find((row) => row.active);
-  if (!workspace) return null;
-  const pane =
-    workspace.panes.find((candidate) => candidate.id === workspace.selectedPaneId) ??
-    (workspace.panes.length === 1 ? workspace.panes[0] : null);
-  return pane ? { workspaceId: workspace.id, paneId: pane.id } : null;
 }
 
 export interface VoiceController {
@@ -81,6 +70,8 @@ export function createVoiceController(
   let level = 0;
   let capture: SpeechCapture | null = null;
   let starting: Promise<SpeechCapture> | null = null;
+  let transcribingCapture: SpeechCapture | null = null;
+  let operationVersion = 0;
   let history: HistoryEntry[] = [];
   const listeners = new Set<() => void>();
   // The snapshot is rebuilt only on change — useSyncExternalStore needs a
@@ -100,6 +91,18 @@ export function createVoiceController(
     const result = await ctx.commands.execute("workspace.list", {});
     if (!result.ok) throw new Error(result.error.message);
     return result.value as WorkspaceRow[];
+  }
+
+  /** Ask the application owner for an exact, already-resolved target. */
+  async function dictationTarget(): Promise<DictationTarget | null> {
+    const result = await ctx.commands.execute("pane.target", {});
+    if (!result.ok || typeof result.value !== "object" || result.value === null) {
+      return null;
+    }
+    const value = result.value as Record<string, unknown>;
+    return typeof value.workspaceId === "string" && typeof value.paneId === "string"
+      ? { workspaceId: value.workspaceId, paneId: value.paneId }
+      : null;
   }
 
   /** Vocabulary bias for whisper: the names it should spell correctly plus
@@ -199,6 +202,7 @@ export function createVoiceController(
 
     async start(m) {
       if (phase !== "idle") return;
+      operationVersion += 1;
       phase = "listening";
       mode = m;
       level = 0;
@@ -231,6 +235,7 @@ export function createVoiceController(
 
     async stop() {
       if (phase !== "listening") return;
+      const operation = operationVersion;
       const finished = mode;
       const activeCapture = capture;
       capture = null;
@@ -241,17 +246,17 @@ export function createVoiceController(
         notify();
         return;
       }
+      transcribingCapture = activeCapture;
       phase = "transcribing";
       notify();
       try {
-        const [rows, values, models] = await Promise.all([
+        const [target, rows, values, models] = await Promise.all([
+          finished === "dictation" ? dictationTarget() : Promise.resolve(null),
           workspaces().catch(() => [] as WorkspaceRow[]),
           ctx.settings.read(),
           currentModels(),
         ]);
-        // Transcription is asynchronous and the user may switch panes while it
-        // runs. Dictation must still land in the pane selected at key release.
-        const target = finished === "dictation" ? dictationTarget(rows) : null;
+        if (operation !== operationVersion) return;
         // The pick persists in the plugin's settings values (settings.json)
         // — the global KV is still a stub, and a choice that silently
         // evaporates on restart is worse than none.
@@ -273,6 +278,7 @@ export function createVoiceController(
           modelPath: selected.target.path,
           prompt: buildPrompt(rows),
         });
+        if (operation !== operationVersion) return;
 
         if (transcript.silence || !transcript.text) {
           if (transcript.seconds > 0.3 && transcript.level < 0.0005) {
@@ -317,12 +323,16 @@ export function createVoiceController(
         }
       } catch (e) {
         await activeCapture.cancel().catch(() => {});
+        if (operation !== operationVersion) return;
         push("error", e instanceof Error ? e.message : String(e));
       } finally {
-        phase = "idle";
-        mode = null;
-        level = 0;
-        notify();
+        if (transcribingCapture === activeCapture) transcribingCapture = null;
+        if (operation === operationVersion) {
+          phase = "idle";
+          mode = null;
+          level = 0;
+          notify();
+        }
       }
     },
 
@@ -334,14 +344,19 @@ export function createVoiceController(
     async cancel() {
       const activeCapture = capture;
       const pending = starting;
-      if (!activeCapture && !pending) return;
+      const activeTranscription = transcribingCapture;
+      if (!activeCapture && !pending && !activeTranscription) return;
+      operationVersion += 1;
       capture = null;
       starting = null;
+      transcribingCapture = null;
       phase = "idle";
       mode = null;
       level = 0;
       notify();
-      if (activeCapture) {
+      if (activeTranscription) {
+        await activeTranscription.cancel().catch(() => {});
+      } else if (activeCapture) {
         await activeCapture.cancel().catch(() => {});
       } else if (pending) {
         await pending.then((started) => started.cancel()).catch(() => {});
