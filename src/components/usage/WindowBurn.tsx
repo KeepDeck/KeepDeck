@@ -14,8 +14,11 @@ import type { WindowForecast } from "../../domain/usage/windowForecast";
  * carries the words.
  */
 
+/* The card plot spans the full card width — the bar above it does, and a
+   y-label gutter made the curve start inset and the chart read narrower
+   than its own card (live finding). Scale labels sit INSIDE the plot. */
 const SIZES = {
-  card: { width: 340, height: 92, top: 8, bottom: 76, left: 30, right: 336 },
+  card: { width: 340, height: 92, top: 8, bottom: 74, left: 1, right: 339 },
   compact: { width: 288, height: 24, top: 4, bottom: 20, left: 1, right: 287 },
 } as const;
 
@@ -79,10 +82,10 @@ export function WindowBurn({
       )}
       {size === "card" && (
         <g className="usage-burn__labels">
-          <text x={box.left - 4} y={y(1) + 3} textAnchor="end">
+          <text x={box.left + 3} y={y(1) + 10} textAnchor="start">
             {Math.round(geometry.yMaxPct)}%
           </text>
-          <text x={box.left - 4} y={y(0) + 3} textAnchor="end">
+          <text x={box.left + 3} y={box.height - 4} textAnchor="start">
             0
           </text>
           {geometry.resetAtEdge && (
