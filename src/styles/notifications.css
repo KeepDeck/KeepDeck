@@ -114,9 +114,9 @@
 .bell__dot {
   width: 7px;
   height: 7px;
-  margin-top: 4px;
   border-radius: 50%;
   flex: none;
+  align-self: center;
 }
 
 /* An entry carrying its own emoji (achievement badges) shows it where the
@@ -125,6 +125,7 @@
   flex: none;
   font-size: 13px;
   line-height: 1.2;
+  align-self: center;
 }
 
 .bell__dot--info {
