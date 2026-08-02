@@ -8,14 +8,12 @@ import {
   NOTIFICATIONS_CAP,
   retractByTag,
   shouldBanner,
-  unreadByWorkspace,
   unreadCount,
   type Notification,
 } from "./notifications";
 
 let seq = 0;
 const ws1 = createWorkspaceInstance();
-const ws2 = createWorkspaceInstance();
 function make(over: Partial<Notification> = {}): Notification {
   seq += 1;
   return {
@@ -117,68 +115,6 @@ describe("read state", () => {
 
   it("unreadCount counts only unread", () => {
     expect(unreadCount([make(), make({ readAt: 1 }), make()])).toBe(2);
-  });
-});
-
-describe("unreadByWorkspace", () => {
-  it("tallies pane and workspace-bound plugin sources; app counts nowhere", () => {
-    const items = [
-      make({
-        source: {
-          type: "pane",
-          workspace: { id: "ws-1", instance: ws1 },
-          paneId: "p1",
-        },
-      }),
-      make({
-        source: {
-          type: "pane",
-          workspace: { id: "ws-1", instance: ws1 },
-          paneId: "p2",
-        },
-      }),
-      make({
-        source: {
-          type: "plugin",
-          pluginId: "x",
-          workspace: { id: "ws-2", instance: ws2 },
-        },
-      }),
-      make({ source: { type: "plugin", pluginId: "x" } }),
-      make({ source: { type: "app" } }),
-      make({
-        source: {
-          type: "pane",
-          workspace: { id: "ws-2", instance: ws2 },
-          paneId: "p3",
-        },
-        readAt: 1,
-      }),
-    ];
-    expect(unreadByWorkspace(items)).toEqual(
-      new Map([
-        [ws1, 2],
-        [ws2, 1],
-      ]),
-    );
-  });
-
-  it("does not transfer unread entries to a reused public id", () => {
-    const oldInstance = createWorkspaceInstance();
-    const replacementInstance = createWorkspaceInstance();
-    const items = [
-      make({
-        source: {
-          type: "pane",
-          workspace: { id: "ws-3", instance: oldInstance },
-          paneId: "old-pane",
-        },
-      }),
-    ];
-
-    const unread = unreadByWorkspace(items);
-    expect(unread.get(oldInstance)).toBe(1);
-    expect(unread.get(replacementInstance)).toBeUndefined();
   });
 });
 

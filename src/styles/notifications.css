@@ -174,20 +174,3 @@
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }
-
-/* Per-workspace unread dot in the rail — sits on the workspace row, next to
-   the agent count, and disappears with it: on hover AND on the active row
-   (the close button takes the slot; see .rail__count in rail.css). */
-.rail__unread {
-  width: 7px;
-  height: 7px;
-  margin-left: 4px;
-  border-radius: 50%;
-  background-color: #b13c3c;
-  flex: none;
-}
-
-.rail__item:hover .rail__unread,
-.rail__item--active .rail__unread {
-  display: none;
-}
