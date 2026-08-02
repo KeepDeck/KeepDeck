@@ -99,6 +99,26 @@ export function ExperimentalSection() {
         experimental.
       </span>
 
+      {served && (
+        // Said only while the socket is CONFIRMED up: a pane is given the
+        // server at spawn, so this promise is only true when there is one.
+        <span className="settings__hint">
+          Agents started from now on reach it without any setup — every new
+          pane is given this server. Panes that are already running keep what
+          they started with until they restart.
+        </span>
+      )}
+
+      {mcpStatus.refused.length > 0 && (
+        // The one case where a pane silently lacks what every other pane got.
+        // Naming the directory is the whole point: the fix is the user's.
+        <span className="settings__hint kd-selectable">
+          Kimi panes in these folders keep their own MCP config, so KeepDeck’s
+          server was not added there:{" "}
+          {mcpStatus.refused.map((refusal) => refusal.root).join(", ")}
+        </span>
+      )}
+
       {mcpStatus.error !== null && (
         // Unconditional: a failed DISABLE happens exactly when the setting
         // is already Off — gating on the setting would hide the one report

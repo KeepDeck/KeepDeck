@@ -83,16 +83,16 @@ describe("createMcpService", () => {
   it("status reflects what the backend CONFIRMED, not the setting", async () => {
     const h = harness();
     const service = createMcpService(h.settings, h.deps);
-    expect(service.status()).toEqual({ socket: null, error: null });
+    expect(service.status()).toEqual({ socket: null, error: null, refused: [] });
 
     const seen: string[] = [];
     service.subscribe(() => seen.push(service.status().socket ?? "-"));
     h.set(true);
     await flush();
-    expect(service.status()).toEqual({ socket: "/home/mcp.sock", error: null });
+    expect(service.status()).toEqual({ socket: "/home/mcp.sock", error: null, refused: [] });
     h.set(false);
     await flush();
-    expect(service.status()).toEqual({ socket: null, error: null });
+    expect(service.status()).toEqual({ socket: null, error: null, refused: [] });
     expect(seen).toEqual(["/home/mcp.sock", "-"]);
   });
 
@@ -266,6 +266,25 @@ describe("createMcpService", () => {
       { kind: "external", client: "mcp" },
       { kind: "external", client: "mcp" },
     ]);
+  });
+
+  it("reports the folders that kept their own kimi config, and clears them", async () => {
+    // Those panes are the only ones silently lacking what every other pane
+    // got, so the status carries them to the settings page rather than the
+    // log — and a folder that later accepts must stop being reported.
+    const h = harness({ initial: true });
+    let report = { armed: [] as string[], refused: [{ root: "/repo", reason: "theirs" }] };
+    h.deps.arm = async () => report;
+    const service = createMcpService(h.settings, h.deps);
+    await flush();
+    const kimi = { agentType: "kimi", cwd: "/repo", workspaceId: "ws-1", client: "s" };
+
+    await service.defs(kimi);
+    expect(service.status().refused).toEqual([{ root: "/repo", reason: "theirs" }]);
+
+    report = { armed: ["/repo"], refused: [] };
+    await service.defs(kimi);
+    expect(service.status().refused).toEqual([]);
   });
 
   it("offers a server def only while the transport is CONFIRMED up", async () => {

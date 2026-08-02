@@ -14,7 +14,11 @@ vi.mock("../../app/settingsManager", () => ({
   updateSettings: settingsManager.updateSettings,
 }));
 const mcpStatus = vi.hoisted(() => ({
-  current: { socket: null as string | null, error: null as string | null },
+  current: {
+    socket: null as string | null,
+    error: null as string | null,
+    refused: [] as { root: string; reason: string }[],
+  },
 }));
 vi.mock("../../app/mcp/useMcpStatus", () => ({
   useMcpStatus: () => mcpStatus.current,
@@ -40,7 +44,7 @@ describe("ExperimentalSection", () => {
     settingsManager.updateSettings.mockReset();
     mcpIpc.mcpConnectionCommand.mockClear();
     settings.current = { ...DEFAULT_SETTINGS };
-    mcpStatus.current = { socket: null, error: null };
+    mcpStatus.current = { socket: null, error: null, refused: [] };
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -98,7 +102,7 @@ describe("ExperimentalSection", () => {
     expect(connectInput()).toBeNull();
     expect(mcpIpc.mcpConnectionCommand).not.toHaveBeenCalled();
 
-    mcpStatus.current = { socket: "/home/mcp.sock", error: null };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
     mount();
     await settle();
     const input = connectInput();
@@ -110,11 +114,11 @@ describe("ExperimentalSection", () => {
 
   it("the row leaves with the served status (live Off)", async () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
-    mcpStatus.current = { socket: "/home/mcp.sock", error: null };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
     mount();
     await settle();
     expect(connectInput()).not.toBeNull();
-    mcpStatus.current = { socket: null, error: null };
+    mcpStatus.current = { socket: null, error: null, refused: [] };
     mount();
     await settle();
     expect(connectInput()).toBeNull();
@@ -122,7 +126,7 @@ describe("ExperimentalSection", () => {
 
   it("a failed enable surfaces as a message, not a silently missing row", async () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
-    mcpStatus.current = { socket: null, error: "already served by another process" };
+    mcpStatus.current = { socket: null, error: "already served by another process", refused: [] };
     mount();
     await settle();
     expect(host.textContent).toContain("reported a problem");
@@ -133,7 +137,7 @@ describe("ExperimentalSection", () => {
     // The one report that says "the socket may still be serving" arrives
     // exactly when the toggle reads Off — a setting-gated row would eat it.
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: false };
-    mcpStatus.current = { socket: "/home/mcp.sock", error: "ipc failure" };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: "ipc failure", refused: [] };
     mount();
     await settle();
     expect(host.textContent).toContain("reported a problem");
@@ -145,7 +149,7 @@ describe("ExperimentalSection", () => {
     // connect row stays truthful, but must not read as an unqualified
     // invitation while the transport is reporting a problem.
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: false };
-    mcpStatus.current = { socket: "/home/mcp.sock", error: "ipc failure" };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: "ipc failure", refused: [] };
     mount();
     await settle();
     expect(connectInput()).not.toBeNull();
@@ -155,7 +159,7 @@ describe("ExperimentalSection", () => {
 
   it("a failed command fetch says so — the server IS serving", async () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
-    mcpStatus.current = { socket: "/home/mcp.sock", error: null };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
     mcpIpc.mcpConnectionCommand.mockRejectedValueOnce(
       new Error("path contains a symlink"),
     );
@@ -164,5 +168,31 @@ describe("ExperimentalSection", () => {
     expect(connectInput()).toBeNull();
     expect(host.textContent).toContain("connect command could not be determined");
     expect(host.textContent).toContain("path contains a symlink");
+  });
+
+  it("promises injection only while the socket is CONFIRMED up", async () => {
+    // The promise is only true when there IS a server: a pane is given it at
+    // spawn, so saying so with the transport down would be a lie.
+    mount();
+    await settle();
+    expect(host.textContent).not.toContain("every new pane is given this server");
+
+    mcpStatus.current = { socket: "/s.sock", error: null, refused: [] };
+    mount();
+    await settle();
+    expect(host.textContent).toContain("every new pane is given this server");
+  });
+
+  it("names the folders where a kimi pane kept its own config", async () => {
+    // The fix — move or remove that file — is the user's to make, so the
+    // directory has to be on screen rather than only in the log.
+    mcpStatus.current = {
+      socket: "/s.sock",
+      error: null,
+      refused: [{ root: "/repo/api", reason: "not KeepDeck's" }],
+    };
+    mount();
+    await settle();
+    expect(host.textContent).toContain("/repo/api");
   });
 });

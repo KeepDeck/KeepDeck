@@ -33,7 +33,7 @@ vi.mock("../../ipc/settings", () => ipc);
 // the app runtime; the dialog tests run without a runtime provider, so the
 // hook is answered directly — transport off, no error.
 vi.mock("../../app/mcp/useMcpStatus", () => ({
-  useMcpStatus: () => ({ socket: null, error: null }),
+  useMcpStatus: () => ({ socket: null, error: null, refused: [] }),
 }));
 
 // The General section assembles the agent catalog from the plugin registry

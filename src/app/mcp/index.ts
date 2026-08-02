@@ -33,6 +33,12 @@ const MCP_TRANSPORT = "mcp";
 export interface McpStatus {
   socket: string | null;
   error: string | null;
+  /** Directories where the kimi config could not be planted because the user
+   * keeps their own there. Reported rather than logged: those panes are the
+   * ONLY ones that silently lack what every other pane got, and the fix
+   * (move or remove that file) is the user's to make. Keyed by directory —
+   * the same pane re-arming must not stack duplicates. */
+  refused: { root: string; reason: string }[];
 }
 
 /** A failure's detail, guaranteed to READ as a problem: an Error carrying
@@ -45,17 +51,24 @@ function problem(detail: string | null): string {
 /** The status after one settled transition (see [`McpStatus`] for why a
  * failure keeps the previous socket claim). */
 function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus {
+  const refused = previous.refused;
   if (!transition.ok) {
-    return { socket: previous.socket, error: problem(transition.detail) };
+    return { socket: previous.socket, error: problem(transition.detail), refused };
   }
   if (!transition.desired) {
-    return { socket: null, error: null };
+    // Off takes the refusals with it: nothing is planted any more, so a
+    // directory that once refused is no longer withholding anything.
+    return { socket: null, error: null, refused: [] };
   }
   return transition.detail !== null
-    ? { socket: transition.detail, error: null }
+    ? { socket: transition.detail, error: null, refused }
     : // Defensive: mcp_enable's contract is a path string; a confirmation
       // without one must degrade LOUDLY, not into a blank served-less On.
-      { socket: null, error: "the backend confirmed On without a socket path" };
+      {
+        socket: null,
+        error: "the backend confirmed On without a socket path",
+        refused,
+      };
 }
 
 export interface McpService {
@@ -115,7 +128,7 @@ export function createMcpService(
   const registry = deps.registry ?? commands;
   const transport = deps.transport ?? { enable: mcpEnable, disable: mcpDisable };
 
-  let current: McpStatus = { socket: null, error: null };
+  let current: McpStatus = { socket: null, error: null, refused: [] };
   const listeners = new Set<() => void>();
   const publish = (next: McpStatus) => {
     current = next;
@@ -125,6 +138,9 @@ export function createMcpService(
   // The identity is cosmetic (initialize's serverInfo) and must never gate
   // a request: the fetch fills it in when it lands; until then — or if it
   // never does — the fallback serves.
+  /** Directories the LAST pass planted in — a refusal there is stale and
+   * must clear (the user moved their file away). */
+  const armedRoots = new Set<string>();
   let identity: McpServerIdentity = { name: "KeepDeck", version: "unknown" };
   void (deps.identitySource ?? fetchAppInfo)()
     .then((info) => {
@@ -152,6 +168,22 @@ export function createMcpService(
   // `current` moves with every settled transition.
   const injection = createMcpInjection({
     socket: () => current.socket,
+    onRefused: (refusals) => {
+      // Replace by directory, keep the rest: an arming pass speaks only for
+      // the cwds it tried, and dropping the others would make a refusal
+      // vanish the moment another pane spawned somewhere else.
+      const byRoot = new Map(current.refused.map((r) => [r.root, r]));
+      for (const refusal of refusals) byRoot.set(refusal.root, refusal);
+      for (const root of armedRoots) byRoot.delete(root);
+      armedRoots.clear();
+      const refused = [...byRoot.values()];
+      if (refused.length !== current.refused.length) {
+        publish({ ...current, refused });
+      }
+    },
+    onArmed: (roots) => {
+      for (const root of roots) armedRoots.add(root);
+    },
     ...(deps.connection ? { connection: deps.connection } : {}),
     ...(deps.arm ? { arm: deps.arm } : {}),
   });
@@ -171,6 +203,7 @@ export function createMcpService(
       publish({
         socket: null,
         error: "the deck cannot receive MCP requests — the event channel failed",
+        refused: [],
       });
       return;
     }

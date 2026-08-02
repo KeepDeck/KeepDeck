@@ -57,12 +57,21 @@ export interface McpInjectionDeps {
     workspaceId: string,
     entries: { root: string; content: string }[],
   ) => Promise<McpArmReport>;
+  /** Where a directory kept its own config instead. Reported rather than
+   * only logged: those panes are the only ones silently lacking what every
+   * other pane got, and the fix is the user's to make. */
+  onRefused?: (refusals: { root: string; reason: string }[]) => void;
+  /** Where the config DID land — so a refusal that no longer holds (the user
+   * moved their file away) stops being reported. */
+  onArmed?: (roots: string[]) => void;
 }
 
 export function createMcpInjection({
   socket,
   connection = mcpConnectionCommand,
   arm = mcpArm,
+  onRefused = () => {},
+  onArmed = () => {},
 }: McpInjectionDeps): McpInjection {
   /** The invocation is per PANE (it names the pane's secret), so unlike the
    * install-wide parts of it there is nothing to cache. A failure answers
@@ -111,6 +120,8 @@ export function createMcpInjection({
       for (const { root, reason } of report.refused) {
         log.warn("web:mcp", `${root} kept its own MCP config: ${reason}`);
       }
+      onArmed(report.armed);
+      onRefused(report.refused);
       return [];
     },
   };
