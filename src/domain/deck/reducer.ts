@@ -18,7 +18,6 @@ import {
   closeAgent,
   findPane,
   findWorkspace,
-  paneExecutionCwd,
   closeWorkspace,
   moveWorkspace,
   renamePane,
@@ -39,6 +38,7 @@ import {
   workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
+import { paneExecutionCwd } from "./roots";
 import type { DeckAction } from "./reducerActions";
 import {
   hidePaneView,
