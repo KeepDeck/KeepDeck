@@ -135,6 +135,20 @@ export interface McpService {
    * confirmed up. The injection half of the feature; see
    * [`createMcpInjection`]. */
   access: McpInjection["access"];
+  /**
+   * Bring the DERIVED parts of the status up to date.
+   *
+   * Two things go stale on their own and nothing else notices: a refusal
+   * whose pane has since closed (the list is keyed by directory, and only a
+   * later successful arming of that same directory cleared it), and a connect
+   * lookup that never landed (it fires once per settled transition, so a
+   * request that got lost stayed lost until the user toggled the transport).
+   *
+   * Idempotent and cheap. A settings surface calls it when it mounts — which
+   * is the moment both staleness becomes visible — WITHOUT reaching for IPC
+   * itself; that is the whole point of it living here.
+   */
+  refresh(): void;
   dispose(): void;
 }
 
@@ -245,10 +259,19 @@ export function createMcpService(
       // the cwds it tried, and dropping the others would make a refusal
       // vanish the moment another pane spawned somewhere else.
       const byRoot = new Map(current.refused.map((r) => [r.root, r]));
-      for (const refusal of refusals) byRoot.set(refusal.root, refusal);
+      // Armed first, refused second: a pass that both armed and refused the
+      // same directory is telling us about the refusal, and deleting after
+      // the merge would swallow it.
       for (const root of armedRoots) byRoot.delete(root);
       armedRoots.clear();
-      const refused = [...byRoot.values()];
+      for (const refusal of refusals) byRoot.set(refusal.root, refusal);
+      // Everything this pass did not speak for has to still have a pane in it.
+      // THIS pass's roots are exempt: a resume or a fork plants before its
+      // pane lands, so the deck cannot count it yet.
+      const fresh = new Set(refusals.map((refusal) => refusal.root));
+      const refused = [...byRoot.values()].filter(
+        (refusal) => fresh.has(refusal.root) || deps.panesIn(refusal.root) > 0,
+      );
       // Compared by CONTENT: a refusal whose reason changed — the user
       // deleted their file but the directory is read-only now — keeps the
       // list the same length while saying something else entirely.
@@ -292,6 +315,16 @@ export function createMcpService(
       });
   }
 
+  /** Refusals for directories a live pane still runs in. The list is keyed by
+   * directory and cleared only by a later successful arming of that same
+   * directory, so without this it names folders whose pane closed hours ago
+   * and grows for the life of the session. */
+  function stillRunning(
+    refusals: readonly { root: string; reason: string }[],
+  ): { root: string; reason: string }[] {
+    return refusals.filter((refusal) => deps.panesIn(refusal.root) > 0);
+  }
+
   void pump.ready.then((registered) => {
     if (disposed) return;
     if (!registered) {
@@ -309,6 +342,11 @@ export function createMcpService(
       return;
     }
     policy = createMcpServerPolicy(settings, transport, (transition) => {
+      // A transition already in flight when the page went away still settles,
+      // and this callback rides the policy's own chain — so without this it
+      // publishes to listeners a disposed page never dropped, issues a fresh
+      // lookup during teardown, and can fire a retract after it.
+      if (disposed) return;
       publish(statusAfter(current, transition));
       refreshConnect();
       // A confirmed Off takes the planted configs with it: the socket they
@@ -324,6 +362,19 @@ export function createMcpService(
   return {
     status: () => current,
     access: injection.access,
+    refresh() {
+      if (disposed) return;
+      const refused = stillRunning(current.refused);
+      if (!sameRefusals(refused, current.refused)) {
+        publish({ ...current, refused });
+      }
+      // Re-asked whenever the transport is up and we still have no line: the
+      // first attempt errored, or never landed at all. A lookup genuinely in
+      // flight is simply superseded — the sequence guard drops its reply — and
+      // this runs on a user opening a settings surface, so it is bounded by
+      // that rather than by a timer.
+      if (current.socket !== null && current.connect === null) refreshConnect();
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

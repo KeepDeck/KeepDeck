@@ -130,6 +130,85 @@ describe("createMcpService", () => {
     expect(service.status().connect).toBeNull();
   });
 
+  it("re-asks for the connect line when the first attempt left none", async () => {
+    // It fires once per settled transition, so a request that errored or got
+    // lost stayed lost until the user toggled the transport off and on — the
+    // component used to re-fetch on mount and that self-healing was lost when
+    // the lookup moved in here.
+    const h = harness({ initial: true });
+    const connection = vi
+      .fn<() => Promise<{ command: string; args: string[] }>>()
+      .mockRejectedValueOnce(new Error("path contains a symlink"))
+      .mockResolvedValue({ command: "/bin/keepdeck", args: ["--mcp-shim", "/s"] });
+    h.deps.connection = connection;
+    const service = createMcpService(h.settings, h.deps);
+    await flush();
+    expect(service.status().connect).toBeNull();
+    expect(service.status().connectError).toContain("symlink");
+
+    service.refresh();
+    await flush();
+
+    expect(service.status().connect).toEqual({
+      command: "/bin/keepdeck",
+      args: ["--mcp-shim", "/s"],
+    });
+    expect(service.status().connectError).toBeNull();
+  });
+
+  it("drops a refusal once no pane runs in that folder any more", async () => {
+    // Keyed by directory and cleared only by a later successful arming of the
+    // SAME directory — so without this it names folders whose pane closed
+    // hours ago, and grows for the life of the session.
+    const h = harness({ initial: true });
+    const live = new Set(["/repo"]);
+    h.deps.panesIn = (cwd) => (live.has(cwd) ? 1 : 0);
+    h.deps.plant = async (_ws, root) => ({
+      armed: [],
+      refused: [{ root, reason: "theirs" }],
+    });
+    const service = createMcpService(h.settings, h.deps);
+    await flush();
+    const kimi = (cwd: string) => ({
+      agentType: "kimi",
+      cwd,
+      workspaceId: "ws-1",
+      client: "s",
+    });
+
+    await (await service.access(kimi("/repo"))).deliver();
+    expect(service.status().refused.map((r) => r.root)).toEqual(["/repo"]);
+
+    live.delete("/repo"); // the pane is closed
+    service.refresh();
+
+    expect(service.status().refused).toEqual([]);
+  });
+
+  it("says nothing more once disposed, even for a transition already in flight", async () => {
+    // The callback rides the policy's own chain, so an enable settling after
+    // teardown used to publish to listeners a disposed page never dropped and
+    // issue fresh IPC during teardown.
+    const h = harness({ initial: false });
+    let release!: (socket: string) => void;
+    h.enable.mockImplementation(
+      () => new Promise<string>((resolve) => (release = resolve)),
+    );
+    const service = createMcpService(h.settings, h.deps);
+    await flush();
+    const seen: string[] = [];
+    service.subscribe(() => seen.push(service.status().socket ?? "-"));
+
+    h.set(true);
+    await flush();
+    service.dispose();
+    release("/home/mcp.sock");
+    await flush();
+
+    expect(seen).toEqual([]);
+    expect(service.status().socket).toBeNull();
+  });
+
   it("reports a failed connect lookup — the server IS still serving", async () => {
     const h = harness();
     h.deps.connection = vi.fn(() =>
