@@ -46,6 +46,24 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
   mcpAccess?: McpAccessAsk;
 }
 
+/**
+ * One built plan, and the on-disk half it still owes.
+ *
+ * The two are separate because "is this plan settled?" has TWO halves and
+ * this module can only see one. It knows the hook did not throw; the CACHE
+ * knows whether the build's generation still holds, and a build invalidated
+ * mid-flight is discarded. Writing here would plant a config for a plan
+ * nobody kept, naming a secret that then resolves to no pane. So the write
+ * is handed to whoever installs the plan — see [`buildAndCache`].
+ */
+export interface BuiltPlan {
+  plan: SpawnPlan;
+  /** Put the file-delivered half on disk. A no-op for the argv CLIs, and
+   * never rejects — a failed delivery leaves the pane serverless, never
+   * unspawned. */
+  deliver(): Promise<void>;
+}
+
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
  * their session facts; the hook that runs is the variant's. */
 type PlanVariant =
@@ -63,7 +81,7 @@ export async function buildPlan(
   facts: PaneSpawnFacts,
   ctx: SpawnPlanContext,
   variant: PlanVariant = { kind: "spawn" },
-): Promise<SpawnPlan> {
+): Promise<BuiltPlan> {
   const { entry, pluginId } = agent;
   const { paneId } = facts;
   const output: SpawnPlanOutput = {
@@ -99,6 +117,9 @@ export async function buildPlan(
       })
     : null;
   const mcpServers = access?.servers ?? [];
+  /** Owed by every exit that produces a plan, and by none that throws: a
+   * rejected resume or fork must plant nothing. */
+  const deliver = () => access?.deliver() ?? Promise.resolve();
   const base: SpawnPlanInput = {
     paneId,
     workspace: facts.workspace,
@@ -149,11 +170,13 @@ export async function buildPlan(
     );
     // A bare spawn still RUNS the CLI, so the file-fed half is still owed:
     // kimi reads its cwd whatever argv it was given, and skipping the write
-    // here would leave exactly the panes whose hook failed without servers.
-    // The secret rides along for the same reason — the planted config names
-    // it, and dropping it would resolve that pane's every call to nobody.
-    await access?.deliver();
-    return { command: entry.detect.bin, args: [], env: [], mcpToken };
+    // would leave exactly the panes whose hook failed without servers. The
+    // secret rides along for the same reason — the planted config names it,
+    // and dropping it would resolve that pane's every call to nobody.
+    return {
+      plan: { command: entry.detect.bin, args: [], env: [], mcpToken },
+      deliver,
+    };
   }
   // The hook's command must be covered by its plugin's exec capability —
   // warn for a trusted built-in (a bug to fix), CLAMP for an external
@@ -204,30 +227,28 @@ export async function buildPlan(
         ],
       ]
     : output.env;
-  // The on-disk half, once the plan is SETTLED. Last, deliberately: a resume
-  // or fork whose hook threw has already propagated by now, and it must plant
-  // nothing — a config for a pane that will never spawn is a file in the
-  // user's repository that nothing asked for.
-  await access?.deliver();
   return {
-    command: output.command,
-    args: output.args,
-    env,
-    ...(output.envDefaults?.length ? { envDefaults: output.envDefaults } : {}),
-    ...(token ? { token } : {}),
-    // Recorded whether or not anything was injected: kimi's servers are
-    // delivered as a file, so the pane has a live client with no `mcp` key in
-    // its plan, and its calls must still resolve to it.
-    mcpToken,
-    ...(variant.kind === "resume"
-      ? {
-          resumeOf: variant.sessionId,
-          resumeOrigin: variant.origin,
-          postbackMark: postbackCount(paneId),
-        }
-      : variant.kind === "fork"
-        ? { forkOf: variant.sessionId }
-        : {}),
+    plan: {
+      command: output.command,
+      args: output.args,
+      env,
+      ...(output.envDefaults?.length ? { envDefaults: output.envDefaults } : {}),
+      ...(token ? { token } : {}),
+      // Recorded whether or not anything was injected: kimi's servers are
+      // delivered as a file, so the pane has a live client with no `mcp` key in
+      // its plan, and its calls must still resolve to it.
+      mcpToken,
+      ...(variant.kind === "resume"
+        ? {
+            resumeOf: variant.sessionId,
+            resumeOrigin: variant.origin,
+            postbackMark: postbackCount(paneId),
+          }
+        : variant.kind === "fork"
+          ? { forkOf: variant.sessionId }
+          : {}),
+    },
+    deliver,
   };
 }
 

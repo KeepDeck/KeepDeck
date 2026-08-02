@@ -102,6 +102,39 @@ pub(crate) fn add_armed(root: &Path, key: &str, armed: &[String], what: &str) {
     record_armed(root, key, &recorded, what);
 }
 
+/// Drop `cwds` from every key's manifest — the other half of [`add_armed`].
+///
+/// A per-cwd caller cannot name the key it recorded under: a disarm is handed
+/// DIRECTORIES, and one directory may have been armed by any workspace. So
+/// every manifest is rewritten without them, and one that ends up empty is
+/// dropped by [`record_armed`].
+///
+/// Without this the record only ever GROWS. It would keep naming cwds that
+/// were disarmed long ago, and [`claimed_by_others`] would then spare a dead
+/// workspace's real arming on the strength of that stale claim — leaving a
+/// planted file, its marker and its `info/exclude` line with nothing left
+/// pointing at them.
+pub(crate) fn forget_armed(root: &Path, cwds: &[String], what: &str) {
+    if cwds.is_empty() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(root.join("armed")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let key = entry.file_name().to_string_lossy().into_owned();
+        let recorded = manifest_roots(root, &key);
+        let kept: Vec<String> = recorded
+            .iter()
+            .filter(|cwd| !cwds.contains(cwd))
+            .cloned()
+            .collect();
+        if kept.len() != recorded.len() {
+            record_armed(root, &key, &kept, what);
+        }
+    }
+}
+
 /// Sweep the manifests of keys that are no longer live, handing each dead
 /// key's cwds to `disarm` — minus any cwd a surviving key still claims, so a
 /// shared folder does not lose its arming because one workspace died.

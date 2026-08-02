@@ -18,6 +18,7 @@ import type { AppRuntime } from "../runtime";
 import {
   buildResumeSpec,
   clearPanePlanError,
+  dropPaneSpawnSpec,
   peekPanePlanError,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
@@ -361,6 +362,37 @@ describe("building one plan through the agent hook", () => {
 
     expect(seen["pane-1"].args).toEqual([]);
     expect(mcpState.delivered).toEqual(["/repo"]);
+  });
+
+  it("plants NOTHING when the build is discarded while it is in flight", async () => {
+    // "Is this plan settled?" has two halves: the hook did not throw, and the
+    // build's generation still holds. Only the cache knows the second, so the
+    // write has to wait for it — otherwise a suspend mid-build leaves a config
+    // in the user's directory naming a secret the cache never holds, and the
+    // pane it named is not coming back to overwrite it.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    register({
+      ...adopting,
+      hooks: { "spawn.plan": async () => held },
+    });
+    const workspaces = ws([{ id: "pane-1", agentType: "claude" }]);
+
+    const building = buildLivePaneSpec(
+      runtime.plugins,
+      workspaces[0],
+      workspaces[0].panes[0],
+      ctx,
+      { stagedSkills, mcpAccess },
+    );
+    dropPaneSpawnSpec("pane-1"); // the user suspends the pane mid-build
+    release();
+
+    expect(await building).toBe(false);
+    expect(mcpState.delivered).toEqual([]);
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
   });
 
   it("plants NOTHING for a resume whose hook rejected the plan", async () => {

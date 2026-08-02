@@ -157,7 +157,16 @@ export function createMcpInjection({
     if (socket() === null) return;
     const report = await plant(target.workspaceId, target.cwd, content);
     for (const { root, reason } of report.refused) {
-      log.warn("web:mcp", `${root} kept its own MCP config: ${reason}`);
+      log.warn("web:mcp", `${root} could not take KeepDeck's MCP config: ${reason}`);
+    }
+    // And re-checked AFTER the write, which waited in the worktree owner's
+    // queue and can easily be a whole teardown late. `retract()` reads
+    // `planted` and clears it; a root added here after that read is one it
+    // never saw, so the config would sit in the user's directory naming a
+    // socket that is gone. Take it straight back instead.
+    if (socket() === null) {
+      if (report.armed.length > 0) void retract(report.armed);
+      return;
     }
     for (const root of report.armed) planted.add(root);
     onArmed(report.armed);

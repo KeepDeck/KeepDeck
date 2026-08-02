@@ -230,26 +230,22 @@ describe("the MCP config planted in a pane's cwd", () => {
     expect(order).toEqual(["disarmed", "planted"]);
   });
 
-  it("refuses a root the deck stopped claiming while the write was queued", async () => {
-    // The pane was live when the plan asked — the deck already held it — so
-    // the root can only have left behind the very teardown this waited on.
-    // Planting then would put a file back into a directory git has just
-    // deleted, and the sweep has already passed over that root.
-    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
+  it("plants into a cwd the deck cannot see YET — that is the normal case", async () => {
+    // A manual resume, a fork into a directory and a fork into a fresh
+    // worktree all build their plan BEFORE the pane lands, so the deck does
+    // not claim the cwd at write time. Narrowing against the live set here
+    // (as `skillsFor` must, because it arms a whole snapshotted SET) refused
+    // exactly those three flows, silently.
+    deck = [{ id: "ws-1", roots: [] }];
+    mcpArming.mcpArm.mockResolvedValue({ armed: ["/wt/landing"], refused: [] });
+
+    expect(await manager.plantMcp("ws-1", "/wt/landing", "{}")).toEqual({
+      armed: ["/wt/landing"],
+      refused: [],
     });
-    worktree.removeWorktree.mockImplementation(async () => held);
-
-    const removing = manager.remove([{ repo: "/r", path: "/wt/a", branch: "b" }]);
-    const planting = manager.plantMcp("ws-1", "/wt/a", "{}");
-    deck = []; // the pane left while we queued
-    release();
-    await removing;
-
-    expect(await planting).toEqual({ armed: [], refused: [] });
-    expect(mcpArming.mcpArm).not.toHaveBeenCalled();
+    expect(mcpArming.mcpArm).toHaveBeenCalledWith("ws-1", [
+      { root: "/wt/landing", content: "{}" },
+    ]);
   });
 
   it("takes its configs back from LIVE roots — that is what Off means", async () => {

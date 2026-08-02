@@ -159,6 +159,36 @@ describe("the MCP injection", () => {
     expect(plant).not.toHaveBeenCalled();
   });
 
+  it("takes a config straight back when Off landed while the write was queued", async () => {
+    // The write waits in the worktree owner's queue and can be a whole
+    // teardown late. `retract()` reads the planted set and clears it, so a
+    // root recorded after that read is one it never saw — the config would sit
+    // in the user's directory naming a socket that is gone.
+    const retract = vi.fn(async (_roots: string[]) => true);
+    let release!: () => void;
+    const queued = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const injection = createMcpInjection({
+      ...ports,
+      socket: () => socket,
+      connection: async () => invocation,
+      plant: async (_ws, root) => {
+        await queued;
+        return { armed: [root], refused: [] };
+      },
+      retract,
+    });
+
+    const delivering = (await injection.access(kimi("/repo"))).deliver();
+    socket = null;
+    await injection.retract(); // sees nothing planted yet
+    release();
+    await delivering;
+
+    expect(retract).toHaveBeenCalledWith(["/repo"]);
+  });
+
   it("plants an ANONYMOUS config when the directory holds more than one pane", async () => {
     // kimi's config is one file per directory. Two panes running there would
     // both announce whichever secret was written last, so the journal would

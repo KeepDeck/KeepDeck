@@ -7,6 +7,7 @@
  * its build is in flight must make that build land nowhere).
  */
 import type { ResumeOrigin, SpawnPlan } from "../../domain/agents";
+import type { BuiltPlan } from "./plan";
 
 /**
  * Spawn plans, built through the cli plugins' hooks ([F7]/[F8] v2).
@@ -79,15 +80,21 @@ function reserveBuild(paneId: string): number {
 
 export async function buildAndCache(
   paneId: string,
-  build: () => Promise<SpawnPlan>,
+  build: () => Promise<BuiltPlan>,
 ): Promise<boolean> {
   const generation = reserveBuild(paneId);
   try {
-    const plan = await build();
+    const built = await build();
     if (buildGenerations.get(paneId) !== generation) return false;
     pending.delete(paneId);
-    specs.set(paneId, plan);
+    specs.set(paneId, built.plan);
     failed.delete(paneId);
+    // The plan's on-disk half, and only now: the generation check above is
+    // the OTHER half of "is this plan settled", and a build it discards must
+    // not have written a config naming a secret this cache never holds.
+    // Before the listeners, because one of them is what starts the process
+    // that reads the file.
+    await built.deliver();
     notifySpecs();
     return true;
   } catch (error) {

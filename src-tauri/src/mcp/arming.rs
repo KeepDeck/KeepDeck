@@ -20,7 +20,9 @@ use std::io::{self, ErrorKind};
 use std::path::Path;
 
 use crate::state::write_atomic;
-use crate::worktree_arm::{add_armed, ensure_excluded, prune_manifests, remove_excluded};
+use crate::worktree_arm::{
+    add_armed, ensure_excluded, forget_armed, prune_manifests, remove_excluded,
+};
 
 /// What arming plants in a pane's cwd — the directory git must stay blind to,
 /// and the one kimi reads its MCP config from.
@@ -112,10 +114,25 @@ fn arm_one(cwd: &Path, content: &str) -> io::Result<bool> {
     Ok(true)
 }
 
+/// Take OUR config back out of the given cwds AND forget them.
+///
+/// Both halves, always: the record is what a crash sweep reads, so a cwd left
+/// in it after its files are gone is a claim on a directory nothing owns any
+/// more — and `claimed_by_others` would spare a dead workspace's real arming
+/// on the strength of it.
+pub(crate) fn disarm(root: &Path, cwds: &[String]) -> io::Result<()> {
+    let result = disarm_files(cwds);
+    forget_armed(root, cwds, "mcp");
+    result
+}
+
 /// Take OUR config back out of the given cwds (and the directory it leaves
 /// empty), and drop the exclude lines arming added. Anything without our
 /// marker stays.
-pub(crate) fn disarm(cwds: &[String]) -> io::Result<()> {
+///
+/// The manifest is NOT touched here: the prune path deletes the whole record
+/// itself, so only [`disarm`] — the per-directory caller — owes a forget.
+fn disarm_files(cwds: &[String]) -> io::Result<()> {
     for cwd in cwds {
         let dir = Path::new(cwd).join(PLANTED);
         if !dir.join(MARKER_FILE).exists() {
@@ -140,7 +157,7 @@ pub(crate) fn disarm(cwds: &[String]) -> io::Result<()> {
 /// Sweep the cwds of workspaces that are gone — the crash path, where the deck
 /// no longer knows the directories but the manifest does.
 pub(crate) fn prune(root: &Path, live: &[String]) -> io::Result<()> {
-    prune_manifests(root, live, "mcp", disarm)
+    prune_manifests(root, live, "mcp", disarm_files)
 }
 
 /// Where the armed manifests live: beside the socket, in KeepDeck's own home.
@@ -201,7 +218,7 @@ mod tests {
         );
 
         // And a disarm that sweeps this cwd leaves it alone too.
-        disarm(&[cwd.to_string_lossy().into_owned()]).unwrap();
+        disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
         assert!(dir.join("mcp.json").exists());
     }
 
@@ -223,7 +240,7 @@ mod tests {
         let (_tmp, root, cwd) = scratch();
         arm(&root, "ws-1", &[entry(&cwd, "{}")]);
 
-        disarm(&[cwd.to_string_lossy().into_owned()]).unwrap();
+        disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
 
         assert!(!cwd.join(".kimi-code").exists());
     }
@@ -234,7 +251,7 @@ mod tests {
         arm(&root, "ws-1", &[entry(&cwd, "{}")]);
         fs::write(cwd.join(".kimi-code").join("sessions.json"), "kimi's").unwrap();
 
-        disarm(&[cwd.to_string_lossy().into_owned()]).unwrap();
+        disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
 
         assert!(!cwd.join(".kimi-code").join("mcp.json").exists());
         assert!(cwd.join(".kimi-code").join("sessions.json").exists());
@@ -317,4 +334,46 @@ mod tests {
         assert_eq!(recorded, vec![cwd.to_string_lossy().into_owned()]);
     }
 
+    #[test]
+    fn disarming_a_cwd_forgets_it_too() {
+        // The record is what a CRASH sweep reads. A cwd left in it after its
+        // files are gone is a claim on a directory nothing owns any more —
+        // and `claimed_by_others` would then spare a dead workspace's real
+        // arming on the strength of that stale claim.
+        let (_tmp, root, cwd) = scratch();
+        let second = cwd.parent().unwrap().join("other-pane");
+        fs::create_dir_all(&second).unwrap();
+        arm(&root, "ws-1", &[entry(&cwd, "{}"), entry(&second, "{}")]);
+
+        disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
+
+        let recorded: Vec<String> =
+            serde_json::from_slice(&fs::read(root.join("armed").join("ws-1")).unwrap()).unwrap();
+        assert_eq!(recorded, vec![second.to_string_lossy().into_owned()]);
+    }
+
+    #[test]
+    fn disarming_the_last_cwd_drops_the_record_entirely() {
+        let (_tmp, root, cwd) = scratch();
+        arm(&root, "ws-1", &[entry(&cwd, "{}")]);
+
+        disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
+
+        assert!(!root.join("armed").join("ws-1").exists());
+    }
+
+    #[test]
+    fn a_shared_cwd_stops_being_claimed_by_the_workspace_that_left() {
+        // Two workspaces ran a pane in one folder; one is disarmed. The other
+        // still claims it — but the departed one must not, or a later prune
+        // spares that folder forever on a claim nobody is making.
+        let (_tmp, root, cwd) = scratch();
+        arm(&root, "ws-1", &[entry(&cwd, "{}")]);
+        arm(&root, "ws-2", &[entry(&cwd, "{}")]);
+
+        disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
+
+        assert!(!root.join("armed").join("ws-1").exists());
+        assert!(!root.join("armed").join("ws-2").exists());
+    }
 }

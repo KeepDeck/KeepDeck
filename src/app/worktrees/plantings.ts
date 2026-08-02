@@ -22,12 +22,7 @@ import {
   stageSkills,
   type SkillsStagingViews,
 } from "../../ipc/skills";
-import {
-  mcpArm,
-  mcpDisarm,
-  mcpPrune,
-  type McpArmReport,
-} from "../../ipc/mcpArming";
+import { mcpArm, mcpDisarm, mcpPrune } from "../../ipc/mcpArming";
 import type {
   LiveWorkspace,
   McpPlanting,
@@ -46,9 +41,6 @@ export type WorktreePlantings = Pick<WorktreeProvisioner, "skillsFor"> &
      * them there — the teardown's half of the arming contract. */
     disarm(roots: string[]): Promise<boolean>;
   };
-
-/** Nothing landed and nothing refused — what a skipped planting reports. */
-const PLANTED_NOTHING: McpArmReport = { armed: [], refused: [] };
 
 export function createPlantings(
   deck: WorktreeDeckView,
@@ -129,21 +121,20 @@ export function createPlantings(
     disarm,
 
     plantMcp(workspaceId, root, content) {
-      // Queued for the same reason staging is: a write that started while a
+      // Queued, and that is the WHOLE guard: a write that started while a
       // teardown is in flight would land inside git's recursive delete.
-      return inOrder(() => {
-        // Re-checked at EXECUTION time, against the same rule the sweep and
-        // every teardown apply. The root was a live spawn cwd when the plan
-        // asked — the pane building that plan is one the deck already holds —
-        // so it can only have left while this waited in the queue, behind the
-        // very teardown that removed it. Planting then would put a file back
-        // into a directory git has just deleted, and nothing would take it
-        // away again: the sweep has already passed over that root.
-        if (unclaimed([root], deck.live()).length > 0) {
-          return Promise.resolve(PLANTED_NOTHING);
-        }
-        return mcpArm(workspaceId, [{ root, content }]);
-      });
+      //
+      // Deliberately NOT re-checked against the live deck, unlike `skillsFor`
+      // below. That check exists there because staging arms a SET of roots
+      // snapshotted at call time, so by execution time some may have left and
+      // the set has to be narrowed. Here there is one root and it is the
+      // asking pane's own cwd — nothing to narrow. Re-checking it instead
+      // refused every pane the deck cannot see YET: a manual resume, a fork
+      // into a directory, a fork into a fresh worktree all plant before the
+      // pane lands, and each silently got no servers. The case the check was
+      // meant to catch — the directory went away while we queued — is refused
+      // by the backend, which reports a cwd that is no longer a directory.
+      return inOrder(() => mcpArm(workspaceId, [{ root, content }]));
     },
 
     retractMcp(roots) {

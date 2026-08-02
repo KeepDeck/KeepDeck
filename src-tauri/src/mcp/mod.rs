@@ -111,7 +111,7 @@ pub fn mcp_arm(
 /// marker claims is touched.
 #[tauri::command(async)]
 pub fn mcp_disarm(roots: Vec<String>) -> Result<(), String> {
-    arming::disarm(&roots).map_err(|e| e.to_string())
+    arming::disarm(&arming::arming_root()?, &roots).map_err(|e| e.to_string())
 }
 
 /// Sweep what workspaces that no longer exist left in their cwds.
