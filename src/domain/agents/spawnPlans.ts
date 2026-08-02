@@ -58,7 +58,12 @@ export interface SpawnPlan {
    *
    * The slot `pane-3` is reused after a restart, which is exactly why the
    * secret exists: it dies with the process, so a lingering MCP child of a
-   * dead pane resolves to nobody instead of to whoever holds the slot now. */
+   * dead pane resolves to nobody instead of to whoever holds the slot now.
+   *
+   * Minted for EVERY plan, whether or not anything was injected: kimi's
+   * servers arrive as a file, so a pane can have a live client and no `mcp`
+   * key here. Optional only because plans built before this existed have
+   * none — it never answers "was MCP injected for this pane?". */
   mcpToken?: string;
   /** Host bookkeeping: the recorded session this plan tries to RESUME. Set
    * only on resume plans — the resume-failure detector keys off it. */

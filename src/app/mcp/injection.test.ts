@@ -10,6 +10,15 @@ const invocation: McpConnection = {
 
 let socket: string | null;
 
+/** The ports every construction needs. `arm`/`disarm` are required by design
+ * — the ordered form must be the only form — so a test that does not care
+ * still has to say what happens when something is planted. */
+const ports = {
+  panesIn: () => 1,
+  arm: async () => ({ armed: [], refused: [] }),
+  disarm: async () => true,
+};
+
 /** A claude pane — the argv path. kimi's file path has its own tests. */
 const target: McpInjectionTarget = {
   agentType: "claude",
@@ -27,7 +36,7 @@ describe("the MCP injection", () => {
     // The shim flag and the socket path have one home, on the Rust side. A
     // second derivation here would drift the day either changes.
     const connection = vi.fn(async () => invocation);
-    const injection = createMcpInjection({ socket: () => socket, panesIn: () => 1, connection });
+    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
 
     return injection.defs(target).then((defs) => {
       expect(defs).toEqual([
@@ -47,7 +56,7 @@ describe("the MCP injection", () => {
     // shows a broken server instead of no server.
     socket = null;
     const connection = vi.fn(async () => invocation);
-    const injection = createMcpInjection({ socket: () => socket, panesIn: () => 1, connection });
+    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
 
     expect(await injection.defs(target)).toEqual([]);
     // And it does not even ask the backend how to connect.
@@ -61,7 +70,7 @@ describe("the MCP injection", () => {
     const connection = vi.fn(
       () => new Promise<McpConnection>((resolve) => (release = resolve)),
     );
-    const injection = createMcpInjection({ socket: () => socket, panesIn: () => 1, connection });
+    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
 
     const pending = injection.defs(target);
     socket = null;
@@ -75,7 +84,7 @@ describe("the MCP injection", () => {
     // and it is the backend that spells the shim's flags — asking without it
     // would hand every pane the same anonymous command.
     const connection = vi.fn(async () => invocation);
-    const injection = createMcpInjection({ socket: () => socket, panesIn: () => 1, connection });
+    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
 
     await injection.defs({ ...target, client: "pane-3-secret" });
 
@@ -93,8 +102,8 @@ describe("the MCP injection", () => {
     );
     const planted: { root: string; content: string }[] = [];
     const injection = createMcpInjection({
+      ...ports,
       socket: () => socket,
-      panesIn: () => 1,
       connection: async () => invocation,
       arm,
     });
@@ -127,6 +136,7 @@ describe("the MCP injection", () => {
       args: client ? ["--mcp-shim", "/s", "--client", client] : ["--mcp-shim", "/s"],
     }));
     const injection = createMcpInjection({
+      ...ports,
       socket: () => socket,
       panesIn: () => 2,
       connection: named,
@@ -148,6 +158,7 @@ describe("the MCP injection", () => {
     // a shared cwd costs them nothing.
     const named = vi.fn(async () => invocation);
     const injection = createMcpInjection({
+      ...ports,
       socket: () => socket,
       panesIn: () => 3,
       connection: named,
@@ -163,8 +174,8 @@ describe("the MCP injection", () => {
     // at nothing, and the settings page promises the toggle tears it down.
     const disarm = vi.fn(async (_roots: string[]) => true);
     const injection = createMcpInjection({
+      ...ports,
       socket: () => socket,
-      panesIn: () => 1,
       connection: async () => invocation,
       arm: async (_ws, entries) => ({
         armed: entries.map((e) => e.root),
@@ -193,8 +204,8 @@ describe("the MCP injection", () => {
     socket = null;
     const arm = vi.fn(async () => ({ armed: [], refused: [] }));
     const injection = createMcpInjection({
+      ...ports,
       socket: () => socket,
-      panesIn: () => 1,
       connection: async () => invocation,
       arm,
     });
@@ -212,8 +223,8 @@ describe("the MCP injection", () => {
   it("leaves the argv agents' servers alone — nothing is planted for them", async () => {
     const arm = vi.fn(async () => ({ armed: [], refused: [] }));
     const injection = createMcpInjection({
+      ...ports,
       socket: () => socket,
-      panesIn: () => 1,
       connection: async () => invocation,
       arm,
     });
@@ -229,7 +240,7 @@ describe("the MCP injection", () => {
       .fn<() => Promise<McpConnection>>()
       .mockRejectedValueOnce(new Error("no home directory"))
       .mockResolvedValue(invocation);
-    const injection = createMcpInjection({ socket: () => socket, panesIn: () => 1, connection });
+    const injection = createMcpInjection({ ...ports, socket: () => socket, connection });
 
     expect(await injection.defs(target)).toEqual([]);
     expect((await injection.defs(target)).map((d) => d.name)).toEqual([

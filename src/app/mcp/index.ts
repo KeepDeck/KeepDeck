@@ -106,13 +106,14 @@ export interface McpService {
 export interface McpServiceDeps {
   /** How many live panes run in a directory — see [`McpInjectionDeps`]. */
   panesIn: McpInjectionDeps["panesIn"];
+  /** Plant / retract kimi's config, ordered against worktree teardown. */
+  arm: McpInjectionDeps["arm"];
+  disarm: McpInjectionDeps["disarm"];
   registry?: CommandRegistry;
   transport?: McpTransportPort;
   pumpPorts?: McpPumpPorts;
   identitySource?: () => Promise<{ name: string; version: string }>;
   connection?: McpInjectionDeps["connection"];
-  arm?: McpInjectionDeps["arm"];
-  disarm?: McpInjectionDeps["disarm"];
   /** Resolve a connection's secret to the pane that announced it. Injected:
    * which pane holds which secret is the spawn layer's knowledge, and the
    * deck's — neither belongs to the transport. */
@@ -192,6 +193,8 @@ export function createMcpService(
   const injection = createMcpInjection({
     socket: () => current.socket,
     panesIn: deps.panesIn,
+    arm: deps.arm,
+    disarm: deps.disarm,
     onRefused: (refusals) => {
       // Replace by directory, keep the rest: an arming pass speaks only for
       // the cwds it tried, and dropping the others would make a refusal
@@ -212,8 +215,6 @@ export function createMcpService(
       for (const root of roots) armedRoots.add(root);
     },
     ...(deps.connection ? { connection: deps.connection } : {}),
-    ...(deps.arm ? { arm: deps.arm } : {}),
-    ...(deps.disarm ? { disarm: deps.disarm } : {}),
   });
   const pump = createMcpRequestPump(
     (line, client) => handleMcpLine(port, () => identity, line, client),

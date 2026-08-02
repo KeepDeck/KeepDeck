@@ -70,7 +70,7 @@ function notifySpecs(): void {
   for (const listener of [...specListeners]) listener();
 }
 
-export function reserveBuild(paneId: string): number {
+function reserveBuild(paneId: string): number {
   const generation = (buildGenerations.get(paneId) ?? 0) + 1;
   buildGenerations.set(paneId, generation);
   pending.add(paneId);
@@ -187,17 +187,6 @@ export function hasPaneSpawnSpec(paneId: string): boolean {
  * start a second one). */
 export function isPaneSpawnSpecPending(paneId: string): boolean {
   return pending.has(paneId);
-}
-
-/** Mark a pane's build as in flight; the caller clears it through
- * [`buildAndCache`]. */
-export function markPaneSpawnSpecPending(paneId: string): void {
-  pending.add(paneId);
-}
-
-/** Forget an in-flight marker for a build that never started. */
-export function unmarkPaneSpawnSpecPending(paneId: string): void {
-  pending.delete(paneId);
 }
 
 /** The pane whose CURRENT plan carries this MCP secret, or null.

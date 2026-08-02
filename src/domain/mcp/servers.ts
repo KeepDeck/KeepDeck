@@ -14,7 +14,7 @@
  */
 
 /** A locally spawned (stdio) MCP server. */
-export interface McpStdioServer {
+interface McpStdioServer {
   /** The key the CLI files this server under, and the prefix its tools
    * appear with (`mcp__<name>__…`). */
   name: string;

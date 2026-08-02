@@ -115,7 +115,7 @@ fn arm_one(cwd: &Path, content: &str) -> io::Result<bool> {
 /// Take OUR config back out of the given cwds (and the directory it leaves
 /// empty), and drop the exclude lines arming added. Anything without our
 /// marker stays.
-pub(crate) fn disarm(_root: &Path, cwds: &[String]) -> io::Result<()> {
+pub(crate) fn disarm(cwds: &[String]) -> io::Result<()> {
     for cwd in cwds {
         let dir = Path::new(cwd).join(PLANTED);
         if !dir.join(MARKER_FILE).exists() {
@@ -201,7 +201,7 @@ mod tests {
         );
 
         // And a disarm that sweeps this cwd leaves it alone too.
-        disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
+        disarm(&[cwd.to_string_lossy().into_owned()]).unwrap();
         assert!(dir.join("mcp.json").exists());
     }
 
@@ -223,7 +223,7 @@ mod tests {
         let (_tmp, root, cwd) = scratch();
         arm(&root, "ws-1", &[entry(&cwd, "{}")]);
 
-        disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
+        disarm(&[cwd.to_string_lossy().into_owned()]).unwrap();
 
         assert!(!cwd.join(".kimi-code").exists());
     }
@@ -234,7 +234,7 @@ mod tests {
         arm(&root, "ws-1", &[entry(&cwd, "{}")]);
         fs::write(cwd.join(".kimi-code").join("sessions.json"), "kimi's").unwrap();
 
-        disarm(&root, &[cwd.to_string_lossy().into_owned()]).unwrap();
+        disarm(&[cwd.to_string_lossy().into_owned()]).unwrap();
 
         assert!(!cwd.join(".kimi-code").join("mcp.json").exists());
         assert!(cwd.join(".kimi-code").join("sessions.json").exists());

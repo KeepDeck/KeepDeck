@@ -115,7 +115,7 @@ pub(crate) fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()
 /// symlinks out of the cwds they recorded — the crash path, where the deck no
 /// longer knows the workspace but its worktrees survived.
 pub(crate) fn prune_armed(root: &Path, live: &[String]) -> io::Result<()> {
-    prune_manifests(root, live, "skills", disarm_roots)
+    prune_manifests(root, live, "skills", |cwds| disarm_roots(root, cwds))
 }
 
 /// A link is ours iff it points inside KeepDeck's skills root.

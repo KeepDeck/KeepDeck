@@ -113,7 +113,7 @@ pub(crate) fn prune_manifests(
     root: &Path,
     live: &[String],
     what: &str,
-    disarm: impl Fn(&Path, &[String]) -> io::Result<()>,
+    disarm: impl Fn(&[String]) -> io::Result<()>,
 ) -> io::Result<()> {
     let manifests = match fs::read_dir(root.join("armed")) {
         Ok(entries) => entries,
@@ -134,7 +134,7 @@ pub(crate) fn prune_manifests(
         };
         let claimed = claimed_by_others(root, &key);
         let ours: Vec<String> = roots.into_iter().filter(|r| !claimed.contains(r)).collect();
-        if let Err(e) = disarm(root, &ours) {
+        if let Err(e) = disarm(&ours) {
             log::warn!("{what}: disarming dead workspace {key} failed: {e}");
         }
         let _ = fs::remove_file(entry.path());

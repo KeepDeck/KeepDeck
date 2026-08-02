@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
  * The MCP socket's webview leg. A socket client's request line arrives as a
  * `deck://mcp/request` event; the answer goes back through `mcp_respond`,
  * where the parked connection thread picks it up by correlation id. The
- * constant mirrors `MCP_REQUEST_EVENT` in src-tauri/src/mcp_bridge.rs.
+ * constant mirrors `MCP_REQUEST_EVENT` in src-tauri/src/mcp/bridge.rs.
  */
 export const MCP_REQUEST_EVENT = "deck://mcp/request";
 

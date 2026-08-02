@@ -148,7 +148,11 @@ export async function buildPlan(
       "web:agents",
       `${entry.id} spawn.plan failed — bare spawn: ${describeError(e)}`,
     );
-    return { command: entry.detect.bin, args: [], env: [] };
+    // The secret rides along even here. A kimi pane's config was already
+    // planted by the time a hook could throw, and it names this secret: drop
+    // it and every call that pane makes resolves to nobody, silently losing
+    // the attribution rather than degrading the spawn.
+    return { command: entry.detect.bin, args: [], env: [], mcpToken };
   }
   // The hook's command must be covered by its plugin's exec capability —
   // warn for a trusted built-in (a bug to fix), CLAMP for an external

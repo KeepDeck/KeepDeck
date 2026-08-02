@@ -43,6 +43,8 @@ function harness(opts: { initial?: boolean | null } = {}) {
     transport: { enable, disable },
     pumpPorts,
     panesIn: () => 1,
+    arm: async () => ({ armed: [], refused: [] }),
+    disarm: async () => true,
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
     connection: () =>

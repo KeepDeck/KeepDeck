@@ -18,7 +18,7 @@
 import { acceptMcpServers, type McpServerDef } from "../../domain/mcp";
 import { describeError, log } from "../../ipc/log";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
-import { mcpArm, mcpDisarm, type McpArmReport } from "../../ipc/mcpArming";
+import type { McpArmReport } from "../../ipc/mcpArming";
 import { kimiMcpConfig, KIMI_AGENT } from "./kimi";
 
 /** The name KeepDeck's own server is filed under in every client config —
@@ -53,17 +53,18 @@ export interface McpInjectionDeps {
    * between two spawns, and a remembered answer would outlive the fact. */
   socket: () => string | null;
   connection?: (client?: string) => Promise<McpConnection>;
-  /** Plant kimi's config in a pane cwd. Injected because the write must be
-   * ORDERED against worktree teardown — arming a directory that is being
-   * deleted is the mistake the worktree owner's queue exists to prevent — and
-   * that queue is not this module's to hold. */
-  arm?: (
+  /** Plant kimi's config in a pane cwd. REQUIRED, not defaulted: the write
+   * must be ORDERED against worktree teardown — arming a directory that is
+   * being deleted is the mistake the worktree owner's queue exists to
+   * prevent — and that queue is not this module's to hold. A default would be
+   * the unordered call, i.e. the unsafe form would be the easy one. */
+  arm: (
     workspaceId: string,
     entries: { root: string; content: string }[],
   ) => Promise<McpArmReport>;
   /** Take a planted config back out of these directories. Paired with `arm`,
    * and ordered the same way. */
-  disarm?: (roots: string[]) => Promise<boolean>;
+  disarm: (roots: string[]) => Promise<boolean>;
   /** How many live panes run in this directory. A config is ONE file, so a
    * directory shared by two panes cannot carry a per-pane secret — see
    * [`defs`]. Asked per call: panes come and go between spawns. */
@@ -80,9 +81,9 @@ export interface McpInjectionDeps {
 export function createMcpInjection({
   socket,
   panesIn,
+  arm,
+  disarm,
   connection = mcpConnectionCommand,
-  arm = mcpArm,
-  disarm = mcpDisarm,
   onRefused = () => {},
   onArmed = () => {},
 }: McpInjectionDeps): McpInjection {

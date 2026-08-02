@@ -370,7 +370,15 @@ describe("building one plan through the agent hook", () => {
     await mount(ws([{ id: "pane-1", agentType: "claude" }]));
     await settle();
 
-    expect(seen["pane-1"]).toEqual({ command: "claude", args: [], env: [] });
+    // Bare, but not anonymous: a kimi pane's config is planted before a hook
+    // can throw and names this secret, so dropping it would lose the pane's
+    // identity rather than degrade its spawn.
+    expect(seen["pane-1"]).toEqual({
+      command: "claude",
+      args: [],
+      env: [],
+      mcpToken: expect.any(String),
+    });
   });
 
   it("a throwing REMOTE spawn.plan does NOT degrade to a bare local spawn", async () => {
