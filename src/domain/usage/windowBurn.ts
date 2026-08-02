@@ -17,15 +17,20 @@ import { windowExpired, type UsageWindow } from "./usage";
 export interface BurnPoint {
   x: number;
   y: number;
+  /** Semantic values survive projection into plot coordinates so hover and
+   * keyboard presentation never has to reverse-engineer domain data. */
+  at: number;
+  usedPct: number;
 }
 
 export interface BurnGeometry {
+  axis: { startAt: number; endAt: number };
   observed: BurnPoint[];
   /** From the newest report to the projected end (the out instant, or the
    * reset when the pace survives it). Null without a usable pace. */
   projected: [BurnPoint, BurnPoint] | null;
   /** The ceiling-touch verdict dot; null when the pace survives the reset. */
-  out: { x: number; y: number; level: "warn" | "critical" } | null;
+  out: (BurnPoint & { level: "warn" | "critical" }) | null;
   /** Top of the y scale in percent: 100 whenever the projection reaches
    * the ceiling, otherwise headroom above the observed maximum — a 1%-used
    * window must not render as an empty frame. */
@@ -33,6 +38,10 @@ export interface BurnGeometry {
   /** The right edge IS the reset (the projection was capped by it). */
   resetAtEdge: boolean;
 }
+
+export type BurnHoverSample = BurnPoint & {
+  kind: "observed" | "projected";
+};
 
 const MAX_OBSERVED_POINTS = 300;
 
@@ -100,6 +109,8 @@ export function windowBurn(
   const point = (at: number, pct: number): BurnPoint => ({
     x: clamp01((at - tMin) / (tEnd - tMin)),
     y: clamp01(pct / yMaxPct),
+    at,
+    usedPct: pct,
   });
 
   // A long-lived key can hold thousands of records; a 60px plot cannot use
@@ -114,8 +125,7 @@ export function windowBurn(
   const out =
     forecast.kind === "out" && projEndAt !== null
       ? {
-          x: clamp01((forecast.outAt - tMin) / (tEnd - tMin)),
-          y: clamp01(100 / yMaxPct),
+          ...point(forecast.outAt, 100),
           level: forecast.level,
         }
       : null;
@@ -123,5 +133,46 @@ export function windowBurn(
     projEndAt !== null &&
     window.resetsAt !== null &&
     projEndAt === window.resetsAt;
-  return { observed, projected, out, yMaxPct, resetAtEdge };
+  return {
+    axis: { startAt: tMin, endAt: tEnd },
+    observed,
+    projected,
+    out,
+    yMaxPct,
+    resetAtEdge,
+  };
+}
+
+/** Resolve one horizontal chart position into the fact the tooltip names.
+ * Observed history snaps to a real report; only the forecast segment is
+ * interpolated, and identifies itself as projected. */
+export function burnHoverAt(
+  geometry: BurnGeometry,
+  xRatio: number,
+): BurnHoverSample {
+  const x = Number.isFinite(xRatio)
+    ? Math.min(1, Math.max(0, xRatio))
+    : 0;
+  const projected = geometry.projected;
+  if (projected !== null) {
+    const [from, to] = projected;
+    const span = to.x - from.x;
+    if ((span > 0 && x > from.x) || (span === 0 && x >= from.x)) {
+      const progress = span > 0 ? Math.min(1, (x - from.x) / span) : 1;
+      const interpolate = (start: number, end: number) =>
+        start + (end - start) * progress;
+      return {
+        kind: "projected",
+        x: interpolate(from.x, to.x),
+        y: interpolate(from.y, to.y),
+        at: interpolate(from.at, to.at),
+        usedPct: interpolate(from.usedPct, to.usedPct),
+      };
+    }
+  }
+
+  const nearest = geometry.observed.reduce((best, point) =>
+    Math.abs(point.x - x) < Math.abs(best.x - x) ? point : best,
+  );
+  return { ...nearest, kind: "observed" };
 }

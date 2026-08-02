@@ -15,7 +15,7 @@ import {
   panelWindowCaption,
   windowForecast,
 } from "./windowForecast";
-import { windowBurn } from "./windowBurn";
+import { burnHoverAt, windowBurn } from "./windowBurn";
 import type { UsageWindow } from "./usage";
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
@@ -354,9 +354,20 @@ describe("windowBurn", () => {
 
   it("fills the data axis and puts the out dot at the top-right corner", () => {
     const geometry = windowBurn(ramp(0.29, 5, 10, 62), FIVE_H, out, NOW)!;
+    const outAt = out.kind === "out" ? out.outAt : Number.NaN;
     // Data axis: first report at the left edge, projection end at the right.
     expect(geometry.observed[0].x).toBe(0);
-    expect(geometry.out).toEqual({ x: 1, y: 1, level: "warn" });
+    expect(geometry.axis).toEqual({
+      startAt: NOW - 40 * MIN,
+      endAt: outAt,
+    });
+    expect(geometry.out).toEqual({
+      x: 1,
+      y: 1,
+      at: outAt,
+      usedPct: 100,
+      level: "warn",
+    });
     expect(geometry.yMaxPct).toBe(100); // the projection reaches the ceiling
     const [from, to] = geometry.projected!;
     expect(from.y).toBeCloseTo(0.62, 2);
@@ -405,5 +416,39 @@ describe("windowBurn", () => {
     )!;
     expect(flat.yMaxPct).toBe(10); // floored — a 1% line still reads
     expect(flat.observed[0].y).toBeCloseTo(0.1, 2);
+  });
+
+  it("resolves observed hover to a real report with semantic values", () => {
+    const reports = ramp(0.29, 5, 10, 62);
+    const geometry = windowBurn(reports, FIVE_H, out, NOW)!;
+    const second = geometry.observed[1];
+    const sample = burnHoverAt(geometry, second.x + 0.001);
+
+    expect(sample).toEqual({ ...second, kind: "observed" });
+    expect(sample.at).toBe(reports[1].reportedAt);
+    expect(sample.usedPct).toBe(reports[1].usedPct);
+  });
+
+  it("interpolates only on the projected segment and clamps its end", () => {
+    const geometry = windowBurn(ramp(0.29, 5, 10, 62), FIVE_H, out, NOW)!;
+    const [from, to] = geometry.projected!;
+    const middle = burnHoverAt(geometry, (from.x + to.x) / 2);
+
+    expect(middle.kind).toBe("projected");
+    expect(middle.at).toBeCloseTo((from.at + to.at) / 2, 5);
+    expect(middle.usedPct).toBeCloseTo((from.usedPct + to.usedPct) / 2, 5);
+    expect(burnHoverAt(geometry, 2)).toEqual({ ...to, kind: "projected" });
+  });
+
+  it("selects the projected wall when its span has collapsed to now", () => {
+    const reports = ramp(0.29, 5, 10, 100);
+    const verdict = windowForecast(reports, FIVE_H, NOW);
+    const geometry = windowBurn(reports, FIVE_H, verdict, NOW)!;
+
+    expect(burnHoverAt(geometry, 1)).toMatchObject({
+      kind: "projected",
+      at: NOW,
+      usedPct: 100,
+    });
   });
 });
