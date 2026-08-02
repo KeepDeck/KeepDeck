@@ -57,11 +57,26 @@ function setup(partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text
         active: true,
         panes: [{ id: "p1", title: "Claude 1" }],
       },
-      { id: "ws-2", name: "Website", active: false, panes: [] },
+      {
+        id: "ws-2",
+        name: "Website",
+        active: false,
+        panes: [],
+      },
     ],
   });
+  host.commandResults.set("pane.target", {
+    ok: true,
+    value: { workspaceId: "ws-1", paneId: "p1" },
+  });
   const controller = createVoiceController(ctx, () => 42, installedModels);
-  return { host, controller, cancelCapture, level: () => onLevel };
+  return {
+    host,
+    controller,
+    cancelCapture,
+    stopCapture,
+    level: () => onLevel,
+  };
 }
 
 const texts = (c: ReturnType<typeof createVoiceController>) =>
@@ -134,16 +149,63 @@ describe("createVoiceController", () => {
     await controller.stop();
 
     expect(host.executedCommands).toEqual([
+      { id: "pane.target", args: {} },
       { id: "workspace.list", args: {} },
       {
         id: "pane.write",
-        args: { text: "please refactor the parser", mode: "type" },
+        args: {
+          workspace: "ws-1",
+          agent: "p1",
+          text: "please refactor the parser",
+          mode: "type",
+          focusInput: true,
+        },
       },
     ]);
     expect(texts(controller)).toEqual([
       ["heard", "please refactor the parser"],
       ["done", "typed into the input"],
     ]);
+  });
+
+  it("pins the selected pane while transcription is in flight", async () => {
+    const { host, controller, stopCapture } = setup({
+      text: "pinned transcript",
+      silence: false,
+    });
+    let finishTranscript!: (value: SpeechTranscript) => void;
+    stopCapture.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishTranscript = resolve;
+        }),
+    );
+    await controller.start("dictation");
+    const stopping = controller.stop();
+    await vi.waitFor(() => expect(stopCapture).toHaveBeenCalledOnce());
+
+    host.commandResults.set("pane.target", {
+      ok: true,
+      value: { workspaceId: "ws-1", paneId: "p2" },
+    });
+    finishTranscript({
+      text: "pinned transcript",
+      silence: false,
+      seconds: 1,
+      level: 0.1,
+    });
+    await stopping;
+
+    expect(host.executedCommands[host.executedCommands.length - 1]).toEqual({
+      id: "pane.write",
+      args: {
+        workspace: "ws-1",
+        agent: "p1",
+        text: "pinned transcript",
+        mode: "type",
+        focusInput: true,
+      },
+    });
   });
 
   it("waits for the initial model scan before selecting an engine", async () => {
@@ -300,7 +362,10 @@ describe("createVoiceController", () => {
     const { host, controller } = setup({ text: "", silence: true, seconds: 0, level: 0 });
     await controller.start("dictation");
     await controller.stop();
-    expect(host.executedCommands.map((e) => e.id)).toEqual(["workspace.list"]);
+    expect(host.executedCommands.map((e) => e.id)).toEqual([
+      "pane.target",
+      "workspace.list",
+    ]);
     expect(texts(controller)).toEqual([
       ["info", "didn't catch that (0.0s, level 0.000)"],
     ]);
@@ -373,6 +438,38 @@ describe("createVoiceController", () => {
     expect(controller.snapshot().phase).toBe("idle");
     expect(cancelCapture).toHaveBeenCalledOnce();
     expect(controller.snapshot().history).toEqual([]);
+  });
+
+  it("cancels an in-flight transcription without a late focus request", async () => {
+    const { host, controller, cancelCapture, stopCapture } = setup({
+      text: "late transcript",
+      silence: false,
+    });
+    let finishTranscript!: (value: SpeechTranscript) => void;
+    stopCapture.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishTranscript = resolve;
+        }),
+    );
+    await controller.start("dictation");
+    const stopping = controller.stop();
+    await vi.waitFor(() => expect(stopCapture).toHaveBeenCalledOnce());
+
+    const cancelling = controller.cancel();
+    expect(cancelCapture).toHaveBeenCalledOnce();
+    finishTranscript({
+      text: "late transcript",
+      silence: false,
+      seconds: 1,
+      level: 0.1,
+    });
+    await Promise.all([stopping, cancelling]);
+
+    expect(host.executedCommands.map((entry) => entry.id)).not.toContain(
+      "pane.write",
+    );
+    expect(controller.snapshot()).toMatchObject({ phase: "idle", history: [] });
   });
 
   it("cancels the native capture when model selection fails", async () => {

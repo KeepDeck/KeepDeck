@@ -62,6 +62,7 @@ export function useAppController() {
       });
   }, []);
   const deck = useDeck(runtime.deckStore);
+  const paneViewActions = runtime.paneViewActions;
   const { agents, loading: agentsLoading } = useAgents();
   const installedPlugins = useInstalledPlugins(pluginHost);
   const unavailableReasons = useMemo(
@@ -307,7 +308,7 @@ export function useAppController() {
         deck.viewByWs,
         minimizeOn,
       );
-      if (target) deck.toggleFocus(target.wsId, target.paneId);
+      if (target) paneViewActions.toggleMaximize(target.wsId, target.paneId);
     },
     openSettings: () => void modal.openSettings(),
   });
@@ -362,6 +363,7 @@ export function useAppController() {
     minimizeStyle,
     openNotification,
     orchestrator,
+    paneViewActions,
     pluginDockTabs,
     pluginTopBarActions,
     pushAlert,
@@ -393,5 +395,6 @@ export function useAppController() {
     updateState,
     usageLiveAgents,
     selectedPaneId,
+    keyboardFocusEnabled: !modalOpen && !dockCovers,
   };
 }

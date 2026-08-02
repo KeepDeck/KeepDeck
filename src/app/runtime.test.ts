@@ -32,6 +32,8 @@ describe("createAppRuntime", () => {
       second.plugins.pluginRegistries,
     );
     expect(first.fileOpen).not.toBe(second.fileOpen);
+    expect(first.paneInputFocus).not.toBe(second.paneInputFocus);
+    expect(first.paneViewActions).not.toBe(second.paneViewActions);
 
     // The same active id is legal in another runtime because neither job map
     // nor backend routing leaks through module state.

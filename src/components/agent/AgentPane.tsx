@@ -73,6 +73,8 @@ export interface AgentPaneProps {
   folded?: boolean;
   /** Whether this is the active pane (gets the highlight border). */
   selected: boolean;
+  /** Whether global presentation surfaces allow terminal keyboard focus. */
+  keyboardFocusEnabled: boolean;
   /** The only pane in its workspace: no maximize control ([U1]) and no highlight
    * border ([U2]) — there's nothing to maximize over or tell it apart from. */
   solo: boolean;
@@ -160,6 +162,7 @@ export function AgentPane({
   hidden,
   folded,
   selected,
+  keyboardFocusEnabled,
   solo,
   idle,
   wakeError,
@@ -555,6 +558,7 @@ export function AgentPane({
             cwd={cwd}
             visible={visible}
             selected={selected}
+            keyboardFocusEnabled={keyboardFocusEnabled}
             onExit={(code, replayed) => {
               // A replay is attachPane re-announcing an old death to a
               // remounted view (plugin toggled off/on over a crashed pane) —

@@ -43,6 +43,8 @@ import {
 } from "./usageHistoryManager";
 import { createWorktreeManager } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
+import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
+import { createPaneViewActions } from "../presentation/paneViewActions";
 
 /** The live agent contributions as the orchestrator needs them. */
 function agentCatalogPort(
@@ -64,6 +66,8 @@ export function createAppRuntime(
   const downloads = new DownloadManager(downloadBackend);
   const plugins = createPluginManager(downloads);
   const deckStore = createDeckStore();
+  const paneInputFocus = createPaneInputFocusController();
+  const paneViewActions = createPaneViewActions(deckStore, paneInputFocus);
   const deckPersistence = createDeckPersistence(deckStore);
   const minimizePolicy = createMinimizePolicy(deckStore, {
     minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
@@ -124,6 +128,8 @@ export function createAppRuntime(
     deckStore,
     plugins,
     orchestrator,
+    paneInputFocus,
+    paneViewActions,
   );
   const worktreeSweeper = createWorktreeSweeper(
     deckStore,
@@ -144,6 +150,8 @@ export function createAppRuntime(
     spawnContext,
     worktrees,
     application,
+    paneInputFocus,
+    paneViewActions,
     mcp,
     start() {
       if (disposed) return;
@@ -168,6 +176,7 @@ export function createAppRuntime(
       if (disposed) return;
       disposed = true;
       application.dispose();
+      paneInputFocus.dispose();
       achievementNotifier?.dispose();
       usageChannel?.dispose();
       pluginDeckBridge.dispose();

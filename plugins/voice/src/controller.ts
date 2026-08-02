@@ -45,6 +45,11 @@ interface WorkspaceRow {
   panes: { id: string; title: string }[];
 }
 
+interface DictationTarget {
+  workspaceId: string;
+  paneId: string;
+}
+
 export interface VoiceController {
   snapshot(): VoiceSnapshot;
   subscribe(cb: () => void): () => void;
@@ -65,6 +70,8 @@ export function createVoiceController(
   let level = 0;
   let capture: SpeechCapture | null = null;
   let starting: Promise<SpeechCapture> | null = null;
+  let transcribingCapture: SpeechCapture | null = null;
+  let operationVersion = 0;
   let history: HistoryEntry[] = [];
   const listeners = new Set<() => void>();
   // The snapshot is rebuilt only on change — useSyncExternalStore needs a
@@ -84,6 +91,18 @@ export function createVoiceController(
     const result = await ctx.commands.execute("workspace.list", {});
     if (!result.ok) throw new Error(result.error.message);
     return result.value as WorkspaceRow[];
+  }
+
+  /** Ask the application owner for an exact, already-resolved target. */
+  async function dictationTarget(): Promise<DictationTarget | null> {
+    const result = await ctx.commands.execute("pane.target", {});
+    if (!result.ok || typeof result.value !== "object" || result.value === null) {
+      return null;
+    }
+    const value = result.value as Record<string, unknown>;
+    return typeof value.workspaceId === "string" && typeof value.paneId === "string"
+      ? { workspaceId: value.workspaceId, paneId: value.paneId }
+      : null;
   }
 
   /** Vocabulary bias for whisper: the names it should spell correctly plus
@@ -183,6 +202,7 @@ export function createVoiceController(
 
     async start(m) {
       if (phase !== "idle") return;
+      operationVersion += 1;
       phase = "listening";
       mode = m;
       level = 0;
@@ -215,6 +235,7 @@ export function createVoiceController(
 
     async stop() {
       if (phase !== "listening") return;
+      const operation = operationVersion;
       const finished = mode;
       const activeCapture = capture;
       capture = null;
@@ -225,14 +246,17 @@ export function createVoiceController(
         notify();
         return;
       }
+      transcribingCapture = activeCapture;
       phase = "transcribing";
       notify();
       try {
-        const [rows, values, models] = await Promise.all([
+        const [target, rows, values, models] = await Promise.all([
+          finished === "dictation" ? dictationTarget() : Promise.resolve(null),
           workspaces().catch(() => [] as WorkspaceRow[]),
           ctx.settings.read(),
           currentModels(),
         ]);
+        if (operation !== operationVersion) return;
         // The pick persists in the plugin's settings values (settings.json)
         // — the global KV is still a stub, and a choice that silently
         // evaporates on restart is worse than none.
@@ -254,6 +278,7 @@ export function createVoiceController(
           modelPath: selected.target.path,
           prompt: buildPrompt(rows),
         });
+        if (operation !== operationVersion) return;
 
         if (transcript.silence || !transcript.text) {
           if (transcript.seconds > 0.3 && transcript.level < 0.0005) {
@@ -271,12 +296,22 @@ export function createVoiceController(
           }
         } else if (finished === "dictation") {
           push("heard", transcript.text);
+          if (!target) {
+            push("error", "no agent was selected when dictation stopped");
+            return;
+          }
           // Dictation fills the input as RAW keystrokes (mode: "type") so the
           // transcript lands inline and editable — a paste would collapse into
           // a non-editable [Pasted …] placeholder in most agent TUIs. The user
           // reviews and sends it themselves; no `submit`, or the transcript
           // fires off to the agent the instant push-to-talk is released.
-          await execute("pane.write", { text: transcript.text, mode: "type" });
+          await execute("pane.write", {
+            workspace: target.workspaceId,
+            agent: target.paneId,
+            text: transcript.text,
+            mode: "type",
+            focusInput: true,
+          });
         } else {
           push("heard", transcript.text);
           const parsed = parseCommand(transcript.text);
@@ -288,12 +323,16 @@ export function createVoiceController(
         }
       } catch (e) {
         await activeCapture.cancel().catch(() => {});
+        if (operation !== operationVersion) return;
         push("error", e instanceof Error ? e.message : String(e));
       } finally {
-        phase = "idle";
-        mode = null;
-        level = 0;
-        notify();
+        if (transcribingCapture === activeCapture) transcribingCapture = null;
+        if (operation === operationVersion) {
+          phase = "idle";
+          mode = null;
+          level = 0;
+          notify();
+        }
       }
     },
 
@@ -305,14 +344,19 @@ export function createVoiceController(
     async cancel() {
       const activeCapture = capture;
       const pending = starting;
-      if (!activeCapture && !pending) return;
+      const activeTranscription = transcribingCapture;
+      if (!activeCapture && !pending && !activeTranscription) return;
+      operationVersion += 1;
       capture = null;
       starting = null;
+      transcribingCapture = null;
       phase = "idle";
       mode = null;
       level = 0;
       notify();
-      if (activeCapture) {
+      if (activeTranscription) {
+        await activeTranscription.cancel().catch(() => {});
+      } else if (activeCapture) {
         await activeCapture.cancel().catch(() => {});
       } else if (pending) {
         await pending.then((started) => started.cancel()).catch(() => {});

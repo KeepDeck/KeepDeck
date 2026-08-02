@@ -62,6 +62,7 @@ const baseProps = {
   focused: false,
   hidden: false,
   selected: false,
+  keyboardFocusEnabled: true,
   solo: false,
   colSpan: 1,
   onSelect: () => {},

@@ -10,6 +10,9 @@ import { createDeckStore } from "./deckStore";
 import { createApplicationController } from "./applicationController";
 import type { createPluginManager } from "./pluginManager";
 import type { createAgentOrchestrator } from "./agentOrchestrator";
+import type { PaneInputFocusPort } from "./paneInputFocusPort";
+import type { PaneViewPort } from "./paneViewPort";
+import { createPaneViewActions } from "../presentation/paneViewActions";
 
 const workspace = (): Workspace => ({
   id: "ws-1",
@@ -45,6 +48,14 @@ function ui() {
   };
 }
 
+function paneInputFocus(): PaneInputFocusPort {
+  return { requestFocus: vi.fn() };
+}
+
+function paneView(): PaneViewPort {
+  return { revealPane: vi.fn() };
+}
+
 describe("application controller", () => {
   it("owns command registration and plugin bootstrap for its lifetime", async () => {
     const deck = createDeckStore();
@@ -54,6 +65,8 @@ describe("application controller", () => {
       deck,
       plugins,
       orchestrator,
+      paneInputFocus(),
+      paneView(),
       registry,
     );
     const view = ui();
@@ -76,6 +89,46 @@ describe("application controller", () => {
     expect(registry.has("settings.open")).toBe(false);
   });
 
+  it("reveals a command-addressed pane before requesting its input focus", async () => {
+    const target = workspace();
+    const deck = createDeckStore({
+      ...initialDeckState,
+      workspaces: [target],
+      activeId: "ws-1",
+      viewByWs: { "ws-1": { select: "pane-1", focus: "pane-1" } },
+    });
+    const registry = createCommandRegistry();
+    const { plugins, orchestrator } = dependencies();
+    const focus = paneInputFocus();
+    const paneView = createPaneViewActions(deck, focus);
+    const controller = createApplicationController(
+      deck,
+      plugins,
+      orchestrator,
+      focus,
+      paneView,
+      registry,
+    );
+    controller.bindUi(ui());
+    controller.start();
+
+    const result = await registry.execute(
+      "agent.focus",
+      { agent: "pane-2" },
+      { kind: "host" },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      value: { workspaceId: "ws-1", paneId: "pane-2" },
+    });
+    expect(deck.getSnapshot().viewByWs["ws-1"]).toEqual({
+      select: "pane-2",
+      focus: "pane-2",
+    });
+    expect(focus.requestFocus).toHaveBeenCalledWith("pane-2");
+  });
+
   it("applies pane-notification navigation in one ordered policy operation", () => {
     const target = workspace();
     const deck = createDeckStore({
@@ -91,10 +144,15 @@ describe("application controller", () => {
       },
     });
     const { plugins, orchestrator } = dependencies();
+    const focus = paneInputFocus();
+    const paneView = createPaneViewActions(deck, focus);
+    const revealPane = vi.spyOn(paneView, "revealPane");
     const controller = createApplicationController(
       deck,
       plugins,
       orchestrator,
+      focus,
+      paneView,
       createCommandRegistry(),
     );
     const view = ui();
@@ -113,6 +171,8 @@ describe("application controller", () => {
       select: "pane-2",
     });
     expect(view.setCreating).toHaveBeenCalledWith(false);
+    expect(revealPane).toHaveBeenCalledWith("ws-1", "pane-2");
+    expect(focus.requestFocus).toHaveBeenCalledWith("pane-2");
   });
 
   it("reports workspace-allocation failures through the bound UI", () => {
@@ -126,6 +186,8 @@ describe("application controller", () => {
       deck,
       plugins,
       orchestrator,
+      paneInputFocus(),
+      paneView(),
       createCommandRegistry(),
     );
     const view = ui();

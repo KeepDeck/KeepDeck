@@ -42,6 +42,8 @@ import type { Deck } from "./useDeck";
 export interface CoreCommandDeps {
   deck(): Deck;
   agents(): AgentInfo[];
+  /** Select a pane and hand keyboard input to its live terminal. */
+  activatePane(wsId: string, paneId: string): void;
   /** Open the close-confirm flow — voice/MCP closes go through the same
    * dialog as ⌘W, so the destructive step keeps its human confirmation. */
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
@@ -168,6 +170,18 @@ export function registerCoreCommands(
             cwd: p.cwd ?? ws.cwd,
           })),
         }));
+      },
+    }),
+
+    registry.register({
+      id: "pane.target",
+      title: "Resolve the active pane input target",
+      args: [],
+      run: () => {
+        const deck = deps.deck();
+        const workspace = targetWorkspace(deck, undefined);
+        const pane = targetPane(deck, deps.agents(), workspace, undefined);
+        return { workspaceId: workspace.id, paneId: pane.id };
       },
     }),
 
@@ -336,8 +350,7 @@ export function registerCoreCommands(
         const deck = deps.deck();
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, deps.agents(), ws, str(args, "agent"));
-        deck.selectWorkspace(ws.id);
-        deck.selectPane(ws.id, pane.id);
+        deps.activatePane(ws.id, pane.id);
         return { workspaceId: ws.id, paneId: pane.id };
       },
     }),
@@ -463,6 +476,11 @@ export function registerCoreCommands(
           description:
             "'type' inserts raw keystrokes that stay inline and editable (no [Pasted…] collapse); 'paste' uses bracketed paste (default)",
         },
+        {
+          name: "focusInput",
+          type: "boolean",
+          description: "Select the target pane and return keyboard focus to it",
+        },
       ],
       run: (args) => {
         // Validate the mode up front: a misspelled value must NOT silently
@@ -503,6 +521,7 @@ export function registerCoreCommands(
         // deliverTask for why a CR cannot ride inside the pasted payload, and
         // why a raw CR is the submit gesture in type mode too.
         if (args.submit === true) writeRawToPane(pane.id, "\r");
+        if (args.focusInput === true) deps.activatePane(ws.id, pane.id);
         return { workspaceId: ws.id, paneId: pane.id };
       },
     }),

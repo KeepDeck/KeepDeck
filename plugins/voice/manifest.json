@@ -1,7 +1,7 @@
 {
   "id": "keepdeck.voice",
   "name": "Voice",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minApiVersion": 21,
   "category": "deck",
   "experimental": true,
