@@ -1,4 +1,10 @@
-import { skillRootsOf } from "../domain/deck";
+import type { AgentInfo } from "../domain/agents";
+import {
+  findWorkspaceOfPane,
+  paneDisplayTitle,
+  skillRootsOf,
+  type Pane,
+} from "../domain/deck";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
@@ -23,6 +29,7 @@ import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { createMcpService } from "./mcp";
 import { mcpArm } from "../ipc/mcpArming";
+import { paneIdByMcpToken } from "./spawnSpecs";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
@@ -74,6 +81,24 @@ export function createAppRuntime(
     minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
     subscribe: subscribeSettings,
   });
+  /** How a pane reads to a person: its own name if it has one, else the
+   * agent's label and position. The plugin registry is the only place the
+   * pretty label lives, and it is read at CALL time — a journal entry keeps
+   * the name the pane had when it acted. */
+  const paneLabel = (pane: Pane, index: number): string =>
+    paneDisplayTitle(
+      pane,
+      index,
+      plugins.pluginRegistries.agents.list().map(({ entry }) => ({
+        id: entry.id,
+        label: entry.label,
+        command: entry.detect.bin,
+        features: {},
+        installed: true,
+        path: null,
+      })) as AgentInfo[],
+    );
+
   const mcp = createMcpService(
     {
       mcpServer: () => getSettings()?.mcpServer ?? null,
@@ -85,6 +110,23 @@ export function createAppRuntime(
       // below and only ever called from a spawn, long after.
       arm: (workspaceId, entries) =>
         worktrees.inOrder(() => mcpArm(workspaceId, entries)),
+      // A secret names a pane only while that pane's plan is the live one;
+      // the label is snapshot at CALL time, because `pane-N` is a slot a
+      // later pane can inherit and a journal entry has to stay readable.
+      identify: (client) => {
+        const paneId = paneIdByMcpToken(client);
+        if (!paneId) return null;
+        const { workspaces } = deckStore.getSnapshot();
+        const workspace = findWorkspaceOfPane(workspaces, paneId);
+        const index = workspace?.panes.findIndex((p) => p.id === paneId) ?? -1;
+        const pane = index >= 0 ? workspace?.panes[index] : undefined;
+        if (!workspace || !pane) return null;
+        return {
+          id: paneId,
+          workspaceId: workspace.id,
+          label: paneLabel(pane, index),
+        };
+      },
     },
   );
   const journalPersistence = createJournalPersistence(

@@ -199,3 +199,18 @@ export function markPaneSpawnSpecPending(paneId: string): void {
 export function unmarkPaneSpawnSpecPending(paneId: string): void {
   pending.delete(paneId);
 }
+
+/** The pane whose CURRENT plan carries this MCP secret, or null.
+ *
+ * The cache IS the registry of live secrets — no second store to keep in
+ * sync: every path that retires a process drops the spec first, so a secret
+ * stops resolving exactly when the process it was minted for goes away. A
+ * lingering MCP child of a dead pane therefore resolves to nobody, rather
+ * than to whoever inherited its reusable `pane-N` slot.
+ */
+export function paneIdByMcpToken(token: string): string | null {
+  for (const [paneId, plan] of specs) {
+    if (plan.mcpToken === token) return paneId;
+  }
+  return null;
+}

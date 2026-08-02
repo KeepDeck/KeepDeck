@@ -121,7 +121,7 @@ describe("handleMcpLine — tools", () => {
         arguments: { workspace: "api" },
       })),
     );
-    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" });
+    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" }, null);
     expect(reply.result.isError).toBe(false);
     expect(JSON.parse(reply.result.content[0].text)).toEqual({ paneId: "p1" });
   });

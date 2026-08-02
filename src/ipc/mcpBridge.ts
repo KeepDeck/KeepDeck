@@ -13,6 +13,9 @@ export const MCP_REQUEST_EVENT = "deck://mcp/request";
 export interface McpRequest {
   id: number;
   line: string;
+  /** What the connection introduced itself as, unresolved — null for one
+   * that said nothing (a server the user wired up by hand). */
+  client?: string | null;
 }
 
 /** Subscribe to socket requests; resolves to the unlisten function. */

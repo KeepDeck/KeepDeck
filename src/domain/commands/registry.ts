@@ -46,7 +46,17 @@ export interface CommandInfo {
 export type CommandSource =
   | { kind: "host" }
   | { kind: "plugin"; pluginId: string }
-  | { kind: "external"; client: string };
+  | {
+      kind: "external";
+      /** The transport that minted the call. */
+      client: string;
+      /** The pane whose agent is calling, when the connection proved which
+       * one it is. Absent = an anonymous client (a server the user wired up
+       * by hand, or a secret that no longer resolves — a lingering child of a
+       * pane that is gone). `id` is a REUSABLE slot, so `label` snapshots how
+       * the pane read at call time and stays meaningful afterwards. */
+      pane?: { id: string; workspaceId: string; label: string };
+    };
 
 export type CommandError =
   | { code: "unknown-command"; message: string }

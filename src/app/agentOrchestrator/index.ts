@@ -119,6 +119,7 @@ export type McpDefsAsk = (target: {
   agentType: string;
   cwd: string;
   workspaceId: string;
+  client: string;
 }) => Promise<SpawnMcpInput["servers"]>;
 
 /** Delay staged-skill lookup until a spawn plan is actually built. */

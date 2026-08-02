@@ -55,7 +55,8 @@ function harness(opts: { initial?: boolean | null } = {}) {
     enable,
     disable,
     respond,
-    request: (id: number, line: string) => deliver?.({ id, line }),
+    request: (id: number, line: string, client: string | null = null) =>
+      deliver?.({ id, line, client }),
   };
 }
 
@@ -221,6 +222,52 @@ describe("createMcpService", () => {
     expect(h.enable).not.toHaveBeenCalled();
   });
 
+  it("names the calling pane when its connection proved which one it is", async () => {
+    const h = harness({ initial: true });
+    h.deps.identify = (client) =>
+      client === "pane-3-secret"
+        ? { id: "pane-3", workspaceId: "ws-1", label: "Codex 3" }
+        : null;
+    createMcpService(h.settings, h.deps);
+    await flush();
+    const sources: CommandSource[] = [];
+    h.registry.register({
+      id: "deck.ping",
+      title: "Ping",
+      args: [],
+      run: (_args, source) => {
+        sources.push(source);
+        return null;
+      },
+    });
+
+    const call = (client: string | null) =>
+      h.request(1, JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "deck_ping", arguments: {} },
+      }), client);
+
+    call("pane-3-secret");
+    call("a-secret-nobody-holds");
+    call(null);
+    await flush();
+
+    // Known secret: the journal can say WHO. Unknown or absent: anonymous,
+    // which is exactly how a server the user wired up by hand has always
+    // behaved — and how a lingering child of a dead pane must behave.
+    expect(sources).toEqual([
+      {
+        kind: "external",
+        client: "mcp",
+        pane: { id: "pane-3", workspaceId: "ws-1", label: "Codex 3" },
+      },
+      { kind: "external", client: "mcp" },
+      { kind: "external", client: "mcp" },
+    ]);
+  });
+
   it("offers a server def only while the transport is CONFIRMED up", async () => {
     // The wiring this pins: the injection reads the SETTLED status through
     // the service, so a pane asking mid-Off gets nothing — the setting alone
@@ -228,10 +275,10 @@ describe("createMcpService", () => {
     const h = harness({ initial: true });
     const service = createMcpService(h.settings, h.deps);
     await flush();
-    expect((await service.defs({ agentType: "claude", cwd: "/repo", workspaceId: "ws-1" })).map((d) => d.name)).toEqual(["keepdeck"]);
+    expect((await service.defs({ agentType: "claude", cwd: "/repo", workspaceId: "ws-1", client: "s" })).map((d) => d.name)).toEqual(["keepdeck"]);
 
     h.set(false);
     await flush();
-    expect(await service.defs({ agentType: "claude", cwd: "/repo", workspaceId: "ws-1" })).toEqual([]);
+    expect(await service.defs({ agentType: "claude", cwd: "/repo", workspaceId: "ws-1", client: "s" })).toEqual([]);
   });
 });

@@ -15,6 +15,7 @@ const target: McpInjectionTarget = {
   agentType: "claude",
   cwd: "/repo",
   workspaceId: "ws-1",
+  client: "pane-secret",
 };
 
 beforeEach(() => {
@@ -69,14 +70,16 @@ describe("the MCP injection", () => {
     expect(await pending).toEqual([]);
   });
 
-  it("asks the backend ONCE — the invocation is a fact about the install", async () => {
+  it("asks for an invocation that NAMES this pane", async () => {
+    // The secret is what lets a call be attributed to the pane that made it,
+    // and it is the backend that spells the shim's flags — asking without it
+    // would hand every pane the same anonymous command.
     const connection = vi.fn(async () => invocation);
     const injection = createMcpInjection({ socket: () => socket, connection });
 
-    await Promise.all([injection.defs(target), injection.defs(target)]);
-    await injection.defs(target);
+    await injection.defs({ ...target, client: "pane-3-secret" });
 
-    expect(connection).toHaveBeenCalledTimes(1);
+    expect(connection).toHaveBeenCalledWith("pane-3-secret");
   });
 
   it("plants a FILE for kimi and tells the hook there is nothing to add", async () => {
@@ -99,6 +102,7 @@ describe("the MCP injection", () => {
       agentType: "kimi",
       cwd: "/repo",
       workspaceId: "ws-1",
+      client: "pane-secret",
     });
 
     expect(defs).toEqual([]);
@@ -126,6 +130,7 @@ describe("the MCP injection", () => {
       agentType: "kimi",
       cwd: "/repo",
       workspaceId: "ws-1",
+      client: "pane-secret",
     });
 
     expect(arm).not.toHaveBeenCalled();

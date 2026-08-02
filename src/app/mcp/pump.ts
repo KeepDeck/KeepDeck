@@ -7,6 +7,7 @@ import { onMcpRequest, respondMcp, type McpRequest } from "../../ipc/mcpBridge";
  * the Rust side parked nothing for them. */
 export type McpLineHandler = (
   line: string,
+  client: string | null,
 ) => Promise<string | null> | string | null;
 
 /** The transport legs the pump sits between — injectable for tests. */
@@ -41,12 +42,12 @@ export function createMcpRequestPump(
   let unlisten: (() => void) | null = null;
 
   const ready = ports
-    .subscribe(({ id, line }) => {
+    .subscribe(({ id, line, client }) => {
       if (disposed) return;
       void (async () => {
         let reply: string | null;
         try {
-          reply = await handleLine(line);
+          reply = await handleLine(line, client ?? null);
         } catch (e) {
           reply = errorReply(line, INTERNAL_ERROR, describeError(e));
         }

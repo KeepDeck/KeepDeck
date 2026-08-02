@@ -19,7 +19,7 @@ import {
 import { describeError, log } from "../../ipc/log";
 import type { SkillsStagingViews } from "../../ipc/skills";
 import { execCovers } from "../../plugins/capabilities/execCovers";
-import { mintBridgeToken } from "../ids";
+import { mintBridgeToken, mintMcpToken } from "../ids";
 import { postbackCount } from "../postbacks";
 import { peekPaneSpawnSpec } from "./cache";
 import type { SpawnPluginAccess } from "./index";
@@ -43,6 +43,8 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
     agentType: string;
     cwd: string;
     workspaceId: string;
+    /** The pane secret an injected client announces on connect. */
+    client: string;
   }) => Promise<SpawnMcpInput["servers"]>;
 }
 
@@ -84,11 +86,18 @@ export async function buildPlan(
   // the MCP owner's answer, and how a CLI is told about them is the hook's.
   // An empty set leaves the input sparse — a hook must not have to tell
   // "nothing to inject" apart from "this host is too old to say".
+  // Reused for a pane whose process is still alive, for the same reason the
+  // bridge token is: a rebuild must not orphan the secret that process's MCP
+  // children already announce. Every path that RETIRES a process drops the
+  // spec first, so a genuinely new process gets a fresh one and the dead
+  // one's stops resolving.
+  const mcpToken = peekPaneSpawnSpec(paneId)?.mcpToken ?? mintMcpToken();
   const mcpServers = facts.mcpDefs
     ? await facts.mcpDefs({
         agentType: entry.id,
         cwd: facts.cwd,
         workspaceId: facts.workspace.id,
+        client: mcpToken,
       })
     : [];
   const base: SpawnPlanInput = {
@@ -196,6 +205,10 @@ export async function buildPlan(
     env,
     ...(output.envDefaults?.length ? { envDefaults: output.envDefaults } : {}),
     ...(token ? { token } : {}),
+    // Recorded whether or not anything was injected: kimi's servers are
+    // delivered as a file, so the pane has a live client with no `mcp` key in
+    // its plan, and its calls must still resolve to it.
+    mcpToken,
     ...(variant.kind === "resume"
       ? {
           resumeOf: variant.sessionId,

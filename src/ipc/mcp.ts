@@ -20,7 +20,12 @@ export interface McpConnection {
   args: string[];
 }
 
-/** The connect invocation for this install (the app binary in shim mode). */
-export async function mcpConnectionCommand(): Promise<McpConnection> {
-  return await invoke<McpConnection>("mcp_connection_command");
+/** The connect invocation for this install (the app binary in shim mode).
+ * With a `client` secret it also names the pane the connection serves; the
+ * copy-pasteable command the settings page shows is asked for WITHOUT one,
+ * so a hand-wired server stays anonymous. */
+export async function mcpConnectionCommand(
+  client?: string,
+): Promise<McpConnection> {
+  return await invoke<McpConnection>("mcp_connection_command", { client });
 }

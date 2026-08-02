@@ -50,6 +50,16 @@ export interface SpawnPlan {
    * reporters echo, and every postback would fail verification forever.
    * Only an explicit restart, which drops the spec first, mints fresh. */
   token?: string;
+  /** The PER-PANE MCP secret, minted and retired exactly like `token`: a
+   * connection that announces it proves which pane's agent it belongs to, so
+   * the journal names the actor. Kept SEPARATE from the bridge token — the
+   * two authorize different things, and a leak of one must not widen the
+   * other. Absent when nothing was injected for this pane.
+   *
+   * The slot `pane-3` is reused after a restart, which is exactly why the
+   * secret exists: it dies with the process, so a lingering MCP child of a
+   * dead pane resolves to nobody instead of to whoever holds the slot now. */
+  mcpToken?: string;
   /** Host bookkeeping: the recorded session this plan tries to RESUME. Set
    * only on resume plans — the resume-failure detector keys off it. */
   resumeOf?: string;

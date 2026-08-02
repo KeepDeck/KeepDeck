@@ -1,4 +1,4 @@
-import type { CommandRegistry } from "../../domain/commands";
+import type { CommandRegistry, CommandSource } from "../../domain/commands";
 import {
   handleMcpLine,
   type McpCommandPort,
@@ -27,6 +27,9 @@ import {
  * confirmed; `error` is why the last transition failed — and after a
  * failure the socket claim is KEPT, because nothing confirmed a change
  * (a failed disable most likely leaves the socket serving). */
+/** The transport every external call is journaled under. */
+const MCP_TRANSPORT = "mcp";
+
 export interface McpStatus {
   socket: string | null;
   error: string | null;
@@ -74,6 +77,17 @@ export interface McpServiceDeps {
   identitySource?: () => Promise<{ name: string; version: string }>;
   connection?: McpInjectionDeps["connection"];
   arm?: McpInjectionDeps["arm"];
+  /** Resolve a connection's secret to the pane that announced it. Injected:
+   * which pane holds which secret is the spawn layer's knowledge, and the
+   * deck's — neither belongs to the transport. */
+  identify?: (client: string) => McpPaneIdentity | null;
+}
+
+/** How a pane reads in the journal at the moment it acted. */
+export interface McpPaneIdentity {
+  id: string;
+  workspaceId: string;
+  label: string;
 }
 
 /**
@@ -118,10 +132,21 @@ export function createMcpService(
     })
     .catch(() => {});
 
+  /** Who a connection is, as the journal will record it. The ONE place that
+   * turns a token into an identity: a secret that no longer resolves — a
+   * hand-wired server, or a lingering child of a pane that is gone — reads as
+   * an anonymous client, which is the behaviour that existed before panes
+   * could be named at all. */
+  function sourceFor(client: string | null): CommandSource {
+    const pane = client ? (deps.identify?.(client) ?? null) : null;
+    return pane
+      ? { kind: "external", client: MCP_TRANSPORT, pane }
+      : { kind: "external", client: MCP_TRANSPORT };
+  }
+
   const port: McpCommandPort = {
     list: () => registry.list(),
-    execute: (id, args) =>
-      registry.execute(id, args, { kind: "external", client: "mcp" }),
+    execute: (id, args, client) => registry.execute(id, args, sourceFor(client)),
   };
   // Reads the CONFIRMED status through a closure rather than a snapshot:
   // `current` moves with every settled transition.
@@ -131,7 +156,7 @@ export function createMcpService(
     ...(deps.arm ? { arm: deps.arm } : {}),
   });
   const pump = createMcpRequestPump(
-    (line) => handleMcpLine(port, () => identity, line),
+    (line, client) => handleMcpLine(port, () => identity, line, client),
     deps.pumpPorts,
   );
   let policy: McpServerPolicy | null = null;

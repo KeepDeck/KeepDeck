@@ -21,6 +21,7 @@ import {
   resetPaneSpawnSpecs,
   type SpawnPluginAccess,
   buildLivePaneSpec,
+  paneIdByMcpToken,
   subscribeSpawnSpecs,
 } from ".";
 
@@ -222,5 +223,20 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
     dropPaneSpawnSpec("pane-1");
     expect(after).toBe(0);
     again();
+  });
+
+  it("resolves an MCP secret to its pane, and forgets it with the plan", async () => {
+    // The plan cache IS the registry of live secrets: a pane that retires
+    // drops its spec, so a lingering MCP child resolves to nobody instead of
+    // to whoever inherited its reusable `pane-N` slot.
+    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
+    const secret = peekPaneSpawnSpec("pane-1")?.mcpToken;
+
+    expect(secret).toBeDefined();
+    expect(paneIdByMcpToken(secret!)).toBe("pane-1");
+    expect(paneIdByMcpToken("a-secret-nobody-holds")).toBeNull();
+
+    dropPaneSpawnSpec("pane-1");
+    expect(paneIdByMcpToken(secret!)).toBeNull();
   });
 });

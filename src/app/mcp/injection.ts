@@ -30,6 +30,9 @@ export interface McpInjectionTarget {
   agentType: string;
   cwd: string;
   workspaceId: string;
+  /** The pane secret this spawn's clients announce, so the deck can name the
+   * pane behind a connection. */
+  client: string;
 }
 
 export interface McpInjection {
@@ -45,7 +48,7 @@ export interface McpInjectionDeps {
   /** The CONFIRMED socket, or null. Read per call: the toggle can flip
    * between two spawns, and a remembered answer would outlive the fact. */
   socket: () => string | null;
-  connection?: () => Promise<McpConnection>;
+  connection?: (client: string) => Promise<McpConnection>;
   /** Plant kimi's config in a pane cwd. Injected because the write must be
    * ORDERED against worktree teardown — arming a directory that is being
    * deleted is the mistake the worktree owner's queue exists to prevent — and
@@ -61,18 +64,14 @@ export function createMcpInjection({
   connection = mcpConnectionCommand,
   arm = mcpArm,
 }: McpInjectionDeps): McpInjection {
-  /** The connect invocation is a property of the INSTALL (this binary, this
-   * home), so it is fetched once and reused. A failure is not remembered:
-   * the backend may answer the next pane, and refusing forever because one
-   * call failed would need a restart to recover. */
-  let invocation: Promise<McpConnection> | null = null;
-
-  async function resolve(): Promise<McpConnection | null> {
-    const pending = (invocation ??= connection());
+  /** The invocation is per PANE (it names the pane's secret), so unlike the
+   * install-wide parts of it there is nothing to cache. A failure answers
+   * null and is not remembered: the backend may serve the next pane, and
+   * refusing forever because one call failed would need a restart. */
+  async function resolve(client: string): Promise<McpConnection | null> {
     try {
-      return await pending;
+      return await connection(client);
     } catch (e) {
-      if (invocation === pending) invocation = null;
       log.warn(
         "web:mcp",
         `no connect invocation for injection: ${describeError(e)}`,
@@ -84,7 +83,7 @@ export function createMcpInjection({
   return {
     async defs(target) {
       if (socket() === null) return [];
-      const invoked = await resolve();
+      const invoked = await resolve(target.client);
       if (!invoked) return [];
       // Re-checked after the await: the toggle may have gone Off while the
       // backend was answering, and a def minted then would be handed to a
