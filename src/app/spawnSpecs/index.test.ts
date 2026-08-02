@@ -84,7 +84,6 @@ const settle = async () => {
   for (let i = 0; i < 4; i++) await act(async () => {});
 };
 
-describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
 describe("the plan builders — live pane, resume, fork", () => {
   let root: Root;
   let registered: Disposable[] = [];
@@ -361,5 +360,4 @@ describe("the plan builders — live pane, resume, fork", () => {
     markPaneResumeOrigin("pane-1", "manual");
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
   });
-});
 });

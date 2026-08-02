@@ -1,154 +1,30 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import type { Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  getSettings,
-  initSettings,
-  resetSettingsManager,
-  updateSettings,
-} from "../../app/settingsManager";
-import {
+  agentsIpc,
+  blur,
+  button,
   DEFAULT_SETTINGS,
+  dialogHost,
+  getSettings,
+  ipc,
+  mountDialog,
+  panelOf,
+  resetSettingsManager,
   SCROLLBACK_MIN,
+  scrollbackInput,
+  type,
   type Settings,
-} from "../../domain/settings";
-import { SettingsDialog } from "./SettingsDialog";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
-// The dialog's sections talk to the real settings manager over a mocked IPC —
-// the tests cover the whole loop: control → store → re-render.
-const ipc = vi.hoisted(() => ({
-  loadSettings: vi.fn<() => Promise<string | null>>(async () => null),
-  saveSettings: vi.fn<(json: string) => Promise<void>>(async () => {}),
-  quarantineSettings: vi.fn<() => Promise<void>>(async () => {}),
-}));
-vi.mock("../../ipc/settings", () => ipc);
-
-// The Experimental section reads the MCP transport's confirmed status from
-// the app runtime; the dialog tests run without a runtime provider, so the
-// hook is answered directly — transport off, no error.
-vi.mock("../../app/mcp/useMcpStatus", () => ({
-  useMcpStatus: () => ({ socket: null, error: null, refused: [] }),
-}));
-
-// The General section assembles the agent catalog from the plugin registry
-// (seeded with the three built-in cli agents) plus per-mount detection —
-// detectBins is the refetch tripwire.
-const agentsIpc = vi.hoisted(() => ({
-  detectBins: vi.fn(async (bins: string[]) =>
-    bins.map((bin) => ({ bin, installed: true, path: null })),
-  ),
-}));
-vi.mock("../../ipc/agents", () => agentsIpc);
-// A controllable installed-plugins store: tests install/uninstall plugins and
-// the dialog reacts through the same useSyncExternalStore path as the real
-// host (stable snapshots, notified subscribers).
-const pluginStore = vi.hoisted(() => {
-  let installed: unknown[] = [];
-  const subscribers = new Set<() => void>();
-  return {
-    getInstalled: () => installed,
-    subscribe: (cb: () => void) => {
-      subscribers.add(cb);
-      return () => subscribers.delete(cb);
-    },
-    set(next: unknown[]) {
-      installed = next;
-      for (const cb of [...subscribers]) cb();
-    },
-  };
-});
-const runtimeMock = vi.hoisted(() => ({ registries: null as any }));
-
-vi.mock("../../app/runtimeContext", async () => {
-  const { createContributionRegistries } = await import(
-    "../../plugins/registries/contributions"
-  );
-  const registries = createContributionRegistries();
-  runtimeMock.registries = registries;
-  for (const [id, label] of [
-    ["claude", "Claude Code"],
-    ["codex", "Codex"],
-    ["opencode", "OpenCode"],
-  ]) {
-    registries.agents.add("test-plugin", {
-      id,
-      label,
-      detect: { bin: id },
-      hooks: {},
-    });
-  }
-  return {
-    useAppRuntime: () => ({
-      plugins: {
-        pluginRegistries: registries,
-        bootstrapPlugins: () => Promise.resolve(),
-        // Per-plugin sections render in the dialog's nav tree — the controllable
-        // store keeps it honest without pulling the real Tauri-backed manager in.
-        pluginHost: {
-          getInstalled: pluginStore.getInstalled,
-          subscribe: pluginStore.subscribe,
-          setEnabled: async () => {},
-        },
-        externalPluginInfo: () => null,
-        rescanPlugins: async () => {},
-        restartPlugin: async () => {},
-      },
-    }),
-    AppRuntimeProvider: ({ children }: { children: unknown }) => children,
-  };
-});
-
-/** An installed, active Files plugin — enough manifest for a PluginPage. */
-
-
-
-const button = (text: string) =>
-  Array.from(document.querySelectorAll("button")).find(
-    (b) => b.textContent === text,
-  )!;
-const scrollbackInput = () =>
-  document.querySelector<HTMLInputElement>(
-    'input[aria-label="Terminal scrollback lines"]',
-  );
-/** The section panel an element lives in — visibility is per panel (`hidden`),
- * inactive sections stay mounted. */
-const panelOf = (el: Element) => el.closest(".settings__section")!;
-
-/** Type into a controlled React input: set via the native setter (bypassing
- * React's value tracker) and fire a bubbling `input` event. */
-function type(el: HTMLInputElement, text: string) {
-  const set = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  )!.set!;
-  act(() => {
-    set.call(el, text);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
-
-const blur = (el: HTMLElement) =>
-  act(() => {
-    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
-  });
+} from "./testSupport";
 
 describe("SettingsDialog", () => {
   let root: Root;
   let closed: number;
 
   beforeEach(() => {
-    ipc.saveSettings.mockClear();
-    agentsIpc.detectBins.mockClear();
-    resetSettingsManager();
-    pluginStore.set([]);
-    document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
+    root = dialogHost();
     closed = 0;
   });
 
@@ -157,25 +33,10 @@ describe("SettingsDialog", () => {
     resetSettingsManager();
   });
 
-  const mount = async (
+  const mount = (
     overrides: Partial<Settings> = {},
     initialSectionId?: string,
-  ) => {
-    await initSettings();
-    if (Object.keys(overrides).length > 0) updateSettings(overrides);
-    // Seeding writes aren't under test — let the queued save land, then drop it.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    ipc.saveSettings.mockClear();
-    await act(async () =>
-      root.render(
-        createElement(SettingsDialog, {
-          onClose: () => closed++,
-          initialSectionId,
-        }),
-      ),
-    );
-    await act(async () => {}); // flush the agent-catalog load
-  };
+  ) => mountDialog(root, () => closed++, overrides, initialSectionId);
 
   const toTerminal = () => act(() => button("Terminal").click());
 

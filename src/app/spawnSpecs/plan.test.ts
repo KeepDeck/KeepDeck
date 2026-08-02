@@ -97,7 +97,6 @@ const settle = async () => {
   for (let i = 0; i < 4; i++) await act(async () => {});
 };
 
-describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
 describe("building one plan through the agent hook", () => {
   let root: Root;
   let registered: Disposable[] = [];
@@ -546,5 +545,4 @@ describe("building one plan through the agent hook", () => {
     expect(seen["pane-1"].command).toBe("claude"); // detect.bin, declared
     expect(seen["pane-1"].args).toEqual([]);
   });
-});
 });

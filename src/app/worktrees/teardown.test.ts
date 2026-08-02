@@ -1,91 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const worktree = vi.hoisted(() => ({
-  inspectRepo: vi.fn(),
-  createWorktree: vi.fn(),
-  removeWorktree: vi.fn(),
-}));
-vi.mock("../../ipc/worktree", () => worktree);
-
-// The IPC wrappers report whether they got through — the manager only records a
-// sweep as done when they did — so the doubles answer `true` like the real ones.
-const skills = vi.hoisted(() => ({
-  stageSkills: vi.fn(),
-  disarmSkills: vi.fn(async (_roots: string[]) => true),
-  pruneSkills: vi.fn(async (_liveWsIds: string[]) => true),
-}));
-vi.mock("../../ipc/skills", () => skills);
-
-// The MCP config is planted in the same directories by the same owner, so the
-// doubles answer `true` like the real wrappers do.
-const mcpArming = vi.hoisted(() => ({
-  mcpArm: vi.fn(async () => ({ armed: [], refused: [] })),
-  mcpDisarm: vi.fn(async (_roots: string[]) => true),
-  mcpPrune: vi.fn(async (_liveWsIds: string[]) => true),
-}));
-vi.mock("../../ipc/mcpArming", () => mcpArming);
+import {
+  armDoubles,
+  managerFor,
+  planPanes,
+  ref,
+  skills,
+  stagedFor,
+  worktree,
+  type DeckEntry,
+  type WorktreeManager,
+} from "./testSupport";
 
 /** The pane is still in the deck for the whole create — the ordinary case.
  * The tests that close a pane mid-create override this. */
 const stays = () => false;
 
-import type { WorkspaceRef } from "@keepdeck/plugin-api";
-import type { SkillsStagingViews } from "../../ipc/skills";
-import { planPanes } from "../provisioning";
-import {
-  createWorktreeManager,
-  type LiveWorkspace,
-  type WorktreeManager,
-} from ".";
-
-/** The deck the manager reads, as a test double: what `live()` returns IS the
- * app's answer to which roots are claimed, and `rootsOf` answers from it.
- *
- * It carries the workspace INSTANCE, which `LiveWorkspace` does not: the
- * production adapter matches a workspace's LIFETIME and documents that as
- * load-bearing, and a double that knew only ids could not express the rule, let
- * alone cover it. Left off an entry, it follows [`ref`]'s default. */
-type DeckEntry = LiveWorkspace & { instance?: string };
-
 let deck: DeckEntry[] = [];
-
-const lifetimeOf = (ws: DeckEntry): string => ws.instance ?? `${ws.id}-life-1`;
-
-/** A fresh manager per test: its maps are per-instance precisely so no test —
- * and no workspace — inherits another's in-flight state. */
 let manager: WorktreeManager;
 
 beforeEach(() => {
-  // RESET, not clear: `clearAllMocks` wipes call history but leaves
-  // implementations in place, so one test's recording stub would answer for
-  // every test declared after it.
   vi.resetAllMocks();
   deck = [];
-  skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
-  skills.disarmSkills.mockResolvedValue(true);
-  skills.pruneSkills.mockResolvedValue(true);
-  mcpArming.mcpDisarm.mockResolvedValue(true);
-  mcpArming.mcpPrune.mockResolvedValue(true);
-  manager = createWorktreeManager({
-    // Matched on the exact LIFETIME, like the production adapter: a reborn
-    // workspace must not be handed the dead one's roots.
-    rootsOf: (ref) =>
-      deck.find((ws) => ws.id === ref.id && lifetimeOf(ws) === ref.instance)
-        ?.roots ?? [],
-    live: () => deck.map(({ id, roots }) => ({ id, roots })),
-  });
-});
-
-/** A workspace REF: the id keys the disk, the instance keys the memo. */
-const ref = (id: string, instance = `${id}-life-1`): WorkspaceRef => ({
-  id,
-  instance,
-});
-
-const stagedFor = (wsId: string): SkillsStagingViews => ({
-  claudePluginDir: `/staging/${wsId}/claude-plugin`,
-  opencodeConfigDir: `/staging/${wsId}/opencode`,
-  skillsDir: `/staging/${wsId}/skills`,
+  armDoubles();
+  manager = managerFor(() => deck);
 });
 
 describe("the ordering between arming and teardown", () => {
