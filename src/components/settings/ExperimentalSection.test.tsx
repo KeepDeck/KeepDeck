@@ -23,6 +23,10 @@ const mcpStatus = vi.hoisted(() => ({
 vi.mock("../../app/mcp/useMcpStatus", () => ({
   useMcpStatus: () => mcpStatus.current,
 }));
+const clipboard = vi.hoisted(() => ({
+  writeText: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("../../ipc/clipboard", () => clipboard);
 const mcpIpc = vi.hoisted(() => ({
   mcpConnectionCommand: vi.fn(() =>
     Promise.resolve({
@@ -43,6 +47,7 @@ describe("ExperimentalSection", () => {
   beforeEach(() => {
     settingsManager.updateSettings.mockReset();
     mcpIpc.mcpConnectionCommand.mockClear();
+    clipboard.writeText.mockClear();
     settings.current = { ...DEFAULT_SETTINGS };
     mcpStatus.current = { socket: null, error: null, refused: [] };
     document.body.innerHTML = "";
@@ -67,8 +72,9 @@ describe("ExperimentalSection", () => {
     return buttons;
   };
 
-  const connectInput = () =>
-    host.querySelector<HTMLInputElement>("input.form__input");
+  /** The connect command as rendered — read-only text, not a field. */
+  const connectLine = () =>
+    host.querySelector<HTMLElement>(".settings__command");
 
   it("each toggle writes its own settings key", async () => {
     mount();
@@ -99,17 +105,19 @@ describe("ExperimentalSection", () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
     mount();
     await settle();
-    expect(connectInput()).toBeNull();
+    expect(connectLine()).toBeNull();
     expect(mcpIpc.mcpConnectionCommand).not.toHaveBeenCalled();
 
     mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
     mount();
     await settle();
-    const input = connectInput();
-    expect(input?.value).toBe(
+    const line = connectLine();
+    expect(line?.textContent).toBe(
       "/Applications/KeepDeck --mcp-shim /Users/u/.config/keepdeck/mcp/mcp.sock",
     );
-    expect(input?.readOnly).toBe(true);
+    // Not a field: a caret and a typing attempt are exactly what the old
+    // read-only <input> invited.
+    expect(host.querySelector("input.form__input")).toBeNull();
   });
 
   it("the row leaves with the served status (live Off)", async () => {
@@ -117,11 +125,11 @@ describe("ExperimentalSection", () => {
     mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
     mount();
     await settle();
-    expect(connectInput()).not.toBeNull();
+    expect(connectLine()).not.toBeNull();
     mcpStatus.current = { socket: null, error: null, refused: [] };
     mount();
     await settle();
-    expect(connectInput()).toBeNull();
+    expect(connectLine()).toBeNull();
   });
 
   it("a failed enable surfaces as a message, not a silently missing row", async () => {
@@ -152,7 +160,7 @@ describe("ExperimentalSection", () => {
     mcpStatus.current = { socket: "/home/mcp.sock", error: "ipc failure", refused: [] };
     mount();
     await settle();
-    expect(connectInput()).not.toBeNull();
+    expect(connectLine()).not.toBeNull();
     expect(host.textContent).toContain("reported a problem");
     expect(host.textContent).toContain("no longer reachable");
   });
@@ -165,7 +173,7 @@ describe("ExperimentalSection", () => {
     );
     mount();
     await settle();
-    expect(connectInput()).toBeNull();
+    expect(connectLine()).toBeNull();
     expect(host.textContent).toContain("connect command could not be determined");
     expect(host.textContent).toContain("path contains a symlink");
   });
@@ -194,5 +202,25 @@ describe("ExperimentalSection", () => {
     mount();
     await settle();
     expect(host.textContent).toContain("/repo/api");
+  });
+
+  it("copies the command to the clipboard, and says it did", async () => {
+    // The whole point of the row: the user takes this line elsewhere. Copying
+    // must not depend on selecting monospace text with a mouse.
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
+    mount();
+    await settle();
+
+    const copy = Array.from(host.querySelectorAll("button")).find(
+      (b) => b.textContent === "Copy",
+    );
+    act(() => copy!.click());
+    await settle();
+
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      "/Applications/KeepDeck --mcp-shim /Users/u/.config/keepdeck/mcp/mcp.sock",
+    );
+    expect(host.textContent).toContain("Copied");
   });
 });

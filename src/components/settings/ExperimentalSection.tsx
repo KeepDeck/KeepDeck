@@ -4,6 +4,7 @@ import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
 import { shellLine } from "../../domain/mcp";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
+import { writeText } from "../../ipc/clipboard";
 import { mcpConnectionCommand } from "../../ipc/mcp";
 
 /**
@@ -36,8 +37,12 @@ export function ExperimentalSection() {
   // missing row — the server IS serving.
   const [connect, setConnect] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  // Reset whenever the command changes, so the confirmation can never stand
+  // over a line the user has not actually copied.
+  const [copied, setCopied] = useState(false);
   const served = mcpStatus.socket !== null;
   useEffect(() => {
+    setCopied(false);
     if (!served) {
       setConnect(null);
       setConnectError(null);
@@ -131,15 +136,27 @@ export function ExperimentalSection() {
       {served && connect !== null && (
         <>
           <span className="form__label">MCP connect</span>
-          <input
-            className="form__input"
-            readOnly
-            value={connect}
-            onFocus={(e) => e.currentTarget.select()}
-          />
+          {/* Read-only by nature, so it must not look like a field — and
+              the copy sits in an ordinary control row underneath, where
+              every other button in settings lives. */}
+          <div className="settings__command kd-selectable">{connect}</div>
+          <div className="form__types">
+            <button
+              type="button"
+              className="form__type"
+              onClick={() => {
+                void writeText(connect)
+                  .then(() => setCopied(true))
+                  .catch(() => setCopied(false));
+              }}
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
           <span className="settings__hint">
-            The stdio command an MCP client spawns to reach the deck — add it
-            to any client as a stdio server.
+            For MCP clients KeepDeck does not start itself — a desktop app, an
+            editor, an agent you run outside the deck. Panes started here are
+            connected already.
             {mcpStatus.error !== null &&
               " This was the last confirmed socket; the problem above may mean it is no longer reachable."}
           </span>
