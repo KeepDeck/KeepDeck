@@ -219,8 +219,35 @@ pub(crate) fn prune(root: &Path, live: &[String]) -> io::Result<()> {
     prune_manifests(root, live, "mcp", disarm_files)
 }
 
+/// Plant the MCP config in the given pane cwds — the only door for a CLI that
+/// takes none on argv. Each entry names the directory and file its agent
+/// reads, and the workspace whose crash sweep owes it a disarm.
+///
+/// The three commands live HERE, with the delivery they drive, rather than in
+/// the transport's module door: that file is the one place the socket, the
+/// bridge and the shim are wired together, and its own header tells the next
+/// contributor to add a second transport to it. A second feature parked
+/// alongside is how the file it replaced grew to 1440 lines.
+#[tauri::command(async)]
+pub fn mcp_arm(entries: Vec<McpArmEntry>) -> Result<McpArmReport, String> {
+    Ok(arm(&arming_root()?, &entries))
+}
+
+/// Take KeepDeck's MCP config back out of the given cwds. Only what our
+/// marker claims is touched.
+#[tauri::command(async)]
+pub fn mcp_disarm(roots: Vec<String>) -> Result<(), String> {
+    disarm(&arming_root()?, &roots).map_err(|e| e.to_string())
+}
+
+/// Sweep what workspaces that no longer exist left in their cwds.
+#[tauri::command(async)]
+pub fn mcp_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
+    prune(&arming_root()?, &live_ws_ids).map_err(|e| e.to_string())
+}
+
 /// Where the armed manifests live: beside the socket, in KeepDeck's own home.
-pub(crate) fn arming_root() -> Result<std::path::PathBuf, String> {
+fn arming_root() -> Result<std::path::PathBuf, String> {
     crate::paths::mcp_socket()
         .and_then(|socket| socket.parent().map(Path::to_path_buf))
         .ok_or_else(|| "no home directory to record MCP arming".to_string())

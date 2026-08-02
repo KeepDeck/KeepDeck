@@ -28,7 +28,23 @@ import {
 import { buildPlan, findAgent, type PaneSpawnFacts } from "./plan";
 
 export * from "./plans";
-export * from "./cache";
+// Named, not a star: `resetPaneSpawnSpecs` is a test-only API (the cache is
+// module-global state, which is the actual defect) and a star put it on the
+// FEATURE's door, where every consumer could reach it. Tests import it from
+// `./cache` directly, so the eventual removal touches one file.
+export {
+  bindPaneSpawnSpecSession,
+  buildAndCache,
+  clearPanePlanError,
+  dropPaneSpawnSpec,
+  hasPaneSpawnSpec,
+  isPaneSpawnSpecPending,
+  markPaneResumeOrigin,
+  paneIdByMcpToken,
+  peekPanePlanError,
+  peekPaneSpawnSpec,
+  subscribeSpawnSpecs,
+} from "./cache";
 export type { PaneSpawnFacts } from "./plan";
 
 export type SpawnPluginAccess = Pick<

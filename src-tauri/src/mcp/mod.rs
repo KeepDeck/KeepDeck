@@ -1,13 +1,17 @@
-//! The MCP feature's front door: the four Tauri commands, and the ONLY
-//! place the transport's parts are wired together — the socket lifecycle
-//! ([`server`]), the webview bridge ([`bridge`]) and
-//! the shim's flag ([`shim`]). The parts never import each
-//! other's IMPLEMENTATIONS — the bridge depends only on the server's
-//! `LineHandler` port type — so each stays testable alone, and a future
-//! second transport (or a per-connection identity handler) edits this
+//! The TRANSPORT's front door: its four Tauri commands, and the ONLY place
+//! its parts are wired together — the socket lifecycle ([`server`]), the
+//! webview bridge ([`bridge`]) and the shim's flag ([`shim`]). The parts never
+//! import each other's IMPLEMENTATIONS — the bridge depends only on the
+//! server's `LineHandler` port type — so each stays testable alone, and a
+//! future second transport (or a per-connection identity handler) edits this
 //! file, not them.
+//!
+//! [`arming`] is a sibling feature, not part of that wiring: it delivers
+//! servers to a CLI with no argv door, and owns its own three commands. It sat
+//! here once, which made this door quietly answer for two features while its
+//! header invited the next contributor to add a third.
 
-mod arming;
+pub mod arming;
 pub(crate) mod bridge;
 pub(crate) mod server;
 pub(crate) mod shim;
@@ -97,25 +101,3 @@ pub fn mcp_connection_command(
     })
 }
 
-/// Plant the MCP config in the given pane cwds — the only door for a CLI that
-/// takes none on argv (see [`arming`]). Each entry names the directory and file
-/// its agent reads, and the workspace whose crash sweep owes it a disarm.
-#[tauri::command(async)]
-pub fn mcp_arm(
-    entries: Vec<arming::McpArmEntry>,
-) -> Result<arming::McpArmReport, String> {
-    Ok(arming::arm(&arming::arming_root()?, &entries))
-}
-
-/// Take KeepDeck's MCP config back out of the given cwds. Only what our
-/// marker claims is touched.
-#[tauri::command(async)]
-pub fn mcp_disarm(roots: Vec<String>) -> Result<(), String> {
-    arming::disarm(&arming::arming_root()?, &roots).map_err(|e| e.to_string())
-}
-
-/// Sweep what workspaces that no longer exist left in their cwds.
-#[tauri::command(async)]
-pub fn mcp_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
-    arming::prune(&arming::arming_root()?, &live_ws_ids).map_err(|e| e.to_string())
-}

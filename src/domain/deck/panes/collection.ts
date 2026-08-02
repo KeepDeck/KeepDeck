@@ -1,14 +1,13 @@
 /**
- * A workspace's pane LIST: adding, removing, partitioning, choosing focus —
- * and the title each pane shows.
+ * A workspace's pane LIST: adding, removing, partitioning, choosing focus.
  *
  * Everything here takes the list (or one pane) and returns a value; nothing
  * reaches for pane lifecycle rules, which is what keeps the reducer's list
- * operations free of "may this pane…" questions.
+ * operations free of "may this pane…" questions. What a pane is CALLED is
+ * [`./titles`] — a different reason to change entirely.
  */
 import { MAX_PANES } from "../layout";
-import { paneAgentType } from "./lifecycle";
-import type { Pane } from "./index";
+import type { Pane } from "./model";
 
 /**
  * Append an already-formed `pane` (e.g. one whose worktree is provisioned),
@@ -60,36 +59,3 @@ export function resolveFocus(
   return panes.some((pane) => pane.id === focusedId) ? focusedId : null;
 }
 
-/** Display title for the pane at `index`: the manual name wins, then the
- * terminal's auto title, then "<Agent label> N" from the catalog — falling back
- * to the raw agent id while the catalog is still loading ([F11]).
- *
- * Takes the two fields it READS, not the catalog entry they come from. Asking
- * for a full `AgentInfo` made every non-UI caller manufacture one — the
- * composition root did it behind a cast, asserting an installed state it had
- * not detected and an empty feature list that does not typecheck — for a
- * function that looks at `id` and `label`. */
-export function paneDisplayTitle(
-  pane: Pane,
-  index: number,
-  agents: readonly { id: string; label: string }[],
-): string {
-  const agentType = paneAgentType(pane);
-  const label = agents.find((a) => a.id === agentType)?.label ?? agentType;
-  return pane.name ?? cleanPaneAutoTitle(pane.autoTitle) ?? `${label} ${index + 1}`;
-}
-
-/** The title a pane's journal record freezes at seal time: the manual name,
- * else the cleaned terminal auto title — never the derived "Agent N" (that is
- * positional, meaningless once the pane is gone). */
-export function paneFrozenTitle(pane: Pane): string | undefined {
-  return pane.name ?? cleanPaneAutoTitle(pane.autoTitle);
-}
-
-/** Claude Code prefixes some OSC titles with a decorative/status glyph. Keep the
- * raw autoTitle for persistence, but do not make one agent family look like it
- * has a bespoke pane-header icon. */
-function cleanPaneAutoTitle(title: string | undefined): string | undefined {
-  const cleaned = title?.replace(/^[✦✧✶✳✱✲✷✸✹✺✻✼✽]\s+/, "").trim();
-  return cleaned || undefined;
-}

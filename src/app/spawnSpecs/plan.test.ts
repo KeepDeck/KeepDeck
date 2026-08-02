@@ -21,10 +21,11 @@ import {
   dropPaneSpawnSpec,
   peekPanePlanError,
   peekPaneSpawnSpec,
-  resetPaneSpawnSpecs,
   type SpawnPluginAccess,
   buildLivePaneSpec,
 } from ".";
+// Straight from the module: the barrel deliberately does not carry it.
+import { resetPaneSpawnSpecs } from "./cache";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (

@@ -14,7 +14,16 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
-use super::SkillDto;
+/// One library skill on the wire (mirrors the TS `StoredSkill`, camelCase).
+/// Content rides along — skills are small and the list IS the read path.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDto {
+    pub scope: String,
+    pub ws_id: Option<String>,
+    pub name: String,
+    pub content: String,
+}
 use crate::state::write_atomic;
 
 pub(crate) const SKILL_FILE: &str = "SKILL.md";
@@ -22,7 +31,7 @@ pub(crate) const SKILL_FILE: &str = "SKILL.md";
 /// Path-segment safety shared by skill names and workspace ids: one plain
 /// directory name, no traversal. The friendlier naming rules (kebab-case
 /// etc.) are the webview's business.
-pub(crate) fn require_safe(segment: &str, what: &str) -> Result<(), String> {
+pub(super) fn require_safe(segment: &str, what: &str) -> Result<(), String> {
     let ok = !segment.is_empty()
         && segment.len() <= 64
         && segment
@@ -37,7 +46,7 @@ pub(crate) fn require_safe(segment: &str, what: &str) -> Result<(), String> {
 }
 
 /// The library directory a scope stores its skills in.
-pub(crate) fn scope_dir(root: &Path, scope: &str, ws_id: Option<&str>) -> Result<PathBuf, String> {
+pub(super) fn scope_dir(root: &Path, scope: &str, ws_id: Option<&str>) -> Result<PathBuf, String> {
     match (scope, ws_id) {
         ("global", None) => Ok(root.join("library").join("global")),
         ("workspace", Some(ws)) => {
@@ -48,7 +57,7 @@ pub(crate) fn scope_dir(root: &Path, scope: &str, ws_id: Option<&str>) -> Result
     }
 }
 
-pub(crate) fn list(root: &Path) -> io::Result<Vec<SkillDto>> {
+pub(super) fn list(root: &Path) -> io::Result<Vec<SkillDto>> {
     let mut out = Vec::new();
     let library = root.join("library");
     for (name, content) in scope_skills(&library.join("global"))? {
@@ -88,7 +97,7 @@ fn scope_skills(dir: &Path) -> io::Result<Vec<(String, String)>> {
 }
 
 /// Subdirectories of `dir`, name-sorted; a missing `dir` is just empty.
-pub(crate) fn sorted_dirs(dir: &Path) -> io::Result<Vec<PathBuf>> {
+pub(super) fn sorted_dirs(dir: &Path) -> io::Result<Vec<PathBuf>> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -103,7 +112,7 @@ pub(crate) fn sorted_dirs(dir: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
-pub(crate) fn save(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {
+pub(super) fn save(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {
     require_safe(name, "skill name").map_err(io::Error::other)?;
     write_atomic(&scope_dir.join(name).join(SKILL_FILE), content.as_bytes())
 }
@@ -121,7 +130,7 @@ pub(crate) fn save(scope_dir: &Path, name: &str, content: &str) -> io::Result<()
 /// instead, so a leftover directory with no SKILL.md blocks a rename and
 /// accepts a create — deliberate, since a create can fill it in and a rename
 /// would bury whatever else it holds.
-pub(crate) fn create(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {
+pub(super) fn create(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {
     require_safe(name, "skill name").map_err(io::Error::other)?;
     if scope_dir.join(name).join(SKILL_FILE).exists() {
         return Err(io::Error::other(format!(
@@ -131,7 +140,7 @@ pub(crate) fn create(scope_dir: &Path, name: &str, content: &str) -> io::Result<
     save(scope_dir, name, content)
 }
 
-pub(crate) fn delete(scope_dir: &Path, name: &str) -> io::Result<()> {
+pub(super) fn delete(scope_dir: &Path, name: &str) -> io::Result<()> {
     require_safe(name, "skill name").map_err(io::Error::other)?;
     match fs::remove_dir_all(scope_dir.join(name)) {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
@@ -139,7 +148,7 @@ pub(crate) fn delete(scope_dir: &Path, name: &str) -> io::Result<()> {
     }
 }
 
-pub(crate) fn rename(scope_dir: &Path, from: &str, to: &str) -> io::Result<()> {
+pub(super) fn rename(scope_dir: &Path, from: &str, to: &str) -> io::Result<()> {
     require_safe(from, "skill name").map_err(io::Error::other)?;
     require_safe(to, "skill name").map_err(io::Error::other)?;
     let target = scope_dir.join(to);

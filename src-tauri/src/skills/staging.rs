@@ -25,7 +25,42 @@ use std::path::{Path, PathBuf};
 use super::arming::{arm_roots, disarm_roots};
 use crate::worktree_arm::{record_armed, retire_key};
 use super::library::{sorted_dirs, SKILL_FILE};
-use super::{opencode, SkillStagingDto, SkillsLocks};
+use super::opencode;
+
+/// Per-workspace locks that serialize `stage()`. Tauri managed state, the
+/// `RepoLocks` idiom: overlapping stagings for the SAME workspace share the
+/// `.tmp-<ws>` build dir and a multi-step swap — without serialization the
+/// loser can delete the winner's published staging and leave a dangling
+/// codex symlink. App-scoped (not a process static) so tests get isolated
+/// instances. A poisoned lock (a panicked stage) is recovered — the next
+/// stage rebuilds from scratch anyway.
+#[derive(Default, Clone)]
+pub struct SkillsLocks {
+    inner: std::sync::Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<()>>>,
+        >,
+    >,
+}
+
+impl SkillsLocks {
+    fn for_ws(&self, ws_id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        map.entry(ws_id.to_string()).or_default().clone()
+    }
+}
+
+/// A workspace's staged views, absolute paths (mirrors the TS
+/// `SkillsStagingViews`, camelCase). `opencode_config_dir` is the STABLE
+/// per-workspace dir (opencode writes its own state there); the other two
+/// live under the wiped `staging/<wsId>`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillStagingDto {
+    pub claude_plugin_dir: String,
+    pub opencode_config_dir: String,
+    pub skills_dir: String,
+}
 use crate::state::write_atomic;
 
 /// The Claude-plugin wrapper manifest a staged `--plugin-dir` needs. The
@@ -37,7 +72,7 @@ const CLAUDE_PLUGIN_MANIFEST: &str = concat!(
     r#""version": "0.1.0"}"#,
 );
 
-pub(crate) fn stage(
+pub(super) fn stage(
     locks: &SkillsLocks,
     root: &Path,
     ws_id: &str,
@@ -243,7 +278,7 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<bool> {
 /// leftovers follow the same liveness rule as the dirs themselves, so an
 /// in-flight stage of a LIVE workspace can never lose its build-aside dir to
 /// a concurrent prune. The library is user content and is never touched.
-pub(crate) fn prune_views(root: &Path, live: &[String]) -> io::Result<()> {
+pub(super) fn prune_views(root: &Path, live: &[String]) -> io::Result<()> {
     for parent in [root.join("staging"), root.join("opencode")] {
         for dir in sorted_dirs(&parent)? {
             let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();

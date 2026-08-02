@@ -7,7 +7,7 @@
  */
 import type { AgentDialogResult, AgentType } from "../../agents";
 import { clampPaneCount } from "../layout";
-import { paneId, type Pane } from "./index";
+import { paneId, type Pane } from "./model";
 
 /** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES), all
  * running `agentType`; `yolo` marks every pane (sparse — false never lands). */

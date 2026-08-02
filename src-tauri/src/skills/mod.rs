@@ -27,53 +27,15 @@ mod library;
 mod opencode;
 mod staging;
 
-use serde::Serialize;
-use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 
-/// Per-workspace locks that serialize `stage()`. Tauri managed state, the
-/// `RepoLocks` idiom: overlapping stagings for the SAME workspace share the
-/// `.tmp-<ws>` build dir and a multi-step swap — without serialization the
-/// loser can delete the winner's published staging and leave a dangling
-/// codex symlink. App-scoped (not a process static) so tests get isolated
-/// instances. A poisoned lock (a panicked stage) is recovered — the next
-/// stage rebuilds from scratch anyway.
-#[derive(Default, Clone)]
-pub struct SkillsLocks {
-    inner: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
-}
-
-impl SkillsLocks {
-    fn for_ws(&self, ws_id: &str) -> Arc<Mutex<()>> {
-        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        map.entry(ws_id.to_string()).or_default().clone()
-    }
-}
-
-/// One library skill on the wire (mirrors the TS `StoredSkill`, camelCase).
-/// Content rides along — skills are small and the list IS the read path.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillDto {
-    pub scope: String,
-    pub ws_id: Option<String>,
-    pub name: String,
-    pub content: String,
-}
-
-/// A workspace's staged views, absolute paths (mirrors the TS
-/// `SkillsStagingViews`, camelCase). `opencode_config_dir` is the STABLE
-/// per-workspace dir (opencode writes its own state there); the other two
-/// live under the wiped `staging/<wsId>`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillStagingDto {
-    pub claude_plugin_dir: String,
-    pub opencode_config_dir: String,
-    pub skills_dir: String,
-}
+// Re-exported for the command signatures below and for `lib.rs`'s managed
+// state; each shape is DEFINED beside the code that produces it, so a change
+// to staging's views or the library's wire shape lands in one file rather
+// than reaching up into this router.
+pub use library::SkillDto;
+pub use staging::{SkillStagingDto, SkillsLocks};
 
 /// Every skill in the library, global scope first, then workspaces, names
 /// alphabetical — a deterministic order the UI can render as-is.

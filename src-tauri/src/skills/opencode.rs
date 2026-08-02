@@ -10,7 +10,7 @@
 use std::path::Path;
 
 /// The generated `/name` command for opencode.
-pub(crate) fn command(name: &str, content: &str, staged_skill: &Path) -> String {
+pub(super) fn command(name: &str, content: &str, staged_skill: &Path) -> String {
     let description = frontmatter_line(content, "description").unwrap_or_default();
     format!(
         "---\ndescription: {description}\n---\nUse the \"{name}\" skill: read {} and follow its \

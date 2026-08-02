@@ -2,13 +2,13 @@ import {
   agentSupportsNew,
   agentSupportsYolo,
   type AgentInfo,
-} from "../domain/agents";
+} from "../../domain/agents";
 import {
   resolvePaneRef,
   resolveWorkspaceRef,
   type CommandArgs,
   type CommandRegistry,
-} from "../domain/commands";
+} from "../../domain/commands";
 import {
   findWorkspaceByRef,
   paneAgentType,
@@ -18,20 +18,20 @@ import {
   WORKSPACE_GONE_MESSAGE,
   type Pane,
   type Workspace,
-} from "../domain/deck";
-import { inspectRepo } from "../ipc/worktree";
-import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "./newAgentDefaults";
-import { mintAgentSeq } from "./ids";
-import { paneInputReady, pasteToPane, writeRawToPane } from "./paneInput";
-import { getSettings } from "./settingsManager";
+} from "../../domain/deck";
+import { inspectRepo } from "../../ipc/worktree";
+import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
+import { mintAgentSeq } from "../ids";
+import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
+import { getSettings } from "../settingsManager";
 import type {
   CreatePaneOutcome,
   CreatePaneRequest,
   ResumeRequest,
-} from "./agentOrchestrator";
-import { resumeRefusalText } from "./resumeOutcome";
-import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
-import type { Deck } from "./useDeck";
+} from "../agentOrchestrator";
+import { resumeRefusalText } from "../resumeOutcome";
+import { suspendRefusalText, type SuspendOutcome } from "../suspendOutcome";
+import type { Deck } from "../useDeck";
 
 /**
  * The deck's core command set — what any invoker (voice, MCP, hotkeys, a

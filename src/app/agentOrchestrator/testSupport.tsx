@@ -24,7 +24,6 @@ import {
   clearPanePlanError as clearPanePlanErrorImpl,
   dropPaneSpawnSpec as dropPaneSpawnSpecImpl,
   peekPaneSpawnSpec as peekPaneSpawnSpecImpl,
-  resetPaneSpawnSpecs as resetPaneSpawnSpecsImpl,
 } from "../spawnSpecs";
 import type { Deck } from "../useDeck";
 import { useDeck } from "../useDeck";
@@ -64,6 +63,9 @@ const plans = vi.hoisted(() => ({
   failed: new Set<string>(),
   /** Set by the mock factory; a test that seeds the cache by hand calls it. */
   notify: (() => {}) as () => void,
+  /** Set by the mock factory: clears the fake cache AND its listeners, which
+   * only the factory can reach. Re-exported below as the harness's reset. */
+  reset: (() => {}) as () => void,
 }));
 
 vi.mock("../spawnSpecs", () => {
@@ -158,13 +160,13 @@ vi.mock("../spawnSpecs", () => {
       if (spec) specs.set(id, { ...spec, resumeOrigin: origin });
       notify();
     }),
-    resetPaneSpawnSpecs: () => {
+    resetPaneSpawnSpecs: (plans.reset = () => {
       specs.clear();
       plans.failed.clear();
       // The orchestrator under test subscribes on construction; a listener
       // from a previous mount would keep reconciling its own dead deck.
       listeners.clear();
-    },
+    }),
   };
 });
 /** The fake worktree manager records post-provision steps for fork tests. */
@@ -214,7 +216,10 @@ export const buildResumeSpec = buildResumeSpecImpl;
 export const clearPanePlanError = clearPanePlanErrorImpl;
 export const dropPaneSpawnSpec = dropPaneSpawnSpecImpl;
 export const peekPaneSpawnSpec = peekPaneSpawnSpecImpl;
-export const resetPaneSpawnSpecs = resetPaneSpawnSpecsImpl;
+// The FAKE cache's reset, not the real one: `../spawnSpecs` is mocked here, so
+// the real module's state is not what these suites hold. (The barrel does not
+// carry the real one either — it is test-only, and belongs to `./cache`.)
+export const resetPaneSpawnSpecs = () => plans.reset();
 export const MAX_PANES = MAX_PANES_IMPL;
 export const createWorkspaceInstance = createWorkspaceInstanceImpl;
 export const emptyJournal = emptyJournalImpl;

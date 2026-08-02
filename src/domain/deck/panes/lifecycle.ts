@@ -8,7 +8,7 @@
  * is exactly how a pane ends up both "stopped" and "waking".
  */
 import type { AgentType, ResumeOrigin } from "../../agents";
-import type { Pane, PaneIdle } from "./index";
+import type { Pane, PaneIdle } from "./model";
 
 /** The agent a pane runs — panes minted before the field existed ran claude,
  *  so the default is part of the persisted format, not a UI convenience. */

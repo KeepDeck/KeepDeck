@@ -17,7 +17,7 @@ import type {
   CreatePaneRequest,
   ResumeRequest,
 } from "../agentOrchestrator";
-import { registerCoreCommands } from "../coreCommands";
+import { registerCoreCommands } from ".";
 import type { SuspendOutcome } from "../suspendOutcome";
 import type { Deck } from "../useDeck";
 

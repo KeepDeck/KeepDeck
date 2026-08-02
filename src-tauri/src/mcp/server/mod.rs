@@ -20,6 +20,7 @@
 
 mod accept;
 mod claim;
+mod socket_dir;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -30,7 +31,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use claim::{claim, prepare_socket_dir, LOCK_FILE};
+use claim::{claim, LOCK_FILE};
+use socket_dir::prepare_socket_dir;
 
 /// Answers one request line with AT MOST one reply line — `None` for
 /// JSON-RPC notifications, which must never be answered.

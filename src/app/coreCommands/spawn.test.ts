@@ -15,7 +15,7 @@ import {
   WORKSPACE_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
 } from "../../domain/deck";
-import { deliverTask } from "../coreCommands";
+import { deliverTask } from ".";
 import { registerPaneInput } from "../paneInput";
 
 beforeEach(() => {

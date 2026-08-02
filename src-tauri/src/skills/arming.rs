@@ -34,7 +34,7 @@ const PLANTED: &str = ".agents";
 /// user's arrangement and is never written through. Wholly best-effort per
 /// root — one odd cwd must not take the workspace's staging down — and the
 /// successfully armed cwds are returned for the armed manifest.
-pub(crate) fn arm_roots(root: &Path, staged_skills: &Path, spawn_roots: &[String]) -> Vec<String> {
+pub(super) fn arm_roots(root: &Path, staged_skills: &Path, spawn_roots: &[String]) -> Vec<String> {
     let mut armed = Vec::new();
     for wt in spawn_roots {
         match arm_one(root, staged_skills, Path::new(wt)) {
@@ -90,7 +90,7 @@ fn arm_one(root: &Path, staged_skills: &Path, wt: &Path) -> io::Result<bool> {
 /// the armed manifests: [`record_armed`] (stage) is their only writer and
 /// [`prune_manifests`] their only reader — a stale entry costs one idempotent
 /// re-disarm at the next boot, which the module accepts by contract.
-pub(crate) fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()> {
+pub(super) fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()> {
     for wt in spawn_roots {
         let agents = Path::new(wt).join(".agents");
         let link = agents.join("skills");
@@ -114,7 +114,7 @@ pub(crate) fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()
 /// Sweep the manifests of workspaces that no longer exist, taking OUR
 /// symlinks out of the cwds they recorded — the crash path, where the deck no
 /// longer knows the workspace but its worktrees survived.
-pub(crate) fn prune_armed(root: &Path, live: &[String]) -> io::Result<()> {
+pub(super) fn prune_armed(root: &Path, live: &[String]) -> io::Result<()> {
     prune_manifests(root, live, "skills", |cwds| disarm_roots(root, cwds))
 }
 
@@ -124,12 +124,12 @@ fn link_is_ours(link: &Path, skills_root: &Path) -> bool {
 }
 
 #[cfg(unix)]
-pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
+pub(super) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
 #[cfg(not(unix))]
-pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
+pub(super) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
 }
 
