@@ -2,6 +2,7 @@ import {
   addNotification,
   markAllRead,
   markRead,
+  retractByTag,
   bannerVerdict,
   type Notification,
   type NotificationSeverity,
@@ -141,6 +142,19 @@ export function notify(input: NotifyInput): boolean {
  * `useSyncExternalStore` snapshot contract). */
 export function getNotifications(): readonly Notification[] {
   return items;
+}
+
+/** Withdraw a tag's notification — the announced event has been ANSWERED,
+ * not merely superseded (a newer event replaces via `notify`'s same-tag
+ * rule; this is for waits the user resolved at the source, leaving nothing
+ * to announce). The tag's banner cooldown resets with it: the next wait on
+ * this tag is a genuinely new question, not a re-assertion to suppress. */
+export function retractNotification(tag: string): void {
+  lastBannerAt.delete(tag);
+  const next = retractByTag(items, tag);
+  if (next === items) return;
+  items = next;
+  emit();
 }
 
 export function markNotificationRead(id: string): void {

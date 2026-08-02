@@ -13,6 +13,7 @@ import { createAgentStatusTracker } from "./agentStatusTracker";
 
 const center = vi.hoisted(() => ({
   notify: vi.fn(),
+  retractNotification: vi.fn(),
 }));
 vi.mock("./notificationCenter", () => center);
 
@@ -214,6 +215,7 @@ describe("activity notifications", () => {
 
   beforeEach(() => {
     center.notify.mockClear();
+    center.retractNotification.mockClear();
     // The factory's whole point: each test builds its own tracker.
     tracker = createAgentStatusTracker();
     tracker.registerNormalizer("claude", edgeNormalizer);
@@ -265,6 +267,36 @@ describe("activity notifications", () => {
   it("a done with no running turn behind it announces nothing", () => {
     edge({ kind: "turn-end", at: 100 });
     expect(center.notify).not.toHaveBeenCalled();
+  });
+
+  it("retracts an answered wait — resumed turn or the user's own interrupt", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    expect(center.notify).toHaveBeenCalledTimes(1);
+    edge({ kind: "resumed", at: 200 });
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
+    // Answering announced nothing new.
+    expect(center.notify).toHaveBeenCalledTimes(1);
+
+    center.retractNotification.mockClear();
+    edge({ kind: "waiting", at: 300, reason: "question" });
+    edge({ kind: "interrupted", at: 400 });
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
+  });
+
+  it("a wait that ends in an announcement replaces, never retracts", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    edge({ kind: "turn-end", at: 200 });
+    expect(center.retractNotification).not.toHaveBeenCalled();
+    expect(center.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: "Claude 1 finished",
+        tag: "pane:pane-1:activity",
+      }),
+    );
   });
 
   it("announces a failed turn with its prose", () => {

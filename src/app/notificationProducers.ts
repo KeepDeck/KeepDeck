@@ -10,7 +10,7 @@ import { activityBadge, type PaneActivity } from "../domain/status";
 import type { WorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import type { AgentStatusTracker } from "./agentStatusTracker";
-import { notify } from "./notificationCenter";
+import { notify, retractNotification } from "./notificationCenter";
 import { getSettings } from "./settingsManager";
 import { getUpdateState, subscribeUpdates } from "./updateManager";
 
@@ -156,6 +156,18 @@ function announceActivity(
   const badge = activityBadge(activity);
   const tag = `pane:${paneId}:activity`;
   const ctx = () => paneContextById(workspaces, paneId, agents);
+  // An ANSWERED wait is no longer news: the user resolved the prompt in
+  // the pane (the turn resumed) or cut the turn with their own hand — a
+  // standing "needs approval" would now report a wait that doesn't exist.
+  // The states that announce (done, failed) replace the same tag instead.
+  if (
+    before?.state === "waiting" &&
+    (activity.state === "working" ||
+      (activity.state === "done" && activity.interrupted))
+  ) {
+    retractNotification(tag);
+    return;
+  }
   if (activity.state === "waiting" && before?.state !== "waiting") {
     const c = ctx();
     if (!c) return;
