@@ -100,11 +100,16 @@ function problem(detail: string | null): string {
 function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus {
   const refused = previous.refused;
   if (!transition.ok) {
-    // The socket claim is kept, so the connect line stays with it: nothing
-    // confirmed the socket went away, and the row is still true.
+    // The socket CLAIM is kept — nothing confirmed the socket went away — but
+    // the line naming it is not: a failed enable following a failed disable
+    // would otherwise hand the user a copy-pasteable command minted for a
+    // socket two transitions ago. The lookup that follows every transition
+    // re-derives it against whatever is actually claimed now.
     return {
       ...previous,
       error: problem(transition.detail),
+      connect: null,
+      connectError: null,
       refused,
     };
   }

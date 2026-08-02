@@ -44,7 +44,7 @@ describe("codex plugin hooks", () => {
 
     const spawn = output();
     await activate("/kd/hook.sh").hooks["spawn.plan"]!({ ...input, mcp }, spawn);
-    expect(spawn.args.join(" ")).toContain("mcp_servers.keepdeck=");
+    expect(spawn.args.join(" ")).toContain('mcp_servers."keepdeck"=');
 
     const resume = output();
     await activate("/kd/hook.sh").hooks["resume.plan"]!({ ...input, mcp, sessionId: "s" }, resume);

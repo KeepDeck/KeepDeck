@@ -1,7 +1,7 @@
 {
   "id": "keepdeck.claude",
   "name": "Claude Code",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minApiVersion": 30,
   "category": "cli",
   "description": "Teaches KeepDeck the Claude Code CLI: catalog identity and detection; spawn, resume and session identity move in next.",

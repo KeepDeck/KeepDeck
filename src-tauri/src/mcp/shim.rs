@@ -48,12 +48,20 @@ pub fn shim_mode(args: impl IntoIterator<Item = String>) -> Option<ShimMode> {
     let mut args = args.into_iter().skip(1);
     while let Some(arg) = args.next() {
         if arg == SHIM_FLAG {
-            let socket = args
-                .next()
-                .filter(|value| !value.starts_with('-'))
-                .map(PathBuf::from);
-            let mut rest = args;
+            // The slot's value is CONSUMED before it is judged, so a flag
+            // found there must be handed back to the scan below rather than
+            // dropped: `--mcp-shim --client <secret>` used to eat the
+            // `--client` token and leave the pane anonymous.
+            let mut socket = None;
+            let mut next = args.next();
+            match next.as_deref() {
+                Some(value) if !value.starts_with('-') => {
+                    socket = next.take().map(PathBuf::from);
+                }
+                _ => {}
+            }
             let mut client = None;
+            let mut rest = next.into_iter().chain(args);
             while let Some(arg) = rest.next() {
                 if arg == CLIENT_FLAG {
                     client = rest.next().filter(|value| !value.starts_with('-'));
@@ -210,6 +218,15 @@ mod tests {
         // not a socket literally named "--verbose".
         let flagged = shim_mode(args(&["keepdeck", "--mcp-shim", "--verbose"])).unwrap();
         assert_eq!(flagged.socket, None);
+
+        // And the token in that slot is handed BACK to the scan, not eaten:
+        // the socket slot's value is consumed before it is judged, so
+        // `--mcp-shim --client <secret>` used to lose the secret entirely and
+        // leave every call from the pane journaled as anonymous.
+        let kept =
+            shim_mode(args(&["keepdeck", "--mcp-shim", "--client", "5f3c"])).unwrap();
+        assert_eq!(kept.socket, None);
+        assert_eq!(kept.client.as_deref(), Some("5f3c"));
     }
 
     /// A Write the pump can own while the test still reads it.

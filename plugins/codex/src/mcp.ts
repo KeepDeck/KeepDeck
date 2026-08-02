@@ -40,7 +40,12 @@ export const mcpArgs = (mcp: SpawnMcpInput | undefined): string[] =>
     ? mapMcpServers(mcp.servers, {
         stdio: (server) => [
           "-c",
-          `mcp_servers.${server.name}=` +
+          // The NAME is a TOML key, not just a value: bare, a dot in it would
+          // address a nested table (`mcp_servers.a.b`) instead of naming one
+          // server, and would then collide with a sibling inline table. The
+          // host constrains names today, but this renderer must not depend on
+          // a rule enforced three layers away.
+          `mcp_servers.${tomlString(server.name)}=` +
             tomlInlineTable([
               ["command", tomlString(server.command)],
               ["args", `[${server.args.map(tomlString).join(",")}]`],
