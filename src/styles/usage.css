@@ -204,8 +204,9 @@
 }
 
 /* The burn curve — shared by the panel (compact) and the Stats Providers
-   cards. Chrome inherits the bar's greys; only the verdict dot wears a
-   level color, matching the usage-level ink. */
+   cards. FIXED plot height: the svg stretches horizontally only, so the
+   chart never grows with the card or overflows it. Chrome inherits the
+   bar's greys; only the verdict dot wears a level color. */
 .usage-burn {
   display: block;
   width: 100%;
@@ -219,9 +220,56 @@
   margin-top: 2px;
 }
 
-.usage-burn__labels text {
-  fill: #596273;
+.usage-burn__plot {
+  position: relative;
+  display: block;
+}
+
+.usage-burn__plot svg {
+  display: block;
+  width: 100%;
+}
+
+.usage-burn--card .usage-burn__plot svg {
+  height: 60px;
+}
+
+.usage-burn--compact .usage-burn__plot svg {
+  height: 20px;
+}
+
+.usage-burn__dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.usage-burn__dot--warn {
+  background: #e0b568;
+}
+
+.usage-burn__dot--critical {
+  background: #cf6f6f;
+}
+
+.usage-burn__ymax {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  color: #596273;
   font-size: 9px;
+  line-height: 1;
+}
+
+.usage-burn__foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1px;
+  color: #596273;
+  font-size: 9px;
+  line-height: 1;
 }
 
 .usage-burn__grid {
@@ -230,14 +278,6 @@
 
 .usage-burn__edge {
   stroke: #3b4658;
-}
-
-.usage-burn__out--warn {
-  fill: #e0b568;
-}
-
-.usage-burn__out--critical {
-  fill: #cf6f6f;
 }
 
 .usage-window__label {

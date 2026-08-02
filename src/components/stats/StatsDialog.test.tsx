@@ -433,7 +433,7 @@ describe("UsageStats", () => {
     expect(host.textContent).toContain("early");
     expect(host.textContent).toContain("resets in 2h 35m");
     expect(host.querySelector(".usage-burn")).not.toBeNull();
-    expect(host.querySelector(".usage-burn__out--warn")).not.toBeNull();
+    expect(host.querySelector(".usage-burn__dot--warn")).not.toBeNull();
   });
 
   it("stays silent about the race when the journal has no pace yet", () => {

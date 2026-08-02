@@ -7,20 +7,17 @@ import type { WindowForecast } from "../../domain/usage/windowForecast";
 /**
  * The burn curve, shared by the Providers cards and the chip popover —
  * exactly like the fill bar is. The domain hands data-axis geometry (see
- * windowBurn.ts), so the curve fills its frame from the second report on;
- * this component only maps it onto one of two plots. The card plot carries
- * a y-scale label and the reset edge tick; the popover plot is a bare
- * sparkline. Decorative by contract (aria-hidden): the caption beside it
- * carries the words.
+ * windowBurn.ts); this component maps it onto a FIXED-height plot: the
+ * SVG stretches horizontally only (an aspect-locked SVG at width:100%
+ * grew with the card and overflowed it — live finding), strokes keep
+ * their width via non-scaling-stroke, and everything that must not
+ * distort under horizontal stretch — the dots and the labels — is HTML
+ * positioned in percent. Decorative by contract (aria-hidden): the
+ * caption beside it carries the words.
  */
 
-/* The card plot spans the full card width — the bar above it does, and a
-   y-label gutter made the curve start inset and the chart read narrower
-   than its own card (live finding). Scale labels sit INSIDE the plot. */
-const SIZES = {
-  card: { width: 340, height: 92, top: 8, bottom: 74, left: 1, right: 339 },
-  compact: { width: 288, height: 24, top: 4, bottom: 20, left: 1, right: 287 },
-} as const;
+const PLOT_HEIGHTS = { card: 60, compact: 20 } as const;
+const PAD = 2;
 
 export function WindowBurn({
   agent,
@@ -35,99 +32,100 @@ export function WindowBurn({
   reports: readonly WindowReport[];
   forecast: WindowForecast;
   now: number;
-  size?: keyof typeof SIZES;
+  size?: keyof typeof PLOT_HEIGHTS;
 }) {
   const geometry = windowBurn(reports, window, forecast, now);
   // A single observation is not a curve — the chart earns its place with
   // the second report and never renders as an empty frame.
   if (geometry === null) return null;
-  const box = SIZES[size];
-  const x = (value: number) => box.left + value * (box.right - box.left);
-  const y = (value: number) => box.bottom - value * (box.bottom - box.top);
+  const height = PLOT_HEIGHTS[size];
+  const xPct = (value: number) => value * 100;
+  const yPx = (value: number) => PAD + (1 - value) * (height - 2 * PAD);
   const stroke = agentSeriesColors([agent]).get(agent);
-  const strokeWidth = size === "card" ? 1.8 : 1.5;
   const line = (points: readonly { x: number; y: number }[]) =>
-    points.map((point) => `${x(point.x).toFixed(1)},${y(point.y).toFixed(1)}`).join(" ");
+    points
+      .map((point) => `${xPct(point.x).toFixed(2)},${yPx(point.y).toFixed(2)}`)
+      .join(" ");
   const newest = geometry.observed[geometry.observed.length - 1];
 
   return (
-    <svg
-      className={`usage-burn usage-burn--${size}`}
-      viewBox={`0 0 ${box.width} ${box.height}`}
-      aria-hidden
-    >
-      <line
-        className="usage-burn__grid"
-        x1={box.left}
-        y1={y(1)}
-        x2={box.right}
-        y2={y(1)}
-        strokeDasharray="2 3"
-      />
-      <line
-        className="usage-burn__grid"
-        x1={box.left}
-        y1={y(0)}
-        x2={box.right}
-        y2={y(0)}
-      />
-      {geometry.resetAtEdge && (
-        <line
-          className="usage-burn__edge"
-          x1={box.right}
-          y1={box.top - 3}
-          x2={box.right}
-          y2={box.bottom + 3}
-        />
-      )}
-      {size === "card" && (
-        <g className="usage-burn__labels">
-          <text x={box.left + 3} y={y(1) + 10} textAnchor="start">
-            {Math.round(geometry.yMaxPct)}%
-          </text>
-          <text x={box.left + 3} y={box.height - 4} textAnchor="start">
-            0
-          </text>
+    <span className={`usage-burn usage-burn--${size}`} aria-hidden>
+      <span className="usage-burn__plot">
+        <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none">
+          <line
+            className="usage-burn__grid"
+            x1="0"
+            y1={yPx(1)}
+            x2="100"
+            y2={yPx(1)}
+            strokeDasharray="2 3"
+            vectorEffect="non-scaling-stroke"
+          />
+          <line
+            className="usage-burn__grid"
+            x1="0"
+            y1={yPx(0)}
+            x2="100"
+            y2={yPx(0)}
+            vectorEffect="non-scaling-stroke"
+          />
           {geometry.resetAtEdge && (
-            <text x={box.right} y={box.height - 4} textAnchor="end">
-              reset
-            </text>
+            <line
+              className="usage-burn__edge"
+              x1="100"
+              y1="0"
+              x2="100"
+              y2={height}
+              vectorEffect="non-scaling-stroke"
+            />
           )}
-        </g>
-      )}
-      <polyline
-        fill="none"
-        stroke={stroke}
-        strokeWidth={strokeWidth}
-        points={line(geometry.observed)}
-      />
-      {geometry.projected && (
-        <polyline
-          fill="none"
-          stroke={stroke}
-          strokeWidth={strokeWidth}
-          strokeDasharray="5 4"
-          opacity={0.55}
-          points={line(geometry.projected)}
-        />
-      )}
+          <polyline
+            fill="none"
+            stroke={stroke}
+            strokeWidth={size === "card" ? 1.8 : 1.5}
+            vectorEffect="non-scaling-stroke"
+            points={line(geometry.observed)}
+          />
+          {geometry.projected && (
+            <polyline
+              fill="none"
+              stroke={stroke}
+              strokeWidth={size === "card" ? 1.8 : 1.5}
+              strokeDasharray="5 4"
+              opacity={0.55}
+              vectorEffect="non-scaling-stroke"
+              points={line(geometry.projected)}
+            />
+          )}
+        </svg>
+        {size === "card" && (
+          <i
+            className="usage-burn__dot"
+            style={{
+              left: `${xPct(newest.x)}%`,
+              top: yPx(newest.y),
+              background: stroke,
+            }}
+          />
+        )}
+        {geometry.out && (
+          <i
+            className={`usage-burn__dot usage-burn__dot--${geometry.out.level}`}
+            style={{ left: `${xPct(geometry.out.x)}%`, top: yPx(geometry.out.y) }}
+          />
+        )}
+        {size === "card" && (
+          <span className="usage-burn__ymax">
+            {Math.round(geometry.yMaxPct)}%
+          </span>
+        )}
+      </span>
       {size === "card" && (
-        <circle
-          cx={x(newest.x)}
-          cy={y(newest.y)}
-          r={2.6}
-          fill={stroke}
-          className="usage-burn__now"
-        />
+        <span className="usage-burn__foot">
+          <span>0</span>
+          {geometry.resetAtEdge && <span>reset</span>}
+        </span>
       )}
-      {geometry.out && (
-        <circle
-          className={`usage-burn__out--${geometry.out.level}`}
-          cx={x(geometry.out.x)}
-          cy={y(geometry.out.y)}
-          r={size === "card" ? 3 : 2.5}
-        />
-      )}
-    </svg>
+    </span>
   );
 }
