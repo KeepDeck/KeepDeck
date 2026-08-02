@@ -142,9 +142,14 @@
    state — the frame ladder carries attention, so the header keeps one
    density and the words live in the tooltip. This block owns only the
    badge's PLACE in the header; every hue and rhythm lives in status.css
-   (.pane__activity--*), the one home of the status palette. */
+   (.pane__activity--*), the one home of the status palette. Squared like
+   the YOLO badge (chip.css) so the pill's 999px radius draws a circle,
+   not a stadium around the dot. */
 .pane__activity {
   flex: none;
+  width: 22px;
+  padding: 0;
+  justify-content: center;
   font-size: 12px;
 }
 
