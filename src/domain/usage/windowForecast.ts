@@ -1,7 +1,13 @@
 import { formatCountdown, usageStale, windowResetCaption } from "./format";
-import { currentSegment, HEARTBEAT_MS, type WindowReport } from "./reportJournal";
+import {
+  accountWindowKeys,
+  currentSegment,
+  HEARTBEAT_MS,
+  NO_REPORTS,
+  type WindowReport,
+} from "./reportJournal";
 import { HOUR_MS } from "./time";
-import { windowExpired, type UsageWindow } from "./usage";
+import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 
 /**
  * The window-exhaustion forecast — THE one answer to "will this window last
@@ -116,6 +122,44 @@ export function windowForecast(
     };
   }
   return { kind: "ok", outAt };
+}
+
+/* ---- the account join -------------------------------------------------- */
+
+export interface AccountWindowForecast {
+  window: UsageWindow;
+  /** The window's journal key (see [`accountWindowKeys`]). */
+  key: string;
+  /** The key's series; [`NO_REPORTS`] when the journal holds nothing yet. */
+  reports: readonly WindowReport[];
+  forecast: WindowForecast;
+}
+
+/** THE pairing of an account's windows with their journal series and
+ * forecasts — every consumer (the panel's rows, the exhaustion notifier)
+ * reads this one join instead of re-deriving key → series → forecast on its
+ * own. Keyed by window object identity like [`accountWindowKeys`], and keys
+ * are minted over the account's OWN report order — the journal writer's
+ * rule — so callers may render any re-sorted view (panelWindows) and still
+ * look up the right row. */
+export function accountWindowForecasts(
+  agent: string,
+  account: AccountUsage,
+  byKey: ReadonlyMap<string, readonly WindowReport[]>,
+  now: number,
+): ReadonlyMap<UsageWindow, AccountWindowForecast> {
+  const rows = new Map<UsageWindow, AccountWindowForecast>();
+  if (account.kind !== "reported") return rows;
+  for (const [window, entry] of accountWindowKeys(agent, account.windows)) {
+    const reports = byKey.get(entry.key) ?? NO_REPORTS;
+    rows.set(window, {
+      window,
+      key: entry.key,
+      reports,
+      forecast: windowForecast(reports, window, now),
+    });
+  }
+  return rows;
 }
 
 /* ---- captions --------------------------------------------------------- */
