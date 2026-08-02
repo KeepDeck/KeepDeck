@@ -20,23 +20,25 @@ import { accountWindowForecasts, runOutCountdown } from "./windowForecast";
 /** The fired memory per window key: the instance the alarm sounded for,
  * read off the WINDOW REPORT'S OWN VALUES fold over fold — a reset instant
  * that jumps forward past jitter ([`INSTANCE_JUMP_MS`], the journal's own
- * boundary rule), or a balance refilled well below the alarm-era peak.
- * Deliberately NOT the journal's segment slice: retention pruning moves a
- * segment's head mid-instance (one alarm PER REPORT on an aged plan-window
- * journal), and a 1–2pp cross-pane correction restarts a segment without
- * any reset — both turned one alarm into a drumbeat. Held records track
- * the drifting reset and the rising peak, so identity compares one fold's
- * STEP, never an accumulation. */
+ * boundary rule), or a balance refilled in one deep drop. Deliberately NOT
+ * the journal's segment slice: retention pruning moves a segment's head
+ * mid-instance (one alarm PER REPORT on an aged plan-window journal), and
+ * a 1–2pp cross-pane correction restarts a segment without any reset —
+ * both turned one alarm into a drumbeat. BOTH fields re-anchor to the
+ * current report on every fold that keeps the record, so identity always
+ * compares one fold's STEP and neither drift nor a slow decline can
+ * accumulate into a false instance change. */
 export interface ExhaustionAlert {
   resetsAt: number | null;
-  peakUsedPct: number;
+  usedPct: number;
 }
 
-/** A drop from the alarm-era peak this deep is a refill/top-up — a NEW
- * allowance worth a fresh alarm. Deeper than the journal's 1pp segment
- * boundary on purpose: segmentation protects pace math and wants every
- * dip; re-arming faces the user and must shrug off cross-pane corrections
- * (~1–2pp in the field). Any real top-up moves far more than this. */
+/** A single-step drop this deep is a refill/top-up — a NEW allowance worth
+ * a fresh alarm; a real top-up lands as one report, so its whole depth
+ * arrives in one fold step. Deeper than the journal's 1pp segment boundary
+ * on purpose: segmentation protects pace math and wants every dip;
+ * re-arming faces the user and must shrug off cross-pane corrections
+ * (~1–2pp in the field). */
 const REFILL_DROP_PCT = 5;
 
 export type ExhaustionAlerts = ReadonlyMap<string, ExhaustionAlert>;
@@ -65,13 +67,16 @@ export function foldExhaustionAlerts(
       const fired = prev.get(row.key);
       const window = row.window;
       // Did THIS fold's step end the fired instance? A reset jumping past
-      // jitter, or the balance refilled well under the alarm-era peak.
+      // jitter, or the balance refilled in one deep drop. (The window
+      // values and the forecast stay coherent because the journal captures
+      // synchronously with every usage-store update — accounts are never
+      // ahead of the series a fold reads.)
       const newInstance =
         fired !== undefined &&
         ((fired.resetsAt !== null &&
           window.resetsAt !== null &&
           window.resetsAt > fired.resetsAt + INSTANCE_JUMP_MS) ||
-          window.usedPct < fired.peakUsedPct - REFILL_DROP_PCT);
+          window.usedPct < fired.usedPct - REFILL_DROP_PCT);
       const forecast = row.forecast;
       if (
         forecast.kind === "out" &&
@@ -89,14 +94,14 @@ export function foldExhaustionAlerts(
         });
         alerts.set(row.key, {
           resetsAt: window.resetsAt ?? null,
-          peakUsedPct: window.usedPct,
+          usedPct: window.usedPct,
         });
       } else if (fired !== undefined && !newInstance && forecast.kind !== "ok") {
-        // Re-anchor to the CURRENT values: sub-jitter drift and rising
-        // usage must never accumulate into a false instance change.
+        // Re-anchor BOTH values: neither sub-jitter drift nor a slow
+        // decline may accumulate into a false instance change.
         alerts.set(row.key, {
           resetsAt: window.resetsAt ?? null,
-          peakUsedPct: Math.max(fired.peakUsedPct, window.usedPct),
+          usedPct: window.usedPct,
         });
       }
       // Anything else drops the memory: a real recovery, or an instance

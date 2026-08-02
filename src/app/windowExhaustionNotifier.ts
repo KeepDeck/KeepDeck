@@ -79,8 +79,8 @@ export function createWindowExhaustionNotifier(
       // Delivery accounting: rebuild the fold's memory minus the keys no
       // channel accepted, so the next fold retries them. This deliberately
       // edits the domain's record from the shell — delivery is the shell's
-      // fact, and ExhaustionAlert is a single field, so the edit is
-      // lossless. If the record ever grows, move this into the fold.
+      // fact, and deleting the WHOLE record is lossless retry semantics:
+      // a re-fire re-derives it entirely from that fold's own inputs.
       if (!delivered) applied.delete(notice.key);
     }
     alerts = applied;

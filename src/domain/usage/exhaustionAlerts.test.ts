@@ -59,7 +59,7 @@ const CRITICAL = () => ramp(1, 88);
 const WARN = () => ramp(0.15, 88);
 const OK = () => ramp(0.05, 88);
 /** The record a FIVE_H alarm fires and holds with. */
-const FIRED_88 = { resetsAt: FIVE_H.resetsAt, peakUsedPct: 88 };
+const FIRED_88 = { resetsAt: FIVE_H.resetsAt, usedPct: 88 };
 
 describe("foldExhaustionAlerts", () => {
   const NONE: ExhaustionAlerts = new Map();
@@ -220,7 +220,7 @@ describe("foldExhaustionAlerts", () => {
     expect(next.notices).toHaveLength(1);
     expect(next.alerts.get(keyOf([nextWindow]))).toEqual({
       resetsAt: nextWindow.resetsAt,
-      peakUsedPct: 88,
+      usedPct: 88,
     });
   });
 
@@ -272,10 +272,34 @@ describe("foldExhaustionAlerts", () => {
     expect(held.notices).toHaveLength(0);
   });
 
+  it("holds through a slow monotone decline — steps re-arm, never accumulation", () => {
+    // usedPct drifts down 0.5pp per fold for 12 folds: every step is under
+    // both the segment boundary and the refill threshold. A high-water-mark
+    // memory re-fired at −5.5pp cumulative; a per-step memory must not.
+    const windows = [FIVE_H];
+    let state = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    expect(state.notices).toHaveLength(1);
+    for (let step = 1; step <= 12; step += 1) {
+      const drifted: UsageWindow = { ...FIVE_H, usedPct: 88 - 0.5 * step };
+      state = foldExhaustionAlerts(
+        state.alerts,
+        accountsOf([drifted]),
+        seriesOf([drifted], CRITICAL()),
+        NOW,
+      );
+      expect(state.notices).toHaveLength(0);
+    }
+  });
+
   it("re-arms after a top-up — a clockless plan window alarms again", () => {
-    // kimi's quota has no reset clock: resetsAt stays null forever, so the
-    // instance identity must come from the journal's segments, not the
-    // reset anchor (which never moves).
+    // kimi's quota has no reset clock: resetsAt stays null forever, so
+    // the instance identity must come from the window's own refill signal
+    // — a deep single-step usage drop — never from the reset anchor.
     const quota: UsageWindow = {
       usedPct: 90,
       resetsAt: null,
@@ -321,8 +345,9 @@ describe("foldExhaustionAlerts", () => {
       NOW,
     );
     expect(fired.notices).toHaveLength(1);
-    // The provider re-reports the same window with resetsAt drifted +30s —
-    // inside currentSegment's 60s jitter belt, so the SAME segment.
+    // The provider re-reports the same window with resetsAt drifted +30s
+    // — inside INSTANCE_JUMP_MS, the one shared jitter belt, so the SAME
+    // instance.
     const drifted: UsageWindow = {
       ...FIVE_H,
       resetsAt: FIVE_H.resetsAt! + 30_000,

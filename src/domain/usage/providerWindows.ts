@@ -76,37 +76,39 @@ export function providerWindowGroups(
     const account = accounts.get(agent);
     if (account?.kind !== "reported") continue;
     const windows = panelWindows(account);
-    // A reported account with zero windows has nothing to say — a headless
-    // card would render a name over nothing AND suppress the honest
-    // "no provider reports yet" empty state. (Today's normalizers never
-    // produce one; the invariant is enforced here, not assumed.)
-    if (windows.length === 0) continue;
     const forecasts = accountWindowForecasts(agent, account, byKey, now);
+    const rows = windows.flatMap((window, index): ProviderWindowRow[] => {
+      // panelWindows sorts a shallow copy, so object identity survives
+      // into the join's map, minted over the account's own order. If
+      // that invariant ever breaks, drop the ROW — the same degradation
+      // the popover chose — never throw the whole tab.
+      const joined = forecasts.get(window);
+      if (!joined) return [];
+      return [
+        {
+          id: `${joined.key}\0${index}`,
+          agent,
+          window,
+          reports: joined.reports,
+          forecast: joined.forecast,
+          reportedAt: account.reportedAt,
+          expired: windowExpired(window, now),
+          stale: usageStale(account.reportedAt, now),
+          ledger: windowLedger(agent, window, events, now),
+        },
+      ];
+    });
+    // A card with zero rows has nothing to say — headless, it would render
+    // a name over nothing AND suppress the honest "no provider reports
+    // yet" empty state. One guard covers both ways rows can vanish: an
+    // empty report (normalizers never send one; enforced, not assumed)
+    // and the identity-miss drop above.
+    if (rows.length === 0) continue;
     groups.push({
       agent,
       reportedAt: account.reportedAt,
       stale: usageStale(account.reportedAt, now),
-      rows: windows.flatMap((window, index) => {
-        // panelWindows sorts a shallow copy, so object identity survives
-        // into the join's map, minted over the account's own order. If
-        // that invariant ever breaks, drop the ROW — the same degradation
-        // the popover chose — never throw the whole tab.
-        const joined = forecasts.get(window);
-        if (!joined) return [];
-        return [
-          {
-            id: `${joined.key}\0${index}`,
-            agent,
-            window,
-            reports: joined.reports,
-            forecast: joined.forecast,
-            reportedAt: account.reportedAt,
-            expired: windowExpired(window, now),
-            stale: usageStale(account.reportedAt, now),
-            ledger: windowLedger(agent, window, events, now),
-          },
-        ];
-      }),
+      rows,
     });
   }
   return groups;
