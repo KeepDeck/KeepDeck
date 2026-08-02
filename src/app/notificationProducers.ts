@@ -6,7 +6,11 @@ import {
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
 import type { NotificationSource } from "../domain/notifications";
-import { activityBadge, type PaneActivity } from "../domain/status";
+import {
+  activityBadge,
+  activityTransition,
+  type PaneActivity,
+} from "../domain/status";
 import type { WorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import type { AgentStatusTracker } from "./agentStatusTracker";
@@ -124,7 +128,9 @@ function paneContextById(
  * turn, or died on an API error. One tag per pane, replace-not-stack — a
  * "needs approval" banner is superseded by the "finished" that follows it,
  * never stacked under it. Suppression while the pane is on screen is the
- * center's own rule ([`shouldBanner`]), not re-derived here.
+ * center's own rule ([`shouldBanner`]), not re-derived here — and WHICH
+ * transitions speak at all is the domain's ([`activityTransition`]); this
+ * module only words the message.
  *
  * `read` supplies the deck facts a message needs (names change and panes
  * close while this subscription lives) — the composition root binds it.
@@ -142,6 +148,14 @@ export function initActivityNotifications(
       if (before === activity) continue;
       announceActivity(workspaces, paneId, before, activity, agents);
     }
+    // A pane LEAVING the store is a transition too — its process retired,
+    // or the pane left the deck. A standing "needs approval" for it would
+    // report a wait that no longer exists; the domain table withdraws it.
+    for (const [paneId, before] of prev) {
+      if (!next.has(paneId)) {
+        announceActivity(workspaces, paneId, before, undefined, agents);
+      }
+    }
     prev = next;
   });
 }
@@ -150,66 +164,53 @@ function announceActivity(
   workspaces: Workspace[],
   paneId: string,
   before: PaneActivity | undefined,
-  activity: PaneActivity,
+  activity: PaneActivity | undefined,
   agents: AgentInfo[],
 ): void {
-  const badge = activityBadge(activity);
   const tag = `pane:${paneId}:activity`;
-  const ctx = () => paneContextById(workspaces, paneId, agents);
-  // An ANSWERED wait is no longer news: the user resolved the prompt in
-  // the pane (the turn resumed) or cut the turn with their own hand — a
-  // standing "needs approval" would now report a wait that doesn't exist.
-  // The states that announce (done, failed) replace the same tag instead.
-  if (
-    before?.state === "waiting" &&
-    (activity.state === "working" ||
-      (activity.state === "done" && activity.interrupted))
-  ) {
+  const verdict = activityTransition(before, activity);
+  if (verdict === "none") return;
+  if (verdict === "retract") {
     retractNotification(tag);
     return;
   }
-  if (activity.state === "waiting" && before?.state !== "waiting") {
-    const c = ctx();
-    if (!c) return;
-    notify({
-      title: `${c.title} — ${badge.sentence}`,
-      body: c.wsName,
-      severity: "warning",
-      source: { type: "pane", workspace: c.workspace, paneId },
-      tag,
-    });
-    return;
-  }
-  if (activity.state === "failed") {
-    const c = ctx();
-    if (!c) return;
-    // `sentence`, not a lowercased label: a CLI's own error identifier must
-    // keep its casing ("failed: QuotaCliff", never "failed: quotacliff").
-    notify({
-      title: `${c.title} — ${badge.sentence}`,
-      body: activity.detail ? `${activity.detail} · ${c.wsName}` : c.wsName,
-      severity: "error",
-      source: { type: "pane", workspace: c.workspace, paneId },
-      tag,
-    });
-    return;
-  }
-  // Finished — but only a turn that was actually RUNNING here, and only one
-  // the agent ended itself: an interrupt is the user's own hand, they are
-  // looking at the pane.
-  if (
-    activity.state === "done" &&
-    !activity.interrupted &&
-    (before?.state === "working" || before?.state === "waiting")
-  ) {
-    const c = ctx();
-    if (!c) return;
-    notify({
-      title: `${c.title} finished`,
-      body: c.wsName,
-      source: { type: "pane", workspace: c.workspace, paneId },
-      tag,
-    });
+  if (activity === undefined) return; // a removal never announces
+  const c = paneContextById(workspaces, paneId, agents);
+  if (!c) return;
+  const badge = activityBadge(activity);
+  const source = {
+    type: "pane",
+    workspace: c.workspace,
+    paneId,
+  } as const;
+  switch (activity.state) {
+    case "waiting":
+      notify({
+        title: `${c.title} — ${badge.sentence}`,
+        body: c.wsName,
+        severity: "warning",
+        source,
+        tag,
+      });
+      return;
+    case "failed":
+      // `sentence`, not a lowercased label: a CLI's own error identifier
+      // must keep its casing ("failed: QuotaCliff", never "quotacliff").
+      notify({
+        title: `${c.title} — ${badge.sentence}`,
+        body: activity.detail ? `${activity.detail} · ${c.wsName}` : c.wsName,
+        severity: "error",
+        source,
+        tag,
+      });
+      return;
+    default:
+      notify({
+        title: `${c.title} finished`,
+        body: c.wsName,
+        source,
+        tag,
+      });
   }
 }
 

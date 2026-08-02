@@ -146,7 +146,7 @@ describe("notificationCenter", () => {
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(2);
   });
 
-  it("retracting removes the tag's entry and resets its banner cooldown", () => {
+  it("retracting removes the tag's entry; the banner cooldown survives", () => {
     notify({ title: "needs approval", source: paneSource, tag: "x" });
     expect(getNotifications()).toHaveLength(1);
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
@@ -154,10 +154,17 @@ describe("notificationCenter", () => {
     retractNotification("x");
     expect(getNotifications()).toHaveLength(0);
 
-    // A NEW wait right after an answer is a new question, not a flap: it
-    // banners inside what would have been the old cooldown window.
+    // An agent whose permissions auto-resolve flaps ask→answer→ask faster
+    // than a human reads — the next ask inside the window must NOT hammer
+    // the OS again. The center entry still lands; only the banner waits.
     vi.advanceTimersByTime(1_000);
     notify({ title: "needs approval again", source: paneSource, tag: "x" });
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
+    expect(getNotifications()).toHaveLength(1);
+
+    // Out of the window it is a fresh question and banners normally.
+    vi.advanceTimersByTime(10_000);
+    notify({ title: "and again", source: paneSource, tag: "x" });
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(2);
   });
 

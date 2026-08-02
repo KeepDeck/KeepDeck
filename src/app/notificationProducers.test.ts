@@ -230,7 +230,7 @@ describe("activity notifications", () => {
   const edge = (e: Record<string, unknown>) =>
     tracker.report("pane-1", { agent: "claude", edge: e });
 
-  it("announces a wait once — re-assertions do not stack banners", () => {
+  it("announces a wait once; a re-assert is silent, a changed question replaces", () => {
     edge({ kind: "waiting", at: 100, reason: "permission" });
     expect(center.notify).toHaveBeenCalledWith({
       title: "Claude 1 — needs approval",
@@ -243,8 +243,19 @@ describe("activity notifications", () => {
       },
       tag: "pane:pane-1:activity",
     });
-    edge({ kind: "waiting", at: 200, reason: "question" });
+    // Same question again (claude's idle nudge repeats): nothing to say.
+    edge({ kind: "waiting", at: 200, reason: "permission" });
     expect(center.notify).toHaveBeenCalledTimes(1);
+    // A DIFFERENT question re-announces under the same tag, so the bell's
+    // text stops lying about which prompt is up (replace, not stack).
+    edge({ kind: "waiting", at: 300, reason: "question" });
+    expect(center.notify).toHaveBeenCalledTimes(2);
+    expect(center.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: "Claude 1 — needs your input",
+        tag: "pane:pane-1:activity",
+      }),
+    );
   });
 
   it("announces a finished turn, but never one the user cut themselves", () => {
@@ -282,6 +293,32 @@ describe("activity notifications", () => {
     center.retractNotification.mockClear();
     edge({ kind: "waiting", at: 300, reason: "question" });
     edge({ kind: "interrupted", at: 400 });
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
+  });
+
+  it("a pane leaving the store withdraws its standing wait — and only a wait", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    expect(center.notify).toHaveBeenCalledTimes(1);
+    // The pane's process retires (suspend/close/crash): its activity is
+    // cleared, and the standing "needs approval" must go with it.
+    tracker.clear("pane-1");
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
+
+    // A finished pane's entry is history — history may stand.
+    center.retractNotification.mockClear();
+    edge({ kind: "turn-start", at: 200 });
+    edge({ kind: "turn-end", at: 300 });
+    tracker.clear("pane-1");
+    expect(center.retractNotification).not.toHaveBeenCalled();
+  });
+
+  it("retention sweeps withdraw waits the same way a clear does", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    tracker.retain(new Set(["some-other-pane"]));
     expect(center.retractNotification).toHaveBeenCalledWith(
       "pane:pane-1:activity",
     );
