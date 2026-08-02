@@ -5,7 +5,6 @@ import { useSettings } from "../../app/useSettings";
 import { shellLine } from "../../domain/mcp";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { writeText } from "../../ipc/clipboard";
-import { mcpConnectionCommand } from "../../ipc/mcp";
 
 /**
  * Experimental features ([F6] → Experimental) — opt-in capabilities that ship
@@ -24,7 +23,10 @@ import { mcpConnectionCommand } from "../../ipc/mcp";
  * The connect row keys on the CONFIRMED transport status, not the setting:
  * the setting is a wish, and the two differ exactly when the user most needs
  * to know (another instance already holds the socket, enable failed) — so a
- * failed transition renders its error where the command would be.
+ * failed transition renders its error where the command would be. The command
+ * itself arrives WITH that status: it is a fact about the running transport,
+ * true whether or not this dialog is open, so the MCP owner looks it up once
+ * per settled transition instead of this row re-fetching on every mount.
  */
 export function ExperimentalSection() {
   const settings = useSettings();
@@ -32,35 +34,16 @@ export function ExperimentalSection() {
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
   const mcpServer = settings?.mcpServer ?? DEFAULT_SETTINGS.mcpServer;
   const mcpStatus = useMcpStatus();
-  // The command is fetched, not computed: only the backend knows where this
-  // install's binary lives. A fetch failure is a message, never a silently
-  // missing row — the server IS serving.
-  const [connect, setConnect] = useState<string | null>(null);
-  const [connectError, setConnectError] = useState<string | null>(null);
+  const served = mcpStatus.socket !== null;
+  // The invocation comes from the transport's own status — a fact about the
+  // running socket, not something this row goes and fetches. Rendering it as
+  // a shell line is the only part that is this component's.
+  const connect = mcpStatus.connect ? shellLine(mcpStatus.connect) : null;
+  const connectError = mcpStatus.connectError;
   // Reset whenever the command changes, so the confirmation can never stand
   // over a line the user has not actually copied.
   const [copied, setCopied] = useState(false);
-  const served = mcpStatus.socket !== null;
-  useEffect(() => {
-    setCopied(false);
-    if (!served) {
-      setConnect(null);
-      setConnectError(null);
-      return;
-    }
-    let stale = false;
-    void mcpConnectionCommand()
-      .then((connection) => {
-        if (!stale) setConnect(shellLine(connection));
-      })
-      .catch((e: unknown) => {
-        if (!stale)
-          setConnectError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      stale = true;
-    };
-  }, [served]);
+  useEffect(() => setCopied(false), [connect]);
 
   return (
     <>

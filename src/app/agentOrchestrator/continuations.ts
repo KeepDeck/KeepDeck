@@ -29,7 +29,9 @@ interface ContinuationDeps {
   deck: DeckStore;
   spawnContext: SpawnContextSource;
   plugins: SpawnPluginAccess;
-  blocked: ReadonlyMap<string, string>;
+  /** Whether a pane's directory is gone — a blocked pane cannot be the live
+   * claimant of the session a resume is asking for. */
+  isBlocked(paneId: string): boolean;
   creation: AgentOrchestratorCreation;
   skillsAsk: StagedSkillsAsk;
   mcpAccess: McpAccessAsk;
@@ -45,7 +47,7 @@ export function createAgentOrchestratorContinuations({
   deck,
   spawnContext,
   plugins,
-  blocked,
+  isBlocked,
   creation,
   skillsAsk,
   mcpAccess,
@@ -58,7 +60,7 @@ export function createAgentOrchestratorContinuations({
     return sessionClaimant(
       deck.getSnapshot().workspaces,
       sessionId,
-      (paneId) => blocked.has(paneId),
+      isBlocked,
     );
   }
 

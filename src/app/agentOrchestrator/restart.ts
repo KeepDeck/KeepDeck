@@ -44,11 +44,12 @@ interface RestartDeps {
   sessions: SessionRegistryPort;
   plugins: SpawnPluginAccess;
   spawnContext: SpawnContextSource;
-  epochs: Map<string, number>;
+  /** Re-mount a pane's terminal — the view store owns the generation and
+   * publishes it; a restart only says which pane. */
+  bumpEpoch(paneId: string): void;
   startOwed: Set<string>;
   skillsAsk: StagedSkillsAsk;
   mcpAccess: McpAccessAsk;
-  publish(): void;
   schedule(): void;
 }
 
@@ -77,19 +78,13 @@ export function createAgentOrchestratorRestart({
   sessions,
   plugins,
   spawnContext,
-  epochs,
+  bumpEpoch,
   startOwed,
   skillsAsk,
   mcpAccess,
-  publish,
   schedule,
 }: RestartDeps): AgentOrchestratorRestart {
   const restarting = new Set<string>();
-
-  function bumpEpoch(paneId: string): void {
-    epochs.set(paneId, (epochs.get(paneId) ?? 0) + 1);
-    publish();
-  }
 
   function targetOf(
     workspaceRef: string | WorkspaceRef,

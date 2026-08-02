@@ -23,7 +23,9 @@ interface ClosingDeps {
   sessions: SessionRegistryPort;
   suspendPolicy: SuspendPolicyPort;
   worktrees: WorktreeProvisioner;
-  blocked: ReadonlyMap<string, string>;
+  /** Whether a pane's directory is gone — a suspend has nothing to come back
+   * to. The question, not the map it is answered from. */
+  isBlocked(paneId: string): boolean;
 }
 
 export interface AgentOrchestratorClosing {
@@ -45,7 +47,7 @@ export function createAgentOrchestratorClosing({
   sessions,
   suspendPolicy,
   worktrees,
-  blocked,
+  isBlocked,
 }: ClosingDeps): AgentOrchestratorClosing {
   const suspending = new Set<string>();
 
@@ -53,7 +55,7 @@ export function createAgentOrchestratorClosing({
     if (suspending.has(paneId)) return "in-flight";
     const pane = findPane(deck.getSnapshot().workspaces, wsId, paneId);
     if (!pane) return "gone";
-    const refusal = paneSuspendBlock(pane, blocked.has(paneId));
+    const refusal = paneSuspendBlock(pane, isBlocked(paneId));
     if (refusal) return refusal;
     suspending.add(paneId);
     try {

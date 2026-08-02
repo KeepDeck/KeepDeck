@@ -5,7 +5,10 @@
  * questions: the loop decides what should happen to a pane, this decides what
  * the UI is currently told. The maps live here so "drop notes about panes
  * that are gone" is one operation rather than three places remembering to do
- * it.
+ * it — and they stay here: every collaborator gets the QUESTION it asks
+ * (`isBlocked`) or the CHANGE it makes (`bumpEpoch`), never the map. Handing
+ * out the map hands out the ability to write it without publishing, which is
+ * the one thing a render snapshot cannot survive.
  */
 import type { SpawnPlan } from "../../domain/agents";
 import { peekPanePlanError, peekPaneSpawnSpec } from "../spawnSpecs";
@@ -30,13 +33,15 @@ export interface RunViewStore {
   /** A manual wake refused, with the reason its card shows. */
   markWakeFailed(paneId: string, why: string): void;
   blockedDir(paneId: string): string | null;
+  /** Whether this pane's directory is gone — the question the suspend refusal
+   * and the resume claimant both ask. */
+  isBlocked(paneId: string): boolean;
   /** Forget both notes for one pane; `true` when anything was there. */
   clearNotes(paneId: string): boolean;
-  /** Terminal mount generations — a restart re-mounts by bumping one. */
-  epochs: Map<string, number>;
-  /** Panes whose directory is gone, by pane id. Handed to the collaborators
-   * that both write it (the close flow relocating a pane) and read it. */
-  blocked: Map<string, string>;
+  /** Re-mount this pane's terminal: a restart bumps its mount generation.
+   * Publishes, because a generation nobody was told about re-mounts nothing —
+   * the two used to be separate lines at the one call site that needed both. */
+  bumpEpoch(paneId: string): void;
   /** Drop notes about panes that are no longer in the deck; `true` when any
    * went. Ids are never reused, so without this the maps only grow. */
   forgetGone(live: Set<string>): boolean;
@@ -86,13 +91,16 @@ export function createRunViewStore(deck: DeckStore): RunViewStore {
       wakeFailed.set(paneId, why);
     },
     blockedDir: (paneId) => blocked.get(paneId) ?? null,
+    isBlocked: (paneId) => blocked.has(paneId),
     clearNotes(paneId) {
       let changed = blocked.delete(paneId);
       changed = wakeFailed.delete(paneId) || changed;
       return changed;
     },
-    epochs,
-    blocked,
+    bumpEpoch(paneId) {
+      epochs.set(paneId, (epochs.get(paneId) ?? 0) + 1);
+      publish();
+    },
     forgetGone(live) {
       let dropped = false;
       for (const map of [blocked, wakeFailed, epochs]) {

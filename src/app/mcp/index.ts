@@ -5,7 +5,13 @@ import {
   type McpServerIdentity,
 } from "../../domain/mcp";
 import { fetchAppInfo } from "../../ipc/app";
-import { mcpDisable, mcpEnable } from "../../ipc/mcp";
+import { describeError } from "../../ipc/log";
+import {
+  mcpConnectionCommand,
+  mcpDisable,
+  mcpEnable,
+  type McpConnection,
+} from "../../ipc/mcp";
 import { commands } from "../commandRegistry";
 import {
   createMcpInjection,
@@ -61,6 +67,19 @@ function sameRefusals(
 export interface McpStatus {
   socket: string | null;
   error: string | null;
+  /** How a client KeepDeck does NOT start reaches the socket — a desktop app,
+   * an editor, an agent run outside the deck. Fetched from the backend, never
+   * computed: only it knows where this install's binary lives, and a second
+   * derivation would drift the day the shim's flags change. Null while the
+   * transport is down and until the lookup lands.
+   *
+   * Kept here rather than in whatever settings surface happens to show it: it
+   * is a fact about the running transport, true whether or not that surface is
+   * open, and a component holding it re-fetches on every mount. */
+  connect: McpConnection | null;
+  /** Why that lookup failed, when it did — the server IS serving, so this is
+   * a message and never a silently missing row. */
+  connectError: string | null;
   /** Directories where the kimi config could not be planted because the user
    * keeps their own there. Reported rather than logged: those panes are the
    * ONLY ones that silently lack what every other pane got, and the fix
@@ -81,21 +100,31 @@ function problem(detail: string | null): string {
 function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus {
   const refused = previous.refused;
   if (!transition.ok) {
-    return { socket: previous.socket, error: problem(transition.detail), refused };
+    // The socket claim is kept, so the connect line stays with it: nothing
+    // confirmed the socket went away, and the row is still true.
+    return {
+      ...previous,
+      error: problem(transition.detail),
+      refused,
+    };
   }
+  // Every settled change to the socket invalidates the line that names it —
+  // the lookup that follows is what fills it back in.
+  const blank = { connect: null, connectError: null };
   if (!transition.desired) {
     // Off takes the refusals with it: nothing is planted any more, so a
     // directory that once refused is no longer withholding anything.
-    return { socket: null, error: null, refused: [] };
+    return { socket: null, error: null, refused: [], ...blank };
   }
   return transition.detail !== null
-    ? { socket: transition.detail, error: null, refused }
+    ? { socket: transition.detail, error: null, refused, ...blank }
     : // Defensive: mcp_enable's contract is a path string; a confirmation
       // without one must degrade LOUDLY, not into a blank served-less On.
       {
         socket: null,
         error: "the backend confirmed On without a socket path",
         refused,
+        ...blank,
       };
 }
 
@@ -160,8 +189,15 @@ export function createMcpService(
 ): McpService {
   const registry = deps.registry ?? commands;
   const transport = deps.transport ?? { enable: mcpEnable, disable: mcpDisable };
+  const connection = deps.connection ?? mcpConnectionCommand;
 
-  let current: McpStatus = { socket: null, error: null, refused: [] };
+  let current: McpStatus = {
+    socket: null,
+    error: null,
+    connect: null,
+    connectError: null,
+    refused: [],
+  };
   const listeners = new Set<() => void>();
   const publish = (next: McpStatus) => {
     current = next;
@@ -223,7 +259,7 @@ export function createMcpService(
     onArmed: (roots) => {
       for (const root of roots) armedRoots.add(root);
     },
-    ...(deps.connection ? { connection: deps.connection } : {}),
+    connection,
   });
   const pump = createMcpRequestPump(
     (line, client) => handleMcpLine(port, () => identity, line, client),
@@ -231,6 +267,31 @@ export function createMcpService(
   );
   let policy: McpServerPolicy | null = null;
   let disposed = false;
+
+  /** Look up the hand-wiring invocation for the socket that is up NOW.
+   *
+   * Anonymous, unlike a pane's: there is no pane behind a client the user
+   * wires by hand. Re-run on every settled transition rather than cached for
+   * the session — the served path is part of the answer. The sequence guard
+   * drops a late reply whose socket has since been replaced or torn down; a
+   * failure is a message, never a missing row, because the server IS serving.
+   */
+  let connectSeq = 0;
+  function refreshConnect(): void {
+    const seq = ++connectSeq;
+    if (current.socket === null) return;
+    const settled = () => !disposed && seq === connectSeq && current.socket !== null;
+    void connection()
+      .then((invocation) => {
+        if (settled()) publish({ ...current, connect: invocation, connectError: null });
+      })
+      .catch((e: unknown) => {
+        if (settled()) {
+          publish({ ...current, connect: null, connectError: describeError(e) });
+        }
+      });
+  }
+
   void pump.ready.then((registered) => {
     if (disposed) return;
     if (!registered) {
@@ -241,12 +302,15 @@ export function createMcpService(
       publish({
         socket: null,
         error: "the deck cannot receive MCP requests — the event channel failed",
+        connect: null,
+        connectError: null,
         refused: [],
       });
       return;
     }
     policy = createMcpServerPolicy(settings, transport, (transition) => {
       publish(statusAfter(current, transition));
+      refreshConnect();
       // A confirmed Off takes the planted configs with it: the socket they
       // name is gone, and a kimi pane reading one would spawn a shim that
       // cannot connect. Fire-and-forget — the backend's armed manifest still

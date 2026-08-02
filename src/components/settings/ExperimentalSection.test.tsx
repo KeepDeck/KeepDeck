@@ -13,10 +13,18 @@ vi.mock("../../app/settingsManager", () => ({
   subscribeSettings: () => () => {},
   updateSettings: settingsManager.updateSettings,
 }));
+// The connect invocation arrives WITH the status: it is a fact about the
+// running transport, so this component neither fetches it nor holds it.
+const invocation = {
+  command: "/Applications/KeepDeck",
+  args: ["--mcp-shim", "/Users/u/.config/keepdeck/mcp/mcp.sock"],
+};
 const mcpStatus = vi.hoisted(() => ({
   current: {
     socket: null as string | null,
     error: null as string | null,
+    connect: null as { command: string; args: string[] } | null,
+    connectError: null as string | null,
     refused: [] as { root: string; reason: string }[],
   },
 }));
@@ -27,15 +35,16 @@ const clipboard = vi.hoisted(() => ({
   writeText: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("../../ipc/clipboard", () => clipboard);
-const mcpIpc = vi.hoisted(() => ({
-  mcpConnectionCommand: vi.fn(() =>
-    Promise.resolve({
-      command: "/Applications/KeepDeck",
-      args: ["--mcp-shim", "/Users/u/.config/keepdeck/mcp/mcp.sock"],
-    }),
-  ),
-}));
-vi.mock("../../ipc/mcp", () => mcpIpc);
+
+/** A confirmed-up transport, with whatever else the case is about. */
+const up = (extra: Partial<typeof mcpStatus.current> = {}) => ({
+  socket: "/home/mcp.sock",
+  error: null,
+  connect: invocation,
+  connectError: null,
+  refused: [],
+  ...extra,
+});
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -46,10 +55,15 @@ describe("ExperimentalSection", () => {
 
   beforeEach(() => {
     settingsManager.updateSettings.mockReset();
-    mcpIpc.mcpConnectionCommand.mockClear();
     clipboard.writeText.mockClear();
     settings.current = { ...DEFAULT_SETTINGS };
-    mcpStatus.current = { socket: null, error: null, refused: [] };
+    mcpStatus.current = {
+      socket: null,
+      error: null,
+      connect: null,
+      connectError: null,
+      refused: [],
+    };
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -101,14 +115,15 @@ describe("ExperimentalSection", () => {
 
   it("the connect row keys on the CONFIRMED status, not the setting", async () => {
     // Setting on, transport not confirmed (refused enable, other instance):
-    // advertising a command here would point at someone else's deck.
+    // advertising a command here would point at someone else's deck — even if
+    // a line from the last confirmed socket is still on the status.
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mcpStatus.current = { ...up(), socket: null };
     mount();
     await settle();
     expect(connectLine()).toBeNull();
-    expect(mcpIpc.mcpConnectionCommand).not.toHaveBeenCalled();
 
-    mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
+    mcpStatus.current = up();
     mount();
     await settle();
     const line = connectLine();
@@ -122,11 +137,11 @@ describe("ExperimentalSection", () => {
 
   it("the row leaves with the served status (live Off)", async () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
-    mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
+    mcpStatus.current = up();
     mount();
     await settle();
     expect(connectLine()).not.toBeNull();
-    mcpStatus.current = { socket: null, error: null, refused: [] };
+    mcpStatus.current = { ...up(), socket: null, connect: null };
     mount();
     await settle();
     expect(connectLine()).toBeNull();
@@ -134,7 +149,12 @@ describe("ExperimentalSection", () => {
 
   it("a failed enable surfaces as a message, not a silently missing row", async () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
-    mcpStatus.current = { socket: null, error: "already served by another process", refused: [] };
+    mcpStatus.current = {
+      ...up(),
+      socket: null,
+      connect: null,
+      error: "already served by another process",
+    };
     mount();
     await settle();
     expect(host.textContent).toContain("reported a problem");
@@ -145,7 +165,7 @@ describe("ExperimentalSection", () => {
     // The one report that says "the socket may still be serving" arrives
     // exactly when the toggle reads Off — a setting-gated row would eat it.
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: false };
-    mcpStatus.current = { socket: "/home/mcp.sock", error: "ipc failure", refused: [] };
+    mcpStatus.current = up({ error: "ipc failure" });
     mount();
     await settle();
     expect(host.textContent).toContain("reported a problem");
@@ -157,7 +177,7 @@ describe("ExperimentalSection", () => {
     // connect row stays truthful, but must not read as an unqualified
     // invitation while the transport is reporting a problem.
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: false };
-    mcpStatus.current = { socket: "/home/mcp.sock", error: "ipc failure", refused: [] };
+    mcpStatus.current = up({ error: "ipc failure" });
     mount();
     await settle();
     expect(connectLine()).not.toBeNull();
@@ -165,12 +185,12 @@ describe("ExperimentalSection", () => {
     expect(host.textContent).toContain("no longer reachable");
   });
 
-  it("a failed command fetch says so — the server IS serving", async () => {
+  it("a failed command lookup says so — the server IS serving", async () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
-    mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
-    mcpIpc.mcpConnectionCommand.mockRejectedValueOnce(
-      new Error("path contains a symlink"),
-    );
+    mcpStatus.current = up({
+      connect: null,
+      connectError: "path contains a symlink",
+    });
     mount();
     await settle();
     expect(connectLine()).toBeNull();
@@ -185,7 +205,7 @@ describe("ExperimentalSection", () => {
     await settle();
     expect(host.textContent).not.toContain("New agent panes connect to it");
 
-    mcpStatus.current = { socket: "/s.sock", error: null, refused: [] };
+    mcpStatus.current = up();
     mount();
     await settle();
     expect(host.textContent).toContain("New agent panes connect to it");
@@ -194,11 +214,9 @@ describe("ExperimentalSection", () => {
   it("names the folders where a kimi pane kept its own config", async () => {
     // The fix — move or remove that file — is the user's to make, so the
     // directory has to be on screen rather than only in the log.
-    mcpStatus.current = {
-      socket: "/s.sock",
-      error: null,
+    mcpStatus.current = up({
       refused: [{ root: "/repo/api", reason: "not KeepDeck's" }],
-    };
+    });
     mount();
     await settle();
     expect(host.textContent).toContain("/repo/api");
@@ -208,7 +226,7 @@ describe("ExperimentalSection", () => {
     // The whole point of the row: the user takes this line elsewhere. Copying
     // must not depend on selecting monospace text with a mouse.
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
-    mcpStatus.current = { socket: "/home/mcp.sock", error: null, refused: [] };
+    mcpStatus.current = up();
     mount();
     await settle();
 

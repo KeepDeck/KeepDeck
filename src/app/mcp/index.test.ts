@@ -47,8 +47,9 @@ function harness(opts: { initial?: boolean | null } = {}) {
     retract: async () => true,
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
-    connection: () =>
+    connection: vi.fn(() =>
       Promise.resolve({ command: "/bin/keepdeck", args: ["--mcp-shim", "/s"] }),
+    ),
   };
   return {
     settings,
@@ -86,17 +87,61 @@ describe("createMcpService", () => {
   it("status reflects what the backend CONFIRMED, not the setting", async () => {
     const h = harness();
     const service = createMcpService(h.settings, h.deps);
-    expect(service.status()).toEqual({ socket: null, error: null, refused: [] });
+    const socketAndError = () => {
+      const { socket, error, refused } = service.status();
+      return { socket, error, refused };
+    };
+    expect(socketAndError()).toEqual({ socket: null, error: null, refused: [] });
 
     const seen: string[] = [];
     service.subscribe(() => seen.push(service.status().socket ?? "-"));
     h.set(true);
     await flush();
-    expect(service.status()).toEqual({ socket: "/home/mcp.sock", error: null, refused: [] });
+    expect(socketAndError()).toEqual({
+      socket: "/home/mcp.sock",
+      error: null,
+      refused: [],
+    });
     h.set(false);
     await flush();
-    expect(service.status()).toEqual({ socket: null, error: null, refused: [] });
-    expect(seen).toEqual(["/home/mcp.sock", "-"]);
+    expect(socketAndError()).toEqual({ socket: null, error: null, refused: [] });
+    // Two settled transitions, plus the connect lookup that lands under the
+    // first one — the socket it publishes is the same either way.
+    expect(seen).toEqual(["/home/mcp.sock", "/home/mcp.sock", "-"]);
+  });
+
+  it("looks the connect invocation up itself, and drops it on Off", async () => {
+    // It is a fact about the RUNNING transport, not about whichever settings
+    // surface happens to be open: a component that fetched it would re-fetch
+    // on every mount and hold a copy nothing else could see.
+    const h = harness();
+    const service = createMcpService(h.settings, h.deps);
+    h.set(true);
+    await flush();
+    expect(service.status().connect).toEqual({
+      command: "/bin/keepdeck",
+      args: ["--mcp-shim", "/s"],
+    });
+    // Anonymous: there is no pane behind a client the user wires by hand.
+    expect(h.deps.connection).toHaveBeenCalledWith();
+
+    h.set(false);
+    await flush();
+    expect(service.status().connect).toBeNull();
+  });
+
+  it("reports a failed connect lookup — the server IS still serving", async () => {
+    const h = harness();
+    h.deps.connection = vi.fn(() =>
+      Promise.reject(new Error("path contains a symlink")),
+    );
+    const service = createMcpService(h.settings, h.deps);
+    h.set(true);
+    await flush();
+
+    expect(service.status().socket).toBe("/home/mcp.sock");
+    expect(service.status().connect).toBeNull();
+    expect(service.status().connectError).toContain("symlink");
   });
 
   it("a refused enable lands in status.error — the UI's signal", async () => {

@@ -56,8 +56,6 @@ export function createAgentOrchestratorRuntime(
   } = deps;
   const actions: DeckActions = createDeckActions(deck);
   const runView = createRunViewStore(deck);
-  const epochs = runView.epochs;
-  const blocked = runView.blocked;
   const publish = runView.publish;
   const startOwed = new Set<string>();
   /** Attempts in flight — a notification while one is pending must not
@@ -186,7 +184,7 @@ export function createAgentOrchestratorRuntime(
     sessions,
     suspendPolicy,
     worktrees,
-    blocked,
+    isBlocked: runView.isBlocked,
   });
   const restart = createAgentOrchestratorRestart({
     deck,
@@ -194,18 +192,17 @@ export function createAgentOrchestratorRuntime(
     sessions,
     plugins,
     spawnContext,
-    epochs,
+    bumpEpoch: runView.bumpEpoch,
     startOwed,
     skillsAsk,
     mcpAccess,
-    publish,
     schedule,
   });
   const continuations = createAgentOrchestratorContinuations({
     deck,
     spawnContext,
     plugins,
-    blocked,
+    isBlocked: runView.isBlocked,
     creation,
     skillsAsk,
     mcpAccess,
