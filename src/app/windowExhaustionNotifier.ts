@@ -72,11 +72,15 @@ export function createWindowExhaustionNotifier(
         // The click lands on the provider cards — the burn curves and the
         // full caption behind this alarm.
         source: { type: "stats", tab: "providers" },
-        tag: notice.key,
+        // Namespaced like every host tag (achievement:, pane:, app:) — the
+        // raw journal key stays the DOMAIN identity; the tag is delivery's.
+        tag: `exhaustion:${notice.key}`,
       });
-      // Honest delivery accounting, like the achievement notifier: an
-      // undelivered alarm stays unarmed, so the next fold retries until a
-      // channel actually reaches the user.
+      // Delivery accounting: rebuild the fold's memory minus the keys no
+      // channel accepted, so the next fold retries them. This deliberately
+      // edits the domain's record from the shell — delivery is the shell's
+      // fact, and ExhaustionAlert is a single field, so the edit is
+      // lossless. If the record ever grows, move this into the fold.
       if (!delivered) applied.delete(notice.key);
     }
     alerts = applied;

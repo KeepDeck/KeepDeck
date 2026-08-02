@@ -208,6 +208,14 @@ export function cardCaptionParts(
   return parts;
 }
 
+/** THE run-out phrase — "runs out in ~12m" — one wording for the fact,
+ * composed into a different sentence by each surface (the popover line,
+ * the exhaustion-alarm title). The surfaces may drift in COMPOSITION, never
+ * in the phrase itself. */
+export function runOutCountdown(outAt: number, now: number): string {
+  return `runs out in ~${formatCountdown(outAt, now) ?? "0m"}`;
+}
+
 /** The popover line shows THE next relevant event, always "… in X": the
  * reset caption while the pace survives it, REPLACED by the run-out
  * countdown when it does not. The word swap plus the color IS the verdict. */
@@ -218,7 +226,7 @@ export function panelWindowCaption(
 ): ForecastCaptionPart {
   if (forecast.kind === "out") {
     return {
-      text: `runs out in ~${formatCountdown(forecast.outAt, now) ?? "0m"}`,
+      text: runOutCountdown(forecast.outAt, now),
       level: forecast.level,
     };
   }

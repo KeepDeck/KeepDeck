@@ -1,7 +1,7 @@
 import { windowLabel, windowResetCaption } from "./format";
 import { currentSegment, type WindowReport } from "./reportJournal";
 import type { AccountUsage } from "./usage";
-import { accountWindowForecasts, panelWindowCaption } from "./windowForecast";
+import { accountWindowForecasts, runOutCountdown } from "./windowForecast";
 
 /**
  * The exhaustion-alarm policy — WHEN a window's forecast deserves a
@@ -34,10 +34,9 @@ export interface ExhaustionAlert {
 export type ExhaustionAlerts = ReadonlyMap<string, ExhaustionAlert>;
 
 export interface ExhaustionNotice {
-  /** The window's journal key — doubles as the notification tag, so a
-   * re-fired alarm replaces its predecessor instead of stacking. */
+  /** The window's journal key — the alarm's identity. The delivery shell
+   * namespaces it into the notification tag. */
   key: string;
-  agent: string;
   title: string;
   body: string;
 }
@@ -58,20 +57,19 @@ export function foldExhaustionAlerts(
       const fired = prev.get(row.key);
       const segment = currentSegment(row.reports);
       const anchor = segment.length > 0 ? segment[0].reportedAt : null;
-      const critical =
-        row.forecast.kind === "out" && row.forecast.level === "critical";
+      const forecast = row.forecast;
       if (
-        critical &&
+        forecast.kind === "out" &&
+        forecast.level === "critical" &&
         anchor !== null &&
         (fired === undefined || fired.anchor !== anchor)
       ) {
         notices.push({
           key: row.key,
-          agent,
-          // The popover's own next-event phrasing carries the alarm — the
-          // notification never invents a second wording for one fact.
+          // The one run-out phrase, composed for a notification — the
+          // alarm never invents a second wording for the fact.
           title: `${agent} ${windowLabel(row.window, "long")} window ${
-            panelWindowCaption(row.window, row.forecast, now).text
+            runOutCountdown(forecast.outAt, now)
           }`,
           body: windowResetCaption(row.window, now, "long"),
         });
@@ -79,7 +77,7 @@ export function foldExhaustionAlerts(
       } else if (
         fired !== undefined &&
         fired.anchor === anchor &&
-        row.forecast.kind !== "ok"
+        forecast.kind !== "ok"
       ) {
         alerts.set(row.key, fired);
       }

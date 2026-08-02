@@ -316,7 +316,7 @@ describe("foldExhaustionAlerts", () => {
     ]);
     const { notices } = foldExhaustionAlerts(NONE, accounts, byKey, NOW);
     expect(notices).toHaveLength(1);
-    expect(notices[0].agent).toBe("claude");
+    expect(notices[0].key).toBe(keyOf(claudeWindows));
   });
 
   it("phrases the notice from the popover's own captions", () => {

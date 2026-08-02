@@ -103,7 +103,7 @@ describe("createWindowExhaustionNotifier", () => {
       icon: "⏳",
       severity: "warning",
       source: { type: "stats", tab: "providers" },
-      tag: KEY,
+      tag: `exhaustion:${KEY}`,
     });
     journal.set(snapshotOf(series(1))); // same condition — an edge, not a level
     expect(notify).toHaveBeenCalledTimes(1);
