@@ -1,5 +1,5 @@
 import { panelWindows, usageStale } from "./format";
-import { accountWindowKeys } from "./reportJournal";
+import type { WindowReport } from "./reportJournal";
 import {
   tokenTotal,
   usageSessionKey,
@@ -7,6 +7,7 @@ import {
 } from "./history/event";
 import { addMoney } from "./money";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
+import { accountWindowForecasts, type WindowForecast } from "./windowForecast";
 
 /**
  * The Stats "Providers" view — one row per provider rate-limit window,
@@ -28,11 +29,12 @@ export interface ProviderWindowRow {
    * (codex can report several duration-less account windows) still get
    * distinct identities, so list rendering never collides. */
   id: string;
-  /** The window's journal key (accountWindowKeys) — the forecast surfaces
-   * look report history up by it; the row id builds on it. */
-  reportKey: string;
   agent: string;
   window: UsageWindow;
+  /** The window's journal series and forecast, from THE one join
+   * ([`accountWindowForecasts`]) — the card renders them, never re-derives. */
+  reports: readonly WindowReport[];
+  forecast: WindowForecast;
   /** When the account report carrying this window arrived. */
   reportedAt: number;
   /** The reset instant has passed: the report describes the PREVIOUS
@@ -66,6 +68,7 @@ export interface ProviderWindowGroup {
 export function providerWindowGroups(
   accounts: ReadonlyMap<string, AccountUsage>,
   events: readonly UsageEventV2[],
+  byKey: ReadonlyMap<string, readonly WindowReport[]>,
   now: number,
 ): ProviderWindowGroup[] {
   const groups: ProviderWindowGroup[] = [];
@@ -73,33 +76,39 @@ export function providerWindowGroups(
     const account = accounts.get(agent);
     if (account?.kind !== "reported") continue;
     const windows = panelWindows(account);
-    // A reported account with zero windows has nothing to say — a headless
-    // card would render a name over nothing AND suppress the honest
-    // "no provider reports yet" empty state. (Today's normalizers never
-    // produce one; the invariant is enforced here, not assumed.)
-    if (windows.length === 0) continue;
-    // Keys are minted over the account's OWN window order (never the
-    // sorted view), so the writer and every reader agree per window.
-    const reportKeys = accountWindowKeys(agent, account.windows);
-    groups.push({
-      agent,
-      reportedAt: account.reportedAt,
-      stale: usageStale(account.reportedAt, now),
-      rows: windows.map((window, index) => {
-        // panelWindows sorts a shallow copy, so object identity survives
-        // into the key map minted over the account's own order.
-        const reportKey = reportKeys.get(window)!.key;
-        return {
-          id: `${reportKey}\0${index}`,
-          reportKey,
+    const forecasts = accountWindowForecasts(agent, account, byKey, now);
+    const rows = windows.flatMap((window, index): ProviderWindowRow[] => {
+      // panelWindows sorts a shallow copy, so object identity survives
+      // into the join's map, minted over the account's own order. If
+      // that invariant ever breaks, drop the ROW — the same degradation
+      // the popover chose — never throw the whole tab.
+      const joined = forecasts.get(window);
+      if (!joined) return [];
+      return [
+        {
+          id: `${joined.key}\0${index}`,
           agent,
           window,
+          reports: joined.reports,
+          forecast: joined.forecast,
           reportedAt: account.reportedAt,
           expired: windowExpired(window, now),
           stale: usageStale(account.reportedAt, now),
           ledger: windowLedger(agent, window, events, now),
-        };
-      }),
+        },
+      ];
+    });
+    // A card with zero rows has nothing to say — headless, it would render
+    // a name over nothing AND suppress the honest "no provider reports
+    // yet" empty state. One guard covers both ways rows can vanish: an
+    // empty report (normalizers never send one; enforced, not assumed)
+    // and the identity-miss drop above.
+    if (rows.length === 0) continue;
+    groups.push({
+      agent,
+      reportedAt: account.reportedAt,
+      stale: usageStale(account.reportedAt, now),
+      rows,
     });
   }
   return groups;

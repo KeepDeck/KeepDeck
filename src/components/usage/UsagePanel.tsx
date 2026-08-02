@@ -7,14 +7,10 @@ import {
   type AccountUsage,
 } from "../../domain/usage";
 import { seriesColorFor } from "../../domain/usage/chartPalette";
+import { type WindowReport } from "../../domain/usage/reportJournal";
 import {
-  accountWindowKeys,
-  NO_REPORTS,
-  type WindowReport,
-} from "../../domain/usage/reportJournal";
-import {
+  accountWindowForecasts,
   panelWindowCaption,
-  windowForecast,
 } from "../../domain/usage/windowForecast";
 import { updateSettings } from "../../app/settingsManager";
 import { UsageWindowBar } from "./UsageWindowBar";
@@ -85,9 +81,15 @@ export function UsagePanel({
               </div>
             );
           }
-          // Keys minted over the account's OWN window order — the same rule
-          // the journal writer applies, so every row reads its own history.
-          const keys = accountWindowKeys(agent.id, account.windows);
+          // THE domain join of windows → series → forecasts; keyed by
+          // window object identity, so the panelWindows re-sort below still
+          // finds each row.
+          const rows = accountWindowForecasts(
+            agent.id,
+            account,
+            reportsByKey,
+            now,
+          );
           return (
             <div key={agent.id} className="usage-panel__section">
               <div className="usage-panel__provider">
@@ -97,11 +99,13 @@ export function UsagePanel({
                 </span>
               </div>
               {panelWindows(account).map((window, i) => {
-                const key = keys.get(window)?.key;
-                const reports =
-                  (key !== undefined ? reportsByKey.get(key) : undefined) ??
-                  NO_REPORTS;
-                const forecast = windowForecast(reports, window, now);
+                // Same-object lookup into the join above cannot miss today
+                // (panelWindows re-sorts a copy of the ARRAY, not its
+                // elements) — but if that invariant ever breaks, drop the
+                // ROW, not the whole popover.
+                const row = rows.get(window);
+                if (!row) return null;
+                const { reports, forecast } = row;
                 // THE next relevant event, one per row: the reset while
                 // the pace survives it, the run-out once it does not.
                 const caption = panelWindowCaption(window, forecast, now);

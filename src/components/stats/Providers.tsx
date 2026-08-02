@@ -16,11 +16,8 @@ import {
   type ProviderWindowLedger,
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
-import { NO_REPORTS, type WindowReport } from "../../domain/usage/reportJournal";
-import {
-  cardCaptionParts,
-  windowForecast,
-} from "../../domain/usage/windowForecast";
+import type { WindowReport } from "../../domain/usage/reportJournal";
+import { cardCaptionParts } from "../../domain/usage/windowForecast";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { WindowBurn } from "../usage/WindowBurn";
 
@@ -45,10 +42,14 @@ export function Providers({
 }) {
   // Keyed on the SAME clock the captions below render with — a memo that
   // reads its own Date.now() froze expired/stale while the caption beside
-  // them said "reset passed" (round-2 finding).
+  // them said "reset passed" (round-2 finding). reportsByKey joined the
+  // deps with the forecast join, at no added recompute: the journal
+  // captures synchronously from the usage store, so every journal emit
+  // lands in the same flush as the accounts change that caused it — a
+  // dependency this memo already carried.
   const groups = useMemo(
-    () => providerWindowGroups(accounts, events, now),
-    [accounts, events, now],
+    () => providerWindowGroups(accounts, events, reportsByKey, now),
+    [accounts, events, reportsByKey, now],
   );
   // Palette contract: colors key on the FULL ledger roster (data-keyed,
   // never the clock), so this card and the Overview chart agree on every
@@ -81,7 +82,6 @@ export function Providers({
                 key={row.id}
                 row={row}
                 stroke={seriesColorFor(colors, row.agent)}
-                reports={reportsByKey.get(row.reportKey) ?? NO_REPORTS}
                 now={now}
               />
             ))}
@@ -94,21 +94,15 @@ export function Providers({
 
 function ProviderWindow({
   row,
-  reports,
   stroke,
   now,
 }: {
   row: ProviderWindowRow;
-  reports: readonly WindowReport[];
   stroke: string | undefined;
   now: number;
 }) {
   const level = windowLevel(row.window, now);
-  const forecast = useMemo(
-    () => windowForecast(reports, row.window, now),
-    [reports, row.window, now],
-  );
-  const caption = cardCaptionParts(row.window, forecast, now);
+  const caption = cardCaptionParts(row.window, row.forecast, now);
   return (
     <div
       className={`stats__window${row.expired ? " stats__window--expired" : ""}`}
@@ -123,8 +117,8 @@ function ProviderWindow({
       <WindowBurn
         stroke={stroke}
         window={row.window}
-        reports={reports}
-        forecast={forecast}
+        reports={row.reports}
+        forecast={row.forecast}
         now={now}
       />
       <small>

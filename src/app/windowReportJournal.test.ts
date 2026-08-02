@@ -3,7 +3,12 @@ import type { AccountUsage, UsageWindow } from "../domain/usage";
 import { encodeWindowReport, type WindowReport } from "../domain/usage/reportJournal";
 import { createWindowReportJournal } from "./windowReportJournal";
 
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+import {
+  TEST_NOW,
+  windowReport,
+} from "../domain/usage/reportJournal.testSupport";
+
+const NOW = TEST_NOW;
 const MIN = 60_000;
 
 const account = (
@@ -45,14 +50,10 @@ function build(loaded: string[] = []) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-const stored = (over: Partial<WindowReport> = {}): WindowReport => ({
-  agent: "claude",
-  windowMinutes: 300,
-  usedPct: 40,
-  reportedAt: NOW - 20 * MIN,
-  resetsAt: NOW + 155 * MIN,
-  ...over,
-});
+/** This file's records default fresher and fuller than the shared builder
+ * — stated as overrides so the divergence is visible, not a fork. */
+const stored = (over: Partial<WindowReport> = {}): WindowReport =>
+  windowReport({ usedPct: 40, reportedAt: NOW - 20 * MIN, ...over });
 
 describe("windowReportJournal", () => {
   it("captures accepted reports per window, applying the write policy", async () => {

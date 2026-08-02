@@ -11,24 +11,19 @@ import {
   type WindowReport,
 } from "./reportJournal";
 import {
+  accountWindowForecasts,
   cardCaptionParts,
   panelWindowCaption,
   windowForecast,
 } from "./windowForecast";
+import { NO_REPORTS } from "./reportJournal";
 import { windowBurn } from "./windowBurn";
-import type { UsageWindow } from "./usage";
+import type { AccountUsage, UsageWindow } from "./usage";
 
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+import { TEST_NOW, windowReport as report } from "./reportJournal.testSupport";
+
+const NOW = TEST_NOW;
 const MIN = 60_000;
-
-const report = (over: Partial<WindowReport> = {}): WindowReport => ({
-  agent: "claude",
-  windowMinutes: 300,
-  usedPct: 10,
-  reportedAt: NOW - 30 * MIN,
-  resetsAt: NOW + 155 * MIN,
-  ...over,
-});
 
 /** A steady ramp: `pctPerMin` growth, newest report at `now`. */
 const ramp = (
@@ -405,5 +400,57 @@ describe("windowBurn", () => {
     )!;
     expect(flat.yMaxPct).toBe(10); // floored — a 1% line still reads
     expect(flat.observed[0].y).toBeCloseTo(0.1, 2);
+  });
+});
+
+describe("accountWindowForecasts", () => {
+  const reported = (windows: UsageWindow[]): AccountUsage => ({
+    kind: "reported",
+    windows,
+    reportedAt: NOW - MIN,
+    sourcePaneId: "pane-1",
+  });
+
+  it("is empty for an account that never reported", () => {
+    expect(
+      accountWindowForecasts(
+        "opencode",
+        { kind: "unavailable", reason: "api-key", reportedAt: NOW },
+        new Map(),
+        NOW,
+      ).size,
+    ).toBe(0);
+  });
+
+  it("pairs every window with its own series by the writer's key rule", () => {
+    // codex's duration-less twins: same tuple, distinct ordinals — the
+    // second must not read the first one's history.
+    const windows: UsageWindow[] = [
+      { usedPct: 88, resetsAt: NOW + 155 * MIN, windowMinutes: null },
+      { usedPct: 12, resetsAt: NOW + 300 * MIN, windowMinutes: null },
+    ];
+    const keys = accountWindowKeys("codex", windows);
+    const hotKey = keys.get(windows[0])!.key;
+    const series = ramp(1, 5, 10, 88).map((entry) => ({
+      ...entry,
+      agent: "codex",
+      windowMinutes: null,
+    }));
+    const rows = accountWindowForecasts(
+      "codex",
+      reported(windows),
+      new Map([[hotKey, series]]),
+      NOW,
+    );
+    expect(rows.size).toBe(2);
+    const hot = rows.get(windows[0])!;
+    expect(hot.key).toBe(hotKey);
+    expect(hot.reports).toBe(series);
+    expect(hot.forecast.kind).toBe("out");
+    const quiet = rows.get(windows[1])!;
+    expect(quiet.key).toBe(keys.get(windows[1])!.key);
+    expect(quiet.key).not.toBe(hotKey);
+    expect(quiet.reports).toBe(NO_REPORTS); // the shared frozen fallback
+    expect(quiet.forecast).toEqual({ kind: "unknown" });
   });
 });
