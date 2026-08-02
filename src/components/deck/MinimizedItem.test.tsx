@@ -169,13 +169,17 @@ describe("MinimizedItem", () => {
     expect(button.className).toContain("minimized--frame-done");
   });
 
-  it("a stopped stand-in wears no frame — there is no process to describe", () => {
+  it("a retired pane's stand-in is bare — the tracker is the one authority", () => {
+    // Suspend goes through the orchestrator's retire, which clears the
+    // pane's activity; the stand-in renders the store verbatim and derives
+    // no liveness gate of its own.
     act(() =>
       statusTracker.report("pane-1", {
         agent: "claude",
         edge: { kind: "waiting", at: Date.now(), reason: "permission" },
       }),
     );
+    act(() => statusTracker.clear("pane-1"));
     render({
       variant: "chip",
       paneId: "pane-1",

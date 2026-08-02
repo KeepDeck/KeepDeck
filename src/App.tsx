@@ -33,13 +33,11 @@ import {
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
 } from "./app/notificationProducers";
-import { useAppRuntime } from "./app/runtimeContext";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import "./styles/index.css";
 
 function App() {
-  const runtime = useAppRuntime();
   const controller = useAppController();
   if (!controller.ready) return <div className="deck" />;
   const {
@@ -290,11 +288,10 @@ function App() {
             }}
             onRetryProvision={orchestrator.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {
-              // A dead process's telemetry is no longer a fact about the
-              // pane — retiring it here is what keeps a hook envelope that
-              // outlives its process (a Stop racing a crash) from painting
-              // "finished" over the crash banner.
-              runtime.telemetry.retire(paneId);
+              // Activity cleanup is NOT wired here on purpose: the status
+              // channel watches the session registry and clears a dead
+              // pane's activity itself — before this callback can even
+              // fire, and even when the terminal is unmounted.
               const recovering = orchestrator.recoverRejectedResume(
                 wsId,
                 paneId,

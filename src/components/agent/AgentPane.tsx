@@ -270,12 +270,15 @@ export function AgentPane({
   // The domain's answer, not a second derivation of it: a frozen ctx% on an
   // exited / idle / unavailable / provisioning pane would read as live.
   const paneLive = !ended && body === "terminal";
-  const liveActivity = paneLive ? activity : undefined;
-  const activityView = liveActivity ? activityBadge(liveActivity) : null;
+  // Activity renders VERBATIM from the tracker — no liveness re-derivation
+  // here. "Activity describes a live process" has one home: the status
+  // channel gates ingest on a live process and clears a pane the moment
+  // its process dies, so whatever the store holds is current by contract.
+  const activityView = activity ? activityBadge(activity) : null;
   // The ONE frame this pane wears — the domain ranks attention, selection
   // and done; this view only appends the class. The selection-visibility
   // rule (not maximized, not the only pane) predates the ladder and stays.
-  const frame = paneFrame(liveActivity, selected && !focused && !solo);
+  const frame = paneFrame(activity, selected && !focused && !solo);
   return (
     <section
       data-pane-id={paneId}

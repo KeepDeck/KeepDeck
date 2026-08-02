@@ -181,6 +181,7 @@ export function createAppRuntime(
         deckStore,
         plugins.pluginRegistries.agents,
         statusTracker,
+        { subscribe: subscribeSessions, state: paneSessionState },
       );
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,

@@ -405,12 +405,15 @@ describe("AgentPane — activity badge", () => {
     expect(pane!.className).toContain("pane--frame-done");
   });
 
-  it("shows nothing before the first edge, and nothing on a stopped pane", () => {
+  it("shows nothing before the first edge, and renders the tracker verbatim", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
     expect(document.querySelector(".pane__activity")).toBeNull();
 
-    // A stopped pane's card owns the story; a stale "Working" would lie.
+    // The tracker is the single liveness authority: suspending a pane goes
+    // through the orchestrator's retire, which CLEARS its activity — the
+    // view renders whatever is left, deriving no gate of its own.
     reportEdge({ kind: "turn-start", at: 100 });
+    act(() => statusTracker.clear("ws:1"));
     const idle: PaneIdle = { reason: "suspended", at: "2026-08-01T00:00:00Z" };
     act(() =>
       root.render(createElement(PaneUnderTest, { ...baseProps, idle })),

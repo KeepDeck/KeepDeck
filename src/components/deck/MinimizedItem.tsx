@@ -100,10 +100,11 @@ export function MinimizedItem({
 }: MinimizedItemProps) {
   // The stand-in wears the pane's status frame — attention must survive
   // minimizing. Same narrow selector and domain decider as the pane's own
-  // border; a stopped pane has no process for the activity to describe,
-  // and a hidden pane is never the selected one.
+  // border, and the same trust: the status channel keeps the tracker
+  // honest about dead processes, so no gate is re-derived here. A hidden
+  // pane is never the selected one.
   const activity = usePaneActivity(paneId);
-  const frame = paneFrame(stopped ? undefined : activity, false);
+  const frame = paneFrame(activity, false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const focused = useRef(false);
