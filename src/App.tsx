@@ -102,6 +102,7 @@ function App() {
     updateState,
     usageLiveAgents,
     selectedPaneId,
+    keyboardFocusEnabled,
   } = controller;
   return (
     <div className="deck">
@@ -247,6 +248,7 @@ function App() {
             activeId={deck.activeId}
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
+            keyboardFocusEnabled={keyboardFocusEnabled}
             deckLayout={deckLayout}
             minimizeStyle={minimizeStyle}
             agents={agents}

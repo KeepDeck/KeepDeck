@@ -50,6 +50,8 @@ interface TerminalPaneProps {
   visible: boolean;
   /** The highlighted pane — focus its terminal when it's on screen. */
   selected?: boolean;
+  /** False while a modal or covering dock owns keyboard interaction. */
+  keyboardFocusEnabled?: boolean;
   /** Called when the PTY process exits, with its exit code (null if unknown).
    * Lets the pane show an "agent exited" placeholder ([U4]). `replayed` is
    * true when this is `attachPane`'s re-announce to a remounting view, not a
@@ -95,6 +97,7 @@ export function TerminalPane({
   cwd,
   visible,
   selected,
+  keyboardFocusEnabled = true,
   onExit,
   onSpawnError,
   onTitle,
@@ -112,7 +115,7 @@ export function TerminalPane({
   usePaneInputFocus(
     paneInputFocus,
     paneId,
-    inputVersion > 0 && visible && selected === true,
+    inputVersion > 0 && visible && selected === true && keyboardFocusEnabled,
     inputVersion,
     focusInput,
   );

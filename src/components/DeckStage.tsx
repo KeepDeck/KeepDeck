@@ -59,6 +59,8 @@ interface DeckStageProps {
   viewByWs: Record<string, WorkspaceView>;
   /** The active workspace's highlighted pane (pane ids are app-unique). */
   selectedPaneId: string | null;
+  /** Whether a terminal may receive keyboard focus above global UI surfaces. */
+  keyboardFocusEnabled: boolean;
   /** How a workspace's agents are laid out (grid / list) — the [F6] setting. */
   deckLayout: DeckLayout;
   /** How a minimized agent is shown in the grid layout (tray / strip). */
@@ -161,6 +163,7 @@ export function DeckStage({
   activeId,
   viewByWs,
   selectedPaneId,
+  keyboardFocusEnabled,
   deckLayout,
   minimizeStyle,
   agents,
@@ -462,6 +465,7 @@ export function DeckStage({
               hidden={layout.hidden}
               folded={layout.folded}
               selected={pane.id === selectedPaneId}
+              keyboardFocusEnabled={keyboardFocusEnabled}
               solo={layout.solo}
               idle={pane.idle}
               wakeError={wakeFailed[pane.id] ?? null}

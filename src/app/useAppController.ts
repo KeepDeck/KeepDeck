@@ -45,7 +45,6 @@ import {
 import { fetchAppInfo, type AppInfo } from "../ipc/app";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
-import { createPaneViewActions } from "../presentation/paneViewActions";
 
 /** Shell/application wiring kept separate from the rendered app tree. */
 export function useAppController() {
@@ -63,10 +62,7 @@ export function useAppController() {
       });
   }, []);
   const deck = useDeck(runtime.deckStore);
-  const paneViewActions = useMemo(
-    () => createPaneViewActions(deck.toggleFocus, runtime.paneInputFocus),
-    [deck.toggleFocus, runtime.paneInputFocus],
-  );
+  const paneViewActions = runtime.paneViewActions;
   const { agents, loading: agentsLoading } = useAgents();
   const installedPlugins = useInstalledPlugins(pluginHost);
   const unavailableReasons = useMemo(
@@ -399,5 +395,6 @@ export function useAppController() {
     updateState,
     usageLiveAgents,
     selectedPaneId,
+    keyboardFocusEnabled: !modalOpen && !dockCovers,
   };
 }

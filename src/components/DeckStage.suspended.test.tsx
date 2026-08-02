@@ -78,6 +78,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   activeId: "ws-1",
   viewByWs: {},
   selectedPaneId: null,
+  keyboardFocusEnabled: true,
   deckLayout: "grid" as const,
   minimizeStyle: "tray" as const,
   agents: [

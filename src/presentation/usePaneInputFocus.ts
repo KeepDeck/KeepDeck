@@ -1,12 +1,12 @@
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
-import type { PaneInputFocusController } from "./paneInputFocusController";
+import type { PaneInputFocusSource } from "./paneInputFocusController";
 
 /**
  * Bridges one-shot focus requests to a pane's imperative input surface after
  * React has committed it. inputVersion changes whenever that surface is rebuilt.
  */
 export function usePaneInputFocus(
-  controller: PaneInputFocusController,
+  controller: PaneInputFocusSource,
   paneId: string,
   active: boolean,
   inputVersion: number,

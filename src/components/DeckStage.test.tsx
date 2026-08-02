@@ -120,6 +120,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   activeId: "ws-1",
   viewByWs: {},
   selectedPaneId: null,
+  keyboardFocusEnabled: true,
   deckLayout: "grid" as const,
   minimizeStyle: "tray" as const,
   agents: [
@@ -174,6 +175,13 @@ describe("DeckStage — exited agents across layouts", () => {
 
   const render = (overrides: Record<string, unknown> = {}) =>
     act(() => root.render(createElement(DeckStage, props(overrides))));
+
+  it("forwards global keyboard-focus eligibility to terminal panes", () => {
+    render({ keyboardFocusEnabled: false, selectedPaneId: "pane-1" });
+
+    expect(terminalProps("pane-1").keyboardFocusEnabled).toBe(false);
+    expect(terminalProps("pane-2").keyboardFocusEnabled).toBe(false);
+  });
 
   it("keeps an exit while minimized, resumes it when revealed, then remounts by epoch", async () => {
     render({ viewByWs: { "ws-1": { minimized: ["pane-1"] } } });

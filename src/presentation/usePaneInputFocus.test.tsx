@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPaneInputFocusController } from "./paneInputFocusController";
+import type { PaneInputFocusSource } from "./paneInputFocusController";
 import { usePaneInputFocus } from "./usePaneInputFocus";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -16,7 +17,7 @@ afterEach(() => {
 });
 
 interface ProbeProps {
-  controller: ReturnType<typeof createPaneInputFocusController>;
+  controller: PaneInputFocusSource;
   paneId: string;
   active: boolean;
   inputVersion: number;
@@ -40,6 +41,25 @@ function render(props: ProbeProps) {
 }
 
 describe("usePaneInputFocus", () => {
+  it("consumes only the read-side focus source role", () => {
+    const controller = createPaneInputFocusController();
+    const source: PaneInputFocusSource = {
+      subscribe: controller.subscribe,
+      getSnapshot: controller.getSnapshot,
+    };
+    const focusInput = vi.fn();
+
+    render({
+      controller: source,
+      paneId: "pane-1",
+      active: true,
+      inputVersion: 1,
+      focusInput,
+    });
+
+    expect(focusInput).toHaveBeenCalledOnce();
+  });
+
   it("focuses when the selected pane becomes active or rebuilds its input", () => {
     const controller = createPaneInputFocusController();
     const focusInput = vi.fn();

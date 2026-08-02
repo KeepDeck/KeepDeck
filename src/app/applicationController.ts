@@ -16,6 +16,7 @@ import {
 } from "./notificationNavigation";
 import type { createAgentOrchestrator } from "./agentOrchestrator";
 import type { PaneInputFocusPort } from "./paneInputFocusPort";
+import type { PaneViewPort } from "./paneViewPort";
 
 type Plugins = ReturnType<typeof createPluginManager>;
 type Orchestrator = ReturnType<typeof createAgentOrchestrator>;
@@ -50,6 +51,7 @@ export function createApplicationController(
   plugins: Plugins,
   orchestrator: Orchestrator,
   paneInputFocus: PaneInputFocusPort,
+  paneView: PaneViewPort,
   registry: CommandRegistry = commands,
 ): ApplicationController {
   const actions = createDeckActions(deck);
@@ -70,6 +72,7 @@ export function createApplicationController(
 
   const activatePane = (wsId: string, paneId: string) => {
     selectWorkspace(wsId);
+    paneView.revealPane(wsId, paneId);
     actions.selectPane(wsId, paneId);
     paneInputFocus.requestFocus(paneId);
   };
@@ -114,13 +117,6 @@ export function createApplicationController(
             workspace,
           );
           if (!target) return;
-          const view = state.viewByWs[target.id] ?? {};
-          if (view.minimized?.includes(paneId)) {
-            actions.toggleMinimize(target.id, paneId);
-          }
-          if (view.suspendedTray?.includes(paneId)) {
-            actions.restoreSuspendedPane(target.id, paneId);
-          }
           if (target.panes.some((pane) => pane.id === paneId)) {
             activatePane(target.id, paneId);
           } else {

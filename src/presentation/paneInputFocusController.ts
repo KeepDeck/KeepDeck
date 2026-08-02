@@ -5,9 +5,14 @@ export interface PaneInputFocusRequest {
   readonly version: number;
 }
 
-export interface PaneInputFocusController extends PaneInputFocusPort {
+export interface PaneInputFocusSource {
   getSnapshot(): PaneInputFocusRequest;
   subscribe(listener: () => void): () => void;
+}
+
+export interface PaneInputFocusController
+  extends PaneInputFocusPort,
+    PaneInputFocusSource {
   dispose(): void;
 }
 
