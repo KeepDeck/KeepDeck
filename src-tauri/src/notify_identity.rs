@@ -1,10 +1,11 @@
-//! Make sure the OS can tell who posts our notification banners.
+//! Make sure the OS can tell who posts our notification banners. macOS only —
+//! `lib.rs` compiles this module solely for that target.
 //!
-//! On macOS the stack under `tauri-plugin-notification` cannot post as
-//! itself: `mac-notification-sys` swizzles `NSBundle.bundleIdentifier` and
-//! answers with whatever `set_application` accepted, and the banner's icon is
-//! that bundle's icon. Three details of that crate turn one miss into a
-//! lasting, invisible defect:
+//! The stack under `tauri-plugin-notification` cannot post as itself:
+//! `mac-notification-sys` swizzles `NSBundle.bundleIdentifier` and answers with
+//! whatever `set_application` accepted, and the banner's icon is that bundle's
+//! icon. Three details of that crate turn one miss into a lasting, invisible
+//! defect:
 //!
 //! - the swizzle's fallback is `@"com.apple.Terminal"`, so a miss does not
 //!   degrade to our own identity — it hands the banner Terminal's icon;
@@ -15,16 +16,34 @@
 //!   banner, discarding the result (`let _ = ...`). One badly timed attempt
 //!   therefore mislabels every banner for the rest of the run, silently.
 //!
-//! The bad timing is real: our updater replaces the bundle and the app
-//! relaunches from it while LaunchServices re-registers asynchronously. A
-//! banner in that window burns the single attempt.
-//!
 //! We do not take that attempt away from the plugin — reaching into its
 //! `call_once` would mean depending on a transitive crate's private static.
-//! We remove the reason it fails instead: at startup, before anything can
-//! notify, make sure LaunchServices resolves this bundle, registering it when
-//! it does not. The plugin's later lookup then succeeds on its own. What the
-//! app cannot fix, it says out loud — today that failure is written nowhere.
+//! We remove the reason it fails instead: at startup, make sure LaunchServices
+//! resolves this bundle, registering it when it does not. The plugin's later
+//! lookup then succeeds on its own. What the app cannot fix, it says out loud —
+//! that failure is otherwise written nowhere.
+//!
+//! WHICH RACE THIS CLOSES, precisely: the updater replaces the bundle and the
+//! app relaunches from it while LaunchServices re-registers asynchronously, so
+//! the NEW process's first banner could land before the bundle is resolvable.
+//! Running at that process's startup is what closes it.
+//!
+//! What it does NOT close: a long-lived process that has posted no banner yet when
+//! the bundle is swapped underneath it. Its `prepare` already ran and passed;
+//! if its first-ever banner falls inside the replacement window, the plugin's
+//! one attempt still burns. Fixing that needs a retry the plugin does not
+//! offer, so the honest scope is "every launch starts resolvable".
+
+/// Why registering the bundle did not succeed. A plain `OSStatus` cannot say
+/// this: `LSRegisterURL` was not always reached, and its "not attempted"
+/// sentinel would have to be `0` — which is `noErr`, the SUCCESS code.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RegisterFailure {
+    /// CoreFoundation gave us no bundle URL — `LSRegisterURL` never ran.
+    NoBundleUrl,
+    /// `LSRegisterURL` ran and refused, with this `OSStatus`.
+    Status(i32),
+}
 
 /// What startup could establish about our notification identity. Logged as
 /// the run's record of a step whose failure is otherwise invisible.
@@ -35,10 +54,12 @@ pub enum Identity {
     /// It learned the bundle from us — the update-window race, caught.
     Registered,
     /// The bundle could not be made resolvable, so the plugin's lookup will
-    /// miss and every banner this run wears Terminal's icon. Carries the
-    /// registration's `OSStatus` (`Ok` when it reported success and the
-    /// lookup still missed).
-    Unresolvable { registered: Result<(), i32> },
+    /// miss and every banner this run wears Terminal's icon.
+    Unresolvable {
+        /// `Ok` when registration reported success and the lookup still
+        /// missed — the case that makes the second lookup worth doing.
+        registered: Result<(), RegisterFailure>,
+    },
 }
 
 /// The startup sequence, over injected effects so its order is testable
@@ -47,7 +68,7 @@ pub enum Identity {
 fn establish<R, G>(identifier: &str, resolves: R, register: G) -> Identity
 where
     R: Fn(&str) -> bool,
-    G: FnOnce() -> Result<(), i32>,
+    G: FnOnce() -> Result<(), RegisterFailure>,
 {
     if resolves(identifier) {
         return Identity::Known;
@@ -60,42 +81,63 @@ where
     }
 }
 
-/// Make this run's notification identity resolvable. macOS-only; a no-op
-/// elsewhere, where the platform posts under the real application already.
+/// Make this run's notification identity resolvable.
 pub fn prepare(identifier: &str) {
-    #[cfg(target_os = "macos")]
-    report(
+    // A dev build never posts under our identity: the plugin hardcodes
+    // `com.apple.Terminal` there (tauri-plugin-notification desktop.rs), so
+    // preparing ours would touch LaunchServices for nothing and then report
+    // on an identity nobody uses — in both directions, since `Known` would
+    // claim health while every dev banner wears Terminal's icon. Mirror the
+    // plugin's own predicate rather than `debug_assertions`: `is_dev()` is
+    // exactly the branch it takes.
+    if tauri::is_dev() {
+        log::debug!("notify: dev build — banners post as com.apple.Terminal by design");
+        return;
+    }
+    let outcome = establish(
         identifier,
-        establish(
-            identifier,
-            macos::launch_services_resolves,
-            macos::register_main_bundle,
-        ),
+        macos::launch_services_resolves,
+        macos::register_main_bundle,
     );
-    #[cfg(not(target_os = "macos"))]
-    let _ = identifier;
+    let (level, message) = report_line(identifier, &outcome);
+    log::log!(level, "{message}");
 }
 
-#[cfg(target_os = "macos")]
-fn report(identifier: &str, outcome: Identity) {
+/// The module's only committed output, as a value — so the level and the
+/// wording are testable, which matters for a module whose whole job is to
+/// make a silent failure audible.
+fn report_line(identifier: &str, outcome: &Identity) -> (log::Level, String) {
     match outcome {
-        Identity::Known => log::info!("notify: banners post as {identifier}"),
-        Identity::Registered => log::info!(
-            "notify: registered this bundle with LaunchServices, banners post as {identifier}"
+        Identity::Known => (
+            log::Level::Info,
+            format!("notify: banners post as {identifier}"),
         ),
-        Identity::Unresolvable { registered } => log::error!(
-            "notify: LaunchServices cannot resolve {identifier} (LSRegisterURL: {}) — \
-             banners will wear Terminal's icon until the next launch",
-            match registered {
-                Ok(()) => "reported success".to_string(),
-                Err(status) => format!("OSStatus {status}"),
-            }
+        Identity::Registered => (
+            log::Level::Info,
+            format!(
+                "notify: registered this bundle with LaunchServices, \
+                 banners post as {identifier}"
+            ),
+        ),
+        Identity::Unresolvable { registered } => (
+            log::Level::Error,
+            format!(
+                "notify: LaunchServices cannot resolve {identifier} ({}) — \
+                 banners will wear Terminal's icon until the next launch",
+                match registered {
+                    Ok(()) => "LSRegisterURL reported success".to_string(),
+                    Err(RegisterFailure::NoBundleUrl) =>
+                        "no bundle URL, nothing was registered".to_string(),
+                    Err(RegisterFailure::Status(status)) =>
+                        format!("LSRegisterURL: OSStatus {status}"),
+                }
+            ),
         ),
     }
 }
 
-#[cfg(target_os = "macos")]
 mod macos {
+    use super::RegisterFailure;
     use objc2_foundation::NSString;
     use std::ffi::c_void;
 
@@ -105,12 +147,15 @@ mod macos {
     #[link(name = "CoreServices", kind = "framework")]
     extern "C" {
         /// `NULL` when LaunchServices knows no application with this id.
-        /// The returned array is owned by the caller.
+        /// The returned array is owned by the caller. A NULL `error` out-param
+        /// is explicitly allowed (LSInfo.h: "If you are not interested in this
+        /// information, pass NULL").
         fn LSCopyApplicationURLsForBundleIdentifier(
             bundle_id: &NSString,
             error: *mut *const c_void,
         ) -> *const c_void;
-        /// `update: 0` — register only what is not registered yet.
+        /// `update: 0` — register only what is not registered yet. `Boolean`
+        /// is one byte.
         fn LSRegisterURL(url: *const c_void, update: u8) -> i32;
     }
 
@@ -135,25 +180,32 @@ mod macos {
         true
     }
 
-    /// Teach LaunchServices about the bundle we are running from. The URL
-    /// comes from CoreFoundation rather than the executable's path, so a
-    /// non-bundled build simply has none and is reported as unresolvable
-    /// instead of registering a guess.
-    pub(super) fn register_main_bundle() -> Result<(), i32> {
+    /// Teach LaunchServices about the bundle we are running from.
+    ///
+    /// Both NULL guards are DEFENSIVE, not a filter: for a process that is not
+    /// inside a `.app`, CoreFoundation synthesizes a main bundle rooted at the
+    /// executable's directory, so this would hand `LSRegisterURL` a plain
+    /// directory and collect its refusal (`-10811`) rather than returning
+    /// early. Nothing is silently registered in that case — `LSRegisterURL` is
+    /// not recursive, so a directory that merely CONTAINS bundles registers
+    /// none of them — but the call is pointless, which is one more reason
+    /// `prepare` returns before it in dev builds, the only unbundled runs we
+    /// have.
+    pub(super) fn register_main_bundle() -> Result<(), RegisterFailure> {
         let bundle = unsafe { CFBundleGetMainBundle() };
         if bundle.is_null() {
-            return Err(0);
+            return Err(RegisterFailure::NoBundleUrl);
         }
         let url = unsafe { CFBundleCopyBundleURL(bundle) };
         if url.is_null() {
-            return Err(0);
+            return Err(RegisterFailure::NoBundleUrl);
         }
         let status = unsafe { LSRegisterURL(url, 0) };
         unsafe { CFRelease(url) };
         if status == 0 {
             Ok(())
         } else {
-            Err(status)
+            Err(RegisterFailure::Status(status))
         }
     }
 }
@@ -208,26 +260,68 @@ mod tests {
 
     #[test]
     fn a_failed_registration_carries_its_status() {
-        let outcome = establish(ID, |_| false, || Err(-10814));
+        let outcome = establish(ID, |_| false, || Err(RegisterFailure::Status(-10811)));
         assert_eq!(
             outcome,
             Identity::Unresolvable {
-                registered: Err(-10814)
+                registered: Err(RegisterFailure::Status(-10811))
             }
         );
     }
 
     #[test]
-    fn the_identifier_reaches_the_lookup() {
-        let looked_up = Cell::new(String::new());
-        establish(
+    fn a_resolvable_identity_is_reported_at_info_and_names_itself() {
+        let (level, message) = report_line(ID, &Identity::Known);
+        assert_eq!(level, log::Level::Info);
+        assert!(message.contains(ID), "{message}");
+    }
+
+    #[test]
+    fn catching_the_update_race_is_reported_as_a_registration() {
+        let (level, message) = report_line(ID, &Identity::Registered);
+        assert_eq!(level, log::Level::Info);
+        assert!(message.contains("registered"), "{message}");
+    }
+
+    /// The one line a maintainer acts on, so it must be findable (error level)
+    /// and must name the consequence, not just the failure.
+    #[test]
+    fn an_unresolvable_identity_is_reported_at_error_with_its_consequence() {
+        let (level, message) = report_line(
             ID,
-            |id| {
-                looked_up.set(id.to_string());
-                true
+            &Identity::Unresolvable {
+                registered: Err(RegisterFailure::Status(-10811)),
             },
-            || Ok(()),
         );
-        assert_eq!(looked_up.into_inner(), ID);
+        assert_eq!(level, log::Level::Error);
+        assert!(message.contains("-10811"), "{message}");
+        assert!(message.contains("Terminal"), "{message}");
+    }
+
+    /// `0` is `noErr`: a "not attempted" case that printed `OSStatus 0` would
+    /// send the reader looking up a SUCCESS code for a call that never ran.
+    #[test]
+    fn a_registration_that_never_ran_never_prints_a_status_code() {
+        let (_, message) = report_line(
+            ID,
+            &Identity::Unresolvable {
+                registered: Err(RegisterFailure::NoBundleUrl),
+            },
+        );
+        assert!(message.contains("nothing was registered"), "{message}");
+        assert!(!message.contains("OSStatus"), "{message}");
+    }
+
+    /// The three states must not read alike: a successful-but-useless
+    /// registration is a different diagnosis from one that never ran.
+    #[test]
+    fn the_three_unresolvable_reasons_read_differently() {
+        let line = |registered| report_line(ID, &Identity::Unresolvable { registered }).1;
+        let reported_success = line(Ok(()));
+        let never_ran = line(Err(RegisterFailure::NoBundleUrl));
+        let refused = line(Err(RegisterFailure::Status(-10811)));
+        assert_ne!(reported_success, never_ran);
+        assert_ne!(never_ran, refused);
+        assert_ne!(reported_success, refused);
     }
 }
