@@ -3,20 +3,36 @@ import { afterEach, describe, expect, it } from "vitest";
 import { appCss } from "./testSupport";
 
 /**
- * A stopped pane, built the way `AgentPane` builds it (AgentPane.tsx:289–437):
- * the pane, its body, the status card, and the resume line whose session id is
- * the longest unbreakable run the deck ever puts inside a tile.
+ * A stopped pane, built the way `AgentPane`/`AgentPaneHeader` build it
+ * (AgentPane.tsx:289–437, AgentPaneHeader.tsx:87–170): the header's identity
+ * and its one action cluster — badges AND window controls live in the same
+ * cluster — then the body, the status card, and the resume line whose session
+ * id is the longest unbreakable run the deck ever puts inside a tile.
  *
  * Hand-written rather than rendered, because mounting the real pane costs the
  * module mocks its own test file needs (xterm, the PTY registry) and this file
  * is about the cascade, not the component. The class names it leans on are not
- * free-floating: `AgentPane.test.tsx` queries `.pane__idle-session`,
- * `.pane__idle-session-id` and `.pane__card-action` off the REAL component, so
- * a rename breaks there before it can quietly make this fixture meaningless.
+ * free-floating: `AgentPane.test.tsx` and `AgentPaneHeader.test.tsx` query
+ * them off the REAL components, so a rename breaks there before it can quietly
+ * make this fixture meaningless.
  */
 const STOPPED_PANE = `
   <div class="pane pane--idle" data-pane-id="p1">
-    <div class="pane__bar"></div>
+    <div class="pane__bar">
+      <div class="pane__identity">
+        <span class="pane__agent"></span>
+        <span class="pane__title">Проверяю функциональность MCP сервера</span>
+      </div>
+      <div class="pane__actions">
+        <span class="chip pane__branch" title="kd/KeepDeck/6"
+          ><span class="chip__icon"></span
+          ><span class="chip__label">kd/KeepDeck/6</span></span
+        >
+        <button type="button" class="pane__action pane__action--minimize"></button>
+        <button type="button" class="pane__action"></button>
+        <button type="button" class="pane__action ui-close"></button>
+      </div>
+    </div>
     <div class="pane__body">
       <div class="pane__card" role="status">
         <span class="pane__exit-title">Stopped</span>
@@ -27,6 +43,20 @@ const STOPPED_PANE = `
         <button type="button" class="pane__card-action">Resume</button>
       </div>
     </div>
+  </div>
+`;
+
+/** The same agent minimized: the tray's stand-in, wearing the same shared
+ * badges (MinimizedItem.tsx) so the two surfaces cannot drift apart. */
+const STAND_IN = `
+  <div class="minimized minimized--chip">
+    <span class="minimized__agent"></span>
+    <span class="minimized__title">Проверяю функциональность MCP сервера</span>
+    <span class="chip chip--sm minimized__branch" title="kd/KeepDeck/6"
+      ><span class="chip__icon"></span
+      ><span class="chip__label">kd/KeepDeck/6</span></span
+    >
+    <span class="minimized__restore"></span>
   </div>
 `;
 
@@ -107,5 +137,38 @@ describe("pane layout", () => {
       "title",
       "019fbfec-5889-7533-a7b4-6cbb3f2f0f21",
     );
+  });
+});
+
+describe("pane header", () => {
+  it("yields the title, never the badge and control cluster", () => {
+    // Flexbox shares a shortfall across EVERY shrinkable item, so the cluster
+    // shrank alongside the title — and could not pass the pressure on, since
+    // its buttons are all flex-none. They overflowed its box and the bar's
+    // clip cut maximize and close: exactly the two the collapse cascade
+    // promises never to hide. Shedding controls is the cascade's job at its
+    // own breakpoints, not something a shortfall gets to improvise.
+    mount(STOPPED_PANE);
+
+    expect(styleOf(".pane__identity").flexShrink).toBe("1");
+    expect(styleOf(".pane__actions").flexShrink).toBe("0");
+  });
+
+  it("never squeezes a branch badge below its own glyph", () => {
+    // The chip cannot defend itself: the shared `.chip` sets `min-width: 0`
+    // (chip.css), so a shrinkable branch badge collapses past its icon into a
+    // sliver — still wearing `border-radius: 999px`, so it reads as a vertical
+    // stadium with the glyph clipped off centre. pane.css claimed the opposite
+    // ("No min-width:0 — the chip must never shrink below its icon") while
+    // declaring nothing that made it true.
+    //
+    // Both surfaces, because the header and the tray stand-in deliberately
+    // draw from one set of badges (ui-kit badges.tsx) and a fix to one of them
+    // is a drift from the other.
+    mount(STOPPED_PANE);
+    expect(styleOf(".pane__branch").flexShrink).toBe("0");
+
+    mount(STAND_IN);
+    expect(styleOf(".minimized__branch").flexShrink).toBe("0");
   });
 });

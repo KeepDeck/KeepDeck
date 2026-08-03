@@ -119,8 +119,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 1 auto;
-  min-width: 0;
+  /* Never shrinks. Every control inside it is flex-none, so a shrinkable
+     cluster cannot pass the pressure on — it just lets them overflow its own
+     box, and the bar's clip then cuts maximize and close, the two the
+     collapse cascade below promises never to hide. The title yields instead:
+     that is the priority the cascade already states in words. */
+  flex: none;
   margin-left: auto;
 }
 
@@ -185,10 +189,15 @@
 .pane__branch {
   overflow: hidden;
   max-width: min(180px, 44vw);
-  flex: 0 1 auto;
+  /* Never shrinks either, and the invariant has to be stated HERE rather than
+     inferred from the cluster: the shared .chip carries min-width: 0
+     (chip.css), so a shrinkable chip is squeezed below its own glyph — a
+     sliver wearing a 999px radius with the icon clipped off its centre, which
+     is what a long title used to do to it. The label ellipsizes inside the
+     max-width instead, and when the header really is too narrow the container
+     query below collapses the whole chip to that glyph. */
+  flex: none;
   font-size: 12px;
-  /* No min-width:0 — the chip must never shrink below its icon. The label
-     ellipsizes; the icon stays whole (see .chip__label in chip.css). */
 }
 
 /* Live context-occupancy meter, moved here off the usage popover (its
