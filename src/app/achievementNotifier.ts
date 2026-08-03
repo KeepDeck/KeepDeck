@@ -1,7 +1,8 @@
 import { achievementRequirement } from "../domain/usage/achievements/captions";
 import {
   achievementCatalog,
-  migrateCongratulated,
+  RECALIBRATED_IDS,
+  remapCongratulated,
 } from "../domain/usage/achievements/catalog";
 import { createAchievementEngine } from "../domain/usage/achievements/engine";
 import type { UsageEventV2 } from "../domain/usage/history/event";
@@ -24,9 +25,23 @@ import type { UsageHistorySnapshot } from "./usageHistoryManager";
  * replacement (a compaction rewrite) refolds from scratch.
  */
 
-/** Bumped when the catalog's ids move under a persisted file. Version 1
- * predates the rarity recalibration; version 2 has been through it. */
-const NOTIFIED_SCHEMA_VERSION = 2;
+/**
+ * Every id rewrite the persisted file has ever needed, oldest first. The
+ * FORMAT's owner keeps the order and the version numbers; the catalog keeps
+ * the id pairs, which are catalog knowledge.
+ *
+ * A later recalibration appends `{ to: 3, ids: … }` here and nothing else
+ * changes — see [`migrateFrom`] for why replaying a map twice is destructive.
+ */
+const NOTIFIED_MIGRATIONS: readonly { to: number; ids: ReadonlyMap<string, string> }[] =
+  [{ to: 2, ids: RECALIBRATED_IDS }];
+
+/** DERIVED, never hand-kept: the version a file is written at is simply the
+ * newest migration it has been through. A constant maintained beside the
+ * list is a constant someone forgets to bump, and forgetting means every
+ * moved tier congratulates all over again. */
+const NOTIFIED_SCHEMA_VERSION =
+  NOTIFIED_MIGRATIONS[NOTIFIED_MIGRATIONS.length - 1]?.to ?? 1;
 
 export interface AchievementNotifierDeps {
   loadNotified(): Promise<string | null>;
@@ -140,13 +155,19 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
 }
 
 /**
- * Read the congratulated set, carrying a pre-recalibration file forward.
+ * Read the congratulated set, carrying an older file forward.
  *
- * The version gate is doing real work, not ceremony: a moved tier's id maps
- * onto the one that replaced it, and on the spend ladder — which shifted by
- * a whole step — some old ids are ALSO live new ids. Applying the map twice
- * would walk those awards up the ladder one rung per launch, so it runs
- * exactly once, on a file that predates the change.
+ * Each migration is applied ONCE, and only to a file older than it. That is
+ * not ceremony: the id carries the threshold, so a recalibration rewrites
+ * ids, and a rewrite can land an OLD id on top of a LIVE one — on the spend
+ * ladder, which shifted by a whole rung, `spendUsd-10` is both. Re-running
+ * such a map walks the award up the ladder, one rung per pass, and the
+ * awards it walks past are lost for good.
+ *
+ * Hence the list rather than a single map plus a hand-kept constant: a
+ * later recalibration appends its own entry, every file lands on the newest
+ * version by replaying only the steps it missed, and there is no version
+ * number for anyone to forget to bump.
  */
 function decode(json: string | null): Set<string> {
   if (json === null) return new Set();
@@ -157,12 +178,20 @@ function decode(json: string | null): Set<string> {
         (id): id is string => typeof id === "string",
       );
       const version = typeof value.version === "number" ? value.version : 1;
-      return version < NOTIFIED_SCHEMA_VERSION
-        ? migrateCongratulated(ids)
-        : new Set(ids);
+      return migrateFrom(version, ids);
     }
   } catch {
     // fall through to the empty baseline
   }
   return new Set();
+}
+
+/** Replay every migration this file has not been through, oldest first. */
+export function migrateFrom(version: number, ids: Iterable<string>): Set<string> {
+  let carried = new Set(ids);
+  for (const step of NOTIFIED_MIGRATIONS) {
+    if (version >= step.to) continue;
+    carried = remapCongratulated(carried, step.ids);
+  }
+  return carried;
 }

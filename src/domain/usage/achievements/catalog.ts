@@ -253,6 +253,10 @@ export function achievementCatalog(): AchievementCatalogEntry[] {
  *
  * Retroactive announcement stays the contract for genuinely NEW tiers; this
  * only carries an old award forward to the step that replaced it.
+ *
+ * The DATA lives here because the pairs are catalog knowledge. WHEN it runs
+ * is not: that belongs to whoever owns the persisted format, and applying
+ * it a second time is destructive — see `migrateFrom` in the notifier.
  */
 export const RECALIBRATED_IDS: ReadonlyMap<string, string> = new Map([
   ["tokens-10000000", "tokens-25000000"],
@@ -281,11 +285,16 @@ export const RECALIBRATED_IDS: ReadonlyMap<string, string> = new Map([
   ["streakDays-100", "streakDays-90"],
 ]);
 
-/** Carry a persisted congratulated set across the recalibration. Unknown ids
- * are kept as they are: a set from a NEWER build must survive a downgrade
- * intact, and an id this build cannot place is not evidence it is stale. */
-export function migrateCongratulated(ids: Iterable<string>): Set<string> {
+/** Rewrite a congratulated set through ONE id map. Unknown ids are kept as
+ * they are: a set from a NEWER build must survive a downgrade intact, and an
+ * id this build cannot place is not evidence it is stale. Applying a given
+ * map more than once is the caller's mistake to avoid, not this function's —
+ * it has no way to tell a second pass from a first. */
+export function remapCongratulated(
+  ids: Iterable<string>,
+  map: ReadonlyMap<string, string>,
+): Set<string> {
   const out = new Set<string>();
-  for (const id of ids) out.add(RECALIBRATED_IDS.get(id) ?? id);
+  for (const id of ids) out.add(map.get(id) ?? id);
   return out;
 }

@@ -50,14 +50,35 @@ export const RARITY_ORDER: readonly AchievementRarity[] = [
  *
  * `streakDays` is a calendar count: a day is a day at any intensity.
  */
-const REFERENCE_PACE: Partial<Record<AchievementMetric, number>> = {
+const REFERENCE_PACE: Record<AchievementMetric, number | null> = {
   tokens: 5_860_000,
   outputTokens: 677_000,
   cacheTokens: 203_000_000,
   sessions: 1.03,
   spendUsd: 20,
   streakDays: 1,
+  // `null` = not accumulated over time. Spelled out rather than omitted, and
+  // the record is TOTAL rather than Partial, so a new metric cannot compile
+  // until its author has decided which kind it is. The alternative — an
+  // optional table and a runtime throw — puts that decision on the app's
+  // BOOT path (achievementCatalog runs inside runtime.start(), before the
+  // first render), where the cost of forgetting is a blank window.
+  dayTokens: null,
+  daySessions: null,
+  dayProviders: null,
+  sessionTokens: null,
+  sessionTurns: null,
+  sessionHours: null,
+  sessionSpendUsd: null,
+  providers: null,
+  models: null,
+  workspaces: null,
 };
+
+/** The metrics rarity can time. Derived, so a test cannot drift from it. */
+export const PACED_METRICS: readonly AchievementMetric[] = (
+  Object.keys(REFERENCE_PACE) as AchievementMetric[]
+).filter((metric) => REFERENCE_PACE[metric] !== null);
 
 /** Band edges in reference-user DAYS. Legendary is a season's goal, not a
  * decade's — the endless top comes from re-earning it, never from a first
@@ -79,7 +100,7 @@ export function referenceDays(
   threshold: number,
 ): number | null {
   const pace = REFERENCE_PACE[metric];
-  return pace === undefined ? null : threshold / pace;
+  return pace === null ? null : threshold / pace;
 }
 
 /** THE rarity of one tier. `declared` is the catalog's explicit level, which
@@ -101,11 +122,3 @@ export function achievementRarity(
   return rarityForDays(days);
 }
 
-/** Is `left` at least as rare as `right`? The gallery leans on rarity being
- * an order, not a set. */
-export function atLeastAsRare(
-  left: AchievementRarity,
-  right: AchievementRarity,
-): boolean {
-  return RARITY_ORDER.indexOf(left) >= RARITY_ORDER.indexOf(right);
-}

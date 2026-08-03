@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { RECALIBRATED_IDS } from "../domain/usage/achievements/catalog";
 import {
   createAchievementNotifier,
+  migrateFrom,
   type AchievementNotifierDeps,
 } from "./achievementNotifier";
 import type { NotifyInput } from "./notificationCenter";
@@ -320,5 +322,59 @@ describe("createAchievementNotifier", () => {
     resolveLoad(null);
     await settle();
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+describe("carrying a congratulated set across a recalibration", () => {
+  /** The pair that makes a second pass destructive: on the spend ladder,
+   * which shifted by a whole rung, these ids are BOTH retired keys AND live
+   * new ids. If this ever stops being true the hazard is gone and these
+   * tests are guarding nothing — so it is asserted, not assumed. */
+  it("still has ids that are both a retired key and a live target", () => {
+    const targets = new Set(RECALIBRATED_IDS.values());
+    const overlap = [...RECALIBRATED_IDS.keys()].filter((id) => targets.has(id));
+    expect(overlap).toEqual(["spendUsd-10", "spendUsd-100"]);
+  });
+
+  it("rewrites a file that predates the change", () => {
+    expect(migrateFrom(1, ["spendUsd-1", "tokens-10000000"])).toEqual(
+      new Set(["spendUsd-10", "tokens-25000000"]),
+    );
+  });
+
+  it("leaves a file that has already been through it alone", () => {
+    // THE gate. Without it the award below walks one rung further on every
+    // launch: $10 → $100 → $500, re-congratulating as it goes and burning
+    // the banners for tiers the user has not reached.
+    expect(migrateFrom(2, ["spendUsd-10"])).toEqual(new Set(["spendUsd-10"]));
+  });
+
+  it("is idempotent across repeated loads of the same file", () => {
+    const once = migrateFrom(1, ["spendUsd-1"]);
+    const twice = migrateFrom(2, once);
+    const thrice = migrateFrom(2, twice);
+    expect(thrice).toEqual(new Set(["spendUsd-10"]));
+  });
+
+  it("keeps a set written by a NEWER build intact", () => {
+    // A downgrade must not rewrite what it cannot understand.
+    expect(migrateFrom(9, ["spendUsd-10", "future-999"])).toEqual(
+      new Set(["spendUsd-10", "future-999"]),
+    );
+  });
+
+  it("writes files at the newest migration's version, without a hand-kept constant", async () => {
+    const { deps, saved, history } = fakeDeps();
+    history.set({ ready: true, events: richEvents(), error: null });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    await settle();
+    const persisted = JSON.parse(saved[saved.length - 1]) as { version: number };
+    // Re-reading what we just wrote must be a no-op — that is the whole
+    // contract between persist() and decode().
+    expect(migrateFrom(persisted.version, ["spendUsd-10"])).toEqual(
+      new Set(["spendUsd-10"]),
+    );
+    notifier.dispose();
   });
 });

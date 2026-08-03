@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest";
-import {
-  achievementCatalog,
-  LADDERS,
-  migrateCongratulated,
-  RECALIBRATED_IDS,
-} from "./catalog";
+import { achievementCatalog } from "./catalog";
 import {
   achievementRarity,
-  atLeastAsRare,
+  PACED_METRICS,
   rarityForDays,
   RARITY_ORDER,
   referenceDays,
   type AchievementRarity,
 } from "./rarity";
 
-/** Ladders whose steps are meant to land one per band — the accumulating
- * ones. Coverage and peaks declare their level instead. */
-const PACED = ["tokens", "outputTokens", "cacheTokens", "sessions", "spendUsd", "streakDays"];
+/** Which ladders are meant to land one step per band — READ from the pace
+ * table, never re-listed here. A hand-copy would silently stop covering the
+ * newest ladder, which is the one most likely to be miscalibrated. */
+const PACED: readonly string[] = PACED_METRICS;
+
+/** Rarity as an order, for the monotonicity check below. */
+const atLeastAsRare = (left: AchievementRarity, right: AchievementRarity) =>
+  RARITY_ORDER.indexOf(left) >= RARITY_ORDER.indexOf(right);
 
 describe("rarity bands", () => {
   it("puts a duration in the band it belongs to", () => {
@@ -38,10 +38,16 @@ describe("rarity bands", () => {
     expect(rarityForDays(3650)).toBe("legendary");
   });
 
-  it("orders rarities", () => {
-    expect(atLeastAsRare("epic", "rare")).toBe(true);
-    expect(atLeastAsRare("rare", "rare")).toBe(true);
-    expect(atLeastAsRare("uncommon", "epic")).toBe(false);
+  it("names the levels in ascending order", () => {
+    // RARITY_ORDER is production data — the dress, the labels and the
+    // monotonicity check below all read the sequence from it.
+    expect(RARITY_ORDER).toEqual([
+      "common",
+      "uncommon",
+      "rare",
+      "epic",
+      "legendary",
+    ]);
   });
 });
 
@@ -127,45 +133,3 @@ describe("the catalog holds to the rule", () => {
   });
 });
 
-describe("carrying awards across the recalibration", () => {
-  it("maps a moved tier onto the step that replaced it", () => {
-    const migrated = migrateCongratulated(["tokens-10000000", "sessions-100"]);
-    expect(migrated.has("tokens-25000000")).toBe(true);
-    expect(migrated.has("sessions-25")).toBe(true);
-    expect(migrated.has("tokens-10000000")).toBe(false);
-  });
-
-  it("keeps ids it cannot place — a newer build's set must survive a downgrade", () => {
-    expect(migrateCongratulated(["tokens-999"])).toEqual(new Set(["tokens-999"]));
-  });
-
-  it("only ever maps onto ids the catalog actually has", () => {
-    const known = new Set(achievementCatalog().map((entry) => entry.id));
-    for (const [from, to] of RECALIBRATED_IDS) {
-      expect(known.has(to), `${from} → ${to}`).toBe(true);
-    }
-  });
-
-  it("moves a whole shifted ladder one step at a time, without collapsing it", () => {
-    // The spend ladder shifted by a rung, so some old ids are ALSO live new
-    // ids ($10 was Coffee Money, now it is First Dollar). Mapping each award
-    // independently still lands every one on the tier that replaced it —
-    // which is exactly why the pass must run only once (see decode()).
-    const before = ["spendUsd-1", "spendUsd-10", "spendUsd-100", "spendUsd-1000"];
-    expect([...migrateCongratulated(before)].sort()).toEqual([
-      "spendUsd-10",
-      "spendUsd-100",
-      "spendUsd-1500",
-      "spendUsd-500",
-    ]);
-  });
-
-  it("keeps every tier the catalog offers reachable by its own id", () => {
-    const live = new Set(achievementCatalog().map((entry) => entry.id));
-    for (const ladder of LADDERS) {
-      for (const tier of ladder.tiers) {
-        expect(live.has(`${ladder.metric}-${tier.threshold}`), tier.title).toBe(true);
-      }
-    }
-  });
-});
