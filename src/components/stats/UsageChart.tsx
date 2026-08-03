@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import { formatBucket, formatTokens } from "../../domain/usage";
 import {
-  agentSeriesColors,
+  ledgerSeriesColors,
   CHART_AXIS,
   CHART_CURSOR_FILL,
   CHART_GRID,
@@ -25,7 +25,6 @@ import {
   CHART_TOOLTIP_BORDER,
 } from "../../domain/usage/chartPalette";
 import {
-  usageAgents,
   usageTimeline,
   type TimelineBucket,
   type UsageTimeline,
@@ -65,7 +64,7 @@ export function UsageChart({
     () => usageTimeline(events, period, now),
     [events, period, now],
   );
-  const colors = useMemo(() => agentSeriesColors(usageAgents(events)), [events]);
+  const colors = useMemo(() => ledgerSeriesColors(events), [events]);
   // Nothing recorded, or recorded only in the leading sliver the full-bucket
   // axis excludes (agents lists the EMITTED buckets' roster) — an all-zero
   // plot with an empty legend reads as broken, not as quiet.

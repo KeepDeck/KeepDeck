@@ -18,9 +18,10 @@ export interface UsageWeek {
   /** The week's UTC Monday 00:00. */
   start: number;
   totalTokens: number;
-  /** Tokens per agent — the bar's segments; iteration order is
-   * insertion order, the VIEW orders by its roster. */
-  byAgent: ReadonlyMap<string, number>;
+  /** The bar's segments: agents that burned tokens this week, in the
+   * roster's own alphabetical order (daily.ts's fixed-entity rule) — the
+   * view adds color, never re-derives membership or order. */
+  segments: readonly { agent: string; totalTokens: number }[];
   /** The week's heaviest model by TOKENS — same crown rule as the recap:
    * cost-ranking would crown a costed model over a bigger uncosted one. */
   topModel: { model: string; totalTokens: number } | null;
@@ -98,7 +99,7 @@ export function usageWeeks(
     weeks.push({
       start,
       totalTokens: total,
-      byAgent: fold?.byAgent ?? new Map(),
+      segments: segments(fold),
       topModel: topModel(fold),
       providerCostUsd: fold?.providerCostUsd ?? 0,
       costEvents: fold?.costEvents ?? 0,
@@ -110,6 +111,14 @@ export function usageWeeks(
     });
   }
   return weeks;
+}
+
+function segments(fold: WeekFold | undefined): UsageWeek["segments"] {
+  if (!fold) return [];
+  return [...fold.byAgent]
+    .filter(([, tokens]) => tokens > 0)
+    .sort(([left], [right]) => (left < right ? -1 : 1))
+    .map(([agent, totalTokens]) => ({ agent, totalTokens }));
 }
 
 function topModel(fold: WeekFold | undefined): UsageWeek["topModel"] {

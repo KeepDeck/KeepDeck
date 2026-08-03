@@ -86,12 +86,12 @@ describe("usageWeeks", () => {
       ],
       NOW,
     );
-    expect(weeks[0].byAgent).toEqual(
-      new Map([
-        ["codex", 700],
-        ["claude", 300],
-      ]),
-    );
+    // Alphabetical roster order, zero agents excluded — the domain owns
+    // the bar's membership and order, the view only adds color.
+    expect(weeks[0].segments).toEqual([
+      { agent: "claude", totalTokens: 300 },
+      { agent: "codex", totalTokens: 700 },
+    ]);
     // Tokens crown the model — the $9 event must not.
     expect(weeks[0].topModel).toMatchObject({ totalTokens: 700 });
     expect(weeks[0].providerCostUsd).toBe(9);

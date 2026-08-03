@@ -13,8 +13,7 @@ import {
   windowLabel,
   type AccountUsage,
 } from "../../domain/usage";
-import { agentSeriesColors } from "../../domain/usage/chartPalette";
-import { usageAgents } from "../../domain/usage/daily";
+import { ledgerSeriesColors } from "../../domain/usage/chartPalette";
 import { useSettings } from "../../app/useSettings";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useUsage } from "../../app/useUsage";
@@ -111,7 +110,7 @@ export function UsageChips({
   // plugin wears one hue everywhere.
   const history = useUsageHistorySnapshot();
   const seriesColors = useMemo(
-    () => agentSeriesColors(usageAgents(history.events)),
+    () => ledgerSeriesColors(history.events),
     [history.events],
   );
   const settings = useSettings();

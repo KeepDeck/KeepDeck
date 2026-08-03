@@ -1,3 +1,6 @@
+import { usageAgents } from "./daily";
+import type { UsageEventV2 } from "./history/event";
+
 /**
  * The Overview chart's categorical palette — entity-keyed and roster-stable.
  *
@@ -20,6 +23,17 @@ const AGENT_SLOTS: Record<string, string> = {
 };
 
 const SPARE_SLOTS = ["#d55181", "#008300", "#9085e9", "#e66767"];
+
+/** THE events→series-colors join every surface shares (the chart, the
+ * provider cards, the chips panel, the weeks bars). The contract lives
+ * HERE once: colors key on the FULL ledger roster — data-keyed, never
+ * the period subset or the clock — so surfaces can never disagree on a
+ * hue and a lapsing account can never repaint its neighbours. */
+export function ledgerSeriesColors(
+  events: readonly UsageEventV2[],
+): Map<string, string> {
+  return agentSeriesColors(usageAgents(events));
+}
 export const OVERFLOW_COLOR = "#596273";
 
 /** The dialog card surface the palette was validated against. Duplicated as

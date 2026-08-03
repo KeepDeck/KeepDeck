@@ -120,4 +120,35 @@ describe("Weeks", () => {
         .disabled,
     ).toBe(false);
   });
+
+  it("snaps a stale page back when the week list shrinks", () => {
+    const twelve = Array.from({ length: 12 }, (_, index) =>
+      event({
+        occurredAt: NOW - index * WEEK_MS,
+        tokens: { input: 100 + index },
+      }),
+    );
+    const host = render(twelve);
+    click(host.querySelector('[aria-label="Older weeks"]')!);
+    expect(host.textContent).toContain("9–12 of 12");
+    // The list shrinks under the stored page: show the LAST page, never
+    // an empty one.
+    act(() =>
+      root.render(
+        createElement(Weeks, { events: twelve.slice(0, 4), now: NOW }),
+      ),
+    );
+    expect(host.querySelectorAll('[role="row"]')).toHaveLength(4);
+    expect(host.querySelector(".stats__weeks-pager")).toBeNull();
+  });
+
+  it("dashes the model of a finished zero week", () => {
+    const host = render([
+      event({ occurredAt: NOW - 2 * WEEK_MS, tokens: { input: 100 } }),
+    ]);
+    // Rows: empty current, zero finished week, the used week.
+    const rows = host.querySelectorAll('[role="row"]');
+    expect(rows).toHaveLength(3);
+    expect(rows[1].querySelector(".stats__week-model")!.textContent).toBe("—");
+  });
 });
