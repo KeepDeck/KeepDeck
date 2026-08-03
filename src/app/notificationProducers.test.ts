@@ -10,6 +10,7 @@ import {
   resetUpdateNotifications,
 } from "./notificationProducers";
 import { createAgentStatusTracker } from "./agentStatusTracker";
+import { normalizeClaudeStatus } from "../../plugins/claude/src/status";
 
 const center = vi.hoisted(() => ({
   notify: vi.fn(),
@@ -362,5 +363,112 @@ describe("activity notifications", () => {
     }));
     edge({ kind: "waiting", at: 100, reason: "permission" });
     expect(center.notify).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The whole claude lane end to end — the REAL normalizer driving the real
+ * tracker and the real announce table, the way `usageManager.test.ts` drives
+ * `normalizeClaudeStatusline`. The unit tests either side of the seam prove
+ * their own rules; only a replayed trace proves the rules COMPOSE, and this
+ * one is the trace a background agent actually produces (captured from claude
+ * 2.1.220 with every hook dumped to disk).
+ */
+describe("claude background agents, replayed end to end", () => {
+  let tracker: ReturnType<typeof createAgentStatusTracker>;
+  let stop: () => void;
+
+  beforeEach(() => {
+    center.notify.mockClear();
+    center.retractNotification.mockClear();
+    tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", normalizeClaudeStatus);
+    stop = initActivityNotifications(tracker, () => ({
+      workspaces: deckWith(),
+      agents,
+    }));
+  });
+
+  afterEach(() => stop());
+
+  /** One hook payload, wrapped as the shell reporter wraps it. */
+  const hook = (event: Record<string, unknown>, at: number) =>
+    tracker.report("pane-1", { agent: "claude", event }, at);
+  const activity = () => tracker.getSnapshot().panes.get("pane-1");
+
+  const runningSubagent = {
+    id: "acb5bea0d1b3101fd",
+    type: "subagent",
+    status: "running",
+    description: "Sleep then report",
+    agent_type: "general-purpose",
+  };
+
+  it("stays working across the whole background window, and finishes once", () => {
+    hook({ hook_event_name: "UserPromptSubmit" }, 100);
+    expect(activity()).toEqual({ state: "working", since: 100 });
+
+    // The main thread launches the background agent and replies.
+    hook({ hook_event_name: "PostToolUse", tool_name: "Agent" }, 200);
+    hook(
+      {
+        hook_event_name: "Stop",
+        last_assistant_message: "LAUNCHED",
+        background_tasks: [runningSubagent],
+      },
+      300,
+    );
+    // THE REGRESSION: this Stop used to read as "Done" and announce a turn
+    // that had not finished. The phase must not restart either — the age is
+    // "how long since you could have walked away", and the user could not.
+    expect(activity()).toEqual({ state: "working", since: 100 });
+    expect(center.notify).not.toHaveBeenCalled();
+
+    // The subagent's OWN tool calls reach the armed hook (they carry
+    // `agent_id`); they must not disturb the pane either way.
+    hook({ hook_event_name: "PostToolUse", agent_id: runningSubagent.id }, 400);
+    hook({ hook_event_name: "PostToolUse", agent_id: runningSubagent.id }, 500);
+    expect(activity()).toEqual({ state: "working", since: 100 });
+
+    // The finished background work wakes the session — a machine-injected
+    // turn, indistinguishable from a typed one at the hook.
+    hook({ hook_event_name: "UserPromptSubmit" }, 600);
+    expect(activity()).toEqual({ state: "working", since: 600 });
+
+    // Only now, with nothing left in flight, is the turn over.
+    hook({ hook_event_name: "Stop", background_tasks: [] }, 700);
+    expect(activity()).toEqual({ state: "done", at: 700, interrupted: false });
+    expect(center.notify).toHaveBeenCalledTimes(1);
+    expect(center.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Claude 1 finished" }),
+    );
+  });
+
+  it("clears a stale wait the parked turn has outlived", () => {
+    hook({ hook_event_name: "UserPromptSubmit" }, 100);
+    // claude's idle nudges run up to seconds late and can land while the
+    // turn is wrapping up, leaving an amber "needs your input" behind.
+    hook(
+      { hook_event_name: "Notification", notification_type: "agent_needs_input" },
+      200,
+    );
+    expect(activity()).toEqual({
+      state: "waiting",
+      since: 200,
+      reason: "question",
+    });
+    expect(center.notify).toHaveBeenCalledTimes(1);
+
+    // The parked Stop proves the main thread is no longer on the user, so
+    // the wait must go — the reason this edge is `resumed` and not a drop.
+    hook(
+      { hook_event_name: "Stop", background_tasks: [runningSubagent] },
+      300,
+    );
+    expect(activity()).toEqual({ state: "working", since: 300 });
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
+    expect(center.notify).toHaveBeenCalledTimes(1);
   });
 });
