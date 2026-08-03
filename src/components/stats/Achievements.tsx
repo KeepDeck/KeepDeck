@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   achievementExact,
   achievementPercent,
@@ -14,6 +14,7 @@ import {
 } from "../../domain/usage/achievements/ladders";
 import { formatUtcDay } from "../../domain/usage";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
+import { Tooltip } from "../../ui/Tooltip";
 
 /** The achievements tab in three sections: the goals being walked toward
  * (one per ladder, with progress) first — they are the pull; the trophy
@@ -55,10 +56,9 @@ function AchievementSection({
   );
 }
 
-/** Room the downward tooltip needs below a card; a card closer than this
- * to the scroll container's bottom edge flips its tip upward instead of
- * opening below the fold (where scrolling to it would drop the hover). */
-const TIP_CLEARANCE_PX = 110;
+/** The hover-intent pause before a card's detail tip shows — a grid
+ * swept by the cursor must not strobe forty tips. */
+const TIP_DELAY_MS = 450;
 
 function AchievementCard({
   item,
@@ -68,23 +68,31 @@ function AchievementCard({
   future: boolean;
 }) {
   const locked = item.achievedAt === null;
-  // Purely geometric hover state: measured on entry because CSS alone
-  // cannot know where the card sits relative to the scroller's fold.
-  const [tipAbove, setTipAbove] = useState(false);
+  // The card IS the tip's anchor: the shared Tooltip portals the detail
+  // layer, so the scroller can no longer clip it — the flip-above
+  // measurement and the paint-order lift died with the in-flow tip.
   return (
-    <article
+    <Tooltip
       className={`stats__achievement${
         locked ? " stats__achievement--locked" : ""
-      }${future ? " stats__achievement--future" : ""}${
-        tipAbove ? " stats__achievement--tip-up" : ""
-      }`}
-      onMouseEnter={(hover) => {
-        const scroller = hover.currentTarget.closest(".stats-dialog__body");
-        if (!scroller) return;
-        const card = hover.currentTarget.getBoundingClientRect();
-        const fold = scroller.getBoundingClientRect().bottom;
-        setTipAbove(card.bottom + TIP_CLEARANCE_PX > fold);
-      }}
+      }${future ? " stats__achievement--future" : ""}`}
+      delayMs={TIP_DELAY_MS}
+      tip={
+        <span
+          className={`stats__achievement-tip${
+            locked ? " stats__achievement-tip--locked" : ""
+          }`}
+        >
+          <b>
+            <span className="stats__achievement-tip-icon" aria-hidden>
+              {item.icon}
+            </span>{" "}
+            {item.title}
+          </b>
+          <span>{achievementRequirement(item)}</span>
+          <span>{achievementTipStatus(item)}</span>
+        </span>
+      }
     >
       <span className="stats__achievement-icon" aria-hidden>
         {item.icon}
@@ -103,17 +111,7 @@ function AchievementCard({
           <small>{achievementProgress(item)}</small>
         </>
       )}
-      <span className="stats__achievement-tip" role="tooltip">
-        <b>
-          <span className="stats__achievement-tip-icon" aria-hidden>
-            {item.icon}
-          </span>{" "}
-          {item.title}
-        </b>
-        <span>{achievementRequirement(item)}</span>
-        <span>{achievementTipStatus(item)}</span>
-      </span>
-    </article>
+    </Tooltip>
   );
 }
 

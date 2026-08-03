@@ -21,67 +21,20 @@
      card is not inside one. */
 }
 
-/* Hover detail card: exact numbers behind the compact badge. `display:
-   none` at rest — a merely-invisible box still counts toward the scroll
-   container's overflow, and forty hidden tips inflated the Achievements
-   tab's scrollable area and grew a horizontal scrollbar. The hover intent
-   is an animation-delay (backwards fill keeps it transparent while
-   waiting); pointer-events stay off so it never traps the cursor. */
+/* Hover detail card CONTENT — exact numbers behind the compact badge.
+   The chrome, placement and clipping story live in the shared Tooltip
+   (ui/tooltip.css): the layer portals out of the scroller that used to
+   eat below-the-fold tips, so the flip-upward measurement and the
+   paint-order lift are gone with it. This block only lays out the text
+   — and re-enables wrapping the shared card turns off. */
 .stats__achievement-tip {
-  position: absolute;
-  /* Below the card: the top row hugs the scroll container's edge, so an
-     upward tip would clip exactly where hovering starts. */
-  top: calc(100% + 6px);
-  left: 8px;
-  z-index: 30;
-  display: none;
+  display: flex;
   flex-direction: column;
   gap: 3px;
-  width: max-content;
   max-width: 240px;
-  padding: 8px 10px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background: #10141c;
   color: #9aa3af;
   font-size: 11px;
-  pointer-events: none;
-}
-
-/* The hovered card also lifts above its later siblings: without this the
-   next card's paint order buried the tooltip (field report — the Locked
-   grid rendered tips UNDER the row below). */
-.stats__achievement:hover {
-  z-index: 1;
-}
-
-/* A card near the scroll container's bottom edge flips its tip upward
-   (measured by the component on hover) — a below-the-fold tip is clipped
-   by the scroller, and scrolling to it moves the card out from under the
-   pointer. */
-.stats__achievement--tip-up .stats__achievement-tip {
-  top: auto;
-  bottom: calc(100% + 6px);
-}
-
-.stats__achievement:hover .stats__achievement-tip {
-  display: flex;
-  animation: stats-tip-in 0.15s ease 0.45s backwards;
-}
-
-@keyframes stats-tip-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stats__achievement:hover .stats__achievement-tip {
-    animation: none;
-  }
+  white-space: normal;
 }
 
 .stats__achievement-tip b {
@@ -95,7 +48,7 @@
 
 /* An unearned badge stays colorless everywhere — the tooltip must not leak
    the full-color icon the card deliberately withholds. */
-.stats__achievement--locked .stats__achievement-tip-icon {
+.stats__achievement-tip--locked .stats__achievement-tip-icon {
   opacity: 0.5;
   filter: grayscale(1);
 }

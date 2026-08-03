@@ -312,12 +312,33 @@ describe("UsageStats", () => {
     act(() => root.render(createElement(Host)));
     clickTab("Achievements");
 
-    const tips = [...host.querySelectorAll('[role="tooltip"]')];
-    expect(tips.length).toBeGreaterThan(0);
-    const steam = tips.find((tip) => tip.textContent?.includes("Picking Up Steam"))!;
-    expect(steam.textContent).toContain("2,000,000 of 10,000,000 — 20%");
-    const earnedTip = tips.find((tip) => tip.textContent?.includes("First Million"))!;
-    expect(earnedTip.textContent).toContain("Earned Jul 22, 2026");
+    // Tips live behind the shared Tooltip now: nothing renders until the
+    // card is hovered or focused, then the layer PORTALS to the body so
+    // the scroller cannot clip it. Focus opens without the hover delay.
+    const cards = [...host.querySelectorAll(".stats__achievement")];
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    const focus = (card: Element, on: boolean) =>
+      act(() => {
+        card.dispatchEvent(
+          new FocusEvent(on ? "focusin" : "focusout", { bubbles: true }),
+        );
+      });
+    const steam = cards.find((card) =>
+      card.textContent?.includes("Picking Up Steam"),
+    )!;
+    focus(steam, true);
+    expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
+      "2,000,000 of 10,000,000 — 20%",
+    );
+    focus(steam, false);
+    const earned = cards.find((card) =>
+      card.textContent?.includes("First Million"),
+    )!;
+    focus(earned, true);
+    expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
+      "Earned Jul 22, 2026",
+    );
+    focus(earned, false);
   });
 
   it("shows the live streak chip in the footer corner with its heat tier", () => {

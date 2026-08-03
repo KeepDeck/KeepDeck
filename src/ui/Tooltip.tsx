@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -20,20 +21,37 @@ import { tipPosition, type TipPlacement } from "./tipPlacement";
  * by keyboard: the anchor is focusable and the tip is its description. */
 export function Tooltip({
   tip,
+  className,
   style,
+  delayMs = 0,
   children,
 }: {
   tip: ReactNode;
-  /** Style for the ANCHOR — lets a caller size the hover target (the
-   * weeks bar is a %-width anchor in a flex cell). */
+  /** Class/style for the ANCHOR — a caller may size the hover target
+   * (the weeks bar is a %-width anchor) or BE a styled card that owns
+   * its tip (the achievement cards). */
+  className?: string;
   style?: CSSProperties;
+  /** Hover intent: how long the cursor must rest before the card shows.
+   * A grid swept by the mouse (achievements) wants a pause; a lone bar
+   * answers instantly. Keyboard focus always opens immediately. */
+  delayMs?: number;
   children: ReactNode;
 }) {
   const id = useId();
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const tipRef = useRef<HTMLSpanElement | null>(null);
+  const enterTimer = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState<TipPlacement | null>(null);
+
+  const cancelEnter = () => {
+    if (enterTimer.current !== null) {
+      clearTimeout(enterTimer.current);
+      enterTimer.current = null;
+    }
+  };
+  useEffect(() => cancelEnter, []);
 
   const recompute = useCallback(() => {
     const anchor = anchorRef.current;
@@ -69,13 +87,25 @@ export function Tooltip({
   return (
     <span
       ref={anchorRef}
-      className="kd-tip__anchor"
+      className={`kd-tip__anchor${className ? ` ${className}` : ""}`}
       style={style}
       tabIndex={0}
       aria-describedby={open ? id : undefined}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
+      onMouseEnter={() => {
+        if (delayMs > 0) {
+          enterTimer.current = window.setTimeout(() => setOpen(true), delayMs);
+        } else {
+          setOpen(true);
+        }
+      }}
+      onMouseLeave={() => {
+        cancelEnter();
+        setOpen(false);
+      }}
+      onFocus={() => {
+        cancelEnter();
+        setOpen(true);
+      }}
       onBlur={() => setOpen(false)}
     >
       {children}
