@@ -414,9 +414,10 @@
 }
 
 .stats__week-none {
+  /* The SAME type box as the date beside it — a smaller size with its own
+     line-height centered as a box but sat off the date's baseline. */
   grid-column: 2 / -1;
   align-self: center;
   color: #596273;
-  font-size: 11px;
-  line-height: 1;
+  font-size: 12px;
 }
