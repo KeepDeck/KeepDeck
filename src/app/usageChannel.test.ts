@@ -12,6 +12,10 @@ import type { PaneIdle } from "../domain/deck";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
 import { createUsageManager, type UsageManager } from "./usageManager";
 import { createPaneAttribution } from "./paneAttribution";
+import {
+  createSessionBinding,
+  type SessionBinding,
+} from "./sessionBinding";
 import { createUsageChannel, type UsageChannel } from "./usageChannel";
 import type { DeckStore } from "./deckStore";
 import type { Deck } from "./useDeck";
@@ -47,7 +51,12 @@ vi.mock("../ipc/usage", () => ({
   saveUsageCache: ipc.saveUsageCache,
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
-vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: ipc.peekPaneSpawnSpec }));
+vi.mock("./spawnSpecs", () => ({
+  peekPaneSpawnSpec: ipc.peekPaneSpawnSpec,
+  // The binding lane composed here stamps a fork plan's first session; these
+  // tests never build one, so recording it is a no-op they only need present.
+  bindPaneSpawnSpecSession: () => {},
+}));
 /** A fake normalizer echoing fixed windows — the mechanics under test are
  * registration, arming and polling, not payload parsing. */
 const reported = (at: number): NormalizedUsage => ({
@@ -89,6 +98,7 @@ interface Bound {
 
 describe("createUsageChannel", () => {
   let channel: UsageChannel | null;
+  let bindings: SessionBinding | null;
   let usage: UsageManager;
   let currentDeck: Deck;
   let deckListeners: Set<() => void>;
@@ -105,14 +115,25 @@ describe("createUsageChannel", () => {
         list: () => ipc.contributions,
         subscribe: () => () => {},
       } as unknown as ContributionRegistry<AgentContribution>;
+      // The REAL binding lane over the SAME attribution, exactly as the
+      // runtime composes them: the tails lane follows what this one accepted.
+      // Building the channel over a private attribution instead would hide
+      // the one configuration where the verdict is stateful and shared.
+      const attribution = createPaneAttribution({
+        workspaces: () => deckStore.getSnapshot().workspaces,
+        secretOf: (paneId) => ipc.peekPaneSpawnSpec(paneId)?.token,
+      });
+      bindings = createSessionBinding(
+        deckStore,
+        { retire: () => {}, beginSession: () => {} },
+        attribution,
+      );
       channel = createUsageChannel(
         deckStore,
         agents,
         usage,
-        createPaneAttribution({
-          workspaces: () => deckStore.getSnapshot().workspaces,
-          secretOf: (paneId) => ipc.peekPaneSpawnSpec(paneId)?.token,
-        }),
+        attribution,
+        bindings,
       );
     }
     await act(async () => {});
@@ -121,6 +142,7 @@ describe("createUsageChannel", () => {
   beforeEach(() => {
     usage = createUsageManager();
     channel = null;
+    bindings = null;
     currentDeck = deckWith([]);
     deckListeners = new Set();
     deckStore = {
@@ -129,9 +151,13 @@ describe("createUsageChannel", () => {
         deckListeners.add(listener);
         return () => deckListeners.delete(listener);
       },
-      dispatch: vi.fn(() => {
-        throw new Error("usage channel tests do not dispatch deck actions");
-      }),
+      // The binding lane composed alongside the channel records accepted
+      // sessions on the deck; the fixture deck is a fixed snapshot, so the
+      // transition is accepted and dropped. What these tests read is the
+      // usage store, never the deck.
+      dispatch: vi.fn(
+        () => currentDeck as ReturnType<DeckStore["getSnapshot"]>,
+      ),
     };
     ipc.contributions = [
       {
@@ -187,6 +213,7 @@ describe("createUsageChannel", () => {
 
   afterEach(() => {
     channel?.dispose();
+    bindings?.dispose();
   });
 
   it("registers plugin normalizers and applies token-verified reports", async () => {

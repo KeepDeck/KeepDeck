@@ -33,13 +33,18 @@ vi.mock("../ipc/log", () => ({
 const specs = vi.hoisted(() => ({ token: "token-1" as string | null }));
 vi.mock("./spawnSpecs", () => ({
   peekPaneSpawnSpec: () => (specs.token ? { token: specs.token } : undefined),
+  // Present for the binding lane composed below; these tests build no fork
+  // plan, so there is nothing for it to stamp.
+  bindPaneSpawnSpecSession: () => {},
 }));
-vi.mock("./sessionBinding", () => ({ postbackAccepted: () => true }));
-
 import { createUsageTailsLane } from "./usageChannelTails";
 import type { UsageLane } from "./usageChannelSource";
 import { createUsageManager } from "./usageManager";
 import { createPaneAttribution } from "./paneAttribution";
+import {
+  createSessionBinding,
+  type SessionBinding,
+} from "./sessionBinding";
 
 const usageByAgent = new Map<string, AgentUsage>([
   ["codex", { tail: "codex" } as AgentUsage],
@@ -68,6 +73,7 @@ function seed() {
 
 describe("usage tails — a suspended pane's watcher", () => {
   let lane: UsageLane;
+  let bindings: SessionBinding;
 
   beforeEach(() => {
     ipc.watchSessionFile.mockClear();
@@ -76,14 +82,21 @@ describe("usage tails — a suspended pane's watcher", () => {
     specs.token = "token-1";
     const store = createDeckStore();
     deck = createDeckActions(store);
+    // The real rule and the real binding lane over it, as the runtime
+    // composes them — the tails lane follows what the binding lane accepted.
+    const attribution = createPaneAttribution({
+      workspaces: () => store.getSnapshot().workspaces,
+      secretOf: () => specs.token ?? undefined,
+    });
+    bindings = createSessionBinding(
+      store,
+      { retire: () => {}, beginSession: () => {} },
+      attribution,
+    );
     lane = createUsageTailsLane({
       deck: store,
-      // The real rule over the same stubbed spawn cache the lane reads for
-      // its codex fallback: what is under test is which bindings arm a tail.
-      attribution: createPaneAttribution({
-        workspaces: () => store.getSnapshot().workspaces,
-        secretOf: () => specs.token ?? undefined,
-      }),
+      attribution,
+      bindings,
       // The tails lane only arms watchers; events reach the store via the
       // reports lane, so a fresh, unobserved instance satisfies the context.
       usage: createUsageManager(),

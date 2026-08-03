@@ -8,6 +8,7 @@ import type { UsageManager } from "./usageManager";
 import { createUsageLimitsLane } from "./usageChannelLimits";
 import { createUsageMaintenanceLane } from "./usageChannelMaintenance";
 import type { PaneAttribution } from "./paneAttribution";
+import type { SessionBinding } from "./sessionBinding";
 import { createUsageReportsLane } from "./usageChannelReports";
 import type {
   UsageDeclarations,
@@ -25,6 +26,7 @@ export function createUsageChannel(
   agents: ContributionRegistry<AgentContribution>,
   usage: UsageManager,
   attribution: PaneAttribution,
+  bindings: SessionBinding,
 ): UsageChannel {
   const declarationListeners = new Set<() => void>();
   let usageByAgent = readDeclarations();
@@ -62,7 +64,7 @@ export function createUsageChannel(
   };
 
   registerNormalizers();
-  const context = { deck, declarations, usage, attribution };
+  const context = { deck, declarations, usage, attribution, bindings };
   const lanes: UsageLane[] = [
     createUsageReportsLane(context),
     createUsageTailsLane(context),

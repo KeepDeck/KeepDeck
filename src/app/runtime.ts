@@ -198,12 +198,21 @@ export function createAppRuntime(
     windowReportJournal,
     start() {
       if (disposed) return;
-      sessionBinding ??= createSessionBinding(deckStore, lifecycle, attribution);
+      // The binding lane first, and the usage channel over it: the tails lane
+      // follows the bindings this one ACCEPTED rather than judging the same
+      // event a second time. The verdict pins a generation to a process, so
+      // asking it twice would tell the second asker the first had bound.
+      const bindings = (sessionBinding ??= createSessionBinding(
+        deckStore,
+        lifecycle,
+        attribution,
+      ));
       usageChannel ??= createUsageChannel(
         deckStore,
         plugins.pluginRegistries.agents,
         usageManager,
         attribution,
+        bindings,
       );
       statusChannel ??= createAgentStatusChannel(
         deckStore,

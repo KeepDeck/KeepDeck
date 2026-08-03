@@ -25,7 +25,23 @@ import type { DeckStore } from "./deckStore";
  * this same lane and must never draw a different conclusion from it.
  */
 
+/** A binding the pane's own agent actually landed — what everything
+ * downstream of the rule is allowed to act on. */
+export interface AcceptedBinding {
+  readonly paneId: string;
+  readonly sessionId: string;
+  /** The pane's bridge secret, echoed for lanes that authenticate a watch. */
+  readonly token: string;
+  readonly transcriptPath?: string;
+}
+
 export interface SessionBinding {
+  /** Follow the bindings this lane ACCEPTED. The verdict is stateful — it
+   * pins a generation to a process — so it must be reached exactly once per
+   * report; a second subscriber judging the same event would be told its own
+   * predecessor had already bound. Consumers take the outcome, not the
+   * question. */
+  subscribe(listener: (bound: AcceptedBinding) => void): () => void;
   dispose(): void;
 }
 
@@ -35,6 +51,7 @@ export function createSessionBinding(
   attribution: PaneAttribution,
 ): SessionBinding {
   const actions = createDeckActions(deck);
+  const listeners = new Set<(bound: AcceptedBinding) => void>();
   let disposed = false;
   let unlisten: (() => void) | null = null;
   void onSessionBound(
@@ -87,6 +104,14 @@ export function createSessionBinding(
         { id: sessionId, boundAt },
         transcriptPath,
       );
+      for (const listener of [...listeners]) {
+        listener({
+          paneId,
+          sessionId,
+          token: report.token,
+          ...(transcriptPath ? { transcriptPath } : {}),
+        });
+      }
     },
   )
     .then((unsubscribe) => {
@@ -99,9 +124,14 @@ export function createSessionBinding(
       }
     });
   return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
+      listeners.clear();
       unlisten?.();
     },
   };
