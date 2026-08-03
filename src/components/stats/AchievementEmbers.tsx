@@ -149,19 +149,24 @@ export function AchievementEmbers() {
     /** Geometry is read on a RESIZE, never per frame: a badge's box moves
      * when the layout does, and reading it every frame would force a
      * synchronous layout sixty times a second for a number that stands
-     * still. */
+     * still.
+     *
+     * The measured box is the CANVAS's, not the card's. They differ: the
+     * stylesheet sizes this element as `100% + 2 × HALO`, and a percentage
+     * resolves against the card's PADDING box, while the card's own rect is
+     * its border box. Measuring the card made the field one pixel wider than
+     * the element drawing it, so the inner area the embers were told to stay
+     * inside was not quite the card. Reading the box that actually exists
+     * makes `HALO` exact by construction. */
     const measure = () => {
-      const box = card.getBoundingClientRect();
+      const box = canvas.getBoundingClientRect();
       // Clamped, and not out of caution: this canvas takes its size FROM the
       // card, so anything that lets it affect the card's size closes a loop
       // and the pair grows without bound. It happened — a content rule
       // captured the canvas and put it back in the flow. The cap turns that
       // class of mistake into a wrong-looking badge instead of a hang.
-      const next = Math.min(MAX_SIDE, Math.max(1, Math.round(box.width + HALO * 2)));
-      const nextHeight = Math.min(
-        MAX_SIDE,
-        Math.max(1, Math.round(box.height + HALO * 2)),
-      );
+      const next = Math.min(MAX_SIDE, Math.max(1, Math.round(box.width)));
+      const nextHeight = Math.min(MAX_SIDE, Math.max(1, Math.round(box.height)));
       if (next === width && nextHeight === height) return;
       width = next;
       height = nextHeight;

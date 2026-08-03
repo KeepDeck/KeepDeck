@@ -18,6 +18,26 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
+
+  /* The legendary halo reaches 25px past its card, which is free everywhere
+     except at the gallery's own edges. The dialog body scrolls, so a halo
+     leaving the LAST column became 13px of horizontal pannability; one
+     leaving the FIRST column was simply cut, because the scrollport's
+     content edge and this grid's begin at the same x and nothing scrolls
+     into negative space. `clip` settles the pannability — a clip container's
+     contents never reach an ancestor's scrollable region — and the margin
+     buys back the room that does exist: 12px, the scrollbar gutter
+     `.stats-dialog__body` already reserves (stats.css). Enough for every
+     drop shadow on this surface — the furthest, legendary's breath at its
+     peak, reaches 15px below a card and so loses 3px on the bottom row
+     alone — and for half the halo besides.
+
+     The first column's outward halo stays lost. Recovering it means
+     indenting the gallery 26px inside the scroller, which at the dialog's
+     900px costs a whole column — a worse trade than a clipped glow on the
+     cards that sit against the frame. */
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
 
 .stats__achievement {
@@ -236,22 +256,31 @@
   }
 }
 
-/* The legendary embers. Size stated OUTRIGHT rather than through `inset`:
-   a canvas is a REPLACED element, so with `width: auto` it takes its own
-   bitmap as its box and ignores the right and bottom offsets — the box
-   then stops short of the card's lower edge and every ember drawn down
-   there falls outside it. The 26px halo must match HALO in the component.
-   z-index lifts the whole card above its later siblings, or the next
-   badge's opaque background paints over the glow that leaves this one. */
+/* Lifts the whole card above its LATER siblings, whose opaque backgrounds
+   would otherwise paint over the glow that leaves this one. It does not
+   settle two legendary cards side by side — equal z-index, so the later one
+   still wins — but there the neighbour paints its own embers over the same
+   ground, and the loss is a few pixels of someone else's glow. */
 .stats__achievement--legendary:not(.stats__achievement--locked) {
   z-index: 1;
 }
 
+/* The legendary embers. Size stated OUTRIGHT rather than through `inset`:
+   a canvas is a REPLACED element, so with `width: auto` it takes its own
+   bitmap as its box and ignores the right and bottom offsets — the box
+   then stops short of the card's lower edge and every ember drawn down
+   there falls outside it.
+
+   These 26px are HALO in AchievementEmbers.tsx, and the component measures
+   THIS box rather than the card's, so the two cannot drift: `100%` here is
+   the card's padding box, which is what remains once the halo is inset off
+   either side. z-index keeps the field under the badge's own text — the
+   card gives off light, it does not glow through its title. */
 .stats__achievement-embers {
   position: absolute;
   top: -26px;
   left: -26px;
-  z-index: 2;
+  z-index: 0;
   width: calc(100% + 52px);
   height: calc(100% + 52px);
   pointer-events: none;
