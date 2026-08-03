@@ -444,31 +444,95 @@ describe("claude background agents, replayed end to end", () => {
     );
   });
 
-  it("clears a stale wait the parked turn has outlived", () => {
+  it("a background agent's question stands through parking and sibling tools", () => {
     hook({ hook_event_name: "UserPromptSubmit" }, 100);
-    // claude's idle nudges run up to seconds late and can land while the
-    // turn is wrapping up, leaving an amber "needs your input" behind.
+    // A background agent needs input. claude reports it on the main
+    // session's hook, so this is the only place the question can surface.
     hook(
       { hook_event_name: "Notification", notification_type: "agent_needs_input" },
       200,
     );
-    expect(activity()).toEqual({
-      state: "waiting",
-      since: 200,
-      reason: "question",
-    });
+    const asked = { state: "waiting", since: 200, reason: "question" };
+    expect(activity()).toEqual(asked);
     expect(center.notify).toHaveBeenCalledTimes(1);
 
-    // The parked Stop proves the main thread is no longer on the user, so
-    // the wait must go — the reason this edge is `resumed` and not a drop.
+    // Parking answers nothing: the work still running is what asked.
+    hook({ hook_event_name: "Stop", background_tasks: [runningSubagent] }, 300);
+    expect(activity()).toEqual(asked);
+
+    // Nor does a SIBLING agent's tool call. Resolving on any completion
+    // would retract a question nobody answered, and the next nudge would
+    // raise it again — a banner flapping over a live prompt.
+    hook({ hook_event_name: "PostToolUse", agent_id: "another-agent" }, 400);
+    expect(activity()).toEqual(asked);
+    expect(center.retractNotification).not.toHaveBeenCalled();
+    expect(center.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a question raised after the turn parked", () => {
+    hook({ hook_event_name: "UserPromptSubmit" }, 100);
+    hook({ hook_event_name: "Stop", background_tasks: [runningSubagent] }, 200);
+    expect(center.notify).not.toHaveBeenCalled();
+
+    // The window runs for minutes, so a question raised inside it is real
+    // and has to reach the user. While the pane read "done" this was
+    // swallowed as a late echo and the prompt was never announced.
     hook(
-      { hook_event_name: "Stop", background_tasks: [runningSubagent] },
+      { hook_event_name: "Notification", notification_type: "permission_prompt" },
       300,
     );
-    expect(activity()).toEqual({ state: "working", since: 300 });
-    expect(center.retractNotification).toHaveBeenCalledWith(
-      "pane:pane-1:activity",
-    );
+    expect(activity()).toEqual({
+      state: "waiting",
+      since: 300,
+      reason: "permission",
+    });
     expect(center.notify).toHaveBeenCalledTimes(1);
+    expect(center.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: "Claude 1 — needs approval" }),
+    );
+  });
+
+  it("a failed turn stands against the background noise that follows it", () => {
+    hook({ hook_event_name: "UserPromptSubmit" }, 100);
+    hook(
+      {
+        hook_event_name: "StopFailure",
+        error: "rate_limit",
+        background_tasks: [runningSubagent],
+      },
+      200,
+    );
+    const failed = { state: "failed", at: 200, error: "rate_limit" };
+    expect(activity()).toEqual(failed);
+
+    // Surviving agents keep reporting; none of it un-fails the turn.
+    center.notify.mockClear();
+    hook({ hook_event_name: "PostToolUse", agent_id: runningSubagent.id }, 300);
+    hook({ hook_event_name: "Stop", background_tasks: [runningSubagent] }, 400);
+    hook(
+      { hook_event_name: "Notification", notification_type: "agent_needs_input" },
+      500,
+    );
+    expect(activity()).toEqual(failed);
+    expect(center.notify).not.toHaveBeenCalled();
+  });
+
+  it("an interrupt during the background window ends the turn honestly", () => {
+    hook({ hook_event_name: "UserPromptSubmit" }, 100);
+    hook({ hook_event_name: "Stop", background_tasks: [runningSubagent] }, 200);
+    expect(activity()).toEqual({ state: "working", since: 100 });
+
+    // Esc pushes no hook — the edge comes from the transcript tailer, which
+    // polls, so it is stamped with the MARKER's own time rather than
+    // receipt. Parking makes the phase arbitrarily long, so this is the
+    // stale-marker surface the guard has to hold open across.
+    tracker.report(
+      "pane-1",
+      { agent: "claude", kind: "session.interrupt", sourceMtimeMs: 300 },
+      350,
+    );
+    expect(activity()).toEqual({ state: "done", at: 300, interrupted: true });
+    // The user's own hand — nothing to announce.
+    expect(center.notify).not.toHaveBeenCalled();
   });
 });
