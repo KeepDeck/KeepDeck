@@ -72,6 +72,22 @@ describe("pane layout", () => {
     }
   });
 
+  it("stops a pane painting past its own edge, without making it scrollable", () => {
+    // The floor behind the fix above rather than a restatement of it: sizing
+    // decides what SHOULD fit, this decides what happens when something
+    // doesn't. It matters because the surface next door cannot defend itself —
+    // a docked `.dock` is a static in-flow sibling of a positioned
+    // `.deck__stage`, so the deck paints over it whenever it overflows.
+    //
+    // `hidden` would satisfy the first half and break the terminal: it makes
+    // the pane a scroll container, and xterm keeps the textarea it focuses for
+    // keystrokes at `left: -9999em`, so every keypress could scroll the tile
+    // away from its own output. Only `clip` clips without scrolling.
+    mount(STOPPED_PANE);
+
+    expect(styleOf(".pane").overflow).toBe("clip");
+  });
+
   it("keeps the resume line's ellipsis promise inside the card", () => {
     // The line's own comment promises it is "ellipsized in a narrow tile; the
     // title carries the full id". That promise is only worth anything once the

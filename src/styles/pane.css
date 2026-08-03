@@ -5,6 +5,20 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* The pane-wide hard floor — the same promise `.pane__bar` states for its own
+     row, made once for the whole tile: whatever the content does, it stops at
+     the tile's edge. The body had no floor at all, so one card that outsized
+     its pane reached both the neighbouring tile and the dock beside the deck.
+     The dock cannot defend itself there: docked it is a STATIC in-flow sibling
+     of a positioned `.deck__stage` (deck.css), and positioned boxes paint after
+     static ones, so the deck's overflow lands on top of it by definition.
+     Floating, the dock is absolute and wins by document order — which is
+     exactly why the same leak was invisible in that mode.
+
+     `clip`, never `hidden`: `hidden` would make every pane a scroll container,
+     and xterm parks the textarea it focuses for keystrokes at `left: -9999em`
+     (xterm.css) — focusing it would scroll the tile off its own terminal. */
+  overflow: clip;
   /* Always reserve the focus-border space (transparent) so the active border
      never covers content and toggling focus causes no layout shift. */
   border: 2px solid transparent;
