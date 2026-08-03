@@ -24,7 +24,8 @@ import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
-import { paneIdByMcpToken } from "./spawnSpecs";
+import { paneIdByMcpToken, peekPaneSpawnSpec } from "./spawnSpecs";
+import { createPaneAttribution } from "./paneAttribution";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
@@ -38,7 +39,7 @@ import {
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
-import { createPaneTelemetry } from "./paneTelemetry";
+import { createPaneLifecycle } from "./paneLifecycle";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
 import { createUsageChannel } from "./usageChannel";
@@ -113,11 +114,22 @@ export function createAppRuntime(
   let sessionBinding: ReturnType<typeof createSessionBinding> | null = null;
   const spawnContext = createSpawnContextSource();
   // The live telemetry stores (usage, activity) and the retire owner over
-  // the pair. Runtime state like the deck store: the orchestrator retires
-  // panes and the bridge channels report in with no component mounted.
+  // them. Runtime state like the deck store: the orchestrator retires panes
+  // and the bridge channels report in with no component mounted.
   const usageManager = createUsageManager();
   const statusTracker = createAgentStatusTracker();
-  const telemetry = createPaneTelemetry(usageManager, statusTracker);
+  // Who may speak for a pane. Built before the lanes that ask it, and handed
+  // to each as a value, so identity, usage and status cannot drift apart on
+  // a question all three have to answer the same way.
+  const attribution = createPaneAttribution({
+    workspaces: () => deckStore.getSnapshot().workspaces,
+    secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
+  });
+  const lifecycle = createPaneLifecycle(
+    usageManager,
+    statusTracker,
+    attribution,
+  );
   const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
@@ -145,7 +157,7 @@ export function createAppRuntime(
     probe: probeWorktree,
     worktrees,
     mcpAccess: (target) => mcp.access(target),
-    telemetry: { retire: telemetry.retire },
+    lifecycle,
   });
   const application = createApplicationController(
     deckStore,
@@ -182,21 +194,31 @@ export function createAppRuntime(
     mcp,
     usageManager,
     statusTracker,
-    telemetry,
     windowReportJournal,
     start() {
       if (disposed) return;
-      sessionBinding ??= createSessionBinding(deckStore, telemetry);
+      // The binding lane first, and the usage channel over it: the tails lane
+      // follows the bindings this one ACCEPTED rather than judging the same
+      // event a second time. The verdict pins a generation to a process, so
+      // asking it twice would tell the second asker the first had bound.
+      const bindings = (sessionBinding ??= createSessionBinding(
+        deckStore,
+        lifecycle,
+        attribution,
+      ));
       usageChannel ??= createUsageChannel(
         deckStore,
         plugins.pluginRegistries.agents,
         usageManager,
+        attribution,
+        bindings,
       );
       statusChannel ??= createAgentStatusChannel(
         deckStore,
         plugins.pluginRegistries.agents,
         statusTracker,
         { subscribe: subscribeSessions, state: paneSessionState },
+        attribution,
       );
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,

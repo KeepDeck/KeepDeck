@@ -180,14 +180,14 @@ const skillsAsked = vi.fn(
 );
 vi.mock("../postbacks", () => ({ postbackCount: () => 0 }));
 
-/** A retired session's telemetry must not stay bound to the pane, or a
- *  suspended card keeps showing the dead conversation's ctx% and cost and a
+/** A retired session's per-process state must not stay bound to the pane, or
+ *  a suspended card keeps showing the dead conversation's ctx% and cost and a
  *  restarted pane accumulates on top of the old baseline. One owner call per
- *  site (usage + activity retire together — the pair diverging is how a
- *  /clear once kept the dead conversation's badge). A fake handed in through
- *  the orchestrator's telemetry port — not a module mock — so these tests
- *  never touch the app's live stores. */
-const telemetry = { retire: vi.fn() };
+ *  site (usage, activity and the pane's bound session retire together — the
+ *  set diverging is how a /clear once kept the dead conversation's badge). A
+ *  fake handed in through the orchestrator's lifecycle port — not a module
+ *  mock — so these tests never touch the app's live stores. */
+const lifecycle = { retire: vi.fn() };
 
 /** What each pane's create has put on disk, as `provisioning` publishes it the
  *  moment `git worktree add` returns. */
@@ -200,7 +200,7 @@ export const ipcHarness = ipc;
 export const gateHarness = gate;
 export const plansHarness = plans;
 export const stepsHarness = steps;
-export const telemetryHarness = telemetry;
+export const lifecycleHarness = lifecycle;
 export const publishedHarness = published;
 export const skillsAskedHarness = skillsAsked;
 export {
@@ -210,7 +210,7 @@ export {
   publishedHarness as published,
   stepsHarness as steps,
   skillsAskedHarness as skillsAsked,
-  telemetryHarness as telemetry,
+  lifecycleHarness as lifecycle,
 };
 export const buildForkSpec = buildForkSpecImpl;
 export const buildResumeSpec = buildResumeSpecImpl;
@@ -392,7 +392,7 @@ export function Probe() {
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
         mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
-        telemetry,
+        lifecycle,
         worktrees: {
           provision: (panes, _report, setup) => {
             asked.push({ panes, setup });

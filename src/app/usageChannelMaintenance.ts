@@ -15,6 +15,7 @@ export function createUsageMaintenanceLane({
   deck,
   declarations,
   usage,
+  attribution,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
   let sweptCodex = false;
@@ -59,7 +60,12 @@ export function createUsageMaintenanceLane({
     const nextKey = paneMembershipKey(deck.getSnapshot());
     if (nextKey === membershipKey) return;
     membershipKey = nextKey;
-    usage.retainPanes(paneMembership(nextKey));
+    const live = paneMembership(nextKey);
+    usage.retainPanes(live);
+    // Per-pane state is retired by the deck's membership as well as by a
+    // process ending, and the attribution ledger holds per-pane state: left
+    // out of this half it would be the one map that only ever grows.
+    attribution.forget(live);
   };
 
   const captureHistory = () => {

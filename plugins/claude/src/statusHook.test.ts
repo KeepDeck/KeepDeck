@@ -15,11 +15,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { normalizeClaudeStatus } from "./status";
 
 /**
- * The status reporter, EXECUTED — the byte-identity test in
- * scripts/reporterScripts.test.mjs pins the three copies to each other,
- * but only running one proves the envelope, the oversize degradation and
- * the staging discipline actually work in a shell. The copies are
- * byte-identical by design; testing one covers all three.
+ * The status reporter, EXECUTED — scripts/reporterScripts.test.mjs pins every
+ * shipped copy to the canonical file under resources/reporters/, but only
+ * running one proves the envelope, the oversize degradation and the staging
+ * discipline actually work in a shell. Running the shipped copy rather than
+ * the canonical one is deliberate: it is what a spawned CLI opens.
  */
 const SCRIPT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -121,6 +121,9 @@ describe("kd-status-hook.sh", () => {
       token: "tok",
       payload: {
         agent: "claude",
+        // The reporting process — the deck pins a pane's identity to it and
+        // refuses reports from another, so this lane carries it too.
+        reporter: expect.stringMatching(/^\d+$/),
         event: { hook_event_name: "Stop", extra: "kept" },
       },
     });
@@ -156,7 +159,11 @@ describe("kd-status-hook.sh", () => {
       type: "agent.status",
       paneId: "pane-3",
       token: "tok",
-      payload: { agent: "claude", event: { hook_event_name: "Stop" } },
+      payload: {
+        agent: "claude",
+        reporter: expect.stringMatching(/^\d+$/),
+        event: { hook_event_name: "Stop" },
+      },
     });
   });
 
@@ -278,7 +285,11 @@ describe("kd-status-hook.sh", () => {
       type: "agent.status",
       paneId: "pane-3",
       token: "tok",
-      payload: { agent: "claude", event: { hook_event_name: "SubagentStop" } },
+      payload: {
+        agent: "claude",
+        reporter: expect.stringMatching(/^\d+$/),
+        event: { hook_event_name: "SubagentStop" },
+      },
     });
     expect(normalizeClaudeStatus(envelopeEvent(dir), 100)).toEqual({
       kind: "agent-turns-cleared",

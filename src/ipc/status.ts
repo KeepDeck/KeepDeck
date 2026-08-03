@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
  * (turn started, waiting on the user, ended, failed) through the CLI
  * bridge — hook reporters armed at spawn. The Rust watcher passes the
  * payload through verbatim and emits this event. The constant mirrors
- * `AGENT_STATUS_EVENT` in src-tauri/src/bridge.rs.
+ * `AGENT_STATUS_EVENT` in src-tauri/src/bridge/wire.rs.
  */
 export const AGENT_STATUS_EVENT = "deck://agent/status";
 

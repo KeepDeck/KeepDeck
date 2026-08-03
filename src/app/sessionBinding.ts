@@ -1,13 +1,10 @@
-import type { SpawnPlan } from "./spawnSpecs";
 import { findWorkspaceOfPane, paneIsRemoteFresh } from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import { bumpPostback } from "./postbacks";
-import {
-  bindPaneSpawnSpecSession,
-  peekPaneSpawnSpec,
-} from "./spawnSpecs";
-import type { PaneTelemetry } from "./paneTelemetry";
+import { bindPaneSpawnSpecSession } from "./spawnSpecs";
+import type { PaneAttribution } from "./paneAttribution";
+import type { PaneLifecycle } from "./paneLifecycle";
 import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 
@@ -17,41 +14,63 @@ import type { DeckStore } from "./deckStore";
  * CLI bridge (hook/plugin armed at spawn, correlated by the env-injected
  * pane id). EVERY agent's identity is reporter-based — claude included; its
  * SessionStart hook posts the self-minted id at startup. This service is a
- * thin subscriber: find the pane's workspace, verify the postback's token,
- * record the binding. No discovery, no timers — the id comes from the source.
+ * thin subscriber: find the pane's workspace, ask whether the report may
+ * speak for it, record the binding. No discovery, no timers — the id comes
+ * from the source.
  *
- * Rebinds are welcome: a pane's session can legitimately change mid-life
- * (opencode `/new`), and same-id rebinds are reducer no-ops.
+ * Rebinds are welcome, but only the pane's OWN: a session can legitimately
+ * change mid-life (a resume, `/clear`, opencode's `/new`), while a second
+ * fresh session under the same pane belongs to somebody else. Both are the
+ * one judgement `attribution` owns, because the usage tail subscribes to
+ * this same lane and must never draw a different conclusion from it.
  */
 
-/** A postback binds a pane only if it echoes the secret the pane's own spawn
- * carried — dropping a file into the inbox is not enough. A pane that armed
- * no reporter (no spec, no token) accepts nothing. */
-export function postbackAccepted(
-  spec: Pick<SpawnPlan, "token"> | undefined,
-  token: string,
-): boolean {
-  return !!spec?.token && spec.token === token;
+/** A binding the pane's own agent actually landed — what everything
+ * downstream of the rule is allowed to act on. */
+export interface AcceptedBinding {
+  readonly paneId: string;
+  readonly sessionId: string;
+  /** The pane's bridge secret, echoed for lanes that authenticate a watch. */
+  readonly token: string;
+  readonly transcriptPath?: string;
 }
+
 export interface SessionBinding {
+  /** Follow the bindings this lane ACCEPTED. The verdict is stateful — it
+   * pins a generation to a process — so it must be reached exactly once per
+   * report; a second subscriber judging the same event would be told its own
+   * predecessor had already bound. Consumers take the outcome, not the
+   * question. */
+  subscribe(listener: (bound: AcceptedBinding) => void): () => void;
   dispose(): void;
 }
 
 export function createSessionBinding(
   deck: DeckStore,
-  telemetry: PaneTelemetry,
+  lifecycle: PaneLifecycle,
+  attribution: PaneAttribution,
 ): SessionBinding {
   const actions = createDeckActions(deck);
+  const listeners = new Set<(bound: AcceptedBinding) => void>();
   let disposed = false;
   let unlisten: (() => void) | null = null;
   void onSessionBound(
-    ({ paneId, sessionId, token, transcriptPath }) => {
+    (report) => {
       if (disposed) return;
+      const { paneId, sessionId, transcriptPath } = report;
       const state = deck.getSnapshot();
-      if (!postbackAccepted(peekPaneSpawnSpec(paneId), token)) {
+      const verdict = attribution.judge(report);
+      if (!verdict.accepted) {
+        // The raw fields ride into the log because this is where an agent we
+        // have not met announces itself: a refusal naming an unfamiliar
+        // source is the signal that its vocabulary needs a word here.
         log.warn(
           "web:bridge",
-          `postback for ${paneId} with a wrong token — ignored`,
+          `binding for ${paneId} refused (${verdict.refusal}) — agent=${
+            report.agent
+          } source=${report.source ?? "unreported"} reporter=${
+            report.reporter ?? "unreported"
+          }`,
         );
         return;
       }
@@ -67,10 +86,14 @@ export function createSessionBinding(
       // remote pane is fresh-session only — it must NOT bind a resumable
       // LOCAL session.
       if (pane && paneIsRemoteFresh(pane)) return;
+      // Recorded where the binding actually lands, not at the verdict: a
+      // report that reaches no pane has claimed nothing, and a remote pane
+      // that deliberately binds nothing must not read as already bound.
+      attribution.recordBinding(paneId, report.reporter);
       bindPaneSpawnSpecSession(paneId, sessionId);
       const previousSessionId = pane?.session?.id;
       if (previousSessionId && previousSessionId !== sessionId) {
-        telemetry.beginSession(paneId, sessionId);
+        lifecycle.beginSession(paneId, sessionId);
       }
       // Same-session reports keep the instant at which it was first bound.
       const boundAt =
@@ -83,6 +106,22 @@ export function createSessionBinding(
         { id: sessionId, boundAt },
         transcriptPath,
       );
+      const accepted: AcceptedBinding = {
+        paneId,
+        sessionId,
+        token: report.token,
+        ...(transcriptPath ? { transcriptPath } : {}),
+      };
+      for (const listener of [...listeners]) {
+        // Per listener, because one lane's failure is not the others': a
+        // throw here would otherwise skip every listener after it and escape
+        // into the Tauri event callback, where nobody is catching it.
+        try {
+          listener(accepted);
+        } catch (error) {
+          log.warn("web:bridge", `binding listener failed for ${paneId}: ${error}`);
+        }
+      }
     },
   )
     .then((unsubscribe) => {
@@ -95,9 +134,14 @@ export function createSessionBinding(
       }
     });
   return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
+      listeners.clear();
       unlisten?.();
     },
   };

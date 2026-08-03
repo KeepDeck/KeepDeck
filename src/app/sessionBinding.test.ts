@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckStore } from "./deckStore";
+import type { SessionBound } from "../ipc/sessions";
 
 const bridge = vi.hoisted(() => ({
   onSessionBound: vi.fn(),
@@ -19,39 +20,14 @@ vi.mock("./postbacks", () => ({ bumpPostback: bridge.bumpPostback }));
  * sessions; retiring belongs to the orchestrator's paths. */
 const telemetry = { retire: vi.fn(), beginSession: bridge.beginSession };
 
-import {
-  createSessionBinding,
-  postbackAccepted,
-} from "./sessionBinding";
-
-// The bridge's anti-forgery rule: an inbox postback binds a pane only when
-// it echoes the per-spawn secret. Writing a file is not enough.
-describe("postbackAccepted", () => {
-  it("accepts only the exact token the pane's spawn carried", () => {
-    expect(postbackAccepted({ token: "tok" }, "tok")).toBe(true);
-    expect(postbackAccepted({ token: "tok" }, "forged")).toBe(false);
-  });
-
-  it("a pane that armed no reporter accepts nothing", () => {
-    // No cached spec at all (unknown pane, or postback outlived the pane).
-    expect(postbackAccepted(undefined, "tok")).toBe(false);
-    // A spec without a token (bridge was down at spawn) — nothing could
-    // legitimately post back, so nothing may bind.
-    expect(postbackAccepted({}, "tok")).toBe(false);
-    expect(postbackAccepted({ token: "" }, "")).toBe(false);
-  });
-});
+import { createPaneAttribution } from "./paneAttribution";
+import { createSessionBinding } from "./sessionBinding";
 
 describe("createSessionBinding", () => {
   // Defaulted to a no-op so the shared `let` is never undefined across the
   // effect-flush race (a call before the handler registers is a silent no-op
   // rather than a cryptic TypeError flake).
-  let emit: (event: {
-    paneId: string;
-    sessionId: string;
-    token: string;
-    transcriptPath?: string;
-  }) => void = () => {};
+  let emit: (event: SessionBound) => void = () => {};
 
   beforeEach(() => {
     bridge.beginSession.mockClear();
@@ -64,7 +40,20 @@ describe("createSessionBinding", () => {
     });
   });
 
-  const mount = (sessionId?: string) => {
+  /** What the pane's own claude reports at startup. */
+  const own = (over: Partial<SessionBound> = {}): SessionBound => ({
+    paneId: "pane-1",
+    sessionId: "session-new",
+    token: "tok",
+    agent: "claude",
+    source: "startup",
+    ...over,
+  });
+
+  const mount = (
+    sessionId?: string,
+    pane: Record<string, unknown> = { agentType: "claude" },
+  ) => {
     const state = {
       workspaces: [
         {
@@ -76,6 +65,7 @@ describe("createSessionBinding", () => {
           panes: [
             {
               id: "pane-1",
+              ...pane,
               ...(sessionId
                 ? { session: { id: sessionId, boundAt: "2026-07-22T00:00:00Z" } }
                 : {}),
@@ -93,18 +83,24 @@ describe("createSessionBinding", () => {
       subscribe: () => () => {},
       dispatch,
     } as unknown as DeckStore;
-    return { binding: createSessionBinding(store, telemetry), dispatch };
+    // The REAL rule, over stub deps: a fake here would only assert that the
+    // binding calls something, not that the rule it calls is the one shipping.
+    const attribution = createPaneAttribution({
+      workspaces: () => state.workspaces as never,
+      secretOf: () => "tok",
+    });
+    return {
+      binding: createSessionBinding(store, telemetry, attribution),
+      dispatch,
+    };
   };
 
   it("clears pane telemetry before binding a different session", async () => {
     const { binding, dispatch } = mount("session-old");
 
-    emit({ paneId: "pane-1", sessionId: "session-new", token: "tok" });
+    emit(own({ source: "clear" }));
 
-    expect(bridge.beginSession).toHaveBeenCalledWith(
-      "pane-1",
-      "session-new",
-    );
+    expect(bridge.beginSession).toHaveBeenCalledWith("pane-1", "session-new");
     expect(bridge.bindPaneSpawnSpecSession).toHaveBeenCalledWith(
       "pane-1",
       "session-new",
@@ -127,7 +123,7 @@ describe("createSessionBinding", () => {
     // and re-renders the deck. Nothing about the binding has changed.
     const { binding, dispatch } = mount("session-old");
 
-    emit({ paneId: "pane-1", sessionId: "session-old", token: "tok" });
+    emit(own({ sessionId: "session-old", source: "resume" }));
 
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -142,46 +138,57 @@ describe("createSessionBinding", () => {
 
   it("keeps telemetry on the initial and same-session bindings", async () => {
     let mounted = mount();
-    emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" });
+    emit(own({ sessionId: "session-1" }));
     expect(bridge.beginSession).not.toHaveBeenCalled();
     mounted.binding.dispose();
 
     mounted = mount("session-1");
-    emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" });
+    emit(own({ sessionId: "session-1", source: "resume" }));
     expect(bridge.beginSession).not.toHaveBeenCalled();
     mounted.binding.dispose();
+  });
+
+  it("refuses a SECOND fresh session in one process generation", async () => {
+    // The teammate case: a full, independent session of the same agent
+    // starting up under the pane's inherited secret while the pane's own
+    // session is already bound. Binding it would point the pane's resume at
+    // a conversation the user never had.
+    const { binding, dispatch } = mount();
+
+    emit(own({ sessionId: "session-1" }));
+    dispatch.mockClear();
+    emit(own({ sessionId: "teammate-session" }));
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(bridge.bindPaneSpawnSpecSession).not.toHaveBeenCalledWith(
+      "pane-1",
+      "teammate-session",
+    );
+    binding.dispose();
+  });
+
+  it("refuses a foreign agent on its very first report", async () => {
+    // `kimi` run from a tool call inside a claude pane: nothing has bound
+    // yet, so only the agent rule can catch it.
+    const { binding, dispatch } = mount();
+
+    emit(own({ agent: "kimi", sessionId: "session_kimi" }));
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(bridge.bumpPostback).not.toHaveBeenCalled();
+    binding.dispose();
   });
 
   it("does not bind a session for a REMOTE pane (fresh-session only)", async () => {
     // A remote pane's local thin-client reporter fires too — but binding it
     // would let a revive/restart resume LOCALLY against a VPS-only session id.
     // The postback is still counted; only the binding is skipped.
-    const state = {
-      workspaces: [
-        {
-          id: "ws-1",
-          instance: "instance-1",
-          name: "workspace",
-          cwd: "/repo",
-          worktreeBaseDir: null,
-          panes: [{ id: "pane-1", remoteEndpoint: "ws://vps:4500" }],
-        },
-      ],
-      activeId: "ws-1",
-      viewByWs: {},
-      journal: { records: {}, tail: [] },
-    };
-    const dispatch = vi.fn(() => state);
-    const binding = createSessionBinding(
-      {
-        getSnapshot: () => state,
-        subscribe: () => () => {},
-        dispatch,
-      } as unknown as DeckStore,
-      telemetry,
-    );
+    const { binding, dispatch } = mount(undefined, {
+      agentType: "claude",
+      remoteEndpoint: "ws://vps:4500",
+    });
 
-    emit({ paneId: "pane-1", sessionId: "ses-1", token: "tok" });
+    emit(own({ sessionId: "ses-1" }));
 
     expect(bridge.bumpPostback).toHaveBeenCalledWith("pane-1");
     expect(bridge.bindPaneSpawnSpecSession).not.toHaveBeenCalled();

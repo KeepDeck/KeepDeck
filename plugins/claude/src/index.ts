@@ -41,9 +41,14 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
   const settings: Record<string, unknown> = {};
   const hooks: Record<string, unknown[]> = {};
   if (session) {
+    // The agent id is the argument, same as the status reporter's: the
+    // payload does not name its CLI, and the deck refuses a binding whose
+    // agent is not the pane's own.
     hooks.SessionStart = [
       {
-        hooks: [{ type: "command", command: `/bin/sh ${shellQuote(session)}` }],
+        hooks: [
+          { type: "command", command: `/bin/sh ${shellQuote(session)} claude` },
+        ],
       },
     ];
   }

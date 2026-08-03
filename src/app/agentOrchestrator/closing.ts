@@ -10,7 +10,7 @@ import type {
   AgentOrchestrator,
   SessionRegistryPort,
   SuspendPolicyPort,
-  TelemetryPort,
+  PaneLifecyclePort,
 } from ".";
 import type { DeckActions } from "../deckActions";
 import type { DeckStore } from "../deckStore";
@@ -26,7 +26,7 @@ interface ClosingDeps {
   /** Whether a pane's directory is gone — a suspend has nothing to come back
    * to. The question, not the map it is answered from. */
   isBlocked(paneId: string): boolean;
-  telemetry: TelemetryPort;
+  lifecycle: PaneLifecyclePort;
 }
 
 export interface AgentOrchestratorClosing {
@@ -49,7 +49,7 @@ export function createAgentOrchestratorClosing({
   suspendPolicy,
   worktrees,
   isBlocked,
-  telemetry,
+  lifecycle,
 }: ClosingDeps): AgentOrchestratorClosing {
   const suspending = new Set<string>();
 
@@ -64,7 +64,7 @@ export function createAgentOrchestratorClosing({
       log.info("web:orchestrator", `${paneId}: suspending`);
       actions.suspendPane(wsId, paneId, suspendPolicy.moveToTray());
       dropPaneSpawnSpec(paneId);
-      telemetry.retire(paneId);
+      lifecycle.retire(paneId);
       await sessions.close(paneId);
       return "suspended";
     } finally {
@@ -83,7 +83,7 @@ export function createAgentOrchestratorClosing({
         : (workspace?.panes.map((pane) => pane.id) ?? []);
     for (const paneId of paneIds) {
       dropPaneSpawnSpec(paneId);
-      telemetry.retire(paneId);
+      lifecycle.retire(paneId);
       worktrees.clearPostProvision(paneId);
     }
     const created = (

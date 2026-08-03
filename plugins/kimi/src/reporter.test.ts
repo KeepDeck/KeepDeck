@@ -37,18 +37,31 @@ function scratch(): string {
 // Stdin comes from a file, not execFileSync's `input` pipe: the hook's inert
 // path exits without ever reading stdin, and a pipe writer racing that exit
 // gets EPIPE on loaded CI runners. A file-backed stdin has no writer to break.
+//
+// The `kimi` argument is what kimi.plugin.json arms the hook with, and it is
+// what selects the session-index branch below — the reporter is one shared
+// script and the agent id is how it knows whose payload it is holding.
 function runHook(payload: unknown, env: Record<string, string>): void {
   const file = join(scratch(), "payload.json");
   writeFileSync(file, JSON.stringify(payload));
   const stdin = openSync(file, "r");
   try {
-    execFileSync("/bin/sh", [SCRIPT], {
+    execFileSync("/bin/sh", [SCRIPT, "kimi"], {
       stdio: [stdin, "pipe", "pipe"],
       env,
     });
   } finally {
     closeSync(stdin);
   }
+}
+
+/** The published payload minus the reporting process, whose value is a live
+ * process group — asserted for shape once, below, rather than in every case. */
+function publishedPayload(dir: string, file: string): Record<string, unknown> {
+  const parsed = JSON.parse(readFileSync(join(dir, file), "utf8"));
+  const { reporter, ...payload } = parsed.payload as Record<string, unknown>;
+  expect(reporter, "the reporting process group").toMatch(/^\d+$/);
+  return payload;
 }
 
 describe("Kimi SessionStart reporter", () => {
@@ -84,12 +97,17 @@ describe("Kimi SessionStart reporter", () => {
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
     expect(files[0]).toMatch(/^session\.bound-.+\.json$/);
-    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8"))).toEqual({
+    const parsed = JSON.parse(readFileSync(join(dir, files[0]), "utf8"));
+    expect({ ...parsed, payload: publishedPayload(dir, files[0]) }).toEqual({
       v: 1,
       type: "session.bound",
       paneId: "pane-kimi",
       token: "token-kimi",
-      payload: { sessionId: "session_24f9c57a" },
+      payload: {
+        agent: "kimi",
+        sessionId: "session_24f9c57a",
+        source: "resume",
+      },
     });
   });
 
@@ -133,7 +151,8 @@ describe("Kimi SessionStart reporter", () => {
 
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
-    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+    expect(publishedPayload(dir, files[0])).toEqual({
+      agent: "kimi",
       sessionId: "session_abc",
       transcriptPath: `${home}/sessions/wd_repo/session_abc/agents/main/wire.jsonl`,
     });
@@ -167,7 +186,8 @@ describe("Kimi SessionStart reporter", () => {
     );
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
-    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+    expect(publishedPayload(dir, files[0])).toEqual({
+      agent: "kimi",
       sessionId: "session_abc",
     });
   });
@@ -190,7 +210,8 @@ describe("Kimi SessionStart reporter", () => {
     );
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
-    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+    expect(publishedPayload(dir, files[0])).toEqual({
+      agent: "kimi",
       sessionId: "session_new",
     });
   });

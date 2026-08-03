@@ -67,6 +67,30 @@ export function createKimiSetupController(
     try {
       const installation = await manager.inspect();
       const next = stateFromInstallation(installation);
+      // An OUTDATED copy of our own reporter is refreshed without asking.
+      // The user consented to the reporter, not to a particular build of it,
+      // and the cost of waiting for a click is not cosmetic: a stale copy
+      // predates the fields the deck now requires, so every binding it makes
+      // is refused and the pane silently stops being resumable. Every other
+      // unhealthy state — not ours, disabled, broken — still waits for the
+      // user, because those are not ours to decide.
+      if (next.kind === "needs-attention" && next.reason === "outdated") {
+        // Publish the finding BEFORE refreshing: `run` shows the state it
+        // interrupted while it works, and "Update required… [Configuring]"
+        // is the honest caption for what is happening.
+        publish(next);
+        log.info(
+          `Kimi reporter ${next.version ?? "?"} is out of date; refreshing to ${COMPANION_VERSION}`,
+        );
+        await run("configure");
+        // `run` publishes its own outcome — configured, or the error that
+        // stopped it. It DECLINES when another operation is already in
+        // flight, and then the honest answer is what that operation is
+        // working from, not the finding this call just superseded: a caller
+        // that announced `outdated` here would warn about a refresh that is
+        // running and about to succeed.
+        return state.kind === "working" ? state.previous : state;
+      }
       publish(next);
       return next;
     } catch (caught) {

@@ -108,6 +108,48 @@ describe("Kimi setup state", () => {
     });
   });
 
+  it("refreshes an outdated copy of our own reporter without asking", async () => {
+    // A stale reporter predates the fields the deck now requires, so its
+    // bindings are refused and the pane silently stops being resumable —
+    // waiting for a click would leave it that way for as long as the user
+    // never opens the settings page.
+    const stale = {
+      version: "0.9.0",
+      enabled: true,
+      healthy: true,
+      owned: true,
+    };
+    const fresh = {
+      version: COMPANION_VERSION,
+      enabled: true,
+      healthy: true,
+      owned: true,
+    };
+    const { controller, manager } = harness([stale, fresh]);
+    vi.mocked(manager.configure).mockResolvedValueOnce(fresh);
+
+    await expect(controller.check()).resolves.toMatchObject({
+      kind: "configured",
+    });
+    expect(manager.configure).toHaveBeenCalledWith("/App/reporter");
+  });
+
+  it("still waits for the user on every OTHER unhealthy state", async () => {
+    // Not ours, disabled, broken: none of those is a build we own, and
+    // rewriting somebody else's plugin is not the deck's call to make.
+    for (const installation of [
+      { version: COMPANION_VERSION, enabled: true, healthy: true, owned: false },
+      { version: COMPANION_VERSION, enabled: false, healthy: true, owned: true },
+      { version: COMPANION_VERSION, enabled: true, healthy: false, owned: true },
+    ]) {
+      const { controller, manager } = harness([installation]);
+      await expect(controller.check()).resolves.toMatchObject({
+        kind: "needs-attention",
+      });
+      expect(manager.configure).not.toHaveBeenCalled();
+    }
+  });
+
   it("exposes check failures without pretending setup is absent", async () => {
     const { controller, manager, log } = harness([]);
     vi.mocked(manager.inspect).mockRejectedValueOnce(new Error("kimi not found"));

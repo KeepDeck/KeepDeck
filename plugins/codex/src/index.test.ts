@@ -79,7 +79,7 @@ describe("codex plugin hooks", () => {
     expect(out.args).toHaveLength(14);
     expect(out.args[0]).toBe("-c");
     expect(out.args[1]).toContain(
-      `command="/bin/sh '/App/resources/kd-session-hook.sh'"`,
+      `command="/bin/sh '/App/resources/kd-session-hook.sh' codex"`,
     );
     for (const event of [
       "UserPromptSubmit",

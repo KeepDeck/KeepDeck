@@ -8,9 +8,15 @@ import type {
 } from "@keepdeck/plugin-api";
 import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
+import type { SessionBound } from "../ipc/sessions";
 import type { PaneIdle } from "../domain/deck";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
 import { createUsageManager, type UsageManager } from "./usageManager";
+import { createPaneAttribution } from "./paneAttribution";
+import {
+  createSessionBinding,
+  type SessionBinding,
+} from "./sessionBinding";
 import { createUsageChannel, type UsageChannel } from "./usageChannel";
 import type { DeckStore } from "./deckStore";
 import type { Deck } from "./useDeck";
@@ -46,7 +52,12 @@ vi.mock("../ipc/usage", () => ({
   saveUsageCache: ipc.saveUsageCache,
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
-vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: ipc.peekPaneSpawnSpec }));
+vi.mock("./spawnSpecs", () => ({
+  peekPaneSpawnSpec: ipc.peekPaneSpawnSpec,
+  // The binding lane composed here stamps a fork plan's first session; these
+  // tests never build one, so recording it is a no-op they only need present.
+  bindPaneSpawnSpecSession: () => {},
+}));
 /** A fake normalizer echoing fixed windows — the mechanics under test are
  * registration, arming and polling, not payload parsing. */
 const reported = (at: number): NormalizedUsage => ({
@@ -55,6 +66,9 @@ const reported = (at: number): NormalizedUsage => ({
 });
 
 /** The channel only reads `deck.workspaces` — a shaped literal is enough. */
+/** A pane runs an agent, and a report is only believed from the agent its
+ * pane runs — so an unnamed pane here is a claude pane, not an agentless
+ * one, which no deck ever holds. */
 const deckWith = (
   panes: {
     id: string;
@@ -70,19 +84,19 @@ const deckWith = (
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: null,
-        panes,
+        panes: panes.map((pane) => ({ agentType: "claude", ...pane })),
       },
     ],
   }) as unknown as Deck;
 
-interface Bound {
-  paneId: string;
-  token: string;
-  transcriptPath?: string;
-}
+/** The wire type itself, not a hand-copy: a local one drifted the moment
+ * `agent` became required and `reporter` was added, and a fixture that
+ * permits a shape production cannot produce tests nothing. */
+type Bound = SessionBound;
 
 describe("createUsageChannel", () => {
   let channel: UsageChannel | null;
+  let bindings: SessionBinding | null;
   let usage: UsageManager;
   let currentDeck: Deck;
   let deckListeners: Set<() => void>;
@@ -99,7 +113,26 @@ describe("createUsageChannel", () => {
         list: () => ipc.contributions,
         subscribe: () => () => {},
       } as unknown as ContributionRegistry<AgentContribution>;
-      channel = createUsageChannel(deckStore, agents, usage);
+      // The REAL binding lane over the SAME attribution, exactly as the
+      // runtime composes them: the tails lane follows what this one accepted.
+      // Building the channel over a private attribution instead would hide
+      // the one configuration where the verdict is stateful and shared.
+      const attribution = createPaneAttribution({
+        workspaces: () => deckStore.getSnapshot().workspaces,
+        secretOf: (paneId) => ipc.peekPaneSpawnSpec(paneId)?.token,
+      });
+      bindings = createSessionBinding(
+        deckStore,
+        { retire: () => {}, beginSession: () => {} },
+        attribution,
+      );
+      channel = createUsageChannel(
+        deckStore,
+        agents,
+        usage,
+        attribution,
+        bindings,
+      );
     }
     await act(async () => {});
   };
@@ -107,6 +140,7 @@ describe("createUsageChannel", () => {
   beforeEach(() => {
     usage = createUsageManager();
     channel = null;
+    bindings = null;
     currentDeck = deckWith([]);
     deckListeners = new Set();
     deckStore = {
@@ -115,9 +149,13 @@ describe("createUsageChannel", () => {
         deckListeners.add(listener);
         return () => deckListeners.delete(listener);
       },
-      dispatch: vi.fn(() => {
-        throw new Error("usage channel tests do not dispatch deck actions");
-      }),
+      // The binding lane composed alongside the channel records accepted
+      // sessions on the deck; the fixture deck is a fixed snapshot, so the
+      // transition is accepted and dropped. What these tests read is the
+      // usage store, never the deck.
+      dispatch: vi.fn(
+        () => currentDeck as ReturnType<DeckStore["getSnapshot"]>,
+      ),
     };
     ipc.contributions = [
       {
@@ -173,6 +211,7 @@ describe("createUsageChannel", () => {
 
   afterEach(() => {
     channel?.dispose();
+    bindings?.dispose();
   });
 
   it("registers plugin normalizers and applies token-verified reports", async () => {
@@ -257,7 +296,9 @@ describe("createUsageChannel", () => {
     await act(async () => {
       emitBound({
         paneId: "pane-1",
+        sessionId: "019f-codex",
         token: "tok-1",
+        agent: "codex",
         transcriptPath: "/x/rollout.jsonl",
       });
     });
@@ -273,12 +314,42 @@ describe("createUsageChannel", () => {
     // claude declares no tail — transcript or not, nothing arms.
     await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {
-      emitBound({ paneId: "pane-1", token: "tok-1", transcriptPath: "/x/r.jsonl" });
+      emitBound({
+        paneId: "pane-1",
+        sessionId: "s-claude",
+        token: "tok-1",
+        agent: "claude",
+        transcriptPath: "/x/r.jsonl",
+      });
     });
     await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
     await act(async () => {
-      emitBound({ paneId: "pane-1", token: "forged", transcriptPath: "/x/r.jsonl" });
-      emitBound({ paneId: "pane-1", token: "tok-1" });
+      emitBound({
+        paneId: "pane-1",
+        sessionId: "s-forged",
+        token: "forged",
+        agent: "codex",
+        transcriptPath: "/x/r.jsonl",
+      });
+    });
+    expect(ipc.watchSessionFile).not.toHaveBeenCalled();
+  });
+
+  it("does not arm a tail for a binding that carries no transcript", async () => {
+    // Its own case, and its own pane: folded into the one above it never ran
+    // — the shared attribution had already bound pane-1, so the binding was
+    // refused before the tails lane could decline it for the right reason.
+    await mount(deckWith([{ id: "pane-2", agentType: "codex" }]));
+    ipc.peekPaneSpawnSpec.mockImplementation((paneId: string) =>
+      paneId === "pane-2" ? { token: "tok-2" } : undefined,
+    );
+    await act(async () => {
+      emitBound({
+        paneId: "pane-2",
+        sessionId: "s-bare",
+        token: "tok-2",
+        agent: "codex",
+      });
     });
     expect(ipc.watchSessionFile).not.toHaveBeenCalled();
   });
@@ -403,7 +474,9 @@ describe("createUsageChannel", () => {
     await act(async () => {
       emitBound({
         paneId: "pane-1",
+        sessionId: "019f-codex",
         token: "tok-1",
+        agent: "codex",
         transcriptPath: "/x/rollout.jsonl",
       });
     });

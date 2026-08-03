@@ -4,14 +4,12 @@ import {
   paneHasProcess,
 } from "../domain/deck";
 import { log } from "../ipc/log";
-import { onSessionBound } from "../ipc/sessions";
 import {
   findCodexRollout,
   unwatchSessionFile,
   watchSessionFile,
 } from "../ipc/usage";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
-import { postbackAccepted } from "./sessionBinding";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
 export const TAIL_RETRY_MS = 20_000;
@@ -20,9 +18,9 @@ export const TAIL_RETRY_MS = 20_000;
 export function createUsageTailsLane({
   deck,
   declarations,
+  bindings,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
-  let unlisten: (() => void) | null = null;
   const tailed = new Set<string>();
 
   const settleArm = (paneId: string) => {
@@ -102,8 +100,13 @@ export function createUsageTailsLane({
     armRecordedTails();
   };
 
-  void onSessionBound(({ paneId, token, transcriptPath }) => {
+  // ACCEPTED bindings, not raw reports. Judging the report a second time here
+  // would ask a stateful question twice: the binding lane pins the pane's
+  // generation as it accepts, so this lane's own verdict on the very same
+  // report would come back "already bound" and the tail would never arm.
+  const unsubscribeBindings = bindings.subscribe((bound) => {
     if (disposed) return;
+    const { paneId, transcriptPath, token } = bound;
     if (!transcriptPath) {
       log.debug(
         "web:usage",
@@ -111,7 +114,6 @@ export function createUsageTailsLane({
       );
       return;
     }
-    if (!postbackAccepted(peekPaneSpawnSpec(paneId), token)) return;
     const workspace = findWorkspaceOfPane(
       deck.getSnapshot().workspaces,
       paneId,
@@ -138,16 +140,7 @@ export function createUsageTailsLane({
           `session-file tail for ${paneId} failed: ${error}`,
         );
       });
-  })
-    .then((unsubscribe) => {
-      if (disposed) unsubscribe();
-      else unlisten = unsubscribe;
-    })
-    .catch((error) => {
-      if (!disposed) {
-        log.warn("web:usage", `tail binding listener failed: ${error}`);
-      }
-    });
+  });
 
   const unsubscribeDeck = deck.subscribe(reconcile);
   const unsubscribeDeclarations = declarations.subscribe(reconcile);
@@ -164,7 +157,7 @@ export function createUsageTailsLane({
       unsubscribeDeck();
       unsubscribeDeclarations();
       globalThis.clearInterval(retryTimer);
-      unlisten?.();
+      unsubscribeBindings();
       for (const paneId of tailed) void unwatchSessionFile(paneId);
       tailed.clear();
     },

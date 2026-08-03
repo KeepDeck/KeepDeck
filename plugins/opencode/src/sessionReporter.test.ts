@@ -87,9 +87,34 @@ describe("opencode session reporter", () => {
         type: "session.bound",
         paneId: "pane-3",
         token: "tok",
-        payload: { sessionId: "ses_root", agent: "opencode" },
+        payload: {
+          sessionId: "ses_root",
+          agent: "opencode",
+          source: "startup",
+          // This reporter runs INSIDE the agent process, so the process the
+          // deck pins the pane to is the one running these tests.
+          reporter: String(process.pid),
+        },
       },
     ]);
+  });
+
+  it("reports a later root as the pane's conversation continuing, not a new arrival", async () => {
+    // `/new` mints a second root in the SAME pane process. The deck binds one
+    // fresh session per process and treats every later one as somebody
+    // else's, so saying `startup` twice would cost the user their `/new`.
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event(created("ses_second"));
+
+    // Keyed by session, not positional: the inbox is a directory and
+    // `readdirSync` promises no creation order (which is why the usage
+    // helper sorts by sequence — a binding carries none).
+    expect(
+      Object.fromEntries(
+        envelopes().map(({ payload }) => [payload.sessionId, payload.source]),
+      ),
+    ).toEqual({ ses_root: "startup", ses_second: "new" });
   });
 
   it("binds a resumed child event to its root, never to the leaf", async () => {
@@ -99,7 +124,14 @@ describe("opencode session reporter", () => {
     expect(envelopes()).toEqual([
       expect.objectContaining({
         type: "session.bound",
-        payload: { sessionId: "ses_root", agent: "opencode" },
+        payload: {
+          sessionId: "ses_root",
+          agent: "opencode",
+          source: "startup",
+          // This reporter runs INSIDE the agent process, so the process the
+          // deck pins the pane to is the one running these tests.
+          reporter: String(process.pid),
+        },
       }),
     ]);
   });
@@ -112,7 +144,14 @@ describe("opencode session reporter", () => {
     expect(envelopes()).toEqual([
       expect.objectContaining({
         type: "session.bound",
-        payload: { sessionId: "ses_root", agent: "opencode" },
+        payload: {
+          sessionId: "ses_root",
+          agent: "opencode",
+          source: "startup",
+          // This reporter runs INSIDE the agent process, so the process the
+          // deck pins the pane to is the one running these tests.
+          reporter: String(process.pid),
+        },
       }),
     ]);
   });
@@ -146,6 +185,9 @@ describe("opencode session reporter", () => {
         token: "tok",
         payload: {
           agent: "opencode",
+          // Every lane this reporter publishes names its process: the deck
+          // pins the pane to one and refuses reports from another.
+          reporter: String(process.pid),
           sessionId: "ses_root",
           model: "claude-sonnet-5",
           sequence: 1,

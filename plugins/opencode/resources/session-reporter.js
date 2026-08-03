@@ -27,6 +27,18 @@ import { randomUUID } from "node:crypto";
 import { renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+/**
+ * Which process is reporting, on every lane this file publishes.
+ *
+ * The deck pins a pane's identity to one reporting process and refuses the
+ * others — the bridge secret is inherited by the pane's whole process tree,
+ * so it cannot tell them apart on its own. This reporter runs INSIDE the
+ * agent, so the agent's own pid is that name; a nested opencode gets its own
+ * and is refused. The shell reporters answer the same question with the
+ * process group of the hook's parent, since a hook is not the agent.
+ */
+const REPORTER = String(process.pid);
+
 export default async (input = {}) => {
   let bridge;
   try {
@@ -141,22 +153,36 @@ export default async (input = {}) => {
     }
   };
 
-  const bind = (sessionID) =>
+  // A later root is the pane's conversation continuing under a new id
+  // (`/new`), not a second session appearing out of nowhere — so it is
+  // reported as what it is. Derived from `activeRoot` rather than a flag of
+  // its own: a second copy of "has this pane bound yet" is a second place for
+  // that answer to be wrong, and this one would keep saying "continuing"
+  // after a publish that silently failed.
+  const bind = (sessionID, continuing) =>
     publish({
       v: 1,
       type: "session.bound",
       paneId: pane,
       token,
-      payload: { sessionId: sessionID, agent: "opencode" },
+      payload: {
+        sessionId: sessionID,
+        agent: "opencode",
+        source: continuing ? "new" : "startup",
+        reporter: REPORTER,
+      },
     });
 
   const activateRoot = async (sessionID, publishBinding) => {
+    // Read before the assignment below: whether this pane already had a root
+    // IS the difference between a startup and a `/new`.
+    const continuing = activeRoot !== undefined;
     activeRoot = sessionID;
     messages.clear();
     childRoots.clear();
     root = undefined;
     sequence = 0;
-    if (publishBinding) bind(sessionID);
+    if (publishBinding) bind(sessionID, continuing);
     hydration = hydrateSession(sessionID, sessionID, new Set());
     await hydration;
   };
@@ -207,7 +233,7 @@ export default async (input = {}) => {
       type: "agent.status",
       paneId: pane,
       token,
-      payload: { agent: "opencode", event: { type, ...extra } },
+      payload: { agent: "opencode", reporter: REPORTER, event: { type, ...extra } },
     });
 
   /** Whether a session-scoped event describes the PANE's conversation: the
@@ -323,6 +349,7 @@ export default async (input = {}) => {
       token,
       payload: {
         agent: "opencode",
+        reporter: REPORTER,
         sessionId: currentRoot.sessionID,
         model: currentRoot.modelID,
         sequence: ++sequence,

@@ -30,13 +30,28 @@ import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
  * rollout tail supplies the interrupt edge; failures stay a known gap).
  * PostToolUse is the approval-RESOLUTION stand-in — codex has no reply
  * hook either, but an approved tool's completion proves the wait
- * resolved; without it the amber "needs approval" survives until Stop. */
+ * resolved; without it the amber "needs approval" survives until Stop.
+ *
+ * SessionStart's `source` was live-verified on 0.146 and speaks claude's
+ * vocabulary — `startup` on a boot, `resume` on `codex exec resume --last`.
+ * That is what lets the deck read a codex rebind as a continuation rather
+ * than a second fresh session; a codex whose words drifted would have its
+ * mid-life session changes refused, silently, so this is worth re-measuring
+ * when the payload changes. Captured payload:
+ *   {"session_id":…,"transcript_path":…,"cwd":…,
+ *    "hook_event_name":"SessionStart","model":…,
+ *    "permission_mode":…,"source":"startup"} */
 async function hookArgs(resources: PluginResources): Promise<string[]> {
   const session = await resources.path("kd-session-hook.sh");
   const status = await resources.path("kd-status-hook.sh");
   const rules = [
     ...(session
-      ? [{ event: "SessionStart", command: `/bin/sh ${shellQuote(session)}` }]
+      ? [
+          {
+            event: "SessionStart",
+            command: `/bin/sh ${shellQuote(session)} codex`,
+          },
+        ]
       : []),
     ...(status
       ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse"].map(
