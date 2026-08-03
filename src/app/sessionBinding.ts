@@ -1,12 +1,9 @@
-import type { SpawnPlan } from "./spawnSpecs";
 import { findWorkspaceOfPane, paneIsRemoteFresh } from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import { bumpPostback } from "./postbacks";
-import {
-  bindPaneSpawnSpecSession,
-  peekPaneSpawnSpec,
-} from "./spawnSpecs";
+import { bindPaneSpawnSpecSession } from "./spawnSpecs";
+import type { PaneAttribution } from "./paneAttribution";
 import type { PaneTelemetry } from "./paneTelemetry";
 import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
@@ -17,22 +14,17 @@ import type { DeckStore } from "./deckStore";
  * CLI bridge (hook/plugin armed at spawn, correlated by the env-injected
  * pane id). EVERY agent's identity is reporter-based — claude included; its
  * SessionStart hook posts the self-minted id at startup. This service is a
- * thin subscriber: find the pane's workspace, verify the postback's token,
- * record the binding. No discovery, no timers — the id comes from the source.
+ * thin subscriber: find the pane's workspace, ask whether the report may
+ * speak for it, record the binding. No discovery, no timers — the id comes
+ * from the source.
  *
- * Rebinds are welcome: a pane's session can legitimately change mid-life
- * (opencode `/new`), and same-id rebinds are reducer no-ops.
+ * Rebinds are welcome, but only the pane's OWN: a session can legitimately
+ * change mid-life (a resume, `/clear`, opencode's `/new`), while a second
+ * fresh session under the same pane belongs to somebody else. Both are the
+ * one judgement `attribution` owns, because the usage tail subscribes to
+ * this same lane and must never draw a different conclusion from it.
  */
 
-/** A postback binds a pane only if it echoes the secret the pane's own spawn
- * carried — dropping a file into the inbox is not enough. A pane that armed
- * no reporter (no spec, no token) accepts nothing. */
-export function postbackAccepted(
-  spec: Pick<SpawnPlan, "token"> | undefined,
-  token: string,
-): boolean {
-  return !!spec?.token && spec.token === token;
-}
 export interface SessionBinding {
   dispose(): void;
 }
@@ -40,18 +32,26 @@ export interface SessionBinding {
 export function createSessionBinding(
   deck: DeckStore,
   telemetry: PaneTelemetry,
+  attribution: PaneAttribution,
 ): SessionBinding {
   const actions = createDeckActions(deck);
   let disposed = false;
   let unlisten: (() => void) | null = null;
   void onSessionBound(
-    ({ paneId, sessionId, token, transcriptPath }) => {
+    (report) => {
       if (disposed) return;
+      const { paneId, sessionId, transcriptPath } = report;
       const state = deck.getSnapshot();
-      if (!postbackAccepted(peekPaneSpawnSpec(paneId), token)) {
+      const verdict = attribution.judge(report);
+      if (!verdict.accepted) {
+        // The raw fields ride into the log because this is where an agent we
+        // have not met announces itself: a refusal naming an unfamiliar
+        // source is the signal that its vocabulary needs a word here.
         log.warn(
           "web:bridge",
-          `postback for ${paneId} with a wrong token — ignored`,
+          `binding for ${paneId} refused (${verdict.refusal}) — agent=${
+            report.agent ?? "unreported"
+          } source=${report.source ?? "unreported"}`,
         );
         return;
       }
@@ -67,6 +67,10 @@ export function createSessionBinding(
       // remote pane is fresh-session only — it must NOT bind a resumable
       // LOCAL session.
       if (pane && paneIsRemoteFresh(pane)) return;
+      // Recorded where the binding actually lands, not at the verdict: a
+      // report that reaches no pane has claimed nothing, and a remote pane
+      // that deliberately binds nothing must not read as already bound.
+      attribution.recordBinding(paneId);
       bindPaneSpawnSpecSession(paneId, sessionId);
       const previousSessionId = pane?.session?.id;
       if (previousSessionId && previousSessionId !== sessionId) {

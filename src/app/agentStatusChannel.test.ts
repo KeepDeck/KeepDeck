@@ -10,6 +10,7 @@ import {
   type SessionLivenessPort,
 } from "./agentStatusChannel";
 import type { DeckStore } from "./deckStore";
+import { createPaneAttribution } from "./paneAttribution";
 
 const ipc = vi.hoisted(() => ({
   onAgentStatus: vi.fn(() => Promise.resolve(() => {})),
@@ -25,6 +26,16 @@ const edgeNormalizer = (payload: unknown) =>
   (payload as { edge?: AgentStatusEvent }).edge ?? null;
 
 /** A deck store holding one workspace with the given pane ids. */
+/** These cases drive the tracker directly, never the bridge lane, so the
+ * channel's attribution is only a constructor argument here — one that
+ * admits nothing, so a case that DID start reporting through the lane would
+ * fail loudly rather than quietly pass on a permissive fake. The lane's own
+ * rule is covered in verifiedPaneReports.test.ts. */
+const attribution = createPaneAttribution({
+  workspaces: () => [],
+  secretOf: () => undefined,
+});
+
 const deckWith = (...paneIds: string[]) => {
   const listeners = new Set<() => void>();
   let ids = paneIds;
@@ -101,6 +112,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       agentsWith().registry,
       tracker,
       sessions,
+      attribution,
     );
     tracker.report("pane-1", {
       agent: "claude",
@@ -118,6 +130,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       agentsWith().registry,
       tracker,
       sessions,
+      attribution,
     );
     // A hook beat the spawn promise; then the spawn rejected.
     tracker.report("pane-1", {
@@ -135,6 +148,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       agentsWith().registry,
       tracker,
       sessions,
+      attribution,
     );
     tracker.report("pane-1", {
       agent: "claude",
@@ -159,6 +173,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       agents.registry,
       tracker,
       sessions,
+      attribution,
     );
     tracker.report("pane-1", {
       agent: "claude",
@@ -186,7 +201,13 @@ describe("createAgentStatusChannel — process-death sweep", () => {
   it("an agent losing its status voice clears its panes — no frozen lie", () => {
     const deck = deckWith("pane-1");
     const agents = agentsWith();
-    createAgentStatusChannel(deck.store, agents.registry, tracker, sessions);
+    createAgentStatusChannel(
+      deck.store,
+      agents.registry,
+      tracker,
+      sessions,
+      attribution,
+    );
     tracker.report("pane-1", {
       agent: "claude",
       edge: { kind: "waiting", at: 100, reason: "permission" },
@@ -202,7 +223,13 @@ describe("createAgentStatusChannel — process-death sweep", () => {
 
   it("retains only the deck's panes when membership changes", () => {
     const deck = deckWith("pane-1", "pane-2");
-    createAgentStatusChannel(deck.store, agentsWith().registry, tracker, sessions);
+    createAgentStatusChannel(
+      deck.store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+    );
     tracker.report("pane-1", {
       agent: "claude",
       edge: { kind: "turn-start", at: 100 },
@@ -225,11 +252,18 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       handler = h;
       return Promise.resolve(() => {});
     }) as never);
+    // The one case that reaches the lane, so it gets the real rule over its
+    // own deck rather than the refuse-everything default above.
+    const deck = deckWith("pane-1");
     createAgentStatusChannel(
-      deckWith("pane-1").store,
+      deck.store,
       agentsWith().registry,
       tracker,
       sessions,
+      createPaneAttribution({
+        workspaces: () => deck.store.getSnapshot().workspaces,
+        secretOf: () => "tok",
+      }),
     );
     await Promise.resolve();
 
@@ -257,6 +291,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       agentsWith().registry,
       tracker,
       sessions,
+      attribution,
     );
     tracker.report("pane-1", {
       agent: "claude",

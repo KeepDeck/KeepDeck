@@ -24,7 +24,8 @@ import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
-import { paneIdByMcpToken } from "./spawnSpecs";
+import { paneIdByMcpToken, peekPaneSpawnSpec } from "./spawnSpecs";
+import { createPaneAttribution } from "./paneAttribution";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
@@ -117,7 +118,14 @@ export function createAppRuntime(
   // panes and the bridge channels report in with no component mounted.
   const usageManager = createUsageManager();
   const statusTracker = createAgentStatusTracker();
-  const telemetry = createPaneTelemetry(usageManager, statusTracker);
+  // Who may speak for a pane. Built before the lanes that ask it, and handed
+  // to each as a value, so identity, usage and status cannot drift apart on
+  // a question all three have to answer the same way.
+  const attribution = createPaneAttribution({
+    workspaces: () => deckStore.getSnapshot().workspaces,
+    secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
+  });
+  const telemetry = createPaneTelemetry(usageManager, statusTracker, attribution);
   const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
@@ -186,17 +194,19 @@ export function createAppRuntime(
     windowReportJournal,
     start() {
       if (disposed) return;
-      sessionBinding ??= createSessionBinding(deckStore, telemetry);
+      sessionBinding ??= createSessionBinding(deckStore, telemetry, attribution);
       usageChannel ??= createUsageChannel(
         deckStore,
         plugins.pluginRegistries.agents,
         usageManager,
+        attribution,
       );
       statusChannel ??= createAgentStatusChannel(
         deckStore,
         plugins.pluginRegistries.agents,
         statusTracker,
         { subscribe: subscribeSessions, state: paneSessionState },
+        attribution,
       );
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,

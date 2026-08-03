@@ -3,6 +3,7 @@ import { onAgentStatus } from "../ipc/status";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
 import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckStore } from "./deckStore";
+import type { PaneAttribution } from "./paneAttribution";
 import { paneAgentType } from "../domain/deck";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
@@ -40,6 +41,7 @@ export function createAgentStatusChannel(
   agents: ContributionRegistry<AgentContribution>,
   tracker: AgentStatusTracker,
   sessions: SessionLivenessPort,
+  attribution: PaneAttribution,
 ): AgentStatusChannel {
   let disposed = false;
   let normalizerDisposers: (() => void)[] = [];
@@ -80,7 +82,7 @@ export function createAgentStatusChannel(
     if (!disposed) registerNormalizers();
   });
 
-  const reports = createVerifiedPaneReports(deck, {
+  const reports = createVerifiedPaneReports(deck, attribution, {
     label: "status report",
     subscribe: onAgentStatus,
     requireLiveProcess: true,

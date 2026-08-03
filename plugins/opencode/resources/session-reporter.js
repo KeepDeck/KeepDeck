@@ -141,14 +141,23 @@ export default async (input = {}) => {
     }
   };
 
-  const bind = (sessionID) =>
+  // Whether this process has already handed the pane an identity. The deck
+  // binds at most one FRESH session per pane process — everything else under
+  // that pane is somebody else's — so a later root is reported as what it is:
+  // the same pane's conversation continuing under a new id (`/new`), not a
+  // second session appearing out of nowhere.
+  let boundOnce = false;
+  const bind = (sessionID) => {
+    const source = boundOnce ? "new" : "startup";
+    boundOnce = true;
     publish({
       v: 1,
       type: "session.bound",
       paneId: pane,
       token,
-      payload: { sessionId: sessionID, agent: "opencode" },
+      payload: { sessionId: sessionID, agent: "opencode", source },
     });
+  };
 
   const activateRoot = async (sessionID, publishBinding) => {
     activeRoot = sessionID;

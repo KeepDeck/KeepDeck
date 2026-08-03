@@ -11,6 +11,7 @@ import type { UsageReportEvent } from "../ipc/usage";
 import type { PaneIdle } from "../domain/deck";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
 import { createUsageManager, type UsageManager } from "./usageManager";
+import { createPaneAttribution } from "./paneAttribution";
 import { createUsageChannel, type UsageChannel } from "./usageChannel";
 import type { DeckStore } from "./deckStore";
 import type { Deck } from "./useDeck";
@@ -55,6 +56,9 @@ const reported = (at: number): NormalizedUsage => ({
 });
 
 /** The channel only reads `deck.workspaces` — a shaped literal is enough. */
+/** A pane runs an agent, and a report is only believed from the agent its
+ * pane runs — so an unnamed pane here is a claude pane, not an agentless
+ * one, which no deck ever holds. */
 const deckWith = (
   panes: {
     id: string;
@@ -70,7 +74,7 @@ const deckWith = (
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: null,
-        panes,
+        panes: panes.map((pane) => ({ agentType: "claude", ...pane })),
       },
     ],
   }) as unknown as Deck;
@@ -79,6 +83,8 @@ interface Bound {
   paneId: string;
   token: string;
   transcriptPath?: string;
+  agent?: string;
+  source?: string;
 }
 
 describe("createUsageChannel", () => {
@@ -99,7 +105,15 @@ describe("createUsageChannel", () => {
         list: () => ipc.contributions,
         subscribe: () => () => {},
       } as unknown as ContributionRegistry<AgentContribution>;
-      channel = createUsageChannel(deckStore, agents, usage);
+      channel = createUsageChannel(
+        deckStore,
+        agents,
+        usage,
+        createPaneAttribution({
+          workspaces: () => deckStore.getSnapshot().workspaces,
+          secretOf: (paneId) => ipc.peekPaneSpawnSpec(paneId)?.token,
+        }),
+      );
     }
     await act(async () => {});
   };
@@ -258,6 +272,7 @@ describe("createUsageChannel", () => {
       emitBound({
         paneId: "pane-1",
         token: "tok-1",
+        agent: "codex",
         transcriptPath: "/x/rollout.jsonl",
       });
     });
@@ -273,12 +288,22 @@ describe("createUsageChannel", () => {
     // claude declares no tail — transcript or not, nothing arms.
     await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {
-      emitBound({ paneId: "pane-1", token: "tok-1", transcriptPath: "/x/r.jsonl" });
+      emitBound({
+        paneId: "pane-1",
+        token: "tok-1",
+        agent: "claude",
+        transcriptPath: "/x/r.jsonl",
+      });
     });
     await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
     await act(async () => {
-      emitBound({ paneId: "pane-1", token: "forged", transcriptPath: "/x/r.jsonl" });
-      emitBound({ paneId: "pane-1", token: "tok-1" });
+      emitBound({
+        paneId: "pane-1",
+        token: "forged",
+        agent: "codex",
+        transcriptPath: "/x/r.jsonl",
+      });
+      emitBound({ paneId: "pane-1", token: "tok-1", agent: "codex" });
     });
     expect(ipc.watchSessionFile).not.toHaveBeenCalled();
   });
@@ -404,6 +429,7 @@ describe("createUsageChannel", () => {
       emitBound({
         paneId: "pane-1",
         token: "tok-1",
+        agent: "codex",
         transcriptPath: "/x/rollout.jsonl",
       });
     });

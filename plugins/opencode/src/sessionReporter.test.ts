@@ -87,8 +87,22 @@ describe("opencode session reporter", () => {
         type: "session.bound",
         paneId: "pane-3",
         token: "tok",
-        payload: { sessionId: "ses_root", agent: "opencode" },
+        payload: { sessionId: "ses_root", agent: "opencode", source: "startup" },
       },
+    ]);
+  });
+
+  it("reports a later root as the pane's conversation continuing, not a new arrival", async () => {
+    // `/new` mints a second root in the SAME pane process. The deck binds one
+    // fresh session per process and treats every later one as somebody
+    // else's, so saying `startup` twice would cost the user their `/new`.
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event(created("ses_second"));
+
+    expect(envelopes().map((envelope) => envelope.payload)).toEqual([
+      { sessionId: "ses_root", agent: "opencode", source: "startup" },
+      { sessionId: "ses_second", agent: "opencode", source: "new" },
     ]);
   });
 
@@ -99,7 +113,7 @@ describe("opencode session reporter", () => {
     expect(envelopes()).toEqual([
       expect.objectContaining({
         type: "session.bound",
-        payload: { sessionId: "ses_root", agent: "opencode" },
+        payload: { sessionId: "ses_root", agent: "opencode", source: "startup" },
       }),
     ]);
   });
@@ -112,7 +126,7 @@ describe("opencode session reporter", () => {
     expect(envelopes()).toEqual([
       expect.objectContaining({
         type: "session.bound",
-        payload: { sessionId: "ses_root", agent: "opencode" },
+        payload: { sessionId: "ses_root", agent: "opencode", source: "startup" },
       }),
     ]);
   });

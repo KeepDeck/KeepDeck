@@ -39,6 +39,7 @@ vi.mock("./sessionBinding", () => ({ postbackAccepted: () => true }));
 import { createUsageTailsLane } from "./usageChannelTails";
 import type { UsageLane } from "./usageChannelSource";
 import { createUsageManager } from "./usageManager";
+import { createPaneAttribution } from "./paneAttribution";
 
 const usageByAgent = new Map<string, AgentUsage>([
   ["codex", { tail: "codex" } as AgentUsage],
@@ -77,6 +78,12 @@ describe("usage tails — a suspended pane's watcher", () => {
     deck = createDeckActions(store);
     lane = createUsageTailsLane({
       deck: store,
+      // The real rule over the same stubbed spawn cache the lane reads for
+      // its codex fallback: what is under test is which bindings arm a tail.
+      attribution: createPaneAttribution({
+        workspaces: () => store.getSnapshot().workspaces,
+        secretOf: () => specs.token ?? undefined,
+      }),
       // The tails lane only arms watchers; events reach the store via the
       // reports lane, so a fresh, unobserved instance satisfies the context.
       usage: createUsageManager(),

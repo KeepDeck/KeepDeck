@@ -11,7 +11,6 @@ import {
   watchSessionFile,
 } from "../ipc/usage";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
-import { postbackAccepted } from "./sessionBinding";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
 export const TAIL_RETRY_MS = 20_000;
@@ -20,6 +19,7 @@ export const TAIL_RETRY_MS = 20_000;
 export function createUsageTailsLane({
   deck,
   declarations,
+  attribution,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
   let unlisten: (() => void) | null = null;
@@ -102,8 +102,9 @@ export function createUsageTailsLane({
     armRecordedTails();
   };
 
-  void onSessionBound(({ paneId, token, transcriptPath }) => {
+  void onSessionBound((report) => {
     if (disposed) return;
+    const { paneId, transcriptPath, token } = report;
     if (!transcriptPath) {
       log.debug(
         "web:usage",
@@ -111,7 +112,11 @@ export function createUsageTailsLane({
       );
       return;
     }
-    if (!postbackAccepted(peekPaneSpawnSpec(paneId), token)) return;
+    // The same verdict the binding itself gets. Reached independently here,
+    // and it must reach the same answer: arming a tail on a transcript the
+    // deck refused to bind would feed the pane a foreign session's numbers
+    // through the back door.
+    if (!attribution.judge(report).accepted) return;
     const workspace = findWorkspaceOfPane(
       deck.getSnapshot().workspaces,
       paneId,

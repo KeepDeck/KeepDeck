@@ -9,8 +9,9 @@ import { createVerifiedPaneReports } from "./verifiedPaneReports";
 export function createUsageReportsLane({
   deck,
   usage,
+  attribution,
 }: UsageLaneContext): UsageLane {
-  return createVerifiedPaneReports(deck, {
+  return createVerifiedPaneReports(deck, attribution, {
     label: "usage report",
     subscribe: onUsageReport,
     apply: (paneId, payload) => usage.report(paneId, payload),

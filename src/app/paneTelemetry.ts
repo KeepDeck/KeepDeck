@@ -1,16 +1,20 @@
 import type { AgentStatusTracker } from "./agentStatusTracker";
+import type { PaneAttribution } from "./paneAttribution";
 import type { UsageManager } from "./usageManager";
 
 /**
- * The one owner of "this pane's telemetry starts over" — the sequence every
- * lifecycle point was hand-assembling per store. Two stores hold per-pane
- * telemetry (usage, activity) and the pair must retire together: the split
- * has already produced a real bug once — the session-generation site cleared
- * usage but kept the dead conversation's activity, so a `/clear` left the
- * pane wearing last conversation's "Rate limited".
+ * The one owner of "this pane's per-process state starts over" — the sequence
+ * every lifecycle point was hand-assembling per store. Three holders now: the
+ * two telemetry stores (usage, activity) and the attribution ledger, and they
+ * must retire together. The split has already produced a real bug once — the
+ * session-generation site cleared usage but kept the dead conversation's
+ * activity, so a `/clear` left the pane wearing last conversation's "Rate
+ * limited" — and attribution joining them is the same hazard: a pane whose
+ * process retired without its ledger being cleared would refuse its OWN next
+ * session as a second start.
  *
- * Constructed in the runtime over the two stores it retires — both reach
- * it as values, never as importable module state.
+ * Constructed in the runtime over the holders it retires — each reaches it as
+ * a value, never as importable module state.
  */
 export interface PaneTelemetry {
   /** The pane's process is retiring (restart, suspend, close, exit):
@@ -27,11 +31,14 @@ export interface PaneTelemetry {
 export function createPaneTelemetry(
   usage: UsageManager,
   tracker: AgentStatusTracker,
+  attribution: PaneAttribution,
 ): PaneTelemetry {
   return {
     retire(paneId) {
       usage.clearPane(paneId);
       tracker.clear(paneId);
+      // A NEW process may bind a fresh session — it is the pane's own again.
+      attribution.retire(paneId);
     },
     beginSession(paneId, sessionId) {
       usage.beginPaneSession(paneId, sessionId);

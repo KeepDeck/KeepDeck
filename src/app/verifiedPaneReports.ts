@@ -1,9 +1,9 @@
+import { isRecord } from "../domain/json";
 import { log } from "../ipc/log";
 import type { DeckStore } from "./deckStore";
+import type { PaneAttribution } from "./paneAttribution";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { paneSessionState } from "./ptyManager";
-import { peekPaneSpawnSpec } from "./spawnSpecs";
-import { postbackAccepted } from "./sessionBinding";
 
 /** The wire shape both bridge report channels share (usage, status). */
 export interface PaneReportEvent {
@@ -37,13 +37,21 @@ export interface VerifiedPaneReports {
 /**
  * The one home of "who may report for a pane" — the session-binding rule
  * applied to a report lane: the pane must be in the deck, the envelope must
- * echo the per-spawn bridge secret, and (per lane) the process must be
- * alive. Both bridge lanes verify HERE; a guard growing a condition in one
- * lane but not the other is exactly how a retired generation would keep
- * reporting through the weaker one.
+ * echo the pane's bridge secret AND come from the agent the pane runs, and
+ * (per lane) the process must be alive. Both bridge lanes verify HERE; a
+ * guard growing a condition in one lane but not the other is exactly how a
+ * retired generation would keep reporting through the weaker one.
+ *
+ * The agent half matters as much as the secret: the secret is inherited by
+ * every descendant of the pane's process, so a nested CLI's statusline
+ * reports with a valid one — and, dispatched by the agent it names, would
+ * rewrite the pane's usage and activity with a foreign session's numbers.
+ * That is a second, independent route to the wrong reading the binding rule
+ * exists to prevent, and it needs no rebinding at all.
  */
 export function createVerifiedPaneReports(
   deck: DeckStore,
+  attribution: PaneAttribution,
   options: VerifiedPaneReportsOptions,
 ): VerifiedPaneReports {
   const { label, requireLiveProcess, apply } = options;
@@ -62,10 +70,17 @@ export function createVerifiedPaneReports(
         );
         return;
       }
-      if (!postbackAccepted(peekPaneSpawnSpec(paneId), token)) {
+      // `agent` is part of the opaque envelope's correlation contract — the
+      // bridge refuses a report without one — so reading it here is not this
+      // file learning a payload schema it has no business knowing.
+      const reportedAgent =
+        isRecord(payload) && typeof payload.agent === "string"
+          ? payload.agent
+          : undefined;
+      if (!attribution.admitsReport(paneId, token, reportedAgent)) {
         log.warn(
           "web:bridge",
-          `${label} for ${paneId} with a wrong token — ignored`,
+          `${label} for ${paneId} from ${reportedAgent ?? "an unnamed agent"} — ignored`,
         );
         return;
       }
