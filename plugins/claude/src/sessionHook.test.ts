@@ -1,19 +1,29 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 /**
- * The SessionStart reporter now forwards an optional transcript_path (the
- * codex usage tailer's input) — exercise the real script on both payload
- * shapes. The claude and codex copies are byte-identical by design; testing
- * one covers both (the sync itself is a review-time invariant).
+ * The SessionStart reporter, exercised as the real script on the payload
+ * shapes claude and codex produce. It is authored once under
+ * resources/reporters/ and shipped into each plugin; this runs the canonical
+ * file, and scripts/reporterScripts.test.mjs is what pins the shipped copies
+ * to it. kimi's own branch (transcript through its session index) is covered
+ * against kimi's shipped copy in plugins/kimi/src/reporter.test.ts.
  */
 const SCRIPT = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../resources/kd-session-hook.sh",
+  "../../../resources/reporters/kd-session-hook.sh",
 );
 
 const dirs: string[] = [];
@@ -26,10 +36,27 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function run(dir: string, stdin: string): void {
+/**
+ * Stdin comes from a FILE, never execFileSync's `input` pipe. The script
+ * checks its preconditions and exits BEFORE it reads stdin, while `input:`
+ * writes only AFTER the spawn — so a guard that exits first closes the read
+ * end under the writer and the HARNESS fails with EPIPE although the hook
+ * itself succeeded. Same reason and same shape as statusHook.test.ts.
+ */
+function run(dir: string, stdin: string, args: string[] = ["claude"]): void {
   const env = { ...process.env };
   env.KEEPDECK_BRIDGE = JSON.stringify({ v: 1, dir, pane: "pane-3", token: "tok" });
-  execFileSync("/bin/sh", [SCRIPT], { input: stdin, env });
+  const file = join(inbox(), "payload.json");
+  writeFileSync(file, stdin);
+  const fd = openSync(file, "r");
+  try {
+    execFileSync("/bin/sh", [SCRIPT, ...args], {
+      stdio: [fd, "pipe", "pipe"],
+      env,
+    });
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function envelope(dir: string): Record<string, unknown> {
@@ -39,13 +66,14 @@ function envelope(dir: string): Record<string, unknown> {
 }
 
 describe("kd-session-hook.sh", () => {
-  it("forwards the transcript path when the hook payload carries one", () => {
+  it("names the reporting agent and why the session started", () => {
     const dir = inbox();
     run(
       dir,
       JSON.stringify({
         session_id: "sid-1",
         transcript_path: "/x/sessions/rollout-1.jsonl",
+        source: "startup",
       }),
     );
     expect(envelope(dir)).toEqual({
@@ -54,13 +82,15 @@ describe("kd-session-hook.sh", () => {
       paneId: "pane-3",
       token: "tok",
       payload: {
+        agent: "claude",
         sessionId: "sid-1",
         transcriptPath: "/x/sessions/rollout-1.jsonl",
+        source: "startup",
       },
     });
   });
 
-  it("binds without a transcript path exactly as before", () => {
+  it("binds with neither a transcript path nor a source", () => {
     const dir = inbox();
     run(dir, JSON.stringify({ session_id: "sid-1" }));
     expect(envelope(dir)).toEqual({
@@ -68,7 +98,7 @@ describe("kd-session-hook.sh", () => {
       type: "session.bound",
       paneId: "pane-3",
       token: "tok",
-      payload: { sessionId: "sid-1" },
+      payload: { agent: "claude", sessionId: "sid-1" },
     });
   });
 
@@ -83,14 +113,31 @@ describe("kd-session-hook.sh", () => {
         transcript_path: '/Users/me/pro"j/rollout.jsonl',
       }),
     );
-    expect(envelope(dir).payload).toEqual({ sessionId: "sid-1" });
+    expect(envelope(dir).payload).toEqual({
+      agent: "claude",
+      sessionId: "sid-1",
+    });
   });
 
-  it("keeps the claude and codex copies byte-identical — the shared-script invariant", () => {
-    const codex = join(
-      dirname(fileURLToPath(import.meta.url)),
-      "../../codex/resources/kd-session-hook.sh",
+  it("drops a source that is not a bare word", () => {
+    // The deck treats an absent source as the strict case, so dropping a
+    // malformed one can only refuse a rebind — never widen what is accepted.
+    const dir = inbox();
+    run(
+      dir,
+      JSON.stringify({ session_id: "sid-1", source: 'star"tup' }),
     );
-    expect(readFileSync(codex, "utf8")).toBe(readFileSync(SCRIPT, "utf8"));
+    expect(envelope(dir).payload).toEqual({
+      agent: "claude",
+      sessionId: "sid-1",
+    });
+  });
+
+  it("publishes nothing when the arming site forgot the agent argument", () => {
+    // An unattributed binding is one the deck would have to refuse anyway;
+    // saying nothing keeps the pane on the binding it already has.
+    const dir = inbox();
+    run(dir, JSON.stringify({ session_id: "sid-1" }), []);
+    expect(readdirSync(dir).filter((f) => f.endsWith(".json"))).toEqual([]);
   });
 });

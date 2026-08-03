@@ -28,7 +28,11 @@ export const CANONICAL_DIR = join(ROOT, "resources", "reporters");
 export const REPORTERS = [
   {
     name: "kd-session-hook.sh",
-    destinations: ["plugins/claude/resources", "plugins/codex/resources"],
+    destinations: [
+      "plugins/claude/resources",
+      "plugins/codex/resources",
+      "plugins/kimi/resources/keepdeck-session-reporter",
+    ],
   },
   {
     name: "kd-status-hook.sh",

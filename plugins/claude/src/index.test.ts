@@ -59,8 +59,10 @@ describe("claude plugin hooks", () => {
 
     expect(out.args[0]).toBe("--settings");
     const settings = JSON.parse(out.args[1]);
+    // The agent id is an argument: the payload does not name its CLI, and a
+    // binding the deck cannot attribute is one it refuses.
     expect(settings.hooks.SessionStart[0].hooks[0].command).toBe(
-      "/bin/sh '/App/resources/kd-session-hook.sh'",
+      "/bin/sh '/App/resources/kd-session-hook.sh' claude",
     );
     // No usage script resolved → no statusLine override rides along.
     expect(settings.statusLine).toBeUndefined();

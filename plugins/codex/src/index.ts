@@ -36,7 +36,12 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
   const status = await resources.path("kd-status-hook.sh");
   const rules = [
     ...(session
-      ? [{ event: "SessionStart", command: `/bin/sh ${shellQuote(session)}` }]
+      ? [
+          {
+            event: "SessionStart",
+            command: `/bin/sh ${shellQuote(session)} codex`,
+          },
+        ]
       : []),
     ...(status
       ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse"].map(
