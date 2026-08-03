@@ -69,22 +69,9 @@ describe("normalizeClaudeStatus", () => {
         600,
       ),
     ).toEqual({ kind: "parked", at: 600 });
-    // A background SHELL task parks it the same way — the list is the fact,
-    // its entry types are claude's business.
-    expect(
-      normalizeClaudeStatus(
-        wrap({
-          hook_event_name: "Stop",
-          background_tasks: [
-            { id: "by2qgl1uz", type: "shell", status: "running", command: "sleep 45" },
-          ],
-        }),
-        650,
-      ),
-    ).toEqual({ kind: "parked", at: 650 });
-    // Entry STATUS is never read: claude lists only in-flight work, so the
-    // list's length is the whole fact. Pinned so a future "helpful" filter
-    // on `status` has to break a test rather than the contract.
+    // Entry STATUS is never read: claude lists only in-flight work. Pinned
+    // so a future "helpful" filter on `status` has to break a test rather
+    // than the contract.
     expect(
       normalizeClaudeStatus(
         wrap({
@@ -94,6 +81,51 @@ describe("normalizeClaudeStatus", () => {
         660,
       ),
     ).toEqual({ kind: "parked", at: 660 });
+    // An unknown kind a newer build invents holds the turn open too — it
+    // will sit beside the agent-shaped ones, and that is the same bet the
+    // rest of the file makes.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "Stop",
+          background_tasks: [{ id: "w1", type: "workflow", status: "running" }],
+        }),
+        670,
+      ),
+    ).toEqual({ kind: "parked", at: 670 });
+  });
+
+  it("a backgrounded SHELL task is not a reason to hold the turn open", () => {
+    // The user parked it deliberately — a dev server, a watcher, a tail. It
+    // may never finish, and nothing wakes the session when it does: the
+    // agent polls it with BashOutput inside a turn. Treating it as parking
+    // meant one `npm run dev` made EVERY later turn park, so the pane never
+    // reached "done" and never announced a finished turn again all session.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "Stop",
+          background_tasks: [
+            { id: "by2qgl1uz", type: "shell", status: "running", command: "npm run dev" },
+          ],
+        }),
+        650,
+      ),
+    ).toEqual({ kind: "turn-end", at: 650 });
+    // A subagent running ALONGSIDE it still parks — the shell entry is
+    // ignored, not the whole list.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "Stop",
+          background_tasks: [
+            { id: "s1", type: "shell", status: "running", command: "npm run dev" },
+            { id: "a1", type: "subagent", status: "running" },
+          ],
+        }),
+        655,
+      ),
+    ).toEqual({ kind: "parked", at: 655 });
     // The wake's own Stop — nothing left in flight — ends the turn for real.
     expect(
       normalizeClaudeStatus(

@@ -13,7 +13,7 @@ import type {
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
-import { CLAUDE_PAYLOAD_KEYS, normalizeClaudeStatus } from "./status";
+import { normalizeClaudeStatus } from "./status";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
 
@@ -59,11 +59,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
         hooks: [
           {
             type: "command",
-            // The trailing keys are what the reporter must keep if a payload
-            // is too big to forward whole. They come from the normalizer
-            // that READS them, so the decision has one home; the shared
-            // script is handed the list and never names a field itself.
-            command: `/bin/sh ${shellQuote(status)} claude ${CLAUDE_PAYLOAD_KEYS.join(" ")}`,
+            command: `/bin/sh ${shellQuote(status)} claude`,
           },
         ],
       },

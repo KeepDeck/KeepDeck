@@ -7,53 +7,54 @@ import {
 } from "@keepdeck/plugin-api";
 
 /**
- * The payload keys whose contents this normalizer reads, and which the
- * reporter must therefore preserve when a payload is too big to forward
- * whole. THE one home for that decision: the arming site passes this list
- * to the hook script as argv, and the script — which owns the mechanism,
- * not the schema — never names a field itself.
+ * The background-task kinds that WAKE the session when they finish, and so
+ * hold the turn open. `background_tasks` lists in-flight work of several
+ * kinds and claude's own schema names them (`subagent`, `shell`, `monitor`,
+ * `workflow`); only `shell` is excluded, and the distinction is the whole
+ * point of reading the type at all.
  *
- * Only keys whose LIST-NESS is the fact belong here. A reduction cannot
- * carry a value: splicing captured text back into JSON without an
- * escape-aware parser produces malformed output on the first embedded
- * quote, and the bridge drops a malformed envelope whole. So a key whose
- * meaning lives in its value (`error`, `notification_type`) is deliberately
- * absent — losing it degrades a badge, and degraded beats dropped.
+ * A backgrounded shell task is one the USER parked deliberately — a dev
+ * server, a watcher, a tail. It may never finish, and nothing wakes the
+ * session when it does: the agent polls it with `BashOutput` inside a turn
+ * (probe-verified on 2.1.220). Treating it as a reason to hold the turn
+ * open means one `npm run dev` makes EVERY later turn park, so the pane
+ * never reaches "done" and never announces a finished turn again for the
+ * rest of the session — the mirror of the bug this exists to fix.
+ *
+ * An unknown kind a newer build invents holds the turn open, like the
+ * agent-shaped kinds it will sit beside. That is the same bet the rest of
+ * this file makes and it errs the same way: see [`outlivesTurn`].
  */
-export const CLAUDE_PAYLOAD_KEYS = ["background_tasks"] as const;
+const SELF_WAKING = (type: unknown): boolean => type !== "shell";
 
 /**
  * Whether a turn-ending payload reports work that OUTLIVES the turn.
  *
  * `Stop` fires when the MAIN thread finishes its reply — a thread that may
- * have launched background agents or shell tasks still running behind it,
- * and that claude will wake again once they finish. `background_tasks` is
- * the discriminator claude ships for exactly this question (its own schema:
- * "distinguish 'session is done' from 'session is paused waiting for
- * background work to wake it'"), and it lists ONLY in-flight work — so its
- * LENGTH is the whole test, and an entry's `status` is claude's business
- * rather than ours (binary-probed on 2.1.220: a background task that
+ * have launched background agents still running behind it, and that claude
+ * will wake again once they finish. `background_tasks` is the discriminator
+ * claude ships for exactly this question (its own schema: "distinguish
+ * 'session is done' from 'session is paused waiting for background work to
+ * wake it'"), and it lists ONLY in-flight work — so an entry's `status` is
+ * claude's business rather than ours (binary-probed on 2.1.220: a task that
  * finished before `Stop` leaves `[]`, one still running is listed).
  *
- * A REDUCED payload has no `event.background_tasks` to read: an oversized
- * one is forwarded as its event name alone, with the host-owned `reduced`
- * list naming the declared keys that held something. Reading both is what
- * keeps a huge final message from reporting a turn finished over live work.
+ * Its TYPE, though, is ours to read: not everything in flight will wake the
+ * session — see [`SELF_WAKING`].
  *
  * Anything that is not an array — the field absent on an older build, a
- * shape a newer one invents — reads as "no background work". Ending the
- * turn is the RECOVERABLE mistake: the next prompt opens a new one, while a
- * turn wrongly held open strands the pane on "Working" until the process
- * dies.
+ * shape a newer one invents — reads as "no background work". So does a
+ * payload too big to forward whole, which arrives as its event name alone.
+ * Ending the turn is the RECOVERABLE mistake in every one of those cases:
+ * the next prompt opens a new turn, while a turn wrongly held open strands
+ * the pane on "Working" until the process dies.
  */
-function outlivesTurn(
-  payload: Record<string, unknown>,
-  event: Record<string, unknown>,
-): boolean {
+function outlivesTurn(event: Record<string, unknown>): boolean {
   const tasks = event.background_tasks;
-  if (Array.isArray(tasks)) return tasks.length > 0;
-  const reduced = payload.reduced;
-  return Array.isArray(reduced) && reduced.includes("background_tasks");
+  if (!Array.isArray(tasks)) return false;
+  return tasks.some(
+    (task) => isJsonRecord(task) && SELF_WAKING(task.type),
+  );
 }
 
 /**
@@ -109,7 +110,7 @@ export const normalizeClaudeStatus: StatusNormalizer = (
       // Background work in flight means the turn is PARKED, not over: the
       // wake it triggers arrives as a fresh `UserPromptSubmit`, so the turn
       // re-opens on its own and only the LAST `Stop` (empty list) ends it.
-      return outlivesTurn(payload, event)
+      return outlivesTurn(event)
         ? { kind: "parked", at }
         : { kind: "turn-end", at };
     case "PostToolUse":
