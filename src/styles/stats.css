@@ -420,3 +420,9 @@
     display: none;
   }
 }
+
+.stats__week-none {
+  grid-column: 2 / -1;
+  color: #596273;
+  font-size: 11px;
+}

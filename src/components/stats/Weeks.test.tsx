@@ -59,6 +59,19 @@ describe("Weeks", () => {
     expect(host.querySelector(".stats__weeks-pager")).toBeNull(); // one page
   });
 
+  it("gives an empty week in progress an honest line, not zero-and-dash", () => {
+    const host = render([
+      event({ occurredAt: NOW - WEEK_MS, tokens: { input: 100 } }),
+    ]);
+    expect(host.querySelectorAll('[role="row"]')).toHaveLength(2);
+    const current = host.querySelector(".stats__week-row--current")!;
+    expect(current.textContent).toContain("in progress");
+    expect(current.textContent).toContain("no usage yet");
+    // No husk cells: the empty state REPLACES the number columns.
+    expect(current.querySelector(".stats__week-tokens")).toBeNull();
+    expect(current.querySelector(".stats__week-cost")).toBeNull();
+  });
+
   it("pages by 8 with a constant height — older weeks behind the pager", () => {
     const events = Array.from({ length: 12 }, (_, index) =>
       event({

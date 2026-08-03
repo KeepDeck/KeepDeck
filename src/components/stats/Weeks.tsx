@@ -61,7 +61,28 @@ export function Weeks({
         </span>
       </h3>
       <div className="stats__table" role="table" aria-label="Weeks">
-        {slice.map((week) => (
+        {slice.map((week) => {
+          // A week in progress with nothing burned yet gets an honest
+          // empty-state LINE (the "no usage this window" vocabulary), not
+          // a zero-and-dash husk that reads as table furniture.
+          if (week.current && week.totalTokens === 0) {
+            return (
+              <div
+                className="stats__week-row stats__week-row--current"
+                role="row"
+                key={week.start}
+              >
+                <span className="stats__week-label" role="cell">
+                  <b>{formatWeekLabel(week.start, now)}</b>
+                  <small>in progress</small>
+                </span>
+                <span className="stats__week-none" role="cell">
+                  no usage yet — fills in live as agents report
+                </span>
+              </div>
+            );
+          }
+          return (
           <div
             className={`stats__week-row${week.current ? " stats__week-row--current" : ""}`}
             role="row"
@@ -119,7 +140,8 @@ export function Weeks({
               {displayProviderCost(week.providerCostUsd, week.costEvents)}
             </span>
           </div>
-        ))}
+          );
+        })}
       </div>
       {pages > 1 && (
         <div className="stats__weeks-pager">

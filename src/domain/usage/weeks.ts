@@ -51,7 +51,9 @@ interface WeekFold {
 
 /** Every calendar week from the current one back to the oldest event's,
  * newest first and CONTINUOUS — a quiet week renders as a zero row rather
- * than silently vanishing, so "3 weeks ago" is always three rows down. */
+ * than silently vanishing, so "3 weeks ago" is always three rows down.
+ * The empty week in progress stays too; the VIEW gives it an honest
+ * empty-state line instead of zero-and-dash furniture (field finding). */
 export function usageWeeks(
   events: readonly UsageEventV2[],
   now: number,

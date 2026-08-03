@@ -104,6 +104,19 @@ describe("usageWeeks", () => {
     expect(weeks[0].costEvents).toBe(1);
   });
 
+  it("keeps an empty week in progress — the view owns its empty state", () => {
+    const weeks = usageWeeks(
+      [event({ occurredAt: MONDAY - 1, tokens: { input: 100 } })],
+      NOW,
+    );
+    expect(weeks).toHaveLength(2);
+    expect(weeks[0]).toMatchObject({
+      start: MONDAY,
+      totalTokens: 0,
+      current: true,
+    });
+  });
+
   it("never counts the future — same guard as every stats query", () => {
     const weeks = usageWeeks(
       [
