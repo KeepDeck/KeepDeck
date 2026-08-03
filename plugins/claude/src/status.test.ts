@@ -48,6 +48,88 @@ describe("normalizeClaudeStatus", () => {
     ).toEqual({ kind: "turn-failed", at: 300, error: "unknown" });
   });
 
+  it("parks the turn while claude reports background work in flight", () => {
+    // The probe-verified shape (2.1.220): the main thread replied, and a
+    // background agent it launched is still running behind it.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "Stop",
+          last_assistant_message: "LAUNCHED",
+          background_tasks: [
+            {
+              id: "acb5bea0d1b3101fd",
+              type: "subagent",
+              status: "running",
+              description: "Sleep then report",
+              agent_type: "general-purpose",
+            },
+          ],
+        }),
+        600,
+      ),
+    ).toEqual({ kind: "resumed", at: 600 });
+    // A background SHELL task parks it the same way — the list is the fact,
+    // its entry types are claude's business.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "Stop",
+          background_tasks: [
+            { id: "by2qgl1uz", type: "shell", status: "running", command: "sleep 45" },
+          ],
+        }),
+        650,
+      ),
+    ).toEqual({ kind: "resumed", at: 650 });
+    // The wake's own Stop — nothing left in flight — ends the turn for real.
+    expect(
+      normalizeClaudeStatus(
+        wrap({ hook_event_name: "Stop", background_tasks: [] }),
+        700,
+      ),
+    ).toEqual({ kind: "turn-end", at: 700 });
+  });
+
+  it("ends the turn when the background list is absent or unreadable", () => {
+    // Absent on an older build, and every shape that is not a list. Ending
+    // the turn is the recoverable mistake — the next prompt opens a new one,
+    // while a turn wrongly held open strands the pane on "Working".
+    for (const background_tasks of [undefined, null, {}, "running", 3, true]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({ hook_event_name: "Stop", background_tasks }),
+          800,
+        ),
+      ).toEqual({ kind: "turn-end", at: 800 });
+    }
+    // A scheduled wakeup rides the same payload but is NOT in-flight work:
+    // a cron an hour out is a genuinely idle session.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "Stop",
+          background_tasks: [],
+          session_crons: [{ id: "c1", cron: "0 9 * * 1-5" }],
+        }),
+        800,
+      ),
+    ).toEqual({ kind: "turn-end", at: 800 });
+  });
+
+  it("fails a turn that died even with background work still running", () => {
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "StopFailure",
+          error: "rate_limit",
+          background_tasks: [{ id: "x", type: "subagent", status: "running" }],
+        }),
+        900,
+      ),
+    ).toEqual({ kind: "turn-failed", at: 900, error: "rate_limit" });
+  });
+
   it("maps only the two waiting notification types", () => {
     expect(
       normalizeClaudeStatus(

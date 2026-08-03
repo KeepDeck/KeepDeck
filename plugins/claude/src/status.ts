@@ -7,15 +7,42 @@ import {
 } from "@keepdeck/plugin-api";
 
 /**
+ * Whether a turn-ending payload reports work that OUTLIVES the turn.
+ *
+ * `Stop` fires when the MAIN thread finishes its reply — a thread that may
+ * have launched background agents or shell tasks still running behind it,
+ * and that claude will wake again once they finish. `background_tasks` is
+ * the discriminator claude ships for exactly this question (its own schema:
+ * "distinguish 'session is done' from 'session is paused waiting for
+ * background work to wake it'"), and it lists ONLY in-flight work — so its
+ * LENGTH is the whole test, and an entry's `status` is claude's business
+ * rather than ours (binary-probed on 2.1.220: a background task that
+ * finished before `Stop` leaves `[]`, one still running is listed).
+ *
+ * Anything that is not an array — the field absent on an older build, a
+ * shape a newer one invents — reads as "no background work". Ending the
+ * turn is the RECOVERABLE mistake: the next prompt opens a new one, while a
+ * turn wrongly held open strands the pane on "Working" until the process
+ * dies.
+ */
+function outlivesTurn(event: Record<string, unknown>): boolean {
+  const tasks = event.background_tasks;
+  return Array.isArray(tasks) && tasks.length > 0;
+}
+
+/**
  * claude's turn-lifecycle payloads → status edges. The reporter wraps each
  * hook payload verbatim under `event`; the fields here are pinned by the
  * shipped binary's own hook schemas (2.1.220):
  *
  * - `UserPromptSubmit` → the turn is running.
- * - `Stop` → the turn completed. Fires INSTEAD of `StopFailure`, never both.
+ * - `Stop` → the turn completed, UNLESS it left background work behind —
+ *   see [`outlivesTurn`]. Fires INSTEAD of `StopFailure`, never both.
  * - `StopFailure` → the turn died on an API error; `error` is claude's
  *   typed reason (`rate_limit`, `authentication_failed`, …), verified to
- *   ride in the payload — no per-matcher fan-out needed.
+ *   ride in the payload — no per-matcher fan-out needed. Background work is
+ *   deliberately NOT consulted here: a turn that died needs the user now,
+ *   and surviving background tasks do not make it un-failed.
  * - `Notification` → waiting, but only the two types that mean "parked on
  *   the user": `permission_prompt` and `agent_needs_input`. Binary-verified
  *   caveat (2.1.220): these are 6-second IDLE NUDGES, not dialog-open
@@ -52,7 +79,15 @@ export const normalizeClaudeStatus: StatusNormalizer = (
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
-      return { kind: "turn-end", at };
+      // Background work in flight means the turn is PARKED, not over: the
+      // wake it triggers arrives as a fresh `UserPromptSubmit`, so the turn
+      // re-opens on its own and only the LAST `Stop` (empty list) ends it.
+      // `resumed` rather than a dropped edge, because this payload also
+      // proves the main thread is no longer parked on the user — a wait
+      // left standing by a trailing idle nudge is stale and must clear.
+      return outlivesTurn(event)
+        ? { kind: "resumed", at }
+        : { kind: "turn-end", at };
     case "PostToolUse":
       return { kind: "resumed", at };
     case "StopFailure":

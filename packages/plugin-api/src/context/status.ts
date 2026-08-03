@@ -29,8 +29,9 @@ export type AgentStatusEvent =
   | { kind: "turn-start"; at: number }
   /** The turn is parked on the user (approval dialog, agent question). */
   | { kind: "waiting"; at: number; reason: StatusWaitReason }
-  /** The wait resolved and the turn is running again. Only CLIs with a
-   * resolution event emit this; for the rest the next edge settles it. */
+  /** The turn is RUNNING — a wait resolved, or the CLI proved a turn that
+   * looked finished is still going. Only CLIs with an event carrying that
+   * proof emit it; for the rest the next edge settles the display. */
   | { kind: "resumed"; at: number }
   /** The turn completed normally. */
   | { kind: "turn-end"; at: number }
