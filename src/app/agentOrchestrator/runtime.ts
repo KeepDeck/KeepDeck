@@ -54,6 +54,7 @@ export function createAgentOrchestratorRuntime(
     plugins,
     probe,
     worktrees,
+    telemetry,
   } = deps;
   const actions: DeckActions = createDeckActions(deck);
   const runView = createRunViewStore(deck);
@@ -186,6 +187,7 @@ export function createAgentOrchestratorRuntime(
     suspendPolicy,
     worktrees,
     isBlocked: runView.isBlocked,
+    telemetry,
   });
   const restart = createAgentOrchestratorRestart({
     deck,
@@ -198,6 +200,7 @@ export function createAgentOrchestratorRuntime(
     skillsAsk,
     mcpAccess,
     schedule,
+    telemetry,
   });
   const continuations = createAgentOrchestratorContinuations({
     deck,

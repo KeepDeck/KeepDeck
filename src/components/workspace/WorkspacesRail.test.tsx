@@ -249,4 +249,32 @@ describe("WorkspacesRail workspace metadata", () => {
     expect(item.querySelector(".rail__count")?.textContent).toBe("2");
     expect(item.querySelector(".rail__agents")).toBeNull();
   });
+
+  it("paints the dot from the folded status frame, verbatim", () => {
+    act(() =>
+      root.render(
+        createElement(WorkspacesRail, {
+          workspaces: [
+            { id: "a", name: "Alpha", agentCount: 1, dot: "selected" },
+            { id: "b", name: "Beta", agentCount: 2, dot: "failed" },
+            { id: "c", name: "Gamma", agentCount: 1, dot: "none" },
+            { id: "d", name: "Delta", agentCount: 1 },
+          ],
+          activeId: "a",
+          onSelect: () => {},
+          onAdd: () => {},
+          onClose: () => {},
+          onRename: () => {},
+          onReorder: () => {},
+        }),
+      ),
+    );
+    const dot = (id: string) =>
+      host.querySelector(`[data-ws-id="${id}"] .rail__dot`)!.className;
+    expect(dot("a")).toBe("rail__dot rail__dot--selected");
+    expect(dot("b")).toBe("rail__dot rail__dot--failed");
+    // "none" and an absent frame both mean the bare gray dot.
+    expect(dot("c")).toBe("rail__dot");
+    expect(dot("d")).toBe("rail__dot");
+  });
 });

@@ -6,7 +6,7 @@ const bridge = vi.hoisted(() => ({
   peekPaneSpawnSpec: vi.fn(),
   bindPaneSpawnSpecSession: vi.fn(),
   bumpPostback: vi.fn(),
-  beginPaneUsageSession: vi.fn(),
+  beginSession: vi.fn(),
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: bridge.onSessionBound }));
 vi.mock("./spawnSpecs", () => ({
@@ -14,9 +14,10 @@ vi.mock("./spawnSpecs", () => ({
   bindPaneSpawnSpecSession: bridge.bindPaneSpawnSpecSession,
 }));
 vi.mock("./postbacks", () => ({ bumpPostback: bridge.bumpPostback }));
-vi.mock("./usageManager", () => ({
-  beginPaneUsageSession: bridge.beginPaneUsageSession,
-}));
+
+/** A fake of the runtime's telemetry owner — the binding only begins
+ * sessions; retiring belongs to the orchestrator's paths. */
+const telemetry = { retire: vi.fn(), beginSession: bridge.beginSession };
 
 import {
   createSessionBinding,
@@ -53,7 +54,7 @@ describe("createSessionBinding", () => {
   }) => void = () => {};
 
   beforeEach(() => {
-    bridge.beginPaneUsageSession.mockClear();
+    bridge.beginSession.mockClear();
     bridge.bindPaneSpawnSpecSession.mockClear();
     bridge.bumpPostback.mockClear();
     bridge.peekPaneSpawnSpec.mockReturnValue({ token: "tok" });
@@ -92,7 +93,7 @@ describe("createSessionBinding", () => {
       subscribe: () => () => {},
       dispatch,
     } as unknown as DeckStore;
-    return { binding: createSessionBinding(store), dispatch };
+    return { binding: createSessionBinding(store, telemetry), dispatch };
   };
 
   it("clears pane telemetry before binding a different session", async () => {
@@ -100,7 +101,7 @@ describe("createSessionBinding", () => {
 
     emit({ paneId: "pane-1", sessionId: "session-new", token: "tok" });
 
-    expect(bridge.beginPaneUsageSession).toHaveBeenCalledWith(
+    expect(bridge.beginSession).toHaveBeenCalledWith(
       "pane-1",
       "session-new",
     );
@@ -142,12 +143,12 @@ describe("createSessionBinding", () => {
   it("keeps telemetry on the initial and same-session bindings", async () => {
     let mounted = mount();
     emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" });
-    expect(bridge.beginPaneUsageSession).not.toHaveBeenCalled();
+    expect(bridge.beginSession).not.toHaveBeenCalled();
     mounted.binding.dispose();
 
     mounted = mount("session-1");
     emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" });
-    expect(bridge.beginPaneUsageSession).not.toHaveBeenCalled();
+    expect(bridge.beginSession).not.toHaveBeenCalled();
     mounted.binding.dispose();
   });
 
@@ -171,11 +172,14 @@ describe("createSessionBinding", () => {
       journal: { records: {}, tail: [] },
     };
     const dispatch = vi.fn(() => state);
-    const binding = createSessionBinding({
-      getSnapshot: () => state,
-      subscribe: () => () => {},
-      dispatch,
-    } as unknown as DeckStore);
+    const binding = createSessionBinding(
+      {
+        getSnapshot: () => state,
+        subscribe: () => () => {},
+        dispatch,
+      } as unknown as DeckStore,
+      telemetry,
+    );
 
     emit({ paneId: "pane-1", sessionId: "ses-1", token: "tok" });
 

@@ -1,60 +1,17 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { createPortal } from "react-dom";
+import type { ActivityBadge } from "../../domain/status";
 import { GitBranchIcon } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
-
-const GAP = 6;
-const VIEWPORT_MARGIN = 8;
-
-interface TooltipPosition {
-  top: number;
-  left: number;
-  maxHeight: number;
-}
-
-interface MinimizedTooltipPlacementInput {
-  anchorRect: Pick<DOMRect, "top" | "right" | "bottom" | "left">;
-  tooltipWidth: number;
-  tooltipHeight: number;
-  viewportWidth: number;
-  viewportHeight: number;
-}
-
-/** Keep even pathological runtime titles fully inside the viewport. */
-export function calculateMinimizedTooltipPosition({
-  anchorRect,
-  tooltipWidth,
-  tooltipHeight,
-  viewportWidth,
-  viewportHeight,
-}: MinimizedTooltipPlacementInput): TooltipPosition {
-  const maxWidth = Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2);
-  const maxHeight = Math.max(0, viewportHeight - VIEWPORT_MARGIN * 2);
-  const renderedWidth = Math.min(Math.max(0, tooltipWidth), maxWidth);
-  const renderedHeight = Math.min(Math.max(0, tooltipHeight), maxHeight);
-  const left = Math.max(
-    VIEWPORT_MARGIN,
-    Math.min(
-      anchorRect.left,
-      viewportWidth - renderedWidth - VIEWPORT_MARGIN,
-    ),
-  );
-  const above = anchorRect.top - GAP - renderedHeight;
-  const top =
-    above >= VIEWPORT_MARGIN
-      ? above
-      : Math.min(
-          viewportHeight - renderedHeight - VIEWPORT_MARGIN,
-          anchorRect.bottom + GAP,
-        );
-
-  return { top: Math.max(VIEWPORT_MARGIN, top), left, maxHeight };
-}
+import { useAnchoredTooltipPosition } from "../../ui/tooltip/useAnchoredTooltipPosition";
 
 interface MinimizedDetailsTooltipProps {
   anchor: HTMLElement;
   id: string;
   title: string;
+  /** The pane's live status, settled by the domain (working/waiting/done/
+   * failed) — the frame colours the chip, this names the state in words. */
+  activity?: ActivityBadge | null;
   gitBadge?: GitBadge | null;
   /** The pane behind the stand-in has no process. */
   stopped?: boolean;
@@ -70,42 +27,18 @@ export function MinimizedDetailsTooltip({
   anchor,
   id,
   title,
+  activity,
   gitBadge,
   stopped,
 }: MinimizedDetailsTooltipProps) {
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<TooltipPosition | null>(null);
-
-  const recompute = useCallback(() => {
-    const tooltip = tooltipRef.current;
-    if (!tooltip) return;
-
-    const anchorRect = anchor.getBoundingClientRect();
-    const tooltipRect = tooltip.getBoundingClientRect();
-    const viewportWidth =
-      document.documentElement.clientWidth || window.innerWidth;
-    const viewportHeight =
-      document.documentElement.clientHeight || window.innerHeight;
-    setPosition(
-      calculateMinimizedTooltipPosition({
-        anchorRect,
-        tooltipWidth: tooltipRect.width,
-        tooltipHeight: tooltipRect.height,
-        viewportWidth,
-        viewportHeight,
-      }),
-    );
-  }, [anchor]);
-
-  useLayoutEffect(() => {
-    recompute();
-    window.addEventListener("scroll", recompute, true);
-    window.addEventListener("resize", recompute);
-    return () => {
-      window.removeEventListener("scroll", recompute, true);
-      window.removeEventListener("resize", recompute);
-    };
-  }, [recompute]);
+  const getAnchorRect = useCallback(
+    () => anchor.getBoundingClientRect(),
+    [anchor],
+  );
+  const { tooltipRef, position } = useAnchoredTooltipPosition({
+    ownerDocument: anchor.ownerDocument,
+    getAnchorRect,
+  });
 
   return createPortal(
     <div
@@ -121,6 +54,14 @@ export function MinimizedDetailsTooltip({
       }}
     >
       <div className="minimized-tooltip__title">{title}</div>
+      {activity && (
+        <div
+          className={`minimized-tooltip__status minimized-tooltip__status--${activity.tone}`}
+        >
+          {activity.label}
+          {activity.detail ? ` — ${activity.detail}` : ""}
+        </div>
+      )}
       {/* The chip's own marker is a glyph with a native `title`, which this
           custom tooltip suppresses on the same hover — so the detail layer has
           to carry the state itself or the hover hides what it explains. */}

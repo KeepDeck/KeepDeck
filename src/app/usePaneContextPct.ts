@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { contextPct } from "../domain/usage";
-import { getUsageSnapshot, subscribeUsage } from "./usageManager";
+import { useAppRuntime } from "./runtimeContext";
 
 /**
  * The live context-occupancy percentage for ONE pane — or undefined when the
@@ -11,7 +11,8 @@ import { getUsageSnapshot, subscribeUsage } from "./usageManager";
  * scoped to a single pane so each `AgentPane` can carry its own header meter.
  */
 export function usePaneContextPct(paneId: string): number | undefined {
-  return useSyncExternalStore(subscribeUsage, () =>
-    contextPct(getUsageSnapshot().panes.get(paneId)?.context),
+  const { usageManager } = useAppRuntime();
+  return useSyncExternalStore(usageManager.subscribe, () =>
+    contextPct(usageManager.getSnapshot().panes.get(paneId)?.context),
   );
 }

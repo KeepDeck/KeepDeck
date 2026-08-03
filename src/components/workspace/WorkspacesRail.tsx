@@ -11,6 +11,7 @@ import {
   type ElementRectSnapshot,
 } from "../../app/dragManager";
 import { railItemAtY } from "../../domain/deck";
+import type { StatusFrame } from "../../domain/status";
 
 /** View model for the rail (the domain `Workspace` lives in `../workspaces`). */
 export interface WorkspaceItem {
@@ -19,6 +20,9 @@ export interface WorkspaceItem {
   agentCount: number;
   /** Unread notifications sourced in this workspace — 0 hides the dot. */
   unread?: number;
+  /** The workspace's status frame, folded by the domain ladder — the dot
+   * paints it verbatim. Absent = the plain gray dot. */
+  dot?: StatusFrame;
 }
 
 interface WorkspacesRailProps {
@@ -226,7 +230,13 @@ export function WorkspacesRail({
                 onDoubleClick={() => rename.start(ws.id, ws.name)}
                 aria-current={active}
               >
-                <span className="rail__dot" />
+                <span
+                  className={`rail__dot${
+                    !ws.dot || ws.dot === "none"
+                      ? ""
+                      : ` rail__dot--${ws.dot}`
+                  }`}
+                />
                 <span className="rail__name">{ws.name}</span>
               </button>
               {(ws.unread ?? 0) > 0 && (

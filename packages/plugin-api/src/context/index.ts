@@ -24,6 +24,13 @@ export type {
 } from "./agents.ts";
 export { mapMcpServers } from "./agents.ts";
 export type {
+  AgentStatus,
+  AgentStatusEvent,
+  StatusNormalizer,
+  StatusWaitReason,
+} from "./status.ts";
+export { statusSourceInstant, turnFailedEvent } from "./status.ts";
+export type {
   AccountUsage,
   AgentUsage,
   LimitsNormalizer,

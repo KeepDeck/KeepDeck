@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactElement } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
+import { useWindowReports } from "../../app/useWindowReports";
 import { PERIOD_LABELS, USAGE_PERIODS } from "../../domain/usage";
 import {
   latestOccurredAt,
@@ -75,6 +76,7 @@ export function UsageStats({
 }) {
   const history = useUsageHistorySnapshot();
   const { accounts } = useUsage();
+  const reports = useWindowReports();
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
   // THE tab body's one clock: stable between 30s ticks, so it sits in every
   // memo's deps — aggregates, captions and bars all agree on the same now,
@@ -122,7 +124,14 @@ export function UsageStats({
           />
         );
       case "providers":
-        return <Providers accounts={accounts} events={history.events} now={now} />;
+        return (
+          <Providers
+            accounts={accounts}
+            events={history.events}
+            reportsByKey={reports.byKey}
+            now={now}
+          />
+        );
       case "models":
         return <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />;
       case "sessions":

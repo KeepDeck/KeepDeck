@@ -453,4 +453,88 @@ describe("opencode session reporter", () => {
     });
     expect(usageReports()).toHaveLength(1);
   });
+
+  /** The agent.status envelopes the reporter dropped, in event order. */
+  const statusEvents = () =>
+    envelopes()
+      .filter((envelope) => envelope.type === "agent.status")
+      .map((envelope) => envelope.payload.event);
+
+  it("reports the root session's turn edges as agent.status envelopes", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "busy" } },
+      },
+    });
+    await event({
+      event: { type: "session.idle", properties: { sessionID: "ses_root" } },
+    });
+    await event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: "ses_root", error: { name: "ProviderAuthError" } },
+      },
+    });
+    // Inbox filenames are random (mktemp-style), so readdir order proves
+    // nothing — assert the set; ordering is the deliverer's job.
+    const events = statusEvents();
+    expect(events).toHaveLength(3);
+    expect(events).toContainEqual({ type: "session.status" });
+    expect(events).toContainEqual({ type: "session.idle" });
+    expect(events).toContainEqual({
+      type: "session.error",
+      error: "ProviderAuthError",
+    });
+    // Every envelope carries the pane's own correlation.
+    for (const envelope of envelopes()) {
+      expect(envelope.paneId).toBe("pane-3");
+      expect(envelope.token).toBe("tok");
+    }
+  });
+
+  it("ignores a child session's busy/idle — a subagent is not the pane's turn", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event(created("ses_child", "ses_root"));
+    await event({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_child", status: { type: "busy" } },
+      },
+    });
+    await event({
+      event: { type: "session.idle", properties: { sessionID: "ses_child" } },
+    });
+    // An unrelated ROOT session in the same server is not this pane either.
+    await event({
+      event: { type: "session.idle", properties: { sessionID: "ses_other" } },
+    });
+    expect(statusEvents()).toEqual([]);
+  });
+
+  it("forwards permission edges without a session filter", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event({ event: { type: "permission.asked", properties: {} } });
+    await event({ event: { type: "permission.replied", properties: {} } });
+    const events = statusEvents();
+    expect(events).toHaveLength(2);
+    expect(events).toContainEqual({ type: "permission.asked" });
+    expect(events).toContainEqual({ type: "permission.replied" });
+  });
+
+  it("only busy marks a turn start — an idle STATUS is not an edge", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "idle" } },
+      },
+    });
+    expect(statusEvents()).toEqual([]);
+  });
 });

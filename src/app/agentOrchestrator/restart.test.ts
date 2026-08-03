@@ -20,7 +20,7 @@ import {
   resetPaneSpawnSpecs,
   settle,
   skillsAsked,
-  usage,
+  telemetry,
 } from "./testSupport";
 import type {
   RestartOutcome,
@@ -33,7 +33,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     vi.mocked(buildResumeSpec).mockReset();
     vi.mocked(dropPaneSpawnSpec).mockClear();
     vi.mocked(clearPanePlanError).mockClear();
-    usage.clearPaneUsage.mockClear();
+    telemetry.retire.mockClear();
     skillsAsked.mockClear();
     gate.build = null;
     ipc.probeWorktree.mockReset().mockResolvedValue({
@@ -105,7 +105,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
       "manual",
     );
     expect(pty.closed).toEqual(["pane-1"]);
-    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
+    expect(telemetry.retire).toHaveBeenCalledWith("pane-1");
     expect(epoch()).toBe(1);
     expect(pane()).toMatchObject({
       cwd: "/worktree",
@@ -124,7 +124,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     await act(async () => agentRun.restart("ws-1", "pane-1", "fresh"));
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
     expect(pty.closed).toEqual(["pane-1"]);
-    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
+    expect(telemetry.retire).toHaveBeenCalledWith("pane-1");
     expect(pane()).toMatchObject({
       cwd: "/worktree",
       branch: "feature/restart",
@@ -494,7 +494,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     });
     await act(async () => {});
     expect(pty.closed).toEqual(["pane-1"]);
-    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
+    expect(telemetry.retire).toHaveBeenCalledWith("pane-1");
     expect(pane().session).toBeUndefined();
     expect(epoch()).toBe(1);
     // The spec is gone, so the predicate answers false for the next exit.

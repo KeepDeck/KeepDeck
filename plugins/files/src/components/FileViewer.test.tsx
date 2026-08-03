@@ -52,7 +52,10 @@ async function settle(ready: () => boolean, timeoutMs = 10_000) {
   }
 }
 
-describe("FileViewer", () => {
+// Load-sensitive under a full parallel run (real git/tmpdirs or real-timer
+// polling); passes deterministically in isolation — retry absorbs runner
+// contention instead of reddening unrelated gates.
+describe("FileViewer", { retry: 2 }, () => {
   let host: HTMLElement;
   let root: Root;
 

@@ -2,7 +2,6 @@ import type { UsageLimitsSource } from "@keepdeck/plugin-api";
 import { paneAgentType, paneHasProcess } from "../domain/deck";
 import { log } from "../ipc/log";
 import { fetchCodexRateLimits, fetchKimiUsages } from "../ipc/usage";
-import { setAccountUsage } from "./usageManager";
 import { usageSourceTimestamp } from "./usageProvenance";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
@@ -53,6 +52,7 @@ function enqueueLatest(
 export function createUsageLimitsLane({
   deck,
   declarations,
+  usage,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
   let polledKey = "";
@@ -88,7 +88,7 @@ export function createUsageLimitsLane({
         const sourceAt =
           usageSourceTimestamp(read.sourceAt, Date.now()) ?? requestedAt;
         const account = limits.normalize(read.body, sourceAt);
-        if (account) setAccountUsage(agentId, account);
+        if (account) usage.setAccount(agentId, account);
         else
           // A fetch that THROWS is logged below; a fetch that succeeded and
           // didn't normalize was silent — indistinguishable from "no data

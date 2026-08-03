@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { calculateMinimizedTooltipPosition } from "./MinimizedDetailsTooltip";
+import { calculateTooltipPosition } from "./tooltipPlacement";
 
 const anchor = {
   top: 40,
-  right: 140,
   bottom: 66,
   left: 40,
 };
 
-describe("calculateMinimizedTooltipPosition", () => {
+describe("calculateTooltipPosition", () => {
   it("places normal content below when there is no room above", () => {
     expect(
-      calculateMinimizedTooltipPosition({
+      calculateTooltipPosition({
         anchorRect: anchor,
         tooltipWidth: 200,
         tooltipHeight: 50,
@@ -23,7 +22,7 @@ describe("calculateMinimizedTooltipPosition", () => {
 
   it("caps pathological content and keeps the whole layer inside the viewport", () => {
     expect(
-      calculateMinimizedTooltipPosition({
+      calculateTooltipPosition({
         anchorRect: anchor,
         tooltipWidth: 900,
         tooltipHeight: 1000,

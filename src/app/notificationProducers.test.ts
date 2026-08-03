@@ -1,16 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import {
+  initActivityNotifications,
   initUpdateNotifications,
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
   pluginNotificationSource,
   resetUpdateNotifications,
 } from "./notificationProducers";
+import { createAgentStatusTracker } from "./agentStatusTracker";
 
 const center = vi.hoisted(() => ({
   notify: vi.fn(),
+  retractNotification: vi.fn(),
 }));
 vi.mock("./notificationCenter", () => center);
 
@@ -200,5 +203,164 @@ describe("update producer", () => {
     updates.fire("downloading", "1.2.3");
     expect(center.notify).not.toHaveBeenCalled();
     stop();
+  });
+});
+
+describe("activity notifications", () => {
+  const edgeNormalizer = (payload: unknown) =>
+    (payload as { edge?: import("@keepdeck/plugin-api").AgentStatusEvent })
+      .edge ?? null;
+  let tracker: ReturnType<typeof createAgentStatusTracker>;
+  let stop: () => void;
+
+  beforeEach(() => {
+    center.notify.mockClear();
+    center.retractNotification.mockClear();
+    // The factory's whole point: each test builds its own tracker.
+    tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", edgeNormalizer);
+    stop = initActivityNotifications(tracker, () => ({
+      workspaces: deckWith(),
+      agents,
+    }));
+  });
+
+  afterEach(() => stop());
+
+  const edge = (e: Record<string, unknown>) =>
+    tracker.report("pane-1", { agent: "claude", edge: e });
+
+  it("announces a wait once; a re-assert is silent, a changed question replaces", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    expect(center.notify).toHaveBeenCalledWith({
+      title: "Claude 1 — needs approval",
+      body: "Alpha",
+      severity: "warning",
+      source: {
+        type: "pane",
+        workspace: { id: "ws-1", instance: workspaceInstance },
+        paneId: "pane-1",
+      },
+      tag: "pane:pane-1:activity",
+    });
+    // Same question again (claude's idle nudge repeats): nothing to say.
+    edge({ kind: "waiting", at: 200, reason: "permission" });
+    expect(center.notify).toHaveBeenCalledTimes(1);
+    // A DIFFERENT question re-announces under the same tag, so the bell's
+    // text stops lying about which prompt is up (replace, not stack).
+    edge({ kind: "waiting", at: 300, reason: "question" });
+    expect(center.notify).toHaveBeenCalledTimes(2);
+    expect(center.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: "Claude 1 — needs your input",
+        tag: "pane:pane-1:activity",
+      }),
+    );
+  });
+
+  it("announces a finished turn, but never one the user cut themselves", () => {
+    edge({ kind: "turn-start", at: 100 });
+    edge({ kind: "turn-end", at: 200 });
+    expect(center.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Claude 1 finished",
+        body: "Alpha",
+        tag: "pane:pane-1:activity",
+      }),
+    );
+
+    center.notify.mockClear();
+    edge({ kind: "turn-start", at: 300 });
+    edge({ kind: "interrupted", at: 400 });
+    expect(center.notify).not.toHaveBeenCalled();
+  });
+
+  it("a done with no running turn behind it announces nothing", () => {
+    edge({ kind: "turn-end", at: 100 });
+    expect(center.notify).not.toHaveBeenCalled();
+  });
+
+  it("retracts an answered wait — resumed turn or the user's own interrupt", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    expect(center.notify).toHaveBeenCalledTimes(1);
+    edge({ kind: "resumed", at: 200 });
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
+    // Answering announced nothing new.
+    expect(center.notify).toHaveBeenCalledTimes(1);
+
+    center.retractNotification.mockClear();
+    edge({ kind: "waiting", at: 300, reason: "question" });
+    edge({ kind: "interrupted", at: 400 });
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
+  });
+
+  it("a pane leaving the store withdraws its standing wait — and only a wait", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    expect(center.notify).toHaveBeenCalledTimes(1);
+    // The pane's process retires (suspend/close/crash): its activity is
+    // cleared, and the standing "needs approval" must go with it.
+    tracker.clear("pane-1");
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
+
+    // A finished pane's entry is history — history may stand.
+    center.retractNotification.mockClear();
+    edge({ kind: "turn-start", at: 200 });
+    edge({ kind: "turn-end", at: 300 });
+    tracker.clear("pane-1");
+    expect(center.retractNotification).not.toHaveBeenCalled();
+  });
+
+  it("retention sweeps withdraw waits the same way a clear does", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    tracker.retain(new Set(["some-other-pane"]));
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
+  });
+
+  it("a wait that ends in an announcement replaces, never retracts", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    edge({ kind: "turn-end", at: 200 });
+    expect(center.retractNotification).not.toHaveBeenCalled();
+    expect(center.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: "Claude 1 finished",
+        tag: "pane:pane-1:activity",
+      }),
+    );
+  });
+
+  it("announces a failed turn with its prose", () => {
+    edge({ kind: "turn-start", at: 100 });
+    center.notify.mockClear();
+    edge({
+      kind: "turn-failed",
+      at: 200,
+      error: "rate_limit",
+      detail: "Weekly limit reached",
+    });
+    expect(center.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Claude 1 — rate limited",
+        body: "Weekly limit reached · Alpha",
+        severity: "error",
+      }),
+    );
+  });
+
+  it("stays silent for a pane the deck no longer names", () => {
+    stop();
+    stop = initActivityNotifications(tracker, () => ({
+      workspaces: [],
+      agents,
+    }));
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    expect(center.notify).not.toHaveBeenCalled();
   });
 });

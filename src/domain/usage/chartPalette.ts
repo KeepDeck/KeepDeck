@@ -20,7 +20,7 @@ const AGENT_SLOTS: Record<string, string> = {
 };
 
 const SPARE_SLOTS = ["#d55181", "#008300", "#9085e9", "#e66767"];
-const OVERFLOW_COLOR = "#596273";
+export const OVERFLOW_COLOR = "#596273";
 
 /** The dialog card surface the palette was validated against. Duplicated as
  * a TS constant because SVG fill/stroke props cannot read a CSS custom
@@ -44,6 +44,25 @@ export const CHART_LABEL_INK = "#596273";
 export const CHART_TOOLTIP_BG = "#10141c";
 export const CHART_TOOLTIP_BORDER = "#1c2230";
 export const CHART_CURSOR_FILL = "rgba(255, 255, 255, 0.04)";
+
+/** THE per-surface resolution: the ledger-roster color when the agent has
+ * one, else its fixed slot or the overflow ink — every burn surface calls
+ * this, so an unknown plugin wears one hue on the cards AND the panel. */
+export function seriesColorFor(
+  colors: ReadonlyMap<string, string>,
+  agent: string,
+): string {
+  return colors.get(agent) ?? agentSlotColor(agent);
+}
+
+/** An agent's fixed slot, or the designated overflow ink — the fallback
+ * for an agent absent from the ledger roster (an account with no events
+ * yet). Known agents match every roster-keyed surface by construction. */
+export function agentSlotColor(agent: string): string {
+  return Object.prototype.hasOwnProperty.call(AGENT_SLOTS, agent)
+    ? AGENT_SLOTS[agent]
+    : OVERFLOW_COLOR;
+}
 
 /** Colors for a roster of agent ids. Spare slots are handed out by an
  * agent's rank among ALL unknown agents in the roster — pass the FULL

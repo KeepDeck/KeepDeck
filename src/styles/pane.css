@@ -61,10 +61,8 @@
   color: #c5c8c6;
 }
 
-/* The focused pane — colour the reserved border. Content stays fully inside it. */
-.pane--active {
-  border-color: #58b368;
-}
+/* The reserved border is coloured by the status frame ladder — see
+   status.css (.pane--frame-*); the domain's paneFrame() decides which. */
 
 .pane__bar {
   display: flex;
@@ -140,6 +138,28 @@
   outline: none;
 }
 
+/* Live activity badge: what the agent is doing right now. A dot at every
+   state — the frame ladder carries attention, so the header keeps one
+   density and the words live in the tooltip. This block owns only the
+   badge's PLACE in the header; every hue and rhythm lives in status.css
+   (.pane__activity--*), the one home of the status palette. Squared like
+   the YOLO badge (chip.css) so the pill's 999px radius draws a circle,
+   not a stadium around the dot. */
+.pane__activity {
+  flex: none;
+  width: 22px;
+  padding: 0;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.pane__activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
 /* Standing YOLO warning dot: the shared ui-kit YoloBadge (squared in
    chip.css); this hook owns only its flex place and its spot in the
    narrow-header cascade below (gone at ≤150px so maximize/close keep their
@@ -195,7 +215,10 @@
 /* Narrower: the branch chip yields entirely — identity goes first, window
    controls last. */
 @container (max-width: 200px) {
-  .pane__branch {
+  .pane__branch,
+  /* The activity dot yields with it: the FRAME still carries the state,
+     and a header this narrow must never squeeze maximize/close out. */
+  .pane__activity {
     display: none;
   }
 }

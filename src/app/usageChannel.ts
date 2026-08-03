@@ -4,7 +4,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
 import type { DeckStore } from "./deckStore";
-import { registerUsageNormalizer } from "./usageManager";
+import type { UsageManager } from "./usageManager";
 import { createUsageLimitsLane } from "./usageChannelLimits";
 import { createUsageMaintenanceLane } from "./usageChannelMaintenance";
 import { createUsageReportsLane } from "./usageChannelReports";
@@ -22,6 +22,7 @@ export interface UsageChannel {
 export function createUsageChannel(
   deck: DeckStore,
   agents: ContributionRegistry<AgentContribution>,
+  usage: UsageManager,
 ): UsageChannel {
   const declarationListeners = new Set<() => void>();
   let usageByAgent = readDeclarations();
@@ -46,8 +47,8 @@ export function createUsageChannel(
 
   const registerNormalizers = () => {
     for (const unregister of normalizerDisposers) unregister();
-    normalizerDisposers = [...usageByAgent].map(([agentId, usage]) =>
-      registerUsageNormalizer(agentId, usage.normalize),
+    normalizerDisposers = [...usageByAgent].map(([agentId, declared]) =>
+      usage.registerNormalizer(agentId, declared.normalize),
     );
   };
 
@@ -59,7 +60,7 @@ export function createUsageChannel(
   };
 
   registerNormalizers();
-  const context = { deck, declarations };
+  const context = { deck, declarations, usage };
   const lanes: UsageLane[] = [
     createUsageReportsLane(context),
     createUsageTailsLane(context),

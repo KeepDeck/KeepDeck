@@ -93,8 +93,11 @@
   min-width: 0;
 }
 
-/* Bar: mirrors a pane header (30px, full width) — the folded agent's own bar. */
+/* Bar: mirrors a pane header (30px, full width) — the folded agent's own
+   bar. border-box, so width:100% + padding never overflows the strip and
+   a status frame's border recolours without moving a pixel. */
 .minimized--bar {
+  box-sizing: border-box;
   height: 30px;
   width: 100%;
   padding: 0 9px 0 11px;
@@ -283,6 +286,28 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 6;
   overflow: hidden;
+}
+
+/* The live status line: the frame only colours the chip's border, so the
+   hover details name the state in words. Hues come from the one status
+   palette (status.css) under the same four tone names. */
+.minimized-tooltip__status {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.minimized-tooltip__status--working {
+  color: var(--status-working);
+}
+.minimized-tooltip__status--waiting {
+  color: var(--status-waiting);
+}
+.minimized-tooltip__status--done {
+  color: var(--status-done);
+}
+.minimized-tooltip__status--failed {
+  color: var(--status-failed);
 }
 
 .minimized-tooltip__branch {

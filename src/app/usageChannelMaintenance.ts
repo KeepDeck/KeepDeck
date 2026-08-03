@@ -6,12 +6,6 @@ import {
   peekPaneSpawnSpec,
   spawnPlanNeedsUsageBaseline,
 } from "./spawnSpecs";
-import {
-  getUsageSnapshot,
-  retainUsagePanes,
-  setAccountUsage,
-  subscribeUsage,
-} from "./usageManager";
 import { recordPaneUsage } from "./usageHistoryManager";
 import { usageSourceTimestamp } from "./usageProvenance";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
@@ -20,6 +14,7 @@ import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 export function createUsageMaintenanceLane({
   deck,
   declarations,
+  usage,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
   let sweptCodex = false;
@@ -28,11 +23,11 @@ export function createUsageMaintenanceLane({
   const sweepNewestCodex = () => {
     if (sweptCodex || disposed) return;
     const found = [...declarations.current()].find(
-      ([, usage]) => usage.tail === "codex",
+      ([, declared]) => declared.tail === "codex",
     );
     if (!found) return;
     sweptCodex = true;
-    const [agentId, usage] = found;
+    const [agentId, declared] = found;
     void latestCodexRollout()
       .then((rollout) => {
         if (disposed || !rollout) {
@@ -49,11 +44,11 @@ export function createUsageMaintenanceLane({
           usageSourceTimestamp(rollout.sourceAt, receivedAt) ??
           usageSourceTimestamp(rollout.mtimeMs, receivedAt) ??
           0;
-        const result = usage.normalize(
+        const result = declared.normalize(
           { agent: agentId, event: rollout.event, catchUp: true },
           sourceAt,
         );
-        if (result?.account) setAccountUsage(agentId, result.account);
+        if (result?.account) usage.setAccount(agentId, result.account);
       })
       .catch((error) =>
         log.debug("web:usage", `codex boot sweep failed: ${error}`),
@@ -64,27 +59,29 @@ export function createUsageMaintenanceLane({
     const nextKey = paneMembershipKey(deck.getSnapshot());
     if (nextKey === membershipKey) return;
     membershipKey = nextKey;
-    retainUsagePanes(paneMembership(nextKey));
+    usage.retainPanes(paneMembership(nextKey));
   };
 
   const captureHistory = () => {
     const current = deck.getSnapshot();
-    for (const [paneId, usage] of getUsageSnapshot().panes) {
+    for (const [paneId, paneUsage] of usage.getSnapshot().panes) {
       const workspace = current.workspaces.find((candidate) =>
         candidate.panes.some((pane) => pane.id === paneId),
       );
       const pane = workspace?.panes.find(
         (candidate) => candidate.id === paneId,
       );
-      if (!workspace || !pane || paneAgentType(pane) !== usage.agent) continue;
-      const sessionId = usage.sessionId ?? pane.session?.id;
+      if (!workspace || !pane || paneAgentType(pane) !== paneUsage.agent) {
+        continue;
+      }
+      const sessionId = paneUsage.sessionId ?? pane.session?.id;
       if (!sessionId) continue;
       const baselineOnly = spawnPlanNeedsUsageBaseline(
         peekPaneSpawnSpec(paneId),
         sessionId,
       );
       const index = workspace.panes.indexOf(pane);
-      void recordPaneUsage(usage, {
+      void recordPaneUsage(paneUsage, {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
         workspaceCwd: workspace.cwd,
@@ -112,7 +109,7 @@ export function createUsageMaintenanceLane({
 
   const unsubscribeDeck = deck.subscribe(retainLivePanes);
   const unsubscribeDeclarations = declarations.subscribe(sweepNewestCodex);
-  const unsubscribeUsage = subscribeUsage(captureHistory);
+  const unsubscribeUsage = usage.subscribe(captureHistory);
   retainLivePanes();
   sweepNewestCodex();
   captureHistory();

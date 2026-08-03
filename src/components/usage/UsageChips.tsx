@@ -8,24 +8,22 @@ import { DEFAULT_SETTINGS, type UsageDisplay } from "../../domain/settings";
 import {
   chipWindows,
   formatAge,
-  formatPct,
   latestReportedAt,
-  panelWindows,
   usageStale,
-  windowExpired,
-  windowLevel,
   windowLabel,
-  windowResetCaption,
   type AccountUsage,
-  type UsageWindow,
 } from "../../domain/usage";
-import { updateSettings } from "../../app/settingsManager";
+import { agentSeriesColors } from "../../domain/usage/chartPalette";
+import { usageAgents } from "../../domain/usage/daily";
 import { useSettings } from "../../app/useSettings";
+import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useUsage } from "../../app/useUsage";
+import { useWindowReports } from "../../app/useWindowReports";
+import { UsagePanel } from "./UsagePanel";
+import { WindowValue } from "./WindowValue";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
 import { useWallClock } from "../../ui/useWallClock";
-import { UsageWindowBar } from "./UsageWindowBar";
 
 /**
  * The top-bar usage cluster: one chip per ACCOUNT-LIMIT-capable agent with a
@@ -42,33 +40,6 @@ import { UsageWindowBar } from "./UsageWindowBar";
  * [`chipWindows`]/[`panelWindows`].
  */
 
-function WindowValue({
-  window,
-  display,
-  now,
-}: {
-  window: UsageWindow;
-  display: UsageDisplay;
-  now: number;
-}) {
-  const expired = windowExpired(window, now);
-  const level = windowLevel(window, now);
-  return (
-    <span
-      className={`usage-window__value${level ? ` usage-level--${level}` : ""}${
-        expired ? " usage-window--expired" : ""
-      }`}
-    >
-      {formatPct(window.usedPct, display)}
-    </span>
-  );
-}
-
-/** The panel's fill bar — shared with the Stats Providers cards. Chips
- * deliberately carry NONE: a bar next to one number but not its neighbor
- * read as noise (field report) — the chip is numbers only, the panel
- * visualizes. */
-const Bar = UsageWindowBar;
 
 function UsageChip({
   agent,
@@ -134,6 +105,15 @@ export function UsageChips({
   onOpenStats(): void;
 }) {
   const { accounts } = useUsage();
+  const journal = useWindowReports();
+  // The SAME ledger-roster palette the Stats surfaces key on — memoized
+  // here (the owner), so the panel stays prop-driven and an unknown
+  // plugin wears one hue everywhere.
+  const history = useUsageHistorySnapshot();
+  const seriesColors = useMemo(
+    () => agentSeriesColors(usageAgents(history.events)),
+    [history.events],
+  );
   const settings = useSettings();
   const display = settings?.usageDisplay ?? DEFAULT_SETTINGS.usageDisplay;
   // The open PANEL is per provider — a chip opens ITS agent's details.
@@ -202,80 +182,18 @@ export function UsageChips({
           }
         />
       ))}
-      {open && (
-        <div
-          className="usage-panel"
-          id="usage-panel"
-          role="group"
-          aria-label="Account limits"
-        >
-          <div className="usage-panel__head">
-            <span className="usage-panel__title">Account limits</span>
-            <button
-              type="button"
-              className="usage-panel__toggle"
-              onClick={() =>
-                updateSettings({ usageDisplay: display === "used" ? "left" : "used" })
-              }
-              title="Switch between % used and % left"
-            >
-              % {display}
-            </button>
-          </div>
-          {providers
-            .filter((agent) => agent.id === openProvider)
-            .map((agent) => {
-            const account = accounts.get(agent.id);
-            if (!account) {
-              return (
-                <div key={agent.id} className="usage-panel__section">
-                  <div className="usage-panel__provider">
-                    <b>{agent.label}</b>
-                    <span className="usage-panel__ago">
-                      waiting for the first report
-                    </span>
-                  </div>
-                </div>
-              );
-            }
-            return (
-              <div key={agent.id} className="usage-panel__section">
-                <div className="usage-panel__provider">
-                  <b>{agent.label}</b>
-                  <span className="usage-panel__ago">
-                    Updated {formatAge(account.reportedAt, now)}
-                  </span>
-                </div>
-                {panelWindows(account).map((window, i) => {
-                  const caption = windowResetCaption(window, now);
-                  return (
-                    <div key={i} className="usage-window">
-                      <span className="usage-window__label">
-                        {windowLabel(window, "long")}
-                      </span>
-                      <Bar window={window} now={now} />
-                      <span className="usage-window__detail">
-                        <WindowValue window={window} display={display} now={now} />
-                        {caption && <small>{caption}</small>}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-          <button
-            type="button"
-            className="usage-panel__stats"
-            onClick={() => {
-              setOpenProvider(null);
-              onOpenStats();
-            }}
-          >
-            Open statistics
-            <span aria-hidden>→</span>
-          </button>
-        </div>
+      {open && openProvider !== null && (
+        <UsagePanel
+          providers={providers}
+          openProvider={openProvider}
+          accounts={accounts}
+          display={display}
+          now={now}
+          reportsByKey={journal.byKey}
+          seriesColors={seriesColors}
+          onOpenStats={onOpenStats}
+          onClose={() => setOpenProvider(null)}
+        />
       )}
     </span>
   );

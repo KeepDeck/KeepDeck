@@ -6,9 +6,15 @@ import {
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
 import type { NotificationSource } from "../domain/notifications";
+import {
+  activityBadge,
+  activityTransition,
+  type PaneActivity,
+} from "../domain/status";
 import type { WorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
-import { notify } from "./notificationCenter";
+import type { AgentStatusTracker } from "./agentStatusTracker";
+import { notify, retractNotification } from "./notificationCenter";
 import { getSettings } from "./settingsManager";
 import { getUpdateState, subscribeUpdates } from "./updateManager";
 
@@ -99,6 +105,113 @@ export function notifyAgentSpawnFailed(
     source: { type: "pane", workspace: ctx.workspace, paneId },
     tag: `pane:${paneId}:spawn`,
   });
+}
+
+/** [`paneContext`] when only the pane id is known (the status tracker keys
+ * by pane alone) — the deck is scanned for the owning workspace. */
+function paneContextById(
+  workspaces: Workspace[],
+  paneId: string,
+  agents: AgentInfo[],
+) {
+  for (const ws of workspaces) {
+    if (ws.panes.some((p) => p.id === paneId)) {
+      return paneContext(workspaces, ws.id, paneId, agents);
+    }
+  }
+  return null;
+}
+
+/**
+ * Watch the activity tracker and announce the transitions worth leaving the
+ * app for: the agent needs the user (approval or a question), finished a
+ * turn, or died on an API error. One tag per pane, replace-not-stack — a
+ * "needs approval" banner is superseded by the "finished" that follows it,
+ * never stacked under it. Suppression while the pane is on screen is the
+ * center's own rule ([`shouldBanner`]), not re-derived here — and WHICH
+ * transitions speak at all is the domain's ([`activityTransition`]); this
+ * module only words the message.
+ *
+ * `read` supplies the deck facts a message needs (names change and panes
+ * close while this subscription lives) — the composition root binds it.
+ */
+export function initActivityNotifications(
+  tracker: AgentStatusTracker,
+  read: () => { workspaces: Workspace[]; agents: AgentInfo[] },
+): () => void {
+  let prev: ReadonlyMap<string, PaneActivity> = tracker.getSnapshot().panes;
+  return tracker.subscribe(() => {
+    const next = tracker.getSnapshot().panes;
+    const { workspaces, agents } = read();
+    for (const [paneId, activity] of next) {
+      const before = prev.get(paneId);
+      if (before === activity) continue;
+      announceActivity(workspaces, paneId, before, activity, agents);
+    }
+    // A pane LEAVING the store is a transition too — its process retired,
+    // or the pane left the deck. A standing "needs approval" for it would
+    // report a wait that no longer exists; the domain table withdraws it.
+    for (const [paneId, before] of prev) {
+      if (!next.has(paneId)) {
+        announceActivity(workspaces, paneId, before, undefined, agents);
+      }
+    }
+    prev = next;
+  });
+}
+
+function announceActivity(
+  workspaces: Workspace[],
+  paneId: string,
+  before: PaneActivity | undefined,
+  activity: PaneActivity | undefined,
+  agents: AgentInfo[],
+): void {
+  const tag = `pane:${paneId}:activity`;
+  const verdict = activityTransition(before, activity);
+  if (verdict === "none") return;
+  if (verdict === "retract") {
+    retractNotification(tag);
+    return;
+  }
+  if (activity === undefined) return; // a removal never announces
+  const c = paneContextById(workspaces, paneId, agents);
+  if (!c) return;
+  const badge = activityBadge(activity);
+  const source = {
+    type: "pane",
+    workspace: c.workspace,
+    paneId,
+  } as const;
+  switch (activity.state) {
+    case "waiting":
+      notify({
+        title: `${c.title} — ${badge.sentence}`,
+        body: c.wsName,
+        severity: "warning",
+        source,
+        tag,
+      });
+      return;
+    case "failed":
+      // `sentence`, not a lowercased label: a CLI's own error identifier
+      // must keep its casing ("failed: QuotaCliff", never "quotacliff").
+      notify({
+        title: `${c.title} — ${badge.sentence}`,
+        body: activity.detail ? `${activity.detail} · ${c.wsName}` : c.wsName,
+        severity: "error",
+        source,
+        tag,
+      });
+      return;
+    default:
+      notify({
+        title: `${c.title} finished`,
+        body: c.wsName,
+        source,
+        tag,
+      });
+  }
 }
 
 let notifiedUpdateVersion: string | null = null;

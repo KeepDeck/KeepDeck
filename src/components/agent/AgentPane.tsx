@@ -10,23 +10,15 @@ import {
 // A generic "3m ago" formatter that happens to live beside the usage
 // formatters; the idle card dates itself with the same wording the usage
 // popover uses, rather than growing a second one.
-import { contextLevel, formatAge } from "../../domain/usage";
+import { formatAge } from "../../domain/usage";
+import { activityBadge, paneFrame } from "../../domain/status";
+import { usePaneActivity } from "../../app/usePaneActivity";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { usePaneSessionState } from "../../app/usePaneSessionState";
 import { TerminalPane } from "../terminal/TerminalPane";
-import { noAutoCorrect } from "../../ui/inputProps";
-import { useInlineRename } from "../../ui/useInlineRename";
-import {
-  ChevronDownIcon,
-  MaximizeIcon,
-  MinimizeIcon,
-  RestoreIcon,
-} from "../../ui/icons";
-import { BranchBadge, YoloBadge } from "../../ui/badges";
-import { CloseButton } from "../../ui/CloseButton";
-import { Chip } from "../../ui/Chip";
+import { AgentPaneHeader } from "./AgentPaneHeader";
 import type { GitBadge } from "../../ui/gitBadge";
-import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
+import type { AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
 
 /** Why a pane's agent can't run — the card copy and the recovery gesture
@@ -191,6 +183,9 @@ export function AgentPane({
   // to track. A narrow selector: only this pane re-renders when its own ctx%
   // changes.
   const ctxPct = usePaneContextPct(paneId);
+  // What the agent is doing right now (working / waiting / done / failed) —
+  // a settled fact from the status tracker; the view only renders it.
+  const activity = usePaneActivity(paneId);
   const canResume = !!resumeSessionId;
   // Asked, not re-derived: the deck asks the same question about the same
   // pane for the tray's marker, and the two must not be able to disagree.
@@ -244,7 +239,9 @@ export function AgentPane({
   // "now" for as long as it stayed quiet. One minute is the resolution
   // `formatAge` actually shows.
   const [now, setNow] = useState(() => Date.now());
-  const dated = idle?.reason === "suspended";
+  // Suspended cards and activity tooltips both date themselves; either
+  // presence arms the minute clock.
+  const dated = idle?.reason === "suspended" || activity !== undefined;
   useEffect(() => {
     if (!dated) return;
     // The clock is refreshed on the way IN too: a pane that ran for an hour
@@ -267,14 +264,21 @@ export function AgentPane({
     setRestarting(false);
     setRestartFailed(false);
   }, [idle]);
-  // Inline rename of the header title ([F11]); empty commit = back to auto.
-  const rename = useInlineRename((_key, name) => onRename(name));
   // The context meter belongs on a LIVE pane only — a frozen, undimmed ctx% on
   // an exited / idle / unavailable / provisioning pane would read as live
   // (its last usage report lingers in the store until the pane leaves the deck).
   // The domain's answer, not a second derivation of it: a frozen ctx% on an
   // exited / idle / unavailable / provisioning pane would read as live.
   const paneLive = !ended && body === "terminal";
+  // Activity renders VERBATIM from the tracker — no liveness re-derivation
+  // here. "Activity describes a live process" has one home: the status
+  // channel gates ingest on a live process and clears a pane the moment
+  // its process dies, so whatever the store holds is current by contract.
+  const activityView = activity ? activityBadge(activity) : null;
+  // The ONE frame this pane wears — the domain ranks attention, selection
+  // and done; this view only appends the class. The selection-visibility
+  // rule (not maximized, not the only pane) predates the ladder and stays.
+  const frame = paneFrame(activity, selected && !focused && !solo);
   return (
     <section
       data-pane-id={paneId}
@@ -282,7 +286,7 @@ export function AgentPane({
       // A stopped pane is dimmed so a grid of six reads at a glance: which
       // ones are actually running is otherwise only visible by looking into
       // each body.
-      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}${stopped ? " pane--idle" : ""}`}
+      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${frame === "none" ? "" : ` pane--frame-${frame}`}${stopped ? " pane--idle" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       // A folded row expands only from an EXPLICIT header click (below), never
       // from raw mousedown/focus: descendant focus bubbling would expand rows
@@ -293,100 +297,26 @@ export function AgentPane({
     >
       {/* Folded: the whole header is the expand control; the action buttons
           stop propagation so they act WITHOUT expanding. */}
-      <header className="pane__bar" onClick={folded ? onSelect : undefined}>
-        {folded && (
-          // The accessible expand handle (the header click is the pointer
-          // convenience around it).
-          <button
-            type="button"
-            className="pane__fold-chevron"
-            aria-expanded={false}
-            aria-label={`Expand ${title}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelect();
-            }}
-          >
-            <ChevronDownIcon />
-          </button>
-        )}
-        <div className="pane__identity">
-          <span className="pane__agent" title={agentLabel}>
-            <AgentGlyph icon={agentIcon} />
-          </span>
-          {rename.editing !== null ? (
-            <input
-              {...noAutoCorrect}
-              {...rename.inputProps}
-              className="pane__rename"
-              autoFocus
-              aria-label="Rename agent"
-              onMouseDown={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <span
-              className="pane__title"
-              title="Double-click to rename"
-              onDoubleClick={() => rename.start(paneId, title)}
-            >
-              {title}
-            </span>
-          )}
-        </div>
-        <div className="pane__actions">
-          {ctxPct !== undefined && paneLive && (
-            <Chip
-              className={`pane__ctx${
-                contextLevel(ctxPct) === "ok"
-                  ? ""
-                  : ` usage-level--${contextLevel(ctxPct)}`
-              }`}
-              title={`Context ${Math.ceil(ctxPct)}% used`}
-              label={`ctx ${Math.ceil(ctxPct)}%`}
-            />
-          )}
-          {yolo && <YoloBadge className="pane__yolo" />}
-          {gitBadge && (
-            <BranchBadge
-              className="pane__branch"
-              title={gitBadge.title}
-              label={gitBadge.label}
-            />
-          )}
-          {onMinimize && !focused && !folded && (
-            <button
-              type="button"
-              // The modifier is load-bearing: the narrow-header cascade hides
-              // minimize by this class (pane.css) while maximize stays.
-              className="pane__action pane__action--minimize"
-              onClick={onMinimize}
-              title="Minimize agent"
-              aria-label={`Minimize ${title}`}
-            >
-              <MinimizeIcon />
-            </button>
-          )}
-          {!solo && !folded && (
-            <button
-              type="button"
-              className="pane__action"
-              onClick={onToggleFocus}
-              title={focused ? "Restore" : "Maximize"}
-              aria-label={focused ? `Restore ${title}` : `Maximize ${title}`}
-            >
-              {focused ? <RestoreIcon /> : <MaximizeIcon />}
-            </button>
-          )}
-          <CloseButton
-            label={`Close ${title}`}
-            onClick={(e) => {
-              // Own click: closing a folded row must not also expand it.
-              e.stopPropagation();
-              onClose();
-            }}
-          />
-        </div>
-      </header>
+      <AgentPaneHeader
+        paneId={paneId}
+        title={title}
+        agentIcon={agentIcon}
+        agentLabel={agentLabel}
+        folded={folded}
+        focused={focused}
+        solo={solo}
+        activityView={activityView}
+        now={now}
+        ctxPct={ctxPct}
+        paneLive={paneLive}
+        yolo={yolo}
+        gitBadge={gitBadge}
+        onSelect={onSelect}
+        onRename={onRename}
+        onMinimize={onMinimize}
+        onToggleFocus={onToggleFocus}
+        onClose={onClose}
+      />
       <div className="pane__body">
         {body === "provisioning" && provisioning ? (
           // The worktree behind this pane is still being created (or failed):

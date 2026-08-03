@@ -11,6 +11,7 @@ import {
   createAgentOrchestrator,
   type AgentCatalogPort,
 } from "./agentOrchestrator";
+import { createAgentStatusChannel } from "./agentStatusChannel";
 import { createApplicationController } from "./applicationController";
 import { createDeckPersistence } from "./deckPersistence";
 import { createDeckStore } from "./deckStore";
@@ -36,13 +37,18 @@ import {
 } from "./ptyManager";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
+import { createAgentStatusTracker } from "./agentStatusTracker";
+import { createPaneTelemetry } from "./paneTelemetry";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
 import { createUsageChannel } from "./usageChannel";
+import { createUsageManager } from "./usageManager";
 import {
   getUsageHistorySnapshot,
   subscribeUsageHistory,
 } from "./usageHistoryManager";
+import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
+import { createAppWindowReportJournal } from "./windowReportJournal";
 import { createWorktreeManager, deckViewOf } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
@@ -106,6 +112,13 @@ export function createAppRuntime(
   );
   let sessionBinding: ReturnType<typeof createSessionBinding> | null = null;
   const spawnContext = createSpawnContextSource();
+  // The live telemetry stores (usage, activity) and the retire owner over
+  // the pair. Runtime state like the deck store: the orchestrator retires
+  // panes and the bridge channels report in with no component mounted.
+  const usageManager = createUsageManager();
+  const statusTracker = createAgentStatusTracker();
+  const telemetry = createPaneTelemetry(usageManager, statusTracker);
+  const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
   );
@@ -132,6 +145,7 @@ export function createAppRuntime(
     probe: probeWorktree,
     worktrees,
     mcpAccess: (target) => mcp.access(target),
+    telemetry: { retire: telemetry.retire },
   });
   const application = createApplicationController(
     deckStore,
@@ -147,8 +161,12 @@ export function createAppRuntime(
   );
   const pluginDeckBridge = createPluginDeckBridge(deckStore, plugins);
   let usageChannel: ReturnType<typeof createUsageChannel> | null = null;
+  let statusChannel: ReturnType<typeof createAgentStatusChannel> | null = null;
   let achievementNotifier: ReturnType<typeof createAchievementNotifier> | null =
     null;
+  let exhaustionNotifier: ReturnType<
+    typeof createWindowExhaustionNotifier
+  > | null = null;
   let disposed = false;
 
   return {
@@ -162,12 +180,23 @@ export function createAppRuntime(
     paneInputFocus,
     paneViewActions,
     mcp,
+    usageManager,
+    statusTracker,
+    telemetry,
+    windowReportJournal,
     start() {
       if (disposed) return;
-      sessionBinding ??= createSessionBinding(deckStore);
+      sessionBinding ??= createSessionBinding(deckStore, telemetry);
       usageChannel ??= createUsageChannel(
         deckStore,
         plugins.pluginRegistries.agents,
+        usageManager,
+      );
+      statusChannel ??= createAgentStatusChannel(
+        deckStore,
+        plugins.pluginRegistries.agents,
+        statusTracker,
+        { subscribe: subscribeSessions, state: paneSessionState },
       );
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,
@@ -179,6 +208,16 @@ export function createAppRuntime(
           subscribe: subscribeUsageHistory,
         },
       });
+      exhaustionNotifier ??= createWindowExhaustionNotifier({
+        settingsReady: initSettings,
+        notify,
+        journal: {
+          getSnapshot: windowReportJournal.getSnapshot,
+          subscribe: windowReportJournal.subscribe,
+        },
+        usage: { getSnapshot: usageManager.getSnapshot },
+      });
+      windowReportJournal.start();
       application.start();
     },
     dispose() {
@@ -186,8 +225,11 @@ export function createAppRuntime(
       disposed = true;
       application.dispose();
       paneInputFocus.dispose();
+      exhaustionNotifier?.dispose();
+      windowReportJournal.dispose();
       achievementNotifier?.dispose();
       usageChannel?.dispose();
+      statusChannel?.dispose();
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       minimizePolicy.dispose();

@@ -1,12 +1,13 @@
 import { useSyncExternalStore } from "react";
-import {
-  getUsageSnapshot,
-  subscribeUsage,
-  type UsageSnapshot,
-} from "./usageManager";
+import { useAppRuntime } from "./runtimeContext";
+import type { UsageSnapshot } from "./usageManager";
 
 /** The live usage snapshot — read-only, mount anywhere (chips, popover,
  * pane badges). The write side is the runtime-owned `usageChannel`. */
 export function useUsage(): UsageSnapshot {
-  return useSyncExternalStore(subscribeUsage, getUsageSnapshot);
+  const { usageManager } = useAppRuntime();
+  return useSyncExternalStore(
+    usageManager.subscribe,
+    usageManager.getSnapshot,
+  );
 }

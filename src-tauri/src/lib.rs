@@ -30,7 +30,9 @@ mod voice;
 mod history;
 mod journal;
 mod state;
+mod jsonl_log;
 mod usage_history;
+mod usage_reports;
 mod worktree;
 mod worktree_arm;
 
@@ -174,6 +176,9 @@ pub fn run() {
             usage_history::usage_history_load,
             usage_history::usage_history_append,
             usage_history::usage_history_compact,
+            usage_reports::usage_reports_load,
+            usage_reports::usage_reports_append,
+            usage_reports::usage_reports_compact,
             journal::journal_load,
             journal::journal_append,
             journal::journal_compact,

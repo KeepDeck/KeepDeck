@@ -194,13 +194,151 @@
   font-size: 11px;
 }
 
-
 .usage-window {
   display: grid;
   grid-template-columns: 74px 1fr 110px;
   align-items: center;
   gap: 10px;
   padding: 3px 0;
+}
+
+/* The burn curve — shared by the panel (compact) and the Stats Providers
+   cards. FIXED plot height: the svg stretches horizontally only, so the
+   chart never grows with the card or overflows it. Chrome inherits the
+   bar's greys; only the verdict dot wears a level color. */
+.usage-burn {
+  display: block;
+  width: 100%;
+}
+
+.usage-burn--compact {
+  grid-column: 2; /* aligned under the panel row's fill bar */
+}
+
+.usage-burn--card {
+  margin-top: 5px;
+}
+
+.usage-burn__plot {
+  position: relative;
+  display: block;
+  cursor: crosshair;
+  outline: none;
+}
+
+.usage-burn__plot:focus-visible {
+  outline: 1px solid #3b4658;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.usage-burn__plot svg {
+  display: block;
+  width: 100%;
+}
+
+.usage-burn__dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.usage-burn__dot--warn {
+  background: #e0b568;
+}
+
+.usage-burn__dot--critical {
+  background: #cf6f6f;
+}
+
+.usage-burn__cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #3b4658;
+  transform: translateX(-0.5px);
+  pointer-events: none;
+}
+
+.usage-burn__dot--active {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--kd-bg);
+  box-shadow: 0 0 0 1px #3b4658;
+  pointer-events: none;
+}
+
+.usage-burn-tooltip {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  max-width: calc(100vw - 16px);
+  padding: 6px 10px;
+  overflow: auto;
+  border: 1px solid;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.usage-burn-tooltip__label {
+  margin-bottom: 4px;
+}
+
+.usage-burn-tooltip__value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.usage-burn-tooltip__value > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.usage-burn-tooltip__value > b {
+  margin-left: auto;
+  font-weight: 500;
+}
+
+/* Sits centered ON the ceiling line, wearing the card's background as a
+   chip — the curve and the dashed line pass beneath it without collision. */
+.usage-burn__ymax {
+  position: absolute;
+  top: -3px;
+  left: 2px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: var(--kd-bg);
+  color: #596273;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.usage-burn__foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1px;
+  color: #596273;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.usage-burn__grid {
+  stroke: #232b3a;
+}
+
+.usage-burn__edge {
+  stroke: #3b4658;
 }
 
 .usage-window__label {

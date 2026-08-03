@@ -182,10 +182,12 @@ vi.mock("../postbacks", () => ({ postbackCount: () => 0 }));
 
 /** A retired session's telemetry must not stay bound to the pane, or a
  *  suspended card keeps showing the dead conversation's ctx% and cost and a
- *  restarted pane accumulates on top of the old baseline. Five call sites,
- *  previously none of them asserted. */
-const usage = vi.hoisted(() => ({ clearPaneUsage: vi.fn() }));
-vi.mock("../usageManager", () => usage);
+ *  restarted pane accumulates on top of the old baseline. One owner call per
+ *  site (usage + activity retire together — the pair diverging is how a
+ *  /clear once kept the dead conversation's badge). A fake handed in through
+ *  the orchestrator's telemetry port — not a module mock — so these tests
+ *  never touch the app's live stores. */
+const telemetry = { retire: vi.fn() };
 
 /** What each pane's create has put on disk, as `provisioning` publishes it the
  *  moment `git worktree add` returns. */
@@ -198,7 +200,7 @@ export const ipcHarness = ipc;
 export const gateHarness = gate;
 export const plansHarness = plans;
 export const stepsHarness = steps;
-export const usageHarness = usage;
+export const telemetryHarness = telemetry;
 export const publishedHarness = published;
 export const skillsAskedHarness = skillsAsked;
 export {
@@ -208,7 +210,7 @@ export {
   publishedHarness as published,
   stepsHarness as steps,
   skillsAskedHarness as skillsAsked,
-  usageHarness as usage,
+  telemetryHarness as telemetry,
 };
 export const buildForkSpec = buildForkSpecImpl;
 export const buildResumeSpec = buildResumeSpecImpl;
@@ -390,6 +392,7 @@ export function Probe() {
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
         mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
+        telemetry,
         worktrees: {
           provision: (panes, _report, setup) => {
             asked.push({ panes, setup });

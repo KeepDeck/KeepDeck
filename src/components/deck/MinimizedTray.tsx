@@ -249,6 +249,7 @@ function MinimizedOverflow({
           <MinimizedItem
             key={entry.id}
             variant="chip"
+            paneId={entry.id}
             title={entry.title}
             icon={entry.icon}
             gitBadge={entry.gitBadge}
@@ -381,6 +382,7 @@ export function MinimizedTray({
           <MinimizedItem
             key={entry.id}
             variant="chip"
+            paneId={entry.id}
             title={entry.title}
             icon={entry.icon}
             gitBadge={entry.gitBadge}
