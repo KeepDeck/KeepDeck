@@ -66,7 +66,9 @@ describe("reporter shell scripts", () => {
     const threshold = script.match(/"\$bytes"\s+-gt\s+(\d+)/);
     expect(threshold, "no byte threshold found in the reporter").not.toBeNull();
 
-    const bridge = readFileSync("src-tauri/src/bridge.rs", "utf8");
+    // The cap lives with the composition that enforces it, not with the wire
+    // types — see the split in src-tauri/src/bridge/.
+    const bridge = readFileSync("src-tauri/src/bridge/mod.rs", "utf8");
     const cap = bridge.match(/MAX_ENVELOPE_BYTES[^=]*=\s*([0-9*\s]+);/);
     expect(cap, "no MAX_ENVELOPE_BYTES found in the bridge").not.toBeNull();
     const capBytes = cap[1]
