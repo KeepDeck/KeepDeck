@@ -16,6 +16,7 @@ import {
 import { formatUtcDay } from "../../domain/usage";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import { Tooltip } from "../../ui/Tooltip";
+import { AchievementEmbers } from "./AchievementEmbers";
 
 /** The achievements tab in three sections: the goals being walked toward
  * (one per ladder, with progress) first — they are the pull; the trophy
@@ -114,6 +115,7 @@ function AchievementCard({
           order and membership live in the stylesheet; the card only says
           which level it is. */}
       <span className="stats__achievement-dress" aria-hidden />
+      {item.rarity === "legendary" && !locked ? <AchievementEmbers /> : null}
       <span className="stats__achievement-icon" aria-hidden>
         {item.icon}
       </span>

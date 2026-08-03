@@ -122,6 +122,27 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The legendary embers. Size stated OUTRIGHT rather than through `inset`:
+   a canvas is a REPLACED element, so with `width: auto` it takes its own
+   bitmap as its box and ignores the right and bottom offsets — the box
+   then stops short of the card's lower edge and every ember drawn down
+   there falls outside it. The 26px halo must match HALO in the component.
+   z-index lifts the whole card above its later siblings, or the next
+   badge's opaque background paints over the glow that leaves this one. */
+.stats__achievement--legendary:not(.stats__achievement--locked) {
+  z-index: 1;
+}
+
+.stats__achievement-embers {
+  position: absolute;
+  top: -26px;
+  left: -26px;
+  z-index: 2;
+  width: calc(100% + 52px);
+  height: calc(100% + 52px);
+  pointer-events: none;
+}
+
 /* Hover detail card CONTENT — exact numbers behind the compact badge.
    The chrome, placement and clipping story live in the shared Tooltip
    (ui/tooltip.css): the layer portals out of the scroller that used to
