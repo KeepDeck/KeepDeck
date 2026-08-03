@@ -1003,6 +1003,12 @@ describe("AgentPane — suspended / parked card", () => {
     expect(
       document.querySelector(".pane__idle-session-id")?.textContent,
     ).toBe(id);
+    // The wrappers a card is sized through, witnessed on the real pane:
+    // `src/styles/pane.test.ts` asserts the min-width chain down this exact
+    // nesting against a hand-written fixture, and without this its fixture
+    // could outlive the markup and keep passing on shapes the app no longer
+    // renders.
+    expect(document.querySelector(".pane > .pane__body > .pane__card")).not.toBeNull();
   });
 
   it("shows the session id on a parked pane too — same promise, same evidence", () => {

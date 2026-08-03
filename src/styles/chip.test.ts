@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { YoloBadge } from "../ui/badges";
+import { AgentPaneHeader } from "../components/agent/AgentPaneHeader";
 import { STYLES_DIR, appCss, stripComments } from "./testSupport";
 
 (
@@ -83,6 +84,45 @@ describe("icon-only chip", () => {
       expect(badge.justifyContent).toBe("center");
       expect(badge.borderRadius).toBe("999px");
     }
+  });
+
+  it("rounds the pane header's activity dot through the same shape", () => {
+    // The second chip that is icon-only by nature. pane.css used to square it
+    // by hand and now declares only its flex place and font size, so this dot
+    // is round ONLY if the derivation reaches it — and if that call site ever
+    // gained a label, every existing test would stay green: the header's own
+    // tests assert `className` with `toContain` and mount no stylesheet at all.
+    // So it is asserted here, off the shipped header, through the shipped CSS.
+    act(() =>
+      root.render(
+        createElement(AgentPaneHeader, {
+          paneId: "pane-1",
+          title: "Claude 1",
+          folded: false,
+          focused: false,
+          solo: false,
+          activityView: {
+            tone: "working",
+            label: "Working",
+            sentence: "working",
+            at: 1_754_000_000_000,
+          },
+          now: 1_754_000_000_000,
+          ctxPct: undefined,
+          paneLive: true,
+          onSelect: () => {},
+          onRename: () => {},
+          onToggleFocus: () => {},
+          onClose: () => {},
+        }),
+      ),
+    );
+
+    const dot = getComputedStyle(host.querySelector(".pane__activity")!);
+    expect(dot.width).toBe("22px");
+    expect(dot.height).toBe("22px");
+    expect(dot.paddingLeft).toBe("0px");
+    expect(dot.justifyContent).toBe("center");
   });
 
   it("holds the narrow pane header's copy of the shape to the original", () => {
