@@ -13,3 +13,15 @@ export const DAY_MS = 24 * HOUR_MS;
 export function utcDayStart(at: number): number {
   return Math.floor(at / DAY_MS) * DAY_MS;
 }
+
+export const WEEK_MS = 7 * DAY_MS;
+
+/** UTC Monday 00:00 of the week containing `at` — weeks are UTC buckets
+ * like every stats day, so week labels can never drift off the daily
+ * chart. Lives beside its day siblings: every week-shaped feature reads
+ * THIS, not a private fork. */
+export function utcWeekStart(at: number): number {
+  const day = utcDayStart(at);
+  const mondayOffset = (new Date(day).getUTCDay() + 6) % 7;
+  return day - mondayOffset * DAY_MS;
+}

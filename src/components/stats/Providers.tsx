@@ -8,8 +8,7 @@ import {
   windowLevel,
   type AccountUsage,
 } from "../../domain/usage";
-import { agentSeriesColors, seriesColorFor } from "../../domain/usage/chartPalette";
-import { usageAgents } from "../../domain/usage/daily";
+import { ledgerSeriesColors, seriesColorFor } from "../../domain/usage/chartPalette";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
   providerWindowGroups,
@@ -51,12 +50,7 @@ export function Providers({
     () => providerWindowGroups(accounts, events, reportsByKey, now),
     [accounts, events, reportsByKey, now],
   );
-  // Palette contract: colors key on the FULL ledger roster (data-keyed,
-  // never the clock), so this card and the Overview chart agree on every
-  // hue and a lapsing account can never repaint its neighbours. An account
-  // with no ledger events yet falls back to its fixed slot (or the stable
-  // overflow ink) below.
-  const colors = useMemo(() => agentSeriesColors(usageAgents(events)), [events]);
+  const colors = useMemo(() => ledgerSeriesColors(events), [events]);
   if (groups.length === 0) {
     return (
       <p className="stats__empty">

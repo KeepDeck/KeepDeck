@@ -1,6 +1,7 @@
 import { panelWindows, usageStale } from "./format";
 import type { WindowReport } from "./reportJournal";
 import {
+  providerCostOf,
   tokenTotal,
   usageSessionKey,
   type UsageEventV2,
@@ -132,8 +133,9 @@ function windowLedger(
     if (event.agent !== agent) continue;
     if (event.occurredAt < start || event.occurredAt > now) continue;
     totalTokens += tokenTotal(event.tokens);
-    if (event.costSource === "provider") {
-      providerCostUsd = addMoney(providerCostUsd, event.costUsd);
+    const cost = providerCostOf(event);
+    if (cost !== null) {
+      providerCostUsd = addMoney(providerCostUsd, cost);
       costEvents += 1;
     }
     sessions.add(usageSessionKey(event));

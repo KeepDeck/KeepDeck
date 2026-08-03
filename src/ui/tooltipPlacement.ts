@@ -8,32 +8,43 @@ export interface TooltipPosition {
 }
 
 export interface TooltipPlacementInput {
-  anchorRect: Pick<DOMRect, "top" | "bottom" | "left">;
+  /** `right` is optional: point anchors (the burn cursor) have none, and
+   * centering falls back to the left edge — correct for a point. */
+  anchorRect: Pick<DOMRect, "top" | "bottom" | "left"> & { right?: number };
   tooltipWidth: number;
   tooltipHeight: number;
   viewportWidth: number;
   viewportHeight: number;
+  /** Horizontal anchoring: `start` aligns the layer's left edge with the
+   * anchor's (details cards), `center` centers it on the anchor (the
+   * weeks bar). Both obey the viewport clamp. */
+  align?: "start" | "center";
 }
 
-/** Place an anchored tooltip above when possible, otherwise below, while
- * keeping even pathological content inside the visible viewport. */
+/** THE placement rule for every anchored hover layer: above when the
+ * MEASURED height fits, otherwise below; clamped to the viewport on both
+ * axes; height capped; landed on WHOLE pixels — a layer on a half-pixel
+ * blurs its text. */
 export function calculateTooltipPosition({
   anchorRect,
   tooltipWidth,
   tooltipHeight,
   viewportWidth,
   viewportHeight,
+  align = "start",
 }: TooltipPlacementInput): TooltipPosition {
   const maxWidth = Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2);
   const maxHeight = Math.max(0, viewportHeight - VIEWPORT_MARGIN * 2);
   const renderedWidth = Math.min(Math.max(0, tooltipWidth), maxWidth);
   const renderedHeight = Math.min(Math.max(0, tooltipHeight), maxHeight);
+  const desiredLeft =
+    align === "center"
+      ? (anchorRect.left + (anchorRect.right ?? anchorRect.left)) / 2 -
+        renderedWidth / 2
+      : anchorRect.left;
   const left = Math.max(
     VIEWPORT_MARGIN,
-    Math.min(
-      anchorRect.left,
-      viewportWidth - renderedWidth - VIEWPORT_MARGIN,
-    ),
+    Math.min(desiredLeft, viewportWidth - renderedWidth - VIEWPORT_MARGIN),
   );
   const above = anchorRect.top - TOOLTIP_GAP - renderedHeight;
   const top =
@@ -44,5 +55,9 @@ export function calculateTooltipPosition({
           anchorRect.bottom + TOOLTIP_GAP,
         );
 
-  return { top: Math.max(VIEWPORT_MARGIN, top), left, maxHeight };
+  return {
+    top: Math.round(Math.max(VIEWPORT_MARGIN, top)),
+    left: Math.round(left),
+    maxHeight,
+  };
 }

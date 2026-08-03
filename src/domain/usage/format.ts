@@ -162,6 +162,14 @@ export function formatAge(
   return `${Math.floor(s / 86_400)}d${suffix}`;
 }
 
+/** THE display name of a model field — one fallback for every surface
+ * (the weeks rows, the recap, the Models table). Missing and EMPTY are
+ * the same unknown: two spellings (`??` vs `||`) had already diverged,
+ * rendering one ledger event two different ways inside one dialog. */
+export function modelLabel(model: string | null | undefined): string {
+  return model ? model : "Unknown model";
+}
+
 /** "Jul 22" / "Jul 22, 2026" — labeled in UTC because every stats day
  * bucket (recap, daily chart, milestone dates) is a UTC day; a local-time
  * label would drift off its own bucket. */

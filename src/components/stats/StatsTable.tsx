@@ -2,6 +2,7 @@ import {
   displayProviderCost,
   formatAge,
   formatTokens,
+  modelLabel,
 } from "../../domain/usage";
 import type { UsageStatsRow } from "../../domain/usage/history/query";
 
@@ -28,7 +29,7 @@ export function StatsTable({
             <span className="stats__identity" role="cell">
               <b>
                 {mode === "model"
-                  ? row.model || "Unknown model"
+                  ? modelLabel(row.model)
                   : row.paneName || shortSession(row.sessionId)}
               </b>
               <small>

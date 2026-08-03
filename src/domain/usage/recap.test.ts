@@ -67,7 +67,6 @@ describe("usageRecap", () => {
       NOW,
     );
     expect(recap.topModel).toEqual({
-      agent: "codex",
       model: "big-uncosted",
       totalTokens: 900,
     });
@@ -124,7 +123,7 @@ describe("recapCaption", () => {
       recapCaption(
         {
           tokensDeltaPct: 12,
-          topModel: { agent: "codex", model: "gpt-5.6-terra", totalTokens: 1_500_000 },
+          topModel: { model: "gpt-5.6-terra", totalTokens: 1_500_000 },
           busiestDay: {
             dayStart: Date.parse("2026-07-20T00:00:00.000Z"),
             totalTokens: 900_000,

@@ -178,7 +178,11 @@ describe("UsageStats", () => {
       (button) => button.textContent === "24h",
     )!;
     act(() => day.click());
-    expect(host.textContent).toContain("No usage recorded");
+    // The period went empty, but Overview STAYS: zeroed cards over an
+    // intact Weeks history — an empty period must never hide the one
+    // period-independent block (review finding).
+    expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("0");
+    expect(host.querySelector(".stats__weeks")).not.toBeNull();
   });
 
   it("shows highlights with the prior-period delta and the busiest day", () => {
@@ -308,12 +312,39 @@ describe("UsageStats", () => {
     act(() => root.render(createElement(Host)));
     clickTab("Achievements");
 
-    const tips = [...host.querySelectorAll('[role="tooltip"]')];
-    expect(tips.length).toBeGreaterThan(0);
-    const steam = tips.find((tip) => tip.textContent?.includes("Picking Up Steam"))!;
-    expect(steam.textContent).toContain("2,000,000 of 10,000,000 — 20%");
-    const earnedTip = tips.find((tip) => tip.textContent?.includes("First Million"))!;
-    expect(earnedTip.textContent).toContain("Earned Jul 22, 2026");
+    // Tips live behind the shared Tooltip now: nothing renders until the
+    // hover-intent pause passes, then the layer PORTALS to the body so
+    // the scroller cannot clip it.
+    // beforeEach mocked only the date; this test needs ticking timers too.
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    try {
+      const cards = [...host.querySelectorAll(".stats__achievement")];
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+      const hover = (card: Element, type: "mouseover" | "mouseout") =>
+        act(() => {
+          card.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+          vi.advanceTimersByTime(450);
+        });
+      const steam = cards.find((card) =>
+        card.textContent?.includes("Picking Up Steam"),
+      )!;
+      hover(steam, "mouseover");
+      expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
+        "2,000,000 of 10,000,000 — 20%",
+      );
+      hover(steam, "mouseout");
+      const earned = cards.find((card) =>
+        card.textContent?.includes("First Million"),
+      )!;
+      hover(earned, "mouseover");
+      expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
+        "Earned Jul 22, 2026",
+      );
+      hover(earned, "mouseout");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the live streak chip in the footer corner with its heat tier", () => {
@@ -507,13 +538,19 @@ describe("UsageStats", () => {
       error: null,
     };
     act(() => root.render(createElement(Host)));
-    expect(host.textContent).toContain("No usage recorded"); // default 7d
+    // Default 7d is empty: Overview keeps rendering (zero cards, Weeks
+    // history reachable), while the period-LEDGER tabs still gate.
+    expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("0");
+    expect(host.querySelector(".stats__weeks")).not.toBeNull();
+    clickTab("Models");
+    expect(host.textContent).toContain("No usage recorded");
+    clickTab("Overview");
 
     const all = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "All",
     )!;
     act(() => all.click());
-    expect(host.textContent).toContain("gpt-5.6-terra");
+    expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("1.6k");
   });
 
   it("does not render unknown cost as a fake zero", () => {

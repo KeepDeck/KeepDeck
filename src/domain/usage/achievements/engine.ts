@@ -2,6 +2,7 @@ import {
   tokenTotal,
   usageSessionKey,
   type UsageEventV2,
+  providerCostOf,
 } from "../history/event";
 import { addMoney } from "../money";
 import { DAY_MS, HOUR_MS, utcDayStart } from "../time";
@@ -103,8 +104,9 @@ export function createAchievementEngine(): AchievementEngine {
       providers.add(event.agent);
       workspaces.add(event.workspaceId);
       if (event.model !== undefined) models.add(event.model);
-      if (event.costSource === "provider") {
-        spendUsd = addMoney(spendUsd, event.costUsd);
+      const cost = providerCostOf(event);
+      if (cost !== null) {
+        spendUsd = addMoney(spendUsd, cost);
       }
 
       const day = utcDayStart(event.occurredAt);
@@ -134,11 +136,8 @@ export function createAchievementEngine(): AchievementEngine {
       sessionMinAt.set(key, minAt);
       sessionMaxAt.set(key, maxAt);
       maxSessionSpanMs = Math.max(maxSessionSpanMs, maxAt - minAt);
-      if (event.costSource === "provider") {
-        const sessionSpend = addMoney(
-          sessionSpendTotals.get(key) ?? 0,
-          event.costUsd,
-        );
+      if (cost !== null) {
+        const sessionSpend = addMoney(sessionSpendTotals.get(key) ?? 0, cost);
         sessionSpendTotals.set(key, sessionSpend);
         maxSessionSpendUsd = Math.max(maxSessionSpendUsd, sessionSpend);
       }
