@@ -97,8 +97,9 @@
 
 /* The rail dot: the same ladder folded over a whole workspace (the
    domain's workspaceFrame). `selected` is the active workspace's green the
-   dot has always shown; the unread red dot beside the count is a separate
-   fact and stays untouched. A dot has no border to modulate, so its
+   dot has always shown. It is the row's ONLY dot — the unread-notification
+   dot that used to sit beside the agent count is gone, so nothing here
+   competes for the reader's eye. A dot has no border to modulate, so its
    rhythms ride opacity — same 2s/1s identities. */
 .rail__dot--selected {
   background-color: var(--status-selected);
