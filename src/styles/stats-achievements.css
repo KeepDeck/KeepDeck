@@ -1,6 +1,20 @@
 /* The Achievements tab — badge cards, the locked tail, progress bars and
    the hover detail tooltip. */
 .stats__achievements {
+  /* THE rarity palette — its own tier rather than four more entries in
+     base.css, which reserves that block for status colours and says a new
+     family becomes its own group. Declared here, on the gallery, so every
+     card and the ember canvas resolve one value instead of repeating it.
+
+     Four are existing app tokens. Epic is chartPalette's spare violet
+     (SPARE_SLOTS[2]) written out, for the same reason chartPalette itself
+     writes out --kd-bg: the two live in different languages and cannot
+     import each other — keep in sync with src/domain/usage/chartPalette.ts. */
+  --rarity-uncommon: var(--kd-ok);
+  --rarity-rare: var(--kd-info);
+  --rarity-epic: #9085e9;
+  --rarity-legendary: var(--kd-warn);
+
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
@@ -32,21 +46,22 @@
    lovely on one badge and unbearable on a wall of thirty, where every copy
    runs off the same clock and the grid ripples. */
 .stats__achievement--uncommon {
-  border-color: color-mix(in srgb, var(--kd-ok) 50%, #1c2230);
+  border-color: color-mix(in srgb, var(--rarity-uncommon) 50%, #1c2230);
 }
 
 .stats__achievement--rare {
-  border-color: color-mix(in srgb, var(--kd-info) 55%, #1c2230);
+  border-color: color-mix(in srgb, var(--rarity-rare) 55%, #1c2230);
 }
 
 .stats__achievement--epic {
-  border-color: color-mix(in srgb, #9085e9 65%, #1c2230);
-  box-shadow: 0 6px 22px -12px color-mix(in srgb, #9085e9 80%, transparent);
+  border-color: color-mix(in srgb, var(--rarity-epic) 65%, #1c2230);
+  box-shadow: 0 6px 22px -12px color-mix(in srgb, var(--rarity-epic) 80%, transparent);
 }
 
 .stats__achievement--legendary {
-  border-color: color-mix(in srgb, var(--kd-warn) 70%, #1c2230);
-  box-shadow: 0 6px 24px -12px color-mix(in srgb, var(--kd-warn) 85%, transparent);
+  border-color: color-mix(in srgb, var(--rarity-legendary) 70%, #1c2230);
+  box-shadow: 0 6px 24px -12px
+    color-mix(in srgb, var(--rarity-legendary) 85%, transparent);
 }
 
 /* The layers live under the content and inside the card's own radius. The
@@ -104,7 +119,7 @@
   background: conic-gradient(
     from 0deg,
     transparent 0 64%,
-    color-mix(in srgb, #9085e9 40%, transparent) 78%,
+    color-mix(in srgb, var(--rarity-epic) 40%, transparent) 78%,
     rgb(255 255 255 / 92%) 88%,
     transparent 94% 100%
   );
@@ -115,7 +130,7 @@
   background: conic-gradient(
     from 0deg,
     transparent 0 64%,
-    color-mix(in srgb, var(--kd-warn) 40%, transparent) 78%,
+    color-mix(in srgb, var(--rarity-legendary) 40%, transparent) 78%,
     rgb(255 255 255 / 92%) 88%,
     transparent 94% 100%
   );
@@ -143,11 +158,13 @@
 @keyframes stats-achievement-breathe {
   0%,
   100% {
-    box-shadow: 0 6px 22px -14px color-mix(in srgb, var(--kd-warn) 55%, transparent);
+    box-shadow: 0 6px 22px -14px
+      color-mix(in srgb, var(--rarity-legendary) 55%, transparent);
   }
 
   50% {
-    box-shadow: 0 8px 30px -8px color-mix(in srgb, var(--kd-warn) 85%, transparent);
+    box-shadow: 0 8px 30px -8px
+      color-mix(in srgb, var(--rarity-legendary) 85%, transparent);
   }
 }
 
@@ -176,7 +193,14 @@
   margin: -120% 0 0 -120%;
   aspect-ratio: 1;
   opacity: 0.26;
-  background: conic-gradient(from 0deg, var(--kd-info), #9085e9, var(--kd-ok), var(--kd-warn), var(--kd-info));
+  background: conic-gradient(
+    from 0deg,
+    var(--rarity-rare),
+    var(--rarity-epic),
+    var(--rarity-uncommon),
+    var(--rarity-legendary),
+    var(--rarity-rare)
+  );
   animation: stats-achievement-spectrum 16s linear infinite;
 }
 
@@ -198,11 +222,17 @@
   box-shadow: none;
 }
 
+/* `!important`, matching stats-streak.css, because every setter here is more
+   specific than any selector this block can write: the breathe animation is
+   set through `--legendary:not(--locked)` and the spectrum through
+   `--epic .stats__achievement-dress::before`. A media query adds no
+   specificity, so without this the reader who asked for less motion kept
+   both — and only the rim, whose setter happens to tie, actually stopped. */
 @media (prefers-reduced-motion: reduce) {
+  .stats__achievement--legendary,
   .stats__achievement-dress::before,
-  .stats__achievement-rim::before,
-  .stats__achievement--legendary {
-    animation: none;
+  .stats__achievement-rim::before {
+    animation: none !important;
   }
 }
 

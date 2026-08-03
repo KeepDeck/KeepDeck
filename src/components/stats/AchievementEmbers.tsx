@@ -56,9 +56,58 @@ function ember(cell: number, now: number, seeded: boolean): Ember {
   };
 }
 
+type Rgb = readonly [number, number, number];
+
+/** Legendary's gold, for the DOM the stylesheet never reaches. The level's
+ * colour has one home — `--rarity-legendary` in stats-achievements.css — but
+ * a canvas gradient cannot say `var()`, so the component reads the resolved
+ * value once at mount instead of restating the hex. The literal survives
+ * only as the answer for a DOM that computes no styles at all. */
+const FALLBACK_GOLD: Rgb = [217, 164, 65];
+
+function rarityGold(element: Element): Rgb {
+  const raw = getComputedStyle(element)
+    .getPropertyValue("--rarity-legendary")
+    .trim();
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(raw);
+  if (hex) {
+    const digits = hex[1];
+    const wide =
+      digits.length === 3
+        ? digits.replace(/./g, (digit) => digit + digit)
+        : digits;
+    return [
+      parseInt(wide.slice(0, 2), 16),
+      parseInt(wide.slice(2, 4), 16),
+      parseInt(wide.slice(4, 6), 16),
+    ];
+  }
+  const channels = /^rgba?\(([^)]+)\)$/i.exec(raw);
+  if (channels) {
+    const parts = channels[1]
+      .split(/[\s,/]+/)
+      .filter(Boolean)
+      .map(Number);
+    if (parts.length >= 3 && parts.slice(0, 3).every(Number.isFinite)) {
+      return [parts[0], parts[1], parts[2]];
+    }
+  }
+  return FALLBACK_GOLD;
+}
+
+/** Toward white, for the spark's hotter inner rings. */
+function tint([r, g, b]: Rgb, amount: number): Rgb {
+  const lift = (channel: number) => Math.round(channel + (255 - channel) * amount);
+  return [lift(r), lift(g), lift(b)];
+}
+
+function rgba(color: Rgb, alpha: number): string {
+  return `rgba(${color[0]},${color[1]},${color[2]},${alpha})`;
+}
+
 /** One glow, drawn once and stamped everywhere — building a gradient per
  * ember per frame would be the expensive part of this. */
-function sprite(): HTMLCanvasElement {
+function sprite(gold: Rgb): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = 64;
   canvas.height = 64;
@@ -66,9 +115,9 @@ function sprite(): HTMLCanvasElement {
   if (!context) return canvas;
   const glow = context.createRadialGradient(32, 32, 0, 32, 32, 32);
   glow.addColorStop(0, "rgba(255,255,255,1)");
-  glow.addColorStop(0.22, "rgba(255,236,180,0.95)");
-  glow.addColorStop(0.5, "rgba(217,164,65,0.45)");
-  glow.addColorStop(1, "rgba(217,164,65,0)");
+  glow.addColorStop(0.22, rgba(tint(gold, 0.78), 0.95));
+  glow.addColorStop(0.5, rgba(gold, 0.45));
+  glow.addColorStop(1, rgba(gold, 0));
   context.fillStyle = glow;
   context.fillRect(0, 0, 64, 64);
   return canvas;
@@ -90,7 +139,7 @@ export function AchievementEmbers() {
     }
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
 
-    const glow = sprite();
+    const glow = sprite(rarityGold(canvas));
     const embers = Array.from({ length: EMBERS }, (_, cell) =>
       ember(cell, performance.now(), true),
     );
