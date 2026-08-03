@@ -6,6 +6,7 @@ import {
   achievementRequirement,
 } from "../../domain/usage/achievements/captions";
 import type { UsageAchievement } from "../../domain/usage/achievements/ladders";
+import type { AchievementRarity } from "../../domain/usage/achievements/rarity";
 import {
   earnedAchievements,
   lockedAchievements,
@@ -60,6 +61,16 @@ function AchievementSection({
  * swept by the cursor must not strobe forty tips. */
 const TIP_DELAY_MS = 450;
 
+/** The level in words, for the tip. Deliberately absent from the CARD: the
+ * dress already says it, and a fifth line of text on fifty badges is noise. */
+const RARITY_LABELS: Record<AchievementRarity, string> = {
+  common: "Common",
+  uncommon: "Uncommon",
+  rare: "Rare",
+  epic: "Epic",
+  legendary: "Legendary",
+};
+
 function AchievementCard({
   item,
   future,
@@ -73,7 +84,7 @@ function AchievementCard({
   // measurement and the paint-order lift died with the in-flow tip.
   return (
     <Tooltip
-      className={`stats__achievement${
+      className={`stats__achievement stats__achievement--${item.rarity}${
         locked ? " stats__achievement--locked" : ""
       }${future ? " stats__achievement--future" : ""}`}
       delayMs={TIP_DELAY_MS}
@@ -88,16 +99,30 @@ function AchievementCard({
               {item.icon}
             </span>{" "}
             {item.title}
+            {item.repeat !== undefined ? ` ×${item.repeat}` : ""}
           </b>
+          {/* The card says the level in colour alone; the tip says it in
+              words, which is also the version a reader who cannot separate
+              those hues gets. */}
+          <span>{RARITY_LABELS[item.rarity]}</span>
           <span>{achievementRequirement(item)}</span>
           <span>{achievementTipStatus(item)}</span>
         </span>
       }
     >
+      {/* The rarity's own layers — a cut ground, a turning spectrum. Their
+          order and membership live in the stylesheet; the card only says
+          which level it is. */}
+      <span className="stats__achievement-dress" aria-hidden />
       <span className="stats__achievement-icon" aria-hidden>
         {item.icon}
       </span>
-      <b>{item.title}</b>
+      <b>
+        {item.title}
+        {item.repeat !== undefined ? (
+          <span className="stats__achievement-repeat"> ×{item.repeat}</span>
+        ) : null}
+      </b>
       <small>{achievementRequirement(item)}</small>
       {!locked ? (
         <small className="stats__achievement-earned">

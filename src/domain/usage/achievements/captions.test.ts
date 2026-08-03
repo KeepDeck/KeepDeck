@@ -14,6 +14,7 @@ const tier = (over: Partial<UsageAchievement>): UsageAchievement => ({
   threshold: 1e6,
   title: "First Million",
   icon: "🌱",
+  rarity: "common",
   achievedAt: null,
   progress: 0,
   ...over,

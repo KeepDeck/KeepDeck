@@ -6,6 +6,7 @@ import {
   type AchievementMetric,
 } from "./catalog";
 import { createAchievementEngine } from "./engine";
+import { achievementRarity, type AchievementRarity } from "./rarity";
 
 /**
  * The dated batch views of the gallery. Presentation contract (the user's
@@ -23,6 +24,10 @@ export interface UsageAchievement {
   threshold: number;
   title: string;
   icon: string;
+  /** How rare this tier is — what the card wears (see `./rarity`). */
+  rarity: AchievementRarity;
+  /** Which time this legendary top has been re-earned; absent below it. */
+  repeat?: number;
   /** The ledger instant that crossed the threshold; null while locked. */
   achievedAt: number | null;
   /** The metric's current all-time value. */
@@ -68,6 +73,8 @@ export function usageAchievementLadders(
       threshold: tier.threshold,
       title: tier.title,
       icon: tier.icon,
+      rarity: achievementRarity(ladder.metric, tier.threshold, tier.rarity),
+      ...(tier.repeat !== undefined ? { repeat: tier.repeat } : {}),
       achievedAt: crossings[index].get(tier.threshold) ?? null,
       progress: engine.value(ladder.metric),
     })),

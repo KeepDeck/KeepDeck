@@ -303,6 +303,62 @@ describe("UsageStats", () => {
     ).not.toBeNull();
   });
 
+  it("dresses every card in its rarity, and strips a locked one of the dress", () => {
+    history.snapshot = {
+      ready: true,
+      events: [usageEvent({ tokens: { input: 2_000_000 } })],
+      error: null,
+    };
+    act(() => root.render(createElement(Host)));
+    clickTab("Achievements");
+
+    // Every card declares a level — the dress is how the gallery reads.
+    const cards = [...host.querySelectorAll(".stats__achievement")];
+    expect(cards.length).toBeGreaterThan(0);
+    for (const card of cards) {
+      expect(
+        [...card.classList].some((name) =>
+          /^stats__achievement--(common|uncommon|rare|epic|legendary)$/.test(name),
+        ),
+        card.textContent ?? "",
+      ).toBe(true);
+    }
+
+    // An earned card carries the effect layer; a locked one promises the
+    // level with its colour and withholds everything else.
+    const earned = cards.find((card) =>
+      card.textContent?.includes("First Million"),
+    )!;
+    expect(earned.querySelector(".stats__achievement-dress")).not.toBeNull();
+    const locked = cards.find((card) =>
+      card.classList.contains("stats__achievement--locked"),
+    )!;
+    expect(locked.className).toMatch(/stats__achievement--(rare|epic|legendary|uncommon|common)/);
+  });
+
+  it("names the level in the tooltip, where colour alone would leave a reader out", () => {
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    history.snapshot = {
+      ready: true,
+      events: [usageEvent({ tokens: { input: 2_000_000 } })],
+      error: null,
+    };
+    act(() => root.render(createElement(Host)));
+    clickTab("Achievements");
+    const card = [...host.querySelectorAll(".stats__achievement")].find((item) =>
+      item.textContent?.includes("First Million"),
+    )!;
+    act(() => {
+      card.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      vi.advanceTimersByTime(450);
+    });
+    expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
+      "Common",
+    );
+    vi.useRealTimers();
+  });
+
   it("carries a hover tooltip with exact numbers on every card", () => {
     history.snapshot = {
       ready: true,
