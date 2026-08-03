@@ -100,4 +100,3 @@ pub fn mcp_connection_command(
         args,
     })
 }
-

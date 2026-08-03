@@ -58,4 +58,3 @@ export function resolveFocus(
   if (!focusedId || panes.length <= 1) return null;
   return panes.some((pane) => pane.id === focusedId) ? focusedId : null;
 }
-

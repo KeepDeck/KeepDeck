@@ -260,4 +260,3 @@ export function findAgent(
     .list()
     .find((c) => c.entry.id === agentType);
 }
-

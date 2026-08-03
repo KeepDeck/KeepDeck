@@ -185,4 +185,3 @@ export function spawnPlanNeedsUsageBaseline(
 ): boolean {
   return spec?.resumeOf === sessionId || spec?.forkSessionId === sessionId;
 }
-
