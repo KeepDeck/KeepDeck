@@ -59,10 +59,20 @@ function run(dir: string, stdin: string, args: string[] = ["claude"]): void {
   }
 }
 
-function envelope(dir: string): Record<string, unknown> {
+/**
+ * The published envelope with the reporting process split off: its value is a
+ * live process group, so it is asserted for SHAPE here once and by identity
+ * in the dedicated case below, and the payload assertions stay exact.
+ */
+function envelope(dir: string): {
+  envelope: Record<string, unknown>;
+  reporter: unknown;
+} {
   const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
   expect(files).toHaveLength(1);
-  return JSON.parse(readFileSync(join(dir, files[0]), "utf8"));
+  const parsed = JSON.parse(readFileSync(join(dir, files[0]), "utf8"));
+  const { reporter, ...payload } = parsed.payload as Record<string, unknown>;
+  return { envelope: { ...parsed, payload }, reporter };
 }
 
 describe("kd-session-hook.sh", () => {
@@ -76,7 +86,8 @@ describe("kd-session-hook.sh", () => {
         source: "startup",
       }),
     );
-    expect(envelope(dir)).toEqual({
+    const published = envelope(dir);
+    expect(published.envelope).toEqual({
       v: 1,
       type: "session.bound",
       paneId: "pane-3",
@@ -88,12 +99,26 @@ describe("kd-session-hook.sh", () => {
         source: "startup",
       },
     });
+    // The reporting process, as a bare process-group number.
+    expect(published.reporter).toMatch(/^\d+$/);
+  });
+
+  it("names the same process on every invocation of one agent", () => {
+    // The deck pins a pane's generation to this value and refuses anything
+    // else, so a value that drifted between two events of the SAME agent
+    // would refuse the pane's own rebinds. Two runs under one parent shell
+    // stand in for two hook events of one agent process.
+    const dir = inbox();
+    const second = inbox();
+    run(dir, JSON.stringify({ session_id: "sid-1" }));
+    run(second, JSON.stringify({ session_id: "sid-2" }));
+    expect(envelope(dir).reporter).toBe(envelope(second).reporter);
   });
 
   it("binds with neither a transcript path nor a source", () => {
     const dir = inbox();
     run(dir, JSON.stringify({ session_id: "sid-1" }));
-    expect(envelope(dir)).toEqual({
+    expect(envelope(dir).envelope).toEqual({
       v: 1,
       type: "session.bound",
       paneId: "pane-3",
@@ -113,7 +138,7 @@ describe("kd-session-hook.sh", () => {
         transcript_path: '/Users/me/pro"j/rollout.jsonl',
       }),
     );
-    expect(envelope(dir).payload).toEqual({
+    expect(envelope(dir).envelope.payload).toEqual({
       agent: "claude",
       sessionId: "sid-1",
     });
@@ -122,7 +147,7 @@ describe("kd-session-hook.sh", () => {
   it("drops a source that would break the envelope, and only that", () => {
     const dir = inbox();
     run(dir, JSON.stringify({ session_id: "sid-1", source: 'star"tup' }));
-    expect(envelope(dir).payload).toEqual({
+    expect(envelope(dir).envelope.payload).toEqual({
       agent: "claude",
       sessionId: "sid-1",
     });
@@ -134,7 +159,7 @@ describe("kd-session-hook.sh", () => {
     // costs a legitimate rebind rather than preventing anything.
     const dir = inbox();
     run(dir, JSON.stringify({ session_id: "sid-1", source: "auto-compact:2" }));
-    expect(envelope(dir).payload).toMatchObject({ source: "auto-compact:2" });
+    expect(envelope(dir).envelope.payload).toMatchObject({ source: "auto-compact:2" });
   });
 
   it("takes the FIRST source, not a later one nested in the payload", () => {
@@ -151,7 +176,7 @@ describe("kd-session-hook.sh", () => {
         tool_input: { source: "resume" },
       }),
     );
-    expect(envelope(dir).payload).toMatchObject({ source: "startup" });
+    expect(envelope(dir).envelope.payload).toMatchObject({ source: "startup" });
   });
 
   it("publishes nothing when the session id would break the envelope", () => {

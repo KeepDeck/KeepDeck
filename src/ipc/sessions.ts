@@ -22,12 +22,18 @@ export interface SessionBound {
   /** The session's transcript/rollout file when the reporter knows it —
    * what the codex usage tailer follows. */
   transcriptPath?: string;
-  /** Which CLI reported this, as its arming site named it. Absent from a
-   * reporter that predates the field. */
-  agent?: string;
+  /** Which CLI reported this, as its arming site named it. Guaranteed by the
+   * bridge, which refuses an unsigned binding the same way it refuses one on
+   * the opaque channels. */
+  agent: string;
   /** The CLI's own word for why the session started, verbatim — each agent's
    * normalizer maps its own vocabulary. */
   source?: string;
+  /** Which PROCESS reported it, opaque and only ever compared for equality:
+   * the secret is inherited by the pane's whole process tree, so this is what
+   * a nested run of the same agent cannot forge. Absent when the reporter
+   * cannot name its own process. */
+  reporter?: string;
 }
 
 /** Subscribe to session bindings; resolves to the unlisten function. */

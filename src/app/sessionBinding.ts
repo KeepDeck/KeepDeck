@@ -70,7 +70,7 @@ export function createSessionBinding(
       // Recorded where the binding actually lands, not at the verdict: a
       // report that reaches no pane has claimed nothing, and a remote pane
       // that deliberately binds nothing must not read as already bound.
-      attribution.recordBinding(paneId);
+      attribution.recordBinding(paneId, report.reporter);
       bindPaneSpawnSpecSession(paneId, sessionId);
       const previousSessionId = pane?.session?.id;
       if (previousSessionId && previousSessionId !== sessionId) {

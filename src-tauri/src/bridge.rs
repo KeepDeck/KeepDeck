@@ -104,16 +104,23 @@ pub struct SessionBound {
     /// hook payloads without one still bind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transcript_path: Option<String>,
-    /// Which CLI reported this, as the arming site named it. Absent from a
-    /// reporter shipped before the field existed — the webview decides what
-    /// an unattributed binding is worth.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
+    /// Which CLI reported this, as the arming site named it. REQUIRED, the
+    /// same as on the opaque channels — a binding nobody signs is one every
+    /// consumer refuses, so accepting it here would only move the failure a
+    /// layer away from its cause.
+    pub agent: String,
     /// The CLI's own word for why the session started, verbatim and
     /// unmapped: vocabularies differ per agent, so the normalizer that knows
     /// the agent is the one that can read it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Which PROCESS reported it — opaque here, and only ever compared for
+    /// equality with the one that bound the pane's current generation. The
+    /// bridge secret is inherited by a pane's whole process tree; this is
+    /// what a nested run of the same agent cannot forge. Optional: a reporter
+    /// that cannot name its own process says nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reporter: Option<String>,
 }
 
 /// An OPAQUE pane-correlated report — ONE wire shape for every channel that
@@ -379,16 +386,25 @@ fn interpret(content: &str) -> Result<Inbound, String> {
                 .get("sessionId")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            if envelope.pane_id.is_empty() || envelope.token.is_empty() || session_id.is_empty() {
+            // `agent` is required here exactly as it is on the opaque arm
+            // below: one decision, one strictness, one file.
+            let agent = reported(&envelope.payload, "agent");
+            let (Some(agent), false, false, false) = (
+                agent,
+                envelope.pane_id.is_empty(),
+                envelope.token.is_empty(),
+                session_id.is_empty(),
+            ) else {
                 return Err("session.bound with empty fields".into());
-            }
+            };
             Ok(Inbound::SessionBound(SessionBound {
                 transcript_path: reported(&envelope.payload, "transcriptPath"),
-                agent: reported(&envelope.payload, "agent"),
                 source: reported(&envelope.payload, "source"),
+                reporter: reported(&envelope.payload, "reporter"),
                 pane_id: envelope.pane_id,
                 session_id: session_id.to_string(),
                 token: envelope.token,
+                agent,
             }))
         }
         // One scan, no guard to re-prove: this module's contract is that
@@ -425,10 +441,12 @@ fn printable(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// A well-formed `session.bound` — `agent` included, because a binding
+    /// without one is refused and every shipped reporter sends it.
     fn envelope(v: u64, kind: &str, pane: &str, token: &str, session: &str) -> String {
         serde_json::json!({
             "v": v, "type": kind, "paneId": pane, "token": token,
-            "payload": { "sessionId": session },
+            "payload": { "sessionId": session, "agent": "claude" },
         })
         .to_string()
     }
@@ -443,12 +461,13 @@ mod tests {
 
     #[test]
     fn interprets_a_session_bound_envelope_with_optional_transcript() {
-        // Bare binding: no transcript, unknown envelope extras ignored. The
-        // extra is `agent` on purpose — it is a PAYLOAD field, so one sitting
-        // at envelope level must read as nobody having reported it.
+        // Bare binding: no transcript. The envelope-level `agent` is an
+        // unknown extra on purpose — `agent` is a PAYLOAD field, so one
+        // sitting at envelope level must not be mistaken for the real one.
         let mut value: serde_json::Value =
             serde_json::from_str(&envelope(1, "session.bound", "pane-3", "tok", "abc")).unwrap();
         value["agent"] = "codex".into();
+        value["payload"]["agent"] = "claude".into();
         assert_eq!(
             interpret(&value.to_string()),
             Ok(Inbound::SessionBound(SessionBound {
@@ -456,8 +475,9 @@ mod tests {
                 session_id: "abc".into(),
                 token: "tok".into(),
                 transcript_path: None,
-                agent: None,
+                agent: "claude".into(),
                 source: None,
+                reporter: None,
             }))
         );
         // With a transcript path — what the codex usage tailer follows.
@@ -469,8 +489,9 @@ mod tests {
                 session_id: "abc".into(),
                 token: "tok".into(),
                 transcript_path: Some("/x/y.jsonl".into()),
-                agent: None,
+                agent: "claude".into(),
                 source: None,
+                reporter: None,
             }))
         );
         // An empty path is as good as none.
@@ -573,27 +594,50 @@ mod tests {
             pane_id: "pane-3".into(),
             session_id: "abc".into(),
             token: "tok".into(),
+            agent: "claude".into(),
             transcript_path: None,
-            agent: None,
             source: None,
+            reporter: None,
         })
         .unwrap();
         assert_eq!(
             json,
-            serde_json::json!({ "paneId": "pane-3", "sessionId": "abc", "token": "tok" })
+            serde_json::json!({
+                "paneId": "pane-3",
+                "sessionId": "abc",
+                "token": "tok",
+                "agent": "claude",
+            })
         );
         let json = serde_json::to_value(SessionBound {
             pane_id: "pane-3".into(),
             session_id: "abc".into(),
             token: "tok".into(),
+            agent: "claude".into(),
             transcript_path: Some("/x/y.jsonl".into()),
-            agent: Some("claude".into()),
             source: Some("startup".into()),
+            reporter: Some("4021".into()),
         })
         .unwrap();
         assert_eq!(json["transcriptPath"], "/x/y.jsonl");
-        assert_eq!(json["agent"], "claude");
         assert_eq!(json["source"], "startup");
+        assert_eq!(json["reporter"], "4021");
+    }
+
+    // A binding nobody signs is one every consumer refuses, so the bridge
+    // refuses it where the opaque channels already do rather than emitting an
+    // event whose only outcome is a warn line one layer away.
+    #[test]
+    fn a_session_bound_without_an_agent_is_refused() {
+        let content = serde_json::json!({
+            "v": 1,
+            "type": "session.bound",
+            "paneId": "pane-3",
+            "token": "tok",
+            "payload": { "sessionId": "abc" },
+        })
+        .to_string();
+        assert!(interpret(&content).is_err());
     }
 
     // What the reporter said reaches the webview unjudged — including a
@@ -610,17 +654,19 @@ mod tests {
                 "sessionId": "abc",
                 "agent": "kimi",
                 "source": "a-word-this-side-does-not-know",
+                "reporter": "4021",
             },
         })
         .to_string();
         let Ok(Inbound::SessionBound(bound)) = interpret(&content) else {
             panic!("expected a session binding");
         };
-        assert_eq!(bound.agent.as_deref(), Some("kimi"));
+        assert_eq!(bound.agent, "kimi");
         assert_eq!(
             bound.source.as_deref(),
             Some("a-word-this-side-does-not-know")
         );
+        assert_eq!(bound.reporter.as_deref(), Some("4021"));
     }
 
     // An empty string is what a shell reporter emits for a field it could not
@@ -633,14 +679,19 @@ mod tests {
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",
-            "payload": { "sessionId": "abc", "agent": "", "source": "" },
+            "payload": {
+                "sessionId": "abc",
+                "agent": "claude",
+                "source": "",
+                "reporter": "",
+            },
         })
         .to_string();
         let Ok(Inbound::SessionBound(bound)) = interpret(&content) else {
             panic!("expected a session binding");
         };
-        assert_eq!(bound.agent, None);
         assert_eq!(bound.source, None);
+        assert_eq!(bound.reporter, None);
     }
 
     // Same pin for the opaque wire shape (`src/ipc/usage.ts`, `status.ts`).
@@ -723,9 +774,10 @@ mod tests {
                 pane_id: "pane-1".into(),
                 session_id: "sid".into(),
                 token: "tok".into(),
+                agent: "claude".into(),
                 transcript_path: None,
-                agent: None,
                 source: None,
+                reporter: None,
             }))
         );
 

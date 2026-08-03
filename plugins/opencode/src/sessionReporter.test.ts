@@ -87,7 +87,14 @@ describe("opencode session reporter", () => {
         type: "session.bound",
         paneId: "pane-3",
         token: "tok",
-        payload: { sessionId: "ses_root", agent: "opencode", source: "startup" },
+        payload: {
+          sessionId: "ses_root",
+          agent: "opencode",
+          source: "startup",
+          // This reporter runs INSIDE the agent process, so the process the
+          // deck pins the pane to is the one running these tests.
+          reporter: String(process.pid),
+        },
       },
     ]);
   });
@@ -117,7 +124,14 @@ describe("opencode session reporter", () => {
     expect(envelopes()).toEqual([
       expect.objectContaining({
         type: "session.bound",
-        payload: { sessionId: "ses_root", agent: "opencode", source: "startup" },
+        payload: {
+          sessionId: "ses_root",
+          agent: "opencode",
+          source: "startup",
+          // This reporter runs INSIDE the agent process, so the process the
+          // deck pins the pane to is the one running these tests.
+          reporter: String(process.pid),
+        },
       }),
     ]);
   });
@@ -130,7 +144,14 @@ describe("opencode session reporter", () => {
     expect(envelopes()).toEqual([
       expect.objectContaining({
         type: "session.bound",
-        payload: { sessionId: "ses_root", agent: "opencode", source: "startup" },
+        payload: {
+          sessionId: "ses_root",
+          agent: "opencode",
+          source: "startup",
+          // This reporter runs INSIDE the agent process, so the process the
+          // deck pins the pane to is the one running these tests.
+          reporter: String(process.pid),
+        },
       }),
     ]);
   });

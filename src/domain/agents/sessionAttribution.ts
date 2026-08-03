@@ -10,15 +10,19 @@
  * call), holds a perfectly valid secret and would otherwise rebind the pane
  * to a conversation the user is not having.
  *
- * Two rules separate them, and neither subsumes the other:
+ * Three rules separate them, and none subsumes the others:
  *
  *  - a report may only speak for a pane running the SAME agent — which
  *    catches a foreign CLI on its very first report;
- *  - a pane binds at most ONE fresh session per process generation — which
- *    catches a second session of its own agent, whatever spawned it.
+ *  - once a generation has bound, only the process that bound it may rebind —
+ *    which catches a nested run of the pane's OWN agent whatever word it
+ *    reports, including one claiming to be a continuation;
+ *  - within that one process, a pane binds at most ONE fresh session — which
+ *    catches an in-process teammate or subsession, where there is no process
+ *    boundary left to see.
  *
- * Both are decided here, on plain values, so the rule can be read and tested
- * without a deck, a bridge or a process.
+ * All three are decided here, on plain values, so the rule can be read and
+ * tested without a deck, a bridge or a process.
  */
 
 /** What a binding means for the pane's identity, in the deck's own terms. */
@@ -93,13 +97,13 @@ export function speaksForPane(
 export type BindingRefusal =
   /** The secret is not this pane's: not a KeepDeck-spawned reporter at all. */
   | "wrong-token"
-  /** Nobody signed it — a reporter that predates attribution. */
-  | "unattributed"
   /** A different CLI than the one this pane runs. */
   | "foreign-agent"
-  /** A second fresh session inside one process generation: the pane's own
-   * agent already bound, and a brand-new session is therefore somebody
-   * else's — a teammate, a nested run. */
+  /** A different PROCESS than the one that bound this generation: a nested
+   * run of the same CLI, whatever word it reports. */
+  | "foreign-process"
+  /** A second fresh session inside one process generation, from the SAME
+   * process: an in-process teammate or subsession. */
   | "second-startup";
 
 export type BindingVerdict =
@@ -111,13 +115,21 @@ export interface BindingClaim {
    * pane armed none, which accepts nothing. */
   readonly paneSecret: string | undefined;
   readonly reportedSecret: string;
-  /** The agent the pane runs, and the one the reporter says it is. */
+  /** The agent the pane runs, and the one the reporter says it is. The
+   * reported side is not optional: the bridge refuses an unsigned binding, so
+   * by the time a claim exists somebody has signed it. */
   readonly paneAgent: string | undefined;
-  readonly reportedAgent: string | undefined;
+  readonly reportedAgent: string;
   readonly origin: BindingOrigin;
   /** Whether the pane's CURRENT process generation has already bound a
    * session. Reset by a respawn, not by a rebind. */
   readonly boundThisGeneration: boolean;
+  /** The reporting process pinned when this generation bound, and the one
+   * reporting now. Undefined on either side means the question cannot be
+   * asked — a reporter too old to answer, or a `ps` that could not — and the
+   * origin rule below carries the weight alone. */
+  readonly boundReporter: string | undefined;
+  readonly reportedReporter: string | undefined;
 }
 
 /**
@@ -134,10 +146,21 @@ export function bindingVerdict(claim: BindingClaim): BindingVerdict {
   if (!secretMatches(claim.paneSecret, claim.reportedSecret)) {
     return refuse("wrong-token");
   }
-  if (claim.reportedAgent === undefined) return refuse("unattributed");
   if (!speaksForPane(claim.paneAgent, claim.reportedAgent)) {
     return refuse("foreign-agent");
   }
+  // A different process than the one this generation bound is somebody else's
+  // session whatever it calls itself — this is the rule that catches a nested
+  // `--resume`, which reports a continuation and would otherwise walk past
+  // the origin check below.
+  if (
+    claim.boundReporter !== undefined &&
+    claim.reportedReporter !== undefined &&
+    claim.boundReporter !== claim.reportedReporter
+  ) {
+    return refuse("foreign-process");
+  }
+  // Same process, second fresh session: an in-process teammate or subsession.
   if (claim.origin === "startup" && claim.boundThisGeneration) {
     return refuse("second-startup");
   }

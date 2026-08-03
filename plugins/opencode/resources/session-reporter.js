@@ -141,31 +141,39 @@ export default async (input = {}) => {
     }
   };
 
-  // Whether this process has already handed the pane an identity. The deck
-  // binds at most one FRESH session per pane process — everything else under
-  // that pane is somebody else's — so a later root is reported as what it is:
-  // the same pane's conversation continuing under a new id (`/new`), not a
-  // second session appearing out of nowhere.
-  let boundOnce = false;
-  const bind = (sessionID) => {
-    const source = boundOnce ? "new" : "startup";
-    boundOnce = true;
+  // A later root is the pane's conversation continuing under a new id
+  // (`/new`), not a second session appearing out of nowhere — so it is
+  // reported as what it is. Derived from `activeRoot` rather than a flag of
+  // its own: a second copy of "has this pane bound yet" is a second place for
+  // that answer to be wrong, and this one would keep saying "continuing"
+  // after a publish that silently failed.
+  const bind = (sessionID, continuing) =>
     publish({
       v: 1,
       type: "session.bound",
       paneId: pane,
       token,
-      payload: { sessionId: sessionID, agent: "opencode", source },
+      payload: {
+        sessionId: sessionID,
+        agent: "opencode",
+        source: continuing ? "new" : "startup",
+        // This reporter IS the agent process, so its pid names the process
+        // the deck pins the pane's generation to. A nested opencode gets its
+        // own, and the deck refuses it.
+        reporter: String(process.pid),
+      },
     });
-  };
 
   const activateRoot = async (sessionID, publishBinding) => {
+    // Read before the assignment below: whether this pane already had a root
+    // IS the difference between a startup and a `/new`.
+    const continuing = activeRoot !== undefined;
     activeRoot = sessionID;
     messages.clear();
     childRoots.clear();
     root = undefined;
     sequence = 0;
-    if (publishBinding) bind(sessionID);
+    if (publishBinding) bind(sessionID, continuing);
     hydration = hydrateSession(sessionID, sessionID, new Set());
     await hydration;
   };

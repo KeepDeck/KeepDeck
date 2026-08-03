@@ -35,12 +35,17 @@ export interface PaneAttribution {
     reportedSecret: string,
     reportedAgent: string | undefined,
   ): boolean;
-  /** This pane's generation now has an identity: a later fresh session is
-   * somebody else's. */
-  recordBinding(paneId: string): void;
+  /** This pane's generation now has an identity, reported by this process:
+   * a later fresh session, or any session from another process, is somebody
+   * else's. */
+  recordBinding(paneId: string, reporter: string | undefined): void;
   /** The pane's process is retiring — the next fresh session it reports is
    * legitimately its own again. */
   retire(paneId: string): void;
+  /** Keep only panes the deck still holds. The other holders of per-pane
+   * state are swept this way too; without it this ledger is the one map that
+   * only ever grows. */
+  forget(live: ReadonlySet<string>): void;
 }
 
 export interface PaneAttributionDeps {
@@ -55,7 +60,9 @@ export interface PaneAttributionDeps {
 export function createPaneAttribution(
   deps: PaneAttributionDeps,
 ): PaneAttribution {
-  const bound = new Set<string>();
+  /** paneId → the process that bound this generation (undefined when that
+   * reporter could not name itself). Presence IS "this generation bound". */
+  const bound = new Map<string, string | undefined>();
 
   const agentOf = (paneId: string): string | undefined =>
     findWorkspaceOfPane(deps.workspaces(), paneId)?.panes.find(
@@ -71,6 +78,8 @@ export function createPaneAttribution(
         reportedAgent: report.agent,
         origin: bindingOrigin(report.source),
         boundThisGeneration: bound.has(report.paneId),
+        boundReporter: bound.get(report.paneId),
+        reportedReporter: report.reporter,
       });
     },
     admitsReport(paneId, reportedSecret, reportedAgent) {
@@ -79,11 +88,16 @@ export function createPaneAttribution(
         speaksForPane(agentOf(paneId), reportedAgent)
       );
     },
-    recordBinding(paneId) {
-      bound.add(paneId);
+    recordBinding(paneId, reporter) {
+      bound.set(paneId, reporter);
     },
     retire(paneId) {
       bound.delete(paneId);
+    },
+    forget(live) {
+      for (const paneId of [...bound.keys()]) {
+        if (!live.has(paneId)) bound.delete(paneId);
+      }
     },
   };
 }

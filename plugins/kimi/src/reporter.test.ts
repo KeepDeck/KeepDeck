@@ -55,6 +55,15 @@ function runHook(payload: unknown, env: Record<string, string>): void {
   }
 }
 
+/** The published payload minus the reporting process, whose value is a live
+ * process group — asserted for shape once, below, rather than in every case. */
+function publishedPayload(dir: string, file: string): Record<string, unknown> {
+  const parsed = JSON.parse(readFileSync(join(dir, file), "utf8"));
+  const { reporter, ...payload } = parsed.payload as Record<string, unknown>;
+  expect(reporter, "the reporting process group").toMatch(/^\d+$/);
+  return payload;
+}
+
 describe("Kimi SessionStart reporter", () => {
   it("is inert outside a KeepDeck-spawned Kimi process", () => {
     const dir = scratch();
@@ -88,7 +97,8 @@ describe("Kimi SessionStart reporter", () => {
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
     expect(files[0]).toMatch(/^session\.bound-.+\.json$/);
-    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8"))).toEqual({
+    const parsed = JSON.parse(readFileSync(join(dir, files[0]), "utf8"));
+    expect({ ...parsed, payload: publishedPayload(dir, files[0]) }).toEqual({
       v: 1,
       type: "session.bound",
       paneId: "pane-kimi",
@@ -141,7 +151,7 @@ describe("Kimi SessionStart reporter", () => {
 
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
-    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+    expect(publishedPayload(dir, files[0])).toEqual({
       agent: "kimi",
       sessionId: "session_abc",
       transcriptPath: `${home}/sessions/wd_repo/session_abc/agents/main/wire.jsonl`,
@@ -176,7 +186,7 @@ describe("Kimi SessionStart reporter", () => {
     );
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
-    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+    expect(publishedPayload(dir, files[0])).toEqual({
       agent: "kimi",
       sessionId: "session_abc",
     });
@@ -200,7 +210,7 @@ describe("Kimi SessionStart reporter", () => {
     );
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
-    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+    expect(publishedPayload(dir, files[0])).toEqual({
       agent: "kimi",
       sessionId: "session_new",
     });
