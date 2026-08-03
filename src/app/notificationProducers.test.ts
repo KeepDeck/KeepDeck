@@ -421,14 +421,15 @@ describe("claude background agents, replayed end to end", () => {
     // THE REGRESSION: this Stop used to read as "Done" and announce a turn
     // that had not finished. The phase must not restart either — the age is
     // "how long since you could have walked away", and the user could not.
-    expect(activity()).toEqual({ state: "working", since: 100 });
+    const parked = { state: "working", since: 100, parked: true };
+    expect(activity()).toEqual(parked);
     expect(center.notify).not.toHaveBeenCalled();
 
     // The subagent's OWN tool calls reach the armed hook (they carry
     // `agent_id`); they must not disturb the pane either way.
     hook({ hook_event_name: "PostToolUse", agent_id: runningSubagent.id }, 400);
     hook({ hook_event_name: "PostToolUse", agent_id: runningSubagent.id }, 500);
-    expect(activity()).toEqual({ state: "working", since: 100 });
+    expect(activity()).toEqual(parked);
 
     // The finished background work wakes the session — a machine-injected
     // turn, indistinguishable from a typed one at the hook.
@@ -444,51 +445,63 @@ describe("claude background agents, replayed end to end", () => {
     );
   });
 
-  it("a background agent's question survives the turn parking", () => {
+  it("parking withdraws a wait the closed turn has outlived", () => {
     hook({ hook_event_name: "UserPromptSubmit" }, 100);
-    // A background agent needs input. claude reports it on the main
-    // session's hook, so this is the only place the question can surface.
     hook(
       { hook_event_name: "Notification", notification_type: "agent_needs_input" },
       200,
     );
-    const asked = { state: "waiting", since: 200, reason: "question" };
-    expect(activity()).toEqual(asked);
+    expect(activity()).toEqual({
+      state: "waiting",
+      since: 200,
+      reason: "question",
+    });
     expect(center.notify).toHaveBeenCalledTimes(1);
 
-    // Parking answers nothing — the work still running is what asked — so
-    // the question stands, unretracted and un-re-announced. This is the
-    // whole reason the parked edge is not `resumed`, which WOULD clear it.
+    // The main thread does not end its turn while blocked on the user, so a
+    // wait still standing at the Stop is stale. Left up, it would claim an
+    // approval is pending for as long as the background work runs, with no
+    // edge able to clear it.
     hook({ hook_event_name: "Stop", background_tasks: [runningSubagent] }, 300);
-    expect(activity()).toEqual(asked);
-    expect(center.retractNotification).not.toHaveBeenCalled();
-    expect(center.notify).toHaveBeenCalledTimes(1);
-
-    // A tool completion does clear it — from any thread. That is imprecise
-    // (nothing records who raised the wait) and knowingly kept: the
-    // alternative stranded answered approvals on amber indefinitely.
-    hook({ hook_event_name: "PostToolUse", agent_id: runningSubagent.id }, 400);
-    expect(activity()).toEqual({ state: "working", since: 400 });
+    expect(activity()).toEqual({ state: "working", since: 300, parked: true });
     expect(center.retractNotification).toHaveBeenCalledWith(
       "pane:pane-1:activity",
     );
+    expect(center.notify).toHaveBeenCalledTimes(1);
   });
 
-  it("surfaces a question raised after the turn parked", () => {
+  it("stays silent through the nudges a parked window keeps producing", () => {
     hook({ hook_event_name: "UserPromptSubmit" }, 100);
     hook({ hook_event_name: "Stop", background_tasks: [runningSubagent] }, 200);
-    expect(center.notify).not.toHaveBeenCalled();
+    const parked = { state: "working", since: 100, parked: true };
+    expect(activity()).toEqual(parked);
 
-    // The window runs for minutes, so a question raised inside it is real
-    // and has to reach the user. While the pane read "done" this was
-    // swallowed as a late echo and the prompt was never announced.
+    // claude's idle nudge keeps firing while the main thread sits behind its
+    // background work. Nothing records WHICH agent is asking and no edge can
+    // resolve it, so announcing would put up a prompt the user cannot
+    // answer — and each background tool completion would retract and
+    // re-raise it, flapping a banner for the length of the run.
+    for (const at of [300, 306, 312]) {
+      hook(
+        { hook_event_name: "Notification", notification_type: "permission_prompt" },
+        at,
+      );
+      hook({ hook_event_name: "PostToolUse", agent_id: runningSubagent.id }, at + 2);
+    }
+    expect(activity()).toEqual(parked);
+    expect(center.notify).not.toHaveBeenCalled();
+    expect(center.retractNotification).not.toHaveBeenCalled();
+
+    // The wake opens an ordinary turn again, and a question there DOES reach
+    // the user — the suppression is scoped to the parked stretch, not global.
+    hook({ hook_event_name: "UserPromptSubmit" }, 400);
     hook(
       { hook_event_name: "Notification", notification_type: "permission_prompt" },
-      300,
+      500,
     );
     expect(activity()).toEqual({
       state: "waiting",
-      since: 300,
+      since: 500,
       reason: "permission",
     });
     expect(center.notify).toHaveBeenCalledTimes(1);
@@ -525,7 +538,7 @@ describe("claude background agents, replayed end to end", () => {
   it("an interrupt during the background window ends the turn honestly", () => {
     hook({ hook_event_name: "UserPromptSubmit" }, 100);
     hook({ hook_event_name: "Stop", background_tasks: [runningSubagent] }, 200);
-    expect(activity()).toEqual({ state: "working", since: 100 });
+    expect(activity()).toEqual({ state: "working", since: 100, parked: true });
 
     // Esc pushes no hook — the edge comes from the transcript tailer, which
     // polls, so it is stamped with the MARKER's own time rather than

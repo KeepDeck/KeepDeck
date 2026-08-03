@@ -31,8 +31,16 @@ import type { AgentStatusEvent, StatusWaitReason } from "@keepdeck/plugin-api";
 export type PaneActivity =
   /** A turn is running. `since` is when THIS running phase began — a wait
    * that resolves starts a new phase, so the age answers "how long since
-   * you could have walked away". */
-  | { state: "working"; since: number }
+   * you could have walked away".
+   *
+   * `parked` marks the stretch after the CLI closed its turn while work it
+   * started kept running. Still working — the pane renders identically —
+   * but the MAIN thread is idle, and that changes what may be believed
+   * about it: nothing can attribute a wait to the agent that raised it, and
+   * no edge exists that would clear one, so a wait must not be minted here
+   * at all. Recorded rather than inferred, because a flag the reducer keeps
+   * is the only thing that can tell this stretch from an ordinary turn. */
+  | { state: "working"; since: number; parked?: true }
   /** The turn is blocked on the user. */
   | { state: "waiting"; since: number; reason: StatusWaitReason }
   /** The last turn is over. `interrupted` says HOW: completed, or cut by
@@ -95,6 +103,14 @@ export function reduceActivity(
       if (current?.state === "done" || current?.state === "failed") {
         return current;
       }
+      // A PARKED turn cannot host a wait either, for the same reason and a
+      // sharper one. claude's nudge keeps firing while the main thread sits
+      // idle behind its background work, but nothing records WHICH agent is
+      // asking and no edge can resolve it — so a wait minted here would
+      // announce a prompt the user cannot answer, and every background tool
+      // completion would retract and re-raise it for the length of the run.
+      // Before the turn learned to park, `done` absorbed exactly these.
+      if (current?.state === "working" && current.parked) return current;
       // The slow-channel time guard, inert for hook waits (receipt-stamped)
       // but armed the day a tail-recovered wait exists — same rule as the
       // ending edges: an edge older than the phase belongs to before it.
@@ -121,15 +137,28 @@ export function reduceActivity(
       }
       return current;
     case "parked":
-      // The turn did not end, so nothing about the CURRENT phase changes:
-      // a running turn keeps running (and keeps its age — the work never
-      // stopped), and a standing wait STANDS, because the thing still
-      // running is exactly what may be asking. Parking resolves nothing.
+      // The turn did not end, so a running turn keeps running AND keeps its
+      // age — the work never stopped. What changes is that the main thread
+      // is now idle, which the phase records so the `waiting` case above can
+      // refuse to mint a prompt nobody could answer.
+      if (current?.state === "working") {
+        return current.parked
+          ? current
+          : { state: "working", since: current.since, parked: true };
+      }
+      // A wait CANNOT survive this edge: the main thread does not end its
+      // turn while blocked on the user, so a wait still standing when the
+      // turn closes is stale by construction, and withdrawing it is the
+      // point — left up, it would claim an approval is pending for as long
+      // as the background work runs, with no edge able to clear it.
+      if (current?.state === "waiting") {
+        return { state: "working", since: event.at, parked: true };
+      }
       // After done/failed it is an echo of a turn already closed, absorbed
-      // like every other late edge. The one thing it settles is a pane with
-      // no activity yet — attaching mid-session, or the first edge after a
+      // like every other late edge. The one thing left is a pane with no
+      // activity yet — attaching mid-session, or the first edge after a
       // clear — where in-flight work is honestly "working".
-      return current ?? { state: "working", since: event.at };
+      return current ?? { state: "working", since: event.at, parked: true };
     case "turn-end":
       if (endedTurnStands(current, event.at)) return current;
       return { state: "done", at: event.at, interrupted: false };
