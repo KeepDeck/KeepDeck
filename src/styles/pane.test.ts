@@ -206,6 +206,11 @@ describe("pane header", () => {
 
     const gap = px(ruleBody(paneCss, ".pane__actions").gap);
     const button = px(ruleBody(paneCss, ".pane__action").width);
+    // The ✕ is NOT a .pane__action — the header passes no class to CloseButton,
+    // so it wears .ui-close alone (base.css), whose width is equal only by
+    // convention and a comment. Reading it separately is the difference between
+    // a guard and a guess: widen one of the two and the sum still has to move.
+    const close = px(ruleBody(readStyles("base.css"), ".ui-close").width);
     const dot = px(ruleBody(chipCss, ".chip")["--chip-diameter"]);
     const branch = px(ruleBody(paneCss, ".pane__branch")["max-width"]);
     const barGap = px(ruleBody(paneCss, ".pane__bar").gap);
@@ -214,8 +219,8 @@ describe("pane header", () => {
     const glyph = px(agent["font-size"]) + px(agent["margin-right"]);
 
     // The widest state that must survive this rung: ctx already shed, the
-    // branch still wearing its label, both dots and all three buttons present.
-    const items = [dot, dot, branch, button, button, button];
+    // branch still wearing its label, both dots, minimize, maximize and close.
+    const items = [dot, dot, branch, button, button, close];
     const needed =
       items.reduce((a, b) => a + b, 0) +
       gap * (items.length - 1) +

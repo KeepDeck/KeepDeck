@@ -161,10 +161,19 @@
   margin-bottom: 14px;
 }
 
+/* The heading is what yields in this row, the same way a pane's title yields
+   beside its badges: the scope chip holds a fixed vocabulary word and reads as
+   nothing once squeezed, while a skill name is the user's and can be any
+   length. Without the floor and the ellipsis it kept its longest word and
+   pushed the chip off the row instead. */
 .skills__editor-title {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin: 0;
   color: #c5c8c6;
   font-size: 16px;
