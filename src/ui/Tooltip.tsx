@@ -8,9 +8,10 @@ import { createPortal } from "react-dom";
  *
  * The tip PORTALS to the body at fixed viewport coordinates: rendered in
  * place it would clip against any scrolling ancestor (the stats dialog's
- * body ate the first row's tip). Above the anchor by default, flipped
- * below when the anchor sits too close to the viewport top. Pure
- * presentation state; the tip is not interactive. */
+ * body ate the first row's card). It mounts hidden, measures itself, and
+ * lands on WHOLE pixels — a translate(-50%) of an odd-width card sat the
+ * text on a half-pixel and blurred it. Above the anchor by default,
+ * flipped below near the viewport top. Not interactive by design. */
 export function Tooltip({
   tip,
   className,
@@ -27,6 +28,14 @@ export function Tooltip({
   const [at, setAt] = useState<{ x: number; y: number; below: boolean } | null>(
     null,
   );
+  const [box, setBox] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const measure = (tipEl: HTMLSpanElement | null) => {
+    if (tipEl && box === null) {
+      setBox({ width: tipEl.offsetWidth, height: tipEl.offsetHeight });
+    }
+  };
   return (
     <span
       className={`kd-tip__anchor${className ? ` ${className}` : ""}`}
@@ -39,6 +48,7 @@ export function Tooltip({
           y: below ? rect.bottom + 8 : rect.top - 8,
           below,
         });
+        setBox(null);
       }}
       onMouseLeave={() => setAt(null)}
     >
@@ -46,13 +56,17 @@ export function Tooltip({
       {at !== null &&
         createPortal(
           <span
+            ref={measure}
             className="kd-tip"
             role="tooltip"
-            style={{
-              left: at.x,
-              top: at.y,
-              transform: `translate(-50%, ${at.below ? "0" : "-100%"})`,
-            }}
+            style={
+              box === null
+                ? { left: 0, top: 0, visibility: "hidden" }
+                : {
+                    left: Math.round(at.x - box.width / 2),
+                    top: Math.round(at.below ? at.y : at.y - box.height),
+                  }
+            }
           >
             {tip}
           </span>,

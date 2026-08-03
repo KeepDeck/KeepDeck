@@ -76,13 +76,13 @@ export function Weeks({
                 role="row"
                 key={week.start}
               >
-                {/* ONE flex line, baseline-aligned — the date and the note
-                    share a baseline instead of two boxes centering apart. */}
-                <span className="stats__week-label--empty" role="cell">
+                <span className="stats__week-label" role="cell">
                   <b>{formatWeekLabel(week.start, now)}</b>
-                  <span className="stats__week-none">
-                    in progress · no usage yet
-                  </span>
+                </span>
+                {/* Centered in the DATA span — an empty-state line, not a
+                    value glued to the date. */}
+                <span className="stats__week-none" role="cell">
+                  in progress · no usage yet
                 </span>
               </div>
             );
