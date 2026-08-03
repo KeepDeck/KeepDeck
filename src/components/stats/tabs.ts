@@ -11,13 +11,20 @@ import { STATS_TAB_IDS, type StatsTab } from "../../domain/usage/statsTabs";
 
 /** What a tab renders from — this single field decides both gates the
  * switchboard applies: a dead ledger blocks every ledger-backed tab, and
- * the period switcher (with the period-empty state) applies only to
- * period-scoped ones. Providers run on the provider's clock; achievements
- * are all-time by definition. */
-export type StatsTabData = "period-ledger" | "all-ledger" | "live-accounts";
+ * the period-empty state applies only to tabs whose WHOLE body is
+ * period-scoped. Providers run on the provider's clock; achievements are
+ * all-time by definition. `period-lens` is a period-CONSUMING view over
+ * the full ledger (Overview: cards and chart follow the switcher, the
+ * Weeks block deliberately does not) — an empty period must never hide
+ * it, only a dead ledger may. */
+export type StatsTabData =
+  | "period-ledger"
+  | "period-lens"
+  | "all-ledger"
+  | "live-accounts";
 
 export const TAB_SPECS: Record<StatsTab, { label: string; data: StatsTabData }> = {
-  overview: { label: "Overview", data: "period-ledger" },
+  overview: { label: "Overview", data: "period-lens" },
   providers: { label: "Providers", data: "live-accounts" },
   models: { label: "Models", data: "period-ledger" },
   sessions: { label: "Sessions", data: "period-ledger" },
@@ -27,8 +34,12 @@ export const TAB_SPECS: Record<StatsTab, { label: string; data: StatsTabData }> 
 export const STATS_TABS: readonly { id: StatsTab; label: string }[] =
   STATS_TAB_IDS.map((id) => ({ id, label: TAB_SPECS[id].label }));
 
-/** Derived, not hand-listed: a tab is period-independent exactly when its
- * data is not period-scoped. */
+/** Derived, not hand-listed: does the tab read the period switcher? */
+export function consumesPeriod(data: StatsTabData): boolean {
+  return data === "period-ledger" || data === "period-lens";
+}
+
+/** A tab is period-independent exactly when it never reads the switcher. */
 export const PERIODLESS_TABS: readonly StatsTab[] = STATS_TAB_IDS.filter(
-  (id) => TAB_SPECS[id].data !== "period-ledger",
+  (id) => !consumesPeriod(TAB_SPECS[id].data),
 );

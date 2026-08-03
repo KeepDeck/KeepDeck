@@ -178,7 +178,11 @@ describe("UsageStats", () => {
       (button) => button.textContent === "24h",
     )!;
     act(() => day.click());
-    expect(host.textContent).toContain("No usage recorded");
+    // The period went empty, but Overview STAYS: zeroed cards over an
+    // intact Weeks history — an empty period must never hide the one
+    // period-independent block (review finding).
+    expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("0");
+    expect(host.querySelector(".stats__weeks")).not.toBeNull();
   });
 
   it("shows highlights with the prior-period delta and the busiest day", () => {
@@ -507,13 +511,19 @@ describe("UsageStats", () => {
       error: null,
     };
     act(() => root.render(createElement(Host)));
-    expect(host.textContent).toContain("No usage recorded"); // default 7d
+    // Default 7d is empty: Overview keeps rendering (zero cards, Weeks
+    // history reachable), while the period-LEDGER tabs still gate.
+    expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("0");
+    expect(host.querySelector(".stats__weeks")).not.toBeNull();
+    clickTab("Models");
+    expect(host.textContent).toContain("No usage recorded");
+    clickTab("Overview");
 
     const all = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
       (button) => button.textContent === "All",
     )!;
     act(() => all.click());
-    expect(host.textContent).toContain("gpt-5.6-terra");
+    expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("1.6k");
   });
 
   it("does not render unknown cost as a fake zero", () => {
