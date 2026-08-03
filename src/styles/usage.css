@@ -10,6 +10,12 @@
 }
 
 .usage-chip {
+  /* The one chip that yields, opting out of the primitive's `flex: none`
+     (chip.css) by name rather than by omission. It carries a variable-length
+     window list rather than a glyph, and it sits in the top bar, which sheds
+     that detail by @media breakpoint — so shrinking is how it behaved before
+     the rule existed and nothing here relies on it keeping a fixed width. */
+  flex: 0 1 auto;
   padding: 0 8px;
   border-color: #242a37;
   background-color: rgba(255, 255, 255, 0.03);

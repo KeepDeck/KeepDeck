@@ -26,6 +26,15 @@
      as wide as it is tall. Stated twice, a density change to one of them ships
      a stadium. */
   --chip-diameter: 22px;
+  /* A chip does not yield. It cannot survive yielding: `min-width: 0` below
+     lets it be squeezed past its own glyph into a sliver still wearing the
+     999px radius, which reads as a vertical stadium with the icon clipped off
+     centre — and that is not hypothetical, it is what a long pane title did to
+     the branch badge. The rows a chip sits in shed whole chips at breakpoints
+     instead, and their text yields.
+     Stated HERE so the next chip inherits the fix rather than the trap; the
+     one site that must yield says so by name (.usage-chip, usage.css). */
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;

@@ -184,13 +184,8 @@
      narrower variant already proved sufficient. */
   max-width: 120px;
   overflow: hidden;
-  /* Never shrinks, for the same reason as the pane header's .pane__branch
-     (pane.css) — the stand-in's whole point is not drifting from the header.
-     Here the parent really can run short (a tray chip is capped at 272px), so
-     a shrinkable badge was reachable: the shared .chip's min-width: 0 let it
-     be squeezed below its glyph instead of ellipsizing its label. The title
-     yields instead. */
-  flex: none;
+  /* No `flex` here either — chip.css states once that a chip does not yield,
+     and the title beside it is what gives instead. */
   color: #cdd2da;
 }
 

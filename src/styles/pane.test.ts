@@ -246,9 +246,12 @@ describe("pane header", () => {
     //
     // Both surfaces, because the header and the tray stand-in deliberately
     // draw from one set of badges (ui-kit badges.tsx) and a fix to one of them
-    // is a drift from the other.
+    // is a drift from the other. Neither declares it any more — the primitive
+    // does, once, which is the point: a new chip in a shrinkable row inherits
+    // the fix instead of the trap.
     renderHeader();
     expect(styleOf(".pane__branch").flexShrink).toBe("0");
+    expect(styleOf(".pane__yolo").flexShrink).toBe("0");
 
     renderStandIn();
     expect(styleOf(".minimized__branch").flexShrink).toBe("0");

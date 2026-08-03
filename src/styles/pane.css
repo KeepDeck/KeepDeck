@@ -193,15 +193,11 @@
 
 .pane__branch {
   overflow: hidden;
+  /* No `flex` here: a chip does not yield, and chip.css says so once for all
+     of them (a squeezed branch badge was the bug). This hook adds only the
+     cap the label ellipsizes inside; below it, the rung further down collapses
+     the whole chip to its glyph. */
   max-width: min(180px, 44vw);
-  /* Never shrinks either, and the invariant has to be stated HERE rather than
-     inferred from the cluster: the shared .chip carries min-width: 0
-     (chip.css), so a shrinkable chip is squeezed below its own glyph — a
-     sliver wearing a 999px radius with the icon clipped off its centre, which
-     is what a long title used to do to it. The label ellipsizes inside the
-     max-width instead, and when the header really is too narrow the container
-     query below collapses the whole chip to that glyph. */
-  flex: none;
   font-size: 12px;
 }
 
