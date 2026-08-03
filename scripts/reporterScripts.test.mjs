@@ -43,4 +43,36 @@ describe("reporter shell scripts", () => {
     expect(script).toContain("wc -c");
     expect(script).not.toMatch(/\$\{#payload\}"? -gt/);
   });
+
+  it("keeps the reduction threshold under the bridge's own envelope cap", () => {
+    // The shell threshold and the cap it exists to stay below live in
+    // different languages in different crates, with nothing but this test
+    // linking them. They have already drifted once — the shell sat at
+    // exactly half the bridge's limit, so every payload in the gap was
+    // reduced although it would have been delivered whole. Tighten the cap
+    // in Rust without this, and the drift goes the other way: envelopes
+    // between the new cap and the stale threshold are forwarded intact and
+    // dropped unread, stranding the pane the reduction exists to save.
+    const script = readFileSync(STATUS_COPIES[0], "utf8");
+    // Anchored to the guard's own variable: a bare `-gt` would happily match
+    // any later comparison someone adds above it and silently start
+    // asserting the wrong number.
+    const threshold = script.match(/"\$bytes"\s+-gt\s+(\d+)/);
+    expect(threshold, "no byte threshold found in the reporter").not.toBeNull();
+
+    const bridge = readFileSync("src-tauri/src/bridge.rs", "utf8");
+    const cap = bridge.match(/MAX_ENVELOPE_BYTES[^=]*=\s*([0-9*\s]+);/);
+    expect(cap, "no MAX_ENVELOPE_BYTES found in the bridge").not.toBeNull();
+    const capBytes = cap[1]
+      .split("*")
+      .reduce((product, part) => product * Number(part.trim()), 1);
+
+    // BOTH directions. Too high and an envelope the bridge rejects is
+    // forwarded whole, stranding the pane; too low and every payload in the
+    // gap is needlessly reduced — the drift that already happened once, when
+    // the shell sat at exactly half. The lower bound leaves room only for the
+    // wrapper (~170 bytes with uuid-ish pane and token values).
+    expect(Number(threshold[1])).toBeLessThan(capBytes - 512);
+    expect(Number(threshold[1])).toBeGreaterThan(capBytes - 2048);
+  });
 });

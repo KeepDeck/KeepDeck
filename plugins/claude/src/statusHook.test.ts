@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { normalizeClaudeStatus } from "./status";
 
 /**
  * The status reporter, EXECUTED — the byte-identity test in
@@ -40,6 +41,12 @@ function bridged(dir: string): Record<string, string | undefined> {
   return {
     ...process.env,
     KEEPDECK_BRIDGE: JSON.stringify({ v: 1, dir, pane: "pane-3", token: "tok" }),
+    // A UTF-8 ambient locale, ALWAYS — the script overrides it, and that
+    // override is what the invalid-byte case below proves. Inheriting the
+    // runner's locale instead would make that proof environment-dependent: on
+    // a CI container with LC_ALL unset the ambient locale is already C, the
+    // override becomes a no-op, and the test would pass with it deleted.
+    LC_ALL: "en_US.UTF-8",
   };
 }
 
@@ -57,7 +64,9 @@ function bridged(dir: string): Record<string, string | undefined> {
 function hook(
   args: string[],
   env: Record<string, string | undefined>,
-  stdin: string,
+  // A Buffer too: one case feeds a byte no UTF-8 locale accepts, which a
+  // string cannot carry.
+  stdin: string | Buffer,
 ): void {
   // Its own dir, reaped here: the inbox is asserted file by file, and a stray
   // payload sitting there would read as a published envelope.
@@ -79,8 +88,20 @@ function hook(
   }
 }
 
-function run(dir: string, stdin: string, agent = "claude"): void {
+function run(dir: string, stdin: string | Buffer, agent = "claude"): void {
   hook([agent], bridged(dir), stdin);
+}
+
+/** A payload guaranteed to trip the reduction, in the shape that actually
+ * drives it in the field: a huge final assistant message. */
+function oversized(event: Record<string, unknown>): string {
+  return JSON.stringify({ ...event, last_assistant_message: "ж".repeat(140_000) });
+}
+
+/** The published envelope as the normalizer receives it — so a reduction can
+ * be judged by the EDGE it produces, not by its serialized shape. */
+function envelopeEvent(dir: string): unknown {
+  return (envelope(dir) as { payload: unknown }).payload;
 }
 
 function envelope(dir: string): Record<string, unknown> {
@@ -109,18 +130,128 @@ describe("kd-status-hook.sh", () => {
     ).toHaveLength(0);
   });
 
-  it("degrades an oversized payload to the bare event name, measured in BYTES", () => {
-    const dir = inbox();
-    // ~70k CYRILLIC characters ≈ 140KB in UTF-8: over the byte cap while a
-    // character count would wave it through.
-    const monster = JSON.stringify({
-      hook_event_name: "Stop",
-      last_assistant_message: "ж".repeat(70_000),
-    });
-    run(dir, monster);
-    expect(envelope(dir)).toMatchObject({
+  it("reduces only past the bridge's own limit, measured in BYTES", () => {
+    // Under the cap the payload rides whole. The guard used to fire at half
+    // the size that needs it, reducing payloads the bridge would have
+    // delivered intact and widening every lossy failure below.
+    const whole = inbox();
+    run(
+      whole,
+      JSON.stringify({
+        hook_event_name: "Stop",
+        last_assistant_message: "ж".repeat(70_000),
+      }),
+    );
+    expect(JSON.stringify(envelope(whole))).toContain("last_assistant_message");
+
+    // Past it, the reduced shape. CYRILLIC is 2 bytes a character, so a
+    // character count would wave this through.
+    const cut = inbox();
+    run(cut, oversized({ hook_event_name: "Stop" }));
+    // EXACT, not a subset: the event name is all a reduction may carry, and
+    // a partial match would let a field creep back in unnoticed — which is
+    // how the value-copying and the invented task entry both shipped.
+    expect(envelope(cut)).toEqual({
+      v: 1,
       type: "agent.status",
+      paneId: "pane-3",
+      token: "tok",
       payload: { agent: "claude", event: { hook_event_name: "Stop" } },
+    });
+  });
+
+  it("a reduced payload stays parseable whatever the values held", () => {
+    // The reduction copies NO value out, so nothing it emits can be broken
+    // by what a value contained. `"[^"]*"` would stop at the backslash of an
+    // escaped quote and close the envelope mid-string, and the bridge drops
+    // a malformed envelope WHOLE — losing the edge entirely. Only the event
+    // name survives, and only because its charset is constrained to [A-Za-z].
+    const dir = inbox();
+    run(
+      dir,
+      oversized({
+        hook_event_name: "StopFailure",
+        error: 'say "hi" now',
+        tool_response: { structuredContent: { detail: 'nested "quoted" text\\' } },
+      }),
+    );
+    expect(envelope(dir)).toMatchObject({
+      payload: { agent: "claude", event: { hook_event_name: "StopFailure" } },
+    });
+    // The error CLASS goes with every other value — a deliberate
+    // degradation: the badge reads "Turn failed" instead of naming the rate
+    // limit. Degraded is recoverable; a dropped envelope is not.
+    expect(normalizeClaudeStatus(envelopeEvent(dir), 100)).toEqual({
+      kind: "turn-failed",
+      at: 100,
+      error: "unknown",
+    });
+  });
+
+  it("survives a byte no UTF-8 locale would accept", () => {
+    // `tr` ABORTS at the first invalid byte under a UTF-8 locale and
+    // truncates its output. The bad byte here sits BEFORE the event name —
+    // claude's payload leads with paths, and a path is bytes, not text — so
+    // a truncating `tr` would take the name with it and the whole envelope
+    // would be dropped. Under LC_ALL=C a payload is bytes and it survives.
+    const dir = inbox();
+    const pad = Buffer.from("ж".repeat(140_000), "utf8");
+    run(
+      dir,
+      Buffer.concat([
+        Buffer.from('{"cwd":"/tmp/'),
+        Buffer.from([0xff]),
+        Buffer.from('","hook_event_name":"Stop","last_assistant_message":"'),
+        pad,
+        Buffer.from('"}'),
+      ]),
+    );
+    expect(envelope(dir)).toMatchObject({
+      payload: { event: { hook_event_name: "Stop" } },
+    });
+  });
+
+  it("finds the event name however the payload is formatted", () => {
+    // grep and sed are line-oriented; JSON's structural whitespace is not.
+    const dir = inbox();
+    run(
+      dir,
+      JSON.stringify(
+        { hook_event_name: "Stop", last_assistant_message: "ж".repeat(140_000) },
+        null,
+        2,
+      ),
+    );
+    expect(envelope(dir)).toMatchObject({
+      payload: { event: { hook_event_name: "Stop" } },
+    });
+  });
+
+  it("reads the payload's OWN event name, not a NESTED one", () => {
+    // A tool result is arbitrary JSON, and structured output nests real
+    // objects — whose keys are NOT escaped and so do match the anchors.
+    // A greedy match took the LAST one, turning a mid-turn PostToolUse into
+    // a Stop: a false "finished" banner over a running turn. The real key
+    // leads in every schema we arm, so the FIRST match is the payload's own.
+    const dir = inbox();
+    run(
+      dir,
+      oversized({
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          structuredContent: {
+            hook_event_name: "Stop",
+            background_tasks: [{ id: "nested" }],
+          },
+        },
+      }),
+    );
+    expect(envelope(dir)).toMatchObject({
+      payload: { event: { hook_event_name: "PostToolUse" } },
+    });
+    expect(normalizeClaudeStatus(envelopeEvent(dir), 100)).toEqual({
+      kind: "resumed",
+      at: 100,
     });
   });
 

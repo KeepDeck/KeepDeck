@@ -54,8 +54,9 @@ describe("satisfiesApiFloor", () => {
   });
 
   it("rejects pre-lifetime-ref plugins after the workspace API break", () => {
+    // Pinning API_VERSION itself belongs to no test: it moves on every
+    // additive change, and the floor below is what this one is about.
     expect(satisfiesApiFloor(20)).toBe(false);
-    expect(API_VERSION).toBe(33);
     expect(MIN_COMPATIBLE_API_VERSION).toBe(21);
   });
 });

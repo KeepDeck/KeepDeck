@@ -35,6 +35,9 @@ const SESSION_HOOK = {
 const USAGE_HOOK = {
   "kd-usage-statusline.sh": "/App/resources/kd-usage-statusline.sh",
 };
+const STATUS_HOOK = {
+  "kd-status-hook.sh": "/App/resources/kd-status-hook.sh",
+};
 
 const output = (): SpawnPlanOutput => ({
   command: "claude",
@@ -63,6 +66,30 @@ describe("claude plugin hooks", () => {
     expect(settings.statusLine).toBeUndefined();
     // No --session-id: claude mints its own id; the hook posts it back.
     expect(out.args).toHaveLength(2);
+  });
+
+  it("arms every turn-lifecycle event on one status reporter", async () => {
+    const agent = activate(STATUS_HOOK);
+    const out = output();
+    await agent.hooks["spawn.plan"]!(input, out);
+
+    const settings = JSON.parse(out.args[1]);
+    // The agent id is the ONLY argument. The script takes no others, and a
+    // stale extra would be read as one — the reporter is silent on failure,
+    // so a broken command stops status with no error anywhere.
+    const command = "/bin/sh '/App/resources/kd-status-hook.sh' claude";
+    // StopFailure fires INSTEAD of Stop on an API error, so arming Stop
+    // without it strands the pane; PostToolUse is the approval-resolution
+    // stand-in. Losing any one of these is a silent hole in the lane.
+    for (const event of [
+      "UserPromptSubmit",
+      "Stop",
+      "StopFailure",
+      "Notification",
+      "PostToolUse",
+    ]) {
+      expect(settings.hooks[event][0].hooks[0].command, event).toBe(command);
+    }
   });
 
   it("arms the statusLine usage reporter alongside identity", async () => {

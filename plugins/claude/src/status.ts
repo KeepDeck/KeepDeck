@@ -7,15 +7,72 @@ import {
 } from "@keepdeck/plugin-api";
 
 /**
+ * The background-task kinds that WAKE the session when they finish, and so
+ * hold the turn open. `background_tasks` lists in-flight work of several
+ * kinds and claude's own schema names them (`subagent`, `shell`, `monitor`,
+ * `workflow`); only `shell` is excluded, and the distinction is the whole
+ * point of reading the type at all.
+ *
+ * A backgrounded shell task is one the USER parked deliberately — a dev
+ * server, a watcher, a tail. It may never finish, and nothing wakes the
+ * session when it does: the agent polls it with `BashOutput` inside a turn
+ * (probe-verified on 2.1.220). Treating it as a reason to hold the turn
+ * open means one `npm run dev` makes EVERY later turn park, so the pane
+ * never reaches "done" and never announces a finished turn again for the
+ * rest of the session — the mirror of the bug this exists to fix.
+ *
+ * An unknown KIND a newer build invents holds the turn open, like the
+ * agent-shaped kinds it will sit beside. An unknown ENTRY SHAPE does not:
+ * a list of bare ids rather than records reads as no background work and
+ * ends the turn. The two err in opposite directions on purpose — a kind we
+ * do not know is probably agent-shaped, while a shape we cannot read tells
+ * us nothing, and ending is the recoverable mistake ([`outlivesTurn`]).
+ */
+const SELF_WAKING = (type: unknown): boolean => type !== "shell";
+
+/**
+ * Whether a turn-ending payload reports work that OUTLIVES the turn.
+ *
+ * `Stop` fires when the MAIN thread finishes its reply — a thread that may
+ * have launched background agents still running behind it, and that claude
+ * will wake again once they finish. `background_tasks` is the discriminator
+ * claude ships for exactly this question (its own schema: "distinguish
+ * 'session is done' from 'session is paused waiting for background work to
+ * wake it'"), and it lists ONLY in-flight work — so an entry's `status` is
+ * claude's business rather than ours (binary-probed on 2.1.220: a task that
+ * finished before `Stop` leaves `[]`, one still running is listed).
+ *
+ * Its TYPE, though, is ours to read: not everything in flight will wake the
+ * session — see [`SELF_WAKING`].
+ *
+ * Anything that is not an array — the field absent on an older build, a
+ * shape a newer one invents — reads as "no background work". So does a
+ * payload too big to forward whole, which arrives as its event name alone.
+ * Ending the turn is the RECOVERABLE mistake in every one of those cases:
+ * the next prompt opens a new turn, while a turn wrongly held open strands
+ * the pane on "Working" until the process dies.
+ */
+function outlivesTurn(event: Record<string, unknown>): boolean {
+  const tasks = event.background_tasks;
+  if (!Array.isArray(tasks)) return false;
+  return tasks.some(
+    (task) => isJsonRecord(task) && SELF_WAKING(task.type),
+  );
+}
+
+/**
  * claude's turn-lifecycle payloads → status edges. The reporter wraps each
  * hook payload verbatim under `event`; the fields here are pinned by the
  * shipped binary's own hook schemas (2.1.220):
  *
  * - `UserPromptSubmit` → the turn is running.
- * - `Stop` → the turn completed. Fires INSTEAD of `StopFailure`, never both.
+ * - `Stop` → the turn completed — or `parked`, when it left background work
+ *   behind ([`outlivesTurn`]). Fires INSTEAD of `StopFailure`, never both.
  * - `StopFailure` → the turn died on an API error; `error` is claude's
  *   typed reason (`rate_limit`, `authentication_failed`, …), verified to
- *   ride in the payload — no per-matcher fan-out needed.
+ *   ride in the payload — no per-matcher fan-out needed. Background work is
+ *   deliberately NOT consulted here: a turn that died needs the user now,
+ *   and surviving background tasks do not make it un-failed.
  * - `Notification` → waiting, but only the two types that mean "parked on
  *   the user": `permission_prompt` and `agent_needs_input`. Binary-verified
  *   caveat (2.1.220): these are 6-second IDLE NUDGES, not dialog-open
@@ -28,7 +85,8 @@ import {
  *   and proves the wait resolved. For a long-running tool the amber
  *   clears only when the tool finishes (late, but bounded by the tool,
  *   not the turn); mid-turn repeats are absorbed by the reducer without
- *   an emit, so per-tool volume costs nothing downstream.
+ *   an emit, so per-tool volume costs nothing downstream. Subagent tool
+ *   calls arrive here too — see the case for why they are NOT filtered.
  *
  * A user interrupt (Esc) pushes NO hook — that edge arrives from the
  * host's transcript tailer as a `kind: "session.interrupt"` payload
@@ -52,8 +110,25 @@ export const normalizeClaudeStatus: StatusNormalizer = (
     case "UserPromptSubmit":
       return { kind: "turn-start", at };
     case "Stop":
-      return { kind: "turn-end", at };
+      // Background work in flight means the turn is PARKED, not over: the
+      // wake it triggers arrives as a fresh `UserPromptSubmit`, so the turn
+      // re-opens on its own and only the LAST `Stop` (empty list) ends it.
+      return outlivesTurn(event)
+        ? { kind: "parked", at }
+        : { kind: "turn-end", at };
     case "PostToolUse":
+      // KNOWN IMPRECISION, deliberately kept. A subagent's own tool calls
+      // reach this hook too (they carry `agent_id`), so with several agents
+      // in flight one agent's completion can clear a wait another raised.
+      // Gating on `agent_id` was tried and is WORSE: a wait is not tagged
+      // with who raised it — claude's `Notification` carries no agent id —
+      // so dropping subagent edges also drops the one that genuinely
+      // resolved the wait, and a synchronous Task blocks the main thread
+      // from sending any, leaving an answered approval amber for the whole
+      // subagent run. Clearing early self-corrects (the next idle nudge
+      // re-raises it); a stuck amber does not. Recoverable wins, the same
+      // rule [`outlivesTurn`] follows. A real fix needs the wait to carry
+      // its raiser, which needs data claude does not yet give us.
       return { kind: "resumed", at };
     case "StopFailure":
       return turnFailedEvent(at, event.error, event.error_details);
