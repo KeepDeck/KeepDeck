@@ -131,7 +131,14 @@ export function createPaneAttribution(
       );
     },
     recordBinding(paneId, reporter) {
-      bound.set(paneId, reporter);
+      // The FIRST binding of a generation pins it, and nothing after that
+      // moves the pin. Re-pinning on every accepted report looks harmless
+      // until one of them cannot name its process: that report would erase
+      // the pin, the next one — a nested run, say — would set it to ITS
+      // process, and the pane's own agent would then be refused as foreign
+      // for the rest of the generation. A pin that only `retire` clears
+      // cannot be walked away from one silent report at a time.
+      if (!bound.has(paneId)) bound.set(paneId, reporter);
     },
     retire(paneId) {
       bound.delete(paneId);

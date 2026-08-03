@@ -68,6 +68,37 @@ describe("createPaneAttribution", () => {
     });
   });
 
+  it("keeps the pin a report that cannot name its process would erase", () => {
+    // The four-step theft this guards: pin 4021 · the pane's own agent
+    // rebinds after a `ps` failure (no reporter, so the process rule cannot
+    // speak) · a nested run rebinds and becomes the new pin · the pane's own
+    // agent is refused as foreign for the rest of the generation.
+    const owner = attribution();
+    owner.recordBinding("pane-1", "4021");
+    owner.recordBinding("pane-1", undefined);
+
+    expect(
+      owner.judge(report({ source: "resume", reporter: "9137" })),
+    ).toEqual({ accepted: false, refusal: "foreign-process" });
+    expect(owner.judge(report({ source: "clear" }))).toEqual({
+      accepted: true,
+    });
+  });
+
+  it("does not adopt a process a later report names when the first could not", () => {
+    // Nothing distinguishes "the agent could not name itself, then could"
+    // from "the agent could not, and something else answered instead", so a
+    // generation that started blind stays blind rather than pinning to a
+    // process it cannot vouch for.
+    const owner = attribution();
+    owner.recordBinding("pane-1", undefined);
+    owner.recordBinding("pane-1", "9137");
+
+    expect(owner.judge(report({ source: "clear" }))).toEqual({
+      accepted: true,
+    });
+  });
+
   it("re-opens the door when the pane's process retires", () => {
     // The one thing a paneLifecycle.retire spy cannot show: that retiring
     // actually lets the pane's NEXT process bind, rather than leaving it

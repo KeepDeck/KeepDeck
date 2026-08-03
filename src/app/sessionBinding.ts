@@ -67,8 +67,10 @@ export function createSessionBinding(
         log.warn(
           "web:bridge",
           `binding for ${paneId} refused (${verdict.refusal}) — agent=${
-            report.agent ?? "unreported"
-          } source=${report.source ?? "unreported"}`,
+            report.agent
+          } source=${report.source ?? "unreported"} reporter=${
+            report.reporter ?? "unreported"
+          }`,
         );
         return;
       }
@@ -104,13 +106,21 @@ export function createSessionBinding(
         { id: sessionId, boundAt },
         transcriptPath,
       );
+      const accepted: AcceptedBinding = {
+        paneId,
+        sessionId,
+        token: report.token,
+        ...(transcriptPath ? { transcriptPath } : {}),
+      };
       for (const listener of [...listeners]) {
-        listener({
-          paneId,
-          sessionId,
-          token: report.token,
-          ...(transcriptPath ? { transcriptPath } : {}),
-        });
+        // Per listener, because one lane's failure is not the others': a
+        // throw here would otherwise skip every listener after it and escape
+        // into the Tauri event callback, where nobody is catching it.
+        try {
+          listener(accepted);
+        } catch (error) {
+          log.warn("web:bridge", `binding listener failed for ${paneId}: ${error}`);
+        }
       }
     },
   )
