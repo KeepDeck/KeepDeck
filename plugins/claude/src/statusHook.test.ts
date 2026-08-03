@@ -74,6 +74,55 @@ describe("kd-status-hook.sh", () => {
     });
   });
 
+  it("carries the in-flight background flag through the reduction", () => {
+    // The oversize driver is the final assistant message, which rides on the
+    // SAME event that lists still-running background work. Reducing that to
+    // a bare name would report "finished" over a live subagent — the exact
+    // bug the list exists to prevent.
+    const dir = inbox();
+    const monster = JSON.stringify({
+      hook_event_name: "Stop",
+      last_assistant_message: "ж".repeat(70_000),
+      background_tasks: [
+        { id: "a1", type: "subagent", status: "running", agent_type: "general-purpose" },
+      ],
+    });
+    run(dir, monster);
+    // Only non-emptiness survives — no consumer reads the entries — so the
+    // assertion is on the fact `outlivesTurn` actually tests.
+    expect(envelope(dir)).toMatchObject({
+      payload: {
+        agent: "claude",
+        event: {
+          hook_event_name: "Stop",
+          background_tasks: expect.arrayContaining([expect.anything()]),
+        },
+      },
+    });
+  });
+
+  it("does not invent background work from an empty list or quoted prose", () => {
+    const dir = inbox();
+    // An oversized turn that genuinely finished: the list is empty, and the
+    // prose merely QUOTES the key. Inside a JSON string the quotes arrive
+    // escaped, so the bare-quote anchor cannot match there.
+    const monster = JSON.stringify({
+      hook_event_name: "Stop",
+      last_assistant_message:
+        `I edited "background_tasks":[{"type":"subagent"}] in the reporter. ` +
+        "ж".repeat(70_000),
+      background_tasks: [],
+    });
+    run(dir, monster);
+    expect(envelope(dir)).toMatchObject({
+      payload: { agent: "claude", event: { hook_event_name: "Stop" } },
+    });
+    // No key at all — not an empty list, and above all not an invented one.
+    expect(
+      JSON.stringify(envelope(dir)).includes("background_tasks"),
+    ).toBe(false);
+  });
+
   it("stays silent and writes nothing without bridge context, agent or stdin", () => {
     const dir = inbox();
     // No agent argument.
