@@ -3,19 +3,17 @@ import { createWorkspaceInstance } from "../workspaceInstance";
 import {
   addNotification,
   BANNER_COOLDOWN_MS,
+  bannerVerdict,
   markAllRead,
   markRead,
   NOTIFICATIONS_CAP,
   retractByTag,
-  shouldBanner,
-  unreadByWorkspace,
   unreadCount,
   type Notification,
 } from "./notifications";
 
 let seq = 0;
 const ws1 = createWorkspaceInstance();
-const ws2 = createWorkspaceInstance();
 function make(over: Partial<Notification> = {}): Notification {
   seq += 1;
   return {
@@ -120,95 +118,48 @@ describe("read state", () => {
   });
 });
 
-describe("unreadByWorkspace", () => {
-  it("tallies pane and workspace-bound plugin sources; app counts nowhere", () => {
-    const items = [
-      make({
-        source: {
-          type: "pane",
-          workspace: { id: "ws-1", instance: ws1 },
-          paneId: "p1",
-        },
-      }),
-      make({
-        source: {
-          type: "pane",
-          workspace: { id: "ws-1", instance: ws1 },
-          paneId: "p2",
-        },
-      }),
-      make({
-        source: {
-          type: "plugin",
-          pluginId: "x",
-          workspace: { id: "ws-2", instance: ws2 },
-        },
-      }),
-      make({ source: { type: "plugin", pluginId: "x" } }),
-      make({ source: { type: "app" } }),
-      make({
-        source: {
-          type: "pane",
-          workspace: { id: "ws-2", instance: ws2 },
-          paneId: "p3",
-        },
-        readAt: 1,
-      }),
-    ];
-    expect(unreadByWorkspace(items)).toEqual(
-      new Map([
-        [ws1, 2],
-        [ws2, 1],
-      ]),
-    );
-  });
-
-  it("does not transfer unread entries to a reused public id", () => {
-    const oldInstance = createWorkspaceInstance();
-    const replacementInstance = createWorkspaceInstance();
-    const items = [
-      make({
-        source: {
-          type: "pane",
-          workspace: { id: "ws-3", instance: oldInstance },
-          paneId: "old-pane",
-        },
-      }),
-    ];
-
-    const unread = unreadByWorkspace(items);
-    expect(unread.get(oldInstance)).toBe(1);
-    expect(unread.get(replacementInstance)).toBeUndefined();
-  });
-});
-
-describe("shouldBanner", () => {
+describe("bannerVerdict", () => {
   const base = { windowFocused: false, sourceVisible: false, now: 10_000 };
 
   it("banners by default", () => {
-    expect(shouldBanner(base)).toBe(true);
+    expect(bannerVerdict(base)).toBe("banner");
   });
 
   it("suppresses when the source is on screen in a focused window", () => {
     expect(
-      shouldBanner({ ...base, windowFocused: true, sourceVisible: true }),
-    ).toBe(false);
+      bannerVerdict({ ...base, windowFocused: true, sourceVisible: true }),
+    ).toBe("seen-in-place");
   });
 
   it("still banners when focused but the source is off screen", () => {
-    expect(shouldBanner({ ...base, windowFocused: true })).toBe(true);
+    expect(bannerVerdict({ ...base, windowFocused: true })).toBe("banner");
   });
 
   it("still banners when the source is visible but the window is not focused", () => {
-    expect(shouldBanner({ ...base, sourceVisible: true })).toBe(true);
+    expect(bannerVerdict({ ...base, sourceVisible: true })).toBe("banner");
   });
 
   it("holds the per-tag cooldown, then releases it", () => {
     expect(
-      shouldBanner({ ...base, lastBannerAt: base.now - BANNER_COOLDOWN_MS + 1 }),
-    ).toBe(false);
+      bannerVerdict({
+        ...base,
+        lastBannerAt: base.now - BANNER_COOLDOWN_MS + 1,
+      }),
+    ).toBe("cooldown");
     expect(
-      shouldBanner({ ...base, lastBannerAt: base.now - BANNER_COOLDOWN_MS }),
-    ).toBe(true);
+      bannerVerdict({ ...base, lastBannerAt: base.now - BANNER_COOLDOWN_MS }),
+    ).toBe("banner");
+  });
+
+  /** The two silences are not interchangeable: delivery accounting treats
+   * "seen-in-place" as reaching the user and "cooldown" as reaching nobody,
+   * so a boolean answer would let one be read as the other. */
+  it("distinguishes the two ways a banner is withheld", () => {
+    const seen = { ...base, windowFocused: true, sourceVisible: true };
+    const fresh = { lastBannerAt: base.now - 1 };
+    expect(bannerVerdict(seen)).toBe("seen-in-place");
+    // Being on screen outranks the cooldown: the user DID see it.
+    expect(bannerVerdict({ ...seen, ...fresh })).toBe("seen-in-place");
+    expect(bannerVerdict({ ...base, ...fresh })).toBe("cooldown");
   });
 });

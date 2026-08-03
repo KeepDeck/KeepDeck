@@ -16,8 +16,8 @@ export interface PluginNotifyInput {
   body?: string;
   /** Defaults to `info`. */
   severity?: "info" | "warning" | "error";
-  /** Bind the entry to one exact workspace lifetime: it counts toward that
-   * workspace's unread dot and clicking it activates the workspace. */
+  /** Bind the entry to one exact workspace lifetime: clicking it activates
+   * that workspace. */
   workspace?: WorkspaceRef;
   /** Clicking the entry opens this dock tab of the plugin (an entry id from
    * the manifest's `contributes.dockTabs`). */

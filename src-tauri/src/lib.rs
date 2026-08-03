@@ -15,6 +15,8 @@ mod logging;
 mod mcp;
 mod menu;
 mod migration;
+#[cfg(target_os = "macos")]
+mod notify_identity;
 mod paths;
 mod plugins_fs;
 mod plugins_fs_write;
@@ -110,6 +112,18 @@ pub fn run() {
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();
+            // The notification stack gets exactly one chance to resolve who we
+            // are and takes it lazily, on the first banner (see
+            // `notify_identity`). Tauri has ALREADY built the config-declared
+            // window and its webview by the time this closure runs, so being
+            // early in `setup` is not what keeps us ahead of that first
+            // banner — the main thread simply has not yielded to the run loop
+            // yet, so no frontend code has executed. Anything added above this
+            // line that pumps the run loop (a modal, a main-thread drain)
+            // would let the webview reach `sendNotification` first and burn
+            // the attempt.
+            #[cfg(target_os = "macos")]
+            notify_identity::prepare(&app.config().identifier);
             // The updater's config (pubkey + endpoints) lives only in the
             // release overlay (tauri.release.conf.json); a dev build carries
             // no `plugins.updater` section and the plugin refuses to init

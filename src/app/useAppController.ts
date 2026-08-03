@@ -21,7 +21,6 @@ import { setSourceVisibilityProbe } from "./notificationCenter";
 import { useActivityNotifications } from "./useActivityNotifications";
 import { useWorkspaceFrames } from "./useWorkspaceFrames";
 import { workspaceForNotification } from "./notificationNavigation";
-import { useNotifications } from "./useNotifications";
 import { usePaneDrag } from "./usePaneDrag";
 import { usePersistence } from "./usePersistence";
 import { useSessionsBrowser } from "./useSessionsBrowser";
@@ -31,7 +30,6 @@ import { suspendRefusalText } from "./suspendOutcome";
 import { useUpdate } from "./useUpdate";
 import { buildDockTabs } from "../components/dock/useDockTabs";
 import type { SessionHandle } from "../domain/journal";
-import { unreadByWorkspace } from "../domain/notifications";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import {
   closeHotkeyTarget,
@@ -322,8 +320,6 @@ export function useAppController() {
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
   };
-  const notifications = useNotifications();
-  const unreadForWs = unreadByWorkspace(notifications);
   const notificationPrefs =
     settings?.notifications ?? DEFAULT_SETTINGS.notifications;
   const showBell =
@@ -334,7 +330,6 @@ export function useAppController() {
     id: w.id,
     name: w.name,
     agentCount: w.panes.length,
-    unread: showBell ? (unreadForWs.get(w.instance) ?? 0) : 0,
     dot: railFrames.get(w.id) ?? ("none" as const),
   }));
   if (restoring || !spawnCtx || !settings) {

@@ -18,8 +18,6 @@ export interface WorkspaceItem {
   id: string;
   name: string;
   agentCount: number;
-  /** Unread notifications sourced in this workspace — 0 hides the dot. */
-  unread?: number;
   /** The workspace's status frame, folded by the domain ladder — the dot
    * paints it verbatim. Absent = the plain gray dot. */
   dot?: StatusFrame;
@@ -239,12 +237,6 @@ export function WorkspacesRail({
                 />
                 <span className="rail__name">{ws.name}</span>
               </button>
-              {(ws.unread ?? 0) > 0 && (
-                <span
-                  className="rail__unread"
-                  title={`${ws.unread} unread notification${ws.unread === 1 ? "" : "s"}`}
-                />
-              )}
               <span className="rail__count">{ws.agentCount}</span>
               <button
                 type="button"

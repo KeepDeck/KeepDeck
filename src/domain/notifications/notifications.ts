@@ -1,8 +1,5 @@
 import type { StatsTab } from "../usage/statsTabs";
-import type {
-  WorkspaceInstance,
-  WorkspaceRef,
-} from "../workspaceInstance";
+import type { WorkspaceRef } from "../workspaceInstance";
 
 /**
  * Notifications — the domain model and pure transforms behind the
@@ -16,9 +13,9 @@ import type {
  * OS notification center keeps its own history.
  */
 
-/** Where a notification came from. The origin drives navigation on click and
- * per-workspace unread badges; the host constructs it — a plugin cannot claim
- * a pane origin or another plugin's id. */
+/** Where a notification came from. The origin drives navigation on click; the
+ * host constructs it — a plugin cannot claim a pane origin or another
+ * plugin's id. */
 
 export type NotificationWorkspace = WorkspaceRef;
 
@@ -131,22 +128,6 @@ export function unreadCount(items: readonly Notification[]): number {
   return items.reduce((sum, n) => sum + (n.readAt === undefined ? 1 : 0), 0);
 }
 
-/** Unread tallies per workspace, for the rail dots. A notification counts
- * toward the workspace its source names; `app`-scoped ones belong to no
- * workspace and only feed the bell total. */
-export function unreadByWorkspace(
-  items: readonly Notification[],
-): Map<WorkspaceInstance, number> {
-  const counts = new Map<WorkspaceInstance, number>();
-  for (const n of items) {
-    if (n.readAt !== undefined) continue;
-    const workspace = "workspace" in n.source ? n.source.workspace : undefined;
-    if (!workspace) continue;
-    counts.set(workspace.instance, (counts.get(workspace.instance) ?? 0) + 1);
-  }
-  return counts;
-}
-
 /** What the banner decision needs to know about the moment of arrival. */
 export interface BannerContext {
   /** The app window has OS focus. */
@@ -182,8 +163,4 @@ export function bannerVerdict(ctx: BannerContext): BannerVerdict {
     return "cooldown";
   }
   return "banner";
-}
-
-export function shouldBanner(ctx: BannerContext): boolean {
-  return bannerVerdict(ctx) === "banner";
 }
