@@ -1,4 +1,4 @@
-import type { StatusNormalizer } from "@keepdeck/plugin-api";
+import type { AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
 import { isRecord } from "../domain/json";
 import {
   reduceStatus,
@@ -51,6 +51,13 @@ export interface AgentStatusTracker {
   /** Apply one VERIFIED bridge report. Unknown agents and unrecognizable
    * payloads are dropped silently — reporters are best-effort by design. */
   report(paneId: string, payload: unknown, at?: number): void;
+  /** Resolve a STANDING wait: the user answered the question this pane's
+   * agent was parked on. A pane that is not waiting is left untouched, so
+   * this cannot invent activity — the same `resumed` edge from a bridge
+   * report legitimately mints "working" on a pane with no activity yet (a
+   * tool completed, so something IS running), and a keystroke proves no
+   * such thing. Narrow by construction rather than by caller discipline. */
+  answered(paneId: string, at?: number): void;
   /** Start a pane's activity over: its process was deliberately retired
    * (restart, suspend) and whatever the old one was doing is no longer a
    * fact about the pane. The orchestrator calls this at the same points it
@@ -94,6 +101,23 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     for (const listener of [...listeners]) listener();
   }
 
+  /**
+   * Fold ONE edge into a pane's lane state. Every edge lands here whoever
+   * minted it — a plugin normalizer reading a hook envelope, or the host
+   * seeing the user answer — so "what an edge does to a pane" keeps the pure
+   * reducer as its single answer. An edge the fold absorbs comes back as the
+   * SAME object and stops here, without a store write.
+   */
+  function apply(paneId: string, edge: AgentStatusEvent): void {
+    const previous = statuses.get(paneId) ?? null;
+    const next = reduceStatus(previous, edge);
+    if (next === previous) return;
+    const panes = new Map(statuses);
+    if (next) panes.set(paneId, next);
+    else panes.delete(paneId);
+    commit(panes);
+  }
+
   return {
     registerNormalizer(agentId, normalizer) {
       normalizers.set(agentId, normalizer);
@@ -109,14 +133,17 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       const normalize = normalizers.get(payload.agent);
       if (!normalize) return;
       const edge = normalize(payload, at);
-      if (!edge) return;
-      const previous = statuses.get(paneId) ?? null;
-      const next = reduceStatus(previous, edge);
-      if (next === previous) return;
-      const panes = new Map(statuses);
-      if (next) panes.set(paneId, next);
-      else panes.delete(paneId);
-      commit(panes);
+      if (edge) apply(paneId, edge);
+    },
+
+    answered(paneId, at = Date.now()) {
+      // Only a STANDING wait. The same `resumed` edge from a bridge report
+      // legitimately mints "working" on a pane with no activity yet — a tool
+      // completed, so something IS running — but a keystroke into an idle
+      // pane is no such evidence, and letting it through would paint
+      // "Working" over a shell nobody is driving.
+      if (statuses.get(paneId)?.activity.state !== "waiting") return;
+      apply(paneId, { kind: "resumed", at });
     },
 
     clear(paneId) {
