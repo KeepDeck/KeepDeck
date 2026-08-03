@@ -16,7 +16,7 @@ import type { UsageManager } from "./usageManager";
  * Constructed in the runtime over the holders it retires — each reaches it as
  * a value, never as importable module state.
  */
-export interface PaneTelemetry {
+export interface PaneLifecycle {
   /** The pane's process is retiring (restart, suspend, close, exit):
    * whatever its telemetry said is no longer a fact about the pane. */
   retire(paneId: string): void;
@@ -28,11 +28,11 @@ export interface PaneTelemetry {
   beginSession(paneId: string, sessionId: string): void;
 }
 
-export function createPaneTelemetry(
+export function createPaneLifecycle(
   usage: UsageManager,
   tracker: AgentStatusTracker,
   attribution: PaneAttribution,
-): PaneTelemetry {
+): PaneLifecycle {
   return {
     retire(paneId) {
       usage.clearPane(paneId);

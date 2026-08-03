@@ -4,7 +4,7 @@ import { onSessionBound } from "../ipc/sessions";
 import { bumpPostback } from "./postbacks";
 import { bindPaneSpawnSpecSession } from "./spawnSpecs";
 import type { PaneAttribution } from "./paneAttribution";
-import type { PaneTelemetry } from "./paneTelemetry";
+import type { PaneLifecycle } from "./paneLifecycle";
 import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 
@@ -31,7 +31,7 @@ export interface SessionBinding {
 
 export function createSessionBinding(
   deck: DeckStore,
-  telemetry: PaneTelemetry,
+  lifecycle: PaneLifecycle,
   attribution: PaneAttribution,
 ): SessionBinding {
   const actions = createDeckActions(deck);
@@ -74,7 +74,7 @@ export function createSessionBinding(
       bindPaneSpawnSpecSession(paneId, sessionId);
       const previousSessionId = pane?.session?.id;
       if (previousSessionId && previousSessionId !== sessionId) {
-        telemetry.beginSession(paneId, sessionId);
+        lifecycle.beginSession(paneId, sessionId);
       }
       // Same-session reports keep the instant at which it was first bound.
       const boundAt =

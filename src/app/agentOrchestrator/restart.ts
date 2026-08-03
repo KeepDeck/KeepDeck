@@ -13,7 +13,7 @@ import type {
   RestartOutcome,
   SessionRegistryPort,
   StagedSkillsAsk,
-  TelemetryPort,
+  PaneLifecyclePort,
 } from ".";
 import type { DeckActions } from "../deckActions";
 import type { DeckStore } from "../deckStore";
@@ -51,7 +51,7 @@ interface RestartDeps {
   skillsAsk: StagedSkillsAsk;
   mcpAccess: McpAccessAsk;
   schedule(): void;
-  telemetry: TelemetryPort;
+  lifecycle: PaneLifecyclePort;
 }
 
 export interface AgentOrchestratorRestart {
@@ -84,7 +84,7 @@ export function createAgentOrchestratorRestart({
   skillsAsk,
   mcpAccess,
   schedule,
-  telemetry,
+  lifecycle,
 }: RestartDeps): AgentOrchestratorRestart {
   const restarting = new Set<string>();
 
@@ -122,7 +122,7 @@ export function createAgentOrchestratorRestart({
     target: RestartTarget,
   ): Promise<RestartOutcome> {
     dropPaneSpawnSpec(target.paneId);
-    telemetry.retire(target.paneId);
+    lifecycle.retire(target.paneId);
     await sessions.close(target.paneId);
     if (!targetOf(target.workspace, target.paneId)) return "gone";
     if (stoppedNow(target)) return "stopped";
@@ -176,7 +176,7 @@ export function createAgentOrchestratorRestart({
       throw new Error("Agent could not prepare a resume plan");
     }
 
-    telemetry.retire(target.paneId);
+    lifecycle.retire(target.paneId);
     await sessions.close(target.paneId);
     if (!targetOf(target.workspace, target.paneId)) {
       dropPaneSpawnSpec(target.paneId);
@@ -244,7 +244,7 @@ export function createAgentOrchestratorRestart({
     );
     actions.setPaneSession(target.workspace.id, paneId, null);
     dropPaneSpawnSpec(paneId);
-    telemetry.retire(paneId);
+    lifecycle.retire(paneId);
     void sessions
       .close(paneId)
       .then(() => {

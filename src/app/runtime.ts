@@ -39,7 +39,7 @@ import {
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
-import { createPaneTelemetry } from "./paneTelemetry";
+import { createPaneLifecycle } from "./paneLifecycle";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
 import { createUsageChannel } from "./usageChannel";
@@ -114,8 +114,8 @@ export function createAppRuntime(
   let sessionBinding: ReturnType<typeof createSessionBinding> | null = null;
   const spawnContext = createSpawnContextSource();
   // The live telemetry stores (usage, activity) and the retire owner over
-  // the pair. Runtime state like the deck store: the orchestrator retires
-  // panes and the bridge channels report in with no component mounted.
+  // them. Runtime state like the deck store: the orchestrator retires panes
+  // and the bridge channels report in with no component mounted.
   const usageManager = createUsageManager();
   const statusTracker = createAgentStatusTracker();
   // Who may speak for a pane. Built before the lanes that ask it, and handed
@@ -125,7 +125,11 @@ export function createAppRuntime(
     workspaces: () => deckStore.getSnapshot().workspaces,
     secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
   });
-  const telemetry = createPaneTelemetry(usageManager, statusTracker, attribution);
+  const lifecycle = createPaneLifecycle(
+    usageManager,
+    statusTracker,
+    attribution,
+  );
   const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
@@ -153,7 +157,7 @@ export function createAppRuntime(
     probe: probeWorktree,
     worktrees,
     mcpAccess: (target) => mcp.access(target),
-    telemetry: { retire: telemetry.retire },
+    lifecycle: { retire: lifecycle.retire },
   });
   const application = createApplicationController(
     deckStore,
@@ -190,11 +194,11 @@ export function createAppRuntime(
     mcp,
     usageManager,
     statusTracker,
-    telemetry,
+    lifecycle,
     windowReportJournal,
     start() {
       if (disposed) return;
-      sessionBinding ??= createSessionBinding(deckStore, telemetry, attribution);
+      sessionBinding ??= createSessionBinding(deckStore, lifecycle, attribution);
       usageChannel ??= createUsageChannel(
         deckStore,
         plugins.pluginRegistries.agents,
