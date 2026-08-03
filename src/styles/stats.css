@@ -291,11 +291,13 @@
 
 .stats__week-row {
   display: grid;
-  /* Label sized to its text, the bar and the model share the leftover —
-     no dead gap after the label, the bar breathes on a wide dialog. */
+  /* ONE flexible column — the bar. Every other column hugs its content
+     (the model capped, its name ellipsizes), so the leftover width lives
+     in exactly one place and the delta·model·cost cluster sits tight at
+     the right edge instead of floating in ragged gaps. */
   grid-template-columns:
-    minmax(150px, max-content) 64px minmax(110px, 1.1fr) 58px
-    minmax(0, 1fr) 64px;
+    minmax(150px, max-content) 64px minmax(110px, 1fr) 58px
+    fit-content(240px) 64px;
   align-items: center;
   gap: 12px;
   min-height: 42px;
