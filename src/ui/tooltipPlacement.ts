@@ -8,7 +8,7 @@ export interface TooltipPosition {
 }
 
 export interface TooltipPlacementInput {
-  anchorRect: Pick<DOMRect, "top" | "right" | "bottom" | "left">;
+  anchorRect: Pick<DOMRect, "top" | "bottom" | "left">;
   tooltipWidth: number;
   tooltipHeight: number;
   viewportWidth: number;

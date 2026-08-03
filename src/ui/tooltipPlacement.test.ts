@@ -3,7 +3,6 @@ import { calculateTooltipPosition } from "./tooltipPlacement";
 
 const anchor = {
   top: 40,
-  right: 140,
   bottom: 66,
   left: 40,
 };

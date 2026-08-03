@@ -1,7 +1,5 @@
 import {
-  useCallback,
   useId,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,16 +15,16 @@ import {
   OVERFLOW_COLOR,
 } from "../../domain/usage/chartPalette";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import {
-  burnHoverAt,
-  windowBurn,
-  type BurnHoverSample,
-} from "../../domain/usage/windowBurn";
+import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
 import type { WindowForecast } from "../../domain/usage/windowForecast";
 import {
-  calculateTooltipPosition,
-  type TooltipPosition,
-} from "../../ui/tooltipPlacement";
+  useAnchoredTooltipPosition,
+  type TooltipAnchorRect,
+} from "../../ui/tooltip/useAnchoredTooltipPosition";
+import {
+  burnInspectionAt,
+  type BurnInspectionSample,
+} from "./windowBurn/inspection";
 
 /**
  * The burn curve, shared by the Providers cards and the chip popover —
@@ -43,19 +41,20 @@ import {
 const PLOT_HEIGHTS = { card: 60, compact: 20 } as const;
 const PAD = 2;
 
-interface TooltipAnchor {
+interface TooltipPoint {
   x: number;
   y: number;
 }
 
-interface BurnInspection {
-  sample: BurnHoverSample;
-  anchor: TooltipAnchor;
+interface PointerInspection {
+  xRatio: number;
+  anchor: TooltipPoint;
 }
 
 /** Keep a dot's body inside the plot at the edges — a marker centered on
  * x=100% would hang half outside its card. */
-const dotLeft = (pct: number) => `clamp(3px, ${pct.toFixed(2)}%, calc(100% - 3px))`;
+const dotLeft = (pct: number) =>
+  `clamp(3px, ${pct.toFixed(2)}%, calc(100% - 3px))`;
 
 export function WindowBurn({
   stroke = OVERFLOW_COLOR,
@@ -79,11 +78,27 @@ export function WindowBurn({
     () => windowBurn(reports, window, forecast, now),
     [reports, window, forecast, now],
   );
-  const [inspection, setInspection] = useState<BurnInspection | null>(null);
-  const tooltipId = `usage-burn-tooltip-${useId()}`;
   // A single observation is not a curve — the chart earns its place with
-  // the second report and never renders as an empty frame.
+  // the second report and never renders as an empty frame. Keeping interactive
+  // state in the child also discards it when geometry temporarily disappears.
   if (geometry === null) return null;
+
+  return <WindowBurnPlot geometry={geometry} stroke={stroke} size={size} />;
+}
+
+function WindowBurnPlot({
+  geometry,
+  stroke,
+  size,
+}: {
+  geometry: BurnGeometry;
+  stroke: string;
+  size: keyof typeof PLOT_HEIGHTS;
+}) {
+  const [pointer, setPointer] = useState<PointerInspection | null>(null);
+  const [focused, setFocused] = useState(false);
+  const plotRef = useRef<HTMLSpanElement | null>(null);
+  const tooltipId = `usage-burn-tooltip-${useId()}`;
   const height = PLOT_HEIGHTS[size];
   const xPct = (value: number) => value * 100;
   const yPx = (value: number) => PAD + (1 - value) * (height - 2 * PAD);
@@ -92,42 +107,61 @@ export function WindowBurn({
       .map((point) => `${xPct(point.x).toFixed(2)},${yPx(point.y).toFixed(2)}`)
       .join(" ");
   const newest = geometry.observed[geometry.observed.length - 1];
+  const focusSample: BurnInspectionSample | null = focused
+    ? { ...newest, kind: "observed" }
+    : null;
+  const sample =
+    pointer !== null ? burnInspectionAt(geometry, pointer.xRatio) : focusSample;
+
+  const getAnchorRect =
+    sample === null
+      ? null
+      : pointer !== null
+        ? (): TooltipAnchorRect => ({
+            top: pointer.anchor.y,
+            bottom: pointer.anchor.y,
+            left: pointer.anchor.x,
+          })
+        : (): TooltipAnchorRect | null => {
+            const plot = plotRef.current;
+            if (plot === null) return null;
+            const rect = plot.getBoundingClientRect();
+            const renderedHeight = rect.height || height;
+            const top = rect.top + (yPx(sample.y) / height) * renderedHeight;
+            return {
+              top,
+              bottom: top,
+              left: rect.left + sample.x * rect.width,
+            };
+          };
 
   const inspectPointer = (event: ReactMouseEvent<HTMLSpanElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width <= 0) return;
-    setInspection({
-      sample: burnHoverAt(geometry, (event.clientX - rect.left) / rect.width),
+    setPointer({
+      xRatio: (event.clientX - rect.left) / rect.width,
       anchor: { x: event.clientX, y: event.clientY },
-    });
-  };
-
-  const inspectFocus = (plot: HTMLSpanElement) => {
-    const rect = plot.getBoundingClientRect();
-    const renderedHeight = rect.height || height;
-    setInspection({
-      sample: { ...newest, kind: "observed" },
-      anchor: {
-        x: rect.left + newest.x * rect.width,
-        y: rect.top + (yPx(newest.y) / height) * renderedHeight,
-      },
     });
   };
 
   return (
     <span className={`usage-burn usage-burn--${size}`}>
       <span
+        ref={plotRef}
         className="usage-burn__plot"
         role="group"
         aria-label="Usage history and forecast"
-        aria-describedby={inspection ? tooltipId : undefined}
+        aria-describedby={sample ? tooltipId : undefined}
         tabIndex={0}
         onMouseMove={inspectPointer}
-        onMouseLeave={() => setInspection(null)}
-        onFocus={(event) => inspectFocus(event.currentTarget)}
-        onBlur={() => setInspection(null)}
+        onMouseLeave={() => setPointer(null)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         onKeyDown={(event) => {
-          if (event.key === "Escape") setInspection(null);
+          if (event.key === "Escape") {
+            setPointer(null);
+            setFocused(false);
+          }
         }}
       >
         {/* height set HERE, the one home PLOT_HEIGHTS — a CSS copy once
@@ -211,19 +245,19 @@ export function WindowBurn({
             {Math.round(geometry.yMaxPct)}%
           </span>
         )}
-        {inspection && (
+        {sample && (
           <>
             <i
               aria-hidden
               className="usage-burn__cursor"
-              style={{ left: `${xPct(inspection.sample.x).toFixed(2)}%` }}
+              style={{ left: `${xPct(sample.x).toFixed(2)}%` }}
             />
             <i
               aria-hidden
               className="usage-burn__dot usage-burn__dot--active"
               style={{
-                left: dotLeft(xPct(inspection.sample.x)),
-                top: yPx(inspection.sample.y),
+                left: dotLeft(xPct(sample.x)),
+                top: yPx(sample.y),
                 background: stroke,
               }}
             />
@@ -236,13 +270,13 @@ export function WindowBurn({
           {geometry.resetAtEdge && <span>reset</span>}
         </span>
       )}
-      {inspection && (
+      {sample && getAnchorRect && (
         <BurnTooltip
           id={tooltipId}
-          anchor={inspection.anchor}
-          sample={inspection.sample}
+          getAnchorRect={getAnchorRect}
+          sample={sample}
           stroke={stroke}
-          ownerDocument={document}
+          ownerDocument={plotRef.current?.ownerDocument ?? document}
         />
       )}
     </span>
@@ -251,51 +285,21 @@ export function WindowBurn({
 
 function BurnTooltip({
   id,
-  anchor,
+  getAnchorRect,
   sample,
   stroke,
   ownerDocument,
 }: {
   id: string;
-  anchor: TooltipAnchor;
-  sample: BurnHoverSample;
+  getAnchorRect(): TooltipAnchorRect | null;
+  sample: BurnInspectionSample;
   stroke: string;
   ownerDocument: Document;
 }) {
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<TooltipPosition | null>(null);
-
-  const recompute = useCallback(() => {
-    const tooltip = tooltipRef.current;
-    if (!tooltip) return;
-    const tooltipRect = tooltip.getBoundingClientRect();
-    const viewport = ownerDocument.defaultView;
-    const viewportWidth =
-      ownerDocument.documentElement.clientWidth || viewport?.innerWidth || 0;
-    const viewportHeight =
-      ownerDocument.documentElement.clientHeight || viewport?.innerHeight || 0;
-    setPosition(
-      calculateTooltipPosition({
-        anchorRect: {
-          top: anchor.y,
-          right: anchor.x,
-          bottom: anchor.y,
-          left: anchor.x,
-        },
-        tooltipWidth: tooltipRect.width,
-        tooltipHeight: tooltipRect.height,
-        viewportWidth,
-        viewportHeight,
-      }),
-    );
-  }, [anchor.x, anchor.y, ownerDocument, sample.at, sample.kind, sample.usedPct]);
-
-  useLayoutEffect(() => {
-    recompute();
-    const viewport = ownerDocument.defaultView;
-    viewport?.addEventListener("resize", recompute);
-    return () => viewport?.removeEventListener("resize", recompute);
-  }, [ownerDocument, recompute]);
+  const { tooltipRef, position } = useAnchoredTooltipPosition({
+    ownerDocument,
+    getAnchorRect,
+  });
 
   return createPortal(
     <div
@@ -313,10 +317,16 @@ function BurnTooltip({
         borderColor: CHART_TOOLTIP_BORDER,
       }}
     >
-      <span className="usage-burn-tooltip__label" style={{ color: CHART_LABEL_INK }}>
+      <span
+        className="usage-burn-tooltip__label"
+        style={{ color: CHART_LABEL_INK }}
+      >
         {formatBucket(Math.round(sample.at), "hour", "long")}
       </span>
-      <span className="usage-burn-tooltip__value" style={{ color: CHART_ITEM_INK }}>
+      <span
+        className="usage-burn-tooltip__value"
+        style={{ color: CHART_ITEM_INK }}
+      >
         <i aria-hidden style={{ background: stroke }} />
         <span>{sample.kind === "projected" ? "Projected" : "Observed"}</span>
         <b>{formatPct(sample.usedPct, "used")} used</b>

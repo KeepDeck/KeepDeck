@@ -1,12 +1,9 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { ActivityBadge } from "../../domain/status";
 import { GitBranchIcon } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
-import {
-  calculateTooltipPosition,
-  type TooltipPosition,
-} from "../../ui/tooltipPlacement";
+import { useAnchoredTooltipPosition } from "../../ui/tooltip/useAnchoredTooltipPosition";
 
 interface MinimizedDetailsTooltipProps {
   anchor: HTMLElement;
@@ -34,39 +31,14 @@ export function MinimizedDetailsTooltip({
   gitBadge,
   stopped,
 }: MinimizedDetailsTooltipProps) {
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<TooltipPosition | null>(null);
-
-  const recompute = useCallback(() => {
-    const tooltip = tooltipRef.current;
-    if (!tooltip) return;
-
-    const anchorRect = anchor.getBoundingClientRect();
-    const tooltipRect = tooltip.getBoundingClientRect();
-    const viewportWidth =
-      document.documentElement.clientWidth || window.innerWidth;
-    const viewportHeight =
-      document.documentElement.clientHeight || window.innerHeight;
-    setPosition(
-      calculateTooltipPosition({
-        anchorRect,
-        tooltipWidth: tooltipRect.width,
-        tooltipHeight: tooltipRect.height,
-        viewportWidth,
-        viewportHeight,
-      }),
-    );
-  }, [anchor]);
-
-  useLayoutEffect(() => {
-    recompute();
-    window.addEventListener("scroll", recompute, true);
-    window.addEventListener("resize", recompute);
-    return () => {
-      window.removeEventListener("scroll", recompute, true);
-      window.removeEventListener("resize", recompute);
-    };
-  }, [recompute]);
+  const getAnchorRect = useCallback(
+    () => anchor.getBoundingClientRect(),
+    [anchor],
+  );
+  const { tooltipRef, position } = useAnchoredTooltipPosition({
+    ownerDocument: anchor.ownerDocument,
+    getAnchorRect,
+  });
 
   return createPortal(
     <div
