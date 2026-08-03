@@ -81,38 +81,98 @@ describe("normalizeClaudeStatus", () => {
         660,
       ),
     ).toEqual({ kind: "parked", at: 660 });
-    // An unknown kind a newer build invents holds the turn open too — it
-    // will sit beside the agent-shaped ones, and that is the same bet the
-    // rest of the file makes.
-    expect(
-      normalizeClaudeStatus(
-        wrap({
-          hook_event_name: "Stop",
-          background_tasks: [{ id: "w1", type: "workflow", status: "running" }],
-        }),
-        670,
-      ),
-    ).toEqual({ kind: "parked", at: 670 });
+    // The rest of the allowlist. `workflow` is published; `MCP task` is not
+    // — it is one of the six kinds the shipped mapper emits beyond the
+    // documented enum, and the only one of those six that is genuinely work
+    // this pane is waiting on. Note the SPACE: it is a display-ish string,
+    // not an identifier, so it is pinned literally.
+    for (const task of [
+      { id: "w1", type: "workflow", status: "running" },
+      { id: "m1", type: "MCP task", status: "running", server: "gh", tool: "x" },
+      // A monitor parks only when it names a SERVER — see below.
+      { id: "m2", type: "monitor", status: "running", server: "gh", tool: "y" },
+    ]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({ hook_event_name: "Stop", background_tasks: [task] }),
+          670,
+        ),
+      ).toEqual({ kind: "parked", at: 670 });
+    }
   });
 
-  it("a backgrounded SHELL task is not a reason to hold the turn open", () => {
-    // The user parked it deliberately — a dev server, a watcher, a tail. It
-    // may never finish, and nothing wakes the session when it does: the
-    // agent polls it with BashOutput inside a turn. Treating it as parking
-    // meant one `npm run dev` made EVERY later turn park, so the pane never
-    // reached "done" and never announced a finished turn again all session.
+  it("waits for an MCP monitor but not for a WebSocket one", () => {
+    // The wire collapses claude's two monitor kinds into one string, and
+    // for this question they are opposites: an MCP monitor is a tool call
+    // that returns, a WebSocket monitor can watch a stream that never
+    // fires — and parking on one that never fires is the unrecoverable
+    // failure the allowlist exists to prevent. The mapper attaches
+    // `server`/`tool` to the MCP kind and nothing to the other, so the
+    // presence of `server` IS the discriminator.
     expect(
       normalizeClaudeStatus(
         wrap({
           hook_event_name: "Stop",
-          background_tasks: [
-            { id: "by2qgl1uz", type: "shell", status: "running", command: "npm run dev" },
-          ],
+          background_tasks: [{ id: "ws", type: "monitor", status: "running" }],
         }),
-        650,
+        680,
       ),
-    ).toEqual({ kind: "turn-end", at: 650 });
-    // A subagent running ALONGSIDE it still parks — the shell entry is
+    ).toEqual({ kind: "turn-end", at: 680 });
+    // A non-string `server` is not a server, and neither is an empty one —
+    // a blank string NAMES nothing, so reading it as a name would park on
+    // exactly the monitor this check exists to exclude.
+    for (const server of [7, null, {}, ""]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({
+            hook_event_name: "Stop",
+            background_tasks: [
+              { id: "ws", type: "monitor", status: "running", server },
+            ],
+          }),
+          680,
+        ),
+        String(server),
+      ).toEqual({ kind: "turn-end", at: 680 });
+    }
+  });
+
+  it("holds the turn open for no OTHER kind the shipped mapper emits", () => {
+    // Every kind claude 2.1.220 can put on the wire that is not on the
+    // allowlist, each excluded for its own reason:
+    //
+    // - shell: the user parked it deliberately — a dev server, a watcher, a
+    //   tail. It may never finish, and nothing wakes the session when it
+    //   does (the agent polls it with BashOutput inside a turn). Treating it
+    //   as parking meant one `npm run dev` made EVERY later turn park.
+    // - teammate: an IDLE teammate is indistinguishable from a busy one
+    //   here. It keeps status "running", its `isIdle` flag never reaches the
+    //   payload, and the entry outlives its idleness — claude evicts only
+    //   TERMINAL tasks. Parking on it would strand the pane on "Working" for
+    //   the whole life of the team.
+    // - cloud session: a detached `--bg` run that `claude agents` owns; it
+    //   does not wake this session.
+    // - dream / auto-mode scan: ambient housekeeping, not the turn.
+    // - an unknown kind: of the six kinds beyond the published enum, five
+    //   were not work, so silence is the better prior. A record with NO type
+    //   at all is the same case.
+    for (const task of [
+      { id: "by2qgl1uz", type: "shell", status: "running", command: "npm run dev" },
+      { id: "t1", type: "teammate", status: "running", description: "Reviewer" },
+      { id: "c1", type: "cloud session", status: "running" },
+      { id: "d1", type: "dream", status: "running" },
+      { id: "a2", type: "auto-mode scan", status: "running" },
+      { id: "u1", type: "telepathy", status: "running" },
+      { id: "n1", status: "running" },
+    ]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({ hook_event_name: "Stop", background_tasks: [task] }),
+          650,
+        ),
+      ).toEqual({ kind: "turn-end", at: 650 });
+    }
+    // A subagent running ALONGSIDE one still parks — the excluded entry is
     // ignored, not the whole list.
     expect(
       normalizeClaudeStatus(
@@ -161,6 +221,64 @@ describe("normalizeClaudeStatus", () => {
     ).toEqual({ kind: "turn-end", at: 800 });
   });
 
+  it("brackets one helper's turn from the agent-loop hooks", () => {
+    // Probe-verified on 2.1.220: the pair carries the SAME agent_id, and
+    // that id is also the entry id in the Stop payload's task list. Both a
+    // background subagent and a teammate run through this one agent loop,
+    // which is why the bracket can answer what the task list cannot — a
+    // teammate stays listed as "running" for as long as the team lives.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "SubagentStart",
+          agent_id: "af40aa53702b05b1b",
+          agent_type: "general-purpose",
+        }),
+        400,
+      ),
+    ).toEqual({ kind: "agent-turn-start", at: 400, id: "af40aa53702b05b1b" });
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "SubagentStop",
+          agent_id: "af40aa53702b05b1b",
+          agent_type: "general-purpose",
+        }),
+        460,
+      ),
+    ).toEqual({ kind: "agent-turn-end", at: 460, id: "af40aa53702b05b1b" });
+  });
+
+  it("drops an unpairable start, and a nameless close clears instead", () => {
+    // A start with no usable id would open a bracket nothing can close, and
+    // an open bracket holds the turn open forever — the exact failure this
+    // whole mechanism exists to avoid. Ending a turn early is repaired by
+    // the next wake; a stuck "Working" is repaired by nothing.
+    for (const agent_id of [undefined, "", 7, null]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({ hook_event_name: "SubagentStart", agent_id }),
+          400,
+        ),
+      ).toBeNull();
+    }
+    // The close still lands, as its OWN kind. An oversized payload is
+    // reduced to its event name alone, so the id is the first thing to go —
+    // and "I cannot name what closed" is a different fact from "this one
+    // closed", not the same edge with a field left off.
+    for (const agent_id of [undefined, "", 7, null]) {
+      // STRICT: `toEqual` would accept an `id: undefined` own key, and the
+      // distinction between an absent key and an undefined one survives a
+      // structured-clone boundary even though it does not survive JSON.
+      expect(
+        normalizeClaudeStatus(
+          wrap({ hook_event_name: "SubagentStop", agent_id }),
+          460,
+        ),
+      ).toStrictEqual({ kind: "agent-turns-cleared", at: 460 });
+    }
+  });
+
   it("resolves a wait on any tool completion, a subagent's included", () => {
     // Filtering subagent edges on `agent_id` was tried and reverted: a wait
     // records nothing about WHO raised it, so dropping them also drops the
@@ -176,6 +294,10 @@ describe("normalizeClaudeStatus", () => {
         agent_id: "acb5bea0d1b3101fd",
         agent_type: "general-purpose",
       },
+      // A tool the user APPROVED and that then failed resolves the wait
+      // just as well; claude routes those to their own event, and arming
+      // only the happy path left the amber standing until the turn ended.
+      { hook_event_name: "PostToolUseFailure", tool_name: "Bash" },
     ]) {
       expect(normalizeClaudeStatus(wrap(event), 500)).toEqual({
         kind: "resumed",

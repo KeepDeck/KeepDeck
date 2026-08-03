@@ -43,7 +43,33 @@ export type AgentStatusEvent =
    * the very work still running. Deliberately not `resumed`: parking
    * resolves nothing. The next real ending still closes the turn. */
   | { kind: "parked"; at: number }
-  /** The turn completed normally. */
+  /** An agent working ALONGSIDE the main thread opened a turn — claude's
+   * background subagents and its teammates. `id` is the CLI's own handle
+   * for that agent, and pairs this edge with its end.
+   *
+   * Bookkeeping: it says nothing about what the pane is DOING, and the host
+   * folds it into no visible state of its own. It exists because a list of
+   * in-flight work cannot answer "is this one busy right now" — claude's
+   * teammates stay listed as `running` while idle — whereas a bracket
+   * around each agent's TURN can. */
+  | { kind: "agent-turn-start"; at: number; id: string }
+  /** That agent's turn closed. `id` is REQUIRED: an end that cannot name
+   * what it closes is a different fact, and it has its own edge below. */
+  | { kind: "agent-turn-end"; at: number; id: string }
+  /** Every agent turn this CLI had open is over, or can no longer be
+   * accounted for. Emit it when the CLI reports quiescence, and when a
+   * closing edge arrives too damaged to name its agent — a payload reduced
+   * past the bridge's size limit keeps its event name and nothing else.
+   *
+   * Deliberately its own kind rather than an `agent-turn-end` with the id
+   * left off: forgetting a field would otherwise mean "discard everything",
+   * and a destructive reading has to be written out loud. It errs toward
+   * ending the turn, which is the recoverable mistake. */
+  | { kind: "agent-turns-cleared"; at: number }
+  /** The turn completed normally. Whether it is an ENDING also depends on
+   * the edge stream: a turn that closes while an agent turn is still open
+   * is held, not done, and the ending lands when the last one closes — see
+   * the host's status fold. */
   | { kind: "turn-end"; at: number }
   /** The user interrupted the turn (Esc/Ctrl-C) — it is over, but not
    * "done" in the completed sense. */

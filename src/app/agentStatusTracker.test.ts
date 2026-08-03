@@ -12,6 +12,14 @@ const literal = (payload: unknown, at: number): AgentStatusEvent | null => {
       return turnStart(at);
     case "end":
       return { kind: "turn-end", at };
+    case "agent-start":
+      return { kind: "agent-turn-start", at, id: "agent-1" };
+    case "agent-end":
+      return { kind: "agent-turn-end", at, id: "agent-1" };
+    case "agents-cleared":
+      return { kind: "agent-turns-cleared", at };
+    case "interrupt":
+      return { kind: "interrupted", at };
     default:
       return null;
   }
@@ -31,6 +39,131 @@ describe("agentStatusTracker", () => {
       state: "done",
       at: 200,
       interrupted: false,
+    });
+  });
+
+  it("keeps the pane working while an agent turn is open, silently", () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", literal);
+    const listener = vi.fn();
+    tracker.subscribe(listener);
+
+    const report = (kind: string, at: number) =>
+      tracker.report("pane-1", { agent: "claude", event: { kind } }, at);
+
+    report("start", 100);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // The bracket is private state: opening it changes nothing anyone can
+    // see, so it must not wake the subscribers or the notification
+    // producers behind them.
+    report("agent-start", 110);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // The turn closes, but the agent's has not — the pane keeps working,
+    // with the TURN's age, and again nothing is announced.
+    report("end", 120);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+      state: "working",
+      since: 100,
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // The last close settles the ending that was held back — no further
+    // Stop is coming, so this is the edge that has to announce it.
+    report("agent-end", 200);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+      state: "done",
+      at: 200,
+      interrupted: false,
+    });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("clearing a pane retires the agent turns it was still counting", () => {
+    // Otherwise a restart would inherit brackets belonging to a process
+    // that no longer exists, and the fresh pane could never reach "done".
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", literal);
+    const report = (kind: string, at: number) =>
+      tracker.report("pane-1", { agent: "claude", event: { kind } }, at);
+
+    report("start", 100);
+    report("agent-start", 110);
+    tracker.clear("pane-1");
+
+    report("start", 300);
+    report("end", 310);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+      state: "done",
+      at: 310,
+      interrupted: false,
+    });
+  });
+
+  it("an interrupt releases the brackets, so the pane can finish again", () => {
+    // The wiring for the orphan case: if the interrupt left the bracket
+    // behind, the `end` below would be rewritten to a park and this pane
+    // would report "working" for the rest of the process.
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", literal);
+    const report = (kind: string, at: number) =>
+      tracker.report("pane-1", { agent: "claude", event: { kind } }, at);
+
+    report("start", 100);
+    report("agent-start", 110);
+    report("interrupt", 120);
+    report("start", 200);
+    report("end", 210);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+      state: "done",
+      at: 210,
+      interrupted: false,
+    });
+  });
+
+  it("a clearing edge settles the ending it was holding, through the tracker", () => {
+    // The domain proves the fold; this proves the WIRING for the one edge
+    // kind that reaches it only from an oversized payload, where the id did
+    // not survive — the path least likely to be exercised by hand.
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", literal);
+    const listener = vi.fn();
+    tracker.subscribe(listener);
+    const report = (kind: string, at: number) =>
+      tracker.report("pane-1", { agent: "claude", event: { kind } }, at);
+
+    report("start", 100);
+    report("agent-start", 110);
+    report("end", 120);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    report("agents-cleared", 400);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+      state: "done",
+      at: 400,
+      interrupted: false,
+    });
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("retain keeps a surviving pane's open brackets, not just its activity", () => {
+    // retain() rebuilds the map; a rebuild that reconstructed the state
+    // field by field would drop the brackets and the pane would announce a
+    // finished turn while its agents were still running.
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", literal);
+    const report = (kind: string, at: number) =>
+      tracker.report("pane-1", { agent: "claude", event: { kind } }, at);
+
+    report("start", 100);
+    report("agent-start", 110);
+    tracker.retain(new Set(["pane-1"]));
+
+    report("end", 120);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+      state: "working",
+      since: 100,
     });
   });
 
@@ -86,16 +219,22 @@ describe("agentStatusTracker", () => {
     });
   });
 
-  it("retain() drops only panes that no longer exist", () => {
+  it("retain() drops only panes that no longer exist, and says so once", () => {
     const tracker = createAgentStatusTracker();
     tracker.registerNormalizer("claude", literal);
+    const listener = vi.fn();
     tracker.report("pane-1", { agent: "claude", event: { kind: "start" } }, 100);
     tracker.report("pane-2", { agent: "claude", event: { kind: "start" } }, 100);
+    tracker.subscribe(listener);
     tracker.retain(new Set(["pane-2"]));
     expect([...tracker.getSnapshot().panes.keys()]).toEqual(["pane-2"]);
+    // A pane leaving the roster IS a visible change — the visibility test
+    // that keeps bracket churn silent must not swallow this one.
+    expect(listener).toHaveBeenCalledTimes(1);
     const stable = tracker.getSnapshot();
     tracker.retain(new Set(["pane-2"]));
     expect(tracker.getSnapshot()).toBe(stable);
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("a replacing registration wins; its unregister only removes itself", () => {

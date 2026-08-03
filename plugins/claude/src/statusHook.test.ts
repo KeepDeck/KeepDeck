@@ -255,6 +255,51 @@ describe("kd-status-hook.sh", () => {
     });
   });
 
+  it("an oversized agent close survives as the CLEARING edge, not a named one", () => {
+    // SubagentStop is the one newly armed event that can realistically
+    // cross the cap: it carries the agent's final message. Reduced, it
+    // keeps its event name and loses `agent_id` — and the normalizer must
+    // then report "I cannot name what closed" rather than a normal close,
+    // because the host answers those two differently. The unit test pins
+    // the mapping; this pins that the SHELL leaves exactly the field the
+    // mapping depends on, for a payload whose layout (`agent_id`,
+    // `agent_type`) differs from the events the script was tuned against.
+    const dir = inbox();
+    run(
+      dir,
+      oversized({
+        hook_event_name: "SubagentStop",
+        agent_id: "af40aa53702b05b1b",
+        agent_type: "general-purpose",
+      }),
+    );
+    expect(envelope(dir)).toEqual({
+      v: 1,
+      type: "agent.status",
+      paneId: "pane-3",
+      token: "tok",
+      payload: { agent: "claude", event: { hook_event_name: "SubagentStop" } },
+    });
+    expect(normalizeClaudeStatus(envelopeEvent(dir), 100)).toEqual({
+      kind: "agent-turns-cleared",
+      at: 100,
+    });
+    // Under the cap the id rides whole and the close names its agent.
+    const whole = inbox();
+    run(
+      whole,
+      JSON.stringify({
+        hook_event_name: "SubagentStop",
+        agent_id: "af40aa53702b05b1b",
+      }),
+    );
+    expect(normalizeClaudeStatus(envelopeEvent(whole), 100)).toEqual({
+      kind: "agent-turn-end",
+      at: 100,
+      id: "af40aa53702b05b1b",
+    });
+  });
+
   it("stays silent and writes nothing without bridge context, agent or stdin", () => {
     const dir = inbox();
     // Bigger than any pipe buffer (64K on Linux). Both guards below exit
