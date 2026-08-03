@@ -46,37 +46,56 @@ export type PaneActivity =
  * The pane's whole status-lane state: what the agent is DOING, plus the
  * agent turns running alongside the main thread.
  *
- * `helpers` is bookkeeping, never displayed. It exists because the payload
- * that reports in-flight work cannot answer "is this one busy right now":
- * claude lists a teammate as `running` for as long as the team lives, idle
- * or not. A bracket around each helper's own turn can answer it, and the
+ * `openAgentTurns` is bookkeeping, never displayed. It exists because the
+ * payload that reports in-flight work cannot answer "is this one busy right
+ * now": claude lists a teammate as `running` for as long as the team lives,
+ * idle or not. A bracket around each agent's own turn can answer it, and the
  * one question it settles is whether a closing turn is an ENDING.
+ *
+ * There is no "nothing reported yet" VALUE of this type — that state is the
+ * absence of the pane, which the tracker's map already models. Keeping it
+ * unrepresentable is what lets the published snapshot be the full roster
+ * rather than a filtered view of one.
  */
 export interface PaneStatus {
-  readonly activity: PaneActivity | null;
-  /** Open helper turns, by the CLI's own agent id. */
-  readonly helpers: ReadonlySet<string>;
+  readonly activity: PaneActivity;
+  /** Agent turns open right now, by the CLI's own agent id. */
+  readonly openAgentTurns: ReadonlySet<string>;
+  /** When the main turn closed while an agent turn was still open, and so
+   * did not end. Replayed as the ending once the last one closes: without
+   * it the close of the final agent turn settles nothing and the pane keeps
+   * reporting "working" with no edge left to finish it. */
+  readonly heldEnd: number | null;
 }
 
-const NO_HELPERS: ReadonlySet<string> = new Set();
+const NO_TURNS: ReadonlySet<string> = new Set();
 
-/** The edges that describe the pane's own turn. The helper brackets are
+/** The edges that describe the pane's own turn. The agent-turn brackets are
  * NOT among them: they carry no claim about what the pane is doing, and
  * folding them as if they did is how a close would mint a phase out of
  * nothing. [`reduceStatus`] routes them to the set instead, and this type
- * is what keeps that routing from being optional. */
-export type ActivityEdge = Exclude<
+ * is what keeps that routing from being optional. Not exported — the fold
+ * that ships is [`reduceStatus`], and publishing "the inner reducer refuses
+ * three members of AgentStatusEvent" would invite a second such alias
+ * instead of a fix to the union. */
+type ActivityEdge = Exclude<
   AgentStatusEvent,
-  { kind: "helper-start" } | { kind: "helper-end" }
+  | { kind: "agent-turn-start" }
+  | { kind: "agent-turn-end" }
+  | { kind: "agent-turns-cleared" }
 >;
 
-/** A pane nothing has been reported for. A shared constant so an edge that
- * changes nothing returns the identical object and the tracker can skip the
- * emit — the same discipline [`reduceActivity`] follows. */
-export const EMPTY_STATUS: PaneStatus = {
-  activity: null,
-  helpers: NO_HELPERS,
-};
+/** Whether an edge is one of the bracket kinds — the routing [`ActivityEdge`]
+ * makes mandatory, in the one place that performs it. */
+function isAgentTurnEdge(
+  event: AgentStatusEvent,
+): event is Exclude<AgentStatusEvent, ActivityEdge> {
+  return (
+    event.kind === "agent-turn-start" ||
+    event.kind === "agent-turn-end" ||
+    event.kind === "agent-turns-cleared"
+  );
+}
 
 /** A turn-ending edge must not corrupt the state it lands on. Two
  * orderings, one rule: an edge after the turn already ENDED is the old
@@ -105,78 +124,136 @@ function endedTurnStands(
  * Fold one edge into the pane's whole status state — the activity, plus the
  * helper turns open behind it.
  *
- * The one decision this layer owns: **a turn that closes while a helper's
- * turn is still open did not end.** The plugin cannot make that call — its
- * normalizer is pure, it sees one payload at a time, and the payload that
- * ends a turn does not say whether the helpers it lists are busy or merely
- * alive. The bracket is a property of the edge STREAM, so it is folded here,
- * the same way staleness is.
+ * The one decision this layer owns: **a turn that closes while an agent turn
+ * is still open did not end** — it is HELD, and the ending lands when the
+ * last one closes. The plugin cannot make that call: its normalizer is pure,
+ * it sees one payload at a time, and the payload that ends a turn does not
+ * say whether the agents it lists are busy or merely alive. The bracket is a
+ * property of the edge STREAM, so it is folded here, the way staleness is.
  *
- * That is not a second home for "should this park": the plugin answers
- * "does this payload report work that will wake the session" from the CLI's
- * schema, and this answers "is an agent turn still open" from the stream.
- * Different questions, different evidence, one conclusion.
+ * TWO SURFACES ANSWER "IS THIS CLOSE AN ENDING", and they are a disjunction,
+ * never a contradiction — whichever says "not yet" wins. The plugin's
+ * `SELF_WAKING` reads the CLI's own list of in-flight work and covers the
+ * kinds that have no bracket (a workflow, an MCP monitor, and a subagent
+ * that is queued but has not started); this covers the kinds the list cannot
+ * judge, teammates above all. Their DEFAULTS differ on purpose and each is
+ * argued at its own site: an unknown task kind ends the turn, an unclosed
+ * bracket holds it. Change one and read the other — see `SELF_WAKING` in
+ * plugins/claude/src/status.ts.
  *
- * `turn-start` deliberately does NOT clear the helper set: a background
- * agent outlives the turn that spawned it, which is the whole reason this
- * exists. Only its own end, or the pane being cleared, retires it.
+ * `turn-start` deliberately does NOT release the brackets: a background agent
+ * outlives the turn that spawned it, which is the whole reason this exists.
+ * `interrupted` and `turn-failed` DO — see [`reduceOpenTurns`].
  */
 export function reduceStatus(
-  current: PaneStatus,
+  current: PaneStatus | null,
   event: AgentStatusEvent,
-): PaneStatus {
-  const helpers = reduceHelpers(current.helpers, event);
-  if (event.kind === "helper-start" || event.kind === "helper-end") {
-    if (helpers === current.helpers) return current;
-    // A live helper on a pane with no activity YET is honestly working —
-    // attaching mid-session, or the first edge after a clear. A close mints
-    // nothing: it reports the absence of work, and a pane that has told us
-    // nothing is not thereby done.
-    const activity =
-      current.activity ??
-      (event.kind === "helper-start"
-        ? ({ state: "working", since: event.at } as const)
-        : null);
-    return { activity, helpers };
+): PaneStatus | null {
+  const open = reduceOpenTurns(current?.openAgentTurns ?? NO_TURNS, event);
+
+  if (isAgentTurnEdge(event)) {
+    if (current === null) {
+      // Nothing reported for this pane yet — attaching mid-session, or the
+      // first edge after a clear. An agent STARTING is honest evidence that
+      // the session is working; one ending is evidence of nothing, and a
+      // pane that has told us nothing is not thereby done.
+      if (open.size === 0) return null;
+      return {
+        activity: { state: "working", since: event.at },
+        openAgentTurns: open,
+        heldEnd: null,
+      };
+    }
+    if (open === current.openAgentTurns) return current;
+    if (open.size > 0 || current.heldEnd === null) {
+      return { ...current, openAgentTurns: open };
+    }
+    // The last one closed, and the main turn had already closed behind it.
+    // Replay that ending NOW rather than at its original instant: the turn
+    // is over when the last thing running stopped, which is also the moment
+    // the user can act on. Nothing else is coming to settle it.
+    return {
+      activity: reduceActivity(current.activity, {
+        kind: "turn-end",
+        at: event.at,
+      }),
+      openAgentTurns: open,
+      heldEnd: null,
+    };
   }
-  const settled: ActivityEdge =
-    event.kind === "turn-end" && helpers.size > 0
-      ? { kind: "parked", at: event.at }
-      : event;
-  const activity = reduceActivity(current.activity, settled);
-  return activity === current.activity && helpers === current.helpers
-    ? current
-    : { activity, helpers };
+
+  const holds = event.kind === "turn-end" && open.size > 0;
+  const settled: ActivityEdge = holds ? { kind: "parked", at: event.at } : event;
+  const activity = reduceActivity(current?.activity ?? null, settled);
+  const heldEnd = reduceHeldEnd(current?.heldEnd ?? null, event, holds);
+  if (
+    current !== null &&
+    activity === current.activity &&
+    open === current.openAgentTurns &&
+    heldEnd === current.heldEnd
+  ) {
+    return current;
+  }
+  return { activity, openAgentTurns: open, heldEnd };
 }
 
 /** The open-bracket set. Returns the SAME set when nothing moved, so an
  * edge that changes nothing survives as an identity all the way out. */
-function reduceHelpers(
+function reduceOpenTurns(
   open: ReadonlySet<string>,
   event: AgentStatusEvent,
 ): ReadonlySet<string> {
   switch (event.kind) {
-    case "helper-start":
+    case "agent-turn-start":
       if (open.has(event.id)) return open;
       return new Set(open).add(event.id);
-    case "helper-end": {
-      // No id: the end arrived stripped (an oversized payload keeps its
-      // event name and nothing else), so WHICH one it closed is unknowable.
-      // Closing all of them ends the turn early at worst — recoverable —
-      // while keeping them open strands the pane on "Working" forever.
-      if (event.id === undefined) return open.size === 0 ? open : NO_HELPERS;
+    case "agent-turn-end": {
       if (!open.has(event.id)) return open;
       const next = new Set(open);
       next.delete(event.id);
       return next;
     }
+    case "agent-turns-cleared":
+    // The turn died. Whatever was running under it is no longer evidence
+    // about THIS pane's next turn, and a bracket kept past the death of the
+    // thing that opened it can only strand the pane on "working" — there is
+    // no edge left that would ever close it. Both edges already end the turn
+    // regardless of background work (the user is needed NOW), so releasing
+    // the brackets with them changes nothing visible and removes the only
+    // unrecoverable failure this set can produce.
+    case "interrupted":
+    case "turn-failed":
+      return open.size === 0 ? open : NO_TURNS;
     default:
       return open;
   }
 }
 
+/** The ending an open agent turn is holding back. Set when a `turn-end`
+ * lands on open brackets; SURVIVES the edges that neither start nor end a
+ * turn, because a wait raised or resolved by the work still running does
+ * not un-close the main thread; dropped by anything that starts a new turn
+ * or ends this one for real. */
+function reduceHeldEnd(
+  held: number | null,
+  event: ActivityEdge,
+  holds: boolean,
+): number | null {
+  if (holds) return event.at;
+  switch (event.kind) {
+    case "waiting":
+    case "resumed":
+    case "parked":
+      return held;
+    default:
+      return null;
+  }
+}
+
 /**
- * Fold one edge into the pane's activity. Pure; ordering discipline for
+ * Fold one edge into the pane's activity — the INNER fold, private to this
+ * module: [`reduceStatus`] is the entry point, and reaching past it silently
+ * ignores the agent-turn brackets. Pure; ordering discipline for
  * IDENTITY (stale tokens, dead panes, replays) belongs to the tracker
  * feeding this — but ordering discipline for TIME lives here, because
  * edges arrive on two channels (near-instant hooks, a polling tailer) and
@@ -184,7 +261,7 @@ function reduceHelpers(
  * UNCHANGED is load-bearing: the tracker drops identical results without
  * an emit, so an absorbed edge never re-renders or re-announces.
  */
-export function reduceActivity(
+function reduceActivity(
   current: PaneActivity | null,
   event: ActivityEdge,
 ): PaneActivity {

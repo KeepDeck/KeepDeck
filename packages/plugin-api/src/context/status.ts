@@ -47,21 +47,29 @@ export type AgentStatusEvent =
    * background subagents and its teammates. `id` is the CLI's own handle
    * for that agent, and pairs this edge with its end.
    *
-   * Bookkeeping only: it says nothing about what the pane is DOING, and the
-   * host folds it into no visible state. It exists because a list of
+   * Bookkeeping: it says nothing about what the pane is DOING, and the host
+   * folds it into no visible state of its own. It exists because a list of
    * in-flight work cannot answer "is this one busy right now" — claude's
    * teammates stay listed as `running` while idle — whereas a bracket
    * around each agent's TURN can. */
-  | { kind: "helper-start"; at: number; id: string }
-  /** That agent's turn closed. `id` names which one; ABSENT means "all of
-   * them", the only honest reading of an end whose id did not survive the
-   * wire (a payload reduced past the bridge's size limit keeps its event
-   * name and nothing else). Clearing every bracket errs toward ending the
-   * turn, which is the recoverable mistake. */
-  | { kind: "helper-end"; at: number; id?: string }
+  | { kind: "agent-turn-start"; at: number; id: string }
+  /** That agent's turn closed. `id` is REQUIRED: an end that cannot name
+   * what it closes is a different fact, and it has its own edge below. */
+  | { kind: "agent-turn-end"; at: number; id: string }
+  /** Every agent turn this CLI had open is over, or can no longer be
+   * accounted for. Emit it when the CLI reports quiescence, and when a
+   * closing edge arrives too damaged to name its agent — a payload reduced
+   * past the bridge's size limit keeps its event name and nothing else.
+   *
+   * Deliberately its own kind rather than an `agent-turn-end` with the id
+   * left off: forgetting a field would otherwise mean "discard everything",
+   * and a destructive reading has to be written out loud. It errs toward
+   * ending the turn, which is the recoverable mistake. */
+  | { kind: "agent-turns-cleared"; at: number }
   /** The turn completed normally. Whether it is an ENDING also depends on
-   * the edge stream: a turn that closes while a helper's turn is still open
-   * is parked, not done — see the host's status fold. */
+   * the edge stream: a turn that closes while an agent turn is still open
+   * is held, not done, and the ending lands when the last one closes — see
+   * the host's status fold. */
   | { kind: "turn-end"; at: number }
   /** The user interrupted the turn (Esc/Ctrl-C) — it is over, but not
    * "done" in the completed sense. */

@@ -81,22 +81,55 @@ describe("normalizeClaudeStatus", () => {
         660,
       ),
     ).toEqual({ kind: "parked", at: 660 });
-    // The rest of the allowlist. `workflow` and `monitor` are published;
-    // `MCP task` is not — it is one of the six kinds the shipped mapper
-    // emits beyond the documented enum, and the only one of those six that
-    // is genuinely work this pane is waiting on. Note the SPACE: it is a
-    // display-ish string, not an identifier, so it is pinned literally.
-    for (const type of ["workflow", "monitor", "MCP task"]) {
+    // The rest of the allowlist. `workflow` is published; `MCP task` is not
+    // — it is one of the six kinds the shipped mapper emits beyond the
+    // documented enum, and the only one of those six that is genuinely work
+    // this pane is waiting on. Note the SPACE: it is a display-ish string,
+    // not an identifier, so it is pinned literally.
+    for (const task of [
+      { id: "w1", type: "workflow", status: "running" },
+      { id: "m1", type: "MCP task", status: "running", server: "gh", tool: "x" },
+      // A monitor parks only when it names a SERVER — see below.
+      { id: "m2", type: "monitor", status: "running", server: "gh", tool: "y" },
+    ]) {
       expect(
         normalizeClaudeStatus(
-          wrap({
-            hook_event_name: "Stop",
-            background_tasks: [{ id: "w1", type, status: "running" }],
-          }),
+          wrap({ hook_event_name: "Stop", background_tasks: [task] }),
           670,
         ),
       ).toEqual({ kind: "parked", at: 670 });
     }
+  });
+
+  it("waits for an MCP monitor but not for a WebSocket one", () => {
+    // The wire collapses claude's two monitor kinds into one string, and
+    // for this question they are opposites: an MCP monitor is a tool call
+    // that returns, a WebSocket monitor can watch a stream that never
+    // fires — and parking on one that never fires is the unrecoverable
+    // failure the allowlist exists to prevent. The mapper attaches
+    // `server`/`tool` to the MCP kind and nothing to the other, so the
+    // presence of `server` IS the discriminator.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "Stop",
+          background_tasks: [{ id: "ws", type: "monitor", status: "running" }],
+        }),
+        680,
+      ),
+    ).toEqual({ kind: "turn-end", at: 680 });
+    // A non-string `server` is not a server.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "Stop",
+          background_tasks: [
+            { id: "ws", type: "monitor", status: "running", server: 7 },
+          ],
+        }),
+        680,
+      ),
+    ).toEqual({ kind: "turn-end", at: 680 });
   });
 
   it("holds the turn open for no OTHER kind the shipped mapper emits", () => {
@@ -198,7 +231,7 @@ describe("normalizeClaudeStatus", () => {
         }),
         400,
       ),
-    ).toEqual({ kind: "helper-start", at: 400, id: "af40aa53702b05b1b" });
+    ).toEqual({ kind: "agent-turn-start", at: 400, id: "af40aa53702b05b1b" });
     expect(
       normalizeClaudeStatus(
         wrap({
@@ -208,10 +241,10 @@ describe("normalizeClaudeStatus", () => {
         }),
         460,
       ),
-    ).toEqual({ kind: "helper-end", at: 460, id: "af40aa53702b05b1b" });
+    ).toEqual({ kind: "agent-turn-end", at: 460, id: "af40aa53702b05b1b" });
   });
 
-  it("drops an unpairable start but never a close", () => {
+  it("drops an unpairable start, and a nameless close clears instead", () => {
     // A start with no usable id would open a bracket nothing can close, and
     // an open bracket holds the turn open forever — the exact failure this
     // whole mechanism exists to avoid. Ending a turn early is repaired by
@@ -224,16 +257,20 @@ describe("normalizeClaudeStatus", () => {
         ),
       ).toBeNull();
     }
-    // The close still lands. An oversized payload is reduced to its event
-    // name alone, so the id is exactly what goes missing first — and a
-    // nameless close is read by the host as "all of them".
+    // The close still lands, as its OWN kind. An oversized payload is
+    // reduced to its event name alone, so the id is the first thing to go —
+    // and "I cannot name what closed" is a different fact from "this one
+    // closed", not the same edge with a field left off.
     for (const agent_id of [undefined, "", 7, null]) {
+      // STRICT: `toEqual` would accept an `id: undefined` own key, and the
+      // distinction between an absent key and an undefined one survives a
+      // structured-clone boundary even though it does not survive JSON.
       expect(
         normalizeClaudeStatus(
           wrap({ hook_event_name: "SubagentStop", agent_id }),
           460,
         ),
-      ).toEqual({ kind: "helper-end", at: 460 });
+      ).toStrictEqual({ kind: "agent-turns-cleared", at: 460 });
     }
   });
 
@@ -252,6 +289,10 @@ describe("normalizeClaudeStatus", () => {
         agent_id: "acb5bea0d1b3101fd",
         agent_type: "general-purpose",
       },
+      // A tool the user APPROVED and that then failed resolves the wait
+      // just as well; claude routes those to their own event, and arming
+      // only the happy path left the amber standing until the turn ended.
+      { hook_event_name: "PostToolUseFailure", tool_name: "Bash" },
     ]) {
       expect(normalizeClaudeStatus(wrap(event), 500)).toEqual({
         kind: "resumed",

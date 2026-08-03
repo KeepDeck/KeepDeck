@@ -1,11 +1,24 @@
 import type { StatusNormalizer } from "@keepdeck/plugin-api";
 import { isRecord } from "../domain/json";
 import {
-  EMPTY_STATUS,
   reduceStatus,
   type PaneActivity,
   type PaneStatus,
 } from "../domain/status";
+
+/** Whether two projections say the same thing. Per-pane `PaneActivity` is
+ * already identity-stable — the fold returns its input untouched when an
+ * edge moves nothing — so reference equality per key is the whole test. */
+function samePanes(
+  next: ReadonlyMap<string, PaneActivity>,
+  published: ReadonlyMap<string, PaneActivity>,
+): boolean {
+  if (next.size !== published.size) return false;
+  for (const [id, activity] of next) {
+    if (published.get(id) !== activity) return false;
+  }
+  return true;
+}
 
 /**
  * The owner of live agent-status state — one per app, outside React, the
@@ -53,19 +66,30 @@ export interface AgentStatusTracker {
 }
 
 export function createAgentStatusTracker(): AgentStatusTracker {
-  // The FULL lane state per pane — activity plus the open helper brackets.
-  // Only the activity half reaches the snapshot: the brackets are how the
-  // fold knows a closing turn is not an ending, not something to render.
+  // The FULL lane state per pane — activity plus the open agent-turn
+  // brackets. Only the activity half reaches the snapshot: the brackets are
+  // how the fold knows a closing turn is not an ending, not something to
+  // render. Every pane here HAS an activity, so the published map carries
+  // the same keys — callers that read it as the roster of tracked panes
+  // (agentStatusChannel's dead-pane sweep) are right by construction.
   let statuses: ReadonlyMap<string, PaneStatus> = new Map();
   let snapshot: StatusSnapshot = { panes: new Map() };
   const listeners = new Set<() => void>();
   const normalizers = new Map<string, StatusNormalizer>();
 
-  function emit(): void {
+  /**
+   * The ONE way this store moves: adopt the next state, project it, and
+   * notify — but only when the projection actually differs. Every mutator
+   * goes through here, because the visibility test is the step that is easy
+   * to forget at a call site, and forgetting it either wakes every
+   * subscriber for a change nobody can see (a bracket opening) or, worse,
+   * hides one they can.
+   */
+  function commit(next: ReadonlyMap<string, PaneStatus>): void {
+    statuses = next;
     const panes = new Map<string, PaneActivity>();
-    for (const [id, status] of statuses) {
-      if (status.activity) panes.set(id, status.activity);
-    }
+    for (const [id, status] of statuses) panes.set(id, status.activity);
+    if (samePanes(panes, snapshot.panes)) return;
     snapshot = { panes };
     for (const listener of [...listeners]) listener();
   }
@@ -86,24 +110,20 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       if (!normalize) return;
       const edge = normalize(payload, at);
       if (!edge) return;
-      const previous = statuses.get(paneId) ?? EMPTY_STATUS;
+      const previous = statuses.get(paneId) ?? null;
       const next = reduceStatus(previous, edge);
       if (next === previous) return;
-      statuses = new Map(statuses).set(paneId, next);
-      // Only an ACTIVITY change is a snapshot change. A helper bracket
-      // opening or closing moves private state, and notifying on it would
-      // re-render every subscriber and re-run the notification producers
-      // for a pane that is doing exactly what it was doing before — the
-      // same reason the reducer returns its input unchanged.
-      if (next.activity !== previous.activity) emit();
+      const panes = new Map(statuses);
+      if (next) panes.set(paneId, next);
+      else panes.delete(paneId);
+      commit(panes);
     },
 
     clear(paneId) {
       if (!statuses.has(paneId)) return;
       const next = new Map(statuses);
       next.delete(paneId);
-      statuses = next;
-      emit();
+      commit(next);
     },
 
     retain(liveIds) {
@@ -112,8 +132,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       for (const [id, status] of statuses) {
         if (liveIds.has(id)) next.set(id, status);
       }
-      statuses = next;
-      emit();
+      commit(next);
     },
 
     getSnapshot() {

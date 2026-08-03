@@ -38,20 +38,47 @@ import {
  *   does not wake this session (claude's own wording: "Detached — N tasks
  *   still running").
  * - `dream` and `auto-mode scan` are ambient housekeeping, not the turn.
+ * - a bare `monitor` is a WebSocket monitor, which may watch a stream that
+ *   never fires — see [`wakes`] for how it is told apart from the MCP one.
  *
  * This agrees with claude's OWN idle heuristic, which drops teammates,
  * `local_bash`, `dream` and ambient `monitor_ws` from "running background
- * tasks" and counts teammates on a separate axis. The one place we cannot
- * follow it is `monitor_ws`: the wire carries no `ambient` flag, so every
- * monitor parks.
+ * tasks" and counts teammates on a separate axis.
  *
  * An unknown KIND therefore does NOT hold the turn open. That inverts the
  * earlier bet, and the table above is why: of six kinds we had never seen,
  * exactly one was work that wakes the session. An unknown ENTRY SHAPE ends
  * the turn for the same reason a bad list does — ending is the recoverable
  * mistake ([`outlivesTurn`]).
+ *
+ * The OTHER half of this decision lives in the host's status fold, which
+ * holds a turn open while an agent-turn bracket is unclosed. The two are a
+ * disjunction over different kinds — this list covers what has no bracket
+ * (a workflow, an MCP monitor, a subagent still queued), the fold covers
+ * what the list cannot judge (teammates) — and their defaults differ on
+ * purpose. Read `reduceStatus` in src/domain/status/activity.ts before
+ * changing either.
  */
 const SELF_WAKING = new Set(["subagent", "workflow", "monitor", "MCP task"]);
+
+/**
+ * Whether ONE in-flight entry will wake the session when it finishes.
+ *
+ * `monitor` needs more than its name. The wire collapses claude's two
+ * monitor kinds into that one string, and for this question they are
+ * opposites: an MCP monitor is a tool call that will return, while a
+ * WebSocket monitor can watch a stream that never fires — and parking on
+ * one that never fires is the unrecoverable failure the whole allowlist
+ * exists to avoid. They ARE separable: the mapper attaches `server`/`tool`
+ * to the MCP kind and nothing at all to the WebSocket kind (decompiled from
+ * 2.1.220), so a monitor that names its server is the one worth waiting for.
+ */
+function wakes(task: Record<string, unknown>): boolean {
+  if (typeof task.type !== "string" || !SELF_WAKING.has(task.type)) {
+    return false;
+  }
+  return task.type !== "monitor" || typeof task.server === "string";
+}
 
 /**
  * Whether a turn-ending payload reports work that OUTLIVES the turn.
@@ -78,12 +105,7 @@ const SELF_WAKING = new Set(["subagent", "workflow", "monitor", "MCP task"]);
 function outlivesTurn(event: Record<string, unknown>): boolean {
   const tasks = event.background_tasks;
   if (!Array.isArray(tasks)) return false;
-  return tasks.some(
-    (task) =>
-      isJsonRecord(task) &&
-      typeof task.type === "string" &&
-      SELF_WAKING.has(task.type),
-  );
+  return tasks.some((task) => isJsonRecord(task) && wakes(task));
 }
 
 /**
@@ -109,7 +131,7 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
  * - `SubagentStart`/`SubagentStop` → the open/close bracket of ONE agent
  *   turn running beside the main thread. Both a background subagent and a
  *   teammate raise them, and the pair carries the same `agent_id`.
- * - `PostToolUse` → resumed. claude has no approval-REPLY hook, but an
+ * - `PostToolUse`/`PostToolUseFailure` → resumed. claude has no approval-REPLY hook, but an
  *   approved tool RUNS — its completion is the first post-approval hook
  *   and proves the wait resolved. For a long-running tool the amber
  *   clears only when the tool finishes (late, but bounded by the tool,
@@ -146,32 +168,40 @@ export const normalizeClaudeStatus: StatusNormalizer = (
         ? { kind: "parked", at }
         : { kind: "turn-end", at };
     case "SubagentStart":
-      // One agent loop serves BOTH kinds of helper: a background subagent
+      // One agent loop serves both kinds of side work: a background subagent
       // and a teammate run through the same entry, which fires this on the
       // way in and `SubagentStop` on the way out, carrying the same
       // `agent_id` (probe-verified for subagents on 2.1.220; the teammate
-      // path is the same function, decompiled). That bracket is the only
-      // way to tell a busy teammate from an idle one, because the task list
-      // reports both as `running` — see [`SELF_WAKING`].
+      // path is the same function, decompiled). The bracket is what tells a
+      // busy teammate from an idle one, which the task list cannot: it
+      // reports both as `running` — see [`SELF_WAKING`]. claude does ship a
+      // `TeammateIdle` hook, but it announces only the IDLE half and has no
+      // counterpart for a teammate going busy, so it cannot bracket a turn
+      // on its own.
       //
       // No id, no bracket: one that cannot be paired would never close, and
       // an open bracket holds the turn open. Dropping it risks ending a turn
       // early instead, which the next wake repairs.
       return typeof event.agent_id === "string" && event.agent_id
-        ? { kind: "helper-start", at, id: event.agent_id }
+        ? { kind: "agent-turn-start", at, id: event.agent_id }
         : null;
     case "SubagentStop":
-      // Reported WITHOUT the id when the payload was too big to forward
-      // whole — the closing edge still has to land, and the host reads a
-      // nameless close as "all of them".
-      return {
-        kind: "helper-end",
-        at,
-        ...(typeof event.agent_id === "string" && event.agent_id
-          ? { id: event.agent_id }
-          : {}),
-      };
+      // The id goes missing when the payload was too big to forward whole
+      // (`last_assistant_message` rides on this one, so it is the newly
+      // armed event that can realistically exceed the cap). The close still
+      // has to land, and an end that cannot name what it closed is a
+      // different fact with its own edge — one that discards every bracket
+      // rather than silently taking the rest down with it under the guise
+      // of a normal close.
+      return typeof event.agent_id === "string" && event.agent_id
+        ? { kind: "agent-turn-end", at, id: event.agent_id }
+        : { kind: "agent-turns-cleared", at };
     case "PostToolUse":
+    // A tool that was approved and then FAILED resolves the wait just as
+    // one that succeeded does — claude routes those to a separate event,
+    // and arming only the happy path left an answered approval amber until
+    // the turn ended.
+    case "PostToolUseFailure":
       // KNOWN IMPRECISION, deliberately kept. A subagent's own tool calls
       // reach this hook too (they carry `agent_id`), so with several agents
       // in flight one agent's completion can clear a wait another raised.
