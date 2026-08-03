@@ -61,6 +61,9 @@ reporter=$(ps -o pgid= -p "$PPID" 2>/dev/null | tr -d ' ')
 case $reporter in
   '' | *[!0-9]*) reporter="" ;;
 esac
+# Deliberately no fallback when it is empty: guessing an identity is worse
+# than admitting there is none, since the deck reads a wrong one as a
+# DIFFERENT process and would lock a pane out of its own conversation.
 
 payload=$(cat)
 [ -n "$payload" ] || exit 0

@@ -104,16 +104,26 @@ describe("kd-session-hook.sh", () => {
     expect(published.reporter).toMatch(/^\d+$/);
   });
 
-  it("names the same process on every invocation of one agent", () => {
+  it("names its parent's process GROUP, the one thing two invocations share", () => {
     // The deck pins a pane's generation to this value and refuses anything
-    // else, so a value that drifted between two events of the SAME agent
-    // would refuse the pane's own rebinds. Two runs under one parent shell
-    // stand in for two hook events of one agent process.
+    // else, so it has to be the same for every hook event of one agent and
+    // different for a CLI started from a tool call. Only the parent's GROUP
+    // has that shape: the hook's own pid changes per invocation, and agents
+    // spawn hooks detached so its own group does too.
+    //
+    // Asserted against the group this test process is in — the script's
+    // parent here is the shell vitest spawns, which shares it. That is what
+    // makes this fail for `$$` or `$PPID` rather than merely comparing two
+    // runs to each other, which every candidate would pass.
+    const group = execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)])
+      .toString()
+      .trim();
     const dir = inbox();
     const second = inbox();
     run(dir, JSON.stringify({ session_id: "sid-1" }));
     run(second, JSON.stringify({ session_id: "sid-2" }));
-    expect(envelope(dir).reporter).toBe(envelope(second).reporter);
+    expect(envelope(dir).reporter).toBe(group);
+    expect(envelope(second).reporter).toBe(group);
   });
 
   it("binds with neither a transcript path nor a source", () => {

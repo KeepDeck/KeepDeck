@@ -74,6 +74,13 @@ esac
 # fresh session. Same reasoning, same shape as kd-status-hook.sh's event-name
 # reduction. `\n\r` are flattened first because grep is line-oriented while
 # JSON whitespace is not.
+#
+# What this still cannot see is nesting: a payload whose ONLY `"source"` sits
+# inside a nested object reports that value. No agent we arm produces one —
+# every SessionStart carries a top-level source, which document order then
+# picks — and the residue is bounded by the process pin, which refuses a
+# rebind from anywhere but the process that bound the generation, whatever
+# word it brings. Teaching sed to parse JSON would cost more than it buys.
 why=$(printf '%s' "$payload" \
   | tr '\n\r' '  ' 2>/dev/null \
   | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null \
