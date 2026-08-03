@@ -25,10 +25,24 @@ function fakeContext() {
 
 let root: Root;
 let mounted = false;
+/** The observers this component installs, captured so a test can drive the
+ * callback the browser would call. */
+let gates: ((entries: { isIntersecting: boolean }[]) => void)[] = [];
 
 beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
     () => fakeContext() as never,
+  );
+  gates = [];
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+        gates.push(callback);
+      }
+      observe() {}
+      disconnect() {}
+    },
   );
 });
 
@@ -71,13 +85,48 @@ describe("AchievementEmbers", () => {
   });
 
   it("draws nothing when the reader asked for less motion", () => {
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn(() => ({ matches: true }) as MediaQueryList),
-    );
+    const matchMedia = vi.fn(() => ({ matches: true }) as MediaQueryList);
+    vi.stubGlobal("matchMedia", matchMedia);
     const frame = vi.spyOn(globalThis, "requestAnimationFrame");
     render();
     expect(frame).not.toHaveBeenCalled();
+    // The QUERY matters: a stub that matches everything would keep this
+    // green while the component asked about something else entirely.
+    expect(matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)");
+  });
+
+  it("draws nothing on a canvas that has no 2d surface at all", () => {
+    // A DOM without canvas support answers null, and the badge must still
+    // mount — the glow is decoration, not the badge.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      () => null as never,
+    );
+    const frame = vi.spyOn(globalThis, "requestAnimationFrame");
+    const host = render();
+    expect(host.querySelector("canvas")).not.toBeNull();
+    expect(frame).not.toHaveBeenCalled();
+  });
+
+  it("parks its loop while nothing is looking at it, and picks it up again", () => {
+    // Thirty legendary badges are thirty draw loops; the dialog shows two
+    // rows. The ones behind the scroll must cost nothing.
+    const frame = vi.spyOn(globalThis, "requestAnimationFrame");
+    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame");
+    render();
+    expect(gates).toHaveLength(1);
+    const started = frame.mock.calls.length;
+
+    act(() => gates[0]([{ isIntersecting: false }]));
+    expect(cancel).toHaveBeenCalled();
+    // A repeated off-screen report must not cancel a loop that is already
+    // parked, nor a later frame that no longer exists.
+    const cancelled = cancel.mock.calls.length;
+    act(() => gates[0]([{ isIntersecting: false }]));
+    expect(cancel.mock.calls.length).toBe(cancelled);
+    expect(frame.mock.calls.length).toBe(started);
+
+    act(() => gates[0]([{ isIntersecting: true }]));
+    expect(frame.mock.calls.length).toBeGreaterThan(started);
   });
 
   it("stops its loop when the card goes away", () => {

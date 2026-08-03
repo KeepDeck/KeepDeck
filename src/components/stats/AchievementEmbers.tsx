@@ -208,11 +208,39 @@ export function AchievementEmbers() {
       context.globalAlpha = 1;
       context.globalCompositeOperation = "source-over";
     };
+    let running = true;
     frame = requestAnimationFrame(draw);
+
+    /** A full gallery is a wall of legendary badges, each with its own draw
+     * loop, and the dialog shows perhaps two rows at a time. A field nobody
+     * is looking at stops entirely rather than spending a frame budget
+     * behind the scroll — and it resumes looking like a fresh mount, since
+     * every ember whose life ran out while the loop was parked is reborn on
+     * the next frame anyway.
+     *
+     * The viewport is the right root even though the scroller is the dialog
+     * body: an intersection rect is clipped by every clipping ancestor on
+     * the way up, and the body is one of them. */
+    const gate =
+      typeof IntersectionObserver === "undefined"
+        ? null
+        : new IntersectionObserver((entries) => {
+            const onscreen = entries[entries.length - 1]?.isIntersecting ?? true;
+            if (onscreen === running) return;
+            running = onscreen;
+            if (onscreen) {
+              frame = requestAnimationFrame(draw);
+              return;
+            }
+            cancelAnimationFrame(frame);
+            context.clearRect(0, 0, width, height);
+          });
+    gate?.observe(canvas);
 
     return () => {
       cancelAnimationFrame(frame);
       observer?.disconnect();
+      gate?.disconnect();
     };
   }, []);
 
