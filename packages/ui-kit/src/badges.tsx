@@ -29,7 +29,15 @@ export interface YoloBadgeProps {
   decorative?: boolean;
 }
 
-/** The standing "runs without permission prompts" warning dot. */
+/**
+ * The standing "runs without permission prompts" warning dot.
+ *
+ * `yolo-badge` is a NAME, not a style hook: the shape comes from
+ * `chip--icon-only`, which Chip derives, and the site hook carries the layout.
+ * No stylesheet selects it and none should — it is how this badge is found in
+ * devtools and in the tests that pin its wording and its role. Its absence
+ * from every .css file is not a sign that it is dead markup.
+ */
 export function YoloBadge({ size, className, decorative }: YoloBadgeProps) {
   return (
     <Chip

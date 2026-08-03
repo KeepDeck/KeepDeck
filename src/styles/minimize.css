@@ -176,7 +176,14 @@
 }
 
 .minimized__branch {
-  max-width: 160px;
+  /* One cap for both variants. It used to be 160 here and 120 on a tray chip,
+     and once the badge stopped shrinking the wider one no longer fit: at the
+     800px minimum window a docked dock and the rail leave a 258px stage, so a
+     strip row has 236px of content — and a stopped, YOLO-flagged agent on a
+     long branch needs 107px before the badge even starts. 120 is what the
+     narrower variant already proved sufficient. */
+  max-width: 120px;
+  overflow: hidden;
   /* Never shrinks, for the same reason as the pane header's .pane__branch
      (pane.css) — the stand-in's whole point is not drifting from the header.
      Here the parent really can run short (a tray chip is capped at 272px), so
@@ -185,9 +192,6 @@
      yields instead. */
   flex: none;
   color: #cdd2da;
-}
-.minimized--chip .minimized__branch {
-  max-width: 120px;
 }
 
 .minimized__restore {

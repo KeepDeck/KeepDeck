@@ -176,10 +176,11 @@
   background: currentColor;
 }
 
-/* Standing YOLO warning dot: the shared ui-kit YoloBadge (squared in
-   chip.css); this hook owns only its flex place and its spot in the
-   narrow-header cascade below (gone at ≤150px so maximize/close keep their
-   never-hide guarantee). */
+/* Standing YOLO warning dot: the shared ui-kit YoloBadge. Its circle comes
+   from .chip--icon-only (chip.css), which Chip applies to any chip carrying a
+   glyph and nothing else — so this hook owns only its flex place and its spot
+   in the narrow-header cascade below (gone at ≤150px so maximize/close keep
+   their never-hide guarantee). */
 .pane__yolo {
   flex: none;
 }
