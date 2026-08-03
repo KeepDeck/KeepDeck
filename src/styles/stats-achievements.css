@@ -49,8 +49,11 @@
   box-shadow: 0 6px 24px -12px color-mix(in srgb, var(--kd-warn) 85%, transparent);
 }
 
-/* The layers live under the content and inside the card's own radius. */
-.stats__achievement-dress {
+/* The layers live under the content and inside the card's own radius. The
+   rim comes FIRST in the DOM so the ground it paints sits under the cut and
+   the spectrum, leaving only its lit edge showing. */
+.stats__achievement-dress,
+.stats__achievement-rim {
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -59,9 +62,88 @@
   pointer-events: none;
 }
 
-.stats__achievement > *:not(.stats__achievement-dress) {
+.stats__achievement
+  > *:not(.stats__achievement-dress):not(.stats__achievement-rim) {
   position: relative;
   z-index: 1;
+}
+
+/* Epic and up: a light runs the border. The classic rotating-conic trick —
+   a spinning square clipped to the card's radius, with the interior painted
+   back over it so only the edge keeps the moving band. This is the level's
+   OWN idea, not a brighter version of the one below: without it epic and
+   rare differ by colour alone, which is exactly the complaint that started
+   this design. */
+.stats__achievement-rim::before,
+.stats__achievement-rim::after {
+  content: "";
+  position: absolute;
+}
+
+.stats__achievement-rim::before {
+  top: 50%;
+  left: 50%;
+  width: 260%;
+  margin: -130% 0 0 -130%;
+  aspect-ratio: 1;
+  animation: stats-achievement-rim 5.5s linear infinite;
+}
+
+.stats__achievement-rim::after {
+  inset: 1.5px;
+  border-radius: 8.5px;
+  background: var(--kd-bg);
+}
+
+.stats__achievement--epic .stats__achievement-rim::before {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 64%,
+    color-mix(in srgb, #9085e9 40%, transparent) 78%,
+    rgb(255 255 255 / 92%) 88%,
+    transparent 94% 100%
+  );
+}
+
+.stats__achievement--legendary .stats__achievement-rim::before {
+  animation-duration: 3.4s;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 64%,
+    color-mix(in srgb, var(--kd-warn) 40%, transparent) 78%,
+    rgb(255 255 255 / 92%) 88%,
+    transparent 94% 100%
+  );
+}
+
+@keyframes stats-achievement-rim {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* Below epic there is no runner, and the layer must not paint its ground
+   over the card either. */
+.stats__achievement:not(.stats__achievement--epic):not(.stats__achievement--legendary)
+  .stats__achievement-rim {
+  display: none;
+}
+
+/* Legendary breathes. A static shadow reads as nothing on this ground —
+   the change over time is the whole signal. */
+.stats__achievement--legendary:not(.stats__achievement--locked) {
+  animation: stats-achievement-breathe 4.2s ease-in-out infinite;
+}
+
+@keyframes stats-achievement-breathe {
+  0%,
+  100% {
+    box-shadow: 0 6px 22px -14px color-mix(in srgb, var(--kd-warn) 55%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 8px 30px -8px color-mix(in srgb, var(--kd-warn) 85%, transparent);
+  }
 }
 
 /* Rare: the ground gains a cut, colourless. */
@@ -101,7 +183,8 @@
 
 /* A promise, not a prize: a tier that is still locked keeps the colour of
    the level it will be and loses every effect. */
-.stats__achievement--locked .stats__achievement-dress {
+.stats__achievement--locked .stats__achievement-dress,
+.stats__achievement--locked .stats__achievement-rim {
   display: none;
 }
 
@@ -111,7 +194,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .stats__achievement-dress::before {
+  .stats__achievement-dress::before,
+  .stats__achievement-rim::before,
+  .stats__achievement--legendary {
     animation: none;
   }
 }

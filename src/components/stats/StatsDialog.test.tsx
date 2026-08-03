@@ -330,6 +330,7 @@ describe("UsageStats", () => {
       card.textContent?.includes("First Million"),
     )!;
     expect(earned.querySelector(".stats__achievement-dress")).not.toBeNull();
+    expect(earned.querySelector(".stats__achievement-rim")).not.toBeNull();
     const locked = cards.find((card) =>
       card.classList.contains("stats__achievement--locked"),
     )!;
