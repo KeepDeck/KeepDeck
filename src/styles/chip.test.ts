@@ -1,50 +1,14 @@
 // @vitest-environment happy-dom
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { YoloBadge } from "../ui/badges";
 import { AgentPaneHeader } from "../components/agent/AgentPaneHeader";
-import { STYLES_DIR, appCss, stripComments } from "./testSupport";
+import { appCss, readStyles, ruleBody } from "./testSupport";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
-
-/**
- * The declarations of ONE flat rule, by selector. Deliberately `[^{}]*` for the
- * body: a rule that ever gains nesting stops matching and this fails loudly,
- * rather than a looser scan quietly reading the wrong half of it. `from` lets a
- * caller pick the copy inside a container query over the base rule above it.
- */
-function ruleBody(
-  css: string,
-  selector: string,
-  from = 0,
-): Record<string, string> {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(`(?:^|[}\\n])\\s*${escaped}\\s*\\{([^{}]*)\\}`).exec(
-    css.slice(from),
-  );
-  expect(match, `no flat rule for ${selector}`).not.toBeNull();
-  return Object.fromEntries(
-    match![1]
-      .split(";")
-      .map((declaration) => declaration.trim())
-      .filter(Boolean)
-      .map((declaration) => {
-        const colon = declaration.indexOf(":");
-        return [
-          declaration.slice(0, colon).trim(),
-          declaration.slice(colon + 1).trim(),
-        ];
-      }),
-  );
-}
-
-const read = (file: string) =>
-  stripComments(readFileSync(join(STYLES_DIR, file), "utf8"));
 
 let root: Root;
 let host: HTMLElement;
@@ -136,13 +100,13 @@ describe("icon-only chip", () => {
     // against the original rather than trusted. Source, not cascade, because
     // happy-dom does not evaluate @container at all — verified, not assumed:
     // a probe stylesheet's queried declarations never reached getComputedStyle.
-    const canonical = ruleBody(read("chip.css"), ".chip--icon-only");
+    const canonical = ruleBody(readStyles("chip.css"), ".chip--icon-only");
     // Non-vacuous, and says what the value MEANS: the diameter is the chip's
     // own height, which is what makes the radius draw a circle.
     expect(canonical.width).toBe("22px");
 
-    const paneCss = read("pane.css");
-    const narrowHeader = paneCss.indexOf("@container (max-width: 280px)");
+    const paneCss = readStyles("pane.css");
+    const narrowHeader = paneCss.indexOf("@container (max-width: 355px)");
     expect(narrowHeader, "the narrow-header query is gone").toBeGreaterThan(-1);
 
     expect(ruleBody(paneCss, ".pane__branch", narrowHeader)).toEqual(canonical);

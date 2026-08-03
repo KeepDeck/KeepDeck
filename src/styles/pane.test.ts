@@ -7,7 +7,7 @@ import { MinimizedItem } from "../components/deck/MinimizedItem";
 import { AppRuntimeProvider } from "../app/runtimeContext";
 import { createAgentStatusTracker } from "../app/agentStatusTracker";
 import type { AppRuntime } from "../app/runtime";
-import { appCss } from "./testSupport";
+import { appCss, px, readStyles, ruleBody } from "./testSupport";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -186,6 +186,54 @@ describe("pane header", () => {
 
     expect(styleOf(".pane__identity").flexShrink).toBe("1");
     expect(styleOf(".pane__actions").flexShrink).toBe("0");
+  });
+
+  it("collapses the branch badge before the cluster outgrows the bar", () => {
+    // The promise the cascade states in words — maximize and close never hide —
+    // and the arithmetic that has to hold for it to be true. Nothing shrinks
+    // any more, so whatever the cluster still carries when the bar runs out is
+    // what the bar's clip cuts, from the right, where those two buttons are.
+    //
+    // The old single 280px rung was short by ~126px: size queries measure the
+    // container's CONTENT box, so it fired at a 302px pane while the cluster
+    // needed up to 428. Every pane between lost both buttons — the very report
+    // that started this branch.
+    //
+    // Read out of the source rather than restated here, so widening a chip or
+    // a button without widening its rung fails instead of shipping.
+    const paneCss = readStyles("pane.css");
+    const chipCss = readStyles("chip.css");
+
+    const gap = px(ruleBody(paneCss, ".pane__actions").gap);
+    const button = px(ruleBody(paneCss, ".pane__action").width);
+    const dot = px(ruleBody(chipCss, ".chip").height); // an icon-only chip is square
+    const branch = px(ruleBody(paneCss, ".pane__branch")["max-width"]);
+    const barGap = px(ruleBody(paneCss, ".pane__bar").gap);
+    // What the identity keeps even with its title fully ellipsized away.
+    const agent = ruleBody(paneCss, ".pane__agent");
+    const glyph = px(agent["font-size"]) + px(agent["margin-right"]);
+
+    // The widest state that must survive this rung: ctx already shed, the
+    // branch still wearing its label, both dots and all three buttons present.
+    const items = [dot, dot, branch, button, button, button];
+    const needed =
+      items.reduce((a, b) => a + b, 0) +
+      gap * (items.length - 1) +
+      barGap +
+      glyph;
+
+    // The rung that OPENS with `.pane__branch`, not merely one that mentions it
+    // somewhere below: a lazy scan from the first `@container` in the file
+    // reads the ctx rung's width and passes on the wrong number — it did, and
+    // the mutation probe for this test is what caught it. No match here means
+    // NaN, and NaN fails both assertions loudly.
+    const rung = Number(
+      /@container \(max-width: (\d+)px\)\s*\{\s*\.pane__branch\s*\{/.exec(
+        paneCss,
+      )?.[1],
+    );
+    expect(rung, "the branch-collapse rung is gone").toBeGreaterThan(0);
+    expect(rung).toBeGreaterThanOrEqual(needed);
   });
 
   it("never squeezes a branch badge below its own glyph", () => {

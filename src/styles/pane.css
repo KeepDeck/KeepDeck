@@ -210,7 +210,40 @@
   color: #9aa3b2;
 }
 
-/* Narrow pane: drop the branch label and leave the chip on its icon alone, so
+/* The collapse ladder. Every rung's width is the width at which the state
+   ABOVE it stops fitting — not a round number — because nothing else can keep
+   the "maximize and close never hide" promise: the cluster no longer shrinks,
+   so whatever it still holds when the bar runs out is what the bar's clip
+   cuts, and it cuts from the right, where those two live.
+
+   The rungs are stated against the CONTAINER, which is `.pane__bar`'s CONTENT
+   box — size queries measure content, and the bar adds 18px of padding inside
+   a pane that adds 4px of border, so a rung of C answers to a pane of C + 22.
+   Getting that wrong is how the old single 280px rung left a hole: it fired at
+   a 302px pane while the cluster needed up to 428, so every pane between them
+   lost both buttons.
+
+   What must fit, at 6px cluster gaps, plus the bar's own 10px gap and the
+   20px the agent glyph keeps in the identity:
+     everything    22 activity + 70 ctx + 22 yolo + 180 branch + 3×23 + 6×6
+                   = 399, so it needs 429  → shed ctx below that
+     without ctx   = 323, needs 353         → collapse the branch below that
+     branch a dot  = 165, needs 195         → the 200 rung already covers it
+     no branch or
+     activity      = 109, needs 139         → the 150 rung already covers it
+   The ctx figure is the one estimate here (its label is text, not a
+   declaration); every other number is read out of this file by pane.test.ts,
+   which fails if a chip or button grows without its rung growing too. */
+@container (max-width: 430px) {
+  /* The ctx meter is text with no icon to collapse to, and the least load-
+     bearing thing in the cluster — it yields first rather than staying
+     full-width and pushing the window controls off the edge. */
+  .pane__ctx {
+    display: none;
+  }
+}
+
+/* Narrower: drop the branch label and leave the chip on its icon alone, so
    in a crowded header it reads as a clean icon dot instead of a clipped, shifted
    badge. `display:none` (not ellipsis-to-nothing) takes the label out of the
    flex flow entirely, so no leftover gap/padding pushes the icon off-center.
@@ -221,7 +254,7 @@
    that class, and CSS has no way to apply another rule's block. They are
    copied on purpose, and chip.test.ts fails if the copy ever stops matching
    the original. */
-@container (max-width: 280px) {
+@container (max-width: 355px) {
   .pane__branch {
     width: 22px;
     padding: 0;
@@ -229,12 +262,6 @@
   }
 
   .pane__branch .chip__label {
-    display: none;
-  }
-
-  /* The ctx meter is text with no icon to collapse to — it yields here rather
-     than staying full-width and clipping the window controls. */
-  .pane__ctx {
     display: none;
   }
 }
