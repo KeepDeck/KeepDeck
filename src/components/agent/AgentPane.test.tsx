@@ -544,6 +544,14 @@ describe("AgentPane — the unavailable-agent card", () => {
       'agent "kimi" is not installed — install it, then re-enable the plugin in Settings → Plugins',
     );
     expect(document.body.textContent).not.toContain("No plugin provides");
+    // The line ellipsizes in a narrow tile and the tail is the half that says
+    // what to DO, so the tooltip has to carry the whole sentence. It used to
+    // carry the agent's name, which is the one part still on screen.
+    expect(
+      document.querySelector<HTMLElement>(".pane__card-path")?.title,
+    ).toBe(
+      'agent "kimi" is not installed — install it, then re-enable the plugin in Settings → Plugins',
+    );
     expect(TerminalPane).not.toHaveBeenCalled();
   });
 
@@ -1003,6 +1011,12 @@ describe("AgentPane — suspended / parked card", () => {
     expect(
       document.querySelector(".pane__idle-session-id")?.textContent,
     ).toBe(id);
+    // The wrappers a card is sized through, witnessed on the real pane:
+    // `src/styles/pane.test.ts` asserts the min-width chain down this exact
+    // nesting against a hand-written fixture, and without this its fixture
+    // could outlive the markup and keep passing on shapes the app no longer
+    // renders.
+    expect(document.querySelector(".pane > .pane__body > .pane__card")).not.toBeNull();
   });
 
   it("shows the session id on a parked pane too — same promise, same evidence", () => {

@@ -176,13 +176,17 @@
 }
 
 .minimized__branch {
-  max-width: 160px;
-  flex: 0 1 auto;
-  min-width: 0;
-  color: #cdd2da;
-}
-.minimized--chip .minimized__branch {
+  /* One cap for both variants. It used to be 160 here and 120 on a tray chip,
+     and once the badge stopped shrinking the wider one no longer fit: at the
+     800px minimum window a docked dock and the rail leave a 258px stage, so a
+     strip row has 236px of content — and a stopped, YOLO-flagged agent on a
+     long branch needs 107px before the badge even starts. 120 is what the
+     narrower variant already proved sufficient. */
   max-width: 120px;
+  overflow: hidden;
+  /* No `flex` here either — chip.css states once that a chip does not yield,
+     and the title beside it is what gives instead. */
+  color: #cdd2da;
 }
 
 .minimized__restore {

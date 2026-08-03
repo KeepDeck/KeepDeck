@@ -21,11 +21,25 @@
 }
 
 .chip {
+  /* The pill's height, and — when it collapses to a glyph — its width too.
+     One token because those are the same measurement: a round badge is a chip
+     as wide as it is tall. Stated twice, a density change to one of them ships
+     a stadium. */
+  --chip-diameter: 22px;
+  /* A chip does not yield. It cannot survive yielding: `min-width: 0` below
+     lets it be squeezed past its own glyph into a sliver still wearing the
+     999px radius, which reads as a vertical stadium with the icon clipped off
+     centre — and that is not hypothetical, it is what a long pane title did to
+     the branch badge. The rows a chip sits in shed whole chips at breakpoints
+     instead, and their text yields.
+     Stated HERE so the next chip inherits the fix rather than the trap; the
+     one site that must yield says so by name (.usage-chip, usage.css). */
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
-  height: 22px;
+  height: var(--chip-diameter);
   padding: 0 9px;
   border: 1px solid #3b4250;
   border-radius: 999px;
@@ -44,7 +58,7 @@ button.chip {
 
 /* sm: the minimized stand-in's badge — a notch tighter than the header's. */
 .chip--sm {
-  height: 20px;
+  --chip-diameter: 20px;
   padding: 0 8px;
 }
 
@@ -66,17 +80,23 @@ button.chip {
   border-color: #5a2e2e;
 }
 
-/* The icon-only YOLO dot (ui-kit YoloBadge): a rounded square at either size,
-   squared here so the pane header (md) and the minimized stand-in (sm) draw
-   the same badge. Site hooks keep only flex place and cascade hiding. */
-.yolo-badge {
-  width: 22px;
+/* A chip collapsed to its glyph: the height becomes the diameter, so the
+   width matches it and the side padding that makes a pill goes away —
+   otherwise the padding pushes the glyph off centre and the 999px radius
+   draws a stadium instead of a circle. The YOLO dot and the pane header's
+   activity dot are both this, and ui-kit's Chip applies the class itself for
+   any chip given an icon and nothing else.
+
+   ONE site restates these declarations instead of wearing the class: the
+   branch badge, which is icon-only only while its pane header is too narrow
+   for a label (pane.css). That call belongs to a container query, and a
+   container query can change an element's properties but cannot add a class
+   to it — nor does CSS let one rule apply another's block. chip.test.ts
+   therefore holds the copy to this original, so it cannot drift in silence. */
+.chip--icon-only {
+  width: var(--chip-diameter);
   padding: 0;
   justify-content: center;
-}
-
-.chip--sm.yolo-badge {
-  width: 20px;
 }
 
 .chip__icon {

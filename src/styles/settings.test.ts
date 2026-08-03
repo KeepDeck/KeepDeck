@@ -1,15 +1,6 @@
 // @vitest-environment happy-dom
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-
-const STYLES_DIR = "src/styles";
-const stylesIndex = readFileSync(join(STYLES_DIR, "index.css"), "utf8");
-const appCss = [...stylesIndex.matchAll(/@import\s+"([^"]+)"\s*;/g)]
-  .map((match) =>
-    readFileSync(join(STYLES_DIR, match[1].replace(/^\.\//, "")), "utf8"),
-  )
-  .join("\n");
+import { appCss } from "./testSupport";
 
 /**
  * happy-dom drops min()/calc() width and height declarations. Preserve those

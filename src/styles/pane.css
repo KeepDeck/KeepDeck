@@ -5,6 +5,20 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* The pane-wide hard floor — the same promise `.pane__bar` states for its own
+     row, made once for the whole tile: whatever the content does, it stops at
+     the tile's edge. The body had no floor at all, so one card that outsized
+     its pane reached both the neighbouring tile and the dock beside the deck.
+     The dock cannot defend itself there: docked it is a STATIC in-flow sibling
+     of a positioned `.deck__stage` (deck.css), and positioned boxes paint after
+     static ones, so the deck's overflow lands on top of it by definition.
+     Floating, the dock is absolute and wins by document order — which is
+     exactly why the same leak was invisible in that mode.
+
+     `clip`, never `hidden`: `hidden` would make every pane a scroll container,
+     and xterm parks the textarea it focuses for keystrokes at `left: -9999em`
+     (xterm.css) — focusing it would scroll the tile off its own terminal. */
+  overflow: clip;
   /* Always reserve the focus-border space (transparent) so the active border
      never covers content and toggling focus causes no layout shift. */
   border: 2px solid transparent;
@@ -76,7 +90,13 @@
   /* Query container for the header controls: a narrow pane collapses the branch
      badge to an icon-only chip and then sheds controls by priority (see the
      @container rules below). */
-  container-type: inline-size;
+  /* Named, so the rungs below answer to THIS box and say so. An unnamed query
+     binds to the nearest container ancestor, so giving .pane__actions a
+     container-type — the obvious next step, collapsing the cluster by its own
+     width — would silently retarget every rung to the cluster and change what
+     the never-hide guarantee means, with no test able to see it (happy-dom
+     evaluates no @container at all). */
+  container: pane-header / inline-size;
   /* The hard floor: whatever the collapse cascade hasn't hidden yet may never
      paint past the pane's edge onto a neighbour or the dock. */
   overflow: clip;
@@ -105,8 +125,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 0 1 auto;
-  min-width: 0;
+  /* Never shrinks. Every control inside it is flex-none, so a shrinkable
+     cluster cannot pass the pressure on — it just lets them overflow its own
+     box, and the bar's clip then cuts maximize and close, the two the
+     collapse cascade below promises never to hide. The title yields instead:
+     that is the priority the cascade already states in words. */
+  flex: none;
   margin-left: auto;
 }
 
@@ -142,14 +166,12 @@
    state — the frame ladder carries attention, so the header keeps one
    density and the words live in the tooltip. This block owns only the
    badge's PLACE in the header; every hue and rhythm lives in status.css
-   (.pane__activity--*), the one home of the status palette. Squared like
-   the YOLO badge (chip.css) so the pill's 999px radius draws a circle,
-   not a stadium around the dot. */
+   (.pane__activity--*), the one home of the status palette. The circle comes
+   from the shared .chip--icon-only (chip.css), which ui-kit's Chip applies to
+   any chip carrying a glyph and nothing else — this one qualifies, so the
+   shape is not restated here. */
 .pane__activity {
   flex: none;
-  width: 22px;
-  padding: 0;
-  justify-content: center;
   font-size: 12px;
 }
 
@@ -160,21 +182,23 @@
   background: currentColor;
 }
 
-/* Standing YOLO warning dot: the shared ui-kit YoloBadge (squared in
-   chip.css); this hook owns only its flex place and its spot in the
-   narrow-header cascade below (gone at ≤150px so maximize/close keep their
-   never-hide guarantee). */
+/* Standing YOLO warning dot: the shared ui-kit YoloBadge. Its circle comes
+   from .chip--icon-only (chip.css), which Chip applies to any chip carrying a
+   glyph and nothing else — so this hook owns only its flex place and its spot
+   in the narrow-header cascade below (gone at ≤150px so maximize/close keep
+   their never-hide guarantee). */
 .pane__yolo {
   flex: none;
 }
 
 .pane__branch {
   overflow: hidden;
+  /* No `flex` here: a chip does not yield, and chip.css says so once for all
+     of them (a squeezed branch badge was the bug). This hook adds only the
+     cap the label ellipsizes inside; below it, the rung further down collapses
+     the whole chip to its glyph. */
   max-width: min(180px, 44vw);
-  flex: 0 1 auto;
   font-size: 12px;
-  /* No min-width:0 — the chip must never shrink below its icon. The label
-     ellipsizes; the icon stays whole (see .chip__label in chip.css). */
 }
 
 /* Live context-occupancy meter, moved here off the usage popover (its
@@ -189,14 +213,53 @@
   color: #9aa3b2;
 }
 
-/* Narrow pane: drop the branch label and center the chip on its icon alone, so
+/* The collapse ladder. Every rung's width is the width at which the state
+   ABOVE it stops fitting — not a round number — because nothing else can keep
+   the "maximize and close never hide" promise: the cluster no longer shrinks,
+   so whatever it still holds when the bar runs out is what the bar's clip
+   cuts, and it cuts from the right, where those two live.
+
+   The rungs are stated against the CONTAINER, which is `.pane__bar`'s CONTENT
+   box — size queries measure content, and the bar adds 18px of padding inside
+   a pane that adds 4px of border, so a rung of C answers to a pane of C + 22.
+   Getting that wrong is how the old single 280px rung left a hole: it fired at
+   a 302px pane while the cluster needed up to 428, so every pane between them
+   lost both buttons.
+
+   What must fit, at 6px cluster gaps, plus the bar's own 10px gap and the
+   20px the agent glyph keeps in the identity:
+     everything    22 activity + 70 ctx + 22 yolo + 180 branch + 3×23 + 6×6
+                   = 399, so it needs 429  → shed ctx below that
+     without ctx   = 323, needs 353         → collapse the branch below that
+     branch a dot  = 165, needs 195         → the 200 rung already covers it
+     no branch or
+     activity      = 109, needs 139         → the 150 rung already covers it
+   The ctx figure is the one estimate here (its label is text, not a
+   declaration); every other number is read out of this file by pane.test.ts,
+   which fails if a chip or button grows without its rung growing too. */
+@container pane-header (max-width: 430px) {
+  /* The ctx meter is text with no icon to collapse to, and the least load-
+     bearing thing in the cluster — it yields first rather than staying
+     full-width and pushing the window controls off the edge. */
+  .pane__ctx {
+    display: none;
+  }
+}
+
+/* Narrower: drop the branch label and leave the chip on its icon alone, so
    in a crowded header it reads as a clean icon dot instead of a clipped, shifted
    badge. `display:none` (not ellipsis-to-nothing) takes the label out of the
-   flex flow entirely, so no leftover gap/padding pushes the icon off-center. */
-@container (max-width: 280px) {
+   flex flow entirely, so no leftover gap/padding pushes the icon off-center.
+
+   The three declarations below are the shared .chip--icon-only shape (chip.css)
+   restated, because this is the one site whose icon-only state is CONDITIONAL:
+   a container query can change this element's properties but cannot give it
+   that class, and CSS has no way to apply another rule's block. They are
+   copied on purpose, and chip.test.ts fails if the copy ever stops matching
+   the original. */
+@container pane-header (max-width: 355px) {
   .pane__branch {
-    flex: none;
-    width: 22px;
+    width: var(--chip-diameter);
     padding: 0;
     justify-content: center;
   }
@@ -204,17 +267,11 @@
   .pane__branch .chip__label {
     display: none;
   }
-
-  /* The ctx meter is text with no icon to collapse to — it yields here rather
-     than staying full-width and clipping the window controls. */
-  .pane__ctx {
-    display: none;
-  }
 }
 
 /* Narrower: the branch chip yields entirely — identity goes first, window
    controls last. */
-@container (max-width: 200px) {
+@container pane-header (max-width: 200px) {
   .pane__branch,
   /* The activity dot yields with it: the FRAME still carries the state,
      and a header this narrow must never squeeze maximize/close out. */
@@ -226,7 +283,7 @@
 /* Minimal header: minimize yields too, and the YOLO dot is the last chip to
    go. Maximize and close never hide — a pane this narrow is exactly one you
    want to maximize or close. */
-@container (max-width: 150px) {
+@container pane-header (max-width: 150px) {
   .pane__action--minimize,
   .pane__yolo {
     display: none;
@@ -374,6 +431,15 @@
    means "this pane is stopped", and the two are not the same question. */
 .pane__card {
   flex: 1;
+  /* A flex item's automatic minimum is its min-content width, and the widest
+     line here is a session id set in `white-space: nowrap` — so the card used
+     to floor at that id's full width and grow PAST the pane, painting its
+     opaque background over the neighbouring pane and over the docked dock.
+     `.pane__card-path`'s `max-width: 80%` cannot stand in for this: the
+     percentage resolves against the card whose width is being computed, so
+     intrinsic sizing treats it as none. Zero is what makes that 80% finally
+     mean 80% of the PANE, and the ids ellipsize where they always claimed to. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;

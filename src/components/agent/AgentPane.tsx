@@ -279,6 +279,14 @@ export function AgentPane({
   // and done; this view only appends the class. The selection-visibility
   // rule (not maximized, not the only pane) predates the ladder and stays.
   const frame = paneFrame(activity, selected && !focused && !solo);
+  // One string for the card that says an agent has no plugin behind it: the
+  // line renders it and its tooltip carries it, so the tail an ellipsis takes
+  // is still reachable.
+  const unavailableAgentSentence = !unavailableAgent
+    ? ""
+    : unavailableAgent.kind === "bin-missing"
+      ? `${unavailableAgent.reason} — install it, then re-enable the plugin in Settings → Plugins`
+      : `No plugin provides “${unavailableAgent.agent}” — enable it in Settings → Plugins`;
   return (
     <section
       data-pane-id={paneId}
@@ -357,13 +365,15 @@ export function AgentPane({
           // effect skips it, and fixing the cause brings it back live.
           <div className="pane__card" role="alert">
             <span className="pane__exit-title">Agent unavailable</span>
+            {/* The sentence is the tooltip too. It wears `.pane__card-path`, so
+                it ellipsizes inside the tile — and what gets cut is the tail,
+                which is the half that says what to DO about it. Naming the
+                agent there instead left the instruction unrecoverable. */}
             <span
               className="pane__exit-sub pane__card-path"
-              title={unavailableAgent.agent}
+              title={unavailableAgentSentence}
             >
-              {unavailableAgent.kind === "bin-missing"
-                ? `${unavailableAgent.reason} — install it, then re-enable the plugin in Settings → Plugins`
-                : `No plugin provides “${unavailableAgent.agent}” — enable it in Settings → Plugins`}
+              {unavailableAgentSentence}
             </span>
           </div>
         ) : body === "stopped" && idle ? (
