@@ -104,55 +104,21 @@ describe("reduceActivity", () => {
     expect(reduceActivity(working, { kind: "resumed", at: 500 })).toBe(working);
   });
 
-  it("parking keeps the running phase and records that the thread went idle", () => {
+  it("parking leaves every live phase exactly as it found it", () => {
     // A turn the CLI closed while work it started keeps running. The phase
-    // is unchanged — same age, the work never stopped — but the main thread
-    // is now idle, and the flag is what later edges consult.
+    // did not change, so neither may the state OR its identity — a parked
+    // edge that re-rendered every surface would be pure churn.
     const working: PaneActivity = { state: "working", since: 100 };
-    expect(reduceActivity(working, { kind: "parked", at: 500 })).toEqual({
-      state: "working",
-      since: 100,
-      parked: true,
-    });
-    // Once recorded, further parks are pure echo: same object, so no
-    // surface re-renders and nothing re-announces.
-    const parked = reduceActivity(working, { kind: "parked", at: 500 });
-    expect(reduceActivity(parked, { kind: "parked", at: 900 })).toBe(parked);
-  });
-
-  it("parking withdraws a wait, which the closed turn has already outlived", () => {
-    // The main thread does not end its turn while blocked on the user, so a
-    // wait still standing here is stale by construction. Left up it would
-    // claim an approval is pending for as long as the background work runs,
-    // with no edge able to clear it.
+    expect(reduceActivity(working, { kind: "parked", at: 500 })).toBe(working);
+    // The wait STANDS. Suppressing it was tried and is worse: a permission
+    // prompt means the CLI has a dialog UP that the user CAN answer, and
+    // silence there strands the very work the parking protects.
     const waiting: PaneActivity = {
       state: "waiting",
       since: 200,
       reason: "permission",
     };
-    expect(reduceActivity(waiting, { kind: "parked", at: 500 })).toEqual({
-      state: "working",
-      since: 500,
-      parked: true,
-    });
-  });
-
-  it("a parked turn refuses to host a wait at all", () => {
-    // claude's nudge keeps firing while the main thread idles behind its
-    // background work, but nothing records WHICH agent is asking and no
-    // edge can resolve it — so a wait minted here would announce a prompt
-    // the user cannot answer, and every background tool completion would
-    // retract and re-raise it. Before the turn learned to park, the `done`
-    // state absorbed exactly these.
-    const parked: PaneActivity = { state: "working", since: 100, parked: true };
-    expect(
-      reduceActivity(parked, { kind: "waiting", at: 600, reason: "question" }),
-    ).toBe(parked);
-    // An ordinary running turn still accepts one.
-    const working: PaneActivity = { state: "working", since: 100 };
-    expect(
-      reduceActivity(working, { kind: "waiting", at: 600, reason: "question" }),
-    ).toEqual({ state: "waiting", since: 600, reason: "question" });
+    expect(reduceActivity(waiting, { kind: "parked", at: 500 })).toBe(waiting);
   });
 
   it("parking neither resurrects an ended turn nor leaves a fresh pane blank", () => {
@@ -165,26 +131,10 @@ describe("reduceActivity", () => {
     };
     expect(reduceActivity(failed, { kind: "parked", at: 500 })).toBe(failed);
     // Nothing known yet — attaching mid-session, or the first edge after a
-    // clear. In-flight work is honestly "working", and already parked.
+    // clear. In-flight work is honestly "working".
     expect(reduceActivity(null, { kind: "parked", at: 500 })).toEqual({
       state: "working",
       since: 500,
-      parked: true,
-    });
-  });
-
-  it("a new turn leaves the parked stretch behind", () => {
-    const parked: PaneActivity = { state: "working", since: 100, parked: true };
-    // The wake that finished background work injects a turn of its own.
-    expect(reduceActivity(parked, { kind: "turn-start", at: 900 })).toEqual({
-      state: "working",
-      since: 900,
-    });
-    // And the closing Stop, with nothing left in flight, ends it.
-    expect(reduceActivity(parked, { kind: "turn-end", at: 900 })).toEqual({
-      state: "done",
-      at: 900,
-      interrupted: false,
     });
   });
 
