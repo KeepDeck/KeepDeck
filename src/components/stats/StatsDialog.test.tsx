@@ -344,6 +344,28 @@ describe("UsageStats", () => {
     expect(locked.className).toMatch(/stats__achievement--(rare|epic|legendary|uncommon|common)/);
   });
 
+  it("marks a re-earned top as an ordinal, never as a multiplier", () => {
+    history.snapshot = {
+      ready: true,
+      events: [usageEvent({ tokens: { input: 2_000_000 } })],
+      error: null,
+    };
+    act(() => root.render(createElement(Host)));
+    clickTab("Achievements");
+
+    const repeated = [...host.querySelectorAll(".stats__achievement")].filter(
+      (card) => card.querySelector(".stats__achievement-repeat"),
+    );
+    expect(repeated.length).toBeGreaterThan(0);
+    // "×2" would claim twice the amount; the second top sits at ten times
+    // the first, so the mark must not do arithmetic.
+    for (const card of repeated) {
+      expect(card.textContent).not.toContain("×");
+    }
+    expect(repeated[0].querySelector(".stats__achievement-repeat")!.textContent)
+      .toContain("II");
+  });
+
   it("names the level in the tooltip, where colour alone would leave a reader out", () => {
     vi.useRealTimers();
     vi.useFakeTimers();
