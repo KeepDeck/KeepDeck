@@ -59,7 +59,12 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
         hooks: [
           {
             type: "command",
-            command: `/bin/sh ${shellQuote(status)} claude`,
+            // The trailing keys are what the reporter must keep if a payload
+            // is too big to forward whole — claude's schema is ours to
+            // declare, not the shared script's to know. Only identifier-like
+            // values: prose (error_details) would need escape-aware
+            // extraction, and losing it costs a tooltip, not a state.
+            command: `/bin/sh ${shellQuote(status)} claude background_tasks notification_type error`,
           },
         ],
       },

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { normalizeClaudeStatus } from "./status";
 
 /**
  * The status reporter, EXECUTED — the byte-identity test in
@@ -27,10 +28,31 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function run(dir: string, stdin: string, agent = "claude"): void {
+/** The keys claude's plugin declares load-bearing — kept in step with the
+ * arming site in `plugins/claude/src/index.ts`. */
+const CLAUDE_KEYS = ["background_tasks", "notification_type", "error"];
+
+function run(
+  dir: string,
+  stdin: string,
+  agent = "claude",
+  keys: string[] = CLAUDE_KEYS,
+): void {
   const env = { ...process.env };
   env.KEEPDECK_BRIDGE = JSON.stringify({ v: 1, dir, pane: "pane-3", token: "tok" });
-  execFileSync("/bin/sh", [SCRIPT, agent], { input: stdin, env });
+  execFileSync("/bin/sh", [SCRIPT, agent, ...keys], { input: stdin, env });
+}
+
+/** A payload guaranteed to trip the reduction, in the shape that actually
+ * drives it in the field: a huge final assistant message. */
+function oversized(event: Record<string, unknown>): string {
+  return JSON.stringify({ ...event, last_assistant_message: "ж".repeat(140_000) });
+}
+
+/** The published envelope as the normalizer receives it — so a reduction can
+ * be judged by the EDGE it produces, not by its serialized shape. */
+function envelopeEvent(dir: string): unknown {
+  return (envelope(dir) as { payload: unknown }).payload;
 }
 
 function envelope(dir: string): Record<string, unknown> {
@@ -59,40 +81,98 @@ describe("kd-status-hook.sh", () => {
     ).toHaveLength(0);
   });
 
-  it("degrades an oversized payload to the bare event name, measured in BYTES", () => {
-    const dir = inbox();
-    // ~70k CYRILLIC characters ≈ 140KB in UTF-8: over the byte cap while a
-    // character count would wave it through.
-    const monster = JSON.stringify({
-      hook_event_name: "Stop",
-      last_assistant_message: "ж".repeat(70_000),
-    });
-    run(dir, monster);
-    expect(envelope(dir)).toMatchObject({
+  it("reduces only past the bridge's own limit, measured in BYTES", () => {
+    // Under the cap the payload rides whole. The guard used to fire at half
+    // the size that needs it, reducing payloads the bridge would have
+    // delivered intact and widening every lossy failure below.
+    const whole = inbox();
+    run(
+      whole,
+      JSON.stringify({
+        hook_event_name: "Stop",
+        last_assistant_message: "ж".repeat(70_000),
+      }),
+    );
+    expect(JSON.stringify(envelope(whole))).toContain("last_assistant_message");
+
+    // Past it, the reduced shape. CYRILLIC is 2 bytes a character, so a
+    // character count would wave this through.
+    const cut = inbox();
+    run(cut, oversized({ hook_event_name: "Stop" }));
+    expect(envelope(cut)).toMatchObject({
       type: "agent.status",
       payload: { agent: "claude", event: { hook_event_name: "Stop" } },
     });
+    // The reduction really happened — the prose is gone, not merely unread.
+    expect(JSON.stringify(envelope(cut))).not.toContain("ж");
   });
 
-  it("carries the in-flight background flag through the reduction", () => {
-    // The oversize driver is the final assistant message, which rides on the
-    // SAME event that lists still-running background work. Reducing that to
-    // a bare name would report "finished" over a live subagent — the exact
-    // bug the list exists to prevent.
-    const dir = inbox();
-    const monster = JSON.stringify({
-      hook_event_name: "Stop",
-      last_assistant_message: "ж".repeat(70_000),
-      background_tasks: [
-        { id: "a1", type: "subagent", status: "running", agent_type: "general-purpose" },
-      ],
+  it("keeps every declared key through the reduction, whatever its shape", () => {
+    // The oversize driver is the final assistant message, and it rides on
+    // the very events whose fields decide the edge. Reducing to a bare name
+    // reported "finished" over a live subagent, downgraded a rate limit to
+    // "Turn failed", and dropped an approval prompt outright.
+    const flag = inbox();
+    run(
+      flag,
+      oversized({
+        hook_event_name: "Stop",
+        background_tasks: [{ id: "a1", type: "subagent", status: "running" }],
+      }),
+    );
+    // A list keeps only its non-emptiness — that is all `outlivesTurn` reads.
+    expect(envelope(flag)).toMatchObject({
+      payload: {
+        event: {
+          hook_event_name: "Stop",
+          background_tasks: expect.arrayContaining([expect.anything()]),
+        },
+      },
     });
-    run(dir, monster);
-    // Only non-emptiness survives — no consumer reads the entries — so the
-    // assertion is on the fact `outlivesTurn` actually tests.
+
+    const failed = inbox();
+    run(failed, oversized({ hook_event_name: "StopFailure", error: "rate_limit" }));
+    expect(envelope(failed)).toMatchObject({
+      payload: { event: { hook_event_name: "StopFailure", error: "rate_limit" } },
+    });
+
+    const asked = inbox();
+    run(
+      asked,
+      oversized({
+        hook_event_name: "Notification",
+        notification_type: "permission_prompt",
+      }),
+    );
+    expect(envelope(asked)).toMatchObject({
+      payload: {
+        event: {
+          hook_event_name: "Notification",
+          notification_type: "permission_prompt",
+        },
+      },
+    });
+  });
+
+  it("finds the declared keys however the payload is formatted", () => {
+    // grep and sed are line-oriented; JSON's structural whitespace is not.
+    // Pretty-printed, the flag used to vanish and the pane reported a turn
+    // finished over live work — silently, in the unrecoverable direction.
+    const dir = inbox();
+    run(
+      dir,
+      JSON.stringify(
+        {
+          hook_event_name: "Stop",
+          background_tasks: [{ id: "a1", status: "running" }],
+          last_assistant_message: "ж".repeat(140_000),
+        },
+        null,
+        2,
+      ),
+    );
     expect(envelope(dir)).toMatchObject({
       payload: {
-        agent: "claude",
         event: {
           hook_event_name: "Stop",
           background_tasks: expect.arrayContaining([expect.anything()]),
@@ -101,26 +181,65 @@ describe("kd-status-hook.sh", () => {
     });
   });
 
-  it("does not invent background work from an empty list or quoted prose", () => {
+  it("invents no background work from an empty list, a CR, or quoted prose", () => {
+    const pad = "ж".repeat(140_000);
+    const cases: Record<string, string> = {
+      empty: JSON.stringify({
+        hook_event_name: "Stop",
+        background_tasks: [],
+        last_assistant_message: pad,
+      }),
+      // CR is JSON whitespace, so an empty list may legitimately carry one
+      // between the brackets — it must not read as "something is in there".
+      cr: `{"hook_event_name":"Stop","background_tasks":[\r],"pad":"${pad}"}`,
+      // Prose QUOTING the key: inside a JSON string the quotes arrive
+      // escaped, so the bare-quote anchor cannot match there.
+      quoted: JSON.stringify({
+        hook_event_name: "Stop",
+        background_tasks: [],
+        last_assistant_message:
+          `I edited "background_tasks":[{"type":"subagent"}] here. ` + pad,
+      }),
+    };
+    for (const [name, payload] of Object.entries(cases)) {
+      const dir = inbox();
+      run(dir, payload);
+      expect(JSON.stringify(envelope(dir)), name).not.toContain(
+        "background_tasks",
+      );
+    }
+  });
+
+  it("reads the payload's OWN event name, not a NESTED one", () => {
+    // A tool result is arbitrary JSON, and structured output nests real
+    // objects — whose keys are NOT escaped and so do match the anchors.
+    // A greedy match took the LAST one, turning a mid-turn PostToolUse into
+    // a Stop: a false "finished" banner over a running turn. The real key
+    // leads in every schema we arm, so the FIRST match is the payload's own.
     const dir = inbox();
-    // An oversized turn that genuinely finished: the list is empty, and the
-    // prose merely QUOTES the key. Inside a JSON string the quotes arrive
-    // escaped, so the bare-quote anchor cannot match there.
-    const monster = JSON.stringify({
-      hook_event_name: "Stop",
-      last_assistant_message:
-        `I edited "background_tasks":[{"type":"subagent"}] in the reporter. ` +
-        "ж".repeat(70_000),
-      background_tasks: [],
-    });
-    run(dir, monster);
+    run(
+      dir,
+      oversized({
+        hook_event_name: "PostToolUse",
+        tool_response: {
+          structuredContent: {
+            hook_event_name: "Stop",
+            background_tasks: [{ id: "nested" }],
+          },
+        },
+      }),
+    );
     expect(envelope(dir)).toMatchObject({
-      payload: { agent: "claude", event: { hook_event_name: "Stop" } },
+      payload: { event: { hook_event_name: "PostToolUse" } },
     });
-    // No key at all — not an empty list, and above all not an invented one.
-    expect(
-      JSON.stringify(envelope(dir)).includes("background_tasks"),
-    ).toBe(false);
+    // A nested list can still ride along on the keep-key pass, and that is
+    // harmless BY CONSTRUCTION rather than by luck: `outlivesTurn` is
+    // consulted only for `Stop`, and a `Stop`'s own bulk is prose, where
+    // JSON escaping puts every key out of the anchors' reach.
+    expect(normalizeClaudeStatus(envelopeEvent(dir), 100)).toEqual({
+      kind: "resumed",
+      at: 100,
+    });
   });
 
   it("stays silent and writes nothing without bridge context, agent or stdin", () => {

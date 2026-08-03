@@ -17,32 +17,32 @@
     },
     {
       "event": "UserPromptSubmit",
-      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "command": "/bin/sh ./kd-status-hook.sh kimi error_type",
       "timeout": 5
     },
     {
       "event": "Stop",
-      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "command": "/bin/sh ./kd-status-hook.sh kimi error_type",
       "timeout": 5
     },
     {
       "event": "StopFailure",
-      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "command": "/bin/sh ./kd-status-hook.sh kimi error_type",
       "timeout": 5
     },
     {
       "event": "Interrupt",
-      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "command": "/bin/sh ./kd-status-hook.sh kimi error_type",
       "timeout": 5
     },
     {
       "event": "PermissionRequest",
-      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "command": "/bin/sh ./kd-status-hook.sh kimi error_type",
       "timeout": 5
     },
     {
       "event": "PermissionResult",
-      "command": "/bin/sh ./kd-status-hook.sh kimi",
+      "command": "/bin/sh ./kd-status-hook.sh kimi error_type",
       "timeout": 5
     }
   ]
