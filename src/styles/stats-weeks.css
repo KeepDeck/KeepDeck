@@ -1,0 +1,148 @@
+/* The Weeks block — completed calendar weeks at the bottom of Overview —
+   in its own sheet per the stats-*.css convention. Rows wear .stats__row
+   for the shared table shell (height, padding, dividers); this sheet only
+   reshapes the columns and styles the block's own cells. */
+
+.stats__week-row {
+  /* ONE flexible column — the bar. Every other column hugs its content
+     (the model capped, its name ellipsizes), so the leftover width lives
+     in exactly one place and the delta·model·cost cluster sits tight at
+     the right edge instead of floating in ragged gaps. */
+  grid-template-columns:
+    max-content 64px minmax(110px, 1fr) 58px
+    fit-content(240px) 64px;
+}
+
+.stats__week-row--current {
+  opacity: 0.55;
+}
+
+.stats__week-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.stats__week-label b {
+  color: #c5c8c6;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.stats__week-none {
+  grid-column: 2 / -1;
+  align-self: center;
+  justify-self: center;
+  color: #596273;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.stats__week-tokens {
+  color: #c5c8c6;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+.stats__week-barcell {
+  display: flex;
+  min-width: 0;
+}
+
+.stats__week-bar {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 2px;
+  height: 8px;
+}
+
+.stats__week-bar i {
+  min-width: 2px;
+  border-radius: 2px;
+}
+
+.stats__week-delta {
+  color: #9aa3af;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.stats__week-model {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+  min-width: 0;
+  color: #9aa3af;
+  white-space: nowrap;
+}
+
+.stats__week-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stats__week-cost {
+  color: #9aa3af;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stats__weeks-pager {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 14px;
+  padding-top: 8px;
+  color: #596273;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats__weeks-pager button {
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: #4f8fdd;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stats__weeks-pager button:disabled {
+  color: #2b3242;
+  cursor: default;
+}
+
+/* The bar's hover card content (the card chrome is ui/tooltip.css). */
+.stats__week-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stats__week-tip b {
+  margin-bottom: 2px;
+  color: #e6e8eb;
+  font-weight: 600;
+}
+
+.stats__week-tip i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+@media (max-width: 720px) {
+  .stats__week-row {
+    grid-template-columns: max-content 64px minmax(80px, 1fr) 58px 64px;
+  }
+
+  .stats__week-model {
+    display: none;
+  }
+}
