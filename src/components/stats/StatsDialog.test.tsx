@@ -353,17 +353,17 @@ describe("UsageStats", () => {
     act(() => root.render(createElement(Host)));
     clickTab("Achievements");
 
-    const repeated = [...host.querySelectorAll(".stats__achievement")].filter(
-      (card) => card.querySelector(".stats__achievement-repeat"),
-    );
-    expect(repeated.length).toBeGreaterThan(0);
+    const cards = [...host.querySelectorAll(".stats__achievement")];
+    const named = (mark: string) =>
+      cards.some((card) => card.textContent?.includes(`Token Tycoon ${mark}`));
+    // Both re-earned tokens tops are named, and by an ordinal.
+    expect(named("II")).toBe(true);
+    expect(named("III")).toBe(true);
     // "×2" would claim twice the amount; the second top sits at ten times
     // the first, so the mark must not do arithmetic.
-    for (const card of repeated) {
+    for (const card of cards) {
       expect(card.textContent).not.toContain("×");
     }
-    expect(repeated[0].querySelector(".stats__achievement-repeat")!.textContent)
-      .toContain("II");
   });
 
   it("names the level in the tooltip, where colour alone would leave a reader out", () => {

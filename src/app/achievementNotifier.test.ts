@@ -325,6 +325,27 @@ describe("createAchievementNotifier", () => {
   });
 });
 
+describe("naming an award", () => {
+  it("gives a re-earned top the same name the gallery shows", async () => {
+    // The gallery said "Token Tycoon III" while the banner said plain
+    // "Token Tycoon" for all three winnings: one award, two names.
+    const { deps, notify, history } = fakeDeps();
+    history.set({
+      ready: true,
+      events: [event({ tokens: { input: 2.5e10 } })],
+      error: null,
+    });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    const titles = notify.mock.calls.map(
+      (call) => (call[0] as { title: string }).title,
+    );
+    expect(titles).toContain("Achievement unlocked: Token Tycoon");
+    expect(titles).toContain("Achievement unlocked: Token Tycoon II");
+    notifier.dispose();
+  });
+});
+
 describe("carrying a congratulated set across a recalibration", () => {
   /** The pair that makes a second pass destructive: on the spend ladder,
    * which shifted by a whole rung, these ids are BOTH retired keys AND live

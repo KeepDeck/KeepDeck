@@ -206,12 +206,6 @@
   }
 }
 
-/* How many times the top has been re-earned. */
-.stats__achievement-repeat {
-  color: var(--kd-warn);
-  font-variant-numeric: tabular-nums;
-}
-
 /* The legendary embers. Size stated OUTRIGHT rather than through `inset`:
    a canvas is a REPLACED element, so with `width: auto` it takes its own
    bitmap as its box and ignores the right and bottom offsets — the box

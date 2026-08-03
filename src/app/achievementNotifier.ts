@@ -1,4 +1,7 @@
-import { achievementRequirement } from "../domain/usage/achievements/captions";
+import {
+  achievementDisplayTitle,
+  achievementRequirement,
+} from "../domain/usage/achievements/captions";
 import {
   achievementCatalog,
   RECALIBRATED_IDS,
@@ -117,7 +120,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     for (const entry of catalog) {
       if (!earned.has(entry.id) || congratulated.has(entry.id)) continue;
       const delivered = deps.notify({
-        title: `Achievement unlocked: ${entry.title}`,
+        title: `Achievement unlocked: ${achievementDisplayTitle(entry)}`,
         body: achievementRequirement(entry),
         icon: entry.icon,
         // The click destination is the trophy case, not Settings.

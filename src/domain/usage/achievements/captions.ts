@@ -29,6 +29,40 @@ export interface AchievementProgressRef extends AchievementTierRef {
   progress: number;
 }
 
+/** What a tier is CALLED — shared, because two surfaces name the same award
+ * and they may not disagree. */
+export interface AchievementNameRef {
+  title: string;
+  /** Which time a re-earned top was won; absent below it. */
+  repeat?: number;
+}
+
+/**
+ * An ORDINAL, never a multiplier: "×2" states twice the amount, and the
+ * second winning of a top sits at TEN times the first.
+ *
+ * The table stops where the catalog does, plus one step of slack; anything
+ * beyond falls back to a plain number rather than inventing numerals nobody
+ * asked for.
+ */
+const REPEAT_NUMERALS: readonly string[] = ["II", "III", "IV"];
+
+/**
+ * The one name for an award, used by the gallery card, its tooltip and the
+ * unlock notification alike.
+ *
+ * Re-earned tops deliberately SHARE a title with the tier below them — the
+ * point of a repeat is that it is the same trophy won again — so the
+ * ordinal is the only thing telling them apart. While it lived in the view,
+ * the banner said "Token Tycoon" for all three winnings and the card said
+ * "Token Tycoon III": one award, two names.
+ */
+export function achievementDisplayTitle(item: AchievementNameRef): string {
+  if (item.repeat === undefined || item.repeat < 2) return item.title;
+  const numeral = REPEAT_NUMERALS[item.repeat - 2];
+  return `${item.title} ${numeral ?? item.repeat}`;
+}
+
 /** THE progress-fraction rule: how far along a tier is, as a percentage
  * capped at 100. The gallery's bar width and the tooltip's floored percent
  * both derive from this one function — capping, scaling or re-basing the

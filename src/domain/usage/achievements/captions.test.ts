@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  achievementDisplayTitle,
   achievementPercent,
   achievementProgress,
   achievementRequirement,
@@ -37,5 +38,31 @@ describe("captions", () => {
     expect(achievementPercent({ progress: 997, threshold: 1_000 })).toBeCloseTo(99.7);
     expect(achievementPercent({ progress: 2_000, threshold: 1_000 })).toBe(100);
     expect(achievementPercent({ progress: 0, threshold: 1_000 })).toBe(0);
+  });
+});
+
+describe("achievementDisplayTitle", () => {
+  it("leaves a tier that has been won once alone", () => {
+    expect(achievementDisplayTitle({ title: "Token Tycoon" })).toBe("Token Tycoon");
+  });
+
+  it("marks a re-earned top with an ordinal, never a multiplier", () => {
+    // "×2" would claim twice the amount; the second winning sits at ten
+    // times the first.
+    expect(achievementDisplayTitle({ title: "Token Tycoon", repeat: 2 })).toBe(
+      "Token Tycoon II",
+    );
+    expect(achievementDisplayTitle({ title: "Token Tycoon", repeat: 3 })).toBe(
+      "Token Tycoon III",
+    );
+  });
+
+  it("falls back to a plain number past the numerals it knows", () => {
+    expect(achievementDisplayTitle({ title: "Legend", repeat: 9 })).toBe("Legend 9");
+  });
+
+  it("treats a first winning written as repeat 1 as no mark at all", () => {
+    // A stray span and a trailing space is what the view used to render.
+    expect(achievementDisplayTitle({ title: "Legend", repeat: 1 })).toBe("Legend");
   });
 });

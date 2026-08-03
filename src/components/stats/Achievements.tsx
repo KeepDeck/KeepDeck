@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import {
+  achievementDisplayTitle,
   achievementExact,
   achievementPercent,
   achievementProgress,
@@ -62,21 +63,6 @@ function AchievementSection({
  * swept by the cursor must not strobe forty tips. */
 const TIP_DELAY_MS = 450;
 
-/**
- * A re-earned top, marked as an ORDINAL and never as a multiplier.
- *
- * "×2" states twice the amount, and the second Perfect Memory sits at TEN
- * times the first, not two — the notation was making a false arithmetic
- * claim about its own threshold. A numeral says "the second one" and claims
- * nothing about the numbers.
- */
-const REPEAT_NUMERALS: readonly string[] = ["", "", "II", "III", "IV", "V"];
-
-function repeatMark(repeat: number | undefined): string {
-  if (repeat === undefined) return "";
-  return REPEAT_NUMERALS[repeat] ?? `#${repeat}`;
-}
-
 /** The level in words, for the tip. Deliberately absent from the CARD: the
  * dress already says it, and a fifth line of text on fifty badges is noise. */
 const RARITY_LABELS: Record<AchievementRarity, string> = {
@@ -114,8 +100,7 @@ function AchievementCard({
             <span className="stats__achievement-tip-icon" aria-hidden>
               {item.icon}
             </span>{" "}
-            {item.title}
-            {item.repeat !== undefined ? ` ${repeatMark(item.repeat)}` : ""}
+            {achievementDisplayTitle(item)}
           </b>
           {/* The card says the level in colour alone; the tip says it in
               words, which is also the version a reader who cannot separate
@@ -136,15 +121,7 @@ function AchievementCard({
       <span className="stats__achievement-icon" aria-hidden>
         {item.icon}
       </span>
-      <b>
-        {item.title}
-        {item.repeat !== undefined ? (
-          <span className="stats__achievement-repeat">
-            {" "}
-            {repeatMark(item.repeat)}
-          </span>
-        ) : null}
-      </b>
+      <b>{achievementDisplayTitle(item)}</b>
       <small>{achievementRequirement(item)}</small>
       {!locked ? (
         <small className="stats__achievement-earned">
