@@ -256,7 +256,7 @@
    the original. */
 @container (max-width: 355px) {
   .pane__branch {
-    width: 22px;
+    width: var(--chip-diameter);
     padding: 0;
     justify-content: center;
   }

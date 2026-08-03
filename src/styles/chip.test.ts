@@ -100,13 +100,15 @@ describe("icon-only chip", () => {
     // against the original rather than trusted. Source, not cascade, because
     // happy-dom does not evaluate @container at all — verified, not assumed:
     // a probe stylesheet's queried declarations never reached getComputedStyle.
-    const canonical = ruleBody(readStyles("chip.css"), ".chip--icon-only");
-    // Non-vacuous, and says what the value MEANS: the diameter is the chip's
-    // own height, which is what makes the radius draw a circle.
-    expect(canonical.width).toBe("22px");
+    const chipCss = readStyles("chip.css");
+    const canonical = ruleBody(chipCss, ".chip--icon-only");
+    // Non-vacuous, and says what the value MEANS rather than repeating a
+    // number: the badge's width IS the chip's height, which is the whole
+    // reason a 999px radius draws a circle here instead of a stadium.
+    expect(canonical.width).toBe(ruleBody(chipCss, ".chip").height);
 
     const paneCss = readStyles("pane.css");
-    const narrowHeader = paneCss.indexOf("@container (max-width: 355px)");
+    const narrowHeader = paneCss.indexOf("(max-width: 355px)");
     expect(narrowHeader, "the narrow-header query is gone").toBeGreaterThan(-1);
 
     expect(ruleBody(paneCss, ".pane__branch", narrowHeader)).toEqual(canonical);

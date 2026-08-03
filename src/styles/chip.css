@@ -21,11 +21,16 @@
 }
 
 .chip {
+  /* The pill's height, and — when it collapses to a glyph — its width too.
+     One token because those are the same measurement: a round badge is a chip
+     as wide as it is tall. Stated twice, a density change to one of them ships
+     a stadium. */
+  --chip-diameter: 22px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
-  height: 22px;
+  height: var(--chip-diameter);
   padding: 0 9px;
   border: 1px solid #3b4250;
   border-radius: 999px;
@@ -44,7 +49,7 @@ button.chip {
 
 /* sm: the minimized stand-in's badge — a notch tighter than the header's. */
 .chip--sm {
-  height: 20px;
+  --chip-diameter: 20px;
   padding: 0 8px;
 }
 
@@ -80,13 +85,9 @@ button.chip {
    to it — nor does CSS let one rule apply another's block. chip.test.ts
    therefore holds the copy to this original, so it cannot drift in silence. */
 .chip--icon-only {
-  width: 22px;
+  width: var(--chip-diameter);
   padding: 0;
   justify-content: center;
-}
-
-.chip--sm.chip--icon-only {
-  width: 20px;
 }
 
 .chip__icon {

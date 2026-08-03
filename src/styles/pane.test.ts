@@ -206,7 +206,7 @@ describe("pane header", () => {
 
     const gap = px(ruleBody(paneCss, ".pane__actions").gap);
     const button = px(ruleBody(paneCss, ".pane__action").width);
-    const dot = px(ruleBody(chipCss, ".chip").height); // an icon-only chip is square
+    const dot = px(ruleBody(chipCss, ".chip")["--chip-diameter"]);
     const branch = px(ruleBody(paneCss, ".pane__branch")["max-width"]);
     const barGap = px(ruleBody(paneCss, ".pane__bar").gap);
     // What the identity keeps even with its title fully ellipsized away.
