@@ -11,21 +11,24 @@
 # chases a CLI's schema. Same tmp + rename discipline as the session hook.
 #
 # The ONE exception is the oversize path below, which cannot forward a
-# payload whole. It still names no field itself: the remaining arguments
-# ($2...) are the keys THAT CLI's plugin declared load-bearing, because the
-# plugin owns the schema and this script owns only the mechanism. And it
-# never copies a CLI VALUE out — only whether a declared key held a
-# non-empty list — so no captured text is ever spliced back into JSON.
+# payload whole and reduces it to its event name. It extracts nothing else:
+# carrying a field out means re-quoting a captured value, which needs an
+# escape-aware parser this has no way to be.
 #
 # MUST stay silent and exit 0: codex's TUI renders a history cell for a
 # hook that fails or prints, and a status reporter has no business in the
 # transcript.
 
+# BYTE semantics for every tool below. Under a UTF-8 locale `tr` ABORTS at
+# the first invalid byte and truncates its output, so one bad byte in a
+# large assistant message would silently cost us everything after it — a
+# wrong answer dressed as a clean run. A payload is bytes here, not text.
+LC_ALL=C
+export LC_ALL
+
 [ -n "$KEEPDECK_BRIDGE" ] || exit 0
 agent="$1"
 [ -n "$agent" ] || exit 0
-# What is left in "$@" is the keep-key list for a reduction.
-shift
 
 # The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a path
 # without quotes — extracting quoted JSON strings with sed is safe here.
@@ -47,16 +50,13 @@ payload=$(cat)
 # it. The cap mirrors the bridge's OWN envelope limit less the wrapper, so
 # nothing is reduced that would have been delivered intact.
 #
-# BYTES, not ${#payload}: that counts characters under the UTF-8 locale
-# every spawn gets, and a large CJK/Cyrillic message slips a character
-# guard at 2-3x its size in bytes.
+# BYTES, not ${#payload}: the cap is a byte cap, and a character count
+# would wave a large CJK/Cyrillic message through at 2-3x its real size.
 bytes=$(printf '%s' "$payload" | wc -c)
-reduced=""
 if [ "$bytes" -gt 261120 ]; then
   # Onto one line first. JSON's structural newlines are insignificant, but
   # grep and sed are line-oriented, so a pretty-printed payload would hide
-  # every key below from both. CR goes too — it is JSON whitespace, and left
-  # in place it would satisfy a "something follows the bracket" test.
+  # the event name from both.
   flat=$(printf '%s' "$payload" | tr '\n\r' '  ' 2>/dev/null)
   # The FIRST match, never sed's greedy last: tool payloads carry arbitrary
   # JSON and may quote this very key, while the real one leads in every
@@ -67,25 +67,16 @@ if [ "$bytes" -gt 261120 ]; then
     | head -n 1 \
     | sed -n 's/.*"\([A-Za-z]*\)"$/\1/p')
   [ -n "$name" ] || exit 0
-  # NO CLI value is ever copied out. Splicing a captured string back into
-  # JSON cannot be done safely without an escape-aware parser: a value
-  # holding `\"` truncates at the backslash and the envelope becomes
-  # unparseable, which the bridge drops WHOLE — losing the very edge this
-  # reduction exists to save. So the reduction carries one fact per declared
-  # key, "this key held a non-empty list", and nothing else. Everything the
-  # key's VALUE would have said (an error class, a notification type) is
-  # accepted as lost: degraded is recoverable, malformed is not.
+  # The name is ALL that survives, and nothing else is attempted. Carrying a
+  # field out would mean re-quoting a captured value, and `"[^"]*"` stops at
+  # the backslash of an escaped quote — the envelope then closes mid-string
+  # and the bridge drops it whole, losing the edge entirely. The name is
+  # safe only because its charset is constrained to [A-Za-z] above.
   #
-  # It rides BESIDE `event`, never inside it. `event` is the CLI's own words,
-  # so a reduction may only take fields away, never invent one; `reduced` is
-  # host-minted, and its contents are the argv the plugin gave us.
-  for key in "$@"; do
-    if printf '%s' "$flat" \
-      | grep -q "\"$key\"[[:space:]]*:[[:space:]]*\[[[:space:]]*[^][:space:]]" 2>/dev/null; then
-      reduced="$reduced,\"$key\""
-    fi
-  done
-  reduced=$(printf ',"reduced":[%s]' "${reduced#,}")
+  # So an oversized turn-ending payload reads as an ENDING even when
+  # background work is still live: the pane says finished a little early and
+  # the next prompt corrects it. That is the recoverable direction, and the
+  # same one this file chooses everywhere else.
   payload=$(printf '{"hook_event_name":"%s"}' "$name")
 fi
 
@@ -95,6 +86,6 @@ fi
 # nothing at $f and the rm is a no-op. The inbox never sweeps strays itself.
 f=$(mktemp "$dir/agent.status-XXXXXXXX" 2>/dev/null) || exit 0
 trap 'rm -f "$f"' EXIT INT TERM
-printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s%s}}' \
-  "$pane" "$token" "$agent" "$payload" "$reduced" > "$f" && mv "$f" "$f.json"
+printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s}}' \
+  "$pane" "$token" "$agent" "$payload" > "$f" && mv "$f" "$f.json"
 exit 0

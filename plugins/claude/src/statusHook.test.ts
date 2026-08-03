@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { CLAUDE_PAYLOAD_KEYS, normalizeClaudeStatus } from "./status";
+import { normalizeClaudeStatus } from "./status";
 
 /**
  * The status reporter, EXECUTED — the byte-identity test in
@@ -28,17 +28,10 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function run(
-  dir: string,
-  stdin: string,
-  agent = "claude",
-  // The REAL declaration, imported rather than restated: a copy here would
-  // exercise the script against a list the arming site no longer sends.
-  keys: readonly string[] = CLAUDE_PAYLOAD_KEYS,
-): void {
+function run(dir: string, stdin: string | Buffer, agent = "claude"): void {
   const env = { ...process.env };
   env.KEEPDECK_BRIDGE = JSON.stringify({ v: 1, dir, pane: "pane-3", token: "tok" });
-  execFileSync("/bin/sh", [SCRIPT, agent, ...keys], { input: stdin, env });
+  execFileSync("/bin/sh", [SCRIPT, agent], { input: stdin, env });
 }
 
 /** A payload guaranteed to trip the reduction, in the shape that actually
@@ -105,50 +98,27 @@ describe("kd-status-hook.sh", () => {
     expect(JSON.stringify(envelope(cut))).not.toContain("ж");
   });
 
-  it("carries a declared key's non-emptiness beside the event, and parks on it", () => {
-    // The oversize driver is the final assistant message, and it rides on
-    // the very event whose list decides the edge. The fact travels as a
-    // HOST-owned sibling of `event`: a reduction may take the CLI's fields
-    // away, never invent one. Asserted through the normalizer, because the
-    // edge is what the reduction exists to preserve.
+  it("a reduced payload stays parseable whatever the values held", () => {
+    // The reduction copies NO value out, so nothing it emits can be broken
+    // by what a value contained. `"[^"]*"` would stop at the backslash of an
+    // escaped quote and close the envelope mid-string, and the bridge drops
+    // a malformed envelope WHOLE — losing the edge entirely. Only the event
+    // name survives, and only because its charset is constrained to [A-Za-z].
     const dir = inbox();
     run(
       dir,
       oversized({
-        hook_event_name: "Stop",
-        background_tasks: [{ id: "a1", type: "subagent", status: "running" }],
+        hook_event_name: "StopFailure",
+        error: 'say "hi" now',
+        tool_response: { structuredContent: { detail: 'nested "quoted" text\\' } },
       }),
     );
     expect(envelope(dir)).toMatchObject({
-      payload: {
-        agent: "claude",
-        event: { hook_event_name: "Stop" },
-        reduced: ["background_tasks"],
-      },
+      payload: { agent: "claude", event: { hook_event_name: "StopFailure" } },
     });
-    expect(normalizeClaudeStatus(envelopeEvent(dir), 100)).toEqual({
-      kind: "parked",
-      at: 100,
-    });
-  });
-
-  it("never copies a CLI value out, however the value is quoted", () => {
-    // A captured string cannot be spliced back into JSON without an
-    // escape-aware parser: `"[^"]*"` stops at the backslash of an escaped
-    // quote, the envelope ends mid-string, and the bridge drops it WHOLE —
-    // losing the very edge the reduction exists to save. So no value is
-    // copied at all, and the payload stays parseable whatever it held.
-    const dir = inbox();
-    run(
-      dir,
-      oversized({ hook_event_name: "StopFailure", error: 'say "hi" now' }),
-    );
-    // Parseable, and the edge survives. The error CLASS is gone with every
-    // other value — a deliberate degradation: the badge reads "Turn failed"
-    // instead of "Rate limited", which is recoverable where dropped is not.
-    expect(envelope(dir)).toMatchObject({
-      payload: { event: { hook_event_name: "StopFailure" }, reduced: [] },
-    });
+    // The error CLASS goes with every other value — a deliberate
+    // degradation: the badge reads "Turn failed" instead of naming the rate
+    // limit. Degraded is recoverable; a dropped envelope is not.
     expect(normalizeClaudeStatus(envelopeEvent(dir), 100)).toEqual({
       kind: "turn-failed",
       at: 100,
@@ -156,68 +126,40 @@ describe("kd-status-hook.sh", () => {
     });
   });
 
-  it("finds a declared key however the payload is formatted", () => {
+  it("survives a byte no UTF-8 locale would accept", () => {
+    // `tr` ABORTS at the first invalid byte under a UTF-8 locale and
+    // truncates its output, which would silently cost everything after it —
+    // and the event name sits at the front, so the whole envelope would go.
+    // The script runs under LC_ALL=C, where a payload is bytes, not text.
+    const dir = inbox();
+    const pad = Buffer.from("ж".repeat(140_000), "utf8");
+    run(
+      dir,
+      Buffer.concat([
+        Buffer.from('{"hook_event_name":"Stop","last_assistant_message":"'),
+        Buffer.from([0xff]),
+        pad,
+        Buffer.from('"}'),
+      ]),
+    );
+    expect(envelope(dir)).toMatchObject({
+      payload: { event: { hook_event_name: "Stop" } },
+    });
+  });
+
+  it("finds the event name however the payload is formatted", () => {
     // grep and sed are line-oriented; JSON's structural whitespace is not.
-    // Pretty-printed, the flag used to vanish and the pane reported a turn
-    // finished over live work — silently, in the unrecoverable direction.
     const dir = inbox();
     run(
       dir,
       JSON.stringify(
-        {
-          hook_event_name: "Stop",
-          background_tasks: [{ id: "a1", status: "running" }],
-          last_assistant_message: "ж".repeat(140_000),
-        },
+        { hook_event_name: "Stop", last_assistant_message: "ж".repeat(140_000) },
         null,
         2,
       ),
     );
     expect(envelope(dir)).toMatchObject({
-      payload: { event: { hook_event_name: "Stop" }, reduced: ["background_tasks"] },
-    });
-  });
-
-  it("invents no background work from an empty list, a CR, or quoted prose", () => {
-    const pad = "ж".repeat(140_000);
-    const cases: Record<string, string> = {
-      empty: JSON.stringify({
-        hook_event_name: "Stop",
-        background_tasks: [],
-        last_assistant_message: pad,
-      }),
-      // CR is JSON whitespace, so an empty list may legitimately carry one
-      // between the brackets — it must not read as "something is in there".
-      cr: `{"hook_event_name":"Stop","background_tasks":[\r],"pad":"${pad}"}`,
-      // Prose QUOTING the key: inside a JSON string the quotes arrive
-      // escaped, so the bare-quote anchor cannot match there.
-      quoted: JSON.stringify({
-        hook_event_name: "Stop",
-        background_tasks: [],
-        last_assistant_message:
-          `I edited "background_tasks":[{"type":"subagent"}] here. ` + pad,
-      }),
-    };
-    for (const [name, payload] of Object.entries(cases)) {
-      const dir = inbox();
-      run(dir, payload);
-      expect(envelope(dir), name).toMatchObject({ payload: { reduced: [] } });
-      // And the turn ends, rather than parking on a phantom.
-      expect(normalizeClaudeStatus(envelopeEvent(dir), 100), name).toEqual({
-        kind: "turn-end",
-        at: 100,
-      });
-    }
-  });
-
-  it("declares nothing for an agent that declared no keys", () => {
-    // codex arms the script with its id alone. `shift` leaves no keys, the
-    // loop never runs, and the reduction is the bare event name — byte for
-    // byte what it published before any of this existed.
-    const dir = inbox();
-    run(dir, oversized({ hook_event_name: "Stop" }), "codex", []);
-    expect(envelope(dir)).toMatchObject({
-      payload: { agent: "codex", event: { hook_event_name: "Stop" }, reduced: [] },
+      payload: { event: { hook_event_name: "Stop" } },
     });
   });
 
@@ -243,10 +185,6 @@ describe("kd-status-hook.sh", () => {
     expect(envelope(dir)).toMatchObject({
       payload: { event: { hook_event_name: "PostToolUse" } },
     });
-    // A nested list can still ride along on the keep-key pass, and that is
-    // harmless BY CONSTRUCTION rather than by luck: `outlivesTurn` is
-    // consulted only for `Stop`, and a `Stop`'s own bulk is prose, where
-    // JSON escaping puts every key out of the anchors' reach.
     expect(normalizeClaudeStatus(envelopeEvent(dir), 100)).toEqual({
       kind: "resumed",
       at: 100,

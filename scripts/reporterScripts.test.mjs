@@ -54,7 +54,10 @@ describe("reporter shell scripts", () => {
     // between the new cap and the stale threshold are forwarded intact and
     // dropped unread, stranding the pane the reduction exists to save.
     const script = readFileSync(STATUS_COPIES[0], "utf8");
-    const threshold = script.match(/-gt (\d+)/);
+    // Anchored to the guard's own variable: a bare `-gt` would happily match
+    // any later comparison someone adds above it and silently start
+    // asserting the wrong number.
+    const threshold = script.match(/"\$bytes"\s+-gt\s+(\d+)/);
     expect(threshold, "no byte threshold found in the reporter").not.toBeNull();
 
     const bridge = readFileSync("src-tauri/src/bridge.rs", "utf8");
@@ -64,8 +67,12 @@ describe("reporter shell scripts", () => {
       .split("*")
       .reduce((product, part) => product * Number(part.trim()), 1);
 
-    // Strictly below, with room for the envelope the reporter wraps around
-    // the payload (~170 bytes with uuid-ish pane and token values).
+    // BOTH directions. Too high and an envelope the bridge rejects is
+    // forwarded whole, stranding the pane; too low and every payload in the
+    // gap is needlessly reduced — the drift that already happened once, when
+    // the shell sat at exactly half. The lower bound leaves room only for the
+    // wrapper (~170 bytes with uuid-ish pane and token values).
     expect(Number(threshold[1])).toBeLessThan(capBytes - 512);
+    expect(Number(threshold[1])).toBeGreaterThan(capBytes - 2048);
   });
 });
