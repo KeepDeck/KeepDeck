@@ -8,27 +8,50 @@ import {
 
 /**
  * The background-task kinds that WAKE the session when they finish, and so
- * hold the turn open. `background_tasks` lists in-flight work of several
- * kinds and claude's own schema names them (`subagent`, `shell`, `monitor`,
- * `workflow`); only `shell` is excluded, and the distinction is the whole
- * point of reading the type at all.
+ * hold the turn open.
  *
- * A backgrounded shell task is one the USER parked deliberately — a dev
- * server, a watcher, a tail. It may never finish, and nothing wakes the
- * session when it does: the agent polls it with `BashOutput` inside a turn
- * (probe-verified on 2.1.220). Treating it as a reason to hold the turn
- * open means one `npm run dev` makes EVERY later turn park, so the pane
- * never reaches "done" and never announces a finished turn again for the
- * rest of the session — the mirror of the bug this exists to fix.
+ * An ALLOWLIST, deliberately. claude's published schema names four kinds
+ * (`shell`, `subagent`, `monitor`, `workflow`), but the mapper it actually
+ * ships emits ten (decompiled from 2.1.220) — and most of the six it leaves
+ * undocumented are not work this pane is waiting on:
  *
- * An unknown KIND a newer build invents holds the turn open, like the
- * agent-shaped kinds it will sit beside. An unknown ENTRY SHAPE does not:
- * a list of bare ids rather than records reads as no background work and
- * ends the turn. The two err in opposite directions on purpose — a kind we
- * do not know is probably agent-shaped, while a shape we cannot read tells
- * us nothing, and ending is the recoverable mistake ([`outlivesTurn`]).
+ *     local_agent → subagent          local_workflow → workflow
+ *     monitor_mcp → monitor           monitor_ws     → monitor
+ *     mcp_task    → "MCP task"        local_bash     → shell
+ *     in_process_teammate → teammate  remote_agent   → "cloud session"
+ *     dream       → dream             auto_mode_scan → "auto-mode scan"
+ *
+ * What each exclusion costs, and why it is still right:
+ *
+ * - `shell` is one the USER parked deliberately — a dev server, a watcher,
+ *   a tail. It may never finish, and nothing wakes the session when it does:
+ *   the agent polls it with `BashOutput` inside a turn. One `npm run dev`
+ *   would otherwise make EVERY later turn park.
+ * - `teammate` is worse, because an IDLE teammate looks identical to a busy
+ *   one here: it keeps `status: "running"`, its idleness lives in an
+ *   `isIdle` flag the payload does not carry, and the entry survives until
+ *   the teammate is killed (claude only evicts TERMINAL tasks). Parking on
+ *   it would hold every later turn open for the life of the team — the pane
+ *   would never say "done" again. Teammate liveness needs a signal that
+ *   brackets a teammate's TURN, not a list that outlives it.
+ * - `cloud session` is a detached `--bg` run managed by `claude agents`; it
+ *   does not wake this session (claude's own wording: "Detached — N tasks
+ *   still running").
+ * - `dream` and `auto-mode scan` are ambient housekeeping, not the turn.
+ *
+ * This agrees with claude's OWN idle heuristic, which drops teammates,
+ * `local_bash`, `dream` and ambient `monitor_ws` from "running background
+ * tasks" and counts teammates on a separate axis. The one place we cannot
+ * follow it is `monitor_ws`: the wire carries no `ambient` flag, so every
+ * monitor parks.
+ *
+ * An unknown KIND therefore does NOT hold the turn open. That inverts the
+ * earlier bet, and the table above is why: of six kinds we had never seen,
+ * exactly one was work that wakes the session. An unknown ENTRY SHAPE ends
+ * the turn for the same reason a bad list does — ending is the recoverable
+ * mistake ([`outlivesTurn`]).
  */
-const SELF_WAKING = (type: unknown): boolean => type !== "shell";
+const SELF_WAKING = new Set(["subagent", "workflow", "monitor", "MCP task"]);
 
 /**
  * Whether a turn-ending payload reports work that OUTLIVES the turn.
@@ -56,7 +79,10 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
   const tasks = event.background_tasks;
   if (!Array.isArray(tasks)) return false;
   return tasks.some(
-    (task) => isJsonRecord(task) && SELF_WAKING(task.type),
+    (task) =>
+      isJsonRecord(task) &&
+      typeof task.type === "string" &&
+      SELF_WAKING.has(task.type),
   );
 }
 

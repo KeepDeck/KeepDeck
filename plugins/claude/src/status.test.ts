@@ -81,38 +81,60 @@ describe("normalizeClaudeStatus", () => {
         660,
       ),
     ).toEqual({ kind: "parked", at: 660 });
-    // An unknown kind a newer build invents holds the turn open too — it
-    // will sit beside the agent-shaped ones, and that is the same bet the
-    // rest of the file makes.
-    expect(
-      normalizeClaudeStatus(
-        wrap({
-          hook_event_name: "Stop",
-          background_tasks: [{ id: "w1", type: "workflow", status: "running" }],
-        }),
-        670,
-      ),
-    ).toEqual({ kind: "parked", at: 670 });
+    // The rest of the allowlist. `workflow` and `monitor` are published;
+    // `MCP task` is not — it is one of the six kinds the shipped mapper
+    // emits beyond the documented enum, and the only one of those six that
+    // is genuinely work this pane is waiting on. Note the SPACE: it is a
+    // display-ish string, not an identifier, so it is pinned literally.
+    for (const type of ["workflow", "monitor", "MCP task"]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({
+            hook_event_name: "Stop",
+            background_tasks: [{ id: "w1", type, status: "running" }],
+          }),
+          670,
+        ),
+      ).toEqual({ kind: "parked", at: 670 });
+    }
   });
 
-  it("a backgrounded SHELL task is not a reason to hold the turn open", () => {
-    // The user parked it deliberately — a dev server, a watcher, a tail. It
-    // may never finish, and nothing wakes the session when it does: the
-    // agent polls it with BashOutput inside a turn. Treating it as parking
-    // meant one `npm run dev` made EVERY later turn park, so the pane never
-    // reached "done" and never announced a finished turn again all session.
-    expect(
-      normalizeClaudeStatus(
-        wrap({
-          hook_event_name: "Stop",
-          background_tasks: [
-            { id: "by2qgl1uz", type: "shell", status: "running", command: "npm run dev" },
-          ],
-        }),
-        650,
-      ),
-    ).toEqual({ kind: "turn-end", at: 650 });
-    // A subagent running ALONGSIDE it still parks — the shell entry is
+  it("holds the turn open for no OTHER kind the shipped mapper emits", () => {
+    // Every kind claude 2.1.220 can put on the wire that is not on the
+    // allowlist, each excluded for its own reason:
+    //
+    // - shell: the user parked it deliberately — a dev server, a watcher, a
+    //   tail. It may never finish, and nothing wakes the session when it
+    //   does (the agent polls it with BashOutput inside a turn). Treating it
+    //   as parking meant one `npm run dev` made EVERY later turn park.
+    // - teammate: an IDLE teammate is indistinguishable from a busy one
+    //   here. It keeps status "running", its `isIdle` flag never reaches the
+    //   payload, and the entry outlives its idleness — claude evicts only
+    //   TERMINAL tasks. Parking on it would strand the pane on "Working" for
+    //   the whole life of the team.
+    // - cloud session: a detached `--bg` run that `claude agents` owns; it
+    //   does not wake this session.
+    // - dream / auto-mode scan: ambient housekeeping, not the turn.
+    // - an unknown kind: of the six kinds beyond the published enum, five
+    //   were not work, so silence is the better prior. A record with NO type
+    //   at all is the same case.
+    for (const task of [
+      { id: "by2qgl1uz", type: "shell", status: "running", command: "npm run dev" },
+      { id: "t1", type: "teammate", status: "running", description: "Reviewer" },
+      { id: "c1", type: "cloud session", status: "running" },
+      { id: "d1", type: "dream", status: "running" },
+      { id: "a2", type: "auto-mode scan", status: "running" },
+      { id: "u1", type: "telepathy", status: "running" },
+      { id: "n1", status: "running" },
+    ]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({ hook_event_name: "Stop", background_tasks: [task] }),
+          650,
+        ),
+      ).toEqual({ kind: "turn-end", at: 650 });
+    }
+    // A subagent running ALONGSIDE one still parks — the excluded entry is
     // ignored, not the whole list.
     expect(
       normalizeClaudeStatus(
