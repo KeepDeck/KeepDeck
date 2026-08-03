@@ -1,4 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   API_VERSION,
@@ -16,15 +18,24 @@ import {
  * the plugin is dropped with a host-log warning and the pane silently
  * loses whatever it contributed.
  */
-const MANIFESTS = readdirSync("plugins", { withFileTypes: true })
+/** Anchored to the repo, not to the process — a CWD-relative read would
+ * quietly find nothing from anywhere but the root and pass every assertion
+ * below on an empty list. */
+const PLUGINS = join(dirname(fileURLToPath(import.meta.url)), "..", "plugins");
+
+const MANIFESTS = readdirSync(PLUGINS, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
-  .map((entry) => `plugins/${entry.name}/manifest.json`);
+  .map((entry) => join(PLUGINS, entry.name, "manifest.json"));
+
+/** The built-ins that ship today. A ROSTER, not a smoke test: an empty read
+ * would make every assertion below vacuous, and a plugin quietly dropped
+ * from the bundle is worth failing over. Adding one keeps this passing;
+ * removing one should be a deliberate edit here too. */
+const BUILT_INS = 8;
 
 describe("built-in plugin manifests", () => {
   it("finds every built-in", () => {
-    // A guard on the guard: a glob that silently matched nothing would make
-    // every assertion below vacuous.
-    expect(MANIFESTS.length).toBeGreaterThan(5);
+    expect(MANIFESTS.length).toBeGreaterThanOrEqual(BUILT_INS);
   });
 
   it("declares a floor the shipped host can actually execute", () => {

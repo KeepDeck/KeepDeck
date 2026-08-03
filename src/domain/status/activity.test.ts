@@ -11,7 +11,15 @@ import { reduceStatus, type PaneActivity, type PaneStatus } from "./activity";
  */
 const act = (
   current: PaneActivity | null,
-  event: AgentStatusEvent,
+  // Mirrors the module's private `ActivityEdge`: the bracket kinds are the
+  // ones that can make `reduceStatus` return null, which this helper cannot
+  // represent — so they are refused at compile time rather than throwing.
+  event: Exclude<
+    AgentStatusEvent,
+    | { kind: "agent-turn-start" }
+    | { kind: "agent-turn-end" }
+    | { kind: "agent-turns-cleared" }
+  >,
 ): PaneActivity =>
   reduceStatus(
     current && { activity: current, openAgentTurns: new Set(), heldEnd: null },
@@ -469,6 +477,78 @@ describe("reduceStatus", () => {
     expect(reduceStatus(drained, { kind: "agent-turns-cleared", at: 160 })).toBe(
       drained,
     );
+  });
+
+  it("an ending absorbed as stale changes NOTHING, brackets included", () => {
+    // The tailer stamps an interrupt with the marker's OWN time, so one can
+    // land after a newer turn began — the activity fold already rejects
+    // that. The brackets and the held ending have to be rejected WITH it:
+    // releasing on an interrupt that never ended the turn leaves the pane
+    // running with nothing left that could ever finish it, which is the
+    // failure the whole bracket exists to prevent.
+    const held = fold(
+      { kind: "turn-start", at: 110 },
+      { kind: "agent-turn-start", at: 112, id: "a" },
+      { kind: "turn-end", at: 120 },
+    );
+    for (const stale of [
+      { kind: "interrupted", at: 105 } as const,
+      { kind: "turn-failed", at: 105, error: "rate_limit" } as const,
+      { kind: "turn-end", at: 105 } as const,
+    ]) {
+      expect(reduceStatus(held, stale), stale.kind).toBe(held);
+    }
+    // ...and the real close still settles the ending that was held.
+    expect(
+      reduceStatus(held, { kind: "agent-turn-end", at: 300, id: "a" })?.activity,
+    ).toEqual({ state: "done", at: 300, interrupted: false });
+  });
+
+  it("a stale turn-end does not arm an ending for a turn that is running", () => {
+    // Whether to HOLD is decided from the same verdict as whether to end:
+    // an ending belonging to a previous turn must not be parked and stored,
+    // or the next bracket close replays it as a fresh "done" over a turn
+    // that never closed.
+    const state = fold(
+      { kind: "agent-turn-start", at: 110, id: "a" },
+      { kind: "turn-start", at: 800 },
+      { kind: "turn-end", at: 500 },
+    );
+    expect(state.heldEnd).toBeNull();
+    expect(
+      reduceStatus(state, { kind: "agent-turn-end", at: 900, id: "a" })?.activity,
+    ).toEqual({ state: "working", since: 800 });
+  });
+
+  it("a new turn drops the ending the old one was holding", () => {
+    // Without a following `turn-end` to overwrite it: that is what would
+    // mask a `heldEnd` the new turn failed to clear, and the stale value
+    // would then end the NEW turn the moment a bracket closed.
+    const state = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "agent-turn-start", at: 110, id: "a" },
+      { kind: "turn-end", at: 120 },
+      { kind: "turn-start", at: 130 },
+      { kind: "agent-turn-end", at: 200, id: "a" },
+    );
+    expect(state.activity).toEqual({ state: "working", since: 130 });
+    expect(state.heldEnd).toBeNull();
+  });
+
+  it("a released bracket's own close, arriving late, is inert", () => {
+    // The agents outlive the interrupt that released them, so their real
+    // closes DO arrive afterwards. They must not resurrect anything.
+    const released = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "agent-turn-start", at: 110, id: "a" },
+      { kind: "interrupted", at: 120 },
+    );
+    expect(
+      reduceStatus(released, { kind: "agent-turn-end", at: 300, id: "a" }),
+    ).toBe(released);
+    expect(
+      reduceStatus(released, { kind: "agent-turns-cleared", at: 300 }),
+    ).toBe(released);
   });
 
   it("a pane that has reported nothing stays absent, not done", () => {

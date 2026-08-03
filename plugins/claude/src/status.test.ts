@@ -118,18 +118,23 @@ describe("normalizeClaudeStatus", () => {
         680,
       ),
     ).toEqual({ kind: "turn-end", at: 680 });
-    // A non-string `server` is not a server.
-    expect(
-      normalizeClaudeStatus(
-        wrap({
-          hook_event_name: "Stop",
-          background_tasks: [
-            { id: "ws", type: "monitor", status: "running", server: 7 },
-          ],
-        }),
-        680,
-      ),
-    ).toEqual({ kind: "turn-end", at: 680 });
+    // A non-string `server` is not a server, and neither is an empty one —
+    // a blank string NAMES nothing, so reading it as a name would park on
+    // exactly the monitor this check exists to exclude.
+    for (const server of [7, null, {}, ""]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({
+            hook_event_name: "Stop",
+            background_tasks: [
+              { id: "ws", type: "monitor", status: "running", server },
+            ],
+          }),
+          680,
+        ),
+        String(server),
+      ).toEqual({ kind: "turn-end", at: 680 });
+    }
   });
 
   it("holds the turn open for no OTHER kind the shipped mapper emits", () => {

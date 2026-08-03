@@ -97,6 +97,17 @@ function isAgentTurnEdge(
   );
 }
 
+/** Whether an edge claims the turn is OVER. These are the ones a staleness
+ * verdict has to gate, because they are the ones with consequences beyond
+ * the activity itself. */
+function isEnding(event: AgentStatusEvent): boolean {
+  return (
+    event.kind === "turn-end" ||
+    event.kind === "interrupted" ||
+    event.kind === "turn-failed"
+  );
+}
+
 /** A turn-ending edge must not corrupt the state it lands on. Two
  * orderings, one rule: an edge after the turn already ENDED is the old
  * turn's echo (re-labelling a completed turn would be false), and an edge
@@ -149,9 +160,8 @@ export function reduceStatus(
   current: PaneStatus | null,
   event: AgentStatusEvent,
 ): PaneStatus | null {
-  const open = reduceOpenTurns(current?.openAgentTurns ?? NO_TURNS, event);
-
   if (isAgentTurnEdge(event)) {
+    const open = reduceOpenTurns(current?.openAgentTurns ?? NO_TURNS, event);
     if (current === null) {
       // Nothing reported for this pane yet — attaching mid-session, or the
       // first edge after a clear. An agent STARTING is honest evidence that
@@ -182,6 +192,30 @@ export function reduceStatus(
     };
   }
 
+  // An ending the activity fold would ABSORB did not happen, so it changes
+  // NOTHING — not the brackets, not the held ending. This has to be asked
+  // before any of them is computed, because the two failures it prevents
+  // both come from a side effect outliving the edge that caused it:
+  //
+  // - A stale `interrupted` (the tailer stamps markers with their own time,
+  //   so one can arrive after a new turn began) would release every bracket
+  //   and drop the held ending while leaving the turn running — and nothing
+  //   would be left that could ever finish the pane.
+  // - A stale `turn-end` would arm a held ending for a turn that had already
+  //   closed, which the next bracket close then replays as a fresh "done"
+  //   over a turn still in flight.
+  //
+  // Absorbing is the fold's own verdict, so it is asked with the fold's own
+  // predicate rather than a second copy of the rule.
+  if (
+    current !== null &&
+    isEnding(event) &&
+    endedTurnStands(current.activity, event.at)
+  ) {
+    return current;
+  }
+
+  const open = reduceOpenTurns(current?.openAgentTurns ?? NO_TURNS, event);
   const holds = event.kind === "turn-end" && open.size > 0;
   const settled: ActivityEdge = holds ? { kind: "parked", at: event.at } : event;
   const activity = reduceActivity(current?.activity ?? null, settled);

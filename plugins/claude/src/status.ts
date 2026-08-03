@@ -77,7 +77,10 @@ function wakes(task: Record<string, unknown>): boolean {
   if (typeof task.type !== "string" || !SELF_WAKING.has(task.type)) {
     return false;
   }
-  return task.type !== "monitor" || typeof task.server === "string";
+  if (task.type !== "monitor") return true;
+  // NAMES its server — an empty string names nothing, and reading it as a
+  // name would park on exactly the monitor this check exists to exclude.
+  return typeof task.server === "string" && task.server !== "";
 }
 
 /**
