@@ -138,9 +138,11 @@ export function formatWeekLabel(start: number, now: number): string {
   return year === new Date(now).getUTCFullYear() ? range : `${range} · ${year}`;
 }
 
-/** "↑ +18%" / "↓ -41%" / "—" — the row's week-over-week clause, sign
- * convention shared with the recap's delta. */
+/** "↑ +18%" / "↓ -41%" — the row's week-over-week clause, sign convention
+ * shared with the recap's delta. An incomparable week gets an EMPTY cell,
+ * not a dash: a placeholder pretending to be a value breaks the column's
+ * alignment rhythm (field finding). */
 export function weekDeltaCaption(deltaPct: number | null): string {
-  if (deltaPct === null) return "—";
+  if (deltaPct === null) return "";
   return deltaPct >= 0 ? `↑ +${deltaPct}%` : `↓ -${Math.abs(deltaPct)}%`;
 }

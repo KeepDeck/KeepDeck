@@ -68,6 +68,8 @@ export function Weeks({
             key={week.start}
           >
             <span className="stats__week-label" role="cell">
+              {/* The tag stacks UNDER the date (the stats__identity idiom)
+                  so the widest row cannot widen the label column for all. */}
               <b>{formatWeekLabel(week.start, now)}</b>
               {week.current && <small>in progress</small>}
             </span>

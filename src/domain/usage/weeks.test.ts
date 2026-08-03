@@ -127,6 +127,6 @@ describe("captions", () => {
     expect(weekDeltaCaption(18)).toBe("↑ +18%");
     expect(weekDeltaCaption(0)).toBe("↑ +0%");
     expect(weekDeltaCaption(-41)).toBe("↓ -41%");
-    expect(weekDeltaCaption(null)).toBe("—");
+    expect(weekDeltaCaption(null)).toBe(""); // an empty cell, never a fake value
   });
 });
