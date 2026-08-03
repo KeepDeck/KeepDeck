@@ -10,9 +10,11 @@ import { listen } from "@tauri-apps/api/event";
  */
 export const SESSION_BOUND_EVENT = "deck://session/bound";
 
-/** Mirrors the Rust `SessionBound` (camelCase). The token is the per-spawn
+/** Mirrors the Rust `SessionBound` (camelCase). The token is the per-pane
  * bridge secret — the binding hook verifies it against the pane's spawn plan
- * before believing the postback. */
+ * before believing the postback. It proves the reporter runs somewhere under
+ * this pane, which is NOT the same as being the pane's own agent session:
+ * the two fields below are what the deck judges that by. */
 export interface SessionBound {
   paneId: string;
   sessionId: string;
@@ -20,6 +22,12 @@ export interface SessionBound {
   /** The session's transcript/rollout file when the reporter knows it —
    * what the codex usage tailer follows. */
   transcriptPath?: string;
+  /** Which CLI reported this, as its arming site named it. Absent from a
+   * reporter that predates the field. */
+  agent?: string;
+  /** The CLI's own word for why the session started, verbatim — each agent's
+   * normalizer maps its own vocabulary. */
+  source?: string;
 }
 
 /** Subscribe to session bindings; resolves to the unlisten function. */

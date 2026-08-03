@@ -89,7 +89,10 @@ struct Envelope {
 }
 
 /// The `session.bound` wire event (see `src/ipc/sessions.ts`). The webview
-/// verifies `token` against the pane's spawn plan before binding.
+/// verifies `token` against the pane's spawn plan before binding — and, with
+/// the two optional fields below, whether the binding is the pane's own
+/// session at all. Judging that is the webview's job in the same way the
+/// payload's MEANING always was: this side carries and correlates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionBound {
@@ -101,6 +104,16 @@ pub struct SessionBound {
     /// hook payloads without one still bind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transcript_path: Option<String>,
+    /// Which CLI reported this, as the arming site named it. Absent from a
+    /// reporter shipped before the field existed — the webview decides what
+    /// an unattributed binding is worth.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// The CLI's own word for why the session started, verbatim and
+    /// unmapped: vocabularies differ per agent, so the normalizer that knows
+    /// the agent is the one that can read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 /// An OPAQUE pane-correlated report — ONE wire shape for every channel that
@@ -336,6 +349,18 @@ fn consume_file(path: &Path) -> Result<Inbound, Rejected> {
     interpret(&content).map_err(Rejected::Dropped)
 }
 
+/// One optional string a reporter MAY have included. Absent, null, the wrong
+/// type and empty all collapse to `None` — every consumer of these fields
+/// already treats "not reported" as one case, and a shell reporter that omits
+/// a field and one that emits `""` mean the same thing.
+fn reported(payload: &serde_json::Value, key: &str) -> Option<String> {
+    payload
+        .get(key)
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 /// Parse and dispatch one envelope. The bridge is fed by shell hooks, so
 /// anything malformed degrades to a logged reason, never an error path.
 /// A NEW value in the open `type` namespace is not a protocol change — v1
@@ -357,17 +382,13 @@ fn interpret(content: &str) -> Result<Inbound, String> {
             if envelope.pane_id.is_empty() || envelope.token.is_empty() || session_id.is_empty() {
                 return Err("session.bound with empty fields".into());
             }
-            let transcript_path = envelope
-                .payload
-                .get("transcriptPath")
-                .and_then(|v| v.as_str())
-                .filter(|p| !p.is_empty())
-                .map(str::to_string);
             Ok(Inbound::SessionBound(SessionBound {
+                transcript_path: reported(&envelope.payload, "transcriptPath"),
+                agent: reported(&envelope.payload, "agent"),
+                source: reported(&envelope.payload, "source"),
                 pane_id: envelope.pane_id,
                 session_id: session_id.to_string(),
                 token: envelope.token,
-                transcript_path,
             }))
         }
         // One scan, no guard to re-prove: this module's contract is that
@@ -422,7 +443,9 @@ mod tests {
 
     #[test]
     fn interprets_a_session_bound_envelope_with_optional_transcript() {
-        // Bare binding: no transcript, unknown envelope extras ignored.
+        // Bare binding: no transcript, unknown envelope extras ignored. The
+        // extra is `agent` on purpose — it is a PAYLOAD field, so one sitting
+        // at envelope level must read as nobody having reported it.
         let mut value: serde_json::Value =
             serde_json::from_str(&envelope(1, "session.bound", "pane-3", "tok", "abc")).unwrap();
         value["agent"] = "codex".into();
@@ -433,6 +456,8 @@ mod tests {
                 session_id: "abc".into(),
                 token: "tok".into(),
                 transcript_path: None,
+                agent: None,
+                source: None,
             }))
         );
         // With a transcript path — what the codex usage tailer follows.
@@ -444,6 +469,8 @@ mod tests {
                 session_id: "abc".into(),
                 token: "tok".into(),
                 transcript_path: Some("/x/y.jsonl".into()),
+                agent: None,
+                source: None,
             }))
         );
         // An empty path is as good as none.
@@ -537,8 +564,9 @@ mod tests {
         assert!(interpret(&envelope(1, "session.bound", "p", "t", "")).is_err());
     }
 
-    // The webview listens for this exact wire shape — pin it. Absent
-    // transcript stays absent (not null) so older listeners see no change.
+    // The webview listens for this exact wire shape — pin it. An unreported
+    // optional stays ABSENT (not null) so a listener can tell "the reporter
+    // did not say" from any value it might have said.
     #[test]
     fn session_bound_serializes_camel_case() {
         let json = serde_json::to_value(SessionBound {
@@ -546,6 +574,8 @@ mod tests {
             session_id: "abc".into(),
             token: "tok".into(),
             transcript_path: None,
+            agent: None,
+            source: None,
         })
         .unwrap();
         assert_eq!(
@@ -557,9 +587,57 @@ mod tests {
             session_id: "abc".into(),
             token: "tok".into(),
             transcript_path: Some("/x/y.jsonl".into()),
+            agent: Some("claude".into()),
+            source: Some("startup".into()),
         })
         .unwrap();
         assert_eq!(json["transcriptPath"], "/x/y.jsonl");
+        assert_eq!(json["agent"], "claude");
+        assert_eq!(json["source"], "startup");
+    }
+
+    // What the reporter said reaches the webview unjudged — including a
+    // `source` this side has never heard of, because the vocabulary belongs
+    // to the agent and the mapping lives with the agent's normalizer.
+    #[test]
+    fn session_bound_carries_the_reporters_attribution() {
+        let content = serde_json::json!({
+            "v": 1,
+            "type": "session.bound",
+            "paneId": "pane-3",
+            "token": "tok",
+            "payload": {
+                "sessionId": "abc",
+                "agent": "kimi",
+                "source": "a-word-this-side-does-not-know",
+            },
+        })
+        .to_string();
+        let Ok(Inbound::SessionBound(bound)) = interpret(&content) else {
+            panic!("expected a session binding");
+        };
+        assert_eq!(bound.agent.as_deref(), Some("kimi"));
+        assert_eq!(bound.source.as_deref(), Some("a-word-this-side-does-not-know"));
+    }
+
+    // An empty string is what a shell reporter emits for a field it could not
+    // fill, and it must read the same as omitting it — otherwise the webview
+    // has to know which reporters interpolate blanks.
+    #[test]
+    fn an_empty_attribution_reads_as_unreported() {
+        let content = serde_json::json!({
+            "v": 1,
+            "type": "session.bound",
+            "paneId": "pane-3",
+            "token": "tok",
+            "payload": { "sessionId": "abc", "agent": "", "source": "" },
+        })
+        .to_string();
+        let Ok(Inbound::SessionBound(bound)) = interpret(&content) else {
+            panic!("expected a session binding");
+        };
+        assert_eq!(bound.agent, None);
+        assert_eq!(bound.source, None);
     }
 
     // Same pin for the opaque wire shape (`src/ipc/usage.ts`, `status.ts`).
@@ -643,6 +721,8 @@ mod tests {
                 session_id: "sid".into(),
                 token: "tok".into(),
                 transcript_path: None,
+                agent: None,
+                source: None,
             }))
         );
 
