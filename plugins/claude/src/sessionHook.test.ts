@@ -119,18 +119,48 @@ describe("kd-session-hook.sh", () => {
     });
   });
 
-  it("drops a source that is not a bare word", () => {
-    // The deck treats an absent source as the strict case, so dropping a
-    // malformed one can only refuse a rebind — never widen what is accepted.
+  it("drops a source that would break the envelope, and only that", () => {
     const dir = inbox();
-    run(
-      dir,
-      JSON.stringify({ session_id: "sid-1", source: 'star"tup' }),
-    );
+    run(dir, JSON.stringify({ session_id: "sid-1", source: 'star"tup' }));
     expect(envelope(dir).payload).toEqual({
       agent: "claude",
       sessionId: "sid-1",
     });
+  });
+
+  it("keeps a source carrying digits, dashes or colons", () => {
+    // The guard must not NARROW: a dropped source reads as a fresh start, and
+    // a fresh start is the case the deck refuses — so over-tight filtering
+    // costs a legitimate rebind rather than preventing anything.
+    const dir = inbox();
+    run(dir, JSON.stringify({ session_id: "sid-1", source: "auto-compact:2" }));
+    expect(envelope(dir).payload).toMatchObject({ source: "auto-compact:2" });
+  });
+
+  it("takes the FIRST source, not a later one nested in the payload", () => {
+    // Hook payloads are compact single-line JSON, so a line-oriented `head`
+    // is no protection against sed's greedy match. The direction matters: an
+    // inner "resume" overriding a real "startup" turns a fresh session into a
+    // continuation, which is the one verdict that overwrites the pane.
+    const dir = inbox();
+    run(
+      dir,
+      JSON.stringify({
+        session_id: "sid-1",
+        source: "startup",
+        tool_input: { source: "resume" },
+      }),
+    );
+    expect(envelope(dir).payload).toMatchObject({ source: "startup" });
+  });
+
+  it("publishes nothing when the session id would break the envelope", () => {
+    // The id has no bare fallback: a quote closes the JSON string mid-value
+    // and the bridge drops the envelope unread. Saying nothing reaches the
+    // same place without leaving garbage in the inbox.
+    const dir = inbox();
+    run(dir, JSON.stringify({ session_id: 'ab"cd' }));
+    expect(readdirSync(dir).filter((f) => f.endsWith(".json"))).toEqual([]);
   });
 
   it("publishes nothing when the arming site forgot the agent argument", () => {

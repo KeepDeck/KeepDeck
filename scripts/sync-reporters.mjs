@@ -15,7 +15,7 @@
 // author to the build, where a test can hold it.
 //
 // `node scripts/sync-reporters.mjs` rewrites the copies; `--check` reports
-// stale ones without touching disk (what sync-reporters.test.mjs runs).
+// stale ones without touching disk (what reporterScripts.test.mjs runs).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -55,7 +55,7 @@ function banner(name) {
   return [
     `# GENERATED from resources/reporters/${name} — do not edit this copy.`,
     "# Edit the canonical file and run `node scripts/sync-reporters.mjs`;",
-    "# scripts/sync-reporters.test.mjs fails while a copy is stale.",
+    "# scripts/reporterScripts.test.mjs fails while a copy is stale.",
   ].join("\n");
 }
 

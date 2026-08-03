@@ -31,6 +31,11 @@
 [ -n "$KEEPDECK_BRIDGE" ] || exit 0
 agent="$1"
 [ -n "$agent" ] || exit 0
+# Ours by construction (the three arming sites pass literals), guarded anyway:
+# it is interpolated into the envelope exactly like the fields that are not.
+case $agent in
+  *\"*|*\\*) exit 0 ;;
+esac
 
 # The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a path
 # without quotes — extracting quoted JSON strings with sed is safe here.
@@ -50,15 +55,34 @@ sid=$(printf '%s' "$payload" \
   | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
   | head -n 1)
 [ -n "$sid" ] || exit 0
+# The id is the one field with no bare fallback — an envelope carrying a quote
+# or a backslash here closes mid-string, and the bridge drops the whole thing
+# unread. Saying nothing is the same outcome without the garbage in the inbox.
+case $sid in
+  *\"*|*\\*) exit 0 ;;
+esac
 
-# Why the session started, verbatim from the CLI. Kept only when it is a bare
-# word: the deck maps it per agent and treats anything it does not recognise
-# as the strict case, so a malformed value can widen nothing.
+# Why the session started, verbatim from the CLI.
+#
+# The FIRST match, never sed's greedy last — `"source"` is a far more generic
+# key than `session_id`, hook payloads are compact single-line JSON, and a
+# later occurrence in nested tool JSON would otherwise win. Getting this
+# backwards is not symmetric: an inner `"resume"` overriding a real `startup`
+# reads as a CONTINUATION, which is exactly the rebind the deck refuses on a
+# fresh session. Same reasoning, same shape as kd-status-hook.sh's event-name
+# reduction. `\n\r` are flattened first because grep is line-oriented while
+# JSON whitespace is not.
 why=$(printf '%s' "$payload" \
-  | sed -n 's/.*"source"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-  | head -n 1)
+  | tr '\n\r' '  ' 2>/dev/null \
+  | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null \
+  | head -n 1 \
+  | sed -n 's/.*"\([^"]*\)"$/\1/p')
+# Only the two characters that would break the envelope are rejected — the
+# guard must not NARROW a legitimate value, because a dropped source reads as
+# a fresh start and a fresh start is the case the deck refuses. A CLI whose
+# word carries a digit, a dash or a colon keeps it.
 case $why in
-  '' | *[!A-Za-z_-]*) why="" ;;
+  *\"*|*\\*) why="" ;;
 esac
 
 # Where the transcript lives is the one thing these CLIs genuinely disagree

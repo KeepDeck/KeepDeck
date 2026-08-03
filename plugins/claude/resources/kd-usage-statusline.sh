@@ -1,7 +1,7 @@
 #!/bin/sh
 # GENERATED from resources/reporters/kd-usage-statusline.sh — do not edit this copy.
 # Edit the canonical file and run `node scripts/sync-reporters.mjs`;
-# scripts/sync-reporters.test.mjs fails while a copy is stale.
+# scripts/reporterScripts.test.mjs fails while a copy is stale.
 # KeepDeck usage reporter — a Claude Code statusLine command. Claude runs it
 # on every status update with the full session JSON on stdin (model, cost,
 # context_window, rate_limits, ...). Armed PER SPAWN via the same
