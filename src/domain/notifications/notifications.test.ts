@@ -3,11 +3,11 @@ import { createWorkspaceInstance } from "../workspaceInstance";
 import {
   addNotification,
   BANNER_COOLDOWN_MS,
+  bannerVerdict,
   markAllRead,
   markRead,
   NOTIFICATIONS_CAP,
   retractByTag,
-  shouldBanner,
   unreadCount,
   type Notification,
 } from "./notifications";
@@ -118,33 +118,48 @@ describe("read state", () => {
   });
 });
 
-describe("shouldBanner", () => {
+describe("bannerVerdict", () => {
   const base = { windowFocused: false, sourceVisible: false, now: 10_000 };
 
   it("banners by default", () => {
-    expect(shouldBanner(base)).toBe(true);
+    expect(bannerVerdict(base)).toBe("banner");
   });
 
   it("suppresses when the source is on screen in a focused window", () => {
     expect(
-      shouldBanner({ ...base, windowFocused: true, sourceVisible: true }),
-    ).toBe(false);
+      bannerVerdict({ ...base, windowFocused: true, sourceVisible: true }),
+    ).toBe("seen-in-place");
   });
 
   it("still banners when focused but the source is off screen", () => {
-    expect(shouldBanner({ ...base, windowFocused: true })).toBe(true);
+    expect(bannerVerdict({ ...base, windowFocused: true })).toBe("banner");
   });
 
   it("still banners when the source is visible but the window is not focused", () => {
-    expect(shouldBanner({ ...base, sourceVisible: true })).toBe(true);
+    expect(bannerVerdict({ ...base, sourceVisible: true })).toBe("banner");
   });
 
   it("holds the per-tag cooldown, then releases it", () => {
     expect(
-      shouldBanner({ ...base, lastBannerAt: base.now - BANNER_COOLDOWN_MS + 1 }),
-    ).toBe(false);
+      bannerVerdict({
+        ...base,
+        lastBannerAt: base.now - BANNER_COOLDOWN_MS + 1,
+      }),
+    ).toBe("cooldown");
     expect(
-      shouldBanner({ ...base, lastBannerAt: base.now - BANNER_COOLDOWN_MS }),
-    ).toBe(true);
+      bannerVerdict({ ...base, lastBannerAt: base.now - BANNER_COOLDOWN_MS }),
+    ).toBe("banner");
+  });
+
+  /** The two silences are not interchangeable: delivery accounting treats
+   * "seen-in-place" as reaching the user and "cooldown" as reaching nobody,
+   * so a boolean answer would let one be read as the other. */
+  it("distinguishes the two ways a banner is withheld", () => {
+    const seen = { ...base, windowFocused: true, sourceVisible: true };
+    const fresh = { lastBannerAt: base.now - 1 };
+    expect(bannerVerdict(seen)).toBe("seen-in-place");
+    // Being on screen outranks the cooldown: the user DID see it.
+    expect(bannerVerdict({ ...seen, ...fresh })).toBe("seen-in-place");
+    expect(bannerVerdict({ ...base, ...fresh })).toBe("cooldown");
   });
 });

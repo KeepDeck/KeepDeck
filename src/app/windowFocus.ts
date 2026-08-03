@@ -3,7 +3,7 @@ import { onWindowFocusChanged, windowIsFocused } from "../ipc/window";
 
 /**
  * Tracks whether the app window has OS focus — the one fact the banner rule
- * reads synchronously (`shouldBanner` runs in the notify hot path, an async
+ * reads synchronously (`bannerVerdict` runs in the notify hot path, an async
  * probe there would race the event). Boot calls [`initWindowFocus`] once;
  * until it settles the window is assumed focused, which only suppresses
  * banners — the safe direction for a just-launched, foreground app.

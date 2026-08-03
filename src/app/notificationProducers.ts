@@ -128,7 +128,7 @@ function paneContextById(
  * turn, or died on an API error. One tag per pane, replace-not-stack — a
  * "needs approval" banner is superseded by the "finished" that follows it,
  * never stacked under it. Suppression while the pane is on screen is the
- * center's own rule ([`shouldBanner`]), not re-derived here — and WHICH
+ * center's own rule ([`bannerVerdict`]), not re-derived here — and WHICH
  * transitions speak at all is the domain's ([`activityTransition`]); this
  * module only words the message.
  *

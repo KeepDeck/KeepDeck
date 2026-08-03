@@ -164,7 +164,3 @@ export function bannerVerdict(ctx: BannerContext): BannerVerdict {
   }
   return "banner";
 }
-
-export function shouldBanner(ctx: BannerContext): boolean {
-  return bannerVerdict(ctx) === "banner";
-}
