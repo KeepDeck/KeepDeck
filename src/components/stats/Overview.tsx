@@ -12,6 +12,7 @@ import type {
 } from "../../domain/usage/history/query";
 import { recapCaption, usageRecap } from "../../domain/usage/recap";
 import { ErrorBoundary } from "../../ui/ErrorBoundary";
+import { Weeks } from "./Weeks";
 
 /** The chart rides its own chunk: recharts is the bundle's single largest
  * dependency (+45% gzip over the whole app), parsed at cold launch if
@@ -73,6 +74,9 @@ export function Overview({
       <p className="stats__coverage">
         {costCoverage(stats.costSessionCount, stats.sessionCount)}
       </p>
+      {/* Period-independent by design: fixed UTC weeks under the rolling
+          period's numbers, visible whatever range is selected. */}
+      <Weeks events={events} now={now} />
     </>
   );
 }
