@@ -1,6 +1,11 @@
 import type { StatusNormalizer } from "@keepdeck/plugin-api";
 import { isRecord } from "../domain/json";
-import { reduceActivity, type PaneActivity } from "../domain/status";
+import {
+  EMPTY_STATUS,
+  reduceStatus,
+  type PaneActivity,
+  type PaneStatus,
+} from "../domain/status";
 
 /**
  * The owner of live agent-status state — one per app, outside React, the
@@ -48,12 +53,19 @@ export interface AgentStatusTracker {
 }
 
 export function createAgentStatusTracker(): AgentStatusTracker {
-  let panes: ReadonlyMap<string, PaneActivity> = new Map();
-  let snapshot: StatusSnapshot = { panes };
+  // The FULL lane state per pane — activity plus the open helper brackets.
+  // Only the activity half reaches the snapshot: the brackets are how the
+  // fold knows a closing turn is not an ending, not something to render.
+  let statuses: ReadonlyMap<string, PaneStatus> = new Map();
+  let snapshot: StatusSnapshot = { panes: new Map() };
   const listeners = new Set<() => void>();
   const normalizers = new Map<string, StatusNormalizer>();
 
   function emit(): void {
+    const panes = new Map<string, PaneActivity>();
+    for (const [id, status] of statuses) {
+      if (status.activity) panes.set(id, status.activity);
+    }
     snapshot = { panes };
     for (const listener of [...listeners]) listener();
   }
@@ -74,27 +86,33 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       if (!normalize) return;
       const edge = normalize(payload, at);
       if (!edge) return;
-      const next = reduceActivity(panes.get(paneId) ?? null, edge);
-      if (next === panes.get(paneId)) return;
-      panes = new Map(panes).set(paneId, next);
-      emit();
+      const previous = statuses.get(paneId) ?? EMPTY_STATUS;
+      const next = reduceStatus(previous, edge);
+      if (next === previous) return;
+      statuses = new Map(statuses).set(paneId, next);
+      // Only an ACTIVITY change is a snapshot change. A helper bracket
+      // opening or closing moves private state, and notifying on it would
+      // re-render every subscriber and re-run the notification producers
+      // for a pane that is doing exactly what it was doing before — the
+      // same reason the reducer returns its input unchanged.
+      if (next.activity !== previous.activity) emit();
     },
 
     clear(paneId) {
-      if (!panes.has(paneId)) return;
-      const next = new Map(panes);
+      if (!statuses.has(paneId)) return;
+      const next = new Map(statuses);
       next.delete(paneId);
-      panes = next;
+      statuses = next;
       emit();
     },
 
     retain(liveIds) {
-      if (![...panes.keys()].some((id) => !liveIds.has(id))) return;
-      const next = new Map<string, PaneActivity>();
-      for (const [id, activity] of panes) {
-        if (liveIds.has(id)) next.set(id, activity);
+      if (![...statuses.keys()].some((id) => !liveIds.has(id))) return;
+      const next = new Map<string, PaneStatus>();
+      for (const [id, status] of statuses) {
+        if (liveIds.has(id)) next.set(id, status);
       }
-      panes = next;
+      statuses = next;
       emit();
     },
 

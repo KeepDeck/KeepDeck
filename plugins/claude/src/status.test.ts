@@ -183,6 +183,60 @@ describe("normalizeClaudeStatus", () => {
     ).toEqual({ kind: "turn-end", at: 800 });
   });
 
+  it("brackets one helper's turn from the agent-loop hooks", () => {
+    // Probe-verified on 2.1.220: the pair carries the SAME agent_id, and
+    // that id is also the entry id in the Stop payload's task list. Both a
+    // background subagent and a teammate run through this one agent loop,
+    // which is why the bracket can answer what the task list cannot — a
+    // teammate stays listed as "running" for as long as the team lives.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "SubagentStart",
+          agent_id: "af40aa53702b05b1b",
+          agent_type: "general-purpose",
+        }),
+        400,
+      ),
+    ).toEqual({ kind: "helper-start", at: 400, id: "af40aa53702b05b1b" });
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "SubagentStop",
+          agent_id: "af40aa53702b05b1b",
+          agent_type: "general-purpose",
+        }),
+        460,
+      ),
+    ).toEqual({ kind: "helper-end", at: 460, id: "af40aa53702b05b1b" });
+  });
+
+  it("drops an unpairable start but never a close", () => {
+    // A start with no usable id would open a bracket nothing can close, and
+    // an open bracket holds the turn open forever — the exact failure this
+    // whole mechanism exists to avoid. Ending a turn early is repaired by
+    // the next wake; a stuck "Working" is repaired by nothing.
+    for (const agent_id of [undefined, "", 7, null]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({ hook_event_name: "SubagentStart", agent_id }),
+          400,
+        ),
+      ).toBeNull();
+    }
+    // The close still lands. An oversized payload is reduced to its event
+    // name alone, so the id is exactly what goes missing first — and a
+    // nameless close is read by the host as "all of them".
+    for (const agent_id of [undefined, "", 7, null]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({ hook_event_name: "SubagentStop", agent_id }),
+          460,
+        ),
+      ).toEqual({ kind: "helper-end", at: 460 });
+    }
+  });
+
   it("resolves a wait on any tool completion, a subagent's included", () => {
     // Filtering subagent edges on `agent_id` was tried and reverted: a wait
     // records nothing about WHO raised it, so dropping them also drops the

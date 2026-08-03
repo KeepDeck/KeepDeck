@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { reduceActivity, type PaneActivity } from "./activity";
+import {
+  EMPTY_STATUS,
+  reduceActivity,
+  reduceStatus,
+  type PaneActivity,
+  type PaneStatus,
+} from "./activity";
 
 describe("reduceActivity", () => {
   it("starts a working phase from nothing", () => {
@@ -274,6 +280,137 @@ describe("reduceActivity", () => {
     expect(reduceActivity(failed, { kind: "turn-start", at: 500 })).toEqual({
       state: "working",
       since: 500,
+    });
+  });
+});
+
+describe("reduceStatus", () => {
+  /** Fold a whole edge stream, the way the tracker does. */
+  const fold = (
+    ...events: Parameters<typeof reduceStatus>[1][]
+  ): PaneStatus => events.reduce(reduceStatus, EMPTY_STATUS);
+
+  it("a turn that closes while a helper is still working has not ended", () => {
+    // The case the whole mechanism exists for. claude reports a teammate as
+    // `running` for as long as the team is alive, idle or not, so the task
+    // list in the closing payload cannot tell the two apart — the bracket
+    // around the helper's own turn can.
+    const parked = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "helper-start", at: 110, id: "mate-1" },
+      { kind: "turn-end", at: 120 },
+    );
+    expect(parked.activity).toEqual({ state: "working", since: 100 });
+    // ...and the age is the TURN's, not the parking's: the work never
+    // stopped, so "how long since you could have walked away" never reset.
+
+    // Once that helper closes, the next ending is a real one.
+    const done = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "helper-start", at: 110, id: "mate-1" },
+      { kind: "turn-end", at: 120 },
+      { kind: "helper-end", at: 200, id: "mate-1" },
+      { kind: "turn-start", at: 210 },
+      { kind: "turn-end", at: 220 },
+    );
+    expect(done.activity).toEqual({ state: "done", at: 220, interrupted: false });
+    expect(done.helpers.size).toBe(0);
+  });
+
+  it("counts helpers, so one closing does not end the turn for the rest", () => {
+    const state = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "helper-start", at: 110, id: "a" },
+      { kind: "helper-start", at: 111, id: "b" },
+      { kind: "helper-end", at: 150, id: "a" },
+      { kind: "turn-end", at: 160 },
+    );
+    expect(state.activity).toEqual({ state: "working", since: 100 });
+    expect([...state.helpers]).toEqual(["b"]);
+  });
+
+  it("a nameless close clears every bracket", () => {
+    // An oversized payload reaches the host as its event name and nothing
+    // else, so the id is the first thing to go. Ending early is repaired by
+    // the next wake; brackets that never close strand the pane on
+    // "Working" with nothing left to release it.
+    const state = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "helper-start", at: 110, id: "a" },
+      { kind: "helper-start", at: 111, id: "b" },
+      { kind: "helper-end", at: 150 },
+      { kind: "turn-end", at: 160 },
+    );
+    expect(state.activity).toEqual({ state: "done", at: 160, interrupted: false });
+    expect(state.helpers.size).toBe(0);
+  });
+
+  it("a new turn does NOT retire the helpers still running behind it", () => {
+    // A background agent outlives the turn that spawned it — that is the
+    // entire premise. Clearing on turn-start would make the pane announce
+    // "done" the moment the user typed anything.
+    const state = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "helper-start", at: 110, id: "a" },
+      { kind: "turn-end", at: 120 },
+      { kind: "turn-start", at: 130 },
+      { kind: "turn-end", at: 140 },
+    );
+    expect(state.activity).toEqual({ state: "working", since: 130 });
+    expect([...state.helpers]).toEqual(["a"]);
+  });
+
+  it("an interrupt or a failure ends the turn even with helpers open", () => {
+    // Both need the user NOW, and surviving helpers do not make a turn
+    // un-interrupted or un-failed — the same call StopFailure already makes
+    // about background work in its own payload.
+    const interrupted = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "helper-start", at: 110, id: "a" },
+      { kind: "interrupted", at: 120 },
+    );
+    expect(interrupted.activity).toEqual({
+      state: "done",
+      at: 120,
+      interrupted: true,
+    });
+    const failed = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "helper-start", at: 110, id: "a" },
+      { kind: "turn-failed", at: 120, error: "rate_limit" },
+    );
+    expect(failed.activity).toEqual({
+      state: "failed",
+      at: 120,
+      error: "rate_limit",
+    });
+  });
+
+  it("returns its input untouched when an edge moves nothing", () => {
+    // Identity is load-bearing: the tracker skips the emit on it, so an
+    // absorbed edge never re-renders or re-announces.
+    const open = fold(
+      { kind: "turn-start", at: 100 },
+      { kind: "helper-start", at: 110, id: "a" },
+    );
+    expect(reduceStatus(open, { kind: "helper-start", at: 115, id: "a" })).toBe(
+      open,
+    );
+    expect(reduceStatus(open, { kind: "helper-end", at: 115, id: "ghost" })).toBe(
+      open,
+    );
+    expect(
+      reduceStatus(EMPTY_STATUS, { kind: "helper-end", at: 115 }),
+    ).toBe(EMPTY_STATUS);
+  });
+
+  it("a live helper is honestly working on a pane with no activity yet", () => {
+    // Attaching mid-session, or the first edge after a clear.
+    expect(
+      reduceStatus(EMPTY_STATUS, { kind: "helper-start", at: 300, id: "a" }),
+    ).toEqual({
+      activity: { state: "working", since: 300 },
+      helpers: new Set(["a"]),
     });
   });
 });

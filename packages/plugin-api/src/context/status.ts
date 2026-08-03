@@ -43,7 +43,25 @@ export type AgentStatusEvent =
    * the very work still running. Deliberately not `resumed`: parking
    * resolves nothing. The next real ending still closes the turn. */
   | { kind: "parked"; at: number }
-  /** The turn completed normally. */
+  /** An agent working ALONGSIDE the main thread opened a turn — claude's
+   * background subagents and its teammates. `id` is the CLI's own handle
+   * for that agent, and pairs this edge with its end.
+   *
+   * Bookkeeping only: it says nothing about what the pane is DOING, and the
+   * host folds it into no visible state. It exists because a list of
+   * in-flight work cannot answer "is this one busy right now" — claude's
+   * teammates stay listed as `running` while idle — whereas a bracket
+   * around each agent's TURN can. */
+  | { kind: "helper-start"; at: number; id: string }
+  /** That agent's turn closed. `id` names which one; ABSENT means "all of
+   * them", the only honest reading of an end whose id did not survive the
+   * wire (a payload reduced past the bridge's size limit keeps its event
+   * name and nothing else). Clearing every bracket errs toward ending the
+   * turn, which is the recoverable mistake. */
+  | { kind: "helper-end"; at: number; id?: string }
+  /** The turn completed normally. Whether it is an ENDING also depends on
+   * the edge stream: a turn that closes while a helper's turn is still open
+   * is parked, not done — see the host's status fold. */
   | { kind: "turn-end"; at: number }
   /** The user interrupted the turn (Esc/Ctrl-C) — it is over, but not
    * "done" in the completed sense. */

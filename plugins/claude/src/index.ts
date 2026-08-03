@@ -55,6 +55,9 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
     // PostToolUse is the approval-RESOLUTION stand-in: claude has no reply
     // hook, but an approved tool's completion proves the wait resolved —
     // without it the amber "needs approval" survives the answer until Stop.
+    // SubagentStart/SubagentStop bracket ONE agent turn beside the main
+    // thread; the host counts open brackets to know whether a closing turn
+    // is really an ending, which is the only way to read a teammate.
     const group = [
       {
         hooks: [
@@ -71,6 +74,8 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       "StopFailure",
       "Notification",
       "PostToolUse",
+      "SubagentStart",
+      "SubagentStop",
     ]) {
       hooks[event] = group;
     }

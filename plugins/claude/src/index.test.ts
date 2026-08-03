@@ -80,16 +80,24 @@ describe("claude plugin hooks", () => {
     const command = "/bin/sh '/App/resources/kd-status-hook.sh' claude";
     // StopFailure fires INSTEAD of Stop on an API error, so arming Stop
     // without it strands the pane; PostToolUse is the approval-resolution
-    // stand-in. Losing any one of these is a silent hole in the lane.
-    for (const event of [
+    // stand-in; SubagentStart/SubagentStop bracket one helper's turn, and
+    // an unpaired bracket either holds a finished turn open or lets a busy
+    // teammate read as done. Losing any one is a silent hole in the lane.
+    const armed = [
       "UserPromptSubmit",
       "Stop",
       "StopFailure",
       "Notification",
       "PostToolUse",
-    ]) {
+      "SubagentStart",
+      "SubagentStop",
+    ];
+    for (const event of armed) {
       expect(settings.hooks[event][0].hooks[0].command, event).toBe(command);
     }
+    // EXACTLY these: an event armed by accident feeds the lane edges nobody
+    // reasoned about, and the normalizer's default arm drops them silently.
+    expect(Object.keys(settings.hooks).sort()).toEqual([...armed].sort());
   });
 
   it("arms the statusLine usage reporter alongside identity", async () => {

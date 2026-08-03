@@ -106,6 +106,9 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
  *   idle they run ≥6s late. The waiting edge is therefore best-effort for
  *   claude; `Stop` still settles the turn either way. `idle_prompt` and
  *   the rest are not turn states — dropped.
+ * - `SubagentStart`/`SubagentStop` → the open/close bracket of ONE agent
+ *   turn running beside the main thread. Both a background subagent and a
+ *   teammate raise them, and the pair carries the same `agent_id`.
  * - `PostToolUse` → resumed. claude has no approval-REPLY hook, but an
  *   approved tool RUNS — its completion is the first post-approval hook
  *   and proves the wait resolved. For a long-running tool the amber
@@ -142,6 +145,32 @@ export const normalizeClaudeStatus: StatusNormalizer = (
       return outlivesTurn(event)
         ? { kind: "parked", at }
         : { kind: "turn-end", at };
+    case "SubagentStart":
+      // One agent loop serves BOTH kinds of helper: a background subagent
+      // and a teammate run through the same entry, which fires this on the
+      // way in and `SubagentStop` on the way out, carrying the same
+      // `agent_id` (probe-verified for subagents on 2.1.220; the teammate
+      // path is the same function, decompiled). That bracket is the only
+      // way to tell a busy teammate from an idle one, because the task list
+      // reports both as `running` — see [`SELF_WAKING`].
+      //
+      // No id, no bracket: one that cannot be paired would never close, and
+      // an open bracket holds the turn open. Dropping it risks ending a turn
+      // early instead, which the next wake repairs.
+      return typeof event.agent_id === "string" && event.agent_id
+        ? { kind: "helper-start", at, id: event.agent_id }
+        : null;
+    case "SubagentStop":
+      // Reported WITHOUT the id when the payload was too big to forward
+      // whole — the closing edge still has to land, and the host reads a
+      // nameless close as "all of them".
+      return {
+        kind: "helper-end",
+        at,
+        ...(typeof event.agent_id === "string" && event.agent_id
+          ? { id: event.agent_id }
+          : {}),
+      };
     case "PostToolUse":
       // KNOWN IMPRECISION, deliberately kept. A subagent's own tool calls
       // reach this hook too (they carry `agent_id`), so with several agents
