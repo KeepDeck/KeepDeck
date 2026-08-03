@@ -28,7 +28,7 @@ export type AchievementMetric =
   | "models"
   | "workspaces";
 
-interface TierSpec {
+export interface TierSpec {
   threshold: number;
   title: string;
   icon: string;
@@ -229,18 +229,30 @@ export interface AchievementCatalogEntry {
   repeat?: number;
 }
 
+/** THE tier-to-entry projection: everything a tier is before a ledger dates
+ * it. The catalog and the gallery's dated view both start here rather than
+ * each assembling the seven fields, because two object literals of the same
+ * shape do not disagree loudly — the next field would reach one surface,
+ * miss the other, and compile. */
+export function catalogEntry(
+  metric: AchievementMetric,
+  tier: TierSpec,
+): AchievementCatalogEntry {
+  return {
+    id: achievementId(metric, tier.threshold),
+    metric,
+    threshold: tier.threshold,
+    title: tier.title,
+    icon: tier.icon,
+    rarity: achievementRarity(metric, tier.threshold, tier.rarity),
+    ...(tier.repeat !== undefined ? { repeat: tier.repeat } : {}),
+  };
+}
+
 /** The flat catalog in ladder order (each ladder's tiers ascending). */
 export function achievementCatalog(): AchievementCatalogEntry[] {
   return LADDERS.flatMap((ladder) =>
-    ladder.tiers.map((tier) => ({
-      id: achievementId(ladder.metric, tier.threshold),
-      metric: ladder.metric,
-      threshold: tier.threshold,
-      title: tier.title,
-      icon: tier.icon,
-      rarity: achievementRarity(ladder.metric, tier.threshold, tier.rarity),
-      ...(tier.repeat !== undefined ? { repeat: tier.repeat } : {}),
-    })),
+    ladder.tiers.map((tier) => catalogEntry(ladder.metric, tier)),
   );
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TEST_NOW, usageEvent as event } from "../history/event.testSupport";
+import { achievementCatalog } from "./catalog";
 import type { UsageAchievementLadder } from "./ladders";
 import {
   earnedAchievements,
@@ -30,6 +31,22 @@ describe("usageAchievementLadders", () => {
     expect(tokens[1].achievedAt).toBe(NOW - 1 * DAY); // 25M
     expect(tokens[2].achievedAt).toBeNull(); // 150M locked
     expect(tokens[2].progress).toBe(25_600_000);
+  });
+
+  it("dresses a tier exactly as the catalog does, adding only the dated fields", () => {
+    // The gallery and the notifier read the same tier through different
+    // producers. Assembled separately, they agree until someone adds a
+    // field to one literal — and TypeScript has nothing to object to,
+    // because both sides are structurally complete on their own.
+    const dated = usageAchievementLadders([]).flatMap((rung) => rung.tiers);
+    const flat = achievementCatalog();
+    expect(dated.length).toBe(flat.length);
+    dated.forEach((tier, index) => {
+      const { achievedAt, progress, ...shared } = tier;
+      expect(achievedAt).toBeNull();
+      expect(progress).toBe(0);
+      expect(shared).toEqual(flat[index]);
+    });
   });
 
   it("accumulates provider-reported spend toward the dollar ladder", () => {

@@ -1,12 +1,12 @@
 import type { UsageEventV2 } from "../history/event";
 import {
-  achievementId,
+  catalogEntry,
   earnedTierCount,
   LADDERS,
+  type AchievementCatalogEntry,
   type AchievementMetric,
 } from "./catalog";
 import { createAchievementEngine } from "./engine";
-import { achievementRarity, type AchievementRarity } from "./rarity";
 
 /**
  * The dated batch views of the gallery. Presentation contract (the user's
@@ -16,18 +16,10 @@ import { achievementRarity, type AchievementRarity } from "./rarity";
  * are those three views.
  */
 
-/** A catalog tier carrying its ledger-derived state — produced only here,
- * so the dated types live with their producer, not the static catalog. */
-export interface UsageAchievement {
-  id: string;
-  metric: AchievementMetric;
-  threshold: number;
-  title: string;
-  icon: string;
-  /** How rare this tier is — what the card wears (see `./rarity`). */
-  rarity: AchievementRarity;
-  /** Which time this legendary top has been re-earned; absent below it. */
-  repeat?: number;
+/** A catalog tier carrying its ledger-derived state. It EXTENDS the catalog
+ * entry rather than restating it: the dated fields are what this module
+ * adds, and only those belong to it. */
+export interface UsageAchievement extends AchievementCatalogEntry {
   /** The ledger instant that crossed the threshold; null while locked. */
   achievedAt: number | null;
   /** The metric's current all-time value. */
@@ -68,13 +60,7 @@ export function usageAchievementLadders(
   return LADDERS.map((ladder, index) => ({
     metric: ladder.metric,
     tiers: ladder.tiers.map((tier) => ({
-      id: achievementId(ladder.metric, tier.threshold),
-      metric: ladder.metric,
-      threshold: tier.threshold,
-      title: tier.title,
-      icon: tier.icon,
-      rarity: achievementRarity(ladder.metric, tier.threshold, tier.rarity),
-      ...(tier.repeat !== undefined ? { repeat: tier.repeat } : {}),
+      ...catalogEntry(ladder.metric, tier),
       achievedAt: crossings[index].get(tier.threshold) ?? null,
       progress: engine.value(ladder.metric),
     })),
