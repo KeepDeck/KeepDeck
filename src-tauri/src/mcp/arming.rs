@@ -474,6 +474,63 @@ mod tests {
     }
 
     #[test]
+    fn a_cwd_whose_files_survived_stays_in_the_record() {
+        // The other half of the same fix, and the one the earlier test cannot
+        // see: `broken` there was never armed, so the manifest looks right
+        // whether we forget the cleared set or everything we were handed. Here
+        // the failing cwd IS recorded, so forgetting it would strand a
+        // planting that is still on disk — nothing would ever find it again.
+        let (_tmp, root, cwd) = scratch();
+        let stuck = cwd.parent().unwrap().join("stuck");
+        fs::create_dir_all(&stuck).unwrap();
+        arm(&root, "ws-1", &[entry(&cwd, "{}"), entry(&stuck, "{}")]);
+
+        // Its config becomes a DIRECTORY, so removing it fails.
+        let dir = stuck.join(".kimi-code");
+        fs::remove_file(dir.join("mcp.json")).unwrap();
+        fs::create_dir(dir.join("mcp.json")).unwrap();
+
+        let _ = disarm(
+            &root,
+            &[
+                cwd.to_string_lossy().into_owned(),
+                stuck.to_string_lossy().into_owned(),
+            ],
+        );
+
+        let recorded: Vec<String> =
+            serde_json::from_slice(&fs::read(root.join("armed").join("ws-1")).unwrap()).unwrap();
+        assert_eq!(
+            recorded,
+            vec![stuck.to_string_lossy().into_owned()],
+            "the cwd we could not clear must still be recorded",
+        );
+        assert!(dir.join(".keepdeck-managed").exists());
+    }
+
+    #[test]
+    fn a_first_arm_that_fails_takes_its_own_claim_back() {
+        // The other side of the rollback gate. A claim THIS call created, with
+        // no config beside it, is unreachable litter: no exclude line, no
+        // manifest entry, and every later pass reads it as ours for a file
+        // that is not there.
+        let (_tmp, root, cwd) = scratch();
+        let dir = cwd.join(".kimi-code");
+        fs::create_dir_all(&dir).unwrap();
+        // `write_atomic` writes `<name>.tmp` first, so a directory there makes
+        // the config write fail while the marker write succeeds.
+        fs::create_dir(dir.join("mcp.json.tmp")).unwrap();
+
+        let report = arm(&root, "ws-1", &[entry(&cwd, "{}")]);
+
+        assert_eq!(report.refused.len(), 1);
+        assert!(
+            !dir.join(".keepdeck-managed").exists(),
+            "a claim this call made must not outlive the config it claims",
+        );
+    }
+
+    #[test]
     fn a_re_arm_that_fails_keeps_the_claim_it_did_not_make() {
         // Rolling back a claim this call did not create leaves a KeepDeck
         // config with no marker: no disarm can find it, and every later arm

@@ -1,9 +1,9 @@
 /**
- * The MCP client config a file-fed CLI reads out of its working directory.
+ * The MCP client config kimi reads out of its working directory.
  *
- * WHAT is written — the directory, the file name, the body — is the agent
- * plugin's dialect and travels in the entry. This owns only WHEN: both calls
- * take the manager's queue slot, so neither can land inside a
+ * Only the BODY travels from here; the directory and file name are the
+ * backend's constants, because kimi's loader path is fixed. What this owns is
+ * WHEN: both calls take the manager's queue slot, so neither can land inside a
  * `git worktree remove`.
  */
 import { mcpArm, mcpDisarm } from "../../ipc/mcpArming";

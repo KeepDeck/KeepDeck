@@ -36,12 +36,6 @@ import {
   type McpTransportPort,
 } from "./policy";
 
-/** What the app knows about the transport as of the LAST SETTLED
- * transition — confirmed by the backend, not wished by the setting, and
- * not re-probed in between. `socket` is the served path the backend last
- * confirmed; `error` is why the last transition failed — and after a
- * failure the socket claim is KEPT, because nothing confirmed a change
- * (a failed disable most likely leaves the socket serving). */
 /** The transport every external call is journaled under. */
 const MCP_TRANSPORT = "mcp";
 
@@ -65,6 +59,12 @@ function sameRefusals(
   );
 }
 
+/** What the app knows about the transport as of the LAST SETTLED transition —
+ * confirmed by the backend, not wished by the setting, and not re-probed in
+ * between. `socket` is the served path the backend last confirmed; `error` is
+ * why the last transition failed — and after a failure the socket claim is
+ * KEPT, because nothing confirmed a change (a failed disable most likely
+ * leaves the socket serving). */
 export interface McpStatus {
   socket: string | null;
   error: string | null;

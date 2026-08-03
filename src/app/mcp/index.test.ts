@@ -11,8 +11,6 @@ import { createMcpService, type McpServiceDeps } from ".";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** A pane whose CLI takes no servers on argv. The delivery is declared by the
- * agent's plugin and rides the target, so nothing host-side names an agent. */
 /** A pane whose CLI takes no servers on argv and reads a file instead. */
 const fileFed = {
   agentType: "kimi",
