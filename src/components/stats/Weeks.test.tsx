@@ -58,6 +58,22 @@ describe("Weeks", () => {
     expect(host.querySelector(".stats__weeks-pager")).toBeNull(); // one page
   });
 
+  it("answers a bar hover with the week's per-agent breakdown", () => {
+    const host = render([
+      event({ tokens: { input: 700 } }), // codex
+      event({ agent: "claude", tokens: { input: 300 } }),
+    ]);
+    const anchor = host.querySelector(".kd-tip__anchor")!;
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    act(() => {
+      anchor.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    const tip = document.querySelector('[role="tooltip"]')!;
+    expect(tip.textContent).toContain("Jul 20 – Jul 26");
+    expect(tip.textContent).toContain("codex · 700");
+    expect(tip.textContent).toContain("claude · 300");
+  });
+
   it("gives an empty week in progress an honest line, not zero-and-dash", () => {
     const host = render([
       event({ occurredAt: NOW - WEEK_MS, tokens: { input: 100 } }),

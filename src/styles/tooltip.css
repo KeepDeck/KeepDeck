@@ -1,0 +1,26 @@
+/* The shared hover tip (src/ui/Tooltip.tsx) — the chart tooltip's look
+   (surface, border, ink) carried to plain HTML surfaces. */
+
+.kd-tip__anchor {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.kd-tip {
+  /* FIXED and portaled to the body — coordinates come inline from the
+     anchor's rect, so no scrolling ancestor can clip the card. */
+  position: fixed;
+  z-index: 200;
+  display: block;
+  padding: 7px 10px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background: #10141c;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+  color: #c5c8c6;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+}

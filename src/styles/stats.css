@@ -413,11 +413,47 @@
   }
 }
 
+.stats__week-label--empty {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.stats__week-label--empty b {
+  color: #c5c8c6;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .stats__week-none {
-  /* The SAME type box as the date beside it — a smaller size with its own
-     line-height centered as a box but sat off the date's baseline. */
-  grid-column: 2 / -1;
-  align-self: center;
   color: #596273;
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.stats__week-bar {
+  flex: 1 1 auto;
+}
+
+.stats__week-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stats__week-tip b {
+  margin-bottom: 2px;
+  color: #e6e8eb;
+  font-weight: 600;
+}
+
+.stats__week-tip i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: -1px;
 }

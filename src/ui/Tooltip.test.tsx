@@ -1,0 +1,43 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, describe, expect, it } from "vitest";
+import { Tooltip } from "./Tooltip";
+
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
+  true;
+
+let root: Root;
+afterEach(() => act(() => root.unmount()));
+
+function render() {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+  act(() =>
+    root.render(
+      createElement(Tooltip, { tip: "the detail card", children: "the anchor" }),
+    ),
+  );
+  return host;
+}
+
+const over = (target: Element, type: string) =>
+  act(() => {
+    target.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+  });
+
+describe("Tooltip", () => {
+  it("shows the tip while hovered, hides it after", () => {
+    const host = render();
+    const anchor = host.querySelector(".kd-tip__anchor")!;
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    over(anchor, "mouseover");
+    // Portaled to the BODY — a scrolling ancestor must never clip it.
+    const tip = document.querySelector('[role="tooltip"]')!;
+    expect(tip.parentElement).toBe(document.body);
+    expect(tip.textContent).toBe("the detail card");
+    over(anchor, "mouseout");
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+});

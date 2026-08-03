@@ -11,6 +11,7 @@ import {
   usageWeeks,
   weekDeltaCaption,
 } from "../../domain/usage/weeks";
+import { Tooltip } from "../../ui/Tooltip";
 
 /** Rows per page — the block's height is CONSTANT however much history
  * accumulates; older weeks live behind the pager, never behind growth or
@@ -75,11 +76,13 @@ export function Weeks({
                 role="row"
                 key={week.start}
               >
-                <span className="stats__week-label" role="cell">
+                {/* ONE flex line, baseline-aligned — the date and the note
+                    share a baseline instead of two boxes centering apart. */}
+                <span className="stats__week-label--empty" role="cell">
                   <b>{formatWeekLabel(week.start, now)}</b>
-                </span>
-                <span className="stats__week-none" role="cell">
-                  in progress · no usage yet
+                  <span className="stats__week-none">
+                    in progress · no usage yet
+                  </span>
                 </span>
               </div>
             );
@@ -98,24 +101,42 @@ export function Weeks({
             </span>
             <span className="stats__week-barcell" role="cell">
               {week.totalTokens > 0 && (
-                <span
-                  className="stats__week-bar"
+                <Tooltip
                   style={{
                     width: `${Math.max(2, Math.round((week.totalTokens / max) * 100))}%`,
                   }}
+                  tip={
+                    <span className="stats__week-tip">
+                      <b>{formatWeekLabel(week.start, now)}</b>
+                      {roster
+                        .filter((agent) => (week.byAgent.get(agent) ?? 0) > 0)
+                        .map((agent) => (
+                          <span key={agent}>
+                            <i
+                              style={{
+                                background: seriesColorFor(colors, agent),
+                              }}
+                            />
+                            {agent} · {formatTokens(week.byAgent.get(agent)!)}
+                          </span>
+                        ))}
+                    </span>
+                  }
                 >
-                  {roster
-                    .filter((agent) => (week.byAgent.get(agent) ?? 0) > 0)
-                    .map((agent) => (
-                      <i
-                        key={agent}
-                        style={{
-                          flexGrow: week.byAgent.get(agent),
-                          background: seriesColorFor(colors, agent),
-                        }}
-                      />
-                    ))}
-                </span>
+                  <span className="stats__week-bar">
+                    {roster
+                      .filter((agent) => (week.byAgent.get(agent) ?? 0) > 0)
+                      .map((agent) => (
+                        <i
+                          key={agent}
+                          style={{
+                            flexGrow: week.byAgent.get(agent),
+                            background: seriesColorFor(colors, agent),
+                          }}
+                        />
+                      ))}
+                  </span>
+                </Tooltip>
               )}
             </span>
             <span className="stats__week-delta" role="cell">
