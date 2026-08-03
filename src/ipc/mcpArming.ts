@@ -1,17 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { describeError, log } from "./log";
 
-/** One pane cwd and the MCP config it should carry.
- *
- * The directory and file name travel WITH the content: they are the agent
- * plugin's declaration of its own dialect, not something the host knows. The
- * directory must be a direct child of `root` — it is the unit git is told to
- * ignore, and the unit a crash sweep can find again by its marker. */
+/** One pane cwd and the MCP config it should carry. */
 export interface McpArmEntry {
-  workspaceId: string;
   root: string;
-  dir: string;
-  name: string;
   content: string;
 }
 
@@ -33,9 +25,12 @@ export interface McpArmReport {
  * with nothing to do looks like, so degrading to one made a dead backend
  * indistinguishable from a working one and left the pane's missing servers
  * with nowhere to surface. */
-export async function mcpArm(entries: McpArmEntry[]): Promise<McpArmReport> {
+export async function mcpArm(
+  wsId: string,
+  entries: McpArmEntry[],
+): Promise<McpArmReport> {
   try {
-    return await invoke<McpArmReport>("mcp_arm", { entries });
+    return await invoke<McpArmReport>("mcp_arm", { wsId, entries });
   } catch (e) {
     const reason = describeError(e);
     log.warn("web:mcp", `arming failed: ${reason}`);

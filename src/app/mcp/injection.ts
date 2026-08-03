@@ -15,18 +15,18 @@
  * It answers with a LIST because the planned server bank contributes more
  * members later; today the built-in transport is the only one.
  */
-import type { AgentMcpFileDelivery, McpServerSpec } from "@keepdeck/plugin-api";
+import type { McpServerSpec } from "@keepdeck/plugin-api";
 import { acceptMcpServers } from "./servers";
 import { describeError, log } from "../../ipc/log";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
-import type { McpArmEntry, McpArmReport } from "../../ipc/mcpArming";
+import type { McpArmReport } from "../../ipc/mcpArming";
+import { kimiMcpConfig, KIMI_AGENT } from "./kimi";
 
 /** The name KeepDeck's own server is filed under in every client config —
  * and therefore the prefix its tools carry (`mcp__keepdeck__…`). */
 export const KEEPDECK_MCP_SERVER = "keepdeck";
 
-/** The pane an injection is for: which CLI, where it will run, and how that
- * CLI takes its servers. */
+/** The pane an injection is for: which CLI, and where it will run. */
 export interface McpInjectionTarget {
   agentType: string;
   cwd: string;
@@ -34,14 +34,6 @@ export interface McpInjectionTarget {
   /** The pane secret this spawn's clients announce, so the deck can name the
    * pane behind a connection. */
   client: string;
-  /** Declared by the agent's plugin when its CLI has no argv door: where the
-   * file goes and what goes in it. Absent = argv, and the hook renders it.
-   *
-   * Passed IN rather than looked up here, so this module never names an
-   * agent: it used to branch on the literal id `kimi` and the backend
-   * hardcoded `.kimi-code`, which put one CLI's dialect in two host files and
-   * left its own plugin describing an agent it no longer fully described. */
-  file?: AgentMcpFileDelivery;
 }
 
 /**
@@ -90,7 +82,11 @@ export interface McpInjectionDeps {
    * pane claims any more — both of which are the worktree owner's knowledge,
    * not this module's. A default would be the unguarded call, i.e. the unsafe
    * form would be the easy one. */
-  plant: (entry: McpArmEntry) => Promise<McpArmReport>;
+  plant: (
+    workspaceId: string,
+    root: string,
+    content: string,
+  ) => Promise<McpArmReport>;
   /** Take a planted config back out of these directories. Paired with
    * `plant`, and ordered the same way. */
   retract: (roots: string[]) => Promise<boolean>;
@@ -149,24 +145,18 @@ export function createMcpInjection({
     }
   }
 
-  /** The file half of a delivery: the config into the pane's cwd, and what
-   * came back reported. A cwd holding the user's own config refuses, and the
+  /** kimi's half of a delivery: the config into the pane's cwd, and what came
+   * back reported. A cwd holding the user's own config refuses, and the
    * refusal is surfaced rather than silently leaving that pane serverless. */
   async function deliverFile(
-    target: McpInjectionTarget & { file: AgentMcpFileDelivery },
+    target: McpInjectionTarget,
     content: string,
   ): Promise<void> {
     // Re-checked here and not only at `access`: the plan is built between the
     // two, and a toggle that went Off in that window has already run its
     // retract — a config planted after it would be one nothing takes back.
     if (socket() === null) return;
-    const report = await plant({
-      workspaceId: target.workspaceId,
-      root: target.cwd,
-      dir: target.file.dir,
-      name: target.file.name,
-      content,
-    });
+    const report = await plant(target.workspaceId, target.cwd, content);
     for (const { root, reason } of report.refused) {
       log.warn("web:mcp", `${root} could not take KeepDeck's MCP config: ${reason}`);
     }
@@ -187,12 +177,12 @@ export function createMcpInjection({
   return {
     async access(target) {
       if (socket() === null) return NO_ACCESS;
-      // A shared directory gets an ANONYMOUS invocation. A file delivery is
-      // one file per directory, so two panes running there would both announce
+      // A shared directory gets an ANONYMOUS invocation. kimi's config is one
+      // file per directory, so two panes running there would both announce
       // whichever secret was written last — and the journal would name the
-      // wrong pane, which is worse than naming none. Only file-fed CLIs are
-      // affected: everyone else carries their own argv.
-      const shared = target.file !== undefined && panesIn(target.cwd) > 1;
+      // wrong pane, which is worse than naming none.
+      const shared =
+        target.agentType === KIMI_AGENT && panesIn(target.cwd) > 1;
       const invoked = await resolve(shared ? null : target.client);
       if (!invoked) return NO_ACCESS;
       // Re-checked after the await: the toggle may have gone Off while the
@@ -210,17 +200,13 @@ export function createMcpInjection({
       for (const { name, reason } of rejected) {
         log.warn("web:mcp", `server "${name}" not injected: ${reason}`);
       }
-      const { file } = target;
-      if (!file) return argvOnly(accepted);
-      // A file-fed CLI takes nothing on argv, so its servers ride the delivery
-      // instead and the hook is told there is nothing to add. The body is
-      // rendered NOW by the plugin that owns the dialect, against the
-      // invocation this pane was answered with, and written later.
-      const content = file.render({ servers: accepted });
-      return {
-        servers: [],
-        deliver: () => deliverFile({ ...target, file }, content),
-      };
+      if (target.agentType !== KIMI_AGENT) return argvOnly(accepted);
+      // kimi reads a FILE and takes nothing on argv, so its servers ride the
+      // delivery instead and the hook is told there is nothing to add. The
+      // content is rendered NOW, against the invocation this pane was
+      // answered with, and written later.
+      const content = kimiMcpConfig(accepted);
+      return { servers: [], deliver: () => deliverFile(target, content) };
     },
 
     async retract() {

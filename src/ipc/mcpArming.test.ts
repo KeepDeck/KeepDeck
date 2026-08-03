@@ -17,16 +17,12 @@ describe("the MCP arming wrappers", () => {
   it("names the backend commands and their argument shapes", async () => {
     // The wire is the whole job of this module: a renamed key fails only
     // here, at runtime, in a path no other test exercises.
-    const entry = {
-      workspaceId: "ws-1",
-      root: "/repo",
-      dir: ".kimi-code",
-      name: "mcp.json",
-      content: "{}",
-    };
     tauri.invoke.mockResolvedValue({ armed: ["/repo"], refused: [] });
-    await mcpArm([entry]);
-    expect(tauri.invoke).toHaveBeenCalledWith("mcp_arm", { entries: [entry] });
+    await mcpArm("ws-1", [{ root: "/repo", content: "{}" }]);
+    expect(tauri.invoke).toHaveBeenCalledWith("mcp_arm", {
+      wsId: "ws-1",
+      entries: [{ root: "/repo", content: "{}" }],
+    });
 
     tauri.invoke.mockResolvedValue(undefined);
     await mcpDisarm(["/repo"]);
@@ -47,14 +43,12 @@ describe("the MCP arming wrappers", () => {
     // a dead backend indistinguishable from a working one and left the missing
     // servers with nowhere to surface.
     tauri.invoke.mockRejectedValue(new Error("no home directory"));
-    const at = (root: string) => ({
-      workspaceId: "ws-1",
-      root,
-      dir: ".kimi-code",
-      name: "mcp.json",
-      content: "{}",
-    });
-    expect(await mcpArm([at("/repo"), at("/wt/a")])).toEqual({
+    expect(
+      await mcpArm("ws-1", [
+        { root: "/repo", content: "{}" },
+        { root: "/wt/a", content: "{}" },
+      ]),
+    ).toEqual({
       armed: [],
       refused: [
         { root: "/repo", reason: "no home directory" },

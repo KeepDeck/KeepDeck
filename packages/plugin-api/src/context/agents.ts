@@ -39,44 +39,9 @@ export interface AgentContribution {
   /** Read-only discovery over this agent's session store ([F8] browser).
    * Absent = the agent's sessions don't appear in the global search. */
   history?: AgentHistory;
-  /** How this agent takes MCP servers when it takes none on argv. Absent =
-   * argv, and `spawn.plan` renders them from `input.mcp` like any other
-   * dialect. See [`AgentMcpFileDelivery`]. */
-  mcp?: AgentMcp;
   /** @deprecated API 30+ plugins declare `target.remote` and its schemes once
    * in the manifest. Retained only for legacy plugin execution. */
   remote?: AgentRemote;
-}
-
-/** How an agent takes MCP servers when its CLI has no flag and no env for
- * them. One arm today; a second delivery kind would be another. */
-export interface AgentMcp {
-  file: AgentMcpFileDelivery;
-}
-
-/**
- * A CLI that reads its MCP servers from a FILE in the pane's working
- * directory.
- *
- * The split is deliberate. The plugin owns WHAT — the directory, the file
- * name, the body — because those are its CLI's dialect, exactly like the argv
- * every other agent renders in `spawn.plan`. The host owns WHEN and WHETHER:
- * the write has to be ordered against a `git worktree remove` and taken back
- * when the transport goes down, and neither is knowledge a plugin has.
- *
- * The directory is claimed by a marker KeepDeck writes beside the file, so a
- * folder where the user keeps their own config is left alone. It must be a
- * direct child of the pane's cwd — that is the unit git is told to ignore and
- * the unit a disarm can find again after a crash.
- */
-export interface AgentMcpFileDelivery {
-  /** Directory under the pane's cwd, e.g. `.kimi-code`. */
-  dir: string;
-  /** File inside it, e.g. `mcp.json`. */
-  name: string;
-  /** The file's contents for these servers. Pure: the host may call it
-   * without writing anything. */
-  render(mcp: SpawnMcpInput): string;
 }
 
 /** Where a pane's agent should run. Absent = the pane's own machine (local),

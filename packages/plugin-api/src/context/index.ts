@@ -6,8 +6,6 @@ export type {
   AgentIcon,
   AgentHistory,
   AgentIconPath,
-  AgentMcp,
-  AgentMcpFileDelivery,
   AgentRemote,
   AgentSessionFacts,
   AgentSessionStub,

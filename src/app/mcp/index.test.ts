@@ -13,12 +13,12 @@ const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** A pane whose CLI takes no servers on argv. The delivery is declared by the
  * agent's plugin and rides the target, so nothing host-side names an agent. */
+/** A pane whose CLI takes no servers on argv and reads a file instead. */
 const fileFed = {
   agentType: "kimi",
   cwd: "/repo",
   workspaceId: "ws-1",
   client: "s",
-  file: { dir: ".kimi-code", name: "mcp.json", render: () => "{}" },
 };
 
 function harness(opts: { initial?: boolean | null } = {}) {
@@ -173,7 +173,7 @@ describe("createMcpService", () => {
     const h = harness({ initial: true });
     const live = new Set(["/repo"]);
     h.deps.panesIn = (cwd) => (live.has(cwd) ? 1 : 0);
-    h.deps.plant = async ({ root }) => ({
+    h.deps.plant = async (_ws, root) => ({
       armed: [],
       refused: [{ root, reason: "theirs" }],
     });
@@ -198,7 +198,7 @@ describe("createMcpService", () => {
     // moment the user opened Settings, or any other pane armed anywhere.
     const h = harness({ initial: true });
     h.deps.panesIn = () => 0; // the fork's pane has not landed
-    h.deps.plant = async ({ root }) => ({
+    h.deps.plant = async (_ws, root) => ({
       armed: [],
       refused: [{ root, reason: "theirs" }],
     });
