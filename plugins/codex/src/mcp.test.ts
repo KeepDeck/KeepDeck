@@ -1,0 +1,93 @@
+import { describe, expect, it } from "vitest";
+import type { SpawnMcpInput } from "@keepdeck/plugin-api";
+import { mcpArgs } from "./mcp";
+
+const input = (...servers: SpawnMcpInput["servers"]): SpawnMcpInput => ({
+  servers,
+});
+
+const server = (name: string): SpawnMcpInput["servers"][number] => ({
+  name,
+  transport: "stdio",
+  command: "/bin/keepdeck",
+  args: ["--mcp-shim", "/home/mcp.sock"],
+});
+
+describe("codex MCP overrides", () => {
+  it("emits one -c override per server, not one for the first", () => {
+    // The bank contributes more members than the built-in transport; a
+    // renderer that emitted a single entry would drop the rest silently.
+    expect(mcpArgs(input(server("keepdeck"), server("mnemo")))).toEqual([
+      "-c",
+      'mcp_servers."keepdeck"={command="/bin/keepdeck",args=["--mcp-shim","/home/mcp.sock"]}',
+      "-c",
+      'mcp_servers."mnemo"={command="/bin/keepdeck",args=["--mcp-shim","/home/mcp.sock"]}',
+    ]);
+  });
+
+  it("quotes the server NAME — it is a TOML key, not just a label", () => {
+    // Bare, a dot addresses a nested table: `mcp_servers.a.b={…}` declares b
+    // UNDER a, and collides outright with a sibling `mcp_servers.a={…}` inline
+    // table, which is closed. The host constrains names today, but this
+    // renderer must not depend on a rule enforced three layers away.
+    const dotted = mcpArgs(input(server("my.server")))[1]!;
+    expect(dotted.startsWith('mcp_servers."my.server"=')).toBe(true);
+    // And a quote in a name cannot break out of the key either.
+    expect(mcpArgs(input(server('ev"il')))[1]!.startsWith('mcp_servers."ev\\"il"=')).toBe(
+      true,
+    );
+  });
+
+  it("escapes what TOML cannot carry raw", () => {
+    // The value is parsed as TOML: an unescaped quote or backslash makes the
+    // override a literal string, or refused outright. App bundles on Windows
+    // and paths with quotes are the realistic sources.
+    const quoted = {
+      ...server("keepdeck"),
+      command: 'C:\\Program Files\\Keep"Deck\\keepdeck.exe',
+      args: ["--mcp-shim", "/tmp/a\tb"],
+    };
+    expect(mcpArgs(input(quoted))[1]).toBe(
+      'mcp_servers."keepdeck"={command="C:\\\\Program Files\\\\Keep\\"Deck\\\\keepdeck.exe",' +
+        'args=["--mcp-shim","/tmp/a\\tb"]}',
+    );
+  });
+
+  it("escapes what has no literal form in a TOML basic string", () => {
+    // The catch-all must not undo the specific escapes above it: a reordered
+    // replace chain would double-escape a newline into a literal backslash-n
+    // and codex would receive a path that is not the one we meant.
+    //
+    // The control characters are written as ESCAPE SEQUENCES, never as literal
+    // bytes: a raw NUL in the source makes git treat this whole file as
+    // binary, and the one test covering control-character escaping becomes
+    // invisible in every diff.
+    const odd = {
+      ...server("keepdeck"),
+      command: "/tmp/line\nbreak\rreturn",
+      args: ["\u0000", "\u007f", "", "путь"],
+    };
+    const override = mcpArgs(input(odd))[1]!;
+    expect(override).toContain('command="/tmp/line\\nbreak\\rreturn"');
+    expect(override).toContain('args=["\\u0000","\\u007f","","путь"]');
+  });
+
+  it("renders a server that takes no arguments and no env", () => {
+    const bare = { ...server("keepdeck"), args: [] };
+    expect(mcpArgs(input(bare))[1]).toBe(
+      'mcp_servers."keepdeck"={command="/bin/keepdeck",args=[]}',
+    );
+  });
+
+  it("declares env explicitly — codex does not pass its own to MCP children", () => {
+    // Probe-verified on 0.146: the child gets a core allowlist only, so a
+    // value left to inheritance reaches three CLIs and not this one.
+    const withEnv = { ...server("keepdeck"), env: { KD_PANE: "pane-3" } };
+    expect(mcpArgs(input(withEnv))[1]).toContain('env={"KD_PANE"="pane-3"}');
+  });
+
+  it("adds nothing when there is nothing to inject", () => {
+    expect(mcpArgs(undefined)).toEqual([]);
+    expect(mcpArgs(input())).toEqual([]);
+  });
+});

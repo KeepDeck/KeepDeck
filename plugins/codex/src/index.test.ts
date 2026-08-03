@@ -30,6 +30,45 @@ const input = {
 };
 
 describe("codex plugin hooks", () => {
+  it("injected MCP servers ride -c overrides on spawn AND resume", async () => {
+    const mcp = {
+      servers: [
+        {
+          name: "keepdeck",
+          transport: "stdio" as const,
+          command: "/bin/keepdeck",
+          args: ["--mcp-shim", "/home/mcp.sock"],
+        },
+      ],
+    };
+
+    const spawn = output();
+    await activate("/kd/hook.sh").hooks["spawn.plan"]!({ ...input, mcp }, spawn);
+    expect(spawn.args.join(" ")).toContain('mcp_servers."keepdeck"=');
+
+    const resume = output();
+    await activate("/kd/hook.sh").hooks["resume.plan"]!({ ...input, mcp, sessionId: "s" }, resume);
+    // Global overrides must stay AHEAD of the `resume` subcommand.
+    const overrideAt = resume.args.findIndex((a) => a.startsWith("mcp_servers."));
+    expect(overrideAt).toBeGreaterThan(-1);
+    expect(overrideAt).toBeLessThan(resume.args.indexOf("resume"));
+
+    // A fork is a spawn like any other, and its own assertions slice the
+    // argv's head and tail — so dropping mcpArgs there would pass them all.
+    const fork = output();
+    await activate("/kd/hook.sh").hooks["fork.plan"]!(
+      { ...input, mcp, sessionId: "uuid-9", sourceCwd: "/old" },
+      fork,
+    );
+    const forkOverrideAt = fork.args.findIndex((a) => a.startsWith("mcp_servers."));
+    expect(forkOverrideAt).toBeGreaterThan(-1);
+    expect(forkOverrideAt).toBeLessThan(fork.args.indexOf("fork"));
+
+    const bare = output();
+    await activate("/kd/hook.sh").hooks["spawn.plan"]!(input, bare);
+    expect(bare.args.join(" ")).not.toContain("mcp_servers.");
+  });
+
   it("arms the identity and status hooks via -c overrides, id NOT adopted", async () => {
     const agent = activate("/App/resources/kd-session-hook.sh");
     const out = output();

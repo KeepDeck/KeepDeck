@@ -28,6 +28,18 @@ describe("mcp ipc", () => {
       command: "/bin/keepdeck",
       args: ["--mcp-shim"],
     });
-    expect(invoke).toHaveBeenCalledWith("mcp_connection_command");
+    // No secret: the copy-pasteable command the settings page shows must
+    // stay anonymous, so a hand-wired server is not attributed to a pane.
+    expect(invoke).toHaveBeenCalledWith("mcp_connection_command", {
+      client: undefined,
+    });
+  });
+
+  it("mcpConnectionCommand can name the pane a spawn is for", async () => {
+    invoke.mockResolvedValueOnce({ command: "/bin/keepdeck", args: [] });
+    await mcpConnectionCommand("pane-3-secret");
+    expect(invoke).toHaveBeenCalledWith("mcp_connection_command", {
+      client: "pane-3-secret",
+    });
   });
 });

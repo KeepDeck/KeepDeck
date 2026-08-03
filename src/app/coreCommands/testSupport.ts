@@ -1,3 +1,12 @@
+/**
+ * The host the core commands are registered against: the mocked IPC they
+ * reach, a deck stub that records what they did, and a fresh registry.
+ *
+ * Every suite must import THIS module before anything else that reaches the
+ * mocked IPC. The doubles below register when this module evaluates, and
+ * `../coreCommands` — which every suite also wants — pulls the real
+ * `ipc/worktree` in if it is imported first.
+ */
 import { vi } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import { createCommandRegistry } from "../../domain/commands";
@@ -8,7 +17,7 @@ import type {
   CreatePaneRequest,
   ResumeRequest,
 } from "../agentOrchestrator";
-import { registerCoreCommands } from "../coreCommands";
+import { registerCoreCommands } from ".";
 import type { SuspendOutcome } from "../suspendOutcome";
 import type { Deck } from "../useDeck";
 

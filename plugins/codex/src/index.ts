@@ -12,6 +12,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { codexHistory } from "./history";
 import { icon } from "./icon";
+import { mcpArgs } from "./mcp";
 import { cliArgs, shellQuote } from "./trust";
 import { normalizeCodexStatus } from "./status";
 import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
@@ -108,6 +109,7 @@ const plugin: KeepDeckPlugin = {
           output.args = [
             ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
+            ...mcpArgs(input.mcp),
             ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
           ];
@@ -116,6 +118,7 @@ const plugin: KeepDeckPlugin = {
           output.args = [
             ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
+            ...mcpArgs(input.mcp),
             ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
             "resume",
@@ -130,6 +133,7 @@ const plugin: KeepDeckPlugin = {
           output.args = [
             ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
+            ...mcpArgs(input.mcp),
             ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
             "fork",

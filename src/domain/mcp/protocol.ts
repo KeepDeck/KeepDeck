@@ -32,7 +32,13 @@ export interface McpServerIdentity {
  * caller binds the external source identity. */
 export interface McpCommandPort {
   list(): CommandInfo[];
-  execute(id: string, args: CommandArgs): Promise<CommandResult>;
+  /** `client` is what THIS connection introduced itself as, unresolved — the
+   * caller binds it to a source identity (or to none). */
+  execute(
+    id: string,
+    args: CommandArgs,
+    client: string | null,
+  ): Promise<CommandResult>;
 }
 
 /** A registry id as an MCP tool name: external tool-name grammars are
@@ -76,7 +82,6 @@ function projectTools(list: CommandInfo[]): {
       name,
       description: info.title,
       inputSchema: schemaOf(info.args),
-      annotations: { destructiveHint: info.destructive },
     });
   }
   return { tools, byName };
@@ -96,6 +101,9 @@ export async function handleMcpLine(
   port: McpCommandPort,
   identity: () => McpServerIdentity,
   line: string,
+  /** Who is asking, as the transport heard it — passed through to `execute`
+   * verbatim, because resolving a name is not this projection's business. */
+  client: string | null = null,
 ): Promise<string | null> {
   let message: unknown;
   try {
@@ -158,7 +166,7 @@ export async function handleMcpLine(
       const args = (rawArgs ?? {}) as CommandArgs;
       let outcome: CommandResult;
       try {
-        outcome = await port.execute(command.id, args);
+        outcome = await port.execute(command.id, args, client);
       } catch (e) {
         // The registry contract never throws; a port that does anyway is an
         // internal fault, not a tool failure.

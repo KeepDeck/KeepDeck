@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { updateSettings } from "../../app/settingsManager";
-import { useMcpStatus } from "../../app/useMcpStatus";
+import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
 import { shellLine } from "../../domain/mcp";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
-import { mcpConnectionCommand } from "../../ipc/mcp";
+import { writeText } from "../../ipc/clipboard";
 
 /**
  * Experimental features ([F6] → Experimental) — opt-in capabilities that ship
@@ -23,7 +23,10 @@ import { mcpConnectionCommand } from "../../ipc/mcp";
  * The connect row keys on the CONFIRMED transport status, not the setting:
  * the setting is a wish, and the two differ exactly when the user most needs
  * to know (another instance already holds the socket, enable failed) — so a
- * failed transition renders its error where the command would be.
+ * failed transition renders its error where the command would be. The command
+ * itself arrives WITH that status: it is a fact about the running transport,
+ * true whether or not this dialog is open, so the MCP owner looks it up once
+ * per settled transition instead of this row re-fetching on every mount.
  */
 export function ExperimentalSection() {
   const settings = useSettings();
@@ -31,31 +34,16 @@ export function ExperimentalSection() {
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
   const mcpServer = settings?.mcpServer ?? DEFAULT_SETTINGS.mcpServer;
   const mcpStatus = useMcpStatus();
-  // The command is fetched, not computed: only the backend knows where this
-  // install's binary lives. A fetch failure is a message, never a silently
-  // missing row — the server IS serving.
-  const [connect, setConnect] = useState<string | null>(null);
-  const [connectError, setConnectError] = useState<string | null>(null);
   const served = mcpStatus.socket !== null;
-  useEffect(() => {
-    if (!served) {
-      setConnect(null);
-      setConnectError(null);
-      return;
-    }
-    let stale = false;
-    void mcpConnectionCommand()
-      .then((connection) => {
-        if (!stale) setConnect(shellLine(connection));
-      })
-      .catch((e: unknown) => {
-        if (!stale)
-          setConnectError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      stale = true;
-    };
-  }, [served]);
+  // The invocation comes from the transport's own status — a fact about the
+  // running socket, not something this row goes and fetches. Rendering it as
+  // a shell line is the only part that is this component's.
+  const connect = mcpStatus.connect ? shellLine(mcpStatus.connect) : null;
+  const connectError = mcpStatus.connectError;
+  // Reset whenever the command changes, so the confirmation can never stand
+  // over a line the user has not actually copied.
+  const [copied, setCopied] = useState(false);
+  useEffect(() => setCopied(false), [connect]);
 
   return (
     <>
@@ -99,6 +87,32 @@ export function ExperimentalSection() {
         experimental.
       </span>
 
+      {served && (
+        // Said only while the socket is CONFIRMED up: a pane is given the
+        // server at spawn, so this promise is only true when there is one.
+        <span className="settings__hint">
+          New agent panes connect to it automatically — nothing to add on the
+          agent’s side. Panes that are already running pick it up when they
+          restart.
+        </span>
+      )}
+
+      {mcpStatus.refused.length > 0 && (
+        // The one case where a pane silently lacks what every other pane got,
+        // so the folder AND the reason are on screen: the fix is the user's to
+        // make, and it differs — move your own config aside, or the folder is
+        // gone, or it could not be written. A single asserted reason sent
+        // people looking for a file that was not there.
+        <span className="settings__hint kd-selectable">
+          KeepDeck’s MCP server was not added for Kimi panes in these folders:
+          {mcpStatus.refused.map((refusal) => (
+            <span key={refusal.root} className="settings__refusal">
+              {refusal.root} — {refusal.reason}
+            </span>
+          ))}
+        </span>
+      )}
+
       {mcpStatus.error !== null && (
         // Unconditional: a failed DISABLE happens exactly when the setting
         // is already Off — gating on the setting would hide the one report
@@ -111,15 +125,27 @@ export function ExperimentalSection() {
       {served && connect !== null && (
         <>
           <span className="form__label">MCP connect</span>
-          <input
-            className="form__input"
-            readOnly
-            value={connect}
-            onFocus={(e) => e.currentTarget.select()}
-          />
+          {/* Read-only by nature, so it must not look like a field — and
+              the copy sits in an ordinary control row underneath, where
+              every other button in settings lives. */}
+          <div className="settings__command kd-selectable">{connect}</div>
+          <div className="form__types">
+            <button
+              type="button"
+              className="form__type"
+              onClick={() => {
+                void writeText(connect)
+                  .then(() => setCopied(true))
+                  .catch(() => setCopied(false));
+              }}
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
           <span className="settings__hint">
-            The stdio command an MCP client spawns to reach the deck — add it
-            to any client as a stdio server.
+            For MCP clients KeepDeck does not start itself — a desktop app, an
+            editor, an agent you run outside the deck. Panes started here are
+            connected already.
             {mcpStatus.error !== null &&
               " This was the last confirmed socket; the problem above may mean it is no longer reachable."}
           </span>

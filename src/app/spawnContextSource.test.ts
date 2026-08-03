@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMPTY_SPAWN_CONTEXT, type SpawnPlanContext } from "../domain/agents";
+import { EMPTY_SPAWN_CONTEXT, type SpawnPlanContext } from "./spawnSpecs";
 import { createSpawnContextSource } from "./spawnContextSource";
 
 /** A loader whose promise the test settles by hand. */

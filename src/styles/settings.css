@@ -117,6 +117,33 @@
   color: #c9a23c;
 }
 
+/* A command the user copies rather than edits (the MCP connect line). Same
+   surface as .form__input — it belongs to the same family of value rows — but
+   not a field: as an <input> it invited a caret and a typing attempt, and
+   clipped the interesting half of a long path. Wraps on any character,
+   because absolute paths have no spaces to break at; the copy button follows
+   in an ordinary .form__types row, like every other control in settings. */
+.settings__command {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  color: #c5c8c6;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* One refused folder and why. A block per entry rather than a comma list:
+   each carries a path plus a sentence, and run together they read as one
+   sentence about the wrong folder. */
+.settings__refusal {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
 .settings__number {
   width: 140px;
 }

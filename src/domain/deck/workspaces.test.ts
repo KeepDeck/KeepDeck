@@ -8,10 +8,8 @@ import {
   findWorkspace,
   findWorkspaceOfPane,
   firstFreeWorktree,
-  gitWatchPaths,
   moveWorkspace,
   parentDir,
-  paneExecutionCwd,
   renamePane,
   renameWorkspace,
   resolveActiveId,
@@ -30,6 +28,7 @@ import {
   worktreeTargets,
   type Workspace,
 } from "./workspaces";
+import { gitWatchPaths, paneExecutionCwd } from "./roots";
 import { type Pane } from "./panes";
 import { createWorkspaceInstance } from "../workspaceInstance";
 

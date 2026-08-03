@@ -19,9 +19,6 @@ export interface CommandSpec {
   /** Human-readable name, shown in journals/pickers and to external clients. */
   title: string;
   args: ArgSpec[];
-  /** Marks a command whose effect is hard to undo (close, delete). Invokers
-   * decide what to do with it (confirm, badge); the registry only records it. */
-  destructive?: boolean;
   /** The effect. `source` is who invoked it (host / a plugin / an external
    * client) — a handler that scopes to the caller reads it (e.g. `settings.open`
    * lands on the calling plugin's own section); most ignore it. A returned
@@ -35,7 +32,6 @@ export interface CommandInfo {
   id: string;
   title: string;
   args: ArgSpec[];
-  destructive: boolean;
 }
 
 /** Who asked. Journaled with every call — the voice history reads it, and
@@ -46,7 +42,17 @@ export interface CommandInfo {
 export type CommandSource =
   | { kind: "host" }
   | { kind: "plugin"; pluginId: string }
-  | { kind: "external"; client: string };
+  | {
+      kind: "external";
+      /** The transport that minted the call. */
+      client: string;
+      /** The pane whose agent is calling, when the connection proved which
+       * one it is. Absent = an anonymous client (a server the user wired up
+       * by hand, or a secret that no longer resolves — a lingering child of a
+       * pane that is gone). `id` is a REUSABLE slot, so `label` snapshots how
+       * the pane read at call time and stays meaningful afterwards. */
+      pane?: { id: string; workspaceId: string; label: string };
+    };
 
 export type CommandError =
   | { code: "unknown-command"; message: string }
@@ -164,7 +170,6 @@ export function createCommandRegistry(
         id: s.id,
         title: s.title,
         args: s.args,
-        destructive: s.destructive ?? false,
       })),
 
     async execute(id, args, source) {

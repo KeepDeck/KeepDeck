@@ -1,4 +1,4 @@
-import { skillRootsOf } from "../domain/deck";
+import { panesRunningIn } from "../domain/deck";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
@@ -22,7 +22,9 @@ import {
 } from "./downloadManager";
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
-import { createMcpService } from "./mcpService";
+import { createMcpService } from "./mcp";
+import { createPaneIdentity } from "./mcp/paneIdentity";
+import { paneIdByMcpToken } from "./spawnSpecs";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
@@ -47,7 +49,7 @@ import {
 } from "./usageHistoryManager";
 import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
 import { createAppWindowReportJournal } from "./windowReportJournal";
-import { createWorktreeManager } from "./worktrees";
+import { createWorktreeManager, deckViewOf } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
@@ -79,10 +81,31 @@ export function createAppRuntime(
     minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
     subscribe: subscribeSettings,
   });
-  const mcp = createMcpService({
-    mcpServer: () => getSettings()?.mcpServer ?? null,
-    subscribe: subscribeSettings,
-  });
+  const mcp = createMcpService(
+    {
+      mcpServer: () => getSettings()?.mcpServer ?? null,
+      subscribe: subscribeSettings,
+    },
+    {
+      panesIn: (cwd) =>
+        panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
+      // kimi's config lands in a pane's cwd, so the owner of those directories
+      // decides when it may. These two exist only to break the construction
+      // cycle between the two owners — `worktrees` is built below and neither
+      // is called before a spawn, long after.
+      plant: (workspaceId, root, content) =>
+        worktrees.plantMcp(workspaceId, root, content),
+      retract: (roots) => worktrees.retractMcp(roots),
+      identify: createPaneIdentity({
+        workspaces: () => deckStore.getSnapshot().workspaces,
+        paneOf: paneIdByMcpToken,
+        agents: () =>
+          plugins.pluginRegistries.agents
+            .list()
+            .map(({ entry }) => ({ id: entry.id, label: entry.label })),
+      }),
+    },
+  );
   const journalPersistence = createJournalPersistence(
     deckStore,
     deckPersistence,
@@ -96,24 +119,9 @@ export function createAppRuntime(
   const statusTracker = createAgentStatusTracker();
   const telemetry = createPaneTelemetry(usageManager, statusTracker);
   const windowReportJournal = createAppWindowReportJournal(usageManager);
-  const worktrees = createWorktreeManager({
-    rootsOf: (ref) => {
-      const workspace = deckStore
-        .getSnapshot()
-        .workspaces.find(
-          (candidate) =>
-            candidate.id === ref.id && candidate.instance === ref.instance,
-        );
-      return workspace ? skillRootsOf(workspace) : [];
-    },
-    live: () =>
-      deckStore
-        .getSnapshot()
-        .workspaces.map((workspace) => ({
-          id: workspace.id,
-          roots: skillRootsOf(workspace),
-        })),
-  });
+  const worktrees = createWorktreeManager(
+    deckViewOf(() => deckStore.getSnapshot().workspaces),
+  );
   const orchestrator = createAgentOrchestrator({
     deck: deckStore,
     spawnContext,
@@ -136,6 +144,7 @@ export function createAppRuntime(
     plugins,
     probe: probeWorktree,
     worktrees,
+    mcpAccess: (target) => mcp.access(target),
     telemetry: { retire: telemetry.retire },
   });
   const application = createApplicationController(

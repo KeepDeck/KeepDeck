@@ -1,7 +1,7 @@
 import {
   EMPTY_SPAWN_CONTEXT,
   type SpawnPlanContext,
-} from "../domain/agents";
+} from "./spawnSpecs";
 import { describeError, log } from "../ipc/log";
 import { spawnContext } from "../ipc/sessions";
 

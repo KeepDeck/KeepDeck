@@ -133,6 +133,11 @@ export interface SpawnPlanInput {
    * its CLI's way of loading them. Absent when there is nothing to inject,
    * and on hosts older than API 22. */
   skills?: SpawnSkillsInput;
+  /** The MCP servers this pane's agent should be given: a hook renders them
+   * in its CLI's dialect. Absent when there is nothing to inject (the
+   * KeepDeck transport is off, or the user's set is empty) and on hosts
+   * older than API 31. */
+  mcp?: SpawnMcpInput;
   /** Where the agent should run. Absent = local (and absent on hosts older
    * than API 27); a supporting agent's `spawn.plan` reads `kind`/`endpoint`
    * to emit its remote-client argv. A non-remote agent ignores it. */
@@ -155,6 +160,57 @@ export interface SpawnSkillsInput {
    * `--skills-dir`; the shape codex's `.agents/skills` would take once its
    * injection lands. */
   skillsDir: string;
+}
+
+/** The MCP servers to declare to one spawning agent.
+ *
+ * A LIST, never one server: KeepDeck's own transport is the first member and
+ * a user-managed set follows, so a hook RENDERS EACH — a dialect that
+ * hardcodes one entry silently drops the rest.
+ *
+ * The server union has one arm today. When remote (http) servers arrive, a
+ * hook that does not handle them stops compiling instead of dropping them. */
+export interface SpawnMcpInput {
+  servers: McpServerSpec[];
+}
+
+/** One locally spawned (stdio) MCP server, as the host declares it. */
+export interface McpStdioServerSpec {
+  /** The key the CLI files this server under, and the prefix its tools carry
+   * (`mcp__<name>__…`); constrained to `[A-Za-z0-9_-]`. */
+  name: string;
+  transport: "stdio";
+  command: string;
+  args: string[];
+  /** Extra environment for the server process. Declared rather than left to
+   * inheritance — codex hands its MCP children a core allowlist only. */
+  env?: Record<string, string>;
+}
+
+export type McpServerSpec = McpStdioServerSpec;
+
+/**
+ * Render each injected server by transport, in order.
+ *
+ * The one place a CLI dialect fans out over transports: when a second arm
+ * (remote servers) lands, every renderer that has not been taught it stops
+ * compiling here instead of quietly emitting a config with the server
+ * missing.
+ */
+export function mapMcpServers<T>(
+  servers: readonly McpServerSpec[],
+  visit: { stdio(server: McpStdioServerSpec): T },
+): T[] {
+  return servers.map((server) => {
+    switch (server.transport) {
+      case "stdio":
+        return visit.stdio(server);
+      default: {
+        const unsupported: never = server.transport;
+        throw new Error(`unsupported MCP transport: ${String(unsupported)}`);
+      }
+    }
+  });
 }
 
 export interface ResumePlanInput extends SpawnPlanInput {

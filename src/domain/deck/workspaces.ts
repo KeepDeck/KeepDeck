@@ -697,37 +697,9 @@ export function baseName(path: string): string {
   return norm.slice(norm.lastIndexOf("/") + 1);
 }
 
-/** The directory a pane would run in right now. Provisioning panes without a
- * resolved `cwd` deliberately have none yet: falling back to the workspace cwd
- * would describe the wrong process location. */
-export function paneExecutionCwd(ws: Workspace, pane: Pane): string | null {
-  if (pane.provisioning && !pane.cwd) return null;
-  return pane.cwd ?? ws.cwd;
-}
-
-/** The distinct effective directories whose git HEAD the app may observe for
- * pane-header branch badges and worktree cleanup decisions. */
-/** The workspace's pane spawn cwds, deduped: worktree roots and the
- * workspace cwd alike — wherever a CLI actually starts. Skills staging arms
- * each of these with the codex-facing `.agents/skills` symlink. */
-export function skillRootsOf(ws: Workspace): string[] {
-  return [
-    ...new Set(
-      ws.panes.filter((p) => !p.provisioning).map((p) => p.cwd ?? ws.cwd),
-    ),
-  ];
-}
-
-export function gitWatchPaths(workspaces: Workspace[]): Set<string> {
-  const paths = new Set<string>();
-  for (const ws of workspaces) {
-    for (const pane of ws.panes) {
-      const path = paneExecutionCwd(ws, pane);
-      if (path) paths.add(path);
-    }
-  }
-  return paths;
-}
+// The pane→directory projections live in [`./roots`]: everything KeepDeck
+// plants in a working directory keys off them, and they change for entirely
+// different reasons than workspace membership or pane state do.
 
 /** Move the workspace with `id` to `toIndex` (clamped to the list), preserving
  * the order of the rest. Returns the SAME array reference when nothing moves, so

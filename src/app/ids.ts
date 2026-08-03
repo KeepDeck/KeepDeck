@@ -36,6 +36,12 @@ export function seedAgentSeq(min: number): void {
   nextAgentSeq = Math.max(nextAgentSeq, min);
 }
 
+/** Mint a per-pane MCP secret — what an injected client announces so the
+ * deck can name the pane behind a connection (see `SpawnPlan.mcpToken`). */
+export function mintMcpToken(): string {
+  return crypto.randomUUID();
+}
+
 /** Mint a per-spawn bridge token (`buildSpawnPlan`'s `mintToken`) — the
  * secret a reporter must echo for its postback to be believed. */
 export function mintBridgeToken(): string {

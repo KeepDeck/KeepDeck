@@ -91,6 +91,34 @@ describe("claude plugin hooks", () => {
     expect(settings.statusLine.command).toContain("kd-usage-statusline.sh");
   });
 
+  it("injected MCP servers ride --mcp-config on spawn AND resume", async () => {
+    const agent = activate(SESSION_HOOK);
+    const mcp = {
+      servers: [
+        {
+          name: "keepdeck",
+          transport: "stdio" as const,
+          command: "/bin/keepdeck",
+          args: ["--mcp-shim", "/home/mcp.sock"],
+        },
+      ],
+    };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, mcp }, spawn);
+    expect(spawn.args).toContain("--mcp-config");
+
+    // A resumed pane is the same session to the user, so it gets the same
+    // servers — the resume hook must not be the one that forgets.
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...input, mcp, sessionId: "s" }, resume);
+    expect(resume.args).toContain("--mcp-config");
+
+    const bare = output();
+    await agent.hooks["spawn.plan"]!(input, bare);
+    expect(bare.args).not.toContain("--mcp-config");
+  });
+
   it("staged skills load as a local plugin via --plugin-dir", async () => {
     const agent = activate(SESSION_HOOK);
     const skills = {
@@ -200,6 +228,41 @@ describe("claude fork.plan", () => {
       ],
     ]);
     expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
+  });
+
+  it("carries the injected MCP servers too — a fork is a spawn like any other", async () => {
+    // The other fork assertions slice the argv's head and tail, so dropping
+    // `mcpArgs(input.mcp)` from this hook would pass every one of them.
+    const agent = activate(SESSION_HOOK, []);
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      {
+        ...forkInput,
+        cwd: "/repo/wt_2.x",
+        mcp: {
+          servers: [
+            {
+              name: "keepdeck",
+              transport: "stdio" as const,
+              command: "/bin/keepdeck",
+              args: ["--mcp-shim", "/home/mcp.sock"],
+            },
+          ],
+        },
+      },
+      out,
+    );
+
+    const at = out.args.indexOf("--mcp-config");
+    expect(at).toBeGreaterThan(-1);
+    expect(JSON.parse(out.args[at + 1]!)).toEqual({
+      mcpServers: {
+        keepdeck: {
+          command: "/bin/keepdeck",
+          args: ["--mcp-shim", "/home/mcp.sock"],
+        },
+      },
+    });
   });
 
   it("rejects without a recorded transcript path — no guessing, no surgery", async () => {

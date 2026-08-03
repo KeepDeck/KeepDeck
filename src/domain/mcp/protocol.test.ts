@@ -16,13 +16,11 @@ const SPAWN: CommandInfo = {
     { name: "workspace", type: "string", required: true, description: "Target" },
     { name: "task", type: "string", description: "Initial prompt" },
   ],
-  destructive: false,
 };
 const CLOSE: CommandInfo = {
   id: "agent.close",
   title: "Close an agent pane",
   args: [],
-  destructive: true,
 };
 
 function port(
@@ -107,8 +105,6 @@ describe("handleMcpLine — tools", () => {
       },
       required: ["workspace"],
     });
-    expect(spawn.annotations).toEqual({ destructiveHint: false });
-    expect(close.annotations).toEqual({ destructiveHint: true });
     // No required args → no required key at all (an empty array is noise).
     expect(close.inputSchema).toEqual({ type: "object", properties: {} });
   });
@@ -121,7 +117,7 @@ describe("handleMcpLine — tools", () => {
         arguments: { workspace: "api" },
       })),
     );
-    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" });
+    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" }, null);
     expect(reply.result.isError).toBe(false);
     expect(JSON.parse(reply.result.content[0].text)).toEqual({ paneId: "p1" });
   });
