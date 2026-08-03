@@ -63,6 +63,24 @@ export function speaksForPane(
   );
 }
 
+/**
+ * Whether a report comes from the process this pane's generation is pinned
+ * to. Either side silent means the question cannot be asked — a reporter too
+ * old to answer, or a `ps` that could not — and the caller falls back to the
+ * rules that need no process.
+ *
+ * Shared by the binding rule and the report lanes, because the secret they
+ * both authenticate with is inherited by the pane's whole process tree: a
+ * guard on one lane and not the other is how a refused session keeps
+ * reporting through the weaker one.
+ */
+export function sameProcess(
+  pinned: string | undefined,
+  reported: string | undefined,
+): boolean {
+  return pinned === undefined || reported === undefined || pinned === reported;
+}
+
 /** Why a binding was refused — one reason per rule, so a log line says which
  * rule spoke rather than only that something did. */
 export type BindingRefusal =
@@ -124,11 +142,7 @@ export function bindingVerdict(claim: BindingClaim): BindingVerdict {
   // session whatever it calls itself — this is the rule that catches a nested
   // `--resume`, which reports a continuation and would otherwise walk past
   // the origin check below.
-  if (
-    claim.boundReporter !== undefined &&
-    claim.reportedReporter !== undefined &&
-    claim.boundReporter !== claim.reportedReporter
-  ) {
+  if (!sameProcess(claim.boundReporter, claim.reportedReporter)) {
     return refuse("foreign-process");
   }
   // Same process, second fresh session: an in-process teammate or subsession.

@@ -121,6 +121,9 @@ describe("kd-status-hook.sh", () => {
       token: "tok",
       payload: {
         agent: "claude",
+        // The reporting process — the deck pins a pane's identity to it and
+        // refuses reports from another, so this lane carries it too.
+        reporter: expect.stringMatching(/^\d+$/),
         event: { hook_event_name: "Stop", extra: "kept" },
       },
     });
@@ -156,7 +159,11 @@ describe("kd-status-hook.sh", () => {
       type: "agent.status",
       paneId: "pane-3",
       token: "tok",
-      payload: { agent: "claude", event: { hook_event_name: "Stop" } },
+      payload: {
+        agent: "claude",
+        reporter: expect.stringMatching(/^\d+$/),
+        event: { hook_event_name: "Stop" },
+      },
     });
   });
 

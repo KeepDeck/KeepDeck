@@ -27,6 +27,18 @@ import { randomUUID } from "node:crypto";
 import { renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+/**
+ * Which process is reporting, on every lane this file publishes.
+ *
+ * The deck pins a pane's identity to one reporting process and refuses the
+ * others — the bridge secret is inherited by the pane's whole process tree,
+ * so it cannot tell them apart on its own. This reporter runs INSIDE the
+ * agent, so the agent's own pid is that name; a nested opencode gets its own
+ * and is refused. The shell reporters answer the same question with the
+ * process group of the hook's parent, since a hook is not the agent.
+ */
+const REPORTER = String(process.pid);
+
 export default async (input = {}) => {
   let bridge;
   try {
@@ -157,10 +169,7 @@ export default async (input = {}) => {
         sessionId: sessionID,
         agent: "opencode",
         source: continuing ? "new" : "startup",
-        // This reporter IS the agent process, so its pid names the process
-        // the deck pins the pane's generation to. A nested opencode gets its
-        // own, and the deck refuses it.
-        reporter: String(process.pid),
+        reporter: REPORTER,
       },
     });
 
@@ -224,7 +233,7 @@ export default async (input = {}) => {
       type: "agent.status",
       paneId: pane,
       token,
-      payload: { agent: "opencode", event: { type, ...extra } },
+      payload: { agent: "opencode", reporter: REPORTER, event: { type, ...extra } },
     });
 
   /** Whether a session-scoped event describes the PANE's conversation: the
@@ -340,6 +349,7 @@ export default async (input = {}) => {
       token,
       payload: {
         agent: "opencode",
+        reporter: REPORTER,
         sessionId: currentRoot.sessionID,
         model: currentRoot.modelID,
         sequence: ++sequence,

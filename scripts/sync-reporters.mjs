@@ -59,6 +59,25 @@ function banner(name) {
   ].join("\n");
 }
 
+/**
+ * `# @include lib/<file>` — the one way these scripts share anything.
+ *
+ * They cannot `.`-source a sibling at runtime: each ships into a different
+ * plugin, and kimi's companion is copied onto the user's machine as a
+ * directory, so a shared file would have to exist in three places anyway.
+ * Expanding at generation time keeps ONE authored copy of a block three
+ * reporters need — how a process names itself — without teaching the shipped
+ * scripts a dependency they cannot resolve.
+ */
+function expandIncludes(text, name) {
+  return text.replace(/^# @include (\S+)[ \t]*$/gm, (_line, target) => {
+    if (target.includes("..")) {
+      throw new Error(`${name}: refusing to include outside the reporters dir`);
+    }
+    return readFileSync(join(CANONICAL_DIR, target), "utf8").trimEnd();
+  });
+}
+
 /** Exactly what each destination must contain. */
 export function rendered(name) {
   const source = readFileSync(join(CANONICAL_DIR, name), "utf8");
@@ -66,7 +85,8 @@ export function rendered(name) {
   if (!source.startsWith("#!") || newline === -1) {
     throw new Error(`${name}: a reporter must open with a shebang line`);
   }
-  return `${source.slice(0, newline)}\n${banner(name)}\n${source.slice(newline + 1)}`;
+  const body = expandIncludes(source.slice(newline + 1), name);
+  return `${source.slice(0, newline)}\n${banner(name)}\n${body}`;
 }
 
 /** Destinations whose contents differ from `rendered`, as repo-relative paths. */

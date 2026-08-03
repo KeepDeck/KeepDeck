@@ -77,7 +77,16 @@ export function createVerifiedPaneReports(
         isRecord(payload) && typeof payload.agent === "string"
           ? payload.agent
           : undefined;
-      if (!attribution.admitsReport(paneId, token, reportedAgent)) {
+      // Correlation, like `agent` — not payload schema. A reporter that
+      // cannot name its process omits it, and the pane's pin then decides
+      // nothing rather than refusing everything.
+      const reportedReporter =
+        isRecord(payload) && typeof payload.reporter === "string"
+          ? payload.reporter
+          : undefined;
+      if (
+        !attribution.admitsReport(paneId, token, reportedAgent, reportedReporter)
+      ) {
         log.warn(
           "web:bridge",
           `${label} for ${paneId} from ${reportedAgent ?? "an unnamed agent"} — ignored`,

@@ -14,16 +14,17 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 /**
- * The SessionStart reporter, exercised as the real script on the payload
- * shapes claude and codex produce. It is authored once under
- * resources/reporters/ and shipped into each plugin; this runs the canonical
- * file, and scripts/reporterScripts.test.mjs is what pins the shipped copies
- * to it. kimi's own branch (transcript through its session index) is covered
- * against kimi's shipped copy in plugins/kimi/src/reporter.test.ts.
+ * The SessionStart reporter, EXECUTED on the payload shapes claude and codex
+ * produce. It runs the SHIPPED copy, like every other reporter suite: that is
+ * what a spawned CLI opens, and the canonical file under resources/reporters/
+ * is a template whose `@include`s only exist once rendered. What pins the
+ * copies to that template is scripts/reporterScripts.test.mjs. kimi's own
+ * branch (transcript through its session index) is covered against kimi's
+ * copy in plugins/kimi/src/reporter.test.ts.
  */
 const SCRIPT = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../../resources/reporters/kd-session-hook.sh",
+  "../resources/kd-session-hook.sh",
 );
 
 const dirs: string[] = [];

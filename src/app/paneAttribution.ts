@@ -1,5 +1,6 @@
 import {
   bindingVerdict,
+  sameProcess,
   secretMatches,
   speaksForPane,
   type BindingOrigin,
@@ -38,6 +39,7 @@ export interface PaneAttribution {
     paneId: string,
     reportedSecret: string,
     reportedAgent: string | undefined,
+    reportedReporter: string | undefined,
   ): boolean;
   /** This pane's generation now has an identity, reported by this process:
    * a later fresh session, or any session from another process, is somebody
@@ -124,10 +126,14 @@ export function createPaneAttribution(
         reportedReporter: report.reporter,
       });
     },
-    admitsReport(paneId, reportedSecret, reportedAgent) {
+    admitsReport(paneId, reportedSecret, reportedAgent, reportedReporter) {
       return (
         secretMatches(deps.secretOf(paneId), reportedSecret) &&
-        speaksForPane(agentOf(paneId), reportedAgent)
+        speaksForPane(agentOf(paneId), reportedAgent) &&
+        // The same pin the binding uses: a nested run refused an identity is
+        // still holding a valid secret, and its statusline would otherwise
+        // write this pane's usage and context with another session's numbers.
+        sameProcess(bound.get(paneId), reportedReporter)
       );
     },
     recordBinding(paneId, reporter) {

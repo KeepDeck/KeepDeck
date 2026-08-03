@@ -45,6 +45,23 @@ pane=$(field pane)
 token=$(field token)
 [ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
+# WHICH process is reporting — the process GROUP of the hook's parent.
+#
+# The bridge secret proves only "something under this pane", so the deck needs
+# a value a nested CLI cannot forge by inheriting the environment. This is it,
+# and it is measured rather than assumed: across one agent process every hook
+# invocation reports the same group (the agent leads it), while a CLI started
+# from a tool call lands in the group that call created and reports another.
+# The hook's OWN group is useless here — agents spawn hooks detached, so it is
+# unique per invocation.
+#
+# Best-effort like everything else: a `ps` that cannot answer yields no field,
+# and the deck falls back to the rules that do not need one.
+reporter=$(ps -o pgid= -p "$PPID" 2>/dev/null | tr -d ' ')
+case $reporter in
+  '' | *[!0-9]*) reporter="" ;;
+esac
+
 payload=$(cat)
 [ -n "$payload" ] || exit 0
 
@@ -89,6 +106,14 @@ fi
 # nothing at $f and the rm is a no-op. The inbox never sweeps strays itself.
 f=$(mktemp "$dir/agent.status-XXXXXXXX" 2>/dev/null) || exit 0
 trap 'rm -f "$f"' EXIT INT TERM
-printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s}}' \
-  "$pane" "$token" "$agent" "$payload" > "$f" && mv "$f" "$f.json"
+# The reporting process rides on this lane too: the pane's identity is pinned
+# to one process, and a report from another is somebody else's numbers no
+# matter how correct its secret and agent are.
+if [ -n "$reporter" ]; then
+  printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","reporter":"%s","event":%s}}' \
+    "$pane" "$token" "$agent" "$reporter" "$payload" > "$f" && mv "$f" "$f.json"
+else
+  printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s}}' \
+    "$pane" "$token" "$agent" "$payload" > "$f" && mv "$f" "$f.json"
+fi
 exit 0

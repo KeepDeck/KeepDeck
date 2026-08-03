@@ -49,22 +49,7 @@ pane=$(field pane)
 token=$(field token)
 [ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
-# WHICH process is reporting — the process GROUP of the hook's parent.
-#
-# The bridge secret proves only "something under this pane", so the deck needs
-# a value that a nested CLI cannot forge by inheriting the environment. This
-# is that value, and it is measured, not assumed: across one agent process
-# every hook invocation reports the same group (the agent leads it), while a
-# CLI started from a tool call lands in the group that call created, so it
-# reports a different one. The hook's OWN group is useless here — agents
-# spawn hooks detached, so it is unique per invocation.
-#
-# Best-effort like everything else: a `ps` that cannot answer yields no field
-# and the deck falls back to judging by the session's reported origin alone.
-reporter=$(ps -o pgid= -p "$PPID" 2>/dev/null | tr -d ' ')
-case $reporter in
-  '' | *[!0-9]*) reporter="" ;;
-esac
+# @include lib/reporter-identity.sh
 
 payload=$(cat)
 # session ids are UUIDs — no escapes inside the quoted value, sed is safe.

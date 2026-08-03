@@ -141,16 +141,30 @@ describe("createPaneAttribution", () => {
     expect(owner.judge(report({ paneId: "pane-2" }))).toEqual({
       accepted: true,
     });
-    expect(owner.admitsReport("pane-2", "tok", "claude")).toBe(true);
+    expect(owner.admitsReport("pane-2", "tok", "claude", "4021")).toBe(true);
   });
 
   it("admits a report only from the pane's own agent, with the pane's secret", () => {
     const owner = attribution();
-    expect(owner.admitsReport("pane-1", "tok", "claude")).toBe(true);
-    expect(owner.admitsReport("pane-1", "tok", "kimi")).toBe(false);
-    expect(owner.admitsReport("pane-1", "forged", "claude")).toBe(false);
-    expect(owner.admitsReport("pane-1", "tok", undefined)).toBe(false);
+    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
+    expect(owner.admitsReport("pane-1", "tok", "kimi", "4021")).toBe(false);
+    expect(owner.admitsReport("pane-1", "forged", "claude", "4021")).toBe(false);
+    expect(owner.admitsReport("pane-1", "tok", undefined, "4021")).toBe(false);
     // A pane the deck no longer holds has no agent to speak for.
-    expect(owner.admitsReport("pane-gone", "tok", "claude")).toBe(false);
+    expect(owner.admitsReport("pane-gone", "tok", "claude", "4021")).toBe(false);
+  });
+
+  it("refuses a report from a process the pane's generation is not pinned to", () => {
+    // The lane the identity rule does not cover: a nested run refused a
+    // binding still holds a valid secret and names the pane's own agent, and
+    // its statusline would otherwise write this pane's usage and context.
+    const owner = attribution();
+    owner.recordBinding("pane-1", "4021");
+    expect(owner.admitsReport("pane-1", "tok", "claude", "9137")).toBe(false);
+    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
+    // Before anything bound, and from a reporter that cannot name itself,
+    // the pin has nothing to say and the other two rules decide alone.
+    expect(owner.admitsReport("pane-2", "tok", "claude", "9137")).toBe(true);
+    expect(owner.admitsReport("pane-1", "tok", "claude", undefined)).toBe(true);
   });
 });

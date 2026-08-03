@@ -42,6 +42,8 @@ pane=$(field pane)
 token=$(field token)
 [ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
+# @include lib/reporter-identity.sh
+
 payload=$(cat)
 [ -n "$payload" ] || exit 0
 
@@ -86,6 +88,14 @@ fi
 # nothing at $f and the rm is a no-op. The inbox never sweeps strays itself.
 f=$(mktemp "$dir/agent.status-XXXXXXXX" 2>/dev/null) || exit 0
 trap 'rm -f "$f"' EXIT INT TERM
-printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s}}' \
-  "$pane" "$token" "$agent" "$payload" > "$f" && mv "$f" "$f.json"
+# The reporting process rides on this lane too: the pane's identity is pinned
+# to one process, and a report from another is somebody else's numbers no
+# matter how correct its secret and agent are.
+if [ -n "$reporter" ]; then
+  printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","reporter":"%s","event":%s}}' \
+    "$pane" "$token" "$agent" "$reporter" "$payload" > "$f" && mv "$f" "$f.json"
+else
+  printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s}}' \
+    "$pane" "$token" "$agent" "$payload" > "$f" && mv "$f" "$f.json"
+fi
 exit 0

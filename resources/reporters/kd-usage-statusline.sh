@@ -55,6 +55,7 @@ if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
   dir=$(field dir)
   pane=$(field pane)
   token=$(field token)
+# @include lib/reporter-identity.sh
   if [ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ]; then
     # The session's last-turn time, stamped onto the report so the webview's
     # freshest-wins ranks account windows by WHEN the data was captured, not
@@ -92,6 +93,10 @@ if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
           "$pane" "$token"
         printf '%s' "$payload"
         [ -n "$mtime" ] && printf ',"sourceMtimeMs":%s' "$mtime"
+        # The reporting process, for the same reason the binding carries it:
+        # a nested run's statusline holds a valid secret and would otherwise
+        # overwrite this pane's numbers with another session's.
+        [ -n "$reporter" ] && printf ',"reporter":"%s"' "$reporter"
         printf '}}'
       } > "$f" && mv "$f" "$f.json"
     fi

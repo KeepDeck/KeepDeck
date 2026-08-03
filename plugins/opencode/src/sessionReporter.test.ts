@@ -185,6 +185,9 @@ describe("opencode session reporter", () => {
         token: "tok",
         payload: {
           agent: "opencode",
+          // Every lane this reporter publishes names its process: the deck
+          // pins the pane to one and refuses reports from another.
+          reporter: String(process.pid),
           sessionId: "ses_root",
           model: "claude-sonnet-5",
           sequence: 1,
