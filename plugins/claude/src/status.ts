@@ -31,17 +31,6 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
 }
 
 /**
- * Whether this hook fired from INSIDE a subagent rather than on the main
- * thread. claude's own schema names `agent_id` as the discriminator — it is
- * "present only when the hook fires from within a subagent… absent for the
- * main thread, even in `--agent` sessions" — and explicitly warns off
- * `agent_type`, which the main thread also carries in an `--agent` session.
- */
-function fromSubagent(event: Record<string, unknown>): boolean {
-  return typeof event.agent_id === "string";
-}
-
-/**
  * claude's turn-lifecycle payloads → status edges. The reporter wraps each
  * hook payload verbatim under `event`; the fields here are pinned by the
  * shipped binary's own hook schemas (2.1.220):
@@ -61,13 +50,13 @@ function fromSubagent(event: Record<string, unknown>): boolean {
  *   idle they run ≥6s late. The waiting edge is therefore best-effort for
  *   claude; `Stop` still settles the turn either way. `idle_prompt` and
  *   the rest are not turn states — dropped.
- * - `PostToolUse` → resumed, but only from the MAIN thread ([`fromSubagent`]).
- *   claude has no approval-REPLY hook, but an approved tool RUNS — its
- *   completion is the first post-approval hook and proves the wait
- *   resolved. For a long-running tool the amber clears only when the tool
- *   finishes (late, but bounded by the tool, not the turn); mid-turn
- *   repeats are absorbed by the reducer without an emit, so per-tool
- *   volume costs nothing downstream.
+ * - `PostToolUse` → resumed. claude has no approval-REPLY hook, but an
+ *   approved tool RUNS — its completion is the first post-approval hook
+ *   and proves the wait resolved. For a long-running tool the amber
+ *   clears only when the tool finishes (late, but bounded by the tool,
+ *   not the turn); mid-turn repeats are absorbed by the reducer without
+ *   an emit, so per-tool volume costs nothing downstream. Subagent tool
+ *   calls arrive here too — see the case for why they are NOT filtered.
  *
  * A user interrupt (Esc) pushes NO hook — that edge arrives from the
  * host's transcript tailer as a `kind: "session.interrupt"` payload
@@ -98,13 +87,19 @@ export const normalizeClaudeStatus: StatusNormalizer = (
         ? { kind: "parked", at }
         : { kind: "turn-end", at };
     case "PostToolUse":
-      // A subagent's own tool calls reach this hook too, and they prove
-      // nothing about the MAIN thread's approval — the wait this edge would
-      // resolve. Worse, background agents run concurrently, so agent B's
-      // tool call would clear a prompt agent A is still blocked on, and the
-      // next nudge would re-raise it: a flapping banner over a question
-      // nobody answered. Only the main thread's tools resolve a wait.
-      return fromSubagent(event) ? null : { kind: "resumed", at };
+      // KNOWN IMPRECISION, deliberately kept. A subagent's own tool calls
+      // reach this hook too (they carry `agent_id`), so with several agents
+      // in flight one agent's completion can clear a wait another raised.
+      // Gating on `agent_id` was tried and is WORSE: a wait is not tagged
+      // with who raised it — claude's `Notification` carries no agent id —
+      // so dropping subagent edges also drops the one that genuinely
+      // resolved the wait, and a synchronous Task blocks the main thread
+      // from sending any, leaving an answered approval amber for the whole
+      // subagent run. Clearing early self-corrects (the next idle nudge
+      // re-raises it); a stuck amber does not. Recoverable wins, the same
+      // rule [`outlivesTurn`] follows. A real fix needs the wait to carry
+      // its raiser, which needs data claude does not yet give us.
+      return { kind: "resumed", at };
     case "StopFailure":
       return turnFailedEvent(at, event.error, event.error_details);
     case "Notification":

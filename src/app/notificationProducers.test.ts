@@ -444,7 +444,7 @@ describe("claude background agents, replayed end to end", () => {
     );
   });
 
-  it("a background agent's question stands through parking and sibling tools", () => {
+  it("a background agent's question survives the turn parking", () => {
     hook({ hook_event_name: "UserPromptSubmit" }, 100);
     // A background agent needs input. claude reports it on the main
     // session's hook, so this is the only place the question can surface.
@@ -456,17 +456,22 @@ describe("claude background agents, replayed end to end", () => {
     expect(activity()).toEqual(asked);
     expect(center.notify).toHaveBeenCalledTimes(1);
 
-    // Parking answers nothing: the work still running is what asked.
+    // Parking answers nothing — the work still running is what asked — so
+    // the question stands, unretracted and un-re-announced. This is the
+    // whole reason the parked edge is not `resumed`, which WOULD clear it.
     hook({ hook_event_name: "Stop", background_tasks: [runningSubagent] }, 300);
-    expect(activity()).toEqual(asked);
-
-    // Nor does a SIBLING agent's tool call. Resolving on any completion
-    // would retract a question nobody answered, and the next nudge would
-    // raise it again — a banner flapping over a live prompt.
-    hook({ hook_event_name: "PostToolUse", agent_id: "another-agent" }, 400);
     expect(activity()).toEqual(asked);
     expect(center.retractNotification).not.toHaveBeenCalled();
     expect(center.notify).toHaveBeenCalledTimes(1);
+
+    // A tool completion does clear it — from any thread. That is imprecise
+    // (nothing records who raised the wait) and knowingly kept: the
+    // alternative stranded answered approvals on amber indefinitely.
+    hook({ hook_event_name: "PostToolUse", agent_id: runningSubagent.id }, 400);
+    expect(activity()).toEqual({ state: "working", since: 400 });
+    expect(center.retractNotification).toHaveBeenCalledWith(
+      "pane:pane-1:activity",
+    );
   });
 
   it("surfaces a question raised after the turn parked", () => {

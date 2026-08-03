@@ -129,34 +129,27 @@ describe("normalizeClaudeStatus", () => {
     ).toEqual({ kind: "turn-end", at: 800 });
   });
 
-  it("only the main thread's tool completions resolve a wait", () => {
-    // A background agent's own tools reach the same armed hook, carrying
-    // `agent_id`. They prove nothing about the main thread's approval — and
-    // with several agents running, agent B's tool call would clear a prompt
-    // agent A is blocked on.
-    expect(
-      normalizeClaudeStatus(
-        wrap({
-          hook_event_name: "PostToolUse",
-          tool_name: "Bash",
-          agent_id: "acb5bea0d1b3101fd",
-          agent_type: "general-purpose",
-        }),
-        500,
-      ),
-    ).toBeNull();
-    // `agent_type` alone is NOT the discriminator — the main thread carries
-    // it too in an `--agent` session, so this one still resolves.
-    expect(
-      normalizeClaudeStatus(
-        wrap({
-          hook_event_name: "PostToolUse",
-          tool_name: "Bash",
-          agent_type: "general-purpose",
-        }),
-        510,
-      ),
-    ).toEqual({ kind: "resumed", at: 510 });
+  it("resolves a wait on any tool completion, a subagent's included", () => {
+    // Filtering subagent edges on `agent_id` was tried and reverted: a wait
+    // records nothing about WHO raised it, so dropping them also drops the
+    // completion that actually answered it — and a synchronous Task blocks
+    // the main thread from sending any, stranding an answered approval on
+    // amber for the whole subagent run. Clearing early self-corrects; a
+    // stuck amber does not.
+    for (const event of [
+      { hook_event_name: "PostToolUse", tool_name: "Edit" },
+      {
+        hook_event_name: "PostToolUse",
+        tool_name: "Bash",
+        agent_id: "acb5bea0d1b3101fd",
+        agent_type: "general-purpose",
+      },
+    ]) {
+      expect(normalizeClaudeStatus(wrap(event), 500)).toEqual({
+        kind: "resumed",
+        at: 500,
+      });
+    }
   });
 
   it("fails a turn that died even with background work still running", () => {
