@@ -331,6 +331,13 @@ describe("UsageStats", () => {
     )!;
     expect(earned.querySelector(".stats__achievement-dress")).not.toBeNull();
     expect(earned.querySelector(".stats__achievement-rim")).not.toBeNull();
+    // Every decorative layer wears the shared class that keeps the card's
+    // content rules — position and stacking — away from it.
+    for (const layer of earned.querySelectorAll(
+      ".stats__achievement-dress, .stats__achievement-rim, .stats__achievement-embers",
+    )) {
+      expect(layer.classList.contains("stats__achievement-layer")).toBe(true);
+    }
     const locked = cards.find((card) =>
       card.classList.contains("stats__achievement--locked"),
     )!;

@@ -115,8 +115,8 @@ function AchievementCard({
           spectrum. Which levels light which is decided in the stylesheet;
           the card only says which level it is. The rim comes first so its
           ground sits UNDER the cut and only its lit edge shows. */}
-      <span className="stats__achievement-rim" aria-hidden />
-      <span className="stats__achievement-dress" aria-hidden />
+      <span className="stats__achievement-rim stats__achievement-layer" aria-hidden />
+      <span className="stats__achievement-dress stats__achievement-layer" aria-hidden />
       {item.rarity === "legendary" && !locked ? <AchievementEmbers /> : null}
       <span className="stats__achievement-icon" aria-hidden>
         {item.icon}

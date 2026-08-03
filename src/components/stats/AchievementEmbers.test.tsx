@@ -55,7 +55,11 @@ describe("AchievementEmbers", () => {
     const host = render();
     const canvas = host.querySelector("canvas");
     expect(canvas).not.toBeNull();
-    expect(canvas!.className).toBe("stats__achievement-embers");
+    // The layer class is what keeps the card's content rules off this
+    // element. Without it the canvas joins the flow, grows the card, and
+    // the card's height feeds straight back into the canvas's own size.
+    expect(canvas!.classList.contains("stats__achievement-layer")).toBe(true);
+    expect(canvas!.classList.contains("stats__achievement-embers")).toBe(true);
     // Decorative: it carries no meaning a reader would miss.
     expect(canvas!.getAttribute("aria-hidden")).toBe("true");
   });

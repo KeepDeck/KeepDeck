@@ -62,8 +62,13 @@
   pointer-events: none;
 }
 
-.stats__achievement
-  > *:not(.stats__achievement-dress):not(.stats__achievement-rim) {
+/* Content rides above the decoration. The decorative layers are named by ONE
+   shared class rather than listed here: a list would silently miss the next
+   layer added, and the ember canvas is what that cost — captured by this
+   rule it became `position: relative`, entered the flow, and then grew the
+   card whose height its own bitmap is measured from. That is a feedback
+   loop, and the cards grew without bound. */
+.stats__achievement > *:not(.stats__achievement-layer) {
   position: relative;
   z-index: 1;
 }

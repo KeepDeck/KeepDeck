@@ -23,6 +23,8 @@ const EMBERS = CELLS_X * CELLS_Y;
 /** How far past the badge an ember may drift, and therefore how much room
  * the canvas needs beyond it. Must match the CSS inset. */
 const HALO = 26;
+/** A badge is ~150×90; nothing legitimate approaches this. */
+const MAX_SIDE = 600;
 
 interface Ember {
   cell: number;
@@ -101,8 +103,16 @@ export function AchievementEmbers() {
      * still. */
     const measure = () => {
       const box = card.getBoundingClientRect();
-      const next = Math.max(1, Math.round(box.width + HALO * 2));
-      const nextHeight = Math.max(1, Math.round(box.height + HALO * 2));
+      // Clamped, and not out of caution: this canvas takes its size FROM the
+      // card, so anything that lets it affect the card's size closes a loop
+      // and the pair grows without bound. It happened — a content rule
+      // captured the canvas and put it back in the flow. The cap turns that
+      // class of mistake into a wrong-looking badge instead of a hang.
+      const next = Math.min(MAX_SIDE, Math.max(1, Math.round(box.width + HALO * 2)));
+      const nextHeight = Math.min(
+        MAX_SIDE,
+        Math.max(1, Math.round(box.height + HALO * 2)),
+      );
       if (next === width && nextHeight === height) return;
       width = next;
       height = nextHeight;
@@ -157,6 +167,10 @@ export function AchievementEmbers() {
   // right and bottom offsets — the box then stops short of the card's lower
   // edge and every ember drawn down there falls outside it.
   return (
-    <canvas ref={canvasRef} className="stats__achievement-embers" aria-hidden />
+    <canvas
+      ref={canvasRef}
+      className="stats__achievement-embers stats__achievement-layer"
+      aria-hidden
+    />
   );
 }
