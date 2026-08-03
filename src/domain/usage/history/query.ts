@@ -1,7 +1,9 @@
 import type { TokenCounts } from "@keepdeck/plugin-api";
+import { modelLabel } from "../format";
 import { addMoney } from "../money";
 import { DAY_MS } from "../time";
 import {
+  providerCostOf,
   TOKEN_KEYS,
   tokenTotal,
   usageSessionKey,
@@ -80,7 +82,7 @@ export function queryUsageStats(
 
   for (const event of selected) {
     addEvent(totals, event);
-    const modelKey = [event.agent, event.model ?? "unknown"].join("\0");
+    const modelKey = [event.agent, modelLabel(event.model)].join("\0");
     const model = rowFor(modelRows, modelKey, event);
     addEvent(model, event);
 
@@ -154,8 +156,9 @@ function addEvent(
     if (value !== undefined) target.tokens[key] = (target.tokens[key] ?? 0) + value;
   }
   target.totalTokens += tokenTotal(event.tokens);
-  if (event.costSource === "provider") {
-    target.providerCostUsd = addMoney(target.providerCostUsd, event.costUsd);
+  const cost = providerCostOf(event);
+  if (cost !== null) {
+    target.providerCostUsd = addMoney(target.providerCostUsd, cost);
     target.costEvents += 1;
   }
   if ("lastOccurredAt" in target) {

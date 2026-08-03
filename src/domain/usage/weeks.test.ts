@@ -117,6 +117,20 @@ describe("usageWeeks", () => {
     });
   });
 
+  it("labels a missing OR empty model as the same unknown bucket", () => {
+    const weeks = usageWeeks(
+      [
+        event({ model: undefined, tokens: { input: 100 } }),
+        event({ model: "", tokens: { input: 200 } }),
+      ],
+      NOW,
+    );
+    expect(weeks[0].topModel).toMatchObject({
+      model: "Unknown model",
+      totalTokens: 300, // one bucket, not two spellings of unknown
+    });
+  });
+
   it("never counts the future — same guard as every stats query", () => {
     const weeks = usageWeeks(
       [

@@ -1,5 +1,9 @@
-import { formatUtcDay } from "./format";
-import { tokenTotal, type UsageEventV2 } from "./history/event";
+import { formatUtcDay, modelLabel } from "./format";
+import {
+  providerCostOf,
+  tokenTotal,
+  type UsageEventV2,
+} from "./history/event";
 import { addMoney } from "./money";
 import { DAY_MS, utcDayStart } from "./time";
 
@@ -79,19 +83,21 @@ export function usageWeeks(
     const tokens = tokenTotal(event.tokens);
     fold.totalTokens += tokens;
     fold.byAgent.set(event.agent, (fold.byAgent.get(event.agent) ?? 0) + tokens);
-    const modelKey = `${event.agent}\0${event.model ?? ""}`;
+    const label = modelLabel(event.model);
+    const modelKey = `${event.agent}\0${label}`;
     const model = fold.models.get(modelKey);
     if (model) {
       model.totalTokens += tokens;
     } else {
       fold.models.set(modelKey, {
         agent: event.agent,
-        model: event.model ?? "Unknown model",
+        model: label,
         totalTokens: tokens,
       });
     }
-    if (event.costSource === "provider") {
-      fold.providerCostUsd = addMoney(fold.providerCostUsd, event.costUsd);
+    const cost = providerCostOf(event);
+    if (cost !== null) {
+      fold.providerCostUsd = addMoney(fold.providerCostUsd, cost);
       fold.costEvents += 1;
     }
   }

@@ -1,4 +1,4 @@
-import { formatTokens, formatUtcDay, PERIOD_LABELS } from "./format";
+import { formatTokens, formatUtcDay, modelLabel, PERIOD_LABELS } from "./format";
 import { tokenTotal, type UsageEventV2 } from "./history/event";
 import {
   periodCutoff,
@@ -100,7 +100,7 @@ function topModel(current: UsageStats): UsageRecap["topModel"] {
     if (top === null || row.totalTokens > top.totalTokens) {
       top = {
         agent: row.agent,
-        model: row.model ?? "Unknown model",
+        model: modelLabel(row.model),
         totalTokens: row.totalTokens,
       };
     }

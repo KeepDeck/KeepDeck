@@ -312,3 +312,11 @@ function readTokens(value: Record<string, unknown>): TokenCounts | null {
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+/** The event's provider-reported cost, or null when it carries none —
+ * THE inclusion rule for every money fold (overview totals, provider
+ * windows, achievements, weeks): only "provider"-sourced costs enter
+ * totals, so a new cost source cannot silently split the folds. */
+export function providerCostOf(event: UsageEventV2): number | null {
+  return event.costSource === "provider" ? event.costUsd : null;
+}
