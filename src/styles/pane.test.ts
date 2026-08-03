@@ -228,7 +228,7 @@ describe("pane header", () => {
     // the mutation probe for this test is what caught it. No match here means
     // NaN, and NaN fails both assertions loudly.
     const rung = Number(
-      /@container \(max-width: (\d+)px\)\s*\{\s*\.pane__branch\s*\{/.exec(
+      /@container[^{(]*\(max-width: (\d+)px\)\s*\{\s*\.pane__branch\s*\{/.exec(
         paneCss,
       )?.[1],
     );

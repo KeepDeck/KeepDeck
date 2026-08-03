@@ -90,7 +90,13 @@
   /* Query container for the header controls: a narrow pane collapses the branch
      badge to an icon-only chip and then sheds controls by priority (see the
      @container rules below). */
-  container-type: inline-size;
+  /* Named, so the rungs below answer to THIS box and say so. An unnamed query
+     binds to the nearest container ancestor, so giving .pane__actions a
+     container-type — the obvious next step, collapsing the cluster by its own
+     width — would silently retarget every rung to the cluster and change what
+     the never-hide guarantee means, with no test able to see it (happy-dom
+     evaluates no @container at all). */
+  container: pane-header / inline-size;
   /* The hard floor: whatever the collapse cascade hasn't hidden yet may never
      paint past the pane's edge onto a neighbour or the dock. */
   overflow: clip;
@@ -235,7 +241,7 @@
    The ctx figure is the one estimate here (its label is text, not a
    declaration); every other number is read out of this file by pane.test.ts,
    which fails if a chip or button grows without its rung growing too. */
-@container (max-width: 430px) {
+@container pane-header (max-width: 430px) {
   /* The ctx meter is text with no icon to collapse to, and the least load-
      bearing thing in the cluster — it yields first rather than staying
      full-width and pushing the window controls off the edge. */
@@ -255,7 +261,7 @@
    that class, and CSS has no way to apply another rule's block. They are
    copied on purpose, and chip.test.ts fails if the copy ever stops matching
    the original. */
-@container (max-width: 355px) {
+@container pane-header (max-width: 355px) {
   .pane__branch {
     width: var(--chip-diameter);
     padding: 0;
@@ -269,7 +275,7 @@
 
 /* Narrower: the branch chip yields entirely — identity goes first, window
    controls last. */
-@container (max-width: 200px) {
+@container pane-header (max-width: 200px) {
   .pane__branch,
   /* The activity dot yields with it: the FRAME still carries the state,
      and a header this narrow must never squeeze maximize/close out. */
@@ -281,7 +287,7 @@
 /* Minimal header: minimize yields too, and the YOLO dot is the last chip to
    go. Maximize and close never hide — a pane this narrow is exactly one you
    want to maximize or close. */
-@container (max-width: 150px) {
+@container pane-header (max-width: 150px) {
   .pane__action--minimize,
   .pane__yolo {
     display: none;
