@@ -11,19 +11,24 @@ import {
 import { createPortal } from "react-dom";
 import { tipPosition, type TipPlacement } from "./tipPlacement";
 
-/** The generic hover/focus tip for plain-HTML surfaces (the weeks bar,
- * the achievement cards), styled like the chart's own tooltip so hover
+/** The one open tip's closer — a hover layer is a spotlight, and two at
+ * once (a focused anchor plus a hovered one) read as a glitch: opening
+ * any tip closes whichever other one is up. */
+let closeOpenTip: (() => void) | null = null;
+
+/** The generic hover tip for plain-HTML surfaces (the weeks bar, the
+ * achievement cards), styled like the chart's own tooltip so hover
  * answers look the same everywhere. Placement is NOT decided here — the
  * one home is [`tipPosition`], shared with the minimized-agent details:
  * measured flip, viewport clamps, whole pixels. The card portals to the
  * body (a scrolling ancestor would clip it), recomputes on scroll and
- * resize, and remeasures when its content changes while open. Reachable
- * by keyboard: the anchor is focusable and the tip is its description. */
+ * resize, and remeasures itself when its content grows while open. */
 export function Tooltip({
   tip,
   className,
   style,
   delayMs = 0,
+  focusable = false,
   children,
 }: {
   tip: ReactNode;
@@ -34,8 +39,13 @@ export function Tooltip({
   style?: CSSProperties;
   /** Hover intent: how long the cursor must rest before the card shows.
    * A grid swept by the mouse (achievements) wants a pause; a lone bar
-   * answers instantly. Keyboard focus always opens immediately. */
+   * answers instantly. Focus, when enabled, always opens immediately. */
   delayMs?: number;
+  /** Opt-in keyboard access: the anchor joins the tab order and the tip
+   * becomes its description. Deliberately NOT the default — a grid of
+   * fifty cards would flood the tab order with generic stops; a handful
+   * of bars will not. */
+  focusable?: boolean;
   children: ReactNode;
 }) {
   const id = useId();
@@ -51,7 +61,22 @@ export function Tooltip({
       enterTimer.current = null;
     }
   };
-  useEffect(() => cancelEnter, []);
+  const hide = useCallback(function hideTip() {
+    setOpen(false);
+    if (closeOpenTip === hideTip) closeOpenTip = null;
+  }, []);
+  const show = useCallback(() => {
+    closeOpenTip?.();
+    closeOpenTip = hide;
+    setOpen(true);
+  }, [hide]);
+  useEffect(
+    () => () => {
+      cancelEnter();
+      if (closeOpenTip === hide) closeOpenTip = null;
+    },
+    [hide],
+  );
 
   const recompute = useCallback(() => {
     const anchor = anchorRef.current;
@@ -71,42 +96,57 @@ export function Tooltip({
     );
   }, []);
 
-  // `tip` is a dep on purpose: content growing while open (a live ledger
-  // append adds a row) must remeasure, or the card drifts off its anchor.
+  // The ResizeObserver carries content growth (a live ledger append adds
+  // a row to an open tip) without putting the tip node in the deps — an
+  // inline `tip` changes identity on every PARENT render and would churn
+  // the window listeners once per wall-clock tick.
   useLayoutEffect(() => {
     if (!open) return;
     recompute();
+    const card = tipRef.current;
+    const observer =
+      typeof ResizeObserver !== "undefined" && card
+        ? new ResizeObserver(recompute)
+        : null;
+    if (observer && card) observer.observe(card);
     window.addEventListener("scroll", recompute, true);
     window.addEventListener("resize", recompute);
     return () => {
+      observer?.disconnect();
       window.removeEventListener("scroll", recompute, true);
       window.removeEventListener("resize", recompute);
     };
-  }, [open, recompute, tip]);
+  }, [open, recompute]);
 
   return (
     <span
       ref={anchorRef}
       className={`kd-tip__anchor${className ? ` ${className}` : ""}`}
       style={style}
-      tabIndex={0}
-      aria-describedby={open ? id : undefined}
+      {...(focusable
+        ? {
+            tabIndex: 0,
+            "aria-describedby": open ? id : undefined,
+            onFocus: () => {
+              cancelEnter();
+              show();
+            },
+            onBlur: hide,
+          }
+        : {})}
       onMouseEnter={() => {
         if (delayMs > 0) {
-          enterTimer.current = window.setTimeout(() => setOpen(true), delayMs);
+          enterTimer.current = window.setTimeout(show, delayMs);
         } else {
-          setOpen(true);
+          show();
         }
       }}
       onMouseLeave={() => {
         cancelEnter();
-        setOpen(false);
+        // A focus-opened tip belongs to the FOCUS: brushing the cursor
+        // across the anchor must not steal it from the keyboard.
+        if (anchorRef.current !== document.activeElement) hide();
       }}
-      onFocus={() => {
-        cancelEnter();
-        setOpen(true);
-      }}
-      onBlur={() => setOpen(false)}
     >
       {children}
       {open &&

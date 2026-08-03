@@ -313,32 +313,38 @@ describe("UsageStats", () => {
     clickTab("Achievements");
 
     // Tips live behind the shared Tooltip now: nothing renders until the
-    // card is hovered or focused, then the layer PORTALS to the body so
-    // the scroller cannot clip it. Focus opens without the hover delay.
-    const cards = [...host.querySelectorAll(".stats__achievement")];
-    expect(document.querySelector('[role="tooltip"]')).toBeNull();
-    const focus = (card: Element, on: boolean) =>
-      act(() => {
-        card.dispatchEvent(
-          new FocusEvent(on ? "focusin" : "focusout", { bubbles: true }),
-        );
-      });
-    const steam = cards.find((card) =>
-      card.textContent?.includes("Picking Up Steam"),
-    )!;
-    focus(steam, true);
-    expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
-      "2,000,000 of 10,000,000 — 20%",
-    );
-    focus(steam, false);
-    const earned = cards.find((card) =>
-      card.textContent?.includes("First Million"),
-    )!;
-    focus(earned, true);
-    expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
-      "Earned Jul 22, 2026",
-    );
-    focus(earned, false);
+    // hover-intent pause passes, then the layer PORTALS to the body so
+    // the scroller cannot clip it.
+    // beforeEach mocked only the date; this test needs ticking timers too.
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    try {
+      const cards = [...host.querySelectorAll(".stats__achievement")];
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+      const hover = (card: Element, type: "mouseover" | "mouseout") =>
+        act(() => {
+          card.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+          vi.advanceTimersByTime(450);
+        });
+      const steam = cards.find((card) =>
+        card.textContent?.includes("Picking Up Steam"),
+      )!;
+      hover(steam, "mouseover");
+      expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
+        "2,000,000 of 10,000,000 — 20%",
+      );
+      hover(steam, "mouseout");
+      const earned = cards.find((card) =>
+        card.textContent?.includes("First Million"),
+      )!;
+      hover(earned, "mouseover");
+      expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
+        "Earned Jul 22, 2026",
+      );
+      hover(earned, "mouseout");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the live streak chip in the footer corner with its heat tier", () => {

@@ -7,7 +7,6 @@
 }
 
 .stats__achievement {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;

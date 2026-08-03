@@ -146,6 +146,7 @@ function WeekBar({
 }) {
   return (
     <Tooltip
+      focusable
       style={{
         width: `${Math.max(2, Math.round((week.totalTokens / max) * 100))}%`,
       }}

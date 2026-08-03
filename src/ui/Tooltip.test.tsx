@@ -10,13 +10,17 @@ import { Tooltip } from "./Tooltip";
 let root: Root;
 afterEach(() => act(() => root.unmount()));
 
-function render() {
+function render(extra: Record<string, unknown> = {}) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
   act(() =>
     root.render(
-      createElement(Tooltip, { tip: "the detail card", children: "the anchor" }),
+      createElement(Tooltip, {
+        tip: "the detail card",
+        children: "the anchor",
+        ...extra,
+      }),
     ),
   );
   return host;
@@ -38,6 +42,40 @@ describe("Tooltip", () => {
     expect(tip.parentElement).toBe(document.body);
     expect(tip.textContent).toBe("the detail card");
     over(anchor, "mouseout");
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it("keeps ONE tip open — a second anchor steals the spotlight", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() =>
+      root.render(
+        createElement(
+          "div",
+          null,
+          createElement(Tooltip, { tip: "first", children: "a" }),
+          createElement(Tooltip, { tip: "second", children: "b" }),
+        ),
+      ),
+    );
+    const anchors = host.querySelectorAll(".kd-tip__anchor");
+    over(anchors[0], "mouseover");
+    over(anchors[1], "mouseover"); // the first never saw a mouseout
+    const tips = document.querySelectorAll('[role="tooltip"]');
+    expect(tips).toHaveLength(1);
+    expect(tips[0].textContent).toBe("second");
+  });
+
+  it("lets focus hold the tip through a brushing cursor", () => {
+    const host = render({ focusable: true });
+    const anchor = host.querySelector(".kd-tip__anchor") as HTMLElement;
+    act(() => anchor.focus());
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+    over(anchor, "mouseover");
+    over(anchor, "mouseout"); // the mouse leaves, the FOCUS stays
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+    act(() => anchor.blur());
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 });

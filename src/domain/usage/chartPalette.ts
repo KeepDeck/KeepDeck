@@ -83,7 +83,7 @@ export function agentSlotColor(agent: string): string {
  * ledger roster, never the selected period's subset, and a period switch
  * cannot repaint a provider. Past the spare slots the palette is exhausted
  * and overflow agents fold into gray. */
-export function agentSeriesColors(
+function agentSeriesColors(
   roster: readonly string[],
 ): Map<string, string> {
   const distinct = [...new Set(roster)];
