@@ -25,8 +25,8 @@ import type { AgentStatusEvent, StatusWaitReason } from "@keepdeck/plugin-api";
  * - The STATE absorbs (done/failed stand) catch reordered HOOK envelopes,
  *   which a receipt-stamped time cannot see its own reordering in.
  *
- * Only a fresh `turn-start` wins unconditionally — nothing but the
- * user's own prompt mints one.
+ * Only a fresh `turn-start` wins unconditionally — it is the one edge that
+ * says a NEW turn began, so nothing the old one left behind may survive it.
  */
 export type PaneActivity =
   /** A turn is running. `since` is when THIS running phase began — a wait
@@ -80,8 +80,12 @@ export function reduceActivity(
 ): PaneActivity {
   switch (event.kind) {
     case "turn-start":
-      // Only the user's own prompt mints this edge — a new turn trumps
-      // whatever the old one left behind.
+      // A new turn trumps whatever the old one left behind. NOT only the
+      // user's own prompt: a CLI also injects a turn of its own accord —
+      // finished background work waking the session, a scheduled fire — and
+      // that is a new turn too, so the phase restarts with it. (claude
+      // stamps the difference in `UserPromptSubmit.source`, but the field is
+      // vendor-internal and absent from the payloads we receive.)
       return { state: "working", since: event.at };
     case "waiting":
       // A wait can only park a RUNNING turn. After done/failed the edge is
@@ -116,6 +120,16 @@ export function reduceActivity(
         return { state: "working", since: event.at };
       }
       return current;
+    case "parked":
+      // The turn did not end, so nothing about the CURRENT phase changes:
+      // a running turn keeps running (and keeps its age — the work never
+      // stopped), and a standing wait STANDS, because the thing still
+      // running is exactly what may be asking. Parking resolves nothing.
+      // After done/failed it is an echo of a turn already closed, absorbed
+      // like every other late edge. The one thing it settles is a pane with
+      // no activity yet — attaching mid-session, or the first edge after a
+      // clear — where in-flight work is honestly "working".
+      return current ?? { state: "working", since: event.at };
     case "turn-end":
       if (endedTurnStands(current, event.at)) return current;
       return { state: "done", at: event.at, interrupted: false };

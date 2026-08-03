@@ -104,6 +104,39 @@ describe("reduceActivity", () => {
     expect(reduceActivity(working, { kind: "resumed", at: 500 })).toBe(working);
   });
 
+  it("parking leaves every live phase exactly as it found it", () => {
+    // A turn the CLI closed while work it started keeps running. The phase
+    // did not change, so neither may the state OR its identity — a parked
+    // edge that re-rendered every surface would be pure churn.
+    const working: PaneActivity = { state: "working", since: 100 };
+    expect(reduceActivity(working, { kind: "parked", at: 500 })).toBe(working);
+    // The wait STANDS. The thing still running is exactly what may be
+    // asking, so clearing it would retract a question nobody answered.
+    const waiting: PaneActivity = {
+      state: "waiting",
+      since: 200,
+      reason: "permission",
+    };
+    expect(reduceActivity(waiting, { kind: "parked", at: 500 })).toBe(waiting);
+  });
+
+  it("parking neither resurrects an ended turn nor leaves a fresh pane blank", () => {
+    const done: PaneActivity = { state: "done", at: 400, interrupted: false };
+    expect(reduceActivity(done, { kind: "parked", at: 500 })).toBe(done);
+    const failed: PaneActivity = {
+      state: "failed",
+      at: 400,
+      error: "rate_limit",
+    };
+    expect(reduceActivity(failed, { kind: "parked", at: 500 })).toBe(failed);
+    // Nothing known yet — attaching mid-session, or the first edge after a
+    // clear. In-flight work is honestly "working".
+    expect(reduceActivity(null, { kind: "parked", at: 500 })).toEqual({
+      state: "working",
+      since: 500,
+    });
+  });
+
   it("ends a turn as completed", () => {
     const working: PaneActivity = { state: "working", since: 100 };
     expect(reduceActivity(working, { kind: "turn-end", at: 400 })).toEqual({
