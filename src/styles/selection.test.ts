@@ -2,20 +2,11 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { STYLES_DIR, appCss } from "./testSupport";
 
-const STYLES_DIR = "src/styles";
 const PLUGINS_DIR = "plugins";
 
 const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
-
-const stylesIndex = readFileSync(join(STYLES_DIR, "index.css"), "utf8");
-const appCss = stripComments(
-  [...stylesIndex.matchAll(/@import\s+"([^"]+)"\s*;/g)]
-    .map((match) =>
-      readFileSync(join(STYLES_DIR, match[1].replace(/^\.\//, "")), "utf8"),
-    )
-    .join("\n"),
-);
 
 /**
  * Every stylesheet this repo AUTHORS — host, plugins and shared packages alike.
@@ -90,7 +81,7 @@ let sheet: HTMLStyleElement | undefined;
 function mount(html: string): void {
   if (!sheet) {
     sheet = document.createElement("style");
-    sheet.textContent = track(appCss);
+    sheet.textContent = track(stripComments(appCss));
     document.head.append(sheet);
   }
   document.body.innerHTML = html;
