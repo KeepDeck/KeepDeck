@@ -1,11 +1,15 @@
 import {
-  bindingOrigin,
   bindingVerdict,
   secretMatches,
   speaksForPane,
+  type BindingOrigin,
   type BindingVerdict,
 } from "../domain/agents";
-import { findWorkspaceOfPane, type Workspace } from "../domain/deck";
+import {
+  findWorkspaceOfPane,
+  paneAgentType,
+  type Workspace,
+} from "../domain/deck";
 import type { SessionBound } from "../ipc/sessions";
 
 /**
@@ -48,6 +52,39 @@ export interface PaneAttribution {
   forget(live: ReadonlySet<string>): void;
 }
 
+/**
+ * The words our agents actually report for a continued conversation, and the
+ * one place they are translated into the deck's two.
+ *
+ * This lives HERE, not in the domain rule, because it is per-vendor protocol
+ * vocabulary: it changes when a CLI changes, while the rule it feeds changes
+ * when the deck's idea of identity does. Today the four agents agree — claude
+ * defined the words, codex and kimi copied its hooks design, opencode's
+ * reporter says `new` for its one mid-life case — so one set is the whole
+ * translation. The moment two of them disagree, this is the seam that becomes
+ * a per-agent contribution beside `usage.normalize` and `status.normalize`.
+ */
+const SWAP_WORDS: ReadonlySet<string> = new Set([
+  "resume",
+  "clear",
+  "compact",
+  "fork",
+  "new",
+]);
+
+/**
+ * The CLI's own word for why a session started, read as one bit.
+ *
+ * Anything unrecognised — a word from a newer CLI, a field the reporter could
+ * not fill, a reporter too old to send one — reads as `startup`, the STRICT
+ * side: an unrecognised binding can then only be refused as a second start,
+ * never accepted as a continuation. Guessing the other way would hand every
+ * unknown word the one verdict that overwrites the pane's identity.
+ */
+export function bindingOrigin(source: string | undefined): BindingOrigin {
+  return source !== undefined && SWAP_WORDS.has(source) ? "swap" : "startup";
+}
+
 export interface PaneAttributionDeps {
   /** The deck as it is NOW: a pane's agent is read per call, because the
    * pane may have been closed or replaced since the report was written. */
@@ -64,10 +101,15 @@ export function createPaneAttribution(
    * reporter could not name itself). Presence IS "this generation bound". */
   const bound = new Map<string, string | undefined>();
 
-  const agentOf = (paneId: string): string | undefined =>
-    findWorkspaceOfPane(deps.workspaces(), paneId)?.panes.find(
-      (pane) => pane.id === paneId,
-    )?.agentType;
+  // Through the catalog's accessor, never the raw field: a pane with no
+  // recorded type RUNS the default agent and arms its reporter under that
+  // name, so reading the field raw would refuse every report the pane makes.
+  const agentOf = (paneId: string): string | undefined => {
+    const pane = findWorkspaceOfPane(deps.workspaces(), paneId)?.panes.find(
+      (candidate) => candidate.id === paneId,
+    );
+    return pane ? paneAgentType(pane) : undefined;
+  };
 
   return {
     judge(report) {

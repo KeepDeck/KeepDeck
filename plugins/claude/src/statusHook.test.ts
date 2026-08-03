@@ -15,11 +15,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { normalizeClaudeStatus } from "./status";
 
 /**
- * The status reporter, EXECUTED — the byte-identity test in
- * scripts/reporterScripts.test.mjs pins the three copies to each other,
- * but only running one proves the envelope, the oversize degradation and
- * the staging discipline actually work in a shell. The copies are
- * byte-identical by design; testing one covers all three.
+ * The status reporter, EXECUTED — scripts/reporterScripts.test.mjs pins every
+ * shipped copy to the canonical file under resources/reporters/, but only
+ * running one proves the envelope, the oversize degradation and the staging
+ * discipline actually work in a shell. Running the shipped copy rather than
+ * the canonical one is deliberate: it is what a spawned CLI opens.
  */
 const SCRIPT = join(
   dirname(fileURLToPath(import.meta.url)),

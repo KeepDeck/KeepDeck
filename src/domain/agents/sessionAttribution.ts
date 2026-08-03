@@ -34,35 +34,6 @@ export type BindingOrigin =
   | "swap";
 
 /**
- * The words our agents actually report for a swap. This is the union of
- * their vocabularies rather than a per-agent map because, today, there is
- * nothing to disagree about: claude defined the words, codex and kimi copied
- * its hooks design, and opencode's reporter emits `new` for its one
- * mid-life case. An agent that speaks differently earns a per-agent seam;
- * inventing one before then would be an abstraction over a single case.
- */
-const SWAP_WORDS: ReadonlySet<string> = new Set([
-  "resume",
-  "clear",
-  "compact",
-  "fork",
-  "new",
-]);
-
-/**
- * The CLI's own word for why a session started, read as one bit.
- *
- * Anything unrecognised — a word from a newer CLI, a field the reporter could
- * not fill, a reporter too old to send one — reads as `startup`, the STRICT
- * side: an unrecognised binding can then only be refused as a second start,
- * never accepted as a continuation. Guessing the other way would hand every
- * unknown word the one verdict that overwrites the pane's identity.
- */
-export function bindingOrigin(source: string | undefined): BindingOrigin {
-  return source !== undefined && SWAP_WORDS.has(source) ? "swap" : "startup";
-}
-
-/**
  * Whether a reporter proved itself with THIS pane's secret. A pane that armed
  * no reporter has no secret and therefore matches nothing — an inbox file is
  * not evidence on its own.

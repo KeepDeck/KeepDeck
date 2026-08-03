@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  bindingOrigin,
   bindingVerdict,
   speaksForPane,
   type BindingClaim,
@@ -25,23 +24,6 @@ const bound: BindingClaim = {
   boundThisGeneration: true,
   boundReporter: "4021",
 };
-
-describe("bindingOrigin", () => {
-  it("reads every word our agents use for a continuing conversation", () => {
-    for (const word of ["resume", "clear", "compact", "fork", "new"]) {
-      expect(bindingOrigin(word), word).toBe("swap");
-    }
-  });
-
-  it("treats a word it does not know as a fresh start, not a continuation", () => {
-    // The strict side: an unknown word can then only be refused as a second
-    // start. Read as a swap it would overwrite the pane's identity, which is
-    // the failure this whole module exists to prevent.
-    expect(bindingOrigin("teleported")).toBe("startup");
-    expect(bindingOrigin(undefined)).toBe("startup");
-    expect(bindingOrigin("")).toBe("startup");
-  });
-});
 
 describe("speaksForPane", () => {
   it("refuses to place a report nobody signed", () => {

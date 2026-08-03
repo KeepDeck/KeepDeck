@@ -157,7 +157,7 @@ export function createAppRuntime(
     probe: probeWorktree,
     worktrees,
     mcpAccess: (target) => mcp.access(target),
-    lifecycle: { retire: lifecycle.retire },
+    lifecycle,
   });
   const application = createApplicationController(
     deckStore,
@@ -194,7 +194,6 @@ export function createAppRuntime(
     mcp,
     usageManager,
     statusTracker,
-    lifecycle,
     windowReportJournal,
     start() {
       if (disposed) return;
