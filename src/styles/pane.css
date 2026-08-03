@@ -374,6 +374,15 @@
    means "this pane is stopped", and the two are not the same question. */
 .pane__card {
   flex: 1;
+  /* A flex item's automatic minimum is its min-content width, and the widest
+     line here is a session id set in `white-space: nowrap` — so the card used
+     to floor at that id's full width and grow PAST the pane, painting its
+     opaque background over the neighbouring pane and over the docked dock.
+     `.pane__card-path`'s `max-width: 80%` cannot stand in for this: the
+     percentage resolves against the card whose width is being computed, so
+     intrinsic sizing treats it as none. Zero is what makes that 80% finally
+     mean 80% of the PANE, and the ids ellipsize where they always claimed to. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
