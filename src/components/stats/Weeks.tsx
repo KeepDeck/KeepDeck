@@ -64,7 +64,10 @@ export function Weeks({
         {slice.map((week) => {
           // A week in progress with nothing burned yet gets an honest
           // empty-state LINE (the "no usage this window" vocabulary), not
-          // a zero-and-dash husk that reads as table furniture.
+          // a zero-and-dash husk. The in-progress fact lives in that line
+          // — never as a tag that would break the one-line row rhythm or
+          // widen the label column. A current week WITH data is marked by
+          // the dimming alone: its dates include today.
           if (week.current && week.totalTokens === 0) {
             return (
               <div
@@ -74,10 +77,9 @@ export function Weeks({
               >
                 <span className="stats__week-label" role="cell">
                   <b>{formatWeekLabel(week.start, now)}</b>
-                  <small>in progress</small>
                 </span>
                 <span className="stats__week-none" role="cell">
-                  no usage yet — fills in live as agents report
+                  in progress · no usage yet
                 </span>
               </div>
             );
@@ -89,10 +91,7 @@ export function Weeks({
             key={week.start}
           >
             <span className="stats__week-label" role="cell">
-              {/* The tag stacks UNDER the date (the stats__identity idiom)
-                  so the widest row cannot widen the label column for all. */}
               <b>{formatWeekLabel(week.start, now)}</b>
-              {week.current && <small>in progress</small>}
             </span>
             <span className="stats__week-tokens" role="cell">
               {formatTokens(week.totalTokens)}

@@ -51,7 +51,6 @@ describe("Weeks", () => {
       event({ occurredAt: NOW - 2 * WEEK_MS, tokens: { input: 50 } }),
     ]);
     expect(host.textContent).toContain("Jul 20 – Jul 26");
-    expect(host.textContent).toContain("in progress");
     expect(host.textContent).toContain("↑ +100%"); // the FINISHED claude week
     expect(host.textContent).toContain("claude-sonnet-5· 100");
     expect(host.textContent).toContain("≈$1.50");

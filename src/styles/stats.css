@@ -316,21 +316,13 @@
 
 .stats__week-label {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  align-items: center;
   min-width: 0;
 }
 
 .stats__week-label b {
   color: #c5c8c6;
   font-weight: 500;
-  white-space: nowrap;
-}
-
-.stats__week-label small {
-  color: #596273;
-  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -423,6 +415,8 @@
 
 .stats__week-none {
   grid-column: 2 / -1;
+  align-self: center;
   color: #596273;
   font-size: 11px;
+  line-height: 1;
 }
