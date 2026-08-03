@@ -100,9 +100,18 @@ export function Weeks({
               {weekDeltaCaption(week.deltaPct)}
             </span>
             <span className="stats__week-model" role="cell">
-              {week.topModel
-                ? `${week.topModel.model} · ${formatTokens(week.topModel.totalTokens)}`
-                : "—"}
+              {week.topModel ? (
+                <>
+                  {/* The NAME ellipsizes; the count never does — a long
+                      model name must not eat its own number. */}
+                  <span className="stats__week-model-name">
+                    {week.topModel.model}
+                  </span>
+                  <span>· {formatTokens(week.topModel.totalTokens)}</span>
+                </>
+              ) : (
+                "—"
+              )}
             </span>
             <span className="stats__week-cost" role="cell">
               {displayProviderCost(week.providerCostUsd, week.costEvents)}

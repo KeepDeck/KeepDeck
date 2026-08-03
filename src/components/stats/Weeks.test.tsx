@@ -48,11 +48,12 @@ describe("Weeks", () => {
         costSource: "provider",
         costUsd: 1.5,
       }),
+      event({ occurredAt: NOW - 2 * WEEK_MS, tokens: { input: 50 } }),
     ]);
     expect(host.textContent).toContain("Jul 20 – Jul 26");
     expect(host.textContent).toContain("in progress");
-    expect(host.textContent).toContain("↑ +200%");
-    expect(host.textContent).toContain("claude-sonnet-5 · 100");
+    expect(host.textContent).toContain("↑ +100%"); // the FINISHED claude week
+    expect(host.textContent).toContain("claude-sonnet-5· 100");
     expect(host.textContent).toContain("≈$1.50");
     expect(host.querySelector(".stats__week-row--current")).not.toBeNull();
     expect(host.querySelector(".stats__weeks-pager")).toBeNull(); // one page

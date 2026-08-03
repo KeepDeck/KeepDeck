@@ -291,11 +291,15 @@
 
 .stats__week-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 56px 150px 58px minmax(0, 150px) 56px;
+  /* Label sized to its text, the bar and the model share the leftover —
+     no dead gap after the label, the bar breathes on a wide dialog. */
+  grid-template-columns:
+    minmax(150px, max-content) 64px minmax(110px, 1.1fr) 58px
+    minmax(0, 1fr) 64px;
   align-items: center;
   gap: 12px;
-  min-height: 34px;
-  padding: 4px 10px;
+  min-height: 42px;
+  padding: 6px 10px;
   border-bottom: 1px solid #171d28;
   font-size: 12px;
 }
@@ -361,10 +365,17 @@
 }
 
 .stats__week-model {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+  min-width: 0;
   color: #9aa3af;
+  white-space: nowrap;
+}
+
+.stats__week-model-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .stats__week-cost {
@@ -401,7 +412,7 @@
 
 @media (max-width: 720px) {
   .stats__week-row {
-    grid-template-columns: minmax(0, 1fr) 56px 90px 58px 56px;
+    grid-template-columns: minmax(0, max-content) 64px minmax(80px, 1fr) 58px 64px;
     gap: 8px;
   }
 

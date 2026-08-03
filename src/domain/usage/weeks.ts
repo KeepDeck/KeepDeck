@@ -33,7 +33,9 @@ export interface UsageWeek {
   providerCostUsd: number;
   costEvents: number;
   /** Whole-percent change vs the previous calendar week; null when that
-   * week has no usage to compare against. */
+   * week has no usage to compare against — and always null for the
+   * CURRENT week: a week in progress is not comparable to a finished one,
+   * and a Monday-morning "-98%" would read as a cliff, not a clock. */
   deltaPct: number | null;
   /** The week containing `now` — still accumulating. */
   current: boolean;
@@ -107,7 +109,7 @@ export function usageWeeks(
       providerCostUsd: fold?.providerCostUsd ?? 0,
       costEvents: fold?.costEvents ?? 0,
       deltaPct:
-        prev !== undefined && prev.totalTokens > 0
+        start !== currentStart && prev !== undefined && prev.totalTokens > 0
           ? Math.round(((total - prev.totalTokens) / prev.totalTokens) * 100)
           : null,
       current: start === currentStart,

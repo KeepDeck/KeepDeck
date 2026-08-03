@@ -38,7 +38,7 @@ describe("usageWeeks", () => {
     expect(weeks[0]).toMatchObject({
       start: MONDAY,
       totalTokens: 300,
-      deltaPct: 200,
+      deltaPct: null, // in progress — never compared to a finished week
       current: true,
     });
     expect(weeks[1]).toMatchObject({
@@ -47,6 +47,19 @@ describe("usageWeeks", () => {
       deltaPct: null, // nothing before it to compare against
       current: false,
     });
+  });
+
+  it("compares only finished weeks — a Monday morning is not a cliff", () => {
+    const weeks = usageWeeks(
+      [
+        event({ tokens: { input: 1 } }),
+        event({ occurredAt: NOW - WEEK_MS, tokens: { input: 300 } }),
+        event({ occurredAt: NOW - 2 * WEEK_MS, tokens: { input: 100 } }),
+      ],
+      NOW,
+    );
+    expect(weeks[0].deltaPct).toBeNull(); // current, despite a busy prior week
+    expect(weeks[1].deltaPct).toBe(200);
   });
 
   it("keeps quiet weeks as zero rows — the list is continuous", () => {
