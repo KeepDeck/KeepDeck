@@ -544,6 +544,14 @@ describe("AgentPane — the unavailable-agent card", () => {
       'agent "kimi" is not installed — install it, then re-enable the plugin in Settings → Plugins',
     );
     expect(document.body.textContent).not.toContain("No plugin provides");
+    // The line ellipsizes in a narrow tile and the tail is the half that says
+    // what to DO, so the tooltip has to carry the whole sentence. It used to
+    // carry the agent's name, which is the one part still on screen.
+    expect(
+      document.querySelector<HTMLElement>(".pane__card-path")?.title,
+    ).toBe(
+      'agent "kimi" is not installed — install it, then re-enable the plugin in Settings → Plugins',
+    );
     expect(TerminalPane).not.toHaveBeenCalled();
   });
 
