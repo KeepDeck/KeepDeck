@@ -1,71 +1,95 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
+import { tipPosition, type TipPlacement } from "./tipPlacement";
 
-/** THE hover tip — one primitive for every plain-HTML surface that owes
- * the cursor a detail card (the weeks bar today; whatever hovers next),
- * styled like the chart's own tooltip so hover answers look the same
- * everywhere.
- *
- * The tip PORTALS to the body at fixed viewport coordinates: rendered in
- * place it would clip against any scrolling ancestor (the stats dialog's
- * body ate the first row's card). It mounts hidden, measures itself, and
- * lands on WHOLE pixels — a translate(-50%) of an odd-width card sat the
- * text on a half-pixel and blurred it. Above the anchor by default,
- * flipped below near the viewport top. Not interactive by design. */
+/** The generic hover/focus tip for plain-HTML surfaces (the weeks bar,
+ * the achievement cards), styled like the chart's own tooltip so hover
+ * answers look the same everywhere. Placement is NOT decided here — the
+ * one home is [`tipPosition`], shared with the minimized-agent details:
+ * measured flip, viewport clamps, whole pixels. The card portals to the
+ * body (a scrolling ancestor would clip it), recomputes on scroll and
+ * resize, and remeasures when its content changes while open. Reachable
+ * by keyboard: the anchor is focusable and the tip is its description. */
 export function Tooltip({
   tip,
-  className,
   style,
   children,
 }: {
   tip: ReactNode;
-  /** Extra class/style for the ANCHOR — lets a caller size the hover
-   * target (the weeks bar is a %-width anchor in a flex cell). */
-  className?: string;
+  /** Style for the ANCHOR — lets a caller size the hover target (the
+   * weeks bar is a %-width anchor in a flex cell). */
   style?: CSSProperties;
   children: ReactNode;
 }) {
-  const [at, setAt] = useState<{ x: number; y: number; below: boolean } | null>(
-    null,
-  );
-  const [box, setBox] = useState<{ width: number; height: number } | null>(
-    null,
-  );
-  const measure = (tipEl: HTMLSpanElement | null) => {
-    if (tipEl && box === null) {
-      setBox({ width: tipEl.offsetWidth, height: tipEl.offsetHeight });
-    }
-  };
+  const id = useId();
+  const anchorRef = useRef<HTMLSpanElement | null>(null);
+  const tipRef = useRef<HTMLSpanElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState<TipPlacement | null>(null);
+
+  const recompute = useCallback(() => {
+    const anchor = anchorRef.current;
+    const card = tipRef.current;
+    if (!anchor || !card) return;
+    const cardRect = card.getBoundingClientRect();
+    setAt(
+      tipPosition({
+        anchorRect: anchor.getBoundingClientRect(),
+        tipWidth: cardRect.width,
+        tipHeight: cardRect.height,
+        viewportWidth: document.documentElement.clientWidth || window.innerWidth,
+        viewportHeight:
+          document.documentElement.clientHeight || window.innerHeight,
+        align: "center",
+      }),
+    );
+  }, []);
+
+  // `tip` is a dep on purpose: content growing while open (a live ledger
+  // append adds a row) must remeasure, or the card drifts off its anchor.
+  useLayoutEffect(() => {
+    if (!open) return;
+    recompute();
+    window.addEventListener("scroll", recompute, true);
+    window.addEventListener("resize", recompute);
+    return () => {
+      window.removeEventListener("scroll", recompute, true);
+      window.removeEventListener("resize", recompute);
+    };
+  }, [open, recompute, tip]);
+
   return (
     <span
-      className={`kd-tip__anchor${className ? ` ${className}` : ""}`}
+      ref={anchorRef}
+      className="kd-tip__anchor"
       style={style}
-      onMouseEnter={(mouse) => {
-        const rect = mouse.currentTarget.getBoundingClientRect();
-        const below = rect.top < 120;
-        setAt({
-          x: rect.left + rect.width / 2,
-          y: below ? rect.bottom + 8 : rect.top - 8,
-          below,
-        });
-        setBox(null);
-      }}
-      onMouseLeave={() => setAt(null)}
+      tabIndex={0}
+      aria-describedby={open ? id : undefined}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
     >
       {children}
-      {at !== null &&
+      {open &&
         createPortal(
           <span
-            ref={measure}
+            ref={tipRef}
+            id={id}
             className="kd-tip"
             role="tooltip"
             style={
-              box === null
-                ? { left: 0, top: 0, visibility: "hidden" }
-                : {
-                    left: Math.round(at.x - box.width / 2),
-                    top: Math.round(at.below ? at.y : at.y - box.height),
-                  }
+              at
+                ? { top: at.top, left: at.left, maxHeight: at.maxHeight }
+                : { top: 0, left: 0, visibility: "hidden" }
             }
           >
             {tip}
