@@ -6,7 +6,7 @@ import { listen } from "@tauri-apps/api/event";
  * tokens and cost through the CLI bridge (statusLine script / reporter armed
  * at spawn); the Rust watcher passes the payload through verbatim and emits
  * this event. The constant mirrors `USAGE_REPORT_EVENT` in
- * src-tauri/src/bridge.rs.
+ * src-tauri/src/bridge/wire.rs.
  */
 export const USAGE_REPORT_EVENT = "deck://usage/report";
 

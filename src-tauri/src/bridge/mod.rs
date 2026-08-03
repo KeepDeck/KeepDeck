@@ -32,11 +32,12 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
-use wire::{interpret, printable, Inbound};
+use wire::{interpret, printable, Inbound, SESSION_BOUND_EVENT};
 // Only what the rest of the crate actually consumes: the session tailer emits
-// `Report` on the same two event names. A binding never leaves this module —
-// it is built from an envelope and emitted in the same breath.
-pub use wire::{Report, AGENT_STATUS_EVENT, SESSION_BOUND_EVENT, USAGE_REPORT_EVENT};
+// `Report` on these two event names. `SessionBound` and its event name never
+// leave the bridge — a binding is built from an envelope and emitted in the
+// same breath, and nothing outside re-emits one.
+pub use wire::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 
 /// An envelope larger than this is dropped unread — reporters send small
 /// JSON (a statusline payload runs a few KB; the cap leaves generous

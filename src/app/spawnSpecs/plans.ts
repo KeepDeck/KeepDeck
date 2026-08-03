@@ -18,7 +18,7 @@
 import type { ResumeOrigin } from "../../domain/agents";
 
 /** Bridge protocol version this app speaks — mirrors `BRIDGE_PROTOCOL_VERSION`
- * in src-tauri/src/bridge.rs (a plain change counter over the env schema AND
+ * in src-tauri/src/bridge/wire.rs (a plain change counter over the env schema AND
  * the envelope schema). */
 export const BRIDGE_PROTOCOL_VERSION = 1;
 

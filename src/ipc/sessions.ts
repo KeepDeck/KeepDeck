@@ -6,7 +6,7 @@ import { listen } from "@tauri-apps/api/event";
  * process reports its session id through the CLI bridge (hook/plugin armed
  * at spawn via the `KEEPDECK_BRIDGE` env var); the Rust watcher parses the
  * envelope and emits this event. The constant mirrors `SESSION_BOUND_EVENT`
- * in src-tauri/src/bridge.rs.
+ * in src-tauri/src/bridge/wire.rs.
  */
 export const SESSION_BOUND_EVENT = "deck://session/bound";
 

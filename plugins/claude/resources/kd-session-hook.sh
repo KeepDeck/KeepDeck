@@ -97,13 +97,19 @@ why=$(printf '%s' "$payload" \
   | grep -o '"source"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null \
   | head -n 1 \
   | sed -n 's/.*"\([^"]*\)"$/\1/p')
-# Only the two characters that would break the envelope are rejected — the
-# guard must not NARROW a legitimate value, because a dropped source reads as
-# a fresh start and a fresh start is the case the deck refuses. A CLI whose
-# word carries a digit, a dash or a colon keeps it.
+# Only what would break the envelope is rejected — the guard must not NARROW
+# a legitimate value, because a dropped source reads as a fresh start and a
+# fresh start is the case the deck refuses. A CLI whose word carries a digit,
+# a dash or a colon keeps it.
+#
+# Control characters count as breaking: a raw tab or 0x0B inside a JSON
+# string makes serde reject the WHOLE envelope, so letting one through would
+# cost the binding rather than the field. `tr -d` is the portable test —
+# `case` has no class for them.
 case $why in
   *\"*|*\\*) why="" ;;
 esac
+[ "$(printf '%s' "$why" | tr -d '[:cntrl:]')" = "$why" ] || why=""
 
 # Where the transcript lives is the one thing these CLIs genuinely disagree
 # about, so it is the one thing keyed on the agent.
