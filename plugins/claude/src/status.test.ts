@@ -68,7 +68,7 @@ describe("normalizeClaudeStatus", () => {
         }),
         600,
       ),
-    ).toEqual({ kind: "resumed", at: 600 });
+    ).toEqual({ kind: "parked", at: 600 });
     // A background SHELL task parks it the same way — the list is the fact,
     // its entry types are claude's business.
     expect(
@@ -81,7 +81,19 @@ describe("normalizeClaudeStatus", () => {
         }),
         650,
       ),
-    ).toEqual({ kind: "resumed", at: 650 });
+    ).toEqual({ kind: "parked", at: 650 });
+    // Entry STATUS is never read: claude lists only in-flight work, so the
+    // list's length is the whole fact. Pinned so a future "helpful" filter
+    // on `status` has to break a test rather than the contract.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "Stop",
+          background_tasks: [{ id: "q1", type: "subagent", status: "pending" }],
+        }),
+        660,
+      ),
+    ).toEqual({ kind: "parked", at: 660 });
     // The wake's own Stop — nothing left in flight — ends the turn for real.
     expect(
       normalizeClaudeStatus(
@@ -115,6 +127,36 @@ describe("normalizeClaudeStatus", () => {
         800,
       ),
     ).toEqual({ kind: "turn-end", at: 800 });
+  });
+
+  it("only the main thread's tool completions resolve a wait", () => {
+    // A background agent's own tools reach the same armed hook, carrying
+    // `agent_id`. They prove nothing about the main thread's approval — and
+    // with several agents running, agent B's tool call would clear a prompt
+    // agent A is blocked on.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "PostToolUse",
+          tool_name: "Bash",
+          agent_id: "acb5bea0d1b3101fd",
+          agent_type: "general-purpose",
+        }),
+        500,
+      ),
+    ).toBeNull();
+    // `agent_type` alone is NOT the discriminator — the main thread carries
+    // it too in an `--agent` session, so this one still resolves.
+    expect(
+      normalizeClaudeStatus(
+        wrap({
+          hook_event_name: "PostToolUse",
+          tool_name: "Bash",
+          agent_type: "general-purpose",
+        }),
+        510,
+      ),
+    ).toEqual({ kind: "resumed", at: 510 });
   });
 
   it("fails a turn that died even with background work still running", () => {

@@ -31,13 +31,24 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
 }
 
 /**
+ * Whether this hook fired from INSIDE a subagent rather than on the main
+ * thread. claude's own schema names `agent_id` as the discriminator — it is
+ * "present only when the hook fires from within a subagent… absent for the
+ * main thread, even in `--agent` sessions" — and explicitly warns off
+ * `agent_type`, which the main thread also carries in an `--agent` session.
+ */
+function fromSubagent(event: Record<string, unknown>): boolean {
+  return typeof event.agent_id === "string";
+}
+
+/**
  * claude's turn-lifecycle payloads → status edges. The reporter wraps each
  * hook payload verbatim under `event`; the fields here are pinned by the
  * shipped binary's own hook schemas (2.1.220):
  *
  * - `UserPromptSubmit` → the turn is running.
- * - `Stop` → the turn completed, UNLESS it left background work behind —
- *   see [`outlivesTurn`]. Fires INSTEAD of `StopFailure`, never both.
+ * - `Stop` → the turn completed — or `parked`, when it left background work
+ *   behind ([`outlivesTurn`]). Fires INSTEAD of `StopFailure`, never both.
  * - `StopFailure` → the turn died on an API error; `error` is claude's
  *   typed reason (`rate_limit`, `authentication_failed`, …), verified to
  *   ride in the payload — no per-matcher fan-out needed. Background work is
@@ -50,12 +61,13 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
  *   idle they run ≥6s late. The waiting edge is therefore best-effort for
  *   claude; `Stop` still settles the turn either way. `idle_prompt` and
  *   the rest are not turn states — dropped.
- * - `PostToolUse` → resumed. claude has no approval-REPLY hook, but an
- *   approved tool RUNS — its completion is the first post-approval hook
- *   and proves the wait resolved. For a long-running tool the amber
- *   clears only when the tool finishes (late, but bounded by the tool,
- *   not the turn); mid-turn repeats are absorbed by the reducer without
- *   an emit, so per-tool volume costs nothing downstream.
+ * - `PostToolUse` → resumed, but only from the MAIN thread ([`fromSubagent`]).
+ *   claude has no approval-REPLY hook, but an approved tool RUNS — its
+ *   completion is the first post-approval hook and proves the wait
+ *   resolved. For a long-running tool the amber clears only when the tool
+ *   finishes (late, but bounded by the tool, not the turn); mid-turn
+ *   repeats are absorbed by the reducer without an emit, so per-tool
+ *   volume costs nothing downstream.
  *
  * A user interrupt (Esc) pushes NO hook — that edge arrives from the
  * host's transcript tailer as a `kind: "session.interrupt"` payload
@@ -82,14 +94,17 @@ export const normalizeClaudeStatus: StatusNormalizer = (
       // Background work in flight means the turn is PARKED, not over: the
       // wake it triggers arrives as a fresh `UserPromptSubmit`, so the turn
       // re-opens on its own and only the LAST `Stop` (empty list) ends it.
-      // `resumed` rather than a dropped edge, because this payload also
-      // proves the main thread is no longer parked on the user — a wait
-      // left standing by a trailing idle nudge is stale and must clear.
       return outlivesTurn(event)
-        ? { kind: "resumed", at }
+        ? { kind: "parked", at }
         : { kind: "turn-end", at };
     case "PostToolUse":
-      return { kind: "resumed", at };
+      // A subagent's own tool calls reach this hook too, and they prove
+      // nothing about the MAIN thread's approval — the wait this edge would
+      // resolve. Worse, background agents run concurrently, so agent B's
+      // tool call would clear a prompt agent A is still blocked on, and the
+      // next nudge would re-raise it: a flapping banner over a question
+      // nobody answered. Only the main thread's tools resolve a wait.
+      return fromSubagent(event) ? null : { kind: "resumed", at };
     case "StopFailure":
       return turnFailedEvent(at, event.error, event.error_details);
     case "Notification":
