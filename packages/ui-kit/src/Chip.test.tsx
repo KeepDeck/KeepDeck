@@ -47,6 +47,27 @@ describe("Chip", () => {
     );
   });
 
+  it("collapses to the icon-only badge when the glyph is all there is", () => {
+    // The shape the YOLO dot and the pane header's activity dot each used to
+    // hand-roll in their own sheet: a chip with nothing to say is not a pill,
+    // and the side padding would only push its glyph off centre. Derived from
+    // the content rather than asked for, so the next icon-only chip cannot
+    // forget it and drift into a stadium.
+    render({ icon: createElement("svg") });
+    expect(host.querySelector(".chip")!.className).toBe("chip chip--icon-only");
+  });
+
+  it("keeps the pill whenever the chip has something to say", () => {
+    // The other half of that derivation, and the one that would break a real
+    // site if it went wrong: the usage chip carries its window list through
+    // `children`, which is content — squaring it to 22px would crush it.
+    render({
+      icon: createElement("svg"),
+      children: createElement("span", null, "5h"),
+    });
+    expect(host.querySelector(".chip")!.className).toBe("chip");
+  });
+
   it("an onClick chip renders a real button and fires it", () => {
     const onClick = vi.fn();
     render({ onClick, label: "Usage", "aria-expanded": false });

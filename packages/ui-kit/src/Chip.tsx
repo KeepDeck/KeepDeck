@@ -11,6 +11,10 @@ import type { HTMLAttributes, ReactNode } from "react";
  * Simple chips pass `icon` + `label`; the label slot ellipsizes. Composite
  * content (the usage chip's window list) goes through `children`, rendered
  * raw. A chip with `onClick` renders a <button>, otherwise a <span>.
+ *
+ * A chip given an icon and nothing else collapses to the round icon-only
+ * badge on its own (`chip--icon-only`) — the YOLO dot and the pane header's
+ * activity dot are both that, and both used to restate the shape themselves.
  */
 export interface ChipProps
   extends Omit<HTMLAttributes<HTMLElement>, "children"> {
@@ -36,10 +40,19 @@ export function Chip({
   className,
   ...rest
 }: ChipProps) {
+  // A chip carrying nothing but its glyph IS the round icon-only badge — the
+  // pill's side padding would only push that glyph off centre. Derived rather
+  // than asked for, because every site that wanted the shape had hand-rolled
+  // the same three declarations, and a prop is one more thing to forget: the
+  // shape now arrives with the content that calls for it. chip.css owns what
+  // it looks like.
+  const iconOnly =
+    icon !== undefined && label === undefined && children === undefined;
   const classes = [
     "chip",
     size !== "md" ? `chip--${size}` : "",
     tone !== "neutral" ? `chip--${tone}` : "",
+    iconOnly ? "chip--icon-only" : "",
     className ?? "",
   ]
     .filter(Boolean)

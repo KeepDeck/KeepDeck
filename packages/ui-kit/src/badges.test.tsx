@@ -33,7 +33,7 @@ describe("badges", () => {
     it("is an icon-only warn chip naming the mode to assistive tech", () => {
       act(() => root.render(createElement(YoloBadge, {})));
       const badge = host.querySelector<HTMLElement>(".yolo-badge")!;
-      expect(badge.className).toBe("chip chip--warn yolo-badge");
+      expect(badge.className).toBe("chip chip--warn chip--icon-only yolo-badge");
       expect(badge.querySelector(".chip__icon svg")).not.toBeNull();
       expect(badge.querySelector(".chip__label")).toBeNull();
       expect(badge.title).toBe(YOLO_BADGE_TITLE);
@@ -48,7 +48,7 @@ describe("badges", () => {
         ),
       );
       expect(host.querySelector(".yolo-badge")!.className).toBe(
-        "chip chip--sm chip--warn yolo-badge minimized__yolo",
+        "chip chip--sm chip--warn chip--icon-only yolo-badge minimized__yolo",
       );
     });
 

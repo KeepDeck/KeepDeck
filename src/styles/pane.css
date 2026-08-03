@@ -160,14 +160,12 @@
    state — the frame ladder carries attention, so the header keeps one
    density and the words live in the tooltip. This block owns only the
    badge's PLACE in the header; every hue and rhythm lives in status.css
-   (.pane__activity--*), the one home of the status palette. Squared like
-   the YOLO badge (chip.css) so the pill's 999px radius draws a circle,
-   not a stadium around the dot. */
+   (.pane__activity--*), the one home of the status palette. The circle comes
+   from the shared .chip--icon-only (chip.css), which ui-kit's Chip applies to
+   any chip carrying a glyph and nothing else — this one qualifies, so the
+   shape is not restated here. */
 .pane__activity {
   flex: none;
-  width: 22px;
-  padding: 0;
-  justify-content: center;
   font-size: 12px;
 }
 
@@ -212,13 +210,19 @@
   color: #9aa3b2;
 }
 
-/* Narrow pane: drop the branch label and center the chip on its icon alone, so
+/* Narrow pane: drop the branch label and leave the chip on its icon alone, so
    in a crowded header it reads as a clean icon dot instead of a clipped, shifted
    badge. `display:none` (not ellipsis-to-nothing) takes the label out of the
-   flex flow entirely, so no leftover gap/padding pushes the icon off-center. */
+   flex flow entirely, so no leftover gap/padding pushes the icon off-center.
+
+   The three declarations below are the shared .chip--icon-only shape (chip.css)
+   restated, because this is the one site whose icon-only state is CONDITIONAL:
+   a container query can change this element's properties but cannot give it
+   that class, and CSS has no way to apply another rule's block. They are
+   copied on purpose, and chip.test.ts fails if the copy ever stops matching
+   the original. */
 @container (max-width: 280px) {
   .pane__branch {
-    flex: none;
     width: 22px;
     padding: 0;
     justify-content: center;

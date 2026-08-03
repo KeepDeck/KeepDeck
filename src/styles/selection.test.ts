@@ -2,11 +2,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { STYLES_DIR, appCss } from "./testSupport";
+import { STYLES_DIR, appCss, stripComments } from "./testSupport";
 
 const PLUGINS_DIR = "plugins";
-
-const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
  * Every stylesheet this repo AUTHORS — host, plugins and shared packages alike.

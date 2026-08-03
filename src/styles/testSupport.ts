@@ -15,6 +15,15 @@ export const STYLES_DIR = "src/styles";
  * drops some values and has to be handed them as custom properties) and its
  * own fixture.
  */
+/**
+ * CSS with its comments stripped. Some of these tests read the SOURCE rather
+ * than the cascade — the cases no DOM can answer, like whether a rule inside a
+ * container query still matches the shared rule it copies — and a comment can
+ * hold anything a naive scan would trip over, braces included.
+ */
+export const stripComments = (css: string): string =>
+  css.replace(/\/\*[\s\S]*?\*\//g, "");
+
 export const appCss = [
   ...readFileSync(join(STYLES_DIR, "index.css"), "utf8").matchAll(
     /@import\s+"([^"]+)"\s*;/g,
