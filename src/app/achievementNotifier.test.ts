@@ -10,9 +10,9 @@ import { usageEvent as event } from "../domain/usage/history/event.testSupport";
 
 
 // 2M tokens + provider cost earns: First Million, Warm Afternoon,
-// Hello Agent, First Dollar — four fresh awards.
+// Hello Agent, Day One, First Dollar — five fresh awards.
 const richEvents = () => [
-  event({ tokens: { input: 2_000_000 }, costSource: "provider", costUsd: 1.5 }),
+  event({ tokens: { input: 2_000_000 }, costSource: "provider", costUsd: 15 }),
 ];
 
 /** A controllable in-memory history the notifier subscribes to. */
@@ -58,7 +58,7 @@ describe("createAchievementNotifier", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
 
-    expect(notify).toHaveBeenCalledTimes(4);
+    expect(notify).toHaveBeenCalledTimes(5);
     const titles = notify.mock.calls.map(
       (call) => (call[0] as { title: string }).title,
     );
@@ -75,7 +75,7 @@ describe("createAchievementNotifier", () => {
       notified: string[];
     };
     expect(persisted.notified).toContain("tokens-1000000");
-    expect(persisted.notified).toContain("spendUsd-1");
+    expect(persisted.notified).toContain("spendUsd-10");
     notifier.dispose();
   });
 
@@ -84,7 +84,12 @@ describe("createAchievementNotifier", () => {
       loadNotified: async () =>
         JSON.stringify({
           version: 1,
-          notified: ["tokens-1000000", "dayTokens-1000000", "sessions-1"],
+          notified: [
+            "tokens-1000000",
+            "dayTokens-1000000",
+            "sessions-1",
+            "streakDays-1",
+          ],
         }),
     });
     history.set({ ready: true, events: richEvents(), error: null });
@@ -94,8 +99,8 @@ describe("createAchievementNotifier", () => {
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0][0]).toMatchObject({
       title: "Achievement unlocked: First Dollar",
-      body: "$1 provider-reported spend",
-      tag: "achievement:spendUsd-1",
+      body: "$10 provider-reported spend",
+      tag: "achievement:spendUsd-10",
     });
     notifier.dispose();
   });
@@ -109,6 +114,9 @@ describe("createAchievementNotifier", () => {
             "tokens-1000000",
             "dayTokens-1000000",
             "sessions-1",
+            "streakDays-1",
+            // A pre-recalibration id: decode carries it onto the tier that
+            // replaced it, so this award is not congratulated twice.
             "spendUsd-1",
           ],
         }),
@@ -134,11 +142,14 @@ describe("createAchievementNotifier", () => {
     const first = event();
     history.set({ ready: true, events: [first], error: null });
     await settle();
-    // A lone session earns exactly "Hello, Agent".
-    expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify.mock.calls[0][0]).toMatchObject({
-      title: "Achievement unlocked: Hello, Agent",
-    });
+    // A lone session earns the two day-one tiers and nothing else.
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(
+      notify.mock.calls.map((call) => (call[0] as { title: string }).title),
+    ).toEqual([
+      "Achievement unlocked: Hello, Agent",
+      "Achievement unlocked: Day One",
+    ]);
 
     // Appending nine more sessions crosses First Steps — only the suffix
     // is folded in, and the earlier award is not re-announced.
@@ -174,10 +185,10 @@ describe("createAchievementNotifier", () => {
 
   it("refolds on a same-or-longer wholesale replacement, not just a shrink", async () => {
     const { deps, notify, history } = fakeDeps();
-    // $0.90 folded — no First Dollar.
+    // $9 folded — just short of First Dollar.
     history.set({
       ready: true,
-      events: [event({ costSource: "provider", costUsd: 0.9 })],
+      events: [event({ costSource: "provider", costUsd: 9 })],
       error: null,
     });
     const notifier = createAchievementNotifier(deps);
@@ -186,14 +197,14 @@ describe("createAchievementNotifier", () => {
       notify.mock.calls.map((call) => (call[0] as { title: string }).title);
     expect(titles()).not.toContain("Achievement unlocked: First Dollar");
 
-    // Replace WHOLESALE with a longer array totaling only $0.25. A
-    // length-only guard would keep the old $0.90 fold and add the new
-    // tail's $0.20 → a false First Dollar; the head-identity guard refolds.
+    // Replace WHOLESALE with a longer array totaling only $2.50. A
+    // length-only guard would keep the old $9 fold and add the new tail's
+    // $2 → a false First Dollar; the head-identity guard refolds.
     history.set({
       ready: true,
       events: [
-        event({ costSource: "provider", costUsd: 0.05 }),
-        event({ costSource: "provider", costUsd: 0.2 }),
+        event({ costSource: "provider", costUsd: 0.5 }),
+        event({ costSource: "provider", costUsd: 2 }),
       ],
       error: null,
     });
@@ -209,7 +220,7 @@ describe("createAchievementNotifier", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
 
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(2);
     expect(saved).toHaveLength(0); // nothing persisted as congratulated
 
     notify.mockReturnValue(true); // user re-enables notifications
@@ -245,13 +256,16 @@ describe("createAchievementNotifier", () => {
     wrongType.history.set({ ready: true, events: [event()], error: null });
     const first = createAchievementNotifier(wrongType.deps);
     await settle();
-    expect(wrongType.notify).toHaveBeenCalledTimes(1);
+    expect(wrongType.notify).toHaveBeenCalledTimes(2);
     first.dispose();
 
-    // Mixed-type array → the valid id survives and stays congratulated.
+    // Mixed-type array → the valid ids survive and stay congratulated.
     const mixed = fakeDeps({
       loadNotified: async () =>
-        JSON.stringify({ version: 1, notified: [42, "sessions-1", null] }),
+        JSON.stringify({
+          version: 1,
+          notified: [42, "sessions-1", null, "streakDays-1"],
+        }),
     });
     mixed.history.set({ ready: true, events: [event()], error: null });
     const second = createAchievementNotifier(mixed.deps);
@@ -267,7 +281,7 @@ describe("createAchievementNotifier", () => {
     history.set({ ready: true, events: [event()], error: null });
     const notifier = createAchievementNotifier(deps);
     await settle();
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(2);
     notifier.dispose();
   });
 
@@ -288,7 +302,7 @@ describe("createAchievementNotifier", () => {
 
     resolveSettings();
     await settle();
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(2);
     notifier.dispose();
   });
 

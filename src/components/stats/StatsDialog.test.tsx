@@ -290,13 +290,13 @@ describe("UsageStats", () => {
 
     // One goal per ladder, with progress…
     expect(inProgress.textContent).toContain("Picking Up Steam");
-    expect(inProgress.textContent).toContain("2M / 10M");
+    expect(inProgress.textContent).toContain("2M / 25M");
     expect(inProgress.textContent).toContain("First Dollar");
-    expect(inProgress.textContent).toContain("$0.25 / $1");
+    expect(inProgress.textContent).toContain("$0.25 / $10");
     // …while the tiers beyond it are visible but inert: present in Locked,
     // without a progress bar.
     expect(locked.textContent).toContain("Heavy Rotation");
-    expect(locked.textContent).toContain("Trillionaire");
+    expect(locked.textContent).toContain("Token Tycoon");
     expect(locked.querySelector(".stats__achievement-progress")).toBeNull();
     expect(
       locked.querySelector(".stats__achievement--future"),
@@ -331,7 +331,7 @@ describe("UsageStats", () => {
       )!;
       hover(steam, "mouseover");
       expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
-        "2,000,000 of 10,000,000 — 20%",
+        "2,000,000 of 25,000,000 — 8%",
       );
       hover(steam, "mouseout");
       const earned = cards.find((card) =>

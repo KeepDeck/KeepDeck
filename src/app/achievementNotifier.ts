@@ -1,5 +1,8 @@
 import { achievementRequirement } from "../domain/usage/achievements/captions";
-import { achievementCatalog } from "../domain/usage/achievements/catalog";
+import {
+  achievementCatalog,
+  migrateCongratulated,
+} from "../domain/usage/achievements/catalog";
 import { createAchievementEngine } from "../domain/usage/achievements/engine";
 import type { UsageEventV2 } from "../domain/usage/history/event";
 import type { NotifyInput } from "./notificationCenter";
@@ -20,6 +23,10 @@ import type { UsageHistorySnapshot } from "./usageHistoryManager";
  * unbounded ledger is never re-sorted per turn; only a wholesale snapshot
  * replacement (a compaction rewrite) refolds from scratch.
  */
+
+/** Bumped when the catalog's ids move under a persisted file. Version 1
+ * predates the rarity recalibration; version 2 has been through it. */
+const NOTIFIED_SCHEMA_VERSION = 2;
 
 export interface AchievementNotifierDeps {
   loadNotified(): Promise<string | null>;
@@ -56,7 +63,10 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
   let disposed = false;
 
   const persist = (ids: ReadonlySet<string>) => {
-    const json = JSON.stringify({ version: 1, notified: [...ids].sort() });
+    const json = JSON.stringify({
+      version: NOTIFIED_SCHEMA_VERSION,
+      notified: [...ids].sort(),
+    });
     writes = writes
       .catch(() => {})
       .then(() => deps.saveNotified(json))
@@ -129,14 +139,27 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
   };
 }
 
+/**
+ * Read the congratulated set, carrying a pre-recalibration file forward.
+ *
+ * The version gate is doing real work, not ceremony: a moved tier's id maps
+ * onto the one that replaced it, and on the spend ladder — which shifted by
+ * a whole step — some old ids are ALSO live new ids. Applying the map twice
+ * would walk those awards up the ladder one rung per launch, so it runs
+ * exactly once, on a file that predates the change.
+ */
 function decode(json: string | null): Set<string> {
   if (json === null) return new Set();
   try {
-    const value = JSON.parse(json) as { notified?: unknown };
+    const value = JSON.parse(json) as { notified?: unknown; version?: unknown };
     if (Array.isArray(value.notified)) {
-      return new Set(
-        value.notified.filter((id): id is string => typeof id === "string"),
+      const ids = value.notified.filter(
+        (id): id is string => typeof id === "string",
       );
+      const version = typeof value.version === "number" ? value.version : 1;
+      return version < NOTIFIED_SCHEMA_VERSION
+        ? migrateCongratulated(ids)
+        : new Set(ids);
     }
   } catch {
     // fall through to the empty baseline

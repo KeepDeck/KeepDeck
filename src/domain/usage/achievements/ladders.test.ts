@@ -21,28 +21,28 @@ describe("usageAchievementLadders", () => {
   it("dates token crossings at the ledger instant that crossed them, sorting first", () => {
     const ladders = usageAchievementLadders([
       // Deliberately unsorted: crossing math must order by occurredAt.
-      event({ occurredAt: NOW - 1 * DAY, tokens: { input: 9_500_000 } }),
+      event({ occurredAt: NOW - 1 * DAY, tokens: { input: 24_500_000 } }),
       event({ occurredAt: NOW - 3 * DAY, tokens: { input: 900_000 } }),
       event({ occurredAt: NOW - 2 * DAY, tokens: { input: 200_000 } }),
     ]);
     const tokens = ladder(ladders, "tokens").tiers;
     expect(tokens[0].achievedAt).toBe(NOW - 2 * DAY); // 1M
-    expect(tokens[1].achievedAt).toBe(NOW - 1 * DAY); // 10M
-    expect(tokens[2].achievedAt).toBeNull(); // 100M locked
-    expect(tokens[2].progress).toBe(10_600_000);
+    expect(tokens[1].achievedAt).toBe(NOW - 1 * DAY); // 25M
+    expect(tokens[2].achievedAt).toBeNull(); // 150M locked
+    expect(tokens[2].progress).toBe(25_600_000);
   });
 
   it("accumulates provider-reported spend toward the dollar ladder", () => {
     const ladders = usageAchievementLadders([
-      event({ costSource: "provider", costUsd: 0.6 }),
+      event({ costSource: "provider", costUsd: 6 }),
       event({ costSource: "unavailable", costUsd: undefined }),
-      event({ occurredAt: NOW - 500, costSource: "provider", costUsd: 0.6 }),
+      event({ occurredAt: NOW - 500, costSource: "provider", costUsd: 6 }),
     ]);
     const spend = ladder(ladders, "spendUsd").tiers;
     expect(spend[0]).toMatchObject({
       title: "First Dollar",
       achievedAt: NOW - 500,
-      progress: 1.2,
+      progress: 12,
     });
     expect(spend[1].achievedAt).toBeNull();
   });
@@ -62,7 +62,7 @@ describe("usageAchievementLadders", () => {
       achievedAt: NOW - 3 * DAY + 1_000,
     });
     const streak = ladder(ladders, "streakDays").tiers;
-    expect(streak[0]).toMatchObject({
+    expect(streak[1]).toMatchObject({
       title: "Hat-Trick",
       achievedAt: NOW - 1 * DAY, // third consecutive day
       progress: 3,
@@ -78,8 +78,10 @@ describe("usageAchievementLadders", () => {
       event({ occurredAt: NOW - 1 * DAY }),
     ]);
     const streak = ladder(ladders, "streakDays").tiers;
-    expect(streak[0].achievedAt).toBeNull();
-    expect(streak[0].progress).toBe(2); // longest run so far
+    // Day One lands on the first event; the three-day tier stays locked.
+    expect(streak[0].achievedAt).toBe(NOW - 5 * DAY);
+    expect(streak[1].achievedAt).toBeNull();
+    expect(streak[1].progress).toBe(2); // longest run so far
   });
 
   it("counts distinct providers and models", () => {
@@ -178,13 +180,13 @@ describe("earned and next views", () => {
     const next = nextAchievements(ladders);
     expect(next.every((tier) => tier.achievedAt === null)).toBe(true);
     const tokensNext = next.find((tier) => tier.metric === "tokens")!;
-    expect(tokensNext.title).toBe("Heavy Rotation"); // 1M and 10M are earned
+    expect(tokensNext.title).toBe("Picking Up Steam"); // only 1M is earned
     expect(next.filter((tier) => tier.metric === "tokens")).toHaveLength(1);
   });
 
   it("contributes nothing from a completed ladder", () => {
     const ladders = usageAchievementLadders([
-      event({ tokens: { input: 2e12 } }),
+      event({ tokens: { input: 3e11 } }),
     ]);
     expect(
       nextAchievements(ladders).find((tier) => tier.metric === "tokens"),
@@ -201,12 +203,14 @@ describe("earned and next views", () => {
     const lockedTokens = lockedAchievements(ladders)
       .filter((tier) => tier.metric === "tokens")
       .map((tier) => tier.title);
-    // 1M and 10M earned, 100M in progress → the rest are the locked tail.
+    // 1M earned, 25M in progress → the rest are the locked tail, including
+    // the two re-earned tops.
     expect(lockedTokens).toEqual([
+      "Heavy Rotation",
       "Billion Club",
       "Token Tycoon",
-      "Galactic Scale",
-      "Trillionaire",
+      "Token Tycoon",
+      "Token Tycoon",
     ]);
   });
 });
