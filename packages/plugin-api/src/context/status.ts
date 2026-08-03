@@ -33,8 +33,11 @@ export type AgentStatusEvent =
    * resolution event emit this; for the rest the next edge settles it. */
   | { kind: "resumed"; at: number }
   /** The CLI closed its turn, but work that turn STARTED is still running
-   * and will wake the session again when it finishes (claude's background
-   * agents and shell tasks). Emit it in place of `turn-end`: it says only
+   * and WILL WAKE the session again when it finishes (claude's background
+   * agents). Work that merely outlives the turn is not enough — a process
+   * the user parked himself may never end and wakes nothing, and treating
+   * that as a reason to hold the turn open means the pane never reports a
+   * finished turn again. Emit it in place of `turn-end`: it says only
    * "not an ending", and the host folds it as such — every live state is
    * left exactly as it was, including a standing wait, which may belong to
    * the very work still running. Deliberately not `resumed`: parking

@@ -128,16 +128,18 @@ describe("kd-status-hook.sh", () => {
 
   it("survives a byte no UTF-8 locale would accept", () => {
     // `tr` ABORTS at the first invalid byte under a UTF-8 locale and
-    // truncates its output, which would silently cost everything after it —
-    // and the event name sits at the front, so the whole envelope would go.
-    // The script runs under LC_ALL=C, where a payload is bytes, not text.
+    // truncates its output. The bad byte here sits BEFORE the event name —
+    // claude's payload leads with paths, and a path is bytes, not text — so
+    // a truncating `tr` would take the name with it and the whole envelope
+    // would be dropped. Under LC_ALL=C a payload is bytes and it survives.
     const dir = inbox();
     const pad = Buffer.from("ж".repeat(140_000), "utf8");
     run(
       dir,
       Buffer.concat([
-        Buffer.from('{"hook_event_name":"Stop","last_assistant_message":"'),
+        Buffer.from('{"cwd":"/tmp/'),
         Buffer.from([0xff]),
+        Buffer.from('","hook_event_name":"Stop","last_assistant_message":"'),
         pad,
         Buffer.from('"}'),
       ]),
