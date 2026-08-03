@@ -31,6 +31,12 @@ afterEach(() => {
 function run(dir: string, stdin: string | Buffer, agent = "claude"): void {
   const env = { ...process.env };
   env.KEEPDECK_BRIDGE = JSON.stringify({ v: 1, dir, pane: "pane-3", token: "tok" });
+  // A UTF-8 ambient locale, ALWAYS — the script overrides it, and that
+  // override is what the invalid-byte case below proves. Inheriting the
+  // runner's locale instead would make that proof environment-dependent: on
+  // a CI container with LC_ALL unset the ambient locale is already C, the
+  // override becomes a no-op, and the test would pass with it deleted.
+  env.LC_ALL = "en_US.UTF-8";
   execFileSync("/bin/sh", [SCRIPT, agent], { input: stdin, env });
 }
 
@@ -90,12 +96,16 @@ describe("kd-status-hook.sh", () => {
     // character count would wave this through.
     const cut = inbox();
     run(cut, oversized({ hook_event_name: "Stop" }));
-    expect(envelope(cut)).toMatchObject({
+    // EXACT, not a subset: the event name is all a reduction may carry, and
+    // a partial match would let a field creep back in unnoticed — which is
+    // how the value-copying and the invented task entry both shipped.
+    expect(envelope(cut)).toEqual({
+      v: 1,
       type: "agent.status",
+      paneId: "pane-3",
+      token: "tok",
       payload: { agent: "claude", event: { hook_event_name: "Stop" } },
     });
-    // The reduction really happened — the prose is gone, not merely unread.
-    expect(JSON.stringify(envelope(cut))).not.toContain("ж");
   });
 
   it("a reduced payload stays parseable whatever the values held", () => {

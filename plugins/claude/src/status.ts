@@ -21,9 +21,12 @@ import {
  * never reaches "done" and never announces a finished turn again for the
  * rest of the session — the mirror of the bug this exists to fix.
  *
- * An unknown kind a newer build invents holds the turn open, like the
- * agent-shaped kinds it will sit beside. That is the same bet the rest of
- * this file makes and it errs the same way: see [`outlivesTurn`].
+ * An unknown KIND a newer build invents holds the turn open, like the
+ * agent-shaped kinds it will sit beside. An unknown ENTRY SHAPE does not:
+ * a list of bare ids rather than records reads as no background work and
+ * ends the turn. The two err in opposite directions on purpose — a kind we
+ * do not know is probably agent-shaped, while a shape we cannot read tells
+ * us nothing, and ending is the recoverable mistake ([`outlivesTurn`]).
  */
 const SELF_WAKING = (type: unknown): boolean => type !== "shell";
 
