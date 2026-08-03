@@ -13,7 +13,9 @@
 # The ONE exception is the oversize path below, which cannot forward a
 # payload whole. It still names no field itself: the remaining arguments
 # ($2...) are the keys THAT CLI's plugin declared load-bearing, because the
-# plugin owns the schema and this script owns only the mechanism.
+# plugin owns the schema and this script owns only the mechanism. And it
+# never copies a CLI VALUE out — only whether a declared key held a
+# non-empty list — so no captured text is ever spliced back into JSON.
 #
 # MUST stay silent and exit 0: codex's TUI renders a history cell for a
 # hook that fails or prints, and a status reporter has no business in the
@@ -49,47 +51,50 @@ payload=$(cat)
 # every spawn gets, and a large CJK/Cyrillic message slips a character
 # guard at 2-3x its size in bytes.
 bytes=$(printf '%s' "$payload" | wc -c)
+reduced=""
 if [ "$bytes" -gt 261120 ]; then
   # Onto one line first. JSON's structural newlines are insignificant, but
   # grep and sed are line-oriented, so a pretty-printed payload would hide
   # every key below from both. CR goes too — it is JSON whitespace, and left
   # in place it would satisfy a "something follows the bracket" test.
-  flat=$(printf '%s' "$payload" | tr '\n\r' '  ')
+  flat=$(printf '%s' "$payload" | tr '\n\r' '  ' 2>/dev/null)
   # The FIRST match, never sed's greedy last: tool payloads carry arbitrary
   # JSON and may quote this very key, while the real one leads in every
   # schema we arm. Bare-quote anchors are what keep a QUOTED occurrence from
   # matching at all — inside a JSON string the quotes arrive escaped (\").
   name=$(printf '%s' "$flat" \
-    | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[A-Za-z]*"' \
+    | grep -o '"hook_event_name"[[:space:]]*:[[:space:]]*"[A-Za-z]*"' 2>/dev/null \
     | head -n 1 \
     | sed -n 's/.*"\([A-Za-z]*\)"$/\1/p')
   [ -n "$name" ] || exit 0
-  # Each declared key survives as the fact the normalizer reads: a scalar
-  # keeps its value, a non-empty list collapses to a marker (no consumer
-  # reads the entries, only whether any exist). A key that is absent, empty
-  # or neither shape simply does not appear — same as today.
-  kept=""
+  # NO CLI value is ever copied out. Splicing a captured string back into
+  # JSON cannot be done safely without an escape-aware parser: a value
+  # holding `\"` truncates at the backslash and the envelope becomes
+  # unparseable, which the bridge drops WHOLE — losing the very edge this
+  # reduction exists to save. So the reduction carries one fact per declared
+  # key, "this key held a non-empty list", and nothing else. Everything the
+  # key's VALUE would have said (an error class, a notification type) is
+  # accepted as lost: degraded is recoverable, malformed is not.
+  #
+  # It rides BESIDE `event`, never inside it. `event` is the CLI's own words,
+  # so a reduction may only take fields away, never invent one; `reduced` is
+  # host-minted, and its contents are the argv the plugin gave us.
   for key in "$@"; do
-    value=$(printf '%s' "$flat" \
-      | grep -o "\"$key\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" \
-      | head -n 1 \
-      | sed -n 's/.*:[[:space:]]*"\([^"]*\)"$/\1/p')
-    if [ -n "$value" ]; then
-      kept="$kept,\"$key\":\"$value\""
-    elif printf '%s' "$flat" \
-      | grep -q "\"$key\"[[:space:]]*:[[:space:]]*\[[[:space:]]*[^][:space:]]"; then
-      kept="$kept,\"$key\":[{\"type\":\"reduced\"}]"
+    if printf '%s' "$flat" \
+      | grep -q "\"$key\"[[:space:]]*:[[:space:]]*\[[[:space:]]*[^][:space:]]" 2>/dev/null; then
+      reduced="$reduced,\"$key\""
     fi
   done
-  payload=$(printf '{"hook_event_name":"%s"%s}' "$name" "$kept")
+  reduced=$(printf ',"reduced":[%s]' "${reduced#,}")
+  payload=$(printf '{"hook_event_name":"%s"}' "$name")
 fi
 
 # mktemp = the unique name AND the tmp stage; the rename to .json publishes.
 # The trap reaps the staging file if this process is killed mid-write (kimi
 # enforces a hook timeout with a signal) — after a successful mv there is
 # nothing at $f and the rm is a no-op. The inbox never sweeps strays itself.
-f=$(mktemp "$dir/agent.status-XXXXXXXX") || exit 0
+f=$(mktemp "$dir/agent.status-XXXXXXXX" 2>/dev/null) || exit 0
 trap 'rm -f "$f"' EXIT INT TERM
-printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s}}' \
-  "$pane" "$token" "$agent" "$payload" > "$f" && mv "$f" "$f.json"
+printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s%s}}' \
+  "$pane" "$token" "$agent" "$payload" "$reduced" > "$f" && mv "$f" "$f.json"
 exit 0

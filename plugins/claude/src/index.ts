@@ -13,7 +13,7 @@ import type {
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
-import { normalizeClaudeStatus } from "./status";
+import { CLAUDE_PAYLOAD_KEYS, normalizeClaudeStatus } from "./status";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
 
@@ -60,11 +60,10 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
           {
             type: "command",
             // The trailing keys are what the reporter must keep if a payload
-            // is too big to forward whole — claude's schema is ours to
-            // declare, not the shared script's to know. Only identifier-like
-            // values: prose (error_details) would need escape-aware
-            // extraction, and losing it costs a tooltip, not a state.
-            command: `/bin/sh ${shellQuote(status)} claude background_tasks notification_type error`,
+            // is too big to forward whole. They come from the normalizer
+            // that READS them, so the decision has one home; the shared
+            // script is handed the list and never names a field itself.
+            command: `/bin/sh ${shellQuote(status)} claude ${CLAUDE_PAYLOAD_KEYS.join(" ")}`,
           },
         ],
       },
