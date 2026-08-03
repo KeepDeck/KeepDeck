@@ -1,4 +1,7 @@
 #!/bin/sh
+# GENERATED from resources/reporters/kd-status-hook.sh — do not edit this copy.
+# Edit the canonical file and run `node scripts/sync-reporters.mjs`;
+# scripts/sync-reporters.test.mjs fails while a copy is stale.
 # KeepDeck status reporter — a hook shared by the turn-lifecycle events
 # (UserPromptSubmit / Stop / StopFailure / Notification / PostToolUse and
 # their codex/kimi equivalents). Armed PER SPAWN beside kd-session-hook.sh;

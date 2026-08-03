@@ -1,45 +1,51 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  CANONICAL_DIR,
+  REPORTERS,
+  rendered,
+  stale,
+} from "./sync-reporters.mjs";
 
 /**
- * The status reporter is ONE script shipped as three per-plugin copies —
- * each plugin's bundle must stay self-contained, but the copies must never
- * drift: a fix landing in one (the byte-size guard, the silence contract)
- * and not the others is a per-agent bug that no unit test would catch.
- * Same idea as the settings/dock CSS content pins.
+ * Each reporter is authored once under resources/reporters/ and shipped as a
+ * real file inside every plugin that runs it. These pin the copies to that
+ * source rather than to each other: identical-but-both-wrong passes a
+ * copy-to-copy comparison, and a fix landing in one plugin and not the others
+ * is a per-agent bug no unit test would catch.
  */
-const STATUS_COPIES = [
-  "plugins/claude/resources/kd-status-hook.sh",
-  "plugins/codex/resources/kd-status-hook.sh",
-  "plugins/kimi/resources/keepdeck-session-reporter/kd-status-hook.sh",
-];
-
-/** The session hook is shared claude↔codex only — kimi's differs by design
- * (no transcript_path in its payload; it derives the wire path itself). */
-const SESSION_COPIES = [
-  "plugins/claude/resources/kd-session-hook.sh",
-  "plugins/codex/resources/kd-session-hook.sh",
-];
-
 describe("reporter shell scripts", () => {
-  it("keeps every kd-status-hook.sh copy byte-identical", () => {
-    const [first, ...rest] = STATUS_COPIES.map((p) => readFileSync(p, "utf8"));
-    for (const [i, copy] of rest.entries()) {
-      expect(copy, `${STATUS_COPIES[i + 1]} drifted from ${STATUS_COPIES[0]}`).toBe(
-        first,
-      );
+  it("ships every copy exactly as the canonical file renders", () => {
+    expect(
+      stale(),
+      "run `node scripts/sync-reporters.mjs` to refresh these",
+    ).toEqual([]);
+  });
+
+  it("keeps the shebang on line 1 and the generated banner under it", () => {
+    for (const { name } of REPORTERS) {
+      const lines = rendered(name).split("\n");
+      // A shell script whose first line is a comment has no interpreter line;
+      // the banner must never take that slot.
+      expect(lines[0], name).toBe("#!/bin/sh");
+      expect(lines[1], name).toContain("GENERATED from resources/reporters/");
     }
   });
 
-  it("keeps the claude and codex kd-session-hook.sh copies byte-identical", () => {
-    const [claude, codex] = SESSION_COPIES.map((p) => readFileSync(p, "utf8"));
-    expect(codex).toBe(claude);
+  it("leaves the canonical files without a banner", () => {
+    // A banner in the source would ship doubled, and would tell a reader
+    // editing the right file that they are in the wrong one.
+    for (const { name } of REPORTERS) {
+      const source = readFileSync(join(CANONICAL_DIR, name), "utf8");
+      expect(source, name).not.toContain("GENERATED from");
+    }
   });
 
   it("guards envelope size in bytes, not characters", () => {
     // The bridge cap is bytes; ${#var} counts characters under the UTF-8
     // locale every spawn gets. The guard must never regress to it.
-    const script = readFileSync(STATUS_COPIES[0], "utf8");
+    const script = readFileSync(join(CANONICAL_DIR, "kd-status-hook.sh"), "utf8");
     expect(script).toContain("wc -c");
     expect(script).not.toMatch(/\$\{#payload\}"? -gt/);
   });
@@ -53,7 +59,7 @@ describe("reporter shell scripts", () => {
     // in Rust without this, and the drift goes the other way: envelopes
     // between the new cap and the stale threshold are forwarded intact and
     // dropped unread, stranding the pane the reduction exists to save.
-    const script = readFileSync(STATUS_COPIES[0], "utf8");
+    const script = readFileSync(join(CANONICAL_DIR, "kd-status-hook.sh"), "utf8");
     // Anchored to the guard's own variable: a bare `-gt` would happily match
     // any later comparison someone adds above it and silently start
     // asserting the wrong number.

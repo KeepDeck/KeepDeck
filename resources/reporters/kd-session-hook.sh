@@ -1,7 +1,4 @@
 #!/bin/sh
-# GENERATED from resources/reporters/kd-session-hook.sh — do not edit this copy.
-# Edit the canonical file and run `node scripts/sync-reporters.mjs`;
-# scripts/sync-reporters.test.mjs fails while a copy is stale.
 # KeepDeck session reporter — a SessionStart hook shared by Claude Code and
 # codex (their hook payloads use the same session_id field; codex copied
 # Claude's hooks design). Armed PER SPAWN — claude via `--settings '<json>'`,
