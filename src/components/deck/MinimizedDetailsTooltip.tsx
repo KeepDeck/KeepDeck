@@ -1,56 +1,9 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { createPortal } from "react-dom";
+import type { ActivityBadge } from "../../domain/status";
 import { GitBranchIcon } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
-import type { ActivityBadge } from "../../domain/status";
-
-const GAP = 6;
-const VIEWPORT_MARGIN = 8;
-
-interface TooltipPosition {
-  top: number;
-  left: number;
-  maxHeight: number;
-}
-
-interface MinimizedTooltipPlacementInput {
-  anchorRect: Pick<DOMRect, "top" | "right" | "bottom" | "left">;
-  tooltipWidth: number;
-  tooltipHeight: number;
-  viewportWidth: number;
-  viewportHeight: number;
-}
-
-/** Keep even pathological runtime titles fully inside the viewport. */
-export function calculateMinimizedTooltipPosition({
-  anchorRect,
-  tooltipWidth,
-  tooltipHeight,
-  viewportWidth,
-  viewportHeight,
-}: MinimizedTooltipPlacementInput): TooltipPosition {
-  const maxWidth = Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2);
-  const maxHeight = Math.max(0, viewportHeight - VIEWPORT_MARGIN * 2);
-  const renderedWidth = Math.min(Math.max(0, tooltipWidth), maxWidth);
-  const renderedHeight = Math.min(Math.max(0, tooltipHeight), maxHeight);
-  const left = Math.max(
-    VIEWPORT_MARGIN,
-    Math.min(
-      anchorRect.left,
-      viewportWidth - renderedWidth - VIEWPORT_MARGIN,
-    ),
-  );
-  const above = anchorRect.top - GAP - renderedHeight;
-  const top =
-    above >= VIEWPORT_MARGIN
-      ? above
-      : Math.min(
-          viewportHeight - renderedHeight - VIEWPORT_MARGIN,
-          anchorRect.bottom + GAP,
-        );
-
-  return { top: Math.max(VIEWPORT_MARGIN, top), left, maxHeight };
-}
+import { useAnchoredTooltipPosition } from "../../ui/tooltip/useAnchoredTooltipPosition";
 
 interface MinimizedDetailsTooltipProps {
   anchor: HTMLElement;
@@ -78,39 +31,14 @@ export function MinimizedDetailsTooltip({
   gitBadge,
   stopped,
 }: MinimizedDetailsTooltipProps) {
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<TooltipPosition | null>(null);
-
-  const recompute = useCallback(() => {
-    const tooltip = tooltipRef.current;
-    if (!tooltip) return;
-
-    const anchorRect = anchor.getBoundingClientRect();
-    const tooltipRect = tooltip.getBoundingClientRect();
-    const viewportWidth =
-      document.documentElement.clientWidth || window.innerWidth;
-    const viewportHeight =
-      document.documentElement.clientHeight || window.innerHeight;
-    setPosition(
-      calculateMinimizedTooltipPosition({
-        anchorRect,
-        tooltipWidth: tooltipRect.width,
-        tooltipHeight: tooltipRect.height,
-        viewportWidth,
-        viewportHeight,
-      }),
-    );
-  }, [anchor]);
-
-  useLayoutEffect(() => {
-    recompute();
-    window.addEventListener("scroll", recompute, true);
-    window.addEventListener("resize", recompute);
-    return () => {
-      window.removeEventListener("scroll", recompute, true);
-      window.removeEventListener("resize", recompute);
-    };
-  }, [recompute]);
+  const getAnchorRect = useCallback(
+    () => anchor.getBoundingClientRect(),
+    [anchor],
+  );
+  const { tooltipRef, position } = useAnchoredTooltipPosition({
+    ownerDocument: anchor.ownerDocument,
+    getAnchorRect,
+  });
 
   return createPortal(
     <div

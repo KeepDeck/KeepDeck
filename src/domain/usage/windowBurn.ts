@@ -17,6 +17,10 @@ import { windowExpired, type UsageWindow } from "./usage";
 export interface BurnPoint {
   x: number;
   y: number;
+  /** Semantic values survive projection into plot coordinates so hover and
+   * keyboard presentation never has to reverse-engineer domain data. */
+  at: number;
+  usedPct: number;
 }
 
 export interface BurnGeometry {
@@ -97,9 +101,14 @@ export function windowBurn(
     peak >= 99.5 ? 100 : Math.min(100, Math.max(10, Math.ceil(peak * 1.25)));
 
   const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
-  const point = (at: number, pct: number): BurnPoint => ({
+  const plotPoint = (at: number, pct: number) => ({
     x: clamp01((at - tMin) / (tEnd - tMin)),
     y: clamp01(pct / yMaxPct),
+  });
+  const point = (at: number, pct: number): BurnPoint => ({
+    ...plotPoint(at, pct),
+    at,
+    usedPct: pct,
   });
 
   // A long-lived key can hold thousands of records; a 60px plot cannot use
@@ -114,8 +123,7 @@ export function windowBurn(
   const out =
     forecast.kind === "out" && projEndAt !== null
       ? {
-          x: clamp01((forecast.outAt - tMin) / (tEnd - tMin)),
-          y: clamp01(100 / yMaxPct),
+          ...plotPoint(forecast.outAt, 100),
           level: forecast.level,
         }
       : null;
@@ -123,5 +131,11 @@ export function windowBurn(
     projEndAt !== null &&
     window.resetsAt !== null &&
     projEndAt === window.resetsAt;
-  return { observed, projected, out, yMaxPct, resetAtEdge };
+  return {
+    observed,
+    projected,
+    out,
+    yMaxPct,
+    resetAtEdge,
+  };
 }

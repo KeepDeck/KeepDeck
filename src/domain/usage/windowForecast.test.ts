@@ -351,7 +351,11 @@ describe("windowBurn", () => {
     const geometry = windowBurn(ramp(0.29, 5, 10, 62), FIVE_H, out, NOW)!;
     // Data axis: first report at the left edge, projection end at the right.
     expect(geometry.observed[0].x).toBe(0);
-    expect(geometry.out).toEqual({ x: 1, y: 1, level: "warn" });
+    expect(geometry.out).toEqual({
+      x: 1,
+      y: 1,
+      level: "warn",
+    });
     expect(geometry.yMaxPct).toBe(100); // the projection reaches the ceiling
     const [from, to] = geometry.projected!;
     expect(from.y).toBeCloseTo(0.62, 2);
