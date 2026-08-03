@@ -9,6 +9,8 @@ import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
   formatWeekLabel,
   usageWeeks,
+  WEEK_IN_PROGRESS,
+  weekAwaitingUsage,
   weekDeltaCaption,
 } from "../../domain/usage/weeks";
 import { Tooltip } from "../../ui/Tooltip";
@@ -63,13 +65,13 @@ export function Weeks({
       </h3>
       <div className="stats__table" role="table" aria-label="Weeks">
         {slice.map((week) => {
-          // A week in progress with nothing burned yet gets an honest
-          // empty-state LINE (the "no usage this window" vocabulary), not
-          // a zero-and-dash husk. The in-progress fact lives in that line
-          // — never as a tag that would break the one-line row rhythm or
-          // widen the label column. A current week WITH data is marked by
-          // the dimming alone: its dates include today.
-          if (week.current && week.totalTokens === 0) {
+          // A week in progress with nothing landed yet gets an honest
+          // empty-state LINE, not a zero-and-dash husk. The in-progress
+          // fact lives in that line — never as a tag that would break the
+          // one-line row rhythm or widen the label column. A current week
+          // WITH data is marked by the dimming alone: its dates include
+          // today.
+          if (weekAwaitingUsage(week)) {
             return (
               <div
                 className="stats__week-row stats__week-row--current"
@@ -82,7 +84,7 @@ export function Weeks({
                 {/* Centered in the DATA span — an empty-state line, not a
                     value glued to the date. */}
                 <span className="stats__week-none" role="cell">
-                  in progress · no usage yet
+                  {WEEK_IN_PROGRESS}
                 </span>
               </div>
             );

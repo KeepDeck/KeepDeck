@@ -21,7 +21,7 @@ export interface UsageRecap {
    * period, or a prior window with no recorded usage. Tokens only — cost
    * coverage varies by session, so a cost delta would routinely lie. */
   tokensDeltaPct: number | null;
-  topModel: { agent: string; model: string; totalTokens: number } | null;
+  topModel: { model: string; totalTokens: number } | null;
   busiestDay: { dayStart: number; totalTokens: number } | null;
 }
 
@@ -98,11 +98,7 @@ function topModel(current: UsageStats): UsageRecap["topModel"] {
   let top: UsageRecap["topModel"] = null;
   for (const row of current.byModel) {
     if (top === null || row.totalTokens > top.totalTokens) {
-      top = {
-        agent: row.agent,
-        model: modelLabel(row.model),
-        totalTokens: row.totalTokens,
-      };
+      top = { model: modelLabel(row.model), totalTokens: row.totalTokens };
     }
   }
   return top;

@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
-import { DAY_MS } from "./time";
-import {
-  formatWeekLabel,
-  usageWeeks,
-  utcWeekStart,
-  weekDeltaCaption,
-  WEEK_MS,
-} from "./weeks";
+import { DAY_MS, utcWeekStart, WEEK_MS } from "./time";
+import { formatWeekLabel, usageWeeks, weekDeltaCaption } from "./weeks";
 
 const NOW = TEST_NOW; // 2026-07-22T12:00Z, a Wednesday
 const MONDAY = Date.parse("2026-07-20T00:00:00.000Z");
@@ -99,7 +93,7 @@ describe("usageWeeks", () => {
       ]),
     );
     // Tokens crown the model — the $9 event must not.
-    expect(weeks[0].topModel).toMatchObject({ agent: "codex", totalTokens: 700 });
+    expect(weeks[0].topModel).toMatchObject({ totalTokens: 700 });
     expect(weeks[0].providerCostUsd).toBe(9);
     expect(weeks[0].costEvents).toBe(1);
   });
@@ -144,16 +138,21 @@ describe("usageWeeks", () => {
 });
 
 describe("captions", () => {
-  it("labels the week's UTC range, adding the year once it is not now's", () => {
+  it("labels the week's UTC range, adding the END's year once it is not now's", () => {
     expect(formatWeekLabel(MONDAY, NOW)).toBe("Jul 20 – Jul 26");
     const lastYear = Date.parse("2025-09-08T00:00:00.000Z"); // a 2025 Monday
     expect(formatWeekLabel(lastYear, NOW)).toBe("Sep 8 – Sep 14 · 2025");
+    // A New-Year week ends in now's year: CURRENT, so no historical suffix.
+    const newYear = Date.parse("2025-12-29T00:00:00.000Z");
+    const january = Date.parse("2026-01-02T12:00:00.000Z");
+    expect(formatWeekLabel(newYear, january)).toBe("Dec 29 – Jan 4");
   });
 
-  it("phrases the delta with the recap's sign convention", () => {
+  it("phrases the delta with the recap's sign convention, zero flat", () => {
     expect(weekDeltaCaption(18)).toBe("↑ +18%");
-    expect(weekDeltaCaption(0)).toBe("↑ +0%");
     expect(weekDeltaCaption(-41)).toBe("↓ -41%");
+    expect(weekDeltaCaption(0)).toBe("0%"); // no arrow on a flat week
+    expect(weekDeltaCaption(Math.round(-0.4))).toBe("0%"); // -0 is not UP
     expect(weekDeltaCaption(null)).toBe(""); // an empty cell, never a fake value
   });
 });

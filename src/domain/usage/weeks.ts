@@ -5,7 +5,7 @@ import {
   type UsageEventV2,
 } from "./history/event";
 import { addMoney } from "./money";
-import { DAY_MS, utcDayStart } from "./time";
+import { DAY_MS, utcWeekStart, WEEK_MS } from "./time";
 
 /**
  * Completed calendar weeks over the ledger — the Overview block's data.
@@ -13,16 +13,6 @@ import { DAY_MS, utcDayStart } from "./time";
  * comparable to one another, independent of "the last N days from now".
  * Pure and time-injected like every stats query.
  */
-
-export const WEEK_MS = 7 * DAY_MS;
-
-/** UTC Monday 00:00 of the week containing `at` — weeks are UTC buckets
- * like every stats day, so labels can never drift off the daily chart. */
-export function utcWeekStart(at: number): number {
-  const day = utcDayStart(at);
-  const mondayOffset = (new Date(day).getUTCDay() + 6) % 7;
-  return day - mondayOffset * DAY_MS;
-}
 
 export interface UsageWeek {
   /** The week's UTC Monday 00:00. */
@@ -33,7 +23,7 @@ export interface UsageWeek {
   byAgent: ReadonlyMap<string, number>;
   /** The week's heaviest model by TOKENS — same crown rule as the recap:
    * cost-ranking would crown a costed model over a bigger uncosted one. */
-  topModel: { agent: string; model: string; totalTokens: number } | null;
+  topModel: { model: string; totalTokens: number } | null;
   providerCostUsd: number;
   costEvents: number;
   /** Whole-percent change vs the previous calendar week; null when that
@@ -48,7 +38,7 @@ export interface UsageWeek {
 interface WeekFold {
   totalTokens: number;
   byAgent: Map<string, number>;
-  models: Map<string, { agent: string; model: string; totalTokens: number }>;
+  models: Map<string, { model: string; totalTokens: number }>;
   providerCostUsd: number;
   costEvents: number;
 }
@@ -89,11 +79,7 @@ export function usageWeeks(
     if (model) {
       model.totalTokens += tokens;
     } else {
-      fold.models.set(modelKey, {
-        agent: event.agent,
-        model: label,
-        totalTokens: tokens,
-      });
+      fold.models.set(modelKey, { model: label, totalTokens: tokens });
     }
     const cost = providerCostOf(event);
     if (cost !== null) {
@@ -137,20 +123,37 @@ function topModel(fold: WeekFold | undefined): UsageWeek["topModel"] {
 
 /* ---- captions --------------------------------------------------------- */
 
-/** "Jul 27 – Aug 2", the year joining once the week no longer belongs to
- * `now`'s ("Sep 8 – Sep 14 · 2025"); both ends labeled in UTC like every
- * stats day bucket. */
+/** "Jul 27 – Aug 2", the year joining once the week no longer reaches
+ * `now`'s ("Sep 8 – Sep 14 · 2025"). The suffix names the END's year: a
+ * New-Year week is CURRENT while its Sunday sits in this year, and
+ * wearing last year's suffix made the in-progress row read historical.
+ * Both ends labeled in UTC like every stats day bucket. */
 export function formatWeekLabel(start: number, now: number): string {
-  const range = `${formatUtcDay(start)} – ${formatUtcDay(start + 6 * DAY_MS)}`;
-  const year = new Date(start).getUTCFullYear();
+  const end = start + 6 * DAY_MS;
+  const range = `${formatUtcDay(start)} – ${formatUtcDay(end)}`;
+  const year = new Date(end).getUTCFullYear();
   return year === new Date(now).getUTCFullYear() ? range : `${range} · ${year}`;
 }
 
-/** "↑ +18%" / "↓ -41%" — the row's week-over-week clause, sign convention
- * shared with the recap's delta. An incomparable week gets an EMPTY cell,
- * not a dash: a placeholder pretending to be a value breaks the column's
- * alignment rhythm (field finding). */
+/** "↑ +18%" / "↓ -41%" / a flat "0%" — the row's week-over-week clause,
+ * sign convention shared with the recap's delta. Zero wears NO arrow: a
+ * week down by half a percent rounds to -0, and `-0 >= 0` once pinned an
+ * UP arrow on a decline (review finding). An incomparable week gets an
+ * EMPTY cell, not a dash: a placeholder pretending to be a value breaks
+ * the column's alignment rhythm. */
 export function weekDeltaCaption(deltaPct: number | null): string {
   if (deltaPct === null) return "";
-  return deltaPct >= 0 ? `↑ +${deltaPct}%` : `↓ -${Math.abs(deltaPct)}%`;
+  if (deltaPct === 0) return "0%";
+  return deltaPct > 0 ? `↑ +${deltaPct}%` : `↓ -${Math.abs(deltaPct)}%`;
 }
+
+/** Is this the still-empty week in progress? Empty means NOTHING landed —
+ * tokens or provider cost alike: a cost-only week is real usage and must
+ * render as a row, not as this placeholder (review finding). */
+export function weekAwaitingUsage(week: UsageWeek): boolean {
+  return week.current && week.totalTokens === 0 && week.costEvents === 0;
+}
+
+/** The empty in-progress row's line — domain-owned like its delta
+ * sibling, so a future digest reuses the exact wording. */
+export const WEEK_IN_PROGRESS = "in progress · no usage yet";

@@ -7,7 +7,7 @@ import {
   usageEvent as event,
 } from "../../domain/usage/history/event.testSupport";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
-import { WEEK_MS } from "../../domain/usage/weeks";
+import { WEEK_MS } from "../../domain/usage/time";
 import { Weeks } from "./Weeks";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -85,6 +85,14 @@ describe("Weeks", () => {
     // No husk cells: the empty state REPLACES the number columns.
     expect(current.querySelector(".stats__week-tokens")).toBeNull();
     expect(current.querySelector(".stats__week-cost")).toBeNull();
+  });
+
+  it("shows a cost-only week in progress — spend is usage too", () => {
+    const host = render([
+      event({ tokens: {}, costSource: "provider", costUsd: 4.25 }),
+    ]);
+    expect(host.textContent).not.toContain("no usage yet");
+    expect(host.textContent).toContain("≈$4.25");
   });
 
   it("pages by 8 with a constant height — older weeks behind the pager", () => {
