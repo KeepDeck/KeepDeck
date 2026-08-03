@@ -33,7 +33,7 @@ export type PaneActivity =
    * that resolves starts a new phase, so the age answers "how long since
    * you could have walked away". */
   | { state: "working"; since: number }
-  /** The turn is parked on the user. */
+  /** The turn is blocked on the user. */
   | { state: "waiting"; since: number; reason: StatusWaitReason }
   /** The last turn is over. `interrupted` says HOW: completed, or cut by
    * the user — the card reads differently ("Done" vs "Interrupted"). */

@@ -27,17 +27,18 @@ export type StatusWaitReason = "permission" | "question";
 export type AgentStatusEvent =
   /** The user submitted a prompt — the turn is running. */
   | { kind: "turn-start"; at: number }
-  /** The turn is parked on the user (approval dialog, agent question). */
+  /** The turn is blocked on the user (approval dialog, agent question). */
   | { kind: "waiting"; at: number; reason: StatusWaitReason }
   /** The wait resolved and the turn is running again. Only CLIs with a
    * resolution event emit this; for the rest the next edge settles it. */
   | { kind: "resumed"; at: number }
   /** The CLI closed its turn, but work that turn STARTED is still running
    * and will wake the session again when it finishes (claude's background
-   * agents and shell tasks). Emitted INSTEAD of `turn-end`, never beside
-   * it: the turn is parked, not over, and only the CLI's next real ending
-   * closes it. Deliberately not `resumed` — parking resolves nothing, and
-   * a wait already on screen may belong to the very work still running. */
+   * agents and shell tasks). Emit it in place of `turn-end`: it says only
+   * "not an ending", and the host folds it as such — every live state is
+   * left exactly as it was, including a standing wait, which may belong to
+   * the very work still running. Deliberately not `resumed`: parking
+   * resolves nothing. The next real ending still closes the turn. */
   | { kind: "parked"; at: number }
   /** The turn completed normally. */
   | { kind: "turn-end"; at: number }
