@@ -617,7 +617,10 @@ mod tests {
             panic!("expected a session binding");
         };
         assert_eq!(bound.agent.as_deref(), Some("kimi"));
-        assert_eq!(bound.source.as_deref(), Some("a-word-this-side-does-not-know"));
+        assert_eq!(
+            bound.source.as_deref(),
+            Some("a-word-this-side-does-not-know")
+        );
     }
 
     // An empty string is what a shell reporter emits for a field it could not

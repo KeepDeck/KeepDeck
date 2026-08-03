@@ -100,10 +100,14 @@ describe("opencode session reporter", () => {
     await event(created("ses_root"));
     await event(created("ses_second"));
 
-    expect(envelopes().map((envelope) => envelope.payload)).toEqual([
-      { sessionId: "ses_root", agent: "opencode", source: "startup" },
-      { sessionId: "ses_second", agent: "opencode", source: "new" },
-    ]);
+    // Keyed by session, not positional: the inbox is a directory and
+    // `readdirSync` promises no creation order (which is why the usage
+    // helper sorts by sequence — a binding carries none).
+    expect(
+      Object.fromEntries(
+        envelopes().map(({ payload }) => [payload.sessionId, payload.source]),
+      ),
+    ).toEqual({ ses_root: "startup", ses_second: "new" });
   });
 
   it("binds a resumed child event to its root, never to the leaf", async () => {
