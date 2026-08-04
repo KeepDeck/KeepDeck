@@ -300,41 +300,10 @@ export function isPaneLaunched(paneId: string): boolean {
   return entries.get(paneId)?.launched ?? false;
 }
 
-/**
- * Everyone watching what reaches a pane's agent. Separate from
- * `stateListeners` because it reports a different fact at a different rate —
- * a keystroke, not a process transition — and merging them would wake every
- * process-state consumer on every key.
- */
-const inputListeners = new Set<(paneId: string, data: string) => void>();
-
-/**
- * Notify on input DELIVERED to a pane's agent, whatever path it came by.
- *
- * This is the single funnel: keystrokes, the key overrides, the raw TYPE
- * channel (drag-and-drop, voice, an MCP `pane.write`) and pastes all end at
- * [`writePane`], because xterm re-emits a `term.paste` through the same
- * `onData` the keyboard uses. So one subscription sees everything that
- * reaches the agent, and nothing has to be taught to report itself.
- */
-export function subscribePaneInput(
-  listener: (paneId: string, data: string) => void,
-): () => void {
-  inputListeners.add(listener);
-  return () => {
-    inputListeners.delete(listener);
-  };
-}
-
 /** Write keystrokes/text into the pane's PTY. No-op without a live session
- * (writes racing a close are normal noise, deliberately unlogged) — and a
- * write that went nowhere is not input anyone received, so it is not
- * announced either. */
+ * (writes racing a close are normal noise, deliberately unlogged). */
 export function writePane(paneId: string, data: string): void {
-  const session = entries.get(paneId)?.session;
-  if (!session) return;
-  void session.write(data).catch(() => {});
-  for (const listener of [...inputListeners]) listener(paneId, data);
+  void entries.get(paneId)?.session?.write(data).catch(() => {});
 }
 
 /** Sync the PTY grid to the view. Same no-op semantics as [`writePane`]. */

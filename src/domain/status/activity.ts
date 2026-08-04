@@ -285,6 +285,22 @@ function reduceHeldEnd(
 }
 
 /**
+ * Whether the USER's own answer resolves this activity.
+ *
+ * Deliberately narrower than the `resumed` edge the fold below accepts, and
+ * the difference lives here, next to it, so the two readings of one question
+ * cannot drift apart. A `resumed` from an agent's report may start a phase on
+ * a pane with no activity at all — a tool completed, so something IS running.
+ * A keystroke says nothing of the sort: at a pane nobody has reported on it
+ * is just someone typing at a shell, and minting "Working" from it would
+ * advertise a turn that is not happening. Only a STANDING wait is a question
+ * a keystroke can be the answer to.
+ */
+export function answerResolves(activity: PaneActivity | null): boolean {
+  return activity?.state === "waiting";
+}
+
+/**
  * Fold one edge into the pane's activity — the INNER fold, private to this
  * module: [`reduceStatus`] is the entry point, and reaching past it silently
  * ignores the agent-turn brackets. Pure; ordering discipline for

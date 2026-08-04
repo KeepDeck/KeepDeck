@@ -274,29 +274,18 @@ describe("agentStatusTracker", () => {
     });
   });
 
-  it("an answer to a pane that is not waiting changes nothing", () => {
+  it("an answer never invents activity for a pane that reported none", () => {
     const tracker = createAgentStatusTracker();
-    tracker.registerNormalizer("codex", literal);
     const listener = vi.fn();
     tracker.subscribe(listener);
 
-    // No activity at all: typing into an idle shell must not invent a turn.
-    // The bridge's own `resumed` legitimately would — this entry point is
-    // narrower on purpose, and nothing but this test holds that apart.
+    // Typing into an idle shell. A bridge `resumed` legitimately WOULD start
+    // a phase here (a tool completed, so something is running); this entry
+    // point asks the domain instead, and nothing but this case holds the
+    // tracker to asking. The states it declines beyond this one are the
+    // reducer's own business, covered in domain/status/activity.test.ts.
     tracker.answered("pane-1", 100);
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
-
-    // Mid-turn typing proves nothing new, and must not restart the age.
-    tracker.report("pane-1", { agent: "codex", event: { kind: "start" } }, 200);
-    const working = tracker.getSnapshot();
-    tracker.answered("pane-1", 300);
-    expect(tracker.getSnapshot()).toBe(working);
-
-    // A finished turn is history: an answer cannot resurrect it.
-    tracker.report("pane-1", { agent: "codex", event: { kind: "end" } }, 400);
-    const done = tracker.getSnapshot();
-    tracker.answered("pane-1", 500);
-    expect(tracker.getSnapshot()).toBe(done);
-    expect(listener).toHaveBeenCalledTimes(2);
+    expect(listener).not.toHaveBeenCalled();
   });
 });

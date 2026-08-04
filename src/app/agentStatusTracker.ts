@@ -1,6 +1,7 @@
 import type { AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
 import { isRecord } from "../domain/json";
 import {
+  answerResolves,
   reduceStatus,
   type PaneActivity,
   type PaneStatus,
@@ -51,12 +52,10 @@ export interface AgentStatusTracker {
   /** Apply one VERIFIED bridge report. Unknown agents and unrecognizable
    * payloads are dropped silently — reporters are best-effort by design. */
   report(paneId: string, payload: unknown, at?: number): void;
-  /** Resolve a STANDING wait: the user answered the question this pane's
-   * agent was parked on. A pane that is not waiting is left untouched, so
-   * this cannot invent activity — the same `resumed` edge from a bridge
-   * report legitimately mints "working" on a pane with no activity yet (a
-   * tool completed, so something IS running), and a keystroke proves no
-   * such thing. Narrow by construction rather than by caller discipline. */
+  /** The user answered the question this pane's agent was parked on. What
+   * that may resolve is [`answerResolves`]'s call; a pane it refuses is left
+   * untouched, so this cannot invent activity. Narrow by construction rather
+   * than by caller discipline. */
   answered(paneId: string, at?: number): void;
   /** Start a pane's activity over: its process was deliberately retired
    * (restart, suspend) and whatever the old one was doing is no longer a
@@ -137,12 +136,10 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     },
 
     answered(paneId, at = Date.now()) {
-      // Only a STANDING wait. The same `resumed` edge from a bridge report
-      // legitimately mints "working" on a pane with no activity yet — a tool
-      // completed, so something IS running — but a keystroke into an idle
-      // pane is no such evidence, and letting it through would paint
-      // "Working" over a shell nobody is driving.
-      if (statuses.get(paneId)?.activity.state !== "waiting") return;
+      // What an answer may resolve is the domain's call, next to the fold
+      // that reads the same edge from an agent — asking it here in a second
+      // spelling is how the two readings drift apart.
+      if (!answerResolves(statuses.get(paneId)?.activity ?? null)) return;
       apply(paneId, { kind: "resumed", at });
     },
 
