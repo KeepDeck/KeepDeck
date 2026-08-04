@@ -8,6 +8,7 @@ import {
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 
+import type { UsageEventV2 } from "../domain/usage/history/event";
 import { usageEvent as event } from "../domain/usage/history/event.testSupport";
 
 
@@ -16,6 +17,15 @@ import { usageEvent as event } from "../domain/usage/history/event.testSupport";
 const richEvents = () => [
   event({ tokens: { input: 2_000_000 }, costSource: "provider", costUsd: 15 }),
 ];
+
+/** A ready snapshot of the WHOLE ledger — what a healthy load publishes, and
+ * the only state in which the notifier is allowed to delete anything. */
+const ledger = (events: UsageEventV2[]): UsageHistorySnapshot => ({
+  ready: true,
+  events,
+  error: null,
+  complete: true,
+});
 
 /** A controllable in-memory history the notifier subscribes to. */
 function fakeHistory(initial: UsageHistorySnapshot) {
@@ -37,7 +47,7 @@ function fakeHistory(initial: UsageHistorySnapshot) {
 function fakeDeps(over: Partial<AchievementNotifierDeps> = {}) {
   const saved: string[] = [];
   const notify = vi.fn<(input: NotifyInput) => boolean>(() => true);
-  const history = fakeHistory({ ready: true, events: [], error: null });
+  const history = fakeHistory(ledger([]));
   const deps: AchievementNotifierDeps = {
     loadNotified: async () => null,
     saveNotified: async (json) => {
@@ -56,7 +66,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 describe("createAchievementNotifier", () => {
   it("congratulates retroactively on first run, one notification per award", async () => {
     const { deps, saved, notify, history } = fakeDeps();
-    history.set({ ready: true, events: richEvents(), error: null });
+    history.set(ledger(richEvents()));
     const notifier = createAchievementNotifier(deps);
     await settle();
 
@@ -94,7 +104,7 @@ describe("createAchievementNotifier", () => {
           ],
         }),
     });
-    history.set({ ready: true, events: richEvents(), error: null });
+    history.set(ledger(richEvents()));
     const notifier = createAchievementNotifier(deps);
     await settle();
 
@@ -123,7 +133,7 @@ describe("createAchievementNotifier", () => {
           ],
         }),
     });
-    history.set({ ready: true, events: richEvents(), error: null });
+    history.set(ledger(richEvents()));
     const notifier = createAchievementNotifier(deps);
     await settle();
 
@@ -136,13 +146,13 @@ describe("createAchievementNotifier", () => {
     const { deps, notify, history } = fakeDeps({
       loadNotified: async () => null,
     });
-    history.set({ ready: false, events: [], error: null });
+    history.set({ ready: false, events: [], error: null, complete: false });
     const notifier = createAchievementNotifier(deps);
     await settle();
     expect(notify).not.toHaveBeenCalled();
 
     const first = event();
-    history.set({ ready: true, events: [first], error: null });
+    history.set(ledger([first]));
     await settle();
     // A lone session earns the two day-one tiers and nothing else.
     expect(notify).toHaveBeenCalledTimes(2);
@@ -161,7 +171,7 @@ describe("createAchievementNotifier", () => {
         rootSessionId: `s${index + 2}`,
       }),
     );
-    history.set({ ready: true, events: [first, ...more], error: null });
+    history.set(ledger([first, ...more]));
     await settle();
     const titles = notify.mock.calls.map(
       (call) => (call[0] as { title: string }).title,
@@ -173,13 +183,13 @@ describe("createAchievementNotifier", () => {
 
   it("refolds from scratch when the snapshot shrinks (compaction rewrite)", async () => {
     const { deps, notify, history } = fakeDeps();
-    history.set({ ready: true, events: [event(), event()], error: null });
+    history.set(ledger([event(), event()]));
     const notifier = createAchievementNotifier(deps);
     await settle();
     const before = notify.mock.calls.length;
 
     // Wholesale replacement with fewer events must not double-count.
-    history.set({ ready: true, events: [event()], error: null });
+    history.set(ledger([event()]));
     await settle();
     expect(notify.mock.calls.length).toBe(before); // nothing newly earned
     notifier.dispose();
@@ -188,11 +198,7 @@ describe("createAchievementNotifier", () => {
   it("refolds on a same-or-longer wholesale replacement, not just a shrink", async () => {
     const { deps, notify, history } = fakeDeps();
     // $9 folded — just short of First Tenner.
-    history.set({
-      ready: true,
-      events: [event({ costSource: "provider", costUsd: 9 })],
-      error: null,
-    });
+    history.set(ledger([event({ costSource: "provider", costUsd: 9 })]));
     const notifier = createAchievementNotifier(deps);
     await settle();
     const titles = () =>
@@ -202,14 +208,12 @@ describe("createAchievementNotifier", () => {
     // Replace WHOLESALE with a longer array totaling only $2.50. A
     // length-only guard would keep the old $9 fold and add the new tail's
     // $2 → a false First Tenner; the head-identity guard refolds.
-    history.set({
-      ready: true,
-      events: [
+    history.set(
+      ledger([
         event({ costSource: "provider", costUsd: 0.5 }),
         event({ costSource: "provider", costUsd: 2 }),
-      ],
-      error: null,
-    });
+      ]),
+    );
     await settle();
     expect(titles()).not.toContain("Achievement unlocked: First Tenner");
     notifier.dispose();
@@ -218,7 +222,7 @@ describe("createAchievementNotifier", () => {
   it("keeps undelivered awards unrecorded so re-enabling announces them", async () => {
     const { deps, saved, notify, history } = fakeDeps();
     notify.mockReturnValue(false); // notifications disabled
-    history.set({ ready: true, events: [event()], error: null });
+    history.set(ledger([event()]));
     const notifier = createAchievementNotifier(deps);
     await settle();
 
@@ -226,7 +230,7 @@ describe("createAchievementNotifier", () => {
     expect(saved).toHaveLength(0); // nothing persisted as congratulated
 
     notify.mockReturnValue(true); // user re-enables notifications
-    history.set({ ready: true, events: [event(), event()], error: null });
+    history.set(ledger([event(), event()]));
     await settle();
     const titles = notify.mock.calls.map(
       (call) => (call[0] as { title: string }).title,
@@ -239,7 +243,7 @@ describe("createAchievementNotifier", () => {
 
   it("persists the congratulated set sorted, for stable diffs on disk", async () => {
     const { deps, saved, history } = fakeDeps();
-    history.set({ ready: true, events: richEvents(), error: null });
+    history.set(ledger(richEvents()));
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
@@ -255,7 +259,7 @@ describe("createAchievementNotifier", () => {
     const wrongType = fakeDeps({
       loadNotified: async () => JSON.stringify({ version: 1, notified: "oops" }),
     });
-    wrongType.history.set({ ready: true, events: [event()], error: null });
+    wrongType.history.set(ledger([event()]));
     const first = createAchievementNotifier(wrongType.deps);
     await settle();
     expect(wrongType.notify).toHaveBeenCalledTimes(2);
@@ -269,7 +273,7 @@ describe("createAchievementNotifier", () => {
           notified: [42, "sessions-1", null, "streakDays-1"],
         }),
     });
-    mixed.history.set({ ready: true, events: [event()], error: null });
+    mixed.history.set(ledger([event()]));
     const second = createAchievementNotifier(mixed.deps);
     await settle();
     expect(mixed.notify).not.toHaveBeenCalled();
@@ -280,7 +284,7 @@ describe("createAchievementNotifier", () => {
     const { deps, notify, history } = fakeDeps({
       loadNotified: async () => "torn{",
     });
-    history.set({ ready: true, events: [event()], error: null });
+    history.set(ledger([event()]));
     const notifier = createAchievementNotifier(deps);
     await settle();
     expect(notify).toHaveBeenCalledTimes(2);
@@ -295,7 +299,7 @@ describe("createAchievementNotifier", () => {
           resolveSettings = resolve;
         }),
     });
-    history.set({ ready: true, events: [event()], error: null });
+    history.set(ledger([event()]));
     const notifier = createAchievementNotifier(deps);
     await settle();
     // notify() would fall back to DEFAULT prefs here; a delivery recorded
@@ -316,7 +320,7 @@ describe("createAchievementNotifier", () => {
           resolveLoad = resolve;
         }),
     });
-    history.set({ ready: true, events: richEvents(), error: null });
+    history.set(ledger(richEvents()));
     const notifier = createAchievementNotifier(deps);
     notifier.dispose();
     resolveLoad(null);
@@ -330,11 +334,7 @@ describe("naming an award", () => {
     // The gallery said "Token Tycoon III" while the banner said plain
     // "Token Tycoon" for all three winnings: one award, two names.
     const { deps, notify, history } = fakeDeps();
-    history.set({
-      ready: true,
-      events: [event({ tokens: { input: 2.5e10 } })],
-      error: null,
-    });
+    history.set(ledger([event({ tokens: { input: 2.5e10 } })]));
     const notifier = createAchievementNotifier(deps);
     await settle();
     const titles = notify.mock.calls.map(
@@ -376,7 +376,7 @@ describe("carrying a congratulated set across a recalibration", () => {
 
   it("writes files at the newest migration's version, without a hand-kept constant", async () => {
     const { deps, saved, history } = fakeDeps();
-    history.set({ ready: true, events: richEvents(), error: null });
+    history.set(ledger(richEvents()));
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
@@ -398,7 +398,7 @@ describe("carrying a congratulated set across a recalibration", () => {
       loadNotified: async () =>
         JSON.stringify({ version: 9, notified: ["future-999"] }),
     });
-    history.set({ ready: true, events: richEvents(), error: null });
+    history.set(ledger(richEvents()));
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
@@ -415,7 +415,7 @@ describe("carrying a congratulated set across a recalibration", () => {
       loadNotified: async () =>
         JSON.stringify({ notified: ["spendUsd-1", "tokens-1000000"] }),
     });
-    history.set({ ready: true, events: richEvents(), error: null });
+    history.set(ledger(richEvents()));
     const notifier = createAchievementNotifier(deps);
     await settle();
     const titles = notify.mock.calls.map(
@@ -449,11 +449,7 @@ describe("reconciling a congratulated set against the ledger", () => {
       loadNotified: async () =>
         JSON.stringify({ version: 1, notified: ["spendUsd-1", "spendUsd-10"] }),
     });
-    upgrade.history.set({
-      ready: true,
-      events: [event({ costSource: "provider", costUsd: 60 })],
-      error: null,
-    });
+    upgrade.history.set(ledger([event({ costSource: "provider", costUsd: 60 })]));
     const first = createAchievementNotifier(upgrade.deps);
     await settle();
     await settle();
@@ -465,11 +461,9 @@ describe("reconciling a congratulated set against the ledger", () => {
     // actually wrote is the point: a set that still held the unearned id
     // would swallow this banner instead.
     const crossing = fakeDeps({ loadNotified: async () => carried });
-    crossing.history.set({
-      ready: true,
-      events: [event({ costSource: "provider", costUsd: 120 })],
-      error: null,
-    });
+    crossing.history.set(
+      ledger([event({ costSource: "provider", costUsd: 120 })]),
+    );
     const second = createAchievementNotifier(crossing.deps);
     await settle();
     expect(
@@ -480,6 +474,56 @@ describe("reconciling a congratulated set against the ledger", () => {
     second.dispose();
   });
 
+  it("does not sweep against a ledger that failed to load", async () => {
+    // The load rejects — a permission error, a bad mount — and the manager
+    // publishes a READY snapshot with an empty array. Sweeping there reads
+    // "this user has earned nothing" off a ledger nobody could open, and
+    // writes it: every award re-announces on the next healthy launch.
+    const { deps, saved, history } = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({
+          version: 2,
+          notified: ["tokens-1000000", "spendUsd-10"],
+        }),
+    });
+    history.set({ ready: true, events: [], error: "EACCES", complete: false });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    await settle();
+    expect(saved).toHaveLength(0);
+    notifier.dispose();
+  });
+
+  it("does not sweep against a ledger this build can only half read", async () => {
+    // A downgrade past a usage-event schema bump: the newer build's lines
+    // stay on disk but never reach the snapshot, so it is ready, error-free
+    // and missing most of the user's history. The congratulated ids are ones
+    // this build knows perfectly well — `known` cannot tell the difference.
+    const { deps, saved, history } = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({
+          version: 2,
+          notified: ["tokens-1000000", "tokens-25000000", "spendUsd-100"],
+        }),
+    });
+    history.set({
+      ready: true,
+      // The remnant this build could read: nowhere near 25M tokens or $100.
+      events: [event({ tokens: { input: 1_100_000 }, costSource: "provider", costUsd: 11 })],
+      error: null,
+      complete: false,
+    });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    await settle();
+    for (const json of saved) {
+      const notified = JSON.parse(json).notified as string[];
+      expect(notified).toContain("tokens-25000000");
+      expect(notified).toContain("spendUsd-100");
+    }
+    notifier.dispose();
+  });
+
   it("repairs a file an earlier build already damaged", async () => {
     // The sweep is not gated on "a migration just ran", so a set poisoned
     // before this fix shipped heals on the next launch instead of staying
@@ -488,11 +532,7 @@ describe("reconciling a congratulated set against the ledger", () => {
       loadNotified: async () =>
         JSON.stringify({ version: 2, notified: ["spendUsd-10", "spendUsd-500"] }),
     });
-    history.set({
-      ready: true,
-      events: [event({ costSource: "provider", costUsd: 60 })],
-      error: null,
-    });
+    history.set(ledger([event({ costSource: "provider", costUsd: 60 })]));
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();

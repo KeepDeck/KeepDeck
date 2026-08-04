@@ -335,6 +335,46 @@ describe("usageHistoryManager", () => {
     expect(ipc.compactUsageHistory).not.toHaveBeenCalled();
   });
 
+  it("admits when the snapshot is not the whole ledger", async () => {
+    // `ready` says the load finished; `complete` says it could read
+    // everything. A reader that writes a durable decision from the ABSENCE
+    // of events — the achievement notifier deletes congratulations that way
+    // — needs the second question answered, and it has three answers.
+    ipc.loadUsageHistory.mockResolvedValue([
+      encodeUsageEvent(event({ eventId: "current" })),
+    ]);
+    await initUsageHistory();
+    expect(getUsageHistorySnapshot()).toMatchObject({
+      ready: true,
+      error: null,
+      complete: true,
+    });
+  });
+
+  it("is not complete while a newer build's lines sit unread on disk", async () => {
+    ipc.loadUsageHistory.mockResolvedValue([
+      encodeUsageEvent(event({ eventId: "current" })),
+      JSON.stringify({ ...event({ eventId: "future" }), schemaVersion: 3 }),
+    ]);
+    await initUsageHistory();
+    const snapshot = getUsageHistorySnapshot();
+    // Ready, error-free, and missing history — the state that looks healthy
+    // from the outside and is not.
+    expect(snapshot).toMatchObject({ ready: true, error: null, complete: false });
+    expect(snapshot.events).toHaveLength(1);
+  });
+
+  it("is not complete when the load failed outright", async () => {
+    ipc.loadUsageHistory.mockRejectedValue(new Error("EACCES"));
+    await initUsageHistory();
+    expect(getUsageHistorySnapshot()).toMatchObject({
+      ready: true,
+      complete: false,
+      events: [],
+    });
+    expect(getUsageHistorySnapshot().error).toContain("EACCES");
+  });
+
   it("migrates v1 lines and compacts them as v2 instead of erasing history", async () => {
     ipc.loadUsageHistory.mockResolvedValue([
       JSON.stringify({

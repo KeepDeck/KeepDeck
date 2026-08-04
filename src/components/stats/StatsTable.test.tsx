@@ -53,7 +53,8 @@ describe("StatsTable", () => {
     const table = host.querySelector('[role="table"]')!;
     expect(table.getAttribute("aria-label")).toBe("Models");
     expect(table.querySelectorAll('[role="row"]')).toHaveLength(1);
-    expect(table.querySelectorAll('[role="cell"]').length).toBeGreaterThan(1);
+    // Identity, tokens, cost: a dropped column is the failure this counts.
+    expect(table.querySelectorAll('[role="cell"]')).toHaveLength(3);
   });
 
   it("shows the total with its in/out breakdown, and the row's age", () => {
@@ -61,6 +62,9 @@ describe("StatsTable", () => {
     const text = host.querySelector(".stats__row")!.textContent ?? "";
     expect(text).toContain("gpt-5.6-terra");
     expect(text).toContain("1.6k");
+    // The breakdown behind the total — the reason the cell is not just a sum.
+    expect(text).toContain("↑1k");
+    expect(text).toContain("↓100");
     expect(text).toContain("1m ago");
   });
 

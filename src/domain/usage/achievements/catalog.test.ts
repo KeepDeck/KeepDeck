@@ -24,6 +24,14 @@ describe("the catalog's ids", () => {
     expect(achievementId("sessions", 25)).toBe("sessions-25");
   });
 
+  it("mints a unique id per tier", () => {
+    // Two tiers sharing a threshold share an id, and the congratulated set
+    // is a Set — so the second could never be announced, for the life of the
+    // install. It would also duplicate a React key in the gallery.
+    const ids = achievementCatalog().map((entry) => entry.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it("keeps every tier reachable by its own id", () => {
     const live = new Set(achievementCatalog().map((entry) => entry.id));
     for (const ladder of LADDERS) {

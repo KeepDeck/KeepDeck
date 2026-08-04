@@ -130,7 +130,13 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
 
     const earned = engine.earnedIds();
     let dirty = false;
-    if (!reconciled) {
+    // Only against the WHOLE ledger. `ready` means the load finished, not
+    // that it could read everything: a failed load publishes a ready, EMPTY
+    // snapshot, and a downgrade past a usage-event schema bump publishes a
+    // ready one missing every line the newer build wrote. Sweeping either
+    // would read "the user has never done this" off a ledger that simply
+    // cannot see what they did — and then write that down.
+    if (!reconciled && snapshot.complete) {
       reconciled = true;
       const kept = reconcileCongratulated(congratulated, earned, known);
       if (kept.size !== congratulated.size) {

@@ -182,9 +182,10 @@ describe("Achievements", () => {
     // different level.
     expect(said(card("Leviathan"))).toBe("Epic");
     expect(said(card("Supernova"))).toBe("Legendary");
-    // Not visible text: the gallery is forty badges and a fifth line on each
-    // would be noise.
-    expect(card("Supernova").textContent).toContain("Legendary");
+    // It is the ONLY place the word appears on the card — the visible lines
+    // are title, requirement and date. That it is also invisible is the
+    // stylesheet's doing and no DOM here can see it.
+    expect(card("Supernova").querySelectorAll(".kd-sr")).toHaveLength(1);
   });
 
   it("carries a hover tooltip with exact numbers on every card", () => {

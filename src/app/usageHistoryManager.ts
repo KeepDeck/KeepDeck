@@ -33,6 +33,21 @@ export interface UsageHistorySnapshot {
   ready: boolean;
   events: readonly UsageEventV2[];
   error: string | null;
+  /**
+   * Whether `events` is the WHOLE ledger. `ready` only means the load has
+   * finished; it says nothing about what the load could read. Two states
+   * publish a ready snapshot that is missing history:
+   *
+   * - the load FAILED, and `events` is still the initial empty array;
+   * - the file holds lines from a NEWER build, which are preserved on disk
+   *   and deliberately kept out of the snapshot (see `init`).
+   *
+   * A reader that only displays the events can ignore this. A reader that
+   * writes a durable decision from their ABSENCE cannot: it would be acting
+   * on "the user has never done this" when the truth is "this build cannot
+   * see what they did".
+   */
+  complete: boolean;
 }
 
 /** The persistence port the manager writes through — injected, so tests
@@ -49,7 +64,15 @@ export interface UsageHistoryIpc {
  * ones — there is no reset hook because there is nothing shared to reset. */
 export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
   let events: readonly UsageEventV2[] = [];
-  let snapshot: UsageHistorySnapshot = { ready: false, events, error: null };
+  /** Lines this build could not read and kept out of `events` — a newer
+   * build's, preserved on disk rather than compacted away. */
+  let withheld = 0;
+  let snapshot: UsageHistorySnapshot = {
+    ready: false,
+    events,
+    error: null,
+    complete: false,
+  };
   let initialized = false;
   let initialization: Promise<void> | null = null;
   let writeQueue: Promise<void> = Promise.resolve();
@@ -58,7 +81,12 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
   const eventIds = new Set<string>();
 
   function emit(error: string | null = snapshot.error): void {
-    snapshot = { ready: true, events, error };
+    snapshot = {
+      ready: true,
+      events,
+      error,
+      complete: error === null && withheld === 0,
+    };
     for (const listener of [...listeners]) listener();
   }
 
@@ -103,6 +131,7 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
         }
 
         events = decoded;
+        withheld = preserved.length;
         if (needsCompact) {
           await ipc.compactUsageHistory([
             ...decoded.map(encodeUsageEvent),

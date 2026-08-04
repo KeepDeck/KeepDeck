@@ -99,7 +99,11 @@ describe("Overview", () => {
 
   it("says nothing about a prior period when there is no history to compare", () => {
     render([usageEvent()]);
-    const recap = host.querySelector(".stats__recap");
-    expect(recap?.textContent ?? "").not.toContain("vs prior");
+    // The recap must still be THERE — it has a busiest day to report. An
+    // assertion that passed on a missing element would also pass on a recap
+    // that stopped rendering altogether.
+    const recap = host.querySelector(".stats__recap")!;
+    expect(recap.textContent).toContain("busiest day");
+    expect(recap.textContent).not.toContain("vs prior");
   });
 });
