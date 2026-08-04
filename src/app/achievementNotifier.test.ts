@@ -12,7 +12,7 @@ import { usageEvent as event } from "../domain/usage/history/event.testSupport";
 
 
 // 2M tokens + provider cost earns: First Million, Warm Afternoon,
-// Hello Agent, Day One, First Dollar — five fresh awards.
+// Hello Agent, Day One, First Tenner — five fresh awards.
 const richEvents = () => [
   event({ tokens: { input: 2_000_000 }, costSource: "provider", costUsd: 15 }),
 ];
@@ -65,7 +65,7 @@ describe("createAchievementNotifier", () => {
       (call) => (call[0] as { title: string }).title,
     );
     expect(titles).toContain("Achievement unlocked: First Million");
-    expect(titles).toContain("Achievement unlocked: First Dollar");
+    expect(titles).toContain("Achievement unlocked: First Tenner");
     expect(notify.mock.calls[0][0]).toMatchObject({
       source: { type: "stats", tab: "achievements" },
     });
@@ -100,7 +100,7 @@ describe("createAchievementNotifier", () => {
 
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0][0]).toMatchObject({
-      title: "Achievement unlocked: First Dollar",
+      title: "Achievement unlocked: First Tenner",
       body: "$10 provider-reported spend",
       tag: "achievement:spendUsd-10",
     });
@@ -187,7 +187,7 @@ describe("createAchievementNotifier", () => {
 
   it("refolds on a same-or-longer wholesale replacement, not just a shrink", async () => {
     const { deps, notify, history } = fakeDeps();
-    // $9 folded — just short of First Dollar.
+    // $9 folded — just short of First Tenner.
     history.set({
       ready: true,
       events: [event({ costSource: "provider", costUsd: 9 })],
@@ -197,11 +197,11 @@ describe("createAchievementNotifier", () => {
     await settle();
     const titles = () =>
       notify.mock.calls.map((call) => (call[0] as { title: string }).title);
-    expect(titles()).not.toContain("Achievement unlocked: First Dollar");
+    expect(titles()).not.toContain("Achievement unlocked: First Tenner");
 
     // Replace WHOLESALE with a longer array totaling only $2.50. A
     // length-only guard would keep the old $9 fold and add the new tail's
-    // $2 → a false First Dollar; the head-identity guard refolds.
+    // $2 → a false First Tenner; the head-identity guard refolds.
     history.set({
       ready: true,
       events: [
@@ -211,7 +211,7 @@ describe("createAchievementNotifier", () => {
       error: null,
     });
     await settle();
-    expect(titles()).not.toContain("Achievement unlocked: First Dollar");
+    expect(titles()).not.toContain("Achievement unlocked: First Tenner");
     notifier.dispose();
   });
 
@@ -422,7 +422,7 @@ describe("carrying a congratulated set across a recalibration", () => {
       (call) => (call[0] as { title: string }).title,
     );
     // spendUsd-1 carried onto the tier that replaced it: not re-announced.
-    expect(titles).not.toContain("Achievement unlocked: First Dollar");
+    expect(titles).not.toContain("Achievement unlocked: First Tenner");
     expect(titles).not.toContain("Achievement unlocked: First Million");
     notifier.dispose();
   });
@@ -441,11 +441,10 @@ describe("reconciling a congratulated set against the ledger", () => {
   });
 
   it("gives back the banner a rewrite spent in advance", async () => {
-    // $60 of spend. The old ladder congratulated First Dollar ($1) and
-    // Coffee Money ($10); the rewrite carries them onto the tiers that
-    // replaced them, and the new Coffee Money is $100 — which this user has
-    // NOT reached. Left standing, that id would be skipped forever on the
-    // day they cross $100.
+    // $60 of spend. The old ladder congratulated its $1 and $10 tiers; the
+    // rewrite carries both onto the tiers that replaced them, and the new
+    // Coffee Money sits at $100 — which this user has NOT reached. Left
+    // standing, that id would be skipped forever on the day they cross it.
     const upgrade = fakeDeps({
       loadNotified: async () =>
         JSON.stringify({ version: 1, notified: ["spendUsd-1", "spendUsd-10"] }),

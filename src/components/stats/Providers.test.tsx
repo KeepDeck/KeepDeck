@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AccountUsage, UsageWindow } from "../../domain/usage/usage";
+import type { AccountUsage, UsageWindow } from "../../domain/usage";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
   TEST_NOW,

@@ -57,7 +57,7 @@ describe("usageAchievementLadders", () => {
     ]);
     const spend = ladder(ladders, "spendUsd").tiers;
     expect(spend[0]).toMatchObject({
-      title: "First Dollar",
+      title: "First Tenner",
       achievedAt: NOW - 500,
       progress: 12,
     });
@@ -224,7 +224,7 @@ describe("earned and next views", () => {
     // the two re-earned tops.
     expect(lockedTokens).toEqual([
       "Heavy Rotation",
-      "Billion Club",
+      "Half a Billion",
       "Token Tycoon",
       "Token Tycoon",
       "Token Tycoon",

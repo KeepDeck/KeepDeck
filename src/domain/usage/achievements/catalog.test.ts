@@ -19,8 +19,8 @@ describe("the catalog's ids", () => {
     // template equals itself.
     expect(achievementId("tokens", 2.5e7)).toBe("tokens-25000000");
     expect(achievementId("spendUsd", 1_500)).toBe("spendUsd-1500");
-    // The title is deliberately absent — which is what makes renaming a badge
-    // free, and why "Century" can stop meaning a hundred without a migration.
+    // The title is deliberately absent — which is what made renaming the four
+    // badges that outgrew their names free, with no migration at all.
     expect(achievementId("sessions", 25)).toBe("sessions-25");
   });
 
@@ -112,7 +112,7 @@ describe("the recalibration's id pairs", () => {
 
   it("still has ids that are both a retired key and a live target", () => {
     // The spend ladder shifted by a whole rung, so $10 is simultaneously the
-    // old Coffee Money and the new First Dollar. That overlap is what makes a
+    // old Coffee Money and the new First Tenner. That overlap is what makes a
     // blind second pass destructive, and it is why the notifier reconciles
     // against the ledger rather than trusting the rewrite.
     const live = new Set(achievementCatalog().map((entry) => entry.id));

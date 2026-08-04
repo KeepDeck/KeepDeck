@@ -77,7 +77,7 @@ describe("Achievements", () => {
     // One goal per ladder, with progress…
     expect(inProgress.textContent).toContain("Picking Up Steam");
     expect(inProgress.textContent).toContain("2M / 25M");
-    expect(inProgress.textContent).toContain("First Dollar");
+    expect(inProgress.textContent).toContain("First Tenner");
     expect(inProgress.textContent).toContain("$0.25 / $10");
     // …while the tiers beyond it are visible but inert: present in Locked,
     // without a progress bar.
@@ -164,6 +164,27 @@ describe("Achievements", () => {
     render();
     hover(card("First Million"));
     expect(tooltip()).toContain("Common");
+    hover(card("First Million"), "mouseout");
+    hover(card("Token Tycoon"));
+    expect(tooltip()).toContain("Legendary");
+  });
+
+  it("carries the level as text a reader can reach without a mouse", () => {
+    // A tip that opens on hover is a tip a keyboard never opens. Every level
+    // is spelled out on the card itself, out of sight — the one place the
+    // fact is available to someone who cannot use the colour.
+    render([usageEvent({ tokens: { input: 1e9 } })]);
+    const said = (item: Element) =>
+      item.querySelector(".kd-sr")?.textContent ?? "";
+    expect(said(card("First Million"))).toBe("Common");
+    expect(said(card("Heavy Rotation"))).toBe("Rare");
+    // "Marathon" would match "Marathon Session" too — a different tier at a
+    // different level.
+    expect(said(card("Leviathan"))).toBe("Epic");
+    expect(said(card("Supernova"))).toBe("Legendary");
+    // Not visible text: the gallery is forty badges and a fifth line on each
+    // would be noise.
+    expect(card("Supernova").textContent).toContain("Legendary");
   });
 
   it("carries a hover tooltip with exact numbers on every card", () => {

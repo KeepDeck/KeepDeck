@@ -78,7 +78,7 @@ type Rgb = readonly [number, number, number];
  * a canvas gradient cannot say `var()`, so the component reads the resolved
  * value once at mount instead of restating the hex. The literal survives
  * only as the answer for a DOM that computes no styles at all. */
-const FALLBACK_GOLD: Rgb = [217, 164, 65];
+export const FALLBACK_GOLD: Rgb = [217, 164, 65];
 
 function rarityGold(element: Element): Rgb {
   const raw = getComputedStyle(element)

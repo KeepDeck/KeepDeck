@@ -121,6 +121,14 @@
   z-index: 1;
 }
 
+/* …except the screen-reader line, which has nothing to lift above anything.
+   The rule above would put it back in the flow, and a 1px box in a flex
+   column is 1px plus a gap on every card in the gallery. Same specificity,
+   later in the file — which is the tiebreak. */
+.stats__achievement > .kd-sr {
+  position: absolute;
+}
+
 /* Epic and up: a light runs the border. The classic rotating-conic trick —
    a spinning square clipped to the card's radius, with the interior painted
    back over it so only the edge keeps the moving band. This is the level's

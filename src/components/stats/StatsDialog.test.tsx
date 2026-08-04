@@ -71,9 +71,13 @@ const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
 
 /** The shell: the stats dialog routes a tab or period choice to the panel
  * that answers it, and keeps the shared clock and the ledger's failure
- * honest across that boundary. What a panel then renders belongs to the
- * panel's own suite — Achievements.test.tsx, Providers.test.tsx,
- * Weeks.test.tsx — which mount it directly, with no tab to click first. */
+ * honest across that boundary.
+ *
+ * What a panel then renders belongs to the panel's own suite, and every one
+ * of them now has one — Overview, StatsTable, Providers, Achievements,
+ * Weeks, StreakBadge — each mounted directly, with no tab to click first.
+ * A case that reads a number out of a panel's markup is in the wrong file:
+ * the boundary only holds while nothing crosses it. */
 describe("UsageStats", () => {
   let root: Root;
   let host: HTMLElement;
@@ -189,27 +193,6 @@ describe("UsageStats", () => {
     expect(host.querySelector(".stats__weeks")).not.toBeNull();
   });
 
-  it("shows highlights with the prior-period delta and the busiest day", () => {
-    history.snapshot = {
-      ready: true,
-      events: [
-        usageEvent(),
-        usageEvent({
-          eventId: "prior",
-          occurredAt: NOW - 8 * 24 * 60 * 60 * 1_000,
-          tokens: { input: 800 },
-        }),
-      ],
-      error: null,
-    };
-    act(() => root.render(createElement(Host)));
-
-    const recap = host.querySelector(".stats__recap")!;
-    expect(recap.textContent).toContain("+100% vs prior 7d");
-    expect(recap.textContent).toContain("top model gpt-5.6-terra (1.6k)");
-    expect(recap.textContent).toContain("busiest day Jul 22 (1.6k)");
-  });
-
   it("keeps Providers alive when the ledger failed to load", () => {
     history.snapshot = { ready: true, events: [], error: "ledger read failed" };
     const account: AccountUsage = {
@@ -230,7 +213,10 @@ describe("UsageStats", () => {
     expect(host.textContent).not.toContain("Usage history is unavailable");
   });
 
-  it("shows the live streak chip in the footer corner with its heat tier", () => {
+  it("seats the streak chip in the footer, outside the tab body", () => {
+    // WHERE it sits is the dialog's decision — the chip reads the ledger
+    // itself precisely so it can live outside the tabs. What it then says
+    // is its own suite's business (StreakBadge.test.tsx).
     const DAY = 24 * 60 * 60 * 1_000;
     history.snapshot = {
       ready: true,
@@ -242,25 +228,10 @@ describe("UsageStats", () => {
     act(() => root.render(createElement(DialogHost, { onClose: vi.fn() })));
 
     const footer = document.body.querySelector(".stats-dialog__actions")!;
-    const chip = footer.querySelector(".stats__streak")!;
-    expect(chip.getAttribute("aria-label")).toBe("4-day streak");
-    expect(chip.className).toContain("stats__streak--ember");
-    // The ember tier wears the coal mark, not a flame yet.
-    expect(chip.querySelector(".stats__streak-mark")).not.toBeNull();
-    expect(chip.querySelector(".stats__streak-coal")).not.toBeNull();
-    expect(chip.querySelector(".stats__streak-fire")).toBeNull();
-  });
-
-  it("hides the streak chip when the streak is broken", () => {
-    history.snapshot = {
-      ready: true,
-      events: [
-        usageEvent({ occurredAt: NOW - 5 * 24 * 60 * 60 * 1_000 }),
-      ],
-      error: null,
-    };
-    act(() => root.render(createElement(DialogHost, { onClose: vi.fn() })));
-    expect(document.body.querySelector(".stats__streak")).toBeNull();
+    expect(footer.querySelector(".stats__streak")).not.toBeNull();
+    expect(
+      document.body.querySelector(".stats-dialog__body .stats__streak"),
+    ).toBeNull();
   });
 
   it("opens directly on a deep-linked tab", () => {
@@ -339,22 +310,23 @@ describe("UsageStats", () => {
     expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("1.6k");
   });
 
-  it("does not render unknown cost as a fake zero", () => {
+  it("hands each tab the same period the switcher is showing", () => {
+    // The one thing only the shell can get wrong: routing the selection to
+    // the panel. What a panel does with a period is its own suite's.
     history.snapshot = {
       ready: true,
-      events: [usageEvent({ costUsd: undefined, costSource: "unavailable" })],
+      events: [usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 })],
       error: null,
     };
     act(() => root.render(createElement(Host)));
+    clickTab("Models");
+    expect(host.textContent).toContain("No usage recorded");
 
-    expect(host.textContent).toContain("No CLI reported a cost estimate");
-    const costCard = [...host.querySelectorAll(".stats__card")].find((card) =>
-      card.textContent?.startsWith("Cost"),
+    const all = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "All",
     )!;
-    expect(costCard.textContent).toBe("Cost—");
-
-    clickTab("Sessions");
-    const session = host.querySelector('[aria-label="Sessions"]')!;
-    expect(session.textContent).toContain("—");
+    act(() => all.click());
+    expect(host.textContent).not.toContain("No usage recorded");
+    expect(host.querySelector('[aria-label="Models"]')).not.toBeNull();
   });
 });

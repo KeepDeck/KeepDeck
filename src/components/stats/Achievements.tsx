@@ -73,6 +73,17 @@ const RARITY_LABELS: Record<AchievementRarity, string> = {
   legendary: "Legendary",
 };
 
+/**
+ * Which badges give off light. The stylesheet decides what every OTHER level
+ * wears, but this one cannot: forty canvases would mount whether or not CSS
+ * chose to paint them, and that cost is real. So the predicate lives here —
+ * once, named — rather than being spelled out at the mount site while the
+ * stylesheet spells the same thing four more times in its own language.
+ */
+export function wearsEmbers(item: UsageAchievement): boolean {
+  return item.rarity === "legendary" && item.achievedAt !== null;
+}
+
 function AchievementCard({
   item,
   future,
@@ -117,11 +128,17 @@ function AchievementCard({
           ground sits UNDER the cut and only its lit edge shows. */}
       <span className="stats__achievement-rim stats__achievement-layer" aria-hidden />
       <span className="stats__achievement-dress stats__achievement-layer" aria-hidden />
-      {item.rarity === "legendary" && !locked ? <AchievementEmbers /> : null}
+      {wearsEmbers(item) ? <AchievementEmbers /> : null}
       <span className="stats__achievement-icon" aria-hidden>
         {item.icon}
       </span>
       <b>{achievementDisplayTitle(item)}</b>
+      {/* The card says the level in colour, and the hover tip says it in
+          words — but a tip opens on hover alone, so without this the level
+          is unavailable to anyone not using a mouse, and to anyone who
+          cannot separate those hues. Hidden rather than shown because a
+          fifth line of text on fifty badges is noise. */}
+      <span className="kd-sr">{RARITY_LABELS[item.rarity]}</span>
       <small>{achievementRequirement(item)}</small>
       {!locked ? (
         <small className="stats__achievement-earned">

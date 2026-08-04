@@ -3,9 +3,7 @@ import { achievementCatalog } from "./catalog";
 import {
   achievementRarity,
   PACED_METRICS,
-  rarityForDays,
   RARITY_ORDER,
-  referenceDays,
   type AchievementRarity,
 } from "./rarity";
 
@@ -18,24 +16,29 @@ const PACED: readonly string[] = PACED_METRICS;
 const atLeastAsRare = (left: AchievementRarity, right: AchievementRarity) =>
   RARITY_ORDER.indexOf(left) >= RARITY_ORDER.indexOf(right);
 
+/** The bands are stated in DAYS, and the only way in is a threshold — so a
+ * band test picks a metric whose pace is one unit a day and reads the
+ * threshold as days directly. `streakDays` is that metric by definition. */
+const forDays = (days: number) => achievementRarity("streakDays", days);
+
 describe("rarity bands", () => {
   it("puts a duration in the band it belongs to", () => {
-    expect(rarityForDays(0.5)).toBe("common");
-    expect(rarityForDays(3)).toBe("uncommon");
-    expect(rarityForDays(20)).toBe("rare");
-    expect(rarityForDays(60)).toBe("epic");
-    expect(rarityForDays(400)).toBe("legendary");
+    expect(forDays(0.5)).toBe("common");
+    expect(forDays(3)).toBe("uncommon");
+    expect(forDays(20)).toBe("rare");
+    expect(forDays(60)).toBe("epic");
+    expect(forDays(400)).toBe("legendary");
   });
 
   it("closes each band at its edge, so a threshold cannot sit in two", () => {
-    expect(rarityForDays(2)).toBe("uncommon");
-    expect(rarityForDays(7)).toBe("rare");
-    expect(rarityForDays(30)).toBe("epic");
-    expect(rarityForDays(90)).toBe("legendary");
+    expect(forDays(2)).toBe("uncommon");
+    expect(forDays(7)).toBe("rare");
+    expect(forDays(30)).toBe("epic");
+    expect(forDays(90)).toBe("legendary");
   });
 
   it("has no ceiling: a decade is the same legendary as a year", () => {
-    expect(rarityForDays(3650)).toBe("legendary");
+    expect(forDays(3650)).toBe("legendary");
   });
 
   it("names the levels in ascending order", () => {
@@ -69,7 +72,19 @@ describe("achievementRarity", () => {
   });
 
   it("measures a calendar streak in days, not in work", () => {
-    expect(referenceDays("streakDays", 45)).toBe(45);
+    // A day is a day at any intensity, so the streak ladder's thresholds ARE
+    // its durations — which is what makes it the yardstick above.
+    expect(achievementRarity("streakDays", 45)).toBe("epic");
+    expect(achievementRarity("streakDays", 90)).toBe("legendary");
+  });
+
+  it("refuses a metric the pace table has never heard of", () => {
+    // The table is total over the metric union, so this needs a cast to
+    // reach — but `referenceDays` used to answer NaN here, and NaN loses
+    // every band comparison, so the tier arrived dressed as LEGENDARY.
+    expect(() =>
+      achievementRarity("agents" as Parameters<typeof achievementRarity>[0], 5),
+    ).toThrow(/agents/);
   });
 });
 
@@ -127,9 +142,5 @@ describe("the catalog holds to the rule", () => {
     ]);
   });
 
-  it("mints a unique id per tier", () => {
-    const ids = achievementCatalog().map((entry) => entry.id);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
 });
 

@@ -46,6 +46,12 @@ export interface TierSpec {
  * Accumulating ladders are calibrated so their five steps land one per
  * rarity band at the reference pace; `rarity.test.ts` holds them to it, so
  * a threshold cannot be nudged without the band moving with it.
+ *
+ * A title must survive its own threshold being read aloud beside it — the
+ * unlock banner prints them together. The recalibration left four that did
+ * not ("Billion Club" at five hundred million, "Century" at twenty-five
+ * sessions) and they are renamed here, which costs nothing: the id is
+ * `metric-threshold`, so no title has ever been persisted.
  */
 export const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
   {
@@ -54,7 +60,7 @@ export const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
       { threshold: 1e6, title: "First Million", icon: "🌱" },
       { threshold: 2.5e7, title: "Picking Up Steam", icon: "⚡" },
       { threshold: 1.5e8, title: "Heavy Rotation", icon: "🔥" },
-      { threshold: 5e8, title: "Billion Club", icon: "💎" },
+      { threshold: 5e8, title: "Half a Billion", icon: "💎" },
       { threshold: 2e9, title: "Token Tycoon", icon: "🏆" },
       { threshold: 2e10, title: "Token Tycoon", icon: "🏆", repeat: 2 },
       { threshold: 2e11, title: "Token Tycoon", icon: "🏆", repeat: 3 },
@@ -87,7 +93,7 @@ export const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
     tiers: [
       { threshold: 1, title: "Hello, Agent", icon: "🤝" },
       { threshold: 5, title: "First Steps", icon: "🎯" },
-      { threshold: 25, title: "Century", icon: "🏅" },
+      { threshold: 25, title: "Regular", icon: "🏅" },
       { threshold: 80, title: "Workhorse", icon: "⚙️" },
       { threshold: 250, title: "Legend", icon: "🎖️" },
       { threshold: 2_500, title: "Legend", icon: "🎖️", repeat: 2 },
@@ -96,7 +102,7 @@ export const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
   {
     metric: "spendUsd",
     tiers: [
-      { threshold: 10, title: "First Dollar", icon: "🪙" },
+      { threshold: 10, title: "First Tenner", icon: "🪙" },
       { threshold: 100, title: "Coffee Money", icon: "☕" },
       { threshold: 500, title: "Serious Business", icon: "💼" },
       { threshold: 1_500, title: "Deep Pockets", icon: "💰" },
@@ -162,7 +168,7 @@ export const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
       { threshold: 1, title: "Day One", icon: "🌅" },
       { threshold: 3, title: "Hat-Trick", icon: "🎩" },
       { threshold: 14, title: "Fortnight", icon: "🌗" },
-      { threshold: 45, title: "Iron Month", icon: "🛡️" },
+      { threshold: 45, title: "Iron Streak", icon: "🛡️" },
       { threshold: 90, title: "Perpetual Motion", icon: "🔄" },
     ],
   },

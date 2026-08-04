@@ -75,10 +75,15 @@ const REFERENCE_PACE: Record<AchievementMetric, number | null> = {
   workspaces: null,
 };
 
-/** The metrics rarity can time. Derived, so a test cannot drift from it. */
+/** The metrics rarity can time — derived from the table rather than listed
+ * again beside it. `achievementRarity` asks this question of every tier, so
+ * it is a real answer this module gives, not a view of itself kept for a
+ * test to read. */
 export const PACED_METRICS: readonly AchievementMetric[] = (
   Object.keys(REFERENCE_PACE) as AchievementMetric[]
 ).filter((metric) => REFERENCE_PACE[metric] !== null);
+
+const PACED = new Set<AchievementMetric>(PACED_METRICS);
 
 /** Band edges in reference-user DAYS. Legendary is a season's goal, not a
  * decade's — the endless top comes from re-earning it, never from a first
@@ -86,21 +91,11 @@ export const PACED_METRICS: readonly AchievementMetric[] = (
 const BAND_DAYS: readonly number[] = [2, 7, 30, 90];
 
 /** Which band a duration falls into. */
-export function rarityForDays(days: number): AchievementRarity {
+function rarityForDays(days: number): AchievementRarity {
   for (let index = 0; index < BAND_DAYS.length; index += 1) {
     if (days < BAND_DAYS[index]) return RARITY_ORDER[index];
   }
   return "legendary";
-}
-
-/** How long the reference user needs for `threshold`, or null when the
- * metric is not accumulated over time (coverage and peaks). */
-export function referenceDays(
-  metric: AchievementMetric,
-  threshold: number,
-): number | null {
-  const pace = REFERENCE_PACE[metric];
-  return pace === null ? null : threshold / pace;
 }
 
 /** THE rarity of one tier. `declared` is the catalog's explicit level, which
@@ -113,12 +108,15 @@ export function achievementRarity(
   declared?: AchievementRarity,
 ): AchievementRarity {
   if (declared) return declared;
-  const days = referenceDays(metric, threshold);
-  if (days === null) {
+  // Membership, not `pace === null`. A metric outside the table divides by
+  // `undefined`, and `NaN` loses every band comparison — so the tier would
+  // arrive dressed as legendary instead of stopping the build, which is the
+  // opposite of what the throw below is for.
+  if (!PACED.has(metric)) {
     throw new Error(
       `achievement metric "${metric}" has neither a reference pace nor a declared rarity`,
     );
   }
-  return rarityForDays(days);
+  return rarityForDays(threshold / (REFERENCE_PACE[metric] as number));
 }
 

@@ -57,7 +57,18 @@ describe("achievementDisplayTitle", () => {
     );
   });
 
+  it("knows the numerals up to one past the catalog's deepest repeat", () => {
+    // The catalog stops at III today; IV is the slack that lets a ladder gain
+    // a fourth winning without touching this table.
+    expect(achievementDisplayTitle({ title: "Legend", repeat: 4 })).toBe(
+      "Legend IV",
+    );
+  });
+
   it("falls back to a plain number past the numerals it knows", () => {
+    // The boundary, not a number far past it: an off-by-one in the indexing
+    // shows up here and nowhere else.
+    expect(achievementDisplayTitle({ title: "Legend", repeat: 5 })).toBe("Legend 5");
     expect(achievementDisplayTitle({ title: "Legend", repeat: 9 })).toBe("Legend 9");
   });
 
