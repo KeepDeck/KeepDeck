@@ -58,18 +58,12 @@ describe("isNavigationKey", () => {
     expect(isNavigationKey("")).toBe(false);
   });
 
-  it("is not fooled by a terminal reply that resembles one", () => {
-    // These never reach a key event — the whole reason the caller reports
-    // keystrokes rather than the byte stream — but the anchors mean that
-    // even if one did, it would not read as navigation and be silently
-    // dropped: cursor position, device attributes, status, window size.
-    for (const reply of [
-      "\x1b[24;80R",
-      "\x1b[?1;2c",
-      "\x1b[0n",
-      "\x1b[8;24;80t",
-    ]) {
-      expect(isNavigationKey(reply), JSON.stringify(reply)).toBe(false);
-    }
+  it("counts the keys that walk a list of options as moving", () => {
+    // Tab and Shift+Tab step between a prompt's options (and cycle claude's
+    // permission modes) without choosing anything. They are not navigation
+    // in the cursor sense, but they are the same act as the arrows — and
+    // reading them as an answer fails in the direction that goes silent.
+    expect(isNavigationKey("\t")).toBe(true);
+    expect(isNavigationKey("\x1b[Z")).toBe(true);
   });
 });

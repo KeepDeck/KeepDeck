@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentStatusEvent } from "@keepdeck/plugin-api";
-import {
-  answerResolves,
-  reduceStatus,
-  type PaneActivity,
-  type PaneStatus,
-} from "./activity";
+import { reduceStatus, type PaneActivity, type PaneStatus } from "./activity";
 
 /**
  * The activity half of the fold. The inner reducer is private on purpose —
@@ -571,32 +566,5 @@ describe("reduceStatus", () => {
       reduceStatus(null, { kind: "agent-turn-end", at: 300, id: "a" }),
     ).toBeNull();
     expect(reduceStatus(null, { kind: "agent-turns-cleared", at: 300 })).toBeNull();
-  });
-});
-
-describe("answerResolves", () => {
-  it("accepts a standing wait and nothing else", () => {
-    expect(answerResolves({ state: "waiting", since: 1, reason: "permission" }))
-      .toBe(true);
-    expect(answerResolves({ state: "waiting", since: 1, reason: "question" }))
-      .toBe(true);
-    expect(answerResolves({ state: "working", since: 1 })).toBe(false);
-    expect(answerResolves({ state: "done", at: 1, interrupted: false })).toBe(
-      false,
-    );
-    expect(answerResolves({ state: "failed", at: 1, error: "rate_limit" })).toBe(
-      false,
-    );
-  });
-
-  it("refuses a pane that has reported nothing — unlike the `resumed` edge", () => {
-    // The asymmetry IS the reason this predicate exists: an agent's own
-    // `resumed` starts a phase from no activity, because a completed tool
-    // proves something is running. A keystroke proves only that someone is
-    // at the keyboard.
-    expect(answerResolves(null)).toBe(false);
-    expect(reduceStatus(null, { kind: "resumed", at: 100 })).toMatchObject({
-      activity: { state: "working", since: 100 },
-    });
   });
 });

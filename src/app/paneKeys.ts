@@ -12,10 +12,17 @@
  * "Needs approval" to "Working" because it repainted after a resize.
  *
  * xterm's `onKey` carries only real key events, so provenance comes from the
- * seam rather than from guessing at bytes. Paste and programmatic writes are
- * excluded by the same construction — no one answers a yes/no prompt by
- * pasting, and a wait that outlives this signal still clears when the agent's
- * own edge arrives.
+ * seam rather than from guessing at bytes.
+ *
+ * What that construction also excludes, deliberately: a paste, a file
+ * drag-and-drop, voice dictation, and an MCP `pane.write` — every path that
+ * reaches the agent as bytes rather than as a keypress. The first two answer
+ * no prompt; the last two could, and a wait they answer stands until the
+ * agent's own edge lands. That is the pre-existing behaviour, not a
+ * regression, and it is the price of a signal that cannot be forged by the
+ * agent itself. Reporting those paths too would mean deciding, at each of
+ * them, whether the writer was the user — which is exactly the guess this
+ * module exists to stop making.
  */
 
 const listeners = new Set<(paneId: string, data: string) => void>();

@@ -34,11 +34,16 @@
  *   arrow branch already covers). Missing them made word motion answer a
  *   prompt on the one platform this app ships.
  *
+ * - `\t`, `\x1b[Z` — Tab and Shift+Tab. Not motion in the cursor sense, but
+ *   the same ACT: they walk a prompt's options (and cycle claude's
+ *   permission modes) without choosing one. Reading them as a commit fails
+ *   in the direction that goes silent, so they belong here.
+ *
  * Mouse reports and focus events need no branch here: neither reaches a key
  * event.
  */
 const NAVIGATION =
-  /^\x1b(?:\[(?:[0-9;]*[ABCDHF]|[56](?:;[0-9]+)?~)|O[ABCDHF]|[bf])$/;
+  /^(?:\t|\x1b(?:\[(?:[0-9;]*[ABCDHFZ]|[56](?:;[0-9]+)?~)|O[ABCDHF]|[bf]))$/;
 
 /** True when this keystroke only moves around. */
 export function isNavigationKey(data: string): boolean {
