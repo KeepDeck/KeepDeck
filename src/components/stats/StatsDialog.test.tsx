@@ -5,8 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 
 const history = vi.hoisted(() => ({
-  snapshot: { ready: true, events: [] as UsageEventV2[], error: null as string | null },
+  snapshot: {
+    ready: true,
+    events: [] as UsageEventV2[],
+    error: null as string | null,
+    complete: true,
+  },
 }));
+
+/** A ready snapshot of the whole ledger — the healthy case these cases mean
+ * whenever they do not say otherwise. */
+const ledger = (events: UsageEventV2[]) => ({
+  ready: true,
+  events,
+  error: null as string | null,
+  complete: true,
+});
 vi.mock("../../app/useUsageHistorySnapshot", () => ({
   useUsageHistorySnapshot: () => history.snapshot,
 }));
@@ -84,7 +98,7 @@ describe("UsageStats", () => {
 
   beforeEach(() => {
     vi.setSystemTime(NOW);
-    history.snapshot = { ready: true, events: [usageEvent()], error: null };
+    history.snapshot = ledger([usageEvent()]);
     usage.snapshot = { accounts: new Map(), panes: new Map() };
     windowReports.snapshot = { ready: true, byKey: new Map() };
     document.body.innerHTML = "<div id='host'></div>";
@@ -156,28 +170,22 @@ describe("UsageStats", () => {
     // An agent finishes a turn seconds AFTER the dialog's slow clock last
     // ticked: the appended event's instant is ahead of that clock, and the
     // `occurredAt <= now` filter must not hide it for up to 30s.
-    history.snapshot = {
-      ready: true,
-      events: [
-        usageEvent(),
-        usageEvent({
-          occurredAt: NOW + 5_000,
-          capturedAt: NOW + 5_000,
-          tokens: { input: 100_000 },
-          observation: { tokens: { input: 100_000 } },
-        }),
-      ],
-      error: null,
-    };
+    history.snapshot = ledger([
+      usageEvent(),
+      usageEvent({
+        occurredAt: NOW + 5_000,
+        capturedAt: NOW + 5_000,
+        tokens: { input: 100_000 },
+        observation: { tokens: { input: 100_000 } },
+      }),
+    ]);
     act(() => root.render(createElement(Host)));
     expect(host.textContent).toContain("101.6k");
   });
 
   it("switches time ranges without remounting", () => {
     history.snapshot = {
-      ready: true,
-      events: [usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })],
-      error: null,
+      ...ledger([usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })]),
     };
     act(() => root.render(createElement(Host)));
     expect(host.textContent).toContain("gpt-5.6-terra"); // default 7d
@@ -194,7 +202,12 @@ describe("UsageStats", () => {
   });
 
   it("keeps Providers alive when the ledger failed to load", () => {
-    history.snapshot = { ready: true, events: [], error: "ledger read failed" };
+    history.snapshot = {
+      ready: true,
+      events: [],
+      error: "ledger read failed",
+      complete: false,
+    };
     const account: AccountUsage = {
       kind: "reported",
       reportedAt: NOW - 60_000,
@@ -219,11 +232,11 @@ describe("UsageStats", () => {
     // is its own suite's business (StreakBadge.test.tsx).
     const DAY = 24 * 60 * 60 * 1_000;
     history.snapshot = {
-      ready: true,
-      events: [0, 1, 2, 3].map((daysAgo) =>
-        usageEvent({ eventId: `d-${daysAgo}`, occurredAt: NOW - daysAgo * DAY }),
+      ...ledger(
+        [0, 1, 2, 3].map((daysAgo) =>
+          usageEvent({ eventId: `d-${daysAgo}`, occurredAt: NOW - daysAgo * DAY }),
+        ),
       ),
-      error: null,
     };
     act(() => root.render(createElement(DialogHost, { onClose: vi.fn() })));
 
@@ -289,11 +302,9 @@ describe("UsageStats", () => {
   });
 
   it("reaches arbitrarily old events through the All period", () => {
-    history.snapshot = {
-      ready: true,
-      events: [usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 })],
-      error: null,
-    };
+    history.snapshot = ledger([
+      usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 }),
+    ]);
     act(() => root.render(createElement(Host)));
     // Default 7d is empty: Overview keeps rendering (zero cards, Weeks
     // history reachable), while the period-LEDGER tabs still gate.
@@ -313,11 +324,9 @@ describe("UsageStats", () => {
   it("hands each tab the same period the switcher is showing", () => {
     // The one thing only the shell can get wrong: routing the selection to
     // the panel. What a panel does with a period is its own suite's.
-    history.snapshot = {
-      ready: true,
-      events: [usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 })],
-      error: null,
-    };
+    history.snapshot = ledger([
+      usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 }),
+    ]);
     act(() => root.render(createElement(Host)));
     clickTab("Models");
     expect(host.textContent).toContain("No usage recorded");

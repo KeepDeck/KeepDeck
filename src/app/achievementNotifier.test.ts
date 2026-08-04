@@ -516,6 +516,9 @@ describe("reconciling a congratulated set against the ledger", () => {
     const notifier = createAchievementNotifier(deps);
     await settle();
     await settle();
+    // The remnant still earns the day-one tiers, so there IS a write — an
+    // empty `saved` would make the loop below prove nothing.
+    expect(saved.length).toBeGreaterThan(0);
     for (const json of saved) {
       const notified = JSON.parse(json).notified as string[];
       expect(notified).toContain("tokens-25000000");

@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 
 const history = vi.hoisted(() => ({
-  snapshot: { ready: true, events: [] as UsageEventV2[], error: null as string | null },
+  snapshot: {
+    ready: true,
+    events: [] as UsageEventV2[],
+    error: null as string | null,
+    complete: true,
+  },
 }));
 vi.mock("../../app/useUsageHistorySnapshot", () => ({
   useUsageHistorySnapshot: () => history.snapshot,
@@ -51,7 +56,7 @@ describe("StreakBadge", () => {
   });
 
   const render = (events: UsageEventV2[]) => {
-    history.snapshot = { ready: true, events, error: null };
+    history.snapshot = { ready: true, events, error: null, complete: true };
     act(() => root.render(createElement(StreakBadge)));
     return host.querySelector(".stats__streak");
   };

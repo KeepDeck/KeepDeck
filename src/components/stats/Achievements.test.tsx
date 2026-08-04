@@ -182,9 +182,9 @@ describe("Achievements", () => {
     // different level.
     expect(said(card("Leviathan"))).toBe("Epic");
     expect(said(card("Supernova"))).toBe("Legendary");
-    // It is the ONLY place the word appears on the card — the visible lines
-    // are title, requirement and date. That it is also invisible is the
-    // stylesheet's doing and no DOM here can see it.
+    // One line per card, not one per level: the four assertions above are
+    // what pin the word itself. That it is INVISIBLE is the stylesheet's
+    // doing, and no DOM in this suite loads a stylesheet.
     expect(card("Supernova").querySelectorAll(".kd-sr")).toHaveLength(1);
   });
 

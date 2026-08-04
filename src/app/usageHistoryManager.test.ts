@@ -375,6 +375,31 @@ describe("usageHistoryManager", () => {
     expect(getUsageHistorySnapshot().error).toContain("EACCES");
   });
 
+  it("stays incomplete after a failed load, however many appends land on it", async () => {
+    // Appending does not read the file, so it succeeds on a ledger the load
+    // could not open — `read_to_string` rejects a single invalid UTF-8 byte
+    // while `append` happily opens the same path. That clears the error, and
+    // an error is NOT the question: `events` still holds nothing the file
+    // contains. A reader deleting on absence would act on this snapshot.
+    ipc.loadUsageHistory.mockRejectedValue(new Error("invalid utf-8"));
+    await initUsageHistory();
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 100, output: 10 },
+        costUsd: 1,
+        reportedAt: NOW,
+      },
+      context,
+      NOW,
+    );
+    const snapshot = getUsageHistorySnapshot();
+    expect(snapshot.error).toBeNull();
+    expect(snapshot.events.length).toBeGreaterThan(0);
+    expect(snapshot.complete).toBe(false);
+  });
+
   it("migrates v1 lines and compacts them as v2 instead of erasing history", async () => {
     ipc.loadUsageHistory.mockResolvedValue([
       JSON.stringify({

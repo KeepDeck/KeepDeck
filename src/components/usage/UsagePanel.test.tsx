@@ -4,7 +4,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../app/useUsageHistorySnapshot", () => ({
-  useUsageHistorySnapshot: () => ({ ready: true, events: [], error: null }),
+  useUsageHistorySnapshot: () => ({
+    ready: true,
+    events: [],
+    error: null,
+    complete: true,
+  }),
 }));
 
 vi.mock("../../app/settingsManager", () => ({
