@@ -134,6 +134,14 @@ export function createAgentStatusChannel(
   // re-raises) and is settled by the agent's own edge on codex, while a wait
   // left standing over an answered prompt is the silent lie this exists to
   // remove.
+  //
+  // Escape is the one key whose meaning we cannot read: it answers codex's
+  // "No, and tell Codex what to do differently", and it INTERRUPTS claude.
+  // Both readings are handled without distinguishing them — this edge is
+  // stamped when the key is pressed, so an abort's marker (which the tailer
+  // stamps with its own, later time) is never absorbed as stale and still
+  // settles the pane on "Interrupted". The cost is a moment of "Working"
+  // in between.
   const unsubscribeKeys = subscribePaneKeys((paneId, data) => {
     if (!isNavigationKey(data)) tracker.answered(paneId);
   });

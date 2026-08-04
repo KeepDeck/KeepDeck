@@ -39,10 +39,9 @@ import {
  *   Stop
  *
  * `PreToolUse` fires BEFORE the ask, so arming it would buy no resolution.
- * The host closes this itself: it sees the keystroke that answers, and
- * `agentStatusChannel` folds it as `resumed`. The `PostToolUse` case below
- * therefore remains the backstop for an answer given some other way, not
- * the primary resolution.
+ * The host closes this itself, from the user's own keystroke. The
+ * `PostToolUse` case below therefore remains the backstop for an answer
+ * given some other way, not the primary resolution.
  */
 export const normalizeCodexStatus: StatusNormalizer = (
   payload,
