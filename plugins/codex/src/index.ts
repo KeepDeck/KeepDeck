@@ -28,9 +28,12 @@ import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
  * codex has no Notification and no StopFailure: PermissionRequest is its
  * only waiting edge, and an API-error turn is invisible to hooks (the
  * rollout tail supplies the interrupt edge; failures stay a known gap).
- * PostToolUse is the approval-RESOLUTION stand-in — codex has no reply
- * hook either, but an approved tool's completion proves the wait
- * resolved; without it the amber "needs approval" survives until Stop.
+ * PostToolUse is the approval-resolution BACKSTOP — codex has no reply
+ * hook either, and its completion lands only when the approved command
+ * does; the host reads the user's own answer instead, so the amber no
+ * longer waits out the command. See `status.ts` for the measured
+ * sequence, and for why arming PreToolUse would not help (it fires
+ * BEFORE the ask).
  *
  * SessionStart's `source` was live-verified on 0.146 and speaks claude's
  * vocabulary — `startup` on a boot, `resume` on `codex exec resume --last`.
