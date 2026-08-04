@@ -23,8 +23,6 @@ const EMBERS = CELLS_X * CELLS_Y;
 /** How far past the badge an ember may drift, and therefore how much room
  * the canvas needs beyond it. Must match the CSS inset. */
 const HALO = 26;
-/** A badge is ~150×90; nothing legitimate approaches this. */
-const MAX_SIDE = 600;
 
 interface Ember {
   cell: number;
@@ -38,6 +36,10 @@ interface Ember {
   born: number;
   life: number;
 }
+
+/** The reader's standing answer about motion. One spelling, because the
+ * component both asks it at mount and listens for it changing. */
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
 function ember(cell: number, now: number, seeded: boolean): Ember {
   const life = 1900 + Math.random() * 2600;
@@ -54,6 +56,19 @@ function ember(cell: number, now: number, seeded: boolean): Ember {
     born: now - (seeded ? Math.random() * life : 0),
     life,
   };
+}
+
+/** A full field, every ember mid-flight at its own phase. A field born all
+ * at once reads as a single flash rather than as a card giving off light. */
+export function seedField(now: number): Ember[] {
+  return Array.from({ length: EMBERS }, (_, cell) => ember(cell, now, true));
+}
+
+/** Put a field back mid-flight, in place — see the resume path. */
+export function reseed(embers: Ember[], now: number): void {
+  for (let index = 0; index < embers.length; index += 1) {
+    embers[index] = ember(embers[index].cell, now, true);
+  }
 }
 
 type Rgb = readonly [number, number, number];
@@ -137,12 +152,8 @@ export function AchievementEmbers() {
     if (!canvas || !card || !context || typeof context.drawImage !== "function") {
       return;
     }
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-
     const glow = sprite(rarityGold(canvas));
-    const embers = Array.from({ length: EMBERS }, (_, cell) =>
-      ember(cell, performance.now(), true),
-    );
+    const embers = seedField(performance.now());
     let width = 0;
     let height = 0;
 
@@ -157,17 +168,28 @@ export function AchievementEmbers() {
      * its border box. Measuring the card made the field one pixel wider than
      * the element drawing it, so the inner area the embers were told to stay
      * inside was not quite the card. Reading the box that actually exists
-     * makes `HALO` exact by construction. */
+     * makes `HALO` exact by construction.
+     *
+     * There is deliberately no size cap. One used to sit here against the
+     * runaway that a content rule caused once, by putting the canvas back in
+     * the flow so the card grew from a height its own bitmap set. The cap
+     * could never have stopped that: the box comes from CSS, not from the
+     * bitmap, so writing `canvas.width` cannot move it. What actually closes
+     * the loop is that the canvas is out of the flow — the shared layer class
+     * — and, if it ever were not, the size settles in one step anyway. A
+     * guard that cannot fire and would not help is worse than none: it reads
+     * as protection. */
     const measure = () => {
       const box = canvas.getBoundingClientRect();
-      // Clamped, and not out of caution: this canvas takes its size FROM the
-      // card, so anything that lets it affect the card's size closes a loop
-      // and the pair grows without bound. It happened — a content rule
-      // captured the canvas and put it back in the flow. The cap turns that
-      // class of mistake into a wrong-looking badge instead of a hang.
-      const next = Math.min(MAX_SIDE, Math.max(1, Math.round(box.width)));
-      const nextHeight = Math.min(MAX_SIDE, Math.max(1, Math.round(box.height)));
+      // A box smaller than the halo it carries has no room for a field at
+      // all: `width - HALO * 2` would go NEGATIVE and every ember would map
+      // outside the bitmap. A card with no layout box — an ancestor is
+      // `display: none` — is exactly that case, so the field simply waits
+      // for the resize that gives it one.
+      const next = Math.round(box.width);
+      const nextHeight = Math.round(box.height);
       if (next === width && nextHeight === height) return;
+      if (next < HALO * 2 || nextHeight < HALO * 2) return;
       width = next;
       height = nextHeight;
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -184,6 +206,9 @@ export function AchievementEmbers() {
     let frame = 0;
     const draw = (now: number) => {
       frame = requestAnimationFrame(draw);
+      // No usable box yet (the card is hidden): nothing to draw into, and
+      // the ember maths would map outside the bitmap if it tried.
+      if (width === 0) return;
       context.clearRect(0, 0, width, height);
       context.globalCompositeOperation = "lighter";
       for (let index = 0; index < embers.length; index += 1) {
@@ -208,15 +233,36 @@ export function AchievementEmbers() {
       context.globalAlpha = 1;
       context.globalCompositeOperation = "source-over";
     };
-    let running = true;
-    frame = requestAnimationFrame(draw);
+    /** Two independent reasons to hold still, one switch. Both are live: the
+     * reader can scroll the badge away and can change their mind about
+     * motion, and the CSS half of the second answers the moment they do. */
+    const motion = window.matchMedia?.(REDUCED_MOTION) ?? null;
+    let offscreen = false;
+    let running = false;
+
+    const sync = () => {
+      const wanted = !offscreen && motion?.matches !== true;
+      if (wanted === running) return;
+      running = wanted;
+      if (!wanted) {
+        cancelAnimationFrame(frame);
+        context.clearRect(0, 0, width, height);
+        return;
+      }
+      // RESEEDED, not merely restarted. Every ember whose life ran out while
+      // the loop was parked would otherwise be reborn on the same frame with
+      // the same phase: the badge goes dark, blooms at nearly twice its
+      // steady brightness, then troughs. And because the observer reports
+      // every newly visible card in one batch, the whole grid does it in
+      // step — the ripple this design gave up a shimmer to avoid.
+      reseed(embers, performance.now());
+      frame = requestAnimationFrame(draw);
+    };
+    sync();
 
     /** A full gallery is a wall of legendary badges, each with its own draw
      * loop, and the dialog shows perhaps two rows at a time. A field nobody
-     * is looking at stops entirely rather than spending a frame budget
-     * behind the scroll — and it resumes looking like a fresh mount, since
-     * every ember whose life ran out while the loop was parked is reborn on
-     * the next frame anyway.
+     * is looking at costs nothing.
      *
      * The viewport is the right root even though the scroller is the dialog
      * body: an intersection rect is clipped by every clipping ancestor on
@@ -225,22 +271,17 @@ export function AchievementEmbers() {
       typeof IntersectionObserver === "undefined"
         ? null
         : new IntersectionObserver((entries) => {
-            const onscreen = entries[entries.length - 1]?.isIntersecting ?? true;
-            if (onscreen === running) return;
-            running = onscreen;
-            if (onscreen) {
-              frame = requestAnimationFrame(draw);
-              return;
-            }
-            cancelAnimationFrame(frame);
-            context.clearRect(0, 0, width, height);
+            offscreen = !(entries[entries.length - 1]?.isIntersecting ?? true);
+            sync();
           });
     gate?.observe(canvas);
+    motion?.addEventListener?.("change", sync);
 
     return () => {
       cancelAnimationFrame(frame);
       observer?.disconnect();
       gate?.disconnect();
+      motion?.removeEventListener?.("change", sync);
     };
   }, []);
 
