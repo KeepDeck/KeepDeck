@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SPARE_SLOTS } from "../domain/usage/chartPalette";
 import { FALLBACK_GOLD } from "../components/stats/AchievementEmbers";
+import { readStyles } from "./testSupport";
 
 /**
  * The rarity palette's answer has to be the same in three languages, and a
@@ -13,8 +12,6 @@ import { FALLBACK_GOLD } from "../components/stats/AchievementEmbers";
  * chartPalette is JS that cannot import CSS — so each one exists for a
  * reason. What was missing is anything that fails when they drift.
  */
-const STYLES_DIR = "src/styles";
-const read = (file: string) => readFileSync(join(STYLES_DIR, file), "utf8");
 
 function customProperty(css: string, name: string): string {
   const match = new RegExp(`${name}:\\s*([^;]+);`).exec(css);
@@ -23,8 +20,8 @@ function customProperty(css: string, name: string): string {
 }
 
 describe("the rarity palette", () => {
-  const achievements = read("stats-achievements.css");
-  const base = read("base.css");
+  const achievements = readStyles("stats-achievements.css");
+  const base = readStyles("base.css");
 
   it("draws four of its five levels from tokens the app already has", () => {
     expect(customProperty(achievements, "--rarity-uncommon")).toBe("var(--kd-ok)");
