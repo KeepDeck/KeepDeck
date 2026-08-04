@@ -36,6 +36,7 @@ import {
   runPaneOnce,
   subscribeSessions,
 } from "./ptyManager";
+import { subscribePaneKeys } from "./paneKeys";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
@@ -219,6 +220,7 @@ export function createAppRuntime(
         statusTracker,
         { subscribe: subscribeSessions, state: paneSessionState },
         attribution,
+        { subscribe: subscribePaneKeys },
       );
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,

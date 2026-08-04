@@ -6,7 +6,6 @@ import type { DeckStore } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import { paneAgentType } from "../domain/deck";
 import { isNavigationKey } from "../domain/terminal";
-import { subscribePaneKeys } from "./paneKeys";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
 
@@ -19,6 +18,15 @@ export interface AgentStatusChannel {
 export interface SessionLivenessPort {
   subscribe(listener: () => void): () => void;
   state(paneId: string): { kind: string };
+}
+
+/** The user's own keystrokes, per pane — the host's only evidence that a
+ * HUMAN acted, and injected like every other signal so the composition root
+ * names each lane that feeds the tracker. */
+export interface PaneKeyPort {
+  subscribe(
+    listener: (paneId: string, data: string) => void,
+  ): () => void;
 }
 
 /**
@@ -47,6 +55,7 @@ export function createAgentStatusChannel(
   tracker: AgentStatusTracker,
   sessions: SessionLivenessPort,
   attribution: PaneAttribution,
+  keys: PaneKeyPort,
 ): AgentStatusChannel {
   let disposed = false;
   let normalizerDisposers: (() => void)[] = [];
@@ -142,7 +151,12 @@ export function createAgentStatusChannel(
   // stamps with its own, later time) is never absorbed as stale and still
   // settles the pane on "Interrupted". The cost is a moment of "Working"
   // in between.
-  const unsubscribeKeys = subscribePaneKeys((paneId, data) => {
+  const unsubscribeKeys = keys.subscribe((paneId, data) => {
+    // Same live-process requirement the report lane carries, for the same
+    // reason: a key pressed at a pane whose session has not started goes
+    // nowhere (the write is a no-op), so it answered nothing. The dead
+    // cases need no check — the sweep above clears their activity outright.
+    if (sessions.state(paneId).kind !== "live") return;
     if (!isNavigationKey(data)) tracker.answered(paneId);
   });
 
