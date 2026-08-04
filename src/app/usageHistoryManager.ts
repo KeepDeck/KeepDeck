@@ -33,6 +33,30 @@ export interface UsageHistorySnapshot {
   ready: boolean;
   events: readonly UsageEventV2[];
   error: string | null;
+  /**
+   * Whether `events` is everything the FILE holds. `ready` only means the
+   * load has finished; it says nothing about what the load could read. Two
+   * states publish a ready snapshot over history that is still on disk:
+   *
+   * - the load FAILED, and `events` is the initial empty array;
+   * - the file holds lines from a NEWER build, preserved on disk and
+   *   deliberately kept out of the snapshot (see `init`).
+   *
+   * Neither is the same question as "is there an error right now". An append
+   * after a failed load succeeds and clears the error while `events` still
+   * holds nothing the file contains — which is why this is derived from
+   * whether the read happened, not from the current error.
+   *
+   * Lines that were undecodable and COMPACTED away are not covered, and do
+   * not need to be: the rewrite removed them from the file too, so what is
+   * in hand really is all there is.
+   *
+   * A reader that only displays the events can ignore this. A reader that
+   * writes a durable decision from their ABSENCE cannot: it would be acting
+   * on "the user has never done this" when the truth is "this build cannot
+   * see what they did".
+   */
+  complete: boolean;
 }
 
 /** The persistence port the manager writes through — injected, so tests
@@ -49,7 +73,20 @@ export interface UsageHistoryIpc {
  * ones — there is no reset hook because there is nothing shared to reset. */
 export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
   let events: readonly UsageEventV2[] = [];
-  let snapshot: UsageHistorySnapshot = { ready: false, events, error: null };
+  /** Whether the ledger was READ — set once, on the load path, and never
+   * cleared. Not the same question as "is there an error right now": an
+   * append after a failed load succeeds and clears the error, while `events`
+   * still holds nothing the file contains. */
+  let loaded = false;
+  /** Lines this build could not read and kept out of `events` — a newer
+   * build's, preserved on disk rather than compacted away. */
+  let withheld = 0;
+  let snapshot: UsageHistorySnapshot = {
+    ready: false,
+    events,
+    error: null,
+    complete: false,
+  };
   let initialized = false;
   let initialization: Promise<void> | null = null;
   let writeQueue: Promise<void> = Promise.resolve();
@@ -58,7 +95,12 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
   const eventIds = new Set<string>();
 
   function emit(error: string | null = snapshot.error): void {
-    snapshot = { ready: true, events, error };
+    snapshot = {
+      ready: true,
+      events,
+      error,
+      complete: loaded && withheld === 0,
+    };
     for (const listener of [...listeners]) listener();
   }
 
@@ -103,6 +145,8 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
         }
 
         events = decoded;
+        loaded = true;
+        withheld = preserved.length;
         if (needsCompact) {
           await ipc.compactUsageHistory([
             ...decoded.map(encodeUsageEvent),

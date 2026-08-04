@@ -120,6 +120,26 @@ textarea {
   -webkit-user-select: none;
 }
 
+/* Text for a reader who is not looking at the screen. For facts this app
+   states in shape or colour alone — an achievement's level is the first —
+   where a visible label would be noise on a wall of forty badges but its
+   absence leaves the fact unavailable to anyone not using a mouse.
+
+   `display: none` and `visibility: hidden` both take the text out of the
+   accessibility tree, which is the opposite of the point; a one-pixel clipped
+   box is the shape that keeps it in. */
+.kd-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 /* Scrollbars are left UNSTYLED on purpose: styling `::-webkit-scrollbar` at all
    turns off WKWebView's overlay auto-hide (the bars go always-on), and the
    CSS-only re-hide (hover-reveal) behaves worse than the native overlay. So the

@@ -1,12 +1,60 @@
 /* The Achievements tab — badge cards, the locked tail, progress bars and
    the hover detail tooltip. */
 .stats__achievements {
+  /* THE rarity palette — its own tier rather than four more entries in
+     base.css, which reserves that block for status colours and says a new
+     family becomes its own group. Declared here, on the gallery, so every
+     card and the ember canvas resolve one value instead of repeating it.
+
+     Four are existing app tokens. Epic is chartPalette's spare violet
+     (SPARE_SLOTS[2]) written out, for the same reason chartPalette itself
+     writes out --kd-bg: the two live in different languages and cannot
+     import each other — keep in sync with src/domain/usage/chartPalette.ts. */
+  --rarity-uncommon: var(--kd-ok);
+  --rarity-rare: var(--kd-info);
+  --rarity-epic: #9085e9;
+  --rarity-legendary: var(--kd-warn);
+
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
+
+  /* The legendary halo reaches 25px past its card, which is free everywhere
+     except at the gallery's own edges. The dialog body scrolls, so a halo
+     leaving the LAST column became 13px of horizontal pannability; one
+     leaving the FIRST column was simply cut, because the scrollport's
+     content edge and this grid's begin at the same x and nothing scrolls
+     into negative space.
+
+     `clip` settles the pannability — a clip container's contents never reach
+     an ancestor's scrollable region — and the padding is what buys back the
+     room the glow needs, since the clip happens at the PADDING box. The
+     negative margin of the same size hands that room straight back to the
+     layout, so the columns sit exactly where they did and the count is
+     unchanged at every width.
+
+     `overflow-clip-margin` would say this in one line, and it is what this
+     rule tried first. WebKit has never implemented it (bug 236153), and on
+     macOS this app IS WebKit — so the margin was silently dropped and every
+     card against the frame lost its whole glow, plus the bottom row its
+     breathing shadow. Padding is the form that executes everywhere.
+
+     12px, because that is the room that actually exists: the scrollbar
+     gutter `.stats-dialog__body` already reserves (stats.css). Enough for
+     every drop shadow here — the furthest, legendary's breath at its peak,
+     reaches 15px below a card and so loses 3px on the bottom row alone.
+
+     The first column's outward halo stays lost either way. Recovering it
+     means indenting the gallery 26px INSIDE the scroller, which at the
+     dialog's 900px costs a whole column — a worse trade than a clipped glow
+     on the cards that sit against the frame. */
+  margin: -12px;
+  padding: 12px;
+  overflow: clip;
 }
 
 .stats__achievement {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -18,6 +66,245 @@
      which is already what the whole document does (base.css). Nothing to
      restate here; only an island of real text opts out of that, and this
      card is not inside one. */
+}
+
+/* ── Rarity dress ──────────────────────────────────────────────────────
+   Each level adds ONE physical idea to the one below it, never another
+   shade of the same: a coloured edge, then a cut ground, then a spectrum
+   turning under that cut, then embers. Four of the five hues are existing
+   app tokens; epic borrows chartPalette's spare violet, already validated
+   against this surface.
+
+   Nothing sweeps across a card. A highlight travelling the surface is
+   lovely on one badge and unbearable on a wall of thirty, where every copy
+   runs off the same clock and the grid ripples. */
+.stats__achievement--uncommon {
+  border-color: color-mix(in srgb, var(--rarity-uncommon) 50%, #1c2230);
+}
+
+.stats__achievement--rare {
+  border-color: color-mix(in srgb, var(--rarity-rare) 55%, #1c2230);
+}
+
+.stats__achievement--epic {
+  border-color: color-mix(in srgb, var(--rarity-epic) 65%, #1c2230);
+  box-shadow: 0 6px 22px -12px color-mix(in srgb, var(--rarity-epic) 80%, transparent);
+}
+
+.stats__achievement--legendary {
+  border-color: color-mix(in srgb, var(--rarity-legendary) 70%, #1c2230);
+  box-shadow: 0 6px 24px -12px
+    color-mix(in srgb, var(--rarity-legendary) 85%, transparent);
+}
+
+/* The layers live under the content and inside the card's own radius. The
+   rim comes FIRST in the DOM so the ground it paints sits under the cut and
+   the spectrum, leaving only its lit edge showing. */
+.stats__achievement-dress,
+.stats__achievement-rim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Content rides above the decoration. The decorative layers are named by ONE
+   shared class rather than listed here: a list would silently miss the next
+   layer added, and the ember canvas is what that cost — captured by this
+   rule it became `position: relative`, entered the flow, and then grew the
+   card whose height its own bitmap is measured from. That is a feedback
+   loop, and the cards grew without bound. */
+.stats__achievement > *:not(.stats__achievement-layer) {
+  position: relative;
+  z-index: 1;
+}
+
+/* …except the screen-reader line, which has nothing to lift above anything.
+   The rule above would put it back in the flow, and a 1px box in a flex
+   column is 1px plus a gap on every card in the gallery. Same specificity,
+   later in the file — which is the tiebreak. */
+.stats__achievement > .kd-sr {
+  position: absolute;
+}
+
+/* Epic and up: a light runs the border. The classic rotating-conic trick —
+   a spinning square clipped to the card's radius, with the interior painted
+   back over it so only the edge keeps the moving band. This is the level's
+   OWN idea, not a brighter version of the one below: without it epic and
+   rare differ by colour alone, which is exactly the complaint that started
+   this design. */
+.stats__achievement-rim::before,
+.stats__achievement-rim::after {
+  content: "";
+  position: absolute;
+}
+
+.stats__achievement-rim::before {
+  top: 50%;
+  left: 50%;
+  width: 260%;
+  margin: -130% 0 0 -130%;
+  aspect-ratio: 1;
+  animation: stats-achievement-rim 5.5s linear infinite;
+}
+
+.stats__achievement-rim::after {
+  inset: 1.5px;
+  border-radius: 8.5px;
+  background: var(--kd-bg);
+}
+
+.stats__achievement--epic .stats__achievement-rim::before {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 64%,
+    color-mix(in srgb, var(--rarity-epic) 40%, transparent) 78%,
+    rgb(255 255 255 / 92%) 88%,
+    transparent 94% 100%
+  );
+}
+
+.stats__achievement--legendary .stats__achievement-rim::before {
+  animation-duration: 3.4s;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 64%,
+    color-mix(in srgb, var(--rarity-legendary) 40%, transparent) 78%,
+    rgb(255 255 255 / 92%) 88%,
+    transparent 94% 100%
+  );
+}
+
+@keyframes stats-achievement-rim {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* Below epic there is no runner, and the layer must not paint its ground
+   over the card either. */
+.stats__achievement:not(.stats__achievement--epic):not(.stats__achievement--legendary)
+  .stats__achievement-rim {
+  display: none;
+}
+
+/* Legendary breathes. A static shadow reads as nothing on this ground —
+   the change over time is the whole signal. */
+.stats__achievement--legendary:not(.stats__achievement--locked) {
+  animation: stats-achievement-breathe 4.2s ease-in-out infinite;
+}
+
+@keyframes stats-achievement-breathe {
+  0%,
+  100% {
+    box-shadow: 0 6px 22px -14px
+      color-mix(in srgb, var(--rarity-legendary) 55%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 8px 30px -8px
+      color-mix(in srgb, var(--rarity-legendary) 85%, transparent);
+  }
+}
+
+/* Rare: the ground gains a cut, colourless. */
+.stats__achievement--rare .stats__achievement-dress::after,
+.stats__achievement--epic .stats__achievement-dress::after,
+.stats__achievement--legendary .stats__achievement-dress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.6;
+  background-image:
+    repeating-linear-gradient(60deg, rgb(255 255 255 / 12%) 0 1px, transparent 1px 16px),
+    repeating-linear-gradient(-60deg, rgb(255 255 255 / 12%) 0 1px, transparent 1px 16px);
+}
+
+/* Epic and up: a spectrum turns slowly beneath the cut, so the same facets
+   start refracting instead of merely existing. */
+.stats__achievement--epic .stats__achievement-dress::before,
+.stats__achievement--legendary .stats__achievement-dress::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 240%;
+  margin: -120% 0 0 -120%;
+  aspect-ratio: 1;
+  opacity: 0.26;
+  background: conic-gradient(
+    from 0deg,
+    var(--rarity-rare),
+    var(--rarity-epic),
+    var(--rarity-uncommon),
+    var(--rarity-legendary),
+    var(--rarity-rare)
+  );
+  animation: stats-achievement-spectrum 16s linear infinite;
+}
+
+@keyframes stats-achievement-spectrum {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* A promise, not a prize: a tier that is still locked keeps the colour of
+   the level it will be and loses every effect. */
+.stats__achievement--locked .stats__achievement-dress,
+.stats__achievement--locked .stats__achievement-rim {
+  display: none;
+}
+
+.stats__achievement--locked.stats__achievement--epic,
+.stats__achievement--locked.stats__achievement--legendary {
+  box-shadow: none;
+}
+
+/* `!important`, matching stats-streak.css, because every setter here is more
+   specific than any selector this block can write: the breathe animation is
+   set through `--legendary:not(--locked)` and the spectrum through
+   `--epic .stats__achievement-dress::before`. A media query adds no
+   specificity, so without this the reader who asked for less motion kept
+   both — and only the rim, whose setter happens to tie, actually stopped. */
+@media (prefers-reduced-motion: reduce) {
+  .stats__achievement--legendary,
+  .stats__achievement-dress::before,
+  .stats__achievement-rim::before {
+    animation: none !important;
+  }
+}
+
+/* Lifts the whole card above its LATER siblings, whose opaque backgrounds
+   would otherwise paint over the glow that leaves this one. It does not
+   settle two legendary cards side by side — equal z-index, so the later one
+   still wins — but there the neighbour paints its own embers over the same
+   ground, and the loss is a few pixels of someone else's glow. */
+.stats__achievement--legendary:not(.stats__achievement--locked) {
+  z-index: 1;
+}
+
+/* The legendary embers. Size stated OUTRIGHT rather than through `inset`:
+   a canvas is a REPLACED element, so with `width: auto` it takes its own
+   bitmap as its box and ignores the right and bottom offsets — the box
+   then stops short of the card's lower edge and every ember drawn down
+   there falls outside it.
+
+   These 26px are HALO in AchievementEmbers.tsx, and the component measures
+   THIS box rather than the card's, so the two cannot drift: `100%` here is
+   the card's padding box, which is what remains once the halo is inset off
+   either side. z-index keeps the field under the badge's own text — the
+   card gives off light, it does not glow through its title. */
+.stats__achievement-embers {
+  position: absolute;
+  top: -26px;
+  left: -26px;
+  z-index: 0;
+  width: calc(100% + 52px);
+  height: calc(100% + 52px);
+  pointer-events: none;
 }
 
 /* Hover detail card CONTENT — exact numbers behind the compact badge.

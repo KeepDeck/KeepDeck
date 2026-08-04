@@ -5,8 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 
 const history = vi.hoisted(() => ({
-  snapshot: { ready: true, events: [] as UsageEventV2[], error: null as string | null },
+  snapshot: {
+    ready: true,
+    events: [] as UsageEventV2[],
+    error: null as string | null,
+    complete: true,
+  },
 }));
+
+/** A ready snapshot of the whole ledger — the healthy case these cases mean
+ * whenever they do not say otherwise. */
+const ledger = (events: UsageEventV2[]) => ({
+  ready: true,
+  events,
+  error: null as string | null,
+  complete: true,
+});
 vi.mock("../../app/useUsageHistorySnapshot", () => ({
   useUsageHistorySnapshot: () => history.snapshot,
 }));
@@ -29,7 +43,6 @@ vi.mock("../../app/useWindowReports", () => ({
 }));
 
 import type { AccountUsage } from "../../domain/usage";
-import { accountWindowKeys } from "../../domain/usage/reportJournal";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
@@ -70,13 +83,22 @@ const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
     ...over,
   });
 
+/** The shell: the stats dialog routes a tab or period choice to the panel
+ * that answers it, and keeps the shared clock and the ledger's failure
+ * honest across that boundary.
+ *
+ * What a panel then renders belongs to the panel's own suite, and every one
+ * of them now has one — Overview, StatsTable, Providers, Achievements,
+ * Weeks, StreakBadge — each mounted directly, with no tab to click first.
+ * A case that reads a number out of a panel's markup is in the wrong file:
+ * the boundary only holds while nothing crosses it. */
 describe("UsageStats", () => {
   let root: Root;
   let host: HTMLElement;
 
   beforeEach(() => {
     vi.setSystemTime(NOW);
-    history.snapshot = { ready: true, events: [usageEvent()], error: null };
+    history.snapshot = ledger([usageEvent()]);
     usage.snapshot = { accounts: new Map(), panes: new Map() };
     windowReports.snapshot = { ready: true, byKey: new Map() };
     document.body.innerHTML = "<div id='host'></div>";
@@ -148,28 +170,22 @@ describe("UsageStats", () => {
     // An agent finishes a turn seconds AFTER the dialog's slow clock last
     // ticked: the appended event's instant is ahead of that clock, and the
     // `occurredAt <= now` filter must not hide it for up to 30s.
-    history.snapshot = {
-      ready: true,
-      events: [
-        usageEvent(),
-        usageEvent({
-          occurredAt: NOW + 5_000,
-          capturedAt: NOW + 5_000,
-          tokens: { input: 100_000 },
-          observation: { tokens: { input: 100_000 } },
-        }),
-      ],
-      error: null,
-    };
+    history.snapshot = ledger([
+      usageEvent(),
+      usageEvent({
+        occurredAt: NOW + 5_000,
+        capturedAt: NOW + 5_000,
+        tokens: { input: 100_000 },
+        observation: { tokens: { input: 100_000 } },
+      }),
+    ]);
     act(() => root.render(createElement(Host)));
     expect(host.textContent).toContain("101.6k");
   });
 
   it("switches time ranges without remounting", () => {
     history.snapshot = {
-      ready: true,
-      events: [usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })],
-      error: null,
+      ...ledger([usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })]),
     };
     act(() => root.render(createElement(Host)));
     expect(host.textContent).toContain("gpt-5.6-terra"); // default 7d
@@ -185,29 +201,13 @@ describe("UsageStats", () => {
     expect(host.querySelector(".stats__weeks")).not.toBeNull();
   });
 
-  it("shows highlights with the prior-period delta and the busiest day", () => {
+  it("keeps Providers alive when the ledger failed to load", () => {
     history.snapshot = {
       ready: true,
-      events: [
-        usageEvent(),
-        usageEvent({
-          eventId: "prior",
-          occurredAt: NOW - 8 * 24 * 60 * 60 * 1_000,
-          tokens: { input: 800 },
-        }),
-      ],
-      error: null,
+      events: [],
+      error: "ledger read failed",
+      complete: false,
     };
-    act(() => root.render(createElement(Host)));
-
-    const recap = host.querySelector(".stats__recap")!;
-    expect(recap.textContent).toContain("+100% vs prior 7d");
-    expect(recap.textContent).toContain("top model gpt-5.6-terra (1.6k)");
-    expect(recap.textContent).toContain("busiest day Jul 22 (1.6k)");
-  });
-
-  it("keeps Providers alive when the ledger failed to load", () => {
-    history.snapshot = { ready: true, events: [], error: "ledger read failed" };
     const account: AccountUsage = {
       kind: "reported",
       reportedAt: NOW - 60_000,
@@ -226,158 +226,25 @@ describe("UsageStats", () => {
     expect(host.textContent).not.toContain("Usage history is unavailable");
   });
 
-  it("joins provider windows with ledger spend inside each window", () => {
-    const account: AccountUsage = {
-      kind: "reported",
-      reportedAt: NOW - 60_000,
-      sourcePaneId: "pane-1",
-      windows: [
-        { usedPct: 34, resetsAt: NOW + 2 * 3_600_000, windowMinutes: 300 },
-        { usedPct: 51, resetsAt: null, windowMinutes: 10_080 },
-      ],
-    };
-    usage.snapshot = { accounts: new Map([["codex", account]]), panes: new Map() };
-    act(() => root.render(createElement(Host)));
-    clickTab("Providers");
-
-    // One card per provider: the name and report age appear exactly once.
-    const cards = host.querySelectorAll(".stats__provider");
-    expect(cards).toHaveLength(1);
-    const card = cards[0];
-    expect(card.querySelector(".stats__provider-head")!.textContent).toBe(
-      "codexupdated 1m ago",
-    );
-    expect(card.querySelectorAll(".stats__window")).toHaveLength(2);
-    expect(card.textContent).toContain("5h");
-    expect(card.textContent).toContain("34%");
-    expect(card.textContent).toContain("resets in 2h 0m");
-    expect(card.textContent).toContain("1.6k · 1 session · ≈$0.25 this window");
-    // The weekly window has no reset instant: percentage without a join.
-    expect(card.textContent).toContain("week");
-    expect(card.textContent).toContain("51%");
-    expect(card.textContent).toContain("reset unknown");
-    // Both windows draw the shared popover fill bar.
-    expect(card.querySelectorAll(".usage-bar")).toHaveLength(2);
-  });
-
-  it("splits the achievements tab into In progress, Earned and Locked", () => {
-    history.snapshot = {
-      ready: true,
-      events: [
-        usageEvent({ tokens: { input: 2_000_000 } }),
-      ],
-      error: null,
-    };
-    act(() => root.render(createElement(Host)));
-    clickTab("Achievements");
-
-    const sections = [...host.querySelectorAll(".stats__section")];
-    const byTitle = (title: string) =>
-      sections.find(
-        (section) => section.querySelector("h3")?.textContent === title,
-      )!;
-    const inProgress = byTitle("In progress");
-    const earned = byTitle("Earned");
-    const locked = byTitle("Locked");
-
-    // The sections appear in that order — in-progress goals lead.
-    expect(sections.indexOf(inProgress)).toBeLessThan(sections.indexOf(earned));
-    expect(sections.indexOf(earned)).toBeLessThan(sections.indexOf(locked));
-
-    expect(earned.textContent).toContain("First Million");
-    expect(earned.textContent).toContain("earned Jul 22, 2026");
-    expect(earned.textContent).toContain("Hello, Agent");
-
-    // One goal per ladder, with progress…
-    expect(inProgress.textContent).toContain("Picking Up Steam");
-    expect(inProgress.textContent).toContain("2M / 10M");
-    expect(inProgress.textContent).toContain("First Dollar");
-    expect(inProgress.textContent).toContain("$0.25 / $1");
-    // …while the tiers beyond it are visible but inert: present in Locked,
-    // without a progress bar.
-    expect(locked.textContent).toContain("Heavy Rotation");
-    expect(locked.textContent).toContain("Trillionaire");
-    expect(locked.querySelector(".stats__achievement-progress")).toBeNull();
-    expect(
-      locked.querySelector(".stats__achievement--future"),
-    ).not.toBeNull();
-  });
-
-  it("carries a hover tooltip with exact numbers on every card", () => {
-    history.snapshot = {
-      ready: true,
-      events: [usageEvent({ tokens: { input: 2_000_000 } })],
-      error: null,
-    };
-    act(() => root.render(createElement(Host)));
-    clickTab("Achievements");
-
-    // Tips live behind the shared Tooltip now: nothing renders until the
-    // hover-intent pause passes, then the layer PORTALS to the body so
-    // the scroller cannot clip it.
-    // beforeEach mocked only the date; this test needs ticking timers too.
-    vi.useRealTimers();
-    vi.useFakeTimers();
-    try {
-      const cards = [...host.querySelectorAll(".stats__achievement")];
-      expect(document.querySelector('[role="tooltip"]')).toBeNull();
-      const hover = (card: Element, type: "mouseover" | "mouseout") =>
-        act(() => {
-          card.dispatchEvent(new MouseEvent(type, { bubbles: true }));
-          vi.advanceTimersByTime(450);
-        });
-      const steam = cards.find((card) =>
-        card.textContent?.includes("Picking Up Steam"),
-      )!;
-      hover(steam, "mouseover");
-      expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
-        "2,000,000 of 10,000,000 — 20%",
-      );
-      hover(steam, "mouseout");
-      const earned = cards.find((card) =>
-        card.textContent?.includes("First Million"),
-      )!;
-      hover(earned, "mouseover");
-      expect(document.querySelector('[role="tooltip"]')!.textContent).toContain(
-        "Earned Jul 22, 2026",
-      );
-      hover(earned, "mouseout");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("shows the live streak chip in the footer corner with its heat tier", () => {
+  it("seats the streak chip in the footer, outside the tab body", () => {
+    // WHERE it sits is the dialog's decision — the chip reads the ledger
+    // itself precisely so it can live outside the tabs. What it then says
+    // is its own suite's business (StreakBadge.test.tsx).
     const DAY = 24 * 60 * 60 * 1_000;
     history.snapshot = {
-      ready: true,
-      events: [0, 1, 2, 3].map((daysAgo) =>
-        usageEvent({ eventId: `d-${daysAgo}`, occurredAt: NOW - daysAgo * DAY }),
+      ...ledger(
+        [0, 1, 2, 3].map((daysAgo) =>
+          usageEvent({ eventId: `d-${daysAgo}`, occurredAt: NOW - daysAgo * DAY }),
+        ),
       ),
-      error: null,
     };
     act(() => root.render(createElement(DialogHost, { onClose: vi.fn() })));
 
     const footer = document.body.querySelector(".stats-dialog__actions")!;
-    const chip = footer.querySelector(".stats__streak")!;
-    expect(chip.getAttribute("aria-label")).toBe("4-day streak");
-    expect(chip.className).toContain("stats__streak--ember");
-    // The ember tier wears the coal mark, not a flame yet.
-    expect(chip.querySelector(".stats__streak-mark")).not.toBeNull();
-    expect(chip.querySelector(".stats__streak-coal")).not.toBeNull();
-    expect(chip.querySelector(".stats__streak-fire")).toBeNull();
-  });
-
-  it("hides the streak chip when the streak is broken", () => {
-    history.snapshot = {
-      ready: true,
-      events: [
-        usageEvent({ occurredAt: NOW - 5 * 24 * 60 * 60 * 1_000 }),
-      ],
-      error: null,
-    };
-    act(() => root.render(createElement(DialogHost, { onClose: vi.fn() })));
-    expect(document.body.querySelector(".stats__streak")).toBeNull();
+    expect(footer.querySelector(".stats__streak")).not.toBeNull();
+    expect(
+      document.body.querySelector(".stats-dialog__body .stats__streak"),
+    ).toBeNull();
   });
 
   it("opens directly on a deep-linked tab", () => {
@@ -434,109 +301,10 @@ describe("UsageStats", () => {
     expect(host.textContent).not.toContain("this window");
   });
 
-  it("forecasts the race and draws the burn curve when the journal has pace", () => {
-    const MIN = 60_000;
-    const resetsAt = NOW + 155 * MIN;
-    const account: AccountUsage = {
-      kind: "reported",
-      reportedAt: NOW,
-      sourcePaneId: "pane-1",
-      windows: [{ usedPct: 62, resetsAt, windowMinutes: 300 }],
-    };
-    usage.snapshot = { accounts: new Map([["claude", account]]), panes: new Map() };
-    // 0.29%/min over 40 minutes of reports: 38% left ≈ 131m < 155m to reset.
-    const reports = [50.4, 53.3, 56.2, 59.1, 62].map((usedPct, index) => ({
-      agent: "claude",
-      windowMinutes: 300,
-      usedPct,
-      reportedAt: NOW - (4 - index) * 10 * MIN,
-      resetsAt,
-    }));
-    windowReports.snapshot = {
-      ready: true,
-      byKey: new Map([
-        [
-          accountWindowKeys("claude", account.windows).get(account.windows[0])!
-            .key,
-          reports,
-        ],
-      ]),
-    };
-    act(() => root.render(createElement(Host, { initialTab: "providers" })));
-
-    expect(host.textContent).toContain("on pace to run out");
-    expect(host.textContent).toContain("early");
-    expect(host.textContent).toContain("resets in 2h 35m");
-    expect(host.querySelector(".usage-burn")).not.toBeNull();
-    expect(host.querySelector(".usage-burn__dot--warn")).not.toBeNull();
-  });
-
-  it("stays silent about the race when the journal has no pace yet", () => {
-    const account: AccountUsage = {
-      kind: "reported",
-      reportedAt: NOW,
-      sourcePaneId: "pane-1",
-      windows: [{ usedPct: 62, resetsAt: NOW + 155 * 60_000, windowMinutes: 300 }],
-    };
-    usage.snapshot = { accounts: new Map([["claude", account]]), panes: new Map() };
-    act(() => root.render(createElement(Host, { initialTab: "providers" })));
-    expect(host.textContent).toContain("resets in 2h 35m");
-    expect(host.textContent).not.toContain("on pace");
-    expect(host.querySelector(".usage-burn")).toBeNull();
-  });
-
-  it("demotes expired and stale provider windows instead of joining them", () => {
-    const account: AccountUsage = {
-      kind: "reported",
-      reportedAt: NOW - 2 * 3_600_000, // stale: 2h old
-      sourcePaneId: "pane-1",
-      windows: [
-        { usedPct: 10, resetsAt: NOW - 3_600_000, windowMinutes: 300 }, // expired
-        { usedPct: 81, resetsAt: NOW + 3 * 24 * 3_600_000, windowMinutes: 10_080 },
-      ],
-    };
-    usage.snapshot = { accounts: new Map([["claude", account]]), panes: new Map() };
-    history.snapshot = { ready: true, events: [usageEvent({ agent: "claude" })], error: null };
-    act(() => root.render(createElement(Host)));
-    clickTab("Providers");
-
-    const card = host.querySelector(".stats__provider")!;
-    // The stale report age is announced once, in the card header.
-    expect(card.querySelector(".stats__provider-head")!.textContent).toContain(
-      "updated 2h ago",
-    );
-    const windows = [...card.querySelectorAll(".stats__window")];
-    // Expired 5h window: no ledger numbers, an explicit reason, demoted look.
-    expect(windows[0].textContent).toContain("reset passed");
-    expect(windows[0].textContent).not.toContain("1.6k");
-    expect(windows[0].className).toContain("stats__window--expired");
-    // Live weekly window: joined despite the stale report.
-    expect(windows[1].textContent).toContain("1.6k");
-    expect(windows[1].className).not.toContain("stats__window--expired");
-  });
-
-  it("labels a live window with zero ledger activity honestly", () => {
-    const account: AccountUsage = {
-      kind: "reported",
-      reportedAt: NOW - 60_000,
-      sourcePaneId: "pane-1",
-      windows: [{ usedPct: 0, resetsAt: NOW + 3 * 24 * 3_600_000, windowMinutes: 10_080 }],
-    };
-    usage.snapshot = { accounts: new Map([["kimi", account]]), panes: new Map() };
-    act(() => root.render(createElement(Host)));
-    clickTab("Providers");
-
-    const providers = host.querySelector('[aria-label="Providers"]')!;
-    expect(providers.textContent).toContain("no usage this window");
-    expect(providers.textContent).not.toContain("0 sessions");
-  });
-
   it("reaches arbitrarily old events through the All period", () => {
-    history.snapshot = {
-      ready: true,
-      events: [usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 })],
-      error: null,
-    };
+    history.snapshot = ledger([
+      usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 }),
+    ]);
     act(() => root.render(createElement(Host)));
     // Default 7d is empty: Overview keeps rendering (zero cards, Weeks
     // history reachable), while the period-LEDGER tabs still gate.
@@ -553,22 +321,21 @@ describe("UsageStats", () => {
     expect(host.querySelectorAll(".stats__card b")[0].textContent).toBe("1.6k");
   });
 
-  it("does not render unknown cost as a fake zero", () => {
-    history.snapshot = {
-      ready: true,
-      events: [usageEvent({ costUsd: undefined, costSource: "unavailable" })],
-      error: null,
-    };
+  it("hands each tab the same period the switcher is showing", () => {
+    // The one thing only the shell can get wrong: routing the selection to
+    // the panel. What a panel does with a period is its own suite's.
+    history.snapshot = ledger([
+      usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 }),
+    ]);
     act(() => root.render(createElement(Host)));
+    clickTab("Models");
+    expect(host.textContent).toContain("No usage recorded");
 
-    expect(host.textContent).toContain("No CLI reported a cost estimate");
-    const costCard = [...host.querySelectorAll(".stats__card")].find((card) =>
-      card.textContent?.startsWith("Cost"),
+    const all = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "All",
     )!;
-    expect(costCard.textContent).toBe("Cost—");
-
-    clickTab("Sessions");
-    const session = host.querySelector('[aria-label="Sessions"]')!;
-    expect(session.textContent).toContain("—");
+    act(() => all.click());
+    expect(host.textContent).not.toContain("No usage recorded");
+    expect(host.querySelector('[aria-label="Models"]')).not.toBeNull();
   });
 });

@@ -1,11 +1,13 @@
 import { useMemo } from "react";
 import {
+  achievementDisplayTitle,
   achievementExact,
   achievementPercent,
   achievementProgress,
   achievementRequirement,
 } from "../../domain/usage/achievements/captions";
 import type { UsageAchievement } from "../../domain/usage/achievements/ladders";
+import type { AchievementRarity } from "../../domain/usage/achievements/rarity";
 import {
   earnedAchievements,
   lockedAchievements,
@@ -15,6 +17,7 @@ import {
 import { formatUtcDay } from "../../domain/usage";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import { Tooltip } from "../../ui/Tooltip";
+import { AchievementEmbers } from "./AchievementEmbers";
 
 /** The achievements tab in three sections: the goals being walked toward
  * (one per ladder, with progress) first — they are the pull; the trophy
@@ -60,6 +63,27 @@ function AchievementSection({
  * swept by the cursor must not strobe forty tips. */
 const TIP_DELAY_MS = 450;
 
+/** The level in words, for the tip. Deliberately absent from the CARD: the
+ * dress already says it, and a fifth line of text on fifty badges is noise. */
+const RARITY_LABELS: Record<AchievementRarity, string> = {
+  common: "Common",
+  uncommon: "Uncommon",
+  rare: "Rare",
+  epic: "Epic",
+  legendary: "Legendary",
+};
+
+/**
+ * Which badges give off light. The stylesheet decides what every OTHER level
+ * wears, but this one cannot: forty canvases would mount whether or not CSS
+ * chose to paint them, and that cost is real. So the predicate lives here —
+ * once, named — rather than being spelled out at the mount site while the
+ * stylesheet spells the same thing four more times in its own language.
+ */
+export function wearsEmbers(item: UsageAchievement): boolean {
+  return item.rarity === "legendary" && item.achievedAt !== null;
+}
+
 function AchievementCard({
   item,
   future,
@@ -73,7 +97,7 @@ function AchievementCard({
   // measurement and the paint-order lift died with the in-flow tip.
   return (
     <Tooltip
-      className={`stats__achievement${
+      className={`stats__achievement stats__achievement--${item.rarity}${
         locked ? " stats__achievement--locked" : ""
       }${future ? " stats__achievement--future" : ""}`}
       delayMs={TIP_DELAY_MS}
@@ -87,17 +111,34 @@ function AchievementCard({
             <span className="stats__achievement-tip-icon" aria-hidden>
               {item.icon}
             </span>{" "}
-            {item.title}
+            {achievementDisplayTitle(item)}
           </b>
+          {/* The card says the level in colour alone; the tip says it in
+              words, which is also the version a reader who cannot separate
+              those hues gets. */}
+          <span>{RARITY_LABELS[item.rarity]}</span>
           <span>{achievementRequirement(item)}</span>
           <span>{achievementTipStatus(item)}</span>
         </span>
       }
     >
+      {/* The rarity's own layers — a running edge, a cut ground, a turning
+          spectrum. Which levels light which is decided in the stylesheet;
+          the card only says which level it is. The rim comes first so its
+          ground sits UNDER the cut and only its lit edge shows. */}
+      <span className="stats__achievement-rim stats__achievement-layer" aria-hidden />
+      <span className="stats__achievement-dress stats__achievement-layer" aria-hidden />
+      {wearsEmbers(item) ? <AchievementEmbers /> : null}
       <span className="stats__achievement-icon" aria-hidden>
         {item.icon}
       </span>
-      <b>{item.title}</b>
+      <b>{achievementDisplayTitle(item)}</b>
+      {/* The card says the level in colour, and the hover tip says it in
+          words — but a tip opens on hover alone, so without this the level
+          is unavailable to anyone not using a mouse, and to anyone who
+          cannot separate those hues. Hidden rather than shown because a
+          fifth line of text on fifty badges is noise. */}
+      <span className="kd-sr">{RARITY_LABELS[item.rarity]}</span>
       <small>{achievementRequirement(item)}</small>
       {!locked ? (
         <small className="stats__achievement-earned">

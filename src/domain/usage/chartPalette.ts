@@ -22,7 +22,7 @@ const AGENT_SLOTS: Record<string, string> = {
   opencode: "#c98500",
 };
 
-const SPARE_SLOTS = ["#d55181", "#008300", "#9085e9", "#e66767"];
+export const SPARE_SLOTS = ["#d55181", "#008300", "#9085e9", "#e66767"];
 
 /** THE events→series-colors join every surface shares (the chart, the
  * provider cards, the chips panel, the weeks bars). The contract lives
