@@ -9,7 +9,7 @@ import {
   resizePane,
   writePane,
 } from "../../app/ptyManager";
-import { reportPaneKey } from "../../app/paneKeys";
+import { registerTerminalPaneKeys } from "./paneKeyBinding";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerTerminalPaneInput } from "./paneInputBinding";
@@ -182,12 +182,9 @@ export function TerminalPane({
       writePane(paneId, data);
     });
 
-    // Report the keystroke, not the byte stream. `onData` also carries the
-    // replies xterm sends to the PROGRAM's own terminal queries (cursor
-    // position, device attributes, background colour — codex's TUI asks all
-    // of them), so it cannot say whether a human acted; `onKey` fires only
-    // for real key events. The app decides what a keystroke means.
-    const keys = term.onKey(({ key }) => reportPaneKey(paneId, key));
+    // Report the keystroke, never the byte stream — see the binding for why
+    // the difference is load-bearing and why it takes only `onKey`.
+    const unregisterKeys = registerTerminalPaneKeys(paneId, term);
 
     // Own terminal copy. Canvas-rendered text isn't DOM-selectable and WKWebView
     // returns "" from getSelection() during a keydown, so the native Cmd+C copies
@@ -378,7 +375,7 @@ export function TerminalPane({
       pump.dispose();
       observer.disconnect();
       input.dispose();
-      keys.dispose();
+      unregisterKeys();
       unregister();
       links.dispose();
       titleSub.dispose();
