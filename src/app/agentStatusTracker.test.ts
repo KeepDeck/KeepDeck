@@ -12,6 +12,8 @@ const literal = (payload: unknown, at: number): AgentStatusEvent | null => {
       return turnStart(at);
     case "end":
       return { kind: "turn-end", at };
+    case "wait":
+      return { kind: "waiting", at, reason: "permission" };
     case "agent-start":
       return { kind: "agent-turn-start", at, id: "agent-1" };
     case "agent-end":
@@ -250,5 +252,40 @@ describe("agentStatusTracker", () => {
       state: "working",
       since: 100,
     });
+  });
+
+  it("an answer resolves a standing wait", () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("codex", literal);
+    tracker.report("pane-1", { agent: "codex", event: { kind: "start" } }, 100);
+    tracker.report("pane-1", { agent: "codex", event: { kind: "wait" } }, 200);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+      state: "waiting",
+      since: 200,
+      reason: "permission",
+    });
+
+    // The running phase restarts at the answer — the age reads "how long
+    // since you could have walked away", and the wait is over now.
+    tracker.answered("pane-1", 300);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+      state: "working",
+      since: 300,
+    });
+  });
+
+  it("an answer never invents activity for a pane that reported none", () => {
+    const tracker = createAgentStatusTracker();
+    const listener = vi.fn();
+    tracker.subscribe(listener);
+
+    // Typing into an idle shell. A bridge `resumed` legitimately WOULD start
+    // a phase here (a tool completed, so something is running); this entry
+    // point asks the domain instead, and nothing but this case holds the
+    // tracker to asking. The states it declines beyond this one are the
+    // reducer's own business, covered in domain/status/activity.test.ts.
+    tracker.answered("pane-1", 100);
+    expect(tracker.getSnapshot().panes.has("pane-1")).toBe(false);
+    expect(listener).not.toHaveBeenCalled();
   });
 });

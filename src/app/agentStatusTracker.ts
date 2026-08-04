@@ -1,6 +1,7 @@
-import type { StatusNormalizer } from "@keepdeck/plugin-api";
+import type { AgentStatusEvent, StatusNormalizer } from "@keepdeck/plugin-api";
 import { isRecord } from "../domain/json";
 import {
+  answerResolves,
   reduceStatus,
   type PaneActivity,
   type PaneStatus,
@@ -51,6 +52,11 @@ export interface AgentStatusTracker {
   /** Apply one VERIFIED bridge report. Unknown agents and unrecognizable
    * payloads are dropped silently — reporters are best-effort by design. */
   report(paneId: string, payload: unknown, at?: number): void;
+  /** The user answered the question this pane's agent was parked on. What
+   * that may resolve is [`answerResolves`]'s call; a pane it refuses is left
+   * untouched, so this cannot invent activity. Narrow by construction rather
+   * than by caller discipline. */
+  answered(paneId: string, at?: number): void;
   /** Start a pane's activity over: its process was deliberately retired
    * (restart, suspend) and whatever the old one was doing is no longer a
    * fact about the pane. The orchestrator calls this at the same points it
@@ -94,6 +100,23 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     for (const listener of [...listeners]) listener();
   }
 
+  /**
+   * Fold ONE edge into a pane's lane state. Every edge lands here whoever
+   * minted it — a plugin normalizer reading a hook envelope, or the host
+   * seeing the user answer — so "what an edge does to a pane" keeps the pure
+   * reducer as its single answer. An edge the fold absorbs comes back as the
+   * SAME object and stops here, without a store write.
+   */
+  function apply(paneId: string, edge: AgentStatusEvent): void {
+    const previous = statuses.get(paneId) ?? null;
+    const next = reduceStatus(previous, edge);
+    if (next === previous) return;
+    const panes = new Map(statuses);
+    if (next) panes.set(paneId, next);
+    else panes.delete(paneId);
+    commit(panes);
+  }
+
   return {
     registerNormalizer(agentId, normalizer) {
       normalizers.set(agentId, normalizer);
@@ -109,14 +132,15 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       const normalize = normalizers.get(payload.agent);
       if (!normalize) return;
       const edge = normalize(payload, at);
-      if (!edge) return;
-      const previous = statuses.get(paneId) ?? null;
-      const next = reduceStatus(previous, edge);
-      if (next === previous) return;
-      const panes = new Map(statuses);
-      if (next) panes.set(paneId, next);
-      else panes.delete(paneId);
-      commit(panes);
+      if (edge) apply(paneId, edge);
+    },
+
+    answered(paneId, at = Date.now()) {
+      // What an answer may resolve is the domain's call, next to the fold
+      // that reads the same edge from an agent — asking it here in a second
+      // spelling is how the two readings drift apart.
+      if (!answerResolves(statuses.get(paneId)?.activity ?? null)) return;
+      apply(paneId, { kind: "resumed", at });
     },
 
     clear(paneId) {

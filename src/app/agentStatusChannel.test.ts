@@ -7,6 +7,7 @@ import {
 } from "./agentStatusTracker";
 import {
   createAgentStatusChannel,
+  type PaneKeyPort,
   type SessionLivenessPort,
 } from "./agentStatusChannel";
 import type { DeckStore } from "./deckStore";
@@ -82,11 +83,12 @@ const agentsWith = () => {
   };
 };
 
-describe("createAgentStatusChannel — process-death sweep", () => {
+describe("createAgentStatusChannel", () => {
   let tracker: AgentStatusTracker;
   let sessionListeners: Set<() => void>;
   let kinds: Map<string, string>;
   let sessions: SessionLivenessPort;
+  let keys: { port: PaneKeyPort; press: (paneId: string, data: string) => void };
 
   const exit = (paneId: string) => {
     kinds.set(paneId, "exited");
@@ -104,6 +106,18 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       },
       state: (paneId) => ({ kind: kinds.get(paneId) ?? "live" }),
     };
+    const keyListeners = new Set<(paneId: string, data: string) => void>();
+    keys = {
+      port: {
+        subscribe(listener) {
+          keyListeners.add(listener);
+          return () => keyListeners.delete(listener);
+        },
+      },
+      press: (paneId, data) => {
+        for (const listener of [...keyListeners]) listener(paneId, data);
+      },
+    };
   });
 
   it("clears a pane's activity the moment its process exits", () => {
@@ -113,6 +127,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       tracker,
       sessions,
       attribution,
+      keys.port,
     );
     tracker.report("pane-1", {
       agent: "claude",
@@ -131,6 +146,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       tracker,
       sessions,
       attribution,
+      keys.port,
     );
     // A hook beat the spawn promise; then the spawn rejected.
     tracker.report("pane-1", {
@@ -149,6 +165,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       tracker,
       sessions,
       attribution,
+      keys.port,
     );
     tracker.report("pane-1", {
       agent: "claude",
@@ -174,6 +191,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       tracker,
       sessions,
       attribution,
+      keys.port,
     );
     tracker.report("pane-1", {
       agent: "claude",
@@ -207,6 +225,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       tracker,
       sessions,
       attribution,
+      keys.port,
     );
     tracker.report("pane-1", {
       agent: "claude",
@@ -229,6 +248,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       tracker,
       sessions,
       attribution,
+      keys.port,
     );
     tracker.report("pane-1", {
       agent: "claude",
@@ -264,6 +284,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
         workspaces: () => deck.store.getSnapshot().workspaces,
         secretOf: () => "tok",
       }),
+      keys.port,
     );
     await Promise.resolve();
 
@@ -292,6 +313,7 @@ describe("createAgentStatusChannel — process-death sweep", () => {
       tracker,
       sessions,
       attribution,
+      keys.port,
     );
     tracker.report("pane-1", {
       agent: "claude",
@@ -300,5 +322,138 @@ describe("createAgentStatusChannel — process-death sweep", () => {
     channel.dispose();
     exit("pane-1");
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(true);
+  });
+
+  /** Park `pane-1` on an approval prompt, the way a CLI's hook does. */
+  const parkOnApproval = () => {
+    tracker.report("pane-1", {
+      agent: "claude",
+      edge: { kind: "waiting", at: 100, reason: "permission" },
+    });
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "waiting",
+    });
+  };
+
+  it("the user's own answer resolves a wait no agent reports resolved", () => {
+    createAgentStatusChannel(
+      deckWith("pane-1").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+      keys.port,
+    );
+    parkOnApproval();
+
+    keys.press("pane-1", "\r");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "working",
+    });
+  });
+
+  it("reading the question does not answer it", () => {
+    createAgentStatusChannel(
+      deckWith("pane-1").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+      keys.port,
+    );
+    parkOnApproval();
+
+    // Scrolling back to see what is being asked. Clearing here would replace
+    // an honest amber with a "Working" that codex never takes back.
+    keys.press("pane-1", "\x1b[A");
+    keys.press("pane-1", "\x1b[5~");
+    keys.press("pane-1", "\x1bb"); // macOS Alt+Left
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "waiting",
+    });
+  });
+
+  it("answers only the pane that was typed into", () => {
+    createAgentStatusChannel(
+      deckWith("pane-1", "pane-2").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+      keys.port,
+    );
+    parkOnApproval();
+    tracker.report("pane-2", {
+      agent: "claude",
+      edge: { kind: "waiting", at: 100, reason: "permission" },
+    });
+
+    keys.press("pane-2", "y");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "waiting",
+    });
+    expect(tracker.getSnapshot().panes.get("pane-2")).toMatchObject({
+      state: "working",
+    });
+  });
+
+  it("typing in a pane with nothing to answer starts nothing", () => {
+    createAgentStatusChannel(
+      deckWith("pane-1").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+      keys.port,
+    );
+    // A plain shell, or an agent pane that has reported nothing yet. The
+    // channel does not filter by deck membership or agent type — it leans
+    // wholly on the tracker refusing to mint activity, so that has to hold
+    // from THIS side too.
+    keys.press("pane-1", "l");
+    keys.press("shell-pane", "s");
+    expect(tracker.getSnapshot().panes.size).toBe(0);
+  });
+
+  it("a key pressed before the session is live answers nothing", () => {
+    createAgentStatusChannel(
+      deckWith("pane-1").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+      keys.port,
+    );
+    // A hook can beat the spawn promise, so a pane can be `waiting` while
+    // its process is still starting — and a write in that window is a
+    // no-op, so the keystroke reached no agent and answered nothing.
+    kinds.set("pane-1", "starting");
+    tracker.report("pane-1", {
+      agent: "claude",
+      edge: { kind: "waiting", at: 100, reason: "permission" },
+    });
+
+    keys.press("pane-1", "\r");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "waiting",
+    });
+  });
+
+  it("stops reading keystrokes after dispose", () => {
+    const channel = createAgentStatusChannel(
+      deckWith("pane-1").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+      keys.port,
+    );
+    parkOnApproval();
+
+    channel.dispose();
+    keys.press("pane-1", "\r");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "waiting",
+    });
   });
 });

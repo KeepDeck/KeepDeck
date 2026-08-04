@@ -1,6 +1,7 @@
 /**
  * Terminal — pure logic around the xterm/PTY surface: key-event overrides,
- * copy/paste policy, resize-storm coalescing, and dropped-path formatting.
+ * copy/paste policy, resize-storm coalescing, dropped-path formatting, and
+ * telling a keystroke that only moves the cursor or the view from the rest.
  * Everything is testable without xterm or the DOM; environment bindings are
  * injected by the caller.
  *
@@ -11,4 +12,5 @@
 export * from "./clipboard";
 export * from "./droppedPaths";
 export * from "./keymap";
+export * from "./navigation";
 export * from "./refitPump";

@@ -9,6 +9,7 @@ import {
   resizePane,
   writePane,
 } from "../../app/ptyManager";
+import { registerTerminalPaneKeys } from "./paneKeyBinding";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerTerminalPaneInput } from "./paneInputBinding";
@@ -180,6 +181,10 @@ export function TerminalPane({
     const input = term.onData((data) => {
       writePane(paneId, data);
     });
+
+    // Report the keystroke, never the byte stream — see the binding for why
+    // the difference is load-bearing and why it takes only `onKey`.
+    const unregisterKeys = registerTerminalPaneKeys(paneId, term);
 
     // Own terminal copy. Canvas-rendered text isn't DOM-selectable and WKWebView
     // returns "" from getSelection() during a keydown, so the native Cmd+C copies
@@ -370,6 +375,7 @@ export function TerminalPane({
       pump.dispose();
       observer.disconnect();
       input.dispose();
+      unregisterKeys();
       unregister();
       links.dispose();
       titleSub.dispose();

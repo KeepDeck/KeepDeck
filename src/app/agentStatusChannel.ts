@@ -5,6 +5,7 @@ import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckStore } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import { paneAgentType } from "../domain/deck";
+import { isNavigationKey } from "../domain/terminal";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
 
@@ -19,12 +20,24 @@ export interface SessionLivenessPort {
   state(paneId: string): { kind: string };
 }
 
+/** The user's own keystrokes, per pane — the host's only evidence that a
+ * HUMAN acted, and injected like every other signal so the composition root
+ * names each lane that feeds the tracker. */
+export interface PaneKeyPort {
+  subscribe(
+    listener: (paneId: string, data: string) => void,
+  ): () => void;
+}
+
 /**
  * App-lifetime wiring of agent status into the tracker — the sibling of
  * [`createUsageChannel`], with the same duties folded into one module
  * because status has no tails, no polling and no persistence:
  *
  * - plugin `status.normalize` declarations ⇄ tracker registrations;
+ * - the user's own answer to a waiting agent, read off their keystrokes —
+ *   the one edge minted from what the host SEES rather than from what an
+ *   agent reports, because no CLI reports it;
  * - bridge reports through the shared verification — WITH the live-process
  *   requirement: activity is a claim about a running process, and a hook
  *   envelope that outlives its process (a Stop racing a crash) must not
@@ -42,6 +55,7 @@ export function createAgentStatusChannel(
   tracker: AgentStatusTracker,
   sessions: SessionLivenessPort,
   attribution: PaneAttribution,
+  keys: PaneKeyPort,
 ): AgentStatusChannel {
   let disposed = false;
   let normalizerDisposers: (() => void)[] = [];
@@ -115,6 +129,37 @@ export function createAgentStatusChannel(
   const unsubscribeSessions = sessions.subscribe(clearDeadPanes);
   clearDeadPanes();
 
+  // The user's own answer. A CLI reports the question it parks on and never
+  // the answer — measured on codex 0.146, the next hook after its approval
+  // prompt is the approved tool's COMPLETION, and claude's normalizer states
+  // the same gap — so a pane keeps claiming "Needs approval" for as long as
+  // the approved command runs. This is the only edge the host mints from
+  // what it SEES rather than from what an agent says, which is why it
+  // belongs here beside the reports and not in a plugin.
+  //
+  // Reading the question back is not answering it, so navigation resolves
+  // nothing; anything else the user presses does. Erring that way is
+  // deliberate: a wait cleared early self-corrects on claude (its idle nudge
+  // re-raises) and is settled by the agent's own edge on codex, while a wait
+  // left standing over an answered prompt is the silent lie this exists to
+  // remove.
+  //
+  // Escape is the one key whose meaning we cannot read: it answers codex's
+  // "No, and tell Codex what to do differently", and it INTERRUPTS claude.
+  // Both readings are handled without distinguishing them — this edge is
+  // stamped when the key is pressed, so an abort's marker (which the tailer
+  // stamps with its own, later time) is never absorbed as stale and still
+  // settles the pane on "Interrupted". The cost is a moment of "Working"
+  // in between.
+  const unsubscribeKeys = keys.subscribe((paneId, data) => {
+    // Same live-process requirement the report lane carries, for the same
+    // reason: a key pressed at a pane whose session has not started goes
+    // nowhere (the write is a no-op), so it answered nothing. The dead
+    // cases need no check — the sweep above clears their activity outright.
+    if (sessions.state(paneId).kind !== "live") return;
+    if (!isNavigationKey(data)) tracker.answered(paneId);
+  });
+
   return {
     dispose() {
       if (disposed) return;
@@ -122,6 +167,7 @@ export function createAgentStatusChannel(
       unsubscribeAgents();
       unsubscribeDeck();
       unsubscribeSessions();
+      unsubscribeKeys();
       reports.dispose();
       for (const unregister of normalizerDisposers) unregister();
       normalizerDisposers = [];

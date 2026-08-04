@@ -285,6 +285,24 @@ function reduceHeldEnd(
 }
 
 /**
+ * Whether the USER's own answer may be folded into this activity at all.
+ *
+ * This decides ONE thing the fold below cannot: an answer must not start a
+ * phase out of nothing. A `resumed` from an agent's report legitimately does
+ * — a tool completed, so something IS running — but at a pane nobody has
+ * reported on, a keystroke is just someone typing at a shell, and minting
+ * "Working" there would advertise a turn that is not happening.
+ *
+ * WHICH activities a resume actually moves stays the fold's own call, so
+ * that rule keeps its single home: a wait becomes working, and a running or
+ * finished turn absorbs the edge unchanged. Re-stating any of that here
+ * would be a second copy to keep in step.
+ */
+export function answerResolves(activity: PaneActivity | null): boolean {
+  return activity !== null;
+}
+
+/**
  * Fold one edge into the pane's activity — the INNER fold, private to this
  * module: [`reduceStatus`] is the entry point, and reaching past it silently
  * ignores the agent-turn brackets. Pure; ordering discipline for

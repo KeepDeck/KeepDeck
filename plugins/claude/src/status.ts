@@ -136,11 +136,14 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
  *   teammate raise them, and the pair carries the same `agent_id`.
  * - `PostToolUse`/`PostToolUseFailure` → resumed. claude has no approval-REPLY hook, but an
  *   approved tool RUNS — its completion is the first post-approval hook
- *   and proves the wait resolved. For a long-running tool the amber
- *   clears only when the tool finishes (late, but bounded by the tool,
- *   not the turn); mid-turn repeats are absorbed by the reducer without
- *   an emit, so per-tool volume costs nothing downstream. Subagent tool
- *   calls arrive here too — see the case for why they are NOT filtered.
+ *   and proves the wait resolved. That makes it a BACKSTOP rather than the
+ *   resolution: for a long-running tool it lands only when the tool
+ *   finishes, which for the commands people stop to approve is minutes.
+ *   The host closes that window itself, from the user's own keystroke —
+ *   this hook settles a pane whose answer never came through it. Mid-turn
+ *   repeats are absorbed by the reducer without an emit, so per-tool
+ *   volume costs nothing downstream. Subagent tool calls arrive here too
+ *   — see the case for why they are NOT filtered.
  *
  * A user interrupt (Esc) pushes NO hook — that edge arrives from the
  * host's transcript tailer as a `kind: "session.interrupt"` payload
