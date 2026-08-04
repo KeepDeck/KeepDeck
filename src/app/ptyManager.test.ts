@@ -45,6 +45,7 @@ import {
   paneSessionState,
   resetPtyManager,
   runPaneOnce,
+  subscribePaneInput,
   writePane,
 } from "./ptyManager";
 
@@ -396,6 +397,30 @@ describe("writePane", () => {
     expect(() => writePane("pane-none", "x")).not.toThrow();
     acquirePane("pane-1", SPEC);
     expect(() => writePane("pane-1", "x")).not.toThrow();
+  });
+
+  it("announces what reached the agent, and only that", async () => {
+    const seen: [string, string][] = [];
+    const unsubscribe = subscribePaneInput((paneId, data) =>
+      seen.push([paneId, data]),
+    );
+    acquirePane("pane-1", SPEC);
+
+    // A write that found no session went nowhere, so nobody received it —
+    // announcing it would let a keystroke into a dead pane answer for an
+    // agent that is not there.
+    writePane("pane-1", "early");
+    writePane("pane-none", "stray");
+    expect(seen).toEqual([]);
+
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+    writePane("pane-1", "\r");
+    expect(seen).toEqual([["pane-1", "\r"]]);
+
+    unsubscribe();
+    writePane("pane-1", "y");
+    expect(seen).toEqual([["pane-1", "\r"]]);
   });
 });
 

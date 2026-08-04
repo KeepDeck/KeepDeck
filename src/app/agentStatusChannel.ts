@@ -5,6 +5,7 @@ import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckStore } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import { paneAgentType } from "../domain/deck";
+import { answersWait } from "../domain/terminal";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
 
@@ -13,10 +14,15 @@ export interface AgentStatusChannel {
 }
 
 /** The slice of the session registry the channel needs: when processes
- * change, and whether one is dead. */
-export interface SessionLivenessPort {
+ * change, whether one is dead, and what reaches a pane's agent. */
+export interface PaneSessionPort {
   subscribe(listener: () => void): () => void;
   state(paneId: string): { kind: string };
+  /** Input delivered to a pane's agent — the single funnel every path ends
+   * at, keystrokes and pastes alike. */
+  subscribeInput(
+    listener: (paneId: string, data: string) => void,
+  ): () => void;
 }
 
 /**
@@ -25,6 +31,9 @@ export interface SessionLivenessPort {
  * because status has no tails, no polling and no persistence:
  *
  * - plugin `status.normalize` declarations ⇄ tracker registrations;
+ * - the user's own answer to a waiting agent, read off the pane's input —
+ *   the one edge minted from what the host SEES rather than from what an
+ *   agent reports, because no CLI reports it;
  * - bridge reports through the shared verification — WITH the live-process
  *   requirement: activity is a claim about a running process, and a hook
  *   envelope that outlives its process (a Stop racing a crash) must not
@@ -40,7 +49,7 @@ export function createAgentStatusChannel(
   deck: DeckStore,
   agents: ContributionRegistry<AgentContribution>,
   tracker: AgentStatusTracker,
-  sessions: SessionLivenessPort,
+  sessions: PaneSessionPort,
   attribution: PaneAttribution,
 ): AgentStatusChannel {
   let disposed = false;
@@ -115,6 +124,18 @@ export function createAgentStatusChannel(
   const unsubscribeSessions = sessions.subscribe(clearDeadPanes);
   clearDeadPanes();
 
+  // The user's own answer. A CLI reports the question it parks on and never
+  // the answer — measured on codex 0.146, the next hook after its approval
+  // prompt is the approved tool's COMPLETION, and claude's normalizer states
+  // the same gap — so a pane keeps claiming "Needs approval" for as long as
+  // the approved command runs. The answer is a keypress, and keypresses come
+  // through us: this is the only edge the host mints from what it can see
+  // rather than from what an agent says, which is why it belongs here beside
+  // the reports and not in a plugin.
+  const unsubscribeInput = sessions.subscribeInput((paneId, data) => {
+    if (answersWait(data)) tracker.answered(paneId);
+  });
+
   return {
     dispose() {
       if (disposed) return;
@@ -122,6 +143,7 @@ export function createAgentStatusChannel(
       unsubscribeAgents();
       unsubscribeDeck();
       unsubscribeSessions();
+      unsubscribeInput();
       reports.dispose();
       for (const unregister of normalizerDisposers) unregister();
       normalizerDisposers = [];

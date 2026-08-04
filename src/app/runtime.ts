@@ -34,6 +34,7 @@ import {
   closePane,
   paneSessionState,
   runPaneOnce,
+  subscribePaneInput,
   subscribeSessions,
 } from "./ptyManager";
 import { createSessionBinding } from "./sessionBinding";
@@ -217,7 +218,11 @@ export function createAppRuntime(
         deckStore,
         plugins.pluginRegistries.agents,
         statusTracker,
-        { subscribe: subscribeSessions, state: paneSessionState },
+        {
+          subscribe: subscribeSessions,
+          state: paneSessionState,
+          subscribeInput: subscribePaneInput,
+        },
         attribution,
       );
       achievementNotifier ??= createAchievementNotifier({

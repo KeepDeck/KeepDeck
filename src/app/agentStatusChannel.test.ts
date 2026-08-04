@@ -7,7 +7,7 @@ import {
 } from "./agentStatusTracker";
 import {
   createAgentStatusChannel,
-  type SessionLivenessPort,
+  type PaneSessionPort,
 } from "./agentStatusChannel";
 import type { DeckStore } from "./deckStore";
 import { createPaneAttribution } from "./paneAttribution";
@@ -82,20 +82,27 @@ const agentsWith = () => {
   };
 };
 
-describe("createAgentStatusChannel — process-death sweep", () => {
+describe("createAgentStatusChannel", () => {
   let tracker: AgentStatusTracker;
   let sessionListeners: Set<() => void>;
   let kinds: Map<string, string>;
-  let sessions: SessionLivenessPort;
+  let sessions: PaneSessionPort;
+  let inputListeners: Set<(paneId: string, data: string) => void>;
 
   const exit = (paneId: string) => {
     kinds.set(paneId, "exited");
     for (const listener of [...sessionListeners]) listener();
   };
 
+  /** What the pty funnel announces when something reaches a pane's agent. */
+  const type = (paneId: string, data: string) => {
+    for (const listener of [...inputListeners]) listener(paneId, data);
+  };
+
   beforeEach(() => {
     tracker = createAgentStatusTracker();
     sessionListeners = new Set();
+    inputListeners = new Set();
     kinds = new Map();
     sessions = {
       subscribe(listener) {
@@ -103,6 +110,10 @@ describe("createAgentStatusChannel — process-death sweep", () => {
         return () => sessionListeners.delete(listener);
       },
       state: (paneId) => ({ kind: kinds.get(paneId) ?? "live" }),
+      subscribeInput(listener) {
+        inputListeners.add(listener);
+        return () => inputListeners.delete(listener);
+      },
     };
   });
 
@@ -300,5 +311,91 @@ describe("createAgentStatusChannel — process-death sweep", () => {
     channel.dispose();
     exit("pane-1");
     expect(tracker.getSnapshot().panes.has("pane-1")).toBe(true);
+  });
+
+  /** Park `pane-1` on an approval prompt, the way a CLI's hook does. */
+  const parkOnApproval = () => {
+    tracker.report("pane-1", {
+      agent: "claude",
+      edge: { kind: "waiting", at: 100, reason: "permission" },
+    });
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "waiting",
+    });
+  };
+
+  it("the user's own answer resolves a wait no agent reports resolved", () => {
+    createAgentStatusChannel(
+      deckWith("pane-1").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+    );
+    parkOnApproval();
+
+    type("pane-1", "\r");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "working",
+    });
+  });
+
+  it("reading the question does not answer it", () => {
+    createAgentStatusChannel(
+      deckWith("pane-1").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+    );
+    parkOnApproval();
+
+    // Scrolling back to see what is being asked. Clearing here would replace
+    // an honest amber with a "Working" that codex never takes back.
+    type("pane-1", "\x1b[A");
+    type("pane-1", "\x1b[5~");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "waiting",
+    });
+  });
+
+  it("answers only the pane that was typed into", () => {
+    createAgentStatusChannel(
+      deckWith("pane-1", "pane-2").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+    );
+    parkOnApproval();
+    tracker.report("pane-2", {
+      agent: "claude",
+      edge: { kind: "waiting", at: 100, reason: "permission" },
+    });
+
+    type("pane-2", "y");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "waiting",
+    });
+    expect(tracker.getSnapshot().panes.get("pane-2")).toMatchObject({
+      state: "working",
+    });
+  });
+
+  it("stops reading input after dispose", () => {
+    const channel = createAgentStatusChannel(
+      deckWith("pane-1").store,
+      agentsWith().registry,
+      tracker,
+      sessions,
+      attribution,
+    );
+    parkOnApproval();
+
+    channel.dispose();
+    type("pane-1", "\r");
+    expect(tracker.getSnapshot().panes.get("pane-1")).toMatchObject({
+      state: "waiting",
+    });
   });
 });
