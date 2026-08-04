@@ -24,20 +24,33 @@
      leaving the LAST column became 13px of horizontal pannability; one
      leaving the FIRST column was simply cut, because the scrollport's
      content edge and this grid's begin at the same x and nothing scrolls
-     into negative space. `clip` settles the pannability — a clip container's
-     contents never reach an ancestor's scrollable region — and the margin
-     buys back the room that does exist: 12px, the scrollbar gutter
-     `.stats-dialog__body` already reserves (stats.css). Enough for every
-     drop shadow on this surface — the furthest, legendary's breath at its
-     peak, reaches 15px below a card and so loses 3px on the bottom row
-     alone — and for half the halo besides.
+     into negative space.
 
-     The first column's outward halo stays lost. Recovering it means
-     indenting the gallery 26px inside the scroller, which at the dialog's
-     900px costs a whole column — a worse trade than a clipped glow on the
-     cards that sit against the frame. */
+     `clip` settles the pannability — a clip container's contents never reach
+     an ancestor's scrollable region — and the padding is what buys back the
+     room the glow needs, since the clip happens at the PADDING box. The
+     negative margin of the same size hands that room straight back to the
+     layout, so the columns sit exactly where they did and the count is
+     unchanged at every width.
+
+     `overflow-clip-margin` would say this in one line, and it is what this
+     rule tried first. WebKit has never implemented it (bug 236153), and on
+     macOS this app IS WebKit — so the margin was silently dropped and every
+     card against the frame lost its whole glow, plus the bottom row its
+     breathing shadow. Padding is the form that executes everywhere.
+
+     12px, because that is the room that actually exists: the scrollbar
+     gutter `.stats-dialog__body` already reserves (stats.css). Enough for
+     every drop shadow here — the furthest, legendary's breath at its peak,
+     reaches 15px below a card and so loses 3px on the bottom row alone.
+
+     The first column's outward halo stays lost either way. Recovering it
+     means indenting the gallery 26px INSIDE the scroller, which at the
+     dialog's 900px costs a whole column — a worse trade than a clipped glow
+     on the cards that sit against the frame. */
+  margin: -12px;
+  padding: 12px;
   overflow: clip;
-  overflow-clip-margin: 12px;
 }
 
 .stats__achievement {
