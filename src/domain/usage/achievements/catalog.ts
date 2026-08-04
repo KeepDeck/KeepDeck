@@ -257,20 +257,27 @@ export function achievementCatalog(): AchievementCatalogEntry[] {
 }
 
 /**
- * Tiers whose threshold MOVED when the ladders were recalibrated, old id to
- * new. The id carries the threshold and is persisted in the congratulated
- * set, so without this every moved tier would look brand new on the first
- * launch after the update and the user would be congratulated two dozen
- * times for things they earned weeks ago.
+ * Tiers whose threshold MOVED in the FIRST recalibration, old id to new. The
+ * id carries the threshold and is persisted in the congratulated set, so
+ * without this every moved tier would look brand new on the first launch
+ * after the update and the user would be congratulated two dozen times for
+ * things they earned weeks ago.
  *
  * Retroactive announcement stays the contract for genuinely NEW tiers; this
  * only carries an old award forward to the step that replaced it.
  *
+ * `_V2` is not decoration. A map named for the general idea invites the next
+ * recalibration's author to append to THIS one, and appending is silent
+ * poison: every file already at version 2 skips it and gets congratulated
+ * all over again. The next recalibration writes its own `_V3` map and adds a
+ * step to `NOTIFIED_MIGRATIONS`; a version-numbered name is the only part of
+ * that protocol a compiler can hint at.
+ *
  * The DATA lives here because the pairs are catalog knowledge. WHEN it runs
- * is not: that belongs to whoever owns the persisted format, and applying
- * it a second time is destructive — see `migrateFrom` in the notifier.
+ * and HOW a set is rewritten are not — both belong to whoever owns the
+ * persisted format, beside `migrateFrom` in the notifier.
  */
-export const RECALIBRATED_IDS: ReadonlyMap<string, string> = new Map([
+export const RECALIBRATED_IDS_V2: ReadonlyMap<string, string> = new Map([
   ["tokens-10000000", "tokens-25000000"],
   ["tokens-100000000", "tokens-150000000"],
   ["tokens-1000000000", "tokens-500000000"],
@@ -297,16 +304,12 @@ export const RECALIBRATED_IDS: ReadonlyMap<string, string> = new Map([
   ["streakDays-100", "streakDays-90"],
 ]);
 
-/** Rewrite a congratulated set through ONE id map. Unknown ids are kept as
- * they are: a set from a NEWER build must survive a downgrade intact, and an
- * id this build cannot place is not evidence it is stale. Applying a given
- * map more than once is the caller's mistake to avoid, not this function's —
- * it has no way to tell a second pass from a first. */
-export function remapCongratulated(
-  ids: Iterable<string>,
-  map: ReadonlyMap<string, string>,
-): Set<string> {
-  const out = new Set<string>();
-  for (const id of ids) out.add(map.get(id) ?? id);
-  return out;
+/** Every id the catalog has ever minted, live or retired — the live ones plus
+ * every key of every recalibration map. A build uses this to tell "a tier I
+ * know about" from "a tier some newer build invented", which is the line
+ * between an id it may reason about and one it must only carry. */
+export function knownAchievementIds(): Set<string> {
+  const ids = new Set(achievementCatalog().map((entry) => entry.id));
+  for (const retired of RECALIBRATED_IDS_V2.keys()) ids.add(retired);
+  return ids;
 }

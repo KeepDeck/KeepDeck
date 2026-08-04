@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { RECALIBRATED_IDS } from "../domain/usage/achievements/catalog";
 import {
   createAchievementNotifier,
   migrateFrom,
+  reconcileCongratulated,
   type AchievementNotifierDeps,
 } from "./achievementNotifier";
 import type { NotifyInput } from "./notificationCenter";
@@ -347,16 +347,6 @@ describe("naming an award", () => {
 });
 
 describe("carrying a congratulated set across a recalibration", () => {
-  /** The pair that makes a second pass destructive: on the spend ladder,
-   * which shifted by a whole rung, these ids are BOTH retired keys AND live
-   * new ids. If this ever stops being true the hazard is gone and these
-   * tests are guarding nothing — so it is asserted, not assumed. */
-  it("still has ids that are both a retired key and a live target", () => {
-    const targets = new Set(RECALIBRATED_IDS.values());
-    const overlap = [...RECALIBRATED_IDS.keys()].filter((id) => targets.has(id));
-    expect(overlap).toEqual(["spendUsd-10", "spendUsd-100"]);
-  });
-
   it("rewrites a file that predates the change", () => {
     expect(migrateFrom(1, ["spendUsd-1", "tokens-10000000"])).toEqual(
       new Set(["spendUsd-10", "tokens-25000000"]),
@@ -396,6 +386,122 @@ describe("carrying a congratulated set across a recalibration", () => {
     expect(migrateFrom(persisted.version, ["spendUsd-10"])).toEqual(
       new Set(["spendUsd-10"]),
     );
+    notifier.dispose();
+  });
+
+  it("never lowers the version a newer build stamped", async () => {
+    // The hole the version list alone could not close: this build reads a
+    // v9 file correctly, then writes its own 2 over it — and the v9 build,
+    // on the way back up, replays every migration between. One round trip
+    // through an older build walked spendUsd-10 → 100 → 500.
+    const { deps, saved, history } = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({ version: 9, notified: ["future-999"] }),
+    });
+    history.set({ ready: true, events: richEvents(), error: null });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    await settle();
+    const persisted = JSON.parse(saved[saved.length - 1]) as { version: number };
+    expect(persisted.version).toBe(9);
+    notifier.dispose();
+  });
+
+  it("reads a file with no usable version as the oldest one", async () => {
+    // The only writer that ever omitted the field predates versions
+    // entirely, so its ids are pre-recalibration and must be rewritten.
+    // Replaying is the safe direction now that the ledger sweep corrects it.
+    const { deps, notify, history } = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({ notified: ["spendUsd-1", "tokens-1000000"] }),
+    });
+    history.set({ ready: true, events: richEvents(), error: null });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    const titles = notify.mock.calls.map(
+      (call) => (call[0] as { title: string }).title,
+    );
+    // spendUsd-1 carried onto the tier that replaced it: not re-announced.
+    expect(titles).not.toContain("Achievement unlocked: First Dollar");
+    expect(titles).not.toContain("Achievement unlocked: First Million");
+    notifier.dispose();
+  });
+});
+
+describe("reconciling a congratulated set against the ledger", () => {
+  it("keeps what the ledger supports and what it cannot place", () => {
+    const kept = reconcileCongratulated(
+      new Set(["spendUsd-10", "spendUsd-100", "future-999"]),
+      new Set(["spendUsd-10"]),
+      new Set(["spendUsd-10", "spendUsd-100"]),
+    );
+    // Earned: kept. Known but unearned: dropped. Unknown: kept, because a
+    // newer build's set must survive a downgrade intact.
+    expect(kept).toEqual(new Set(["spendUsd-10", "future-999"]));
+  });
+
+  it("gives back the banner a rewrite spent in advance", async () => {
+    // $60 of spend. The old ladder congratulated First Dollar ($1) and
+    // Coffee Money ($10); the rewrite carries them onto the tiers that
+    // replaced them, and the new Coffee Money is $100 — which this user has
+    // NOT reached. Left standing, that id would be skipped forever on the
+    // day they cross $100.
+    const upgrade = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({ version: 1, notified: ["spendUsd-1", "spendUsd-10"] }),
+    });
+    upgrade.history.set({
+      ready: true,
+      events: [event({ costSource: "provider", costUsd: 60 })],
+      error: null,
+    });
+    const first = createAchievementNotifier(upgrade.deps);
+    await settle();
+    await settle();
+    const carried = upgrade.saved[upgrade.saved.length - 1];
+    expect(JSON.parse(carried).notified).not.toContain("spendUsd-100");
+    first.dispose();
+
+    // The SAME file, a hundred dollars later. Reading back what the upgrade
+    // actually wrote is the point: a set that still held the unearned id
+    // would swallow this banner instead.
+    const crossing = fakeDeps({ loadNotified: async () => carried });
+    crossing.history.set({
+      ready: true,
+      events: [event({ costSource: "provider", costUsd: 120 })],
+      error: null,
+    });
+    const second = createAchievementNotifier(crossing.deps);
+    await settle();
+    expect(
+      crossing.notify.mock.calls.map(
+        (call) => (call[0] as { title: string }).title,
+      ),
+    ).toContain("Achievement unlocked: Coffee Money");
+    second.dispose();
+  });
+
+  it("repairs a file an earlier build already damaged", async () => {
+    // The sweep is not gated on "a migration just ran", so a set poisoned
+    // before this fix shipped heals on the next launch instead of staying
+    // broken for the life of the install.
+    const { deps, saved, history } = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({ version: 2, notified: ["spendUsd-10", "spendUsd-500"] }),
+    });
+    history.set({
+      ready: true,
+      events: [event({ costSource: "provider", costUsd: 60 })],
+      error: null,
+    });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    await settle();
+    const persisted = JSON.parse(saved[saved.length - 1]) as {
+      notified: string[];
+    };
+    expect(persisted.notified).toContain("spendUsd-10");
+    expect(persisted.notified).not.toContain("spendUsd-500");
     notifier.dispose();
   });
 });
