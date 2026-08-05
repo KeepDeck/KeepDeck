@@ -75,15 +75,16 @@ export function Providers({
                 updated {formatAge(group.reportedAt, now)}
               </small>
             </header>
-            {/* Said ONCE, at the top, when it is true of the whole card.
-                Every expired row used to repeat "% is from the previous
-                window" under itself, which turned a card with nothing to
-                report into several lines of grey explaining the same
-                absence — and still never said why the card looked empty. */}
-            {group.rows.every((row) => row.expired) && (
+            {/* Said ONCE per card, whenever ANY window has reset — not only
+                when they all have. Gating it on "all" left the common case
+                worse than before the note existed: a card with a live
+                weekly window and an expired 5h one showed a dimmed
+                percentage with nothing anywhere saying it describes a
+                window that is gone. */}
+            {group.rows.some((row) => row.expired) && (
               <p className="stats__provider-idle">
-                Every window has reset since this account last reported. The
-                percentages below are the previous window&apos;s.
+                A window that has reset keeps showing the previous window
+                &apos;s percentage until this account reports again.
               </p>
             )}
             {group.rows.map((row) => (
@@ -111,19 +112,11 @@ function ProviderWindow({
   now: number;
 }) {
   const level = windowLevel(row.window, now);
-  // ONE geometry for the chart and the sentence beneath it. The caption
-  // names where the projection lands, so computing it twice would let the
-  // curve and the words describing it drift apart.
   const burn = useMemo(
-    () => windowBurn(row.reports, row.window, row.forecast, now),
+    () => windowBurn(row.reports, row.window, row.forecast, now, "limit"),
     [row.reports, row.window, row.forecast, now],
   );
-  const caption = cardCaptionParts(
-    row.window,
-    row.forecast,
-    now,
-    burn?.endPct ?? null,
-  );
+  const caption = cardCaptionParts(row.window, row.forecast, now);
   return (
     <div
       className={`stats__window${row.expired ? " stats__window--expired" : ""}`}
@@ -138,10 +131,8 @@ function ProviderWindow({
       <WindowBurn
         geometry={burn}
         stroke={stroke}
-        edge={
-          burn &&
-          burnEdgeLabel(row.window, row.forecast, burn.resetAtEdge, now)
-        }
+        edge={burnEdgeLabel(row.window, row.forecast, now)}
+        now={now}
       />
       <small>
           {caption.map((part, index) => (

@@ -30,28 +30,35 @@ export interface BurnGeometry {
   projected: [BurnPoint, BurnPoint] | null;
   /** The ceiling-touch verdict dot; null when the pace survives the reset. */
   out: { x: number; y: number; level: "warn" | "critical" } | null;
-  /** Where the pace leaves the window, in percent — the projection's end,
-   * whether that is the ceiling or wherever the reset caught it. Null
-   * without a usable pace. This is what a surviving window has to SAY: the
-   * quiet case used to draw a curve and report nothing about it. */
+  /** Where the plot's right edge sits, in percent. The CAPTION does not read
+   * this — `WindowForecast.endPct` owns that fact, so a sentence never needs
+   * a chart built before it can be written; this is the drawn copy. */
   endPct: number | null;
-  /** The right edge IS the reset (the projection was capped by it). */
-  resetAtEdge: boolean;
 }
 
 /**
- * The y axis is ALWAYS the whole limit. It used to scale to the data —
- * 100 when the projection reached the ceiling, otherwise about 1.25× the
- * peak — which meant the curve filled its frame no matter how the window
- * ended. A window heading for 33% and one heading for 100% drew the same
- * climb into the same corner, so the shape carried no information and read
- * as alarm everywhere. The frame is the limit; how near the curve comes to
- * it is the entire point.
+ * What the top of the frame means — a CHOICE the surface makes, because the
+ * two plots answer different questions.
  *
- * The cost is real and correct: a window at 1% is a flat line along the
- * floor. Nothing IS happening there.
+ * `"limit"`: the frame is 100%. The card asks "how close am I to the wall",
+ * and it can afford the answer: 60px of height, a labelled ceiling and a
+ * labelled floor. The scale used to follow the data here — 100 when the
+ * projection reached the ceiling, otherwise about 1.25× the peak — so every
+ * curve filled its frame and a window heading for 33% drew the same climb
+ * into the same corner as one heading for 100%. The shape carried no
+ * information, only alarm.
+ *
+ * `"data"`: the frame is the peak plus headroom. The popover sparkline is
+ * 20px tall with no ceiling label, no floor label and no room for either;
+ * it asks "is this rising", and the percentage beside it already carries
+ * the level. Forcing the limit scale there flattened a 10% window to 1.6px
+ * above its own floor line — inside the two strokes' combined width, so the
+ * curve disappeared into the axis.
+ *
+ * The cost of `"limit"` is real and correct where it applies: a window at
+ * 1% is a flat line along the floor of the card. Nothing IS happening.
  */
-const Y_MAX_PCT = 100;
+export type BurnScale = "limit" | "data";
 
 const MAX_OBSERVED_POINTS = 300;
 
@@ -72,6 +79,9 @@ export function windowBurn(
   window: UsageWindow,
   forecast: WindowForecast,
   now: number,
+  /** Required, not defaulted: a surface that does not state which question
+   * its plot answers is a surface that has not decided. */
+  scale: BurnScale,
 ): BurnGeometry | null {
   if (windowExpired(window, now)) return null;
   const segment = currentSegment(reports).filter(
@@ -107,10 +117,21 @@ export function windowBurn(
             ((projEndAt - newest.reportedAt) / projSpan)
         : 100 // the wall is at (or before) the newest report
       : null;
+  const observedMax = drawn.reduce(
+    (max, report) => Math.max(max, report.usedPct),
+    0,
+  );
+  const peak = Math.max(observedMax, projEndPct ?? 0);
+  const yMaxPct =
+    scale === "limit"
+      ? 100
+      : peak >= 99.5
+        ? 100
+        : Math.min(100, Math.max(10, Math.ceil(peak * 1.25)));
   const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
   const plotPoint = (at: number, pct: number) => ({
     x: clamp01((at - tMin) / (tEnd - tMin)),
-    y: clamp01(pct / Y_MAX_PCT),
+    y: clamp01(pct / yMaxPct),
   });
   const point = (at: number, pct: number): BurnPoint => ({
     ...plotPoint(at, pct),
@@ -134,15 +155,10 @@ export function windowBurn(
           level: forecast.level,
         }
       : null;
-  const resetAtEdge =
-    projEndAt !== null &&
-    window.resetsAt !== null &&
-    projEndAt === window.resetsAt;
   return {
     observed,
     projected,
     out,
     endPct: projEndPct,
-    resetAtEdge,
   };
 }

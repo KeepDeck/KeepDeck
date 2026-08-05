@@ -1,6 +1,7 @@
 import {
   formatCountdown,
   formatMoment,
+  formatPct,
   usageStale,
   windowResetCaption,
 } from "./format";
@@ -26,7 +27,16 @@ export type WindowForecast =
   | { kind: "unknown" }
   /** Survives to the reset; `outAt` is the projected exhaustion anyway
    * (may be past the reset), null when the pace is ~zero. */
-  | { kind: "ok"; outAt: number | null }
+  | {
+      kind: "ok";
+      outAt: number | null;
+      /** Where the pace LEAVES this window, in percent — its level at the
+       * earlier of the run-out and the reset. A forecast fact, not a plot
+       * one: it used to be derived inside the burn geometry, which forced
+       * every caption that wanted it to build a chart first. Null when
+       * there is no pace to extrapolate. */
+      endPct: number | null;
+    }
   | {
       kind: "out";
       outAt: number;
@@ -91,7 +101,7 @@ export function windowForecast(
     return { kind: "unknown" };
   }
   const pace = (last.usedPct - first.usedPct) / spanMs; // pct per ms
-  if (pace <= 0) return { kind: "ok", outAt: null };
+  if (pace <= 0) return { kind: "ok", outAt: null, endPct: null };
   const outAt = last.reportedAt + (100 - last.usedPct) / pace;
   if (outAt <= now) {
     // The extrapolation says the wall is already here. That is only
@@ -126,7 +136,17 @@ export function windowForecast(
       beforeResetMs: window.resetsAt - outAt,
     };
   }
-  return { kind: "ok", outAt };
+  // Where the pace leaves the window: its level at the earlier of the
+  // run-out and the reset. When the run-out lands INSIDE the verdict margin
+  // it is still "ok" — the projection is not confident enough to call a
+  // race — but it does reach 100, and the surfaces have to be able to say
+  // so. They could not: the level was computed inside the plot geometry,
+  // and the caption that needed it bailed out above 99.5%, so this whole
+  // band drew a dashed line into the ceiling with nothing naming it.
+  const endsAt = Math.min(outAt, window.resetsAt);
+  const endPct =
+    last.usedPct + (100 - last.usedPct) * ((endsAt - last.reportedAt) / (outAt - last.reportedAt));
+  return { kind: "ok", outAt, endPct: Math.min(100, endPct) };
 }
 
 /* ---- the account join -------------------------------------------------- */
@@ -200,10 +220,33 @@ function forecastClause(
   }
   const early = formatCountdown(now + forecast.beforeResetMs, now);
   const margin = early === null ? "" : ` · ~${early} before reset`;
+  // "on pace to", not a bare "hits": this module's contract (top of file)
+  // is that a forecast always names itself an extrapolation. The critical
+  // arm above kept the hedge; dropping it here attached the STRONGER claim
+  // to the WEAKER verdict.
   return {
-    text: `hits 100% ~${formatMoment(forecast.outAt, now)}${margin}`,
+    text: `on pace to hit 100% ~${formatMoment(forecast.outAt, now)}${margin}`,
     level: "warn",
   };
+}
+
+/**
+ * Does the reset arrive before the pace does?
+ *
+ * THE one home of the capping rule. The burn plot ends its axis at
+ * `min(outAt, resetsAt)` and the edge label has to name whichever of the
+ * two that was — asking the question in both places let one of them be
+ * merely handed the answer, which is how the label ended up needing a plot
+ * before it could be built.
+ */
+export function resetCapsProjection(
+  window: UsageWindow,
+  forecast: WindowForecast,
+  now: number,
+): boolean {
+  if (window.resetsAt === null) return false;
+  const outAt = forecast.kind === "unknown" ? null : forecast.outAt;
+  return outAt !== null && outAt >= now && outAt >= window.resetsAt;
 }
 
 /**
@@ -215,19 +258,47 @@ function forecastClause(
  * the most-asked question drawn but unnamed, and left the reader deriving a
  * clock time from a countdown printed in a different line.
  */
+export interface BurnEdge extends ForecastCaptionPart {
+  /** The edge IS the reset. The plot rules a boundary line there; asking
+   * this of the label rather than sniffing its text keeps the two from
+   * having separate opinions about the same edge. */
+  atReset: boolean;
+}
+
 export function burnEdgeLabel(
   window: UsageWindow,
   forecast: WindowForecast,
-  resetAtEdge: boolean,
   now: number,
-): ForecastCaptionPart | null {
-  if (forecast.kind === "out" && !resetAtEdge) {
-    return { text: formatMoment(forecast.outAt, now), level: forecast.level };
+): BurnEdge {
+  if (resetCapsProjection(window, forecast, now)) {
+    return {
+      text: `reset ${formatMoment(window.resetsAt!, now)}`,
+      level: null,
+      atReset: true,
+    };
   }
-  if (resetAtEdge && window.resetsAt !== null) {
-    return { text: `reset ${formatMoment(window.resetsAt, now)}`, level: null };
+  if (forecast.kind === "out") {
+    return {
+      text: formatMoment(forecast.outAt, now),
+      level: forecast.level,
+      atReset: false,
+    };
   }
-  return null;
+  // "ok" whose pace still reaches the ceiling before the reset — inside the
+  // verdict margin, so not a race, but the dashed line does end AT 100 and
+  // the edge is that instant. This band drew into the corner unnamed.
+  if (forecast.kind === "ok" && forecast.outAt !== null) {
+    return {
+      text: formatMoment(forecast.outAt, now),
+      level: null,
+      atReset: false,
+    };
+  }
+  // No projection at all — the axis simply ends at now. Saying so is what
+  // turns an empty right half into "nothing has been reported since": the
+  // curve stops where the reports stopped, and without this the gap reads
+  // as a chart that failed to draw.
+  return { text: "now", level: null, atReset: false };
 }
 
 /**
@@ -241,12 +312,19 @@ export function burnEdgeLabel(
  * Only with a real projection to land on, and only below the ceiling; a
  * pace of about zero has nothing to extrapolate and says nothing.
  */
-export function survivalClause(
-  forecast: WindowForecast,
-  endPct: number | null,
-): ForecastCaptionPart | null {
-  if (forecast.kind !== "ok" || endPct === null || endPct >= 99.5) return null;
-  return { text: `lasts the window · ends near ${Math.round(endPct)}%`, level: null };
+function survivalClause(forecast: WindowForecast): ForecastCaptionPart | null {
+  if (forecast.kind !== "ok" || forecast.endPct === null) return null;
+  // `formatPct`, not a local round: every other percentage on this card
+  // goes through it, and it ceils on purpose (understating consumption
+  // reads as a bug — the field report is in its doc). A local `Math.round`
+  // here made the chart's own hover tooltip say "34% used" while the
+  // sentence beneath it said "ends near 33%", about the same point.
+  const pct = formatPct(forecast.endPct, "used");
+  // A pace that reaches the ceiling inside the verdict margin is not a
+  // race — too close to call — but it is not "lasts the window" either.
+  return forecast.endPct >= 99.5
+    ? { text: `on pace to reach ${pct} by the reset`, level: "warn" }
+    : { text: `on pace to last the window · ends near ${pct}`, level: null };
 }
 
 /** The card's full caption, ordered: the reset stays the anchor fact, the
@@ -255,12 +333,9 @@ export function cardCaptionParts(
   window: UsageWindow,
   forecast: WindowForecast,
   now: number,
-  /** The projection's landing percentage, when the card drew one — lets a
-   * surviving window say how it ends instead of only when it resets. */
-  endPct: number | null = null,
 ): ForecastCaptionPart[] {
   const reset = windowResetCaption(window, now, "long");
-  const clause = forecastClause(forecast, now) ?? survivalClause(forecast, endPct);
+  const clause = forecastClause(forecast, now) ?? survivalClause(forecast);
   const parts: ForecastCaptionPart[] = [];
   if (clause !== null && clause.level === "critical") parts.push(clause);
   if (reset !== "") parts.push({ text: reset, level: null });

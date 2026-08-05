@@ -5,6 +5,7 @@ import {
   formatAge,
   formatBucket,
   formatCountdown,
+  formatMoment,
   formatPct,
   formatTokens,
   formatUsd,
@@ -273,6 +274,55 @@ describe("formatTokens", () => {
     expect(formatTokens(-5)).toBe("0");
     expect(formatTokens(Number.NaN)).toBe("0");
     expect(formatTokens(Number.POSITIVE_INFINITY)).toBe("0");
+  });
+});
+
+describe("formatMoment", () => {
+  // A local wall clock, on purpose — unlike every other label in this file.
+  // Built from a local midnight so the case is stable in any zone the suite
+  // runs in.
+  const MIN = 60_000;
+  const HOUR = 60 * MIN;
+  const DAY = 24 * HOUR;
+  const midnight = new Date(2026, 6, 22, 0, 0, 0, 0).getTime();
+  const at = (dayOffset: number, hour: number, minute = 0) =>
+    midnight + dayOffset * DAY + hour * HOUR + minute * MIN;
+  const NOON = at(0, 12);
+
+  it("says only the clock for a moment later today", () => {
+    expect(formatMoment(at(0, 17, 11), NOON)).toBe("17:11");
+    // 24-hour, zero-padded — and midnight is 00:00, never 24:00.
+    expect(formatMoment(at(0, 0), NOON)).toBe("00:00");
+    expect(formatMoment(at(0, 9, 5), NOON)).toBe("09:05");
+  });
+
+  it("names tomorrow by its relation, not by its date", () => {
+    // "tomorrow 06:40" places a moment that "Jul 23, 06:40" makes the
+    // reader work out.
+    expect(formatMoment(at(1, 6, 40), NOON)).toBe("tomorrow 06:40");
+    // The boundary is the calendar day, not 24 hours: 01:00 tomorrow is
+    // thirteen hours away and still "tomorrow".
+    expect(formatMoment(at(1, 1), NOON)).toBe("tomorrow 01:00");
+  });
+
+  it("names the weekday inside the week ahead", () => {
+    expect(formatMoment(at(2, 6, 40), NOON)).toBe("Fri 06:40");
+    expect(formatMoment(at(6, 6, 40), NOON)).toBe("Tue 06:40");
+  });
+
+  it("falls back to a date once the weekday would be ambiguous", () => {
+    // Seven days out, "Wed" would name the same weekday as today.
+    expect(formatMoment(at(7, 6, 40), NOON)).toBe("Jul 29, 06:40");
+    expect(formatMoment(at(40, 6, 40), NOON)).toBe("Aug 31, 06:40");
+  });
+
+  it("renders a past instant as a bare clock, which is its known limit", () => {
+    // Every caller today passes a FUTURE instant by construction (a reset
+    // or a run-out), so this is a documented edge rather than a live bug —
+    // but it means the function cannot be reused for "last reported at"
+    // without a yesterday branch.
+    expect(formatMoment(at(-1, 8), NOON)).toBe("08:00");
+    expect(formatMoment(at(0, 8), NOON)).toBe("08:00");
   });
 });
 

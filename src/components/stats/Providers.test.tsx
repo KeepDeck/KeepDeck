@@ -136,16 +136,17 @@ describe("Providers", () => {
 
     // The clause answers WHEN first; the margin against the reset follows
     // as the qualifier it is.
-    expect(host.textContent).toMatch(/hits 100% ~\d{2}:\d{2}/);
+    expect(host.textContent).toMatch(/on pace to hit 100% ~\d{2}:\d{2}/);
     expect(host.textContent).toContain("before reset");
     expect(host.textContent).toContain("resets in 2h 35m");
     expect(host.querySelector(".usage-burn")).not.toBeNull();
     expect(host.querySelector(".usage-burn__dot--warn")).not.toBeNull();
     // The plot's right edge names that same moment, so the curve and the
-    // sentence under it cannot disagree.
-    expect(host.querySelector(".usage-burn__foot")!.textContent).toMatch(
-      /\d{2}:\d{2}/,
-    );
+    // sentence under it cannot disagree. A bare /\d{2}:\d{2}/ would have
+    // accepted the reset-prefixed label too — the wrong branch entirely.
+    const foot = host.querySelector(".usage-burn__foot")!.textContent ?? "";
+    expect(foot).toMatch(/^0\d{2}:\d{2}$/);
+    expect(foot).not.toContain("reset");
   });
 
   it("stays silent about the race when the journal has no pace yet", () => {
@@ -197,7 +198,7 @@ describe("Providers", () => {
     expect(windows[1].className).not.toContain("stats__window--expired");
   });
 
-  it("explains an all-reset card once, above its windows", () => {
+  it("explains a reset percentage once per card, not once per window", () => {
     // Two grey lines each repeating "% is from the previous window" made a
     // card with nothing to report look like a card that was broken.
     render({
@@ -219,13 +220,32 @@ describe("Providers", () => {
     expect(host.textContent).not.toContain("% is from the previous window");
   });
 
-  it("does not explain away a card that still has a live window", () => {
+  it("still explains it when only SOME of the card's windows have reset", () => {
+    // The mixed card is the common one — a 5h window resets many times per
+    // week that the weekly one does not — and gating the note on "all"
+    // left it showing a dimmed percentage with nothing anywhere saying it
+    // describes a window that is gone.
     render({
       accounts: new Map([
         [
           "claude",
           account([
-            { usedPct: 10, resetsAt: NOW - HOUR, windowMinutes: 300 }, // expired
+            { usedPct: 88, resetsAt: NOW - HOUR, windowMinutes: 300 }, // expired
+            { usedPct: 34, resetsAt: NOW + 3 * HOUR, windowMinutes: 10_080 },
+          ]),
+        ],
+      ]),
+    });
+    expect(host.querySelectorAll(".stats__provider-idle")).toHaveLength(1);
+  });
+
+  it("says nothing about resets on a card where every window is live", () => {
+    render({
+      accounts: new Map([
+        [
+          "claude",
+          account([
+            { usedPct: 10, resetsAt: NOW + HOUR, windowMinutes: 300 },
             { usedPct: 40, resetsAt: NOW + 3 * HOUR, windowMinutes: 10_080 },
           ]),
         ],
