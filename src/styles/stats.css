@@ -188,21 +188,21 @@
 .stats__chart-tip {
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
-  gap: 2px 12px;
-  padding: 6px 10px;
-  border: 1px solid #232c3d;
+  gap: 2px 16px;
+  padding: 8px 11px;
+  border: 1px solid #2b3547;
   border-radius: 8px;
   background: #0e131c;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
-  font-size: 11px;
-  line-height: 1.4;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  font-size: 11.5px;
+  line-height: 1.45;
   pointer-events: none;
 }
 
 .stats__chart-tip > b {
   grid-column: 1 / -1;
-  margin-bottom: 2px;
-  color: #596273;
+  margin-bottom: 4px;
+  color: #9aa3af;
   font-weight: 400;
 }
 
@@ -233,14 +233,48 @@
   white-space: nowrap;
 }
 
+/* The proportion, in shades of the row's own provider colour. Colour in this
+   card already means WHO; three new hues for the three kinds would fight the
+   square two lines up, so the kinds are steps of one hue instead — cache
+   faintest because it is both the largest and the cheapest. */
+.stats__chart-tip-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 1px;
+  height: 3px;
+  margin: 3px 0 3px 13px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.stats__chart-tip-bar > i {
+  /* A sliver still has to be visible: input is often four orders of
+     magnitude under cache, and a share that rounds to nothing is exactly
+     the fact worth seeing. */
+  min-width: 2px;
+}
+
+.stats__chart-tip-bar > i[data-kind="cache"] {
+  background: color-mix(in srgb, var(--series) 40%, #0e131c);
+}
+
+.stats__chart-tip-bar > i[data-kind="input"] {
+  background: color-mix(in srgb, var(--series) 72%, #0e131c);
+}
+
+.stats__chart-tip-bar > i[data-kind="output"] {
+  background: var(--series);
+}
+
 /* The split sits UNDER its provider, spanning both columns: it explains the
    number above it, and a third column would push the totals off the eye's
-   line. */
+   line. It is the most informative line in the card and used to be the
+   quietest thing in it — muted ink, not the seam grey, and the card's own
+   size rather than a footnote's. */
 .stats__chart-tip-split {
   grid-column: 1 / -1;
-  margin: -1px 0 4px 13px;
-  color: #596273;
-  font-size: 10px;
+  margin: 0 0 6px 13px;
+  color: #9aa3af;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

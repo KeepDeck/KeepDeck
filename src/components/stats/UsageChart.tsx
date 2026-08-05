@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import {
   Bar,
   BarChart,
@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatBucket, formatTokens, tokenBreakdown } from "../../domain/usage";
+import { formatBucket, formatTokens, tokenSegments } from "../../domain/usage";
 import {
   ledgerSeriesColors,
   seriesColorFor,
@@ -174,20 +174,46 @@ function BucketTip({
     <div className="stats__chart-tip">
       <b>{formatBucket(bucket.start, granularity, "long")}</b>
       {shares.map((share) => {
-        const split = tokenBreakdown(share.tokens);
+        const segments = tokenSegments(share.tokens);
+        const color = seriesColorFor(colors, share.agent);
         return (
-          <span className="stats__chart-tip-row" key={share.agent}>
+          <span
+            className="stats__chart-tip-row"
+            key={share.agent}
+            style={{ "--series": color } as CSSProperties}
+          >
             <span className="stats__chart-tip-name">
               {/* Identity is the square; the text stays ink, the rule the
                   old tooltip already followed. */}
-              <i style={{ background: seriesColorFor(colors, share.agent) }} />
+              <i style={{ background: color }} />
               {share.agent}
             </span>
             <span className="stats__chart-tip-total">
               {formatTokens(share.totalTokens)}
             </span>
-            {split !== "" && (
-              <span className="stats__chart-tip-split">{split}</span>
+            {segments.length > 0 && (
+              <>
+                {/* The split as a PROPORTION, not only as three numbers.
+                    "cache 323.7M · ↑ 7.4k" is a sentence you have to do
+                    arithmetic on; a bar that is almost entirely one shade
+                    says "nearly all of this was cache" at a glance.
+                    Shades of the provider's own colour, never three new
+                    hues: in this card colour already means WHO, and a
+                    second colour language inside it would fight the
+                    square two lines up. */}
+                <span className="stats__chart-tip-bar" aria-hidden>
+                  {segments.map((segment) => (
+                    <i
+                      key={segment.kind}
+                      data-kind={segment.kind}
+                      style={{ flexGrow: segment.value }}
+                    />
+                  ))}
+                </span>
+                <span className="stats__chart-tip-split">
+                  {segments.map((segment) => segment.caption).join(" · ")}
+                </span>
+              </>
             )}
           </span>
         );

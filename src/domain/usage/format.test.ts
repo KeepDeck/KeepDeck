@@ -11,6 +11,7 @@ import {
   limitLevel,
   panelWindows,
   tokenBreakdown,
+  tokenSegments,
   usageStale,
   windowLabel,
   windowLevel,
@@ -271,6 +272,28 @@ describe("formatTokens", () => {
     expect(formatTokens(-5)).toBe("0");
     expect(formatTokens(Number.NaN)).toBe("0");
     expect(formatTokens(Number.POSITIVE_INFINITY)).toBe("0");
+  });
+});
+
+describe("tokenSegments", () => {
+  it("carries each part's raw value, so a bar can be drawn to scale", () => {
+    // The caption alone forces arithmetic on the reader: "cache 323.7M · ↑
+    // 7.4k" is 98% cache, and nothing about the sentence says so.
+    expect(tokenSegments({ cacheRead: 323_700_000, input: 7_400, output: 932_100 }))
+      .toEqual([
+        { kind: "cache", caption: "cache 323.7M", value: 323_700_000 },
+        { kind: "input", caption: "↑ 7.4k", value: 7_400 },
+        { kind: "output", caption: "↓ 932.1k", value: 932_100 },
+      ]);
+  });
+
+  it("is the one home for which kinds show and in what order", () => {
+    // The text line and the proportion bar read from this, so they cannot
+    // disagree about a part being present.
+    expect(tokenSegments({ input: 5 }).map((part) => part.kind)).toEqual([
+      "input",
+    ]);
+    expect(tokenSegments({}).length).toBe(0);
   });
 });
 

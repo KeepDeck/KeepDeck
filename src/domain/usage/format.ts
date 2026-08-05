@@ -287,24 +287,59 @@ export function formatTokens(n: number): string {
   return b < 999.95 ? `${oneDp(b)}B` : `${oneDp(n / 1_000_000_000_000)}T`;
 }
 
+/** One named part of a total, in the order these are always read. */
+export interface TokenSegment {
+  kind: "cache" | "input" | "output";
+  /** "cache 1.7B", "↑ 240M", "↓ 80M". */
+  caption: string;
+  value: number;
+}
+
 /**
- * What a total is MADE OF: "cache 1.7B · ↑ 240M · ↓ 80M".
+ * What a total is MADE OF, as parts — the one place that decides which kinds
+ * are shown, in what order, and when one is left out.
  *
- * A single token number hides the one thing that explains both the work and
- * the bill — cache reads usually dominate the sum and are priced differently
- * from what was actually sent or generated. Every surface that shows a total
- * can show this beside it, and they all phrase it here so a reader who
- * learns the notation in one place can read it in the next.
+ * A single token number hides the thing that explains both the work and the
+ * bill: cache reads usually dominate the sum and are priced differently from
+ * what was actually sent or generated. Cache therefore leads — burying the
+ * biggest term behind two smaller ones is why the total reads unexplained.
  *
- * Cache leads because it is the biggest term, and a field a provider never
- * reported is omitted rather than printed as a zero it did not claim.
+ * A field the provider never reported is omitted rather than printed as a
+ * zero it did not claim; a REPORTED zero is kept, because a turn that
+ * generated nothing is a fact about that turn. Cache is the exception: it is
+ * absent far more often than it is genuinely zero, so a bare 0 there would
+ * be noise on every codex row.
  */
-export function tokenBreakdown(tokens: TokenCounts): string {
+export function tokenSegments(tokens: TokenCounts): TokenSegment[] {
   const cacheRead = tokens.cacheRead ?? 0;
-  const parts = [
-    cacheRead > 0 ? `cache ${formatTokens(cacheRead)}` : "",
-    tokens.input !== undefined ? `↑ ${formatTokens(tokens.input)}` : "",
-    tokens.output !== undefined ? `↓ ${formatTokens(tokens.output)}` : "",
-  ];
-  return parts.filter(Boolean).join(" · ");
+  const segments: TokenSegment[] = [];
+  if (cacheRead > 0) {
+    segments.push({
+      kind: "cache",
+      caption: `cache ${formatTokens(cacheRead)}`,
+      value: cacheRead,
+    });
+  }
+  if (tokens.input !== undefined) {
+    segments.push({
+      kind: "input",
+      caption: `↑ ${formatTokens(tokens.input)}`,
+      value: tokens.input,
+    });
+  }
+  if (tokens.output !== undefined) {
+    segments.push({
+      kind: "output",
+      caption: `↓ ${formatTokens(tokens.output)}`,
+      value: tokens.output,
+    });
+  }
+  return segments;
+}
+
+/** The same parts as one line: "cache 1.7B · ↑ 240M · ↓ 80M". */
+export function tokenBreakdown(tokens: TokenCounts): string {
+  return tokenSegments(tokens)
+    .map((segment) => segment.caption)
+    .join(" · ");
 }
