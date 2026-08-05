@@ -168,6 +168,87 @@
   font-weight: 600;
 }
 
+/* What the headline number is made of. Quiet enough that the card still
+   reads as one number at a glance, and NOT uppercase — the label above is
+   a name, this is a value. */
+.stats__card-detail {
+  color: #596273;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The Overview chart's hover card. Shaped after usage.css's burn tooltip —
+   same chrome, same 11px rhythm — but laid out as a grid, because each
+   provider now carries a second line and the totals must stay in a column
+   the eye can run down. Colours are literal here for the same reason they
+   are literal there: recharts renders this inside its own layer. */
+.stats__chart-tip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 2px 12px;
+  padding: 6px 10px;
+  border: 1px solid #232c3d;
+  border-radius: 8px;
+  background: #0e131c;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.stats__chart-tip > b {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  color: #596273;
+  font-weight: 400;
+}
+
+.stats__chart-tip-row {
+  display: contents;
+}
+
+.stats__chart-tip-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #c5c8c6;
+  white-space: nowrap;
+}
+
+.stats__chart-tip-name > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.stats__chart-tip-total {
+  color: #c5c8c6;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The split sits UNDER its provider, spanning both columns: it explains the
+   number above it, and a third column would push the totals off the eye's
+   line. */
+.stats__chart-tip-split {
+  grid-column: 1 / -1;
+  margin: -1px 0 4px 13px;
+  color: #596273;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stats__chart-tip-row:last-child .stats__chart-tip-split {
+  margin-bottom: 0;
+}
+
 .stats__recap {
   margin: 8px 2px 0;
   color: #9aa3af;

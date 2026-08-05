@@ -1,5 +1,10 @@
 import type { UsageStatsPeriod } from "./history/query";
-import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
+import {
+  windowExpired,
+  type AccountUsage,
+  type TokenCounts,
+  type UsageWindow,
+} from "./usage";
 
 /**
  * Presentation rules for usage data — pure, time-injected. The chips stay
@@ -280,4 +285,26 @@ export function formatTokens(n: number): string {
   if (m < 999.95) return `${oneDp(m)}M`;
   const b = n / 1_000_000_000;
   return b < 999.95 ? `${oneDp(b)}B` : `${oneDp(n / 1_000_000_000_000)}T`;
+}
+
+/**
+ * What a total is MADE OF: "cache 1.7B · ↑ 240M · ↓ 80M".
+ *
+ * A single token number hides the one thing that explains both the work and
+ * the bill — cache reads usually dominate the sum and are priced differently
+ * from what was actually sent or generated. Every surface that shows a total
+ * can show this beside it, and they all phrase it here so a reader who
+ * learns the notation in one place can read it in the next.
+ *
+ * Cache leads because it is the biggest term, and a field a provider never
+ * reported is omitted rather than printed as a zero it did not claim.
+ */
+export function tokenBreakdown(tokens: TokenCounts): string {
+  const cacheRead = tokens.cacheRead ?? 0;
+  const parts = [
+    cacheRead > 0 ? `cache ${formatTokens(cacheRead)}` : "",
+    tokens.input !== undefined ? `↑ ${formatTokens(tokens.input)}` : "",
+    tokens.output !== undefined ? `↓ ${formatTokens(tokens.output)}` : "",
+  ];
+  return parts.filter(Boolean).join(" · ");
 }

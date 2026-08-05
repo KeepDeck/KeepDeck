@@ -3,6 +3,7 @@ import {
   costCoverage,
   displayProviderCost,
   formatTokens,
+  tokenBreakdown,
 } from "../../domain/usage";
 import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
@@ -47,7 +48,15 @@ export function Overview({
   return (
     <>
       <div className="stats__summary">
-        <Summary label="Tokens" value={formatTokens(stats.totals.totalTokens)} />
+        {/* The headline number with what it is MADE of. A bare total hides
+            the split that explains the bill — cache reads usually dominate
+            it and are priced differently — and until now that split lived
+            only in small print inside the Models and Sessions rows. */}
+        <Summary
+          label="Tokens"
+          value={formatTokens(stats.totals.totalTokens)}
+          detail={tokenBreakdown(stats.totals.tokens)}
+        />
         <Summary
           label="Cost"
           value={displayProviderCost(
@@ -93,11 +102,23 @@ function ChartPlaceholder() {
   );
 }
 
-function Summary({ label, value }: { label: string; value: string }) {
+function Summary({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  /** What the headline is made of, when it has parts worth naming. */
+  detail?: string;
+}) {
   return (
     <div className="stats__card">
       <span>{label}</span>
       <b>{value}</b>
+      {detail !== undefined && detail !== "" && (
+        <small className="stats__card-detail">{detail}</small>
+      )}
     </div>
   );
 }

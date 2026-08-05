@@ -3,6 +3,7 @@ import {
   formatAge,
   formatTokens,
   modelLabel,
+  tokenBreakdown,
 } from "../../domain/usage";
 import type { UsageStatsRow } from "../../domain/usage/history/query";
 
@@ -42,7 +43,7 @@ export function StatsTable({
             </span>
             <span className="stats__tokens" role="cell">
               {formatTokens(row.totalTokens)}
-              <small>{tokenBreakdown(row)}</small>
+              <small>{tokenBreakdown(row.tokens)}</small>
             </span>
             <span className="stats__cost" role="cell">
               {displayProviderCost(row.providerCostUsd, row.costEvents)}
@@ -53,17 +54,6 @@ export function StatsTable({
       </div>
     </section>
   );
-}
-
-function tokenBreakdown(row: UsageStatsRow): string {
-  const values = [
-    row.tokens.input !== undefined ? `↑${formatTokens(row.tokens.input)}` : "",
-    row.tokens.output !== undefined ? `↓${formatTokens(row.tokens.output)}` : "",
-    row.tokens.cacheRead !== undefined
-      ? `cache ${formatTokens(row.tokens.cacheRead)}`
-      : "",
-  ].filter(Boolean);
-  return values.join(" · ");
 }
 
 function shortSession(value: string | undefined): string {
