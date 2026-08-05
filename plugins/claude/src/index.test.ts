@@ -86,7 +86,10 @@ describe("claude plugin hooks", () => {
     // half of a pair, and arming only the happy half strands the pane.
     // SubagentStart/SubagentStop bracket one agent turn, and an unpaired
     // bracket either holds a finished turn open or lets a busy teammate
-    // read as done. Losing any one is a silent hole in the lane.
+    // read as done. SessionStart is the only report a manual `/compact`
+    // produces — it runs through no turn — so without it a pane that failed
+    // on an oversize request can never stop being red. Losing any one is a
+    // silent hole in the lane.
     const armed = [
       "UserPromptSubmit",
       "Stop",
@@ -96,6 +99,7 @@ describe("claude plugin hooks", () => {
       "PostToolUseFailure",
       "SubagentStart",
       "SubagentStop",
+      "SessionStart",
     ];
     for (const event of armed) {
       expect(settings.hooks[event][0].hooks[0].command, event).toBe(command);
@@ -103,6 +107,29 @@ describe("claude plugin hooks", () => {
     // EXACTLY these: an event armed by accident feeds the lane edges nobody
     // reasoned about, and the normalizer's default arm drops them silently.
     expect(Object.keys(settings.hooks).sort()).toEqual([...armed].sort());
+  });
+
+  it("lets both reporters ride SessionStart, in arming order", async () => {
+    // The two lanes read the SAME event for different facts: identity takes
+    // the session id, status takes a compaction. Assigning rather than
+    // appending would silently drop whichever armed second — session
+    // binding or the compaction signal — and neither failure announces
+    // itself, so the shape is pinned here rather than left to review.
+    const agent = activate({ ...SESSION_HOOK, ...STATUS_HOOK });
+    const out = output();
+    await agent.hooks["spawn.plan"]!(input, out);
+
+    const settings = JSON.parse(out.args[1]);
+    expect(
+      settings.hooks.SessionStart.map(
+        (entry: { hooks: { command: string }[] }) => entry.hooks[0].command,
+      ),
+    ).toEqual([
+      "/bin/sh '/App/resources/kd-session-hook.sh' claude",
+      "/bin/sh '/App/resources/kd-status-hook.sh' claude",
+    ]);
+    // The status reporter's other events are untouched by the sharing.
+    expect(settings.hooks.Stop).toHaveLength(1);
   });
 
   it("arms the statusLine usage reporter alongside identity", async () => {

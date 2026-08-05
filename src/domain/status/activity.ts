@@ -35,8 +35,12 @@ export type PaneActivity =
   | { state: "working"; since: number }
   /** The turn is blocked on the user. */
   | { state: "waiting"; since: number; reason: StatusWaitReason }
-  /** The last turn is over. `interrupted` says HOW: completed, or cut by
-   * the user — the card reads differently ("Done" vs "Interrupted"). */
+  /** The last turn is over. `interrupted` says whether it ran to the end:
+   * false when the turn completed, true when it stopped short — the user's
+   * Esc, or a failure retired by a context rebuild. The card reads
+   * differently ("Done" vs "Interrupted"). The flag stays a boolean because
+   * nothing reads the CAUSE: both surfaces that branch on it want the same
+   * answer for every way a turn stops short. */
   | { state: "done"; at: number; interrupted: boolean }
   /** The last turn died on an API error. `error` is the CLI's typed reason
    * (`rate_limit`, `authentication_failed`, …), `detail` its prose. */
@@ -119,7 +123,16 @@ function isEnding(event: AgentStatusEvent): boolean {
  * The predicate exists so `return current` type-checks non-null in the
  * true branch. CAVEAT for the next editor: TypeScript narrows the FALSE
  * branch to `null` — a lie (a fresh working/waiting reaches it too) —
- * so never read `current` after a false result; mint a new object. */
+ * so never read `current` after a false result; mint a new object.
+ *
+ * SECOND CAVEAT, and the one with reach: `failed` absorbing here is what
+ * keeps a failed pane from ever carrying a held ending, because the only
+ * edge that arms one is a `turn-end` this block swallows. `reduceHeldEnd`
+ * relies on that — it has no `context-compacted` arm, since a compaction
+ * reaches it only on a failed pane, where the held ending is already null.
+ * Weaken this to `done` alone and the sequence turn-start, agent-turn-start,
+ * turn-failed, agent-turn-start, turn-end mints `failed` with a live held
+ * ending, which that missing arm would then drop. */
 function endedTurnStands(
   current: PaneActivity | null,
   at: number,
@@ -211,6 +224,25 @@ export function reduceStatus(
     current !== null &&
     isEnding(event) &&
     endedTurnStands(current.activity, event.at)
+  ) {
+    return current;
+  }
+
+  // A context rebuild retires a recorded FAILURE and touches nothing else.
+  // "Nothing else" includes the absence of a status: a pane that has
+  // reported nothing is left unheard-of rather than carded, on an edge that
+  // makes no claim about a turn. That is the same rule as leaving a running
+  // or finished pane alone, so it is written once, here — the fold below
+  // cannot spell "no status at all", and splitting the rule across the two
+  // would give one decision two homes that can disagree.
+  //
+  // Position is load-bearing in one direction only: BEFORE the bookkeeping,
+  // so an edge that changes nothing cannot disturb the bracket set or the
+  // held ending. It is independent of the ending-absorb block above, which
+  // gates only `isEnding` kinds.
+  if (
+    event.kind === "context-compacted" &&
+    current?.activity.state !== "failed"
   ) {
     return current;
   }
@@ -395,5 +427,18 @@ function reduceActivity(
         error: event.error,
         ...(event.detail !== undefined ? { detail: event.detail } : {}),
       };
+    case "context-compacted":
+      // Reached ONLY for a `failed` activity: [`reduceStatus`] returns the
+      // pane untouched for every other state, absence included, so there is
+      // no second answer to keep in step here.
+      //
+      // This is the only escape from `failed` besides a new turn. Like
+      // `turn-start`, it does not read WHICH failure it retires — a
+      // recorded failure describes a turn that is over, and if its cause is
+      // still live the next turn fails again and says so. `interrupted`
+      // because the turn ended without completing, which is what happened;
+      // the tone is the neutral one, so the pane stops shouting about
+      // something the user has already acted on.
+      return { state: "done", at: event.at, interrupted: true };
   }
 }

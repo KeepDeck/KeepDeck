@@ -48,6 +48,34 @@ describe("normalizeClaudeStatus", () => {
     ).toEqual({ kind: "turn-failed", at: 300, error: "unknown" });
   });
 
+  it("reads a compaction off SessionStart, and only a compaction", () => {
+    // `source` is a closed enum in claude's own hook schema (2.1.222):
+    // startup / resume / clear / compact / fork. Only the rebuild is a
+    // turn-lifecycle fact — the other four describe a session sitting at
+    // its prompt, and an edge for those would card every pane on boot.
+    expect(
+      normalizeClaudeStatus(
+        wrap({ hook_event_name: "SessionStart", source: "compact" }),
+        400,
+      ),
+    ).toEqual({ kind: "context-compacted", at: 400 });
+
+    for (const source of ["startup", "resume", "clear", "fork"]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({ hook_event_name: "SessionStart", source }),
+          400,
+        ),
+        source,
+      ).toBeNull();
+    }
+    // A source the enum grows past us, or one a reporter could not fill,
+    // reads as "not a compaction" — the direction that adds no state.
+    expect(
+      normalizeClaudeStatus(wrap({ hook_event_name: "SessionStart" }), 400),
+    ).toBeNull();
+  });
+
   it("parks the turn while claude reports background work in flight", () => {
     // The probe-verified shape (2.1.220): the main thread replied, and a
     // background agent it launched is still running behind it.

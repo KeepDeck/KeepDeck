@@ -2,10 +2,18 @@
  * The Claude Code CLI plugin: identity, detection, and the spawn/resume
  * hooks. Identity is reporter-based, same scheme as every agent: claude
  * mints its own session id and the SessionStart hook posts it back at
- * startup — and again on `/clear`/compaction, which swap the id underneath
- * an otherwise-silent pane (probe-verified on 2.1.205: the startup event
+ * startup — and again on `/clear`, which swaps the id underneath an
+ * otherwise-silent pane (probe-verified on 2.1.205: the startup event
  * carries the self-minted id). Resume REUSES the recorded id (forking is
  * opt-in upstream).
+ *
+ * Compaction fires SessionStart too, but KEEPS the id and the transcript
+ * path — measured on 2.1.222, manual and automatic alike; only `/fork`
+ * mints a new one, which is why it has its own `source`. So
+ * it rebinds nothing, and the status lane is the only reader that cares:
+ * `source: "compact"` is what tells a pane its recorded failure is stale
+ * ([`normalizeClaudeStatus`]). Do not "simplify" that edge away on the
+ * theory that a rebind already clears the pane — no rebind happens.
  */
 import type {
   KeepDeckPlugin,
@@ -40,17 +48,21 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
   const usage = await resources.path("kd-usage-statusline.sh");
   const settings: Record<string, unknown> = {};
   const hooks: Record<string, unknown[]> = {};
+  /** Add one reporter to an event, keeping whatever is already armed on it.
+   * `SessionStart` carries BOTH reporters — identity and status read the
+   * same event for different facts — and an assignment would silently drop
+   * whichever ran second, taking session binding or the status lane with
+   * it. claude runs every entry an event has. */
+  const arm = (event: string, script: string) => {
+    (hooks[event] ??= []).push({
+      hooks: [{ type: "command", command: `/bin/sh ${shellQuote(script)} claude` }],
+    });
+  };
   if (session) {
     // The agent id is the argument, same as the status reporter's: the
     // payload does not name its CLI, and the deck refuses a binding whose
     // agent is not the pane's own.
-    hooks.SessionStart = [
-      {
-        hooks: [
-          { type: "command", command: `/bin/sh ${shellQuote(session)} claude` },
-        ],
-      },
-    ];
+    arm("SessionStart", session);
   }
   if (status) {
     // The turn-lifecycle reporter: the same script for every event, the
@@ -66,16 +78,10 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
     // SubagentStart/SubagentStop bracket ONE agent turn beside the main
     // thread; the host counts open brackets to know whether a closing turn
     // is really an ending, which is the only way to read a teammate.
-    const group = [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: `/bin/sh ${shellQuote(status)} claude`,
-          },
-        ],
-      },
-    ];
+    // SessionStart is the compaction signal: a manual `/compact` runs
+    // through no turn, so it is the ONLY event that reports the rebuild
+    // that retires an oversize-request failure — the normalizer keeps just
+    // that source and drops the rest.
     for (const event of [
       "UserPromptSubmit",
       "Stop",
@@ -85,8 +91,9 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       "PostToolUseFailure",
       "SubagentStart",
       "SubagentStop",
+      "SessionStart",
     ]) {
-      hooks[event] = group;
+      arm(event, status);
     }
   }
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
