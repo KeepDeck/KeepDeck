@@ -16,7 +16,11 @@ import {
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import { cardCaptionParts } from "../../domain/usage/windowForecast";
+import { windowBurn } from "../../domain/usage/windowBurn";
+import {
+  burnEdgeLabel,
+  cardCaptionParts,
+} from "../../domain/usage/windowForecast";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { WindowBurn } from "../usage/WindowBurn";
 
@@ -71,6 +75,17 @@ export function Providers({
                 updated {formatAge(group.reportedAt, now)}
               </small>
             </header>
+            {/* Said ONCE, at the top, when it is true of the whole card.
+                Every expired row used to repeat "% is from the previous
+                window" under itself, which turned a card with nothing to
+                report into several lines of grey explaining the same
+                absence — and still never said why the card looked empty. */}
+            {group.rows.every((row) => row.expired) && (
+              <p className="stats__provider-idle">
+                Every window has reset since this account last reported. The
+                percentages below are the previous window&apos;s.
+              </p>
+            )}
             {group.rows.map((row) => (
               <ProviderWindow
                 key={row.id}
@@ -96,7 +111,19 @@ function ProviderWindow({
   now: number;
 }) {
   const level = windowLevel(row.window, now);
-  const caption = cardCaptionParts(row.window, row.forecast, now);
+  // ONE geometry for the chart and the sentence beneath it. The caption
+  // names where the projection lands, so computing it twice would let the
+  // curve and the words describing it drift apart.
+  const burn = useMemo(
+    () => windowBurn(row.reports, row.window, row.forecast, now),
+    [row.reports, row.window, row.forecast, now],
+  );
+  const caption = cardCaptionParts(
+    row.window,
+    row.forecast,
+    now,
+    burn?.endPct ?? null,
+  );
   return (
     <div
       className={`stats__window${row.expired ? " stats__window--expired" : ""}`}
@@ -109,11 +136,12 @@ function ProviderWindow({
       </div>
       <UsageWindowBar window={row.window} now={now} />
       <WindowBurn
+        geometry={burn}
         stroke={stroke}
-        window={row.window}
-        reports={row.reports}
-        forecast={row.forecast}
-        now={now}
+        edge={
+          burn &&
+          burnEdgeLabel(row.window, row.forecast, burn.resetAtEdge, now)
+        }
       />
       <small>
           {caption.map((part, index) => (

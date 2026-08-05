@@ -30,13 +30,28 @@ export interface BurnGeometry {
   projected: [BurnPoint, BurnPoint] | null;
   /** The ceiling-touch verdict dot; null when the pace survives the reset. */
   out: { x: number; y: number; level: "warn" | "critical" } | null;
-  /** Top of the y scale in percent: 100 whenever the projection reaches
-   * the ceiling, otherwise headroom above the observed maximum — a 1%-used
-   * window must not render as an empty frame. */
-  yMaxPct: number;
+  /** Where the pace leaves the window, in percent — the projection's end,
+   * whether that is the ceiling or wherever the reset caught it. Null
+   * without a usable pace. This is what a surviving window has to SAY: the
+   * quiet case used to draw a curve and report nothing about it. */
+  endPct: number | null;
   /** The right edge IS the reset (the projection was capped by it). */
   resetAtEdge: boolean;
 }
+
+/**
+ * The y axis is ALWAYS the whole limit. It used to scale to the data —
+ * 100 when the projection reached the ceiling, otherwise about 1.25× the
+ * peak — which meant the curve filled its frame no matter how the window
+ * ended. A window heading for 33% and one heading for 100% drew the same
+ * climb into the same corner, so the shape carried no information and read
+ * as alarm everywhere. The frame is the limit; how near the curve comes to
+ * it is the entire point.
+ *
+ * The cost is real and correct: a window at 1% is a flat line along the
+ * floor. Nothing IS happening there.
+ */
+const Y_MAX_PCT = 100;
 
 const MAX_OBSERVED_POINTS = 300;
 
@@ -83,10 +98,6 @@ export function windowBurn(
   if (tEnd <= tMin) return null;
 
   const drawn = sampleReports(segment);
-  const observedMax = drawn.reduce(
-    (max, report) => Math.max(max, report.usedPct),
-    0,
-  );
   const projSpan = outAt !== null ? outAt - newest.reportedAt : 0;
   const projEndPct =
     projEndAt !== null && outAt !== null
@@ -96,14 +107,10 @@ export function windowBurn(
             ((projEndAt - newest.reportedAt) / projSpan)
         : 100 // the wall is at (or before) the newest report
       : null;
-  const peak = Math.max(observedMax, projEndPct ?? 0);
-  const yMaxPct =
-    peak >= 99.5 ? 100 : Math.min(100, Math.max(10, Math.ceil(peak * 1.25)));
-
   const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
   const plotPoint = (at: number, pct: number) => ({
     x: clamp01((at - tMin) / (tEnd - tMin)),
-    y: clamp01(pct / yMaxPct),
+    y: clamp01(pct / Y_MAX_PCT),
   });
   const point = (at: number, pct: number): BurnPoint => ({
     ...plotPoint(at, pct),
@@ -135,7 +142,7 @@ export function windowBurn(
     observed,
     projected,
     out,
-    yMaxPct,
+    endPct: projEndPct,
     resetAtEdge,
   };
 }

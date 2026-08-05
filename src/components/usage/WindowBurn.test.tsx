@@ -3,7 +3,13 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import { windowForecast } from "../../domain/usage/windowForecast";
+import type { UsageWindow } from "../../domain/usage/usage";
+import { windowBurn } from "../../domain/usage/windowBurn";
+import {
+  burnEdgeLabel,
+  windowForecast,
+  type WindowForecast,
+} from "../../domain/usage/windowForecast";
 import { WindowBurn } from "./WindowBurn";
 
 (
@@ -32,23 +38,37 @@ describe("WindowBurn", () => {
   let plotLeft: number;
   let plotTop: number;
 
+  /** The surface computes the geometry now — the card's caption reads the
+   * same object — so the test assembles it the way a surface would. */
   const render = (
     size: ComponentProps<typeof WindowBurn>["size"],
-    overrides: Partial<ComponentProps<typeof WindowBurn>> = {},
+    overrides: {
+      window?: UsageWindow;
+      reports?: readonly WindowReport[];
+      now?: number;
+      forecast?: WindowForecast;
+      edge?: ComponentProps<typeof WindowBurn>["edge"];
+    } = {},
   ) => {
     const nextWindow = overrides.window ?? window;
     const nextReports = overrides.reports ?? reports;
     const nextNow = overrides.now ?? NOW;
+    const forecast =
+      overrides.forecast ?? windowForecast(nextReports, nextWindow, nextNow);
     act(() =>
       root.render(
         createElement(WindowBurn, {
           stroke: "#3987e5",
-          window: nextWindow,
-          reports: nextReports,
-          forecast:
-            overrides.forecast ??
-            windowForecast(nextReports, nextWindow, nextNow),
-          now: nextNow,
+          geometry: windowBurn(nextReports, nextWindow, forecast, nextNow),
+          edge:
+            overrides.edge ??
+            burnEdgeLabel(
+              nextWindow,
+              forecast,
+              windowBurn(nextReports, nextWindow, forecast, nextNow)
+                ?.resetAtEdge ?? false,
+              nextNow,
+            ),
           size,
         }),
       ),

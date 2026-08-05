@@ -1,4 +1,9 @@
-import { formatCountdown, usageStale, windowResetCaption } from "./format";
+import {
+  formatCountdown,
+  formatMoment,
+  usageStale,
+  windowResetCaption,
+} from "./format";
 import {
   accountWindowKeys,
   currentSegment,
@@ -170,9 +175,18 @@ export interface ForecastCaptionPart {
   level: "warn" | "critical" | null;
 }
 
-/** The card's clause — relative, never a second timestamp: "~25m early"
- * against the reset, a countdown when imminent or when there is no reset
- * to compare with. Null when the forecast has nothing to warn about. */
+/**
+ * The card's clause. It leads with WHEN — "hits 100% ~Thu 06:40" — because
+ * that is the question the curve raises and the one the reader is actually
+ * holding: the old phrasing gave only the margin ("~38h 25m early"), which
+ * had to be subtracted from a reset countdown printed elsewhere in the same
+ * line, in a different unit, to become an answer.
+ *
+ * The margin survives as the second half, where it belongs: it qualifies
+ * the moment rather than standing in for it. An imminent run-out keeps the
+ * countdown instead — minutes from now do not need a clock face — and so
+ * does a window with no reset to be early against.
+ */
 function forecastClause(
   forecast: WindowForecast,
   now: number,
@@ -184,12 +198,55 @@ function forecastClause(
       level: forecast.level,
     };
   }
+  const early = formatCountdown(now + forecast.beforeResetMs, now);
+  const margin = early === null ? "" : ` · ~${early} before reset`;
   return {
-    text: `on pace to run out ~${
-      formatCountdown(now + forecast.beforeResetMs, now) ?? "0m"
-    } early`,
+    text: `hits 100% ~${formatMoment(forecast.outAt, now)}${margin}`,
     level: "warn",
   };
+}
+
+/**
+ * What the burn plot's RIGHT EDGE is, as a moment.
+ *
+ * The axis runs from the window's first report to wherever the projection
+ * ends, so that edge already IS the answer to "when do I hit 100%" — the
+ * out-dot sits on it. It was labelled "reset" or nothing at all, which left
+ * the most-asked question drawn but unnamed, and left the reader deriving a
+ * clock time from a countdown printed in a different line.
+ */
+export function burnEdgeLabel(
+  window: UsageWindow,
+  forecast: WindowForecast,
+  resetAtEdge: boolean,
+  now: number,
+): ForecastCaptionPart | null {
+  if (forecast.kind === "out" && !resetAtEdge) {
+    return { text: formatMoment(forecast.outAt, now), level: forecast.level };
+  }
+  if (resetAtEdge && window.resetsAt !== null) {
+    return { text: `reset ${formatMoment(window.resetsAt, now)}`, level: null };
+  }
+  return null;
+}
+
+/**
+ * What a SURVIVING window has to say: "lasts the window · ends near 33%".
+ *
+ * The quiet case used to draw a curve and report only the reset time, so
+ * the most common state — everything is fine — was also the least legible:
+ * a line climbing across a frame with no verdict attached to it. Naming the
+ * landing percentage is what turns the shape into information.
+ *
+ * Only with a real projection to land on, and only below the ceiling; a
+ * pace of about zero has nothing to extrapolate and says nothing.
+ */
+export function survivalClause(
+  forecast: WindowForecast,
+  endPct: number | null,
+): ForecastCaptionPart | null {
+  if (forecast.kind !== "ok" || endPct === null || endPct >= 99.5) return null;
+  return { text: `lasts the window · ends near ${Math.round(endPct)}%`, level: null };
 }
 
 /** The card's full caption, ordered: the reset stays the anchor fact, the
@@ -198,9 +255,12 @@ export function cardCaptionParts(
   window: UsageWindow,
   forecast: WindowForecast,
   now: number,
+  /** The projection's landing percentage, when the card drew one — lets a
+   * surviving window say how it ends instead of only when it resets. */
+  endPct: number | null = null,
 ): ForecastCaptionPart[] {
   const reset = windowResetCaption(window, now, "long");
-  const clause = forecastClause(forecast, now);
+  const clause = forecastClause(forecast, now) ?? survivalClause(forecast, endPct);
   const parts: ForecastCaptionPart[] = [];
   if (clause !== null && clause.level === "critical") parts.push(clause);
   if (reset !== "") parts.push({ text: reset, level: null });

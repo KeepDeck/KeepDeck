@@ -145,9 +145,10 @@ describe("windowResetCaption", () => {
   it("splits the expired caption by surface, both on purpose", () => {
     const expired = { usedPct: 1, resetsAt: NOW - 1, windowMinutes: 300 };
     expect(windowResetCaption(expired, NOW)).toBe(""); // popover stays quiet
-    expect(windowResetCaption(expired, NOW, "long")).toBe(
-      "reset passed · % is from the previous window",
-    );
+    // Just the fact. WHY the percentage is stale is the card's to say, once
+    // above its windows — repeated under each of them it turned a card with
+    // nothing to report into several grey lines about the same absence.
+    expect(windowResetCaption(expired, NOW, "long")).toBe("reset passed");
   });
 
   it("covers all four window kinds", () => {

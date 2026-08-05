@@ -134,11 +134,18 @@ describe("Providers", () => {
       ]),
     });
 
-    expect(host.textContent).toContain("on pace to run out");
-    expect(host.textContent).toContain("early");
+    // The clause answers WHEN first; the margin against the reset follows
+    // as the qualifier it is.
+    expect(host.textContent).toMatch(/hits 100% ~\d{2}:\d{2}/);
+    expect(host.textContent).toContain("before reset");
     expect(host.textContent).toContain("resets in 2h 35m");
     expect(host.querySelector(".usage-burn")).not.toBeNull();
     expect(host.querySelector(".usage-burn__dot--warn")).not.toBeNull();
+    // The plot's right edge names that same moment, so the curve and the
+    // sentence under it cannot disagree.
+    expect(host.querySelector(".usage-burn__foot")!.textContent).toMatch(
+      /\d{2}:\d{2}/,
+    );
   });
 
   it("stays silent about the race when the journal has no pace yet", () => {
@@ -188,6 +195,43 @@ describe("Providers", () => {
     // Live weekly window: joined despite the stale report.
     expect(windows[1].textContent).toContain("1.6k");
     expect(windows[1].className).not.toContain("stats__window--expired");
+  });
+
+  it("explains an all-reset card once, above its windows", () => {
+    // Two grey lines each repeating "% is from the previous window" made a
+    // card with nothing to report look like a card that was broken.
+    render({
+      accounts: new Map([
+        [
+          "kimi",
+          account([
+            { usedPct: 0, resetsAt: NOW - HOUR, windowMinutes: 300 },
+            { usedPct: 6, resetsAt: NOW - HOUR, windowMinutes: 10_080 },
+          ]),
+        ],
+      ]),
+    });
+    const idle = host.querySelectorAll(".stats__provider-idle");
+    expect(idle).toHaveLength(1);
+    expect(idle[0].textContent).toContain("previous window");
+    // The per-row caption keeps the fact and drops the explanation.
+    expect(host.textContent).toContain("reset passed");
+    expect(host.textContent).not.toContain("% is from the previous window");
+  });
+
+  it("does not explain away a card that still has a live window", () => {
+    render({
+      accounts: new Map([
+        [
+          "claude",
+          account([
+            { usedPct: 10, resetsAt: NOW - HOUR, windowMinutes: 300 }, // expired
+            { usedPct: 40, resetsAt: NOW + 3 * HOUR, windowMinutes: 10_080 },
+          ]),
+        ],
+      ]),
+    });
+    expect(host.querySelector(".stats__provider-idle")).toBeNull();
   });
 
   it("labels a live window with zero ledger activity honestly", () => {

@@ -12,6 +12,7 @@ import {
 } from "./reportJournal";
 import {
   accountWindowForecasts,
+  burnEdgeLabel,
   cardCaptionParts,
   panelWindowCaption,
   windowForecast,
@@ -318,12 +319,41 @@ describe("captions", () => {
   const crit = windowForecast(ramp(1, 5, 10, 88), FIVE_H, NOW);
   const ok = windowForecast(ramp(0.1, 5, 10, 62), FIVE_H, NOW);
 
-  it("phrases the card clause relatively, countdown when imminent", () => {
+  it("leads the card clause with WHEN, keeping the margin as the qualifier", () => {
+    // The old phrasing gave only "~38h 25m early", which had to be
+    // subtracted from a reset countdown printed elsewhere in the same line,
+    // in a different unit, before it answered anything.
     const warnParts = cardCaptionParts(FIVE_H, out, NOW);
-    expect(warnParts[1].text).toMatch(/^on pace to run out ~.* early$/);
+    expect(warnParts[1].text).toMatch(/^hits 100% ~.+ · ~.+ before reset$/);
+    // Imminent keeps the countdown: minutes from now need no clock face.
     const critParts = cardCaptionParts(FIVE_H, crit, NOW);
     expect(critParts[0].text).toMatch(/^on pace to run out in ~/);
-    expect(cardCaptionParts(FIVE_H, ok, NOW)).toHaveLength(1); // reset only
+  });
+
+  it("gives a surviving window something to say about how it ends", () => {
+    // The most common state used to be the least legible: a curve climbing
+    // across a frame, and a caption that named only the reset.
+    const geometry = windowBurn(ramp(0.1, 5, 10, 62), FIVE_H, ok, NOW)!;
+    const parts = cardCaptionParts(FIVE_H, ok, NOW, geometry.endPct);
+    expect(parts).toHaveLength(2);
+    expect(parts[1].text).toMatch(/^lasts the window · ends near \d+%$/);
+    expect(parts[1].level).toBeNull();
+    // Without a projection to land on there is nothing to claim.
+    expect(cardCaptionParts(FIVE_H, ok, NOW)).toHaveLength(1);
+  });
+
+  it("names the plot's right edge as a moment, not as a countdown", () => {
+    // That edge already IS "when do I hit 100%" — the out dot sits on it.
+    const doomed = windowBurn(ramp(0.29, 5, 10, 62), FIVE_H, out, NOW)!;
+    const edge = burnEdgeLabel(FIVE_H, out, doomed.resetAtEdge, NOW)!;
+    expect(edge.text).toMatch(/^\d{2}:\d{2}$/); // today, so just a clock time
+    expect(edge.level).toBe("warn");
+
+    // A surviving pace ends at the reset, and says so.
+    const survives = windowBurn(ramp(0.1, 5, 10, 62), FIVE_H, ok, NOW)!;
+    const resetEdge = burnEdgeLabel(FIVE_H, ok, survives.resetAtEdge, NOW)!;
+    expect(resetEdge.text).toMatch(/^reset \d{2}:\d{2}$/);
+    expect(resetEdge.level).toBeNull();
   });
 
   it("orders the card caption: reset anchors, critical leads", () => {
@@ -356,7 +386,7 @@ describe("windowBurn", () => {
       y: 1,
       level: "warn",
     });
-    expect(geometry.yMaxPct).toBe(100); // the projection reaches the ceiling
+    expect(geometry.endPct).toBeCloseTo(100, 5); // it reaches the ceiling
     const [from, to] = geometry.projected!;
     expect(from.y).toBeCloseTo(0.62, 2);
     expect(to.y).toBeCloseTo(1, 2);
@@ -395,15 +425,34 @@ describe("windowBurn", () => {
     expect(geometry.observed[geometry.observed.length - 1].x).toBe(1);
   });
 
-  it("scales y to the data with headroom, never an empty frame", () => {
+  it("draws y against the whole limit, so a quiet window looks quiet", () => {
+    // The scale used to follow the data — about 1.25× the peak — so a
+    // window heading for 33% and one heading for 100% climbed into the same
+    // corner at the same angle. The shape carried no information and read
+    // as alarm everywhere.
     const flat = windowBurn(
       ramp(0, 5, 10, 1),
       { usedPct: 1, resetsAt: NOW + 155 * MIN, windowMinutes: 300 },
       { kind: "ok", outAt: null },
       NOW,
     )!;
-    expect(flat.yMaxPct).toBe(10); // floored — a 1% line still reads
-    expect(flat.observed[0].y).toBeCloseTo(0.1, 2);
+    expect(flat.observed[0].y).toBeCloseTo(0.01, 3); // 1% of the limit, at the floor
+
+    // A window that will genuinely reach the ceiling still touches the top.
+    const doomed = windowBurn(ramp(0.29, 5, 10, 62), FIVE_H, out, NOW)!;
+    expect(doomed.out!.y).toBe(1);
+  });
+
+  it("reports where a surviving pace leaves the window", () => {
+    // The quiet case used to draw a curve and say nothing about it: the
+    // caption named only the reset, so "will this last" went unanswered
+    // precisely when the answer was yes.
+    const ok = windowForecast(ramp(0.1, 5, 10, 62), FIVE_H, NOW);
+    const geometry = windowBurn(ramp(0.1, 5, 10, 62), FIVE_H, ok, NOW)!;
+    expect(geometry.resetAtEdge).toBe(true);
+    expect(geometry.endPct).not.toBeNull();
+    expect(geometry.endPct!).toBeGreaterThan(62);
+    expect(geometry.endPct!).toBeLessThan(100);
   });
 });
 
