@@ -123,7 +123,16 @@ function isEnding(event: AgentStatusEvent): boolean {
  * The predicate exists so `return current` type-checks non-null in the
  * true branch. CAVEAT for the next editor: TypeScript narrows the FALSE
  * branch to `null` — a lie (a fresh working/waiting reaches it too) —
- * so never read `current` after a false result; mint a new object. */
+ * so never read `current` after a false result; mint a new object.
+ *
+ * SECOND CAVEAT, and the one with reach: `failed` absorbing here is what
+ * keeps a failed pane from ever carrying a held ending, because the only
+ * edge that arms one is a `turn-end` this block swallows. `reduceHeldEnd`
+ * relies on that — it has no `context-compacted` arm, since a compaction
+ * reaches it only on a failed pane, where the held ending is already null.
+ * Weaken this to `done` alone and the sequence turn-start, agent-turn-start,
+ * turn-failed, agent-turn-start, turn-end mints `failed` with a live held
+ * ending, which that missing arm would then drop. */
 function endedTurnStands(
   current: PaneActivity | null,
   at: number,

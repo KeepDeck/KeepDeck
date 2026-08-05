@@ -81,9 +81,11 @@ export type AgentStatusEvent =
    * a turn RUNNING; the one thing it settles is that a recorded FAILURE is
    * no longer current — ANY recorded failure, not only the oversize request
    * that motivated the edge. A failure describes a turn that is already
-   * over, the rebuild is the user's own hand in that pane, and a cause that
-   * is still live fails the next turn and says so again. That is the rule
-   * `turn-start` already follows, and this is the second edge to follow it.
+   * over; the only rebuild that can reach one is a rebuild the user asked
+   * for, since an automatic rebuild runs inside a live turn and finds no
+   * failure to retire; and a cause that is still live fails the next turn
+   * and says so again. That is the rule `turn-start` already follows, and
+   * this is the second edge to follow it.
    *
    * Deliberately not `turn-start`. The two compaction shapes differ in a
    * way this edge cannot see (claude 2.1.222, probe-verified): an automatic

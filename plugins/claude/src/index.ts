@@ -8,8 +8,8 @@
  * opt-in upstream).
  *
  * Compaction fires SessionStart too, but KEEPS the id and the transcript
- * path — measured on 2.1.222, 6 of 6 compactions, manual and automatic;
- * only `/fork` mints a new one, which is why it has its own `source`. So
+ * path — measured on 2.1.222, manual and automatic alike; only `/fork`
+ * mints a new one, which is why it has its own `source`. So
  * it rebinds nothing, and the status lane is the only reader that cares:
  * `source: "compact"` is what tells a pane its recorded failure is stale
  * ([`normalizeClaudeStatus`]). Do not "simplify" that edge away on the
