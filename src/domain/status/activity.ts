@@ -215,6 +215,13 @@ export function reduceStatus(
     return current;
   }
 
+  // A context rebuild settles ONE thing — that a recorded failure is stale
+  // — so at a pane that has reported nothing it settles nothing. Minting a
+  // status here would card a pane the deck has never heard from, on an edge
+  // that makes no claim about a turn. Asked before the fold, which cannot
+  // return "no status at all".
+  if (event.kind === "context-compacted" && current === null) return null;
+
   const open = reduceOpenTurns(current?.openAgentTurns ?? NO_TURNS, event);
   const holds = event.kind === "turn-end" && open.size > 0;
   const settled: ActivityEdge = holds ? { kind: "parked", at: event.at } : event;
@@ -278,6 +285,11 @@ function reduceHeldEnd(
     case "waiting":
     case "resumed":
     case "parked":
+    // A context rebuild is not a turn boundary either: the main thread
+    // closed before it and the agents that held that ending open are
+    // untouched by it. Dropping the ending here would leave the last
+    // bracket's close with nothing to replay, stranding the pane.
+    case "context-compacted":
       return held;
     default:
       return null;
@@ -395,5 +407,22 @@ function reduceActivity(
         error: event.error,
         ...(event.detail !== undefined ? { detail: event.detail } : {}),
       };
+    case "context-compacted": {
+      // The ONLY escape from `failed` other than a new turn, and the reason
+      // this edge exists: the CLI rebuilt the context that the failure was
+      // about, so the error is history and the pane rests idle until the
+      // next prompt. `interrupted` because the turn ended without
+      // completing — which is what happened — and the tone is the neutral
+      // one, so the pane stops shouting about something already dealt with.
+      //
+      // Every other state is left EXACTLY as it was. A compaction inside a
+      // live turn (claude's automatic one runs between the turn's start and
+      // its `Stop`) proves nothing about that turn, a standing wait is not
+      // answered by one, and a finished turn is not re-finished. `null` is
+      // dropped upstream in [`reduceStatus`] and cannot reach here.
+      return current === null || current.state === "failed"
+        ? { state: "done", at: event.at, interrupted: true }
+        : current;
+    }
   }
 }

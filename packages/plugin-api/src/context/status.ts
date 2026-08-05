@@ -76,7 +76,21 @@ export type AgentStatusEvent =
   | { kind: "interrupted"; at: number }
   /** The turn died on an API error. `error` is the CLI's error type
    * (e.g. `rate_limit`, `authentication_failed`); `detail` its prose. */
-  | { kind: "turn-failed"; at: number; error: string; detail?: string };
+  | { kind: "turn-failed"; at: number; error: string; detail?: string }
+  /** The CLI rebuilt its own context — a compaction. It says nothing about
+   * a turn RUNNING; the one thing it settles is that a recorded FAILURE is
+   * no longer current, because the condition behind it (a context that no
+   * longer fits) is what the rebuild just addressed.
+   *
+   * Deliberately not `turn-start`. The two compaction shapes differ in a
+   * way this edge cannot see (claude 2.1.222, probe-verified): an automatic
+   * compaction runs INSIDE a turn, already bracketed by that turn's start
+   * and its `Stop`, so nothing needs starting; a manual one is a local
+   * command that runs through no turn at all and is followed by NO ending
+   * event, so a turn minted here would have nothing left to close it. A
+   * pane stuck on "Working" is the unrecoverable failure — a stale error
+   * the user has already acted on is merely a loud one. */
+  | { kind: "context-compacted"; at: number };
 
 /** A per-agent normalizer: raw bridge status payload → one edge, or null
  * when the payload is not a tracked event. Pure; time is injected.
