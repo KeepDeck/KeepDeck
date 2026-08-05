@@ -40,17 +40,21 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
   const usage = await resources.path("kd-usage-statusline.sh");
   const settings: Record<string, unknown> = {};
   const hooks: Record<string, unknown[]> = {};
+  /** Add one reporter to an event, keeping whatever is already armed on it.
+   * `SessionStart` carries BOTH reporters — identity and status read the
+   * same event for different facts — and an assignment would silently drop
+   * whichever ran second, taking session binding or the status lane with
+   * it. claude runs every entry an event has. */
+  const arm = (event: string, script: string) => {
+    (hooks[event] ??= []).push({
+      hooks: [{ type: "command", command: `/bin/sh ${shellQuote(script)} claude` }],
+    });
+  };
   if (session) {
     // The agent id is the argument, same as the status reporter's: the
     // payload does not name its CLI, and the deck refuses a binding whose
     // agent is not the pane's own.
-    hooks.SessionStart = [
-      {
-        hooks: [
-          { type: "command", command: `/bin/sh ${shellQuote(session)} claude` },
-        ],
-      },
-    ];
+    arm("SessionStart", session);
   }
   if (status) {
     // The turn-lifecycle reporter: the same script for every event, the
@@ -66,16 +70,10 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
     // SubagentStart/SubagentStop bracket ONE agent turn beside the main
     // thread; the host counts open brackets to know whether a closing turn
     // is really an ending, which is the only way to read a teammate.
-    const group = [
-      {
-        hooks: [
-          {
-            type: "command",
-            command: `/bin/sh ${shellQuote(status)} claude`,
-          },
-        ],
-      },
-    ];
+    // SessionStart is the compaction signal: a manual `/compact` runs
+    // through no turn, so it is the ONLY event that reports the rebuild
+    // that retires an oversize-request failure — the normalizer keeps just
+    // that source and drops the rest.
     for (const event of [
       "UserPromptSubmit",
       "Stop",
@@ -85,8 +83,9 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       "PostToolUseFailure",
       "SubagentStart",
       "SubagentStop",
+      "SessionStart",
     ]) {
-      hooks[event] = group;
+      arm(event, status);
     }
   }
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;

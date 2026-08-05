@@ -145,6 +145,9 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
  *   volume costs nothing downstream. Subagent tool calls arrive here too
  *   — see the case for why they are NOT filtered.
  *
+ * - `SessionStart` → a context rebuild, and ONLY for `source: "compact"`.
+ *   The other four sources describe a session sitting at its prompt.
+ *
  * A user interrupt (Esc) pushes NO hook — that edge arrives from the
  * host's transcript tailer as a `kind: "session.interrupt"` payload
  * (marker = the structured `interruptedMessageId` field on the transcript
@@ -223,6 +226,23 @@ export const normalizeClaudeStatus: StatusNormalizer = (
       return { kind: "resumed", at };
     case "StopFailure":
       return turnFailedEvent(at, event.error, event.error_details);
+    case "SessionStart":
+      // `source` is a CLOSED enum — `startup`, `resume`, `clear`, `compact`,
+      // `fork` (read out of 2.1.222's own hook schema) — and only one of
+      // them is a turn-lifecycle fact. A compaction rebuilds the context an
+      // oversize-request failure was about, which retires that failure;
+      // the other four announce a session that is sitting at its prompt
+      // with nothing running, and minting anything for them would card
+      // every pane the moment it boots.
+      //
+      // This event is the ONLY report a manual `/compact` produces. It is a
+      // local command, so it runs through no turn: no `UserPromptSubmit`
+      // before it and no `Stop` after (both probe-verified on 2.1.222).
+      // The automatic compaction reports it too, from inside a live turn,
+      // where the host's fold leaves the turn untouched.
+      return event.source === "compact"
+        ? { kind: "context-compacted", at }
+        : null;
     case "Notification":
       switch (event.notification_type) {
         case "permission_prompt":
