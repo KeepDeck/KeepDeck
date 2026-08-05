@@ -62,9 +62,10 @@ describe("StatsTable", () => {
     const text = host.querySelector(".stats__row")!.textContent ?? "";
     expect(text).toContain("gpt-5.6-terra");
     expect(text).toContain("1.6k");
-    // The breakdown behind the total — the reason the cell is not just a sum.
-    expect(text).toContain("↑1k");
-    expect(text).toContain("↓100");
+    // The breakdown behind the total — the reason the cell is not just a
+    // sum. Cache leads because it is the biggest term, and the phrasing is
+    // the domain's, shared with the Overview card.
+    expect(text).toContain("cache 500 · ↑ 1k · ↓ 100");
     expect(text).toContain("1m ago");
   });
 

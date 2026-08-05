@@ -3,8 +3,8 @@ import { modelLabel } from "../format";
 import { addMoney } from "../money";
 import { DAY_MS } from "../time";
 import {
+  addTokenCounts,
   providerCostOf,
-  TOKEN_KEYS,
   tokenTotal,
   usageSessionKey,
   type UsageEventV2,
@@ -151,10 +151,7 @@ function addEvent(
   target: UsageStatsTotals & { lastOccurredAt?: number },
   event: UsageEventV2,
 ) {
-  for (const key of TOKEN_KEYS) {
-    const value = event.tokens[key];
-    if (value !== undefined) target.tokens[key] = (target.tokens[key] ?? 0) + value;
-  }
+  addTokenCounts(target.tokens, event.tokens);
   target.totalTokens += tokenTotal(event.tokens);
   const cost = providerCostOf(event);
   if (cost !== null) {

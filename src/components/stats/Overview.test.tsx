@@ -61,7 +61,9 @@ describe("Overview", () => {
   it("leads with the period's tokens, cost and session count", () => {
     render([usageEvent(), usageEvent({ eventId: "b", sessionId: "other" })]);
     const shown = cards().map((card) => card.textContent);
-    expect(shown[0]).toBe("Tokens3.2k");
+    // The headline carries what it is MADE of: a bare total hides the split
+    // that explains the bill, and cache is usually most of it.
+    expect(shown[0]).toBe("Tokens3.2kcache 1k · ↑ 2k · ↓ 200");
     // "≈" because a provider's own figure is an estimate, and the number is
     // a sum of them.
     expect(shown[1]).toBe("Cost≈$0.50");

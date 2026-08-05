@@ -1,5 +1,10 @@
 import type { UsageStatsPeriod } from "./history/query";
-import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
+import {
+  windowExpired,
+  type AccountUsage,
+  type TokenCounts,
+  type UsageWindow,
+} from "./usage";
 
 /**
  * Presentation rules for usage data — pure, time-injected. The chips stay
@@ -280,4 +285,61 @@ export function formatTokens(n: number): string {
   if (m < 999.95) return `${oneDp(m)}M`;
   const b = n / 1_000_000_000;
   return b < 999.95 ? `${oneDp(b)}B` : `${oneDp(n / 1_000_000_000_000)}T`;
+}
+
+/** One named part of a total, in the order these are always read. */
+export interface TokenSegment {
+  kind: "cache" | "input" | "output";
+  /** "cache 1.7B", "↑ 240M", "↓ 80M". */
+  caption: string;
+  value: number;
+}
+
+/**
+ * What a total is MADE OF, as parts — the one place that decides which kinds
+ * are shown, in what order, and when one is left out.
+ *
+ * A single token number hides the thing that explains both the work and the
+ * bill: cache reads usually dominate the sum and are priced differently from
+ * what was actually sent or generated. Cache therefore leads — burying the
+ * biggest term behind two smaller ones is why the total reads unexplained.
+ *
+ * A field the provider never reported is omitted rather than printed as a
+ * zero it did not claim; a REPORTED zero is kept, because a turn that
+ * generated nothing is a fact about that turn. Cache is the exception: it is
+ * absent far more often than it is genuinely zero, so a bare 0 there would
+ * be noise on every codex row.
+ */
+export function tokenSegments(tokens: TokenCounts): TokenSegment[] {
+  const cacheRead = tokens.cacheRead ?? 0;
+  const segments: TokenSegment[] = [];
+  if (cacheRead > 0) {
+    segments.push({
+      kind: "cache",
+      caption: `cache ${formatTokens(cacheRead)}`,
+      value: cacheRead,
+    });
+  }
+  if (tokens.input !== undefined) {
+    segments.push({
+      kind: "input",
+      caption: `↑ ${formatTokens(tokens.input)}`,
+      value: tokens.input,
+    });
+  }
+  if (tokens.output !== undefined) {
+    segments.push({
+      kind: "output",
+      caption: `↓ ${formatTokens(tokens.output)}`,
+      value: tokens.output,
+    });
+  }
+  return segments;
+}
+
+/** The same parts as one line: "cache 1.7B · ↑ 240M · ↓ 80M". */
+export function tokenBreakdown(tokens: TokenCounts): string {
+  return tokenSegments(tokens)
+    .map((segment) => segment.caption)
+    .join(" · ");
 }

@@ -298,6 +298,24 @@ export function tokenTotal(tokens: TokenCounts): number {
   );
 }
 
+/**
+ * Add one event's counts into a running set, field by field. A field the
+ * source never reported stays absent in the target rather than becoming a
+ * zero — the difference between "this provider does not break its counts
+ * out" and "it broke them out and there were none".
+ *
+ * The running `total` this produces is NOT the set's true total: an event
+ * that reported only a breakdown contributes nothing to it. Every caller
+ * therefore keeps the authoritative sum separately, through [`tokenTotal`],
+ * exactly as `UsageStatsTotals` pairs `tokens` with `totalTokens`.
+ */
+export function addTokenCounts(into: TokenCounts, from: TokenCounts): void {
+  for (const key of TOKEN_KEYS) {
+    const value = from[key];
+    if (value !== undefined) into[key] = (into[key] ?? 0) + value;
+  }
+}
+
 function readTokens(value: Record<string, unknown>): TokenCounts | null {
   const result: TokenCounts = {};
   for (const key of TOKEN_KEYS) {

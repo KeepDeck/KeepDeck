@@ -10,6 +10,8 @@ import {
   formatUsd,
   limitLevel,
   panelWindows,
+  tokenBreakdown,
+  tokenSegments,
   usageStale,
   windowLabel,
   windowLevel,
@@ -270,5 +272,57 @@ describe("formatTokens", () => {
     expect(formatTokens(-5)).toBe("0");
     expect(formatTokens(Number.NaN)).toBe("0");
     expect(formatTokens(Number.POSITIVE_INFINITY)).toBe("0");
+  });
+});
+
+describe("tokenSegments", () => {
+  it("carries each part's raw value, so a bar can be drawn to scale", () => {
+    // The caption alone forces arithmetic on the reader: "cache 323.7M · ↑
+    // 7.4k" is 98% cache, and nothing about the sentence says so.
+    expect(tokenSegments({ cacheRead: 323_700_000, input: 7_400, output: 932_100 }))
+      .toEqual([
+        { kind: "cache", caption: "cache 323.7M", value: 323_700_000 },
+        { kind: "input", caption: "↑ 7.4k", value: 7_400 },
+        { kind: "output", caption: "↓ 932.1k", value: 932_100 },
+      ]);
+  });
+
+  it("is the one home for which kinds show and in what order", () => {
+    // The text line and the proportion bar read from this, so they cannot
+    // disagree about a part being present.
+    expect(tokenSegments({ input: 5 }).map((part) => part.kind)).toEqual([
+      "input",
+    ]);
+    expect(tokenSegments({}).length).toBe(0);
+  });
+});
+
+describe("tokenBreakdown", () => {
+  it("leads with cache, the term that usually is most of the total", () => {
+    expect(
+      tokenBreakdown({ input: 240_000_000, output: 80_000_000, cacheRead: 1.68e9 }),
+    ).toBe("cache 1.7B · ↑ 240M · ↓ 80M");
+  });
+
+  it("omits a field the provider never reported, rather than claiming a zero", () => {
+    // codex reports no cache split; printing "cache 0" would state something
+    // it did not say.
+    expect(tokenBreakdown({ input: 1_000, output: 100 })).toBe("↑ 1k · ↓ 100");
+    expect(tokenBreakdown({ cacheRead: 500 })).toBe("cache 500");
+  });
+
+  it("says nothing at all when there is no split to report", () => {
+    // The caller renders no line, rather than an empty one under the number.
+    expect(tokenBreakdown({})).toBe("");
+    expect(tokenBreakdown({ total: 5_000 })).toBe("");
+  });
+
+  it("keeps a reported zero, because zero output is a fact about a run", () => {
+    // A turn that generated nothing is different from a provider that does
+    // not break its counts out — and only `input`/`output` can say it.
+    expect(tokenBreakdown({ input: 900, output: 0 })).toBe("↑ 900 · ↓ 0");
+    // Cache is the exception: it is absent far more often than it is zero,
+    // and a "cache 0" on every codex row would be noise.
+    expect(tokenBreakdown({ input: 900, cacheRead: 0 })).toBe("↑ 900");
   });
 });

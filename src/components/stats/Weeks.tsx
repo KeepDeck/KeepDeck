@@ -11,6 +11,7 @@ import {
   WEEK_IN_PROGRESS,
   weekAwaitingUsage,
   weekDeltaCaption,
+  weekProgressCaption,
   type UsageWeek,
 } from "../../domain/usage/weeks";
 import { Tooltip } from "../../ui/Tooltip";
@@ -52,13 +53,7 @@ export function Weeks({
       <h3>Weeks</h3>
       <div className="stats__table" role="table" aria-label="Weeks">
         {slice.map((week) => (
-          <div
-            className={`stats__row stats__week-row${
-              week.current ? " stats__week-row--current" : ""
-            }`}
-            role="row"
-            key={week.start}
-          >
+          <div className="stats__row stats__week-row" role="row" key={week.start}>
             <span className="stats__week-label" role="cell">
               <b>{formatWeekLabel(week.start, now)}</b>
             </span>
@@ -78,9 +73,20 @@ export function Weeks({
                   {week.totalTokens > 0 && (
                     <WeekBar week={week} colors={colors} max={max} now={now} />
                   )}
+                  {/* The rest of the week, drawn as room rather than as
+                      absence: without it a short bar reads as a quiet week
+                      instead of an unfinished one. */}
+                  {week.current && <span className="stats__week-rest" />}
                 </span>
-                <span className="stats__week-delta" role="cell">
-                  {weekDeltaCaption(week.deltaPct)}
+                <span
+                  className={
+                    week.current ? "stats__week-progress" : "stats__week-delta"
+                  }
+                  role="cell"
+                >
+                  {week.current
+                    ? weekProgressCaption(week.start, now)
+                    : weekDeltaCaption(week.deltaPct)}
                 </span>
                 <span className="stats__week-model" role="cell">
                   {week.topModel ? (

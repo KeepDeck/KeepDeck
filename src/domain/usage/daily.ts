@@ -1,6 +1,11 @@
-import { tokenTotal, type UsageEventV2 } from "./history/event";
+import {
+  addTokenCounts,
+  tokenTotal,
+  type UsageEventV2,
+} from "./history/event";
 import { periodCutoff, type UsageStatsPeriod } from "./history/query";
 import { DAY_MS, HOUR_MS } from "./time";
+import type { TokenCounts } from "./usage";
 
 /**
  * Token buckets over time for the Overview chart, zero-filled so the time
@@ -10,10 +15,18 @@ import { DAY_MS, HOUR_MS } from "./time";
  * between them read as a broken chart.
  */
 
+/** One agent's share of one bucket. The pair mirrors `UsageStatsTotals`:
+ * `totalTokens` is the authoritative sum (some events report only a total),
+ * `tokens` is the field-wise breakdown that explains it. */
+export interface BucketSlice {
+  totalTokens: number;
+  tokens: TokenCounts;
+}
+
 export interface TimelineBucket {
   start: number;
   /** Tokens per agent in this bucket; absent agents simply have no key. */
-  byAgent: Record<string, number>;
+  byAgent: Record<string, BucketSlice>;
 }
 
 export interface UsageTimeline {
@@ -30,6 +43,33 @@ export interface UsageTimeline {
    * entity order, never ranked by volume. (Colors key on the full-ledger
    * roster from [`usageAgents`], not on this period-scoped list.) */
   agents: string[];
+}
+
+/** One bucket's share for one agent — a slice that knows whose it is. */
+export interface BucketShare extends BucketSlice {
+  agent: string;
+}
+
+/**
+ * Who actually burned tokens in this bucket, in the timeline's own fixed
+ * roster order.
+ *
+ * Order is the roster's, never a ranking by size: the hover card is read by
+ * moving the cursor along the bars, and rows that re-sort under it are rows
+ * nobody can compare. An agent absent from the bucket is omitted rather than
+ * listed as zero — the same rule `UsageWeek.segments` follows for the week
+ * bar's own segments.
+ */
+export function bucketShares(
+  bucket: TimelineBucket,
+  agents: readonly string[],
+): BucketShare[] {
+  const shares: BucketShare[] = [];
+  for (const agent of agents) {
+    const slice = bucket.byAgent[agent];
+    if (slice !== undefined) shares.push({ agent, ...slice });
+  }
+  return shares;
 }
 
 /** Every agent the ledger has EVER seen, sorted — the stable roster that
@@ -49,7 +89,7 @@ export function usageTimeline(
   const granularity = period === 1 ? ("hour" as const) : ("day" as const);
   const bucketMs = granularity === "hour" ? HOUR_MS : DAY_MS;
   const cutoff = periodCutoff(period, now);
-  const totals = new Map<number, Record<string, number>>();
+  const totals = new Map<number, Record<string, BucketSlice>>();
   let first = Infinity;
   for (const event of events) {
     if (event.occurredAt < cutoff || event.occurredAt > now) continue;
@@ -59,8 +99,10 @@ export function usageTimeline(
     // plain object literal would resolve "__proto__" through the prototype
     // chain — silently losing that agent's tokens.
     const bucket =
-      totals.get(start) ?? (Object.create(null) as Record<string, number>);
-    bucket[event.agent] = (bucket[event.agent] ?? 0) + tokenTotal(event.tokens);
+      totals.get(start) ?? (Object.create(null) as Record<string, BucketSlice>);
+    const slice = (bucket[event.agent] ??= { totalTokens: 0, tokens: {} });
+    slice.totalTokens += tokenTotal(event.tokens);
+    addTokenCounts(slice.tokens, event.tokens);
     totals.set(start, bucket);
   }
   if (totals.size === 0) return { granularity, bucketMs, buckets: [], agents: [] };

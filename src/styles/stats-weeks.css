@@ -13,8 +13,32 @@
     fit-content(240px) 64px;
 }
 
-.stats__week-row--current {
-  opacity: 0.55;
+/* The week in progress is NOT dimmed. Translucency in an interface reads as
+   disabled or failed, and this is the freshest row on the block — the one
+   that used to look broken because of it. Unfinished is said three other
+   ways instead: the label names it ("This week"), the delta cell counts
+   days elapsed, and the bar shows the room still to fill. */
+.stats__week-rest {
+  flex: 1 1 auto;
+  min-width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border: 1px dashed #232c3d;
+  border-radius: 2px;
+  /* Hatching, not a fill: an empty tint would read as a fourth provider. */
+  background: repeating-linear-gradient(
+    -45deg,
+    #182031 0 3px,
+    transparent 3px 6px
+  );
+  box-sizing: border-box;
+}
+
+.stats__week-progress {
+  color: #596273;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .stats__week-label {

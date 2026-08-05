@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
 import { DAY_MS, utcWeekStart, WEEK_MS } from "./time";
-import { formatWeekLabel, usageWeeks, weekDeltaCaption } from "./weeks";
+import {
+  formatWeekLabel,
+  usageWeeks,
+  weekDaysElapsed,
+  weekDeltaCaption,
+  weekProgressCaption,
+} from "./weeks";
 
 const NOW = TEST_NOW; // 2026-07-22T12:00Z, a Wednesday
 const MONDAY = Date.parse("2026-07-20T00:00:00.000Z");
@@ -138,14 +144,33 @@ describe("usageWeeks", () => {
 });
 
 describe("captions", () => {
-  it("labels the week's UTC range, adding the END's year once it is not now's", () => {
-    expect(formatWeekLabel(MONDAY, NOW)).toBe("Jul 20 – Jul 26");
+  it("labels a finished week's UTC range, adding the END's year once it is not now's", () => {
+    expect(formatWeekLabel(MONDAY - WEEK_MS, NOW)).toBe("Jul 13 – Jul 19");
     const lastYear = Date.parse("2025-09-08T00:00:00.000Z"); // a 2025 Monday
     expect(formatWeekLabel(lastYear, NOW)).toBe("Sep 8 – Sep 14 · 2025");
-    // A New-Year week ends in now's year: CURRENT, so no historical suffix.
+    // A New-Year week ends in now's year, so it wears no historical suffix
+    // even once it is well behind — the suffix names the END.
     const newYear = Date.parse("2025-12-29T00:00:00.000Z");
-    const january = Date.parse("2026-01-02T12:00:00.000Z");
-    expect(formatWeekLabel(newYear, january)).toBe("Dec 29 – Jan 4");
+    const february = Date.parse("2026-02-10T12:00:00.000Z");
+    expect(formatWeekLabel(newYear, february)).toBe("Dec 29 – Jan 4");
+  });
+
+  it("names the week in progress by its relation to now, not by its dates", () => {
+    // The row used to say "unfinished" by going translucent, which in an
+    // interface means disabled — so it said it in the one place a reader
+    // cannot mistake for a defect.
+    expect(formatWeekLabel(MONDAY, NOW)).toBe("This week");
+    expect(formatWeekLabel(utcWeekStart(NOW), NOW)).toBe("This week");
+  });
+
+  it("counts the days a week in progress actually has in hand", () => {
+    // NOW is the Wednesday: Monday, Tuesday and Wednesday have started.
+    expect(weekDaysElapsed(MONDAY, NOW)).toBe(3);
+    expect(weekProgressCaption(MONDAY, NOW)).toBe("3 of 7 days");
+    // The first instant of the week is already its first day, not its zeroth.
+    expect(weekDaysElapsed(MONDAY, MONDAY)).toBe(1);
+    // A finished week never reports an eighth day.
+    expect(weekDaysElapsed(MONDAY, MONDAY + 20 * DAY_MS)).toBe(7);
   });
 
   it("phrases the delta with the recap's sign convention, zero flat", () => {

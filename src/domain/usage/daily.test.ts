@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { usageAgents, usageTimeline } from "./daily";
+import { bucketShares, usageAgents, usageTimeline } from "./daily";
 
 const HOUR = 60 * 60 * 1_000;
 const DAY = 24 * HOUR;
@@ -28,11 +28,18 @@ describe("usageTimeline", () => {
     // a day must cover that whole day.
     expect(timeline.buckets).toHaveLength(7);
     expect(timeline.buckets[0].start).toBe(TODAY - 6 * DAY);
+    // Each slice carries the authoritative total AND the split behind it —
+    // the chart draws the first, its hover card explains it with the second.
     expect(timeline.buckets[timeline.buckets.length - 1]).toEqual({
       start: TODAY,
-      byAgent: { codex: 100, claude: 40 },
+      byAgent: {
+        codex: { totalTokens: 100, tokens: { input: 100 } },
+        claude: { totalTokens: 40, tokens: { input: 40 } },
+      },
     });
-    expect(timeline.buckets[4].byAgent).toEqual({ codex: 300 });
+    expect(timeline.buckets[4].byAgent).toEqual({
+      codex: { totalTokens: 300, tokens: { input: 300 } },
+    });
     expect(timeline.buckets[1].byAgent).toEqual({}); // silent day stays visible
     expect(timeline.agents).toEqual(["claude", "codex"]); // fixed alphabetical order
   });
@@ -50,7 +57,9 @@ describe("usageTimeline", () => {
     );
     expect(sliver.buckets[0].start).toBe(TODAY - 6 * DAY);
     expect(
-      sliver.buckets.every((bucket) => bucket.byAgent.codex !== 9_999),
+      sliver.buckets.every(
+        (bucket) => bucket.byAgent.codex?.totalTokens !== 9_999,
+      ),
     ).toBe(true);
     // A cutoff sitting exactly on a bucket boundary loses nothing.
     const aligned = usageTimeline(
@@ -76,9 +85,46 @@ describe("usageTimeline", () => {
     expect(timeline.buckets).toHaveLength(25);
     const at = (hoursAgo: number) =>
       timeline.buckets.find((bucket) => bucket.start === NOW - hoursAgo * HOUR)!;
-    expect(at(1).byAgent).toEqual({ codex: 100 }); // the 11:00 bucket
-    expect(at(5).byAgent).toEqual({ codex: 40 });
+    // the 11:00 bucket
+    expect(at(1).byAgent).toEqual({
+      codex: { totalTokens: 100, tokens: { input: 100 } },
+    });
+    expect(at(5).byAgent).toEqual({
+      codex: { totalTokens: 40, tokens: { input: 40 } },
+    });
     expect(at(0).byAgent).toEqual({}); // the freshly opened hour is empty
+  });
+
+  it("names a bucket's providers in roster order, absent ones omitted", () => {
+    // The hover card is read by running the cursor along the bars: rows that
+    // re-sort by size under a moving cursor cannot be compared to anything.
+    const timeline = usageTimeline(
+      [
+        event({ occurredAt: NOW - 1_000, tokens: { input: 100, cacheRead: 900 } }),
+        event({
+          occurredAt: NOW - 1_500,
+          agent: "claude",
+          tokens: { input: 40, output: 10 },
+        }),
+        // A provider on the roster that this bucket never saw.
+        event({ occurredAt: NOW - 3 * DAY, agent: "kimi", tokens: { input: 7 } }),
+      ],
+      7,
+      NOW,
+    );
+    const today = timeline.buckets[timeline.buckets.length - 1];
+    expect(timeline.agents).toEqual(["claude", "codex", "kimi"]);
+    expect(bucketShares(today, timeline.agents)).toEqual([
+      { agent: "claude", totalTokens: 50, tokens: { input: 40, output: 10 } },
+      { agent: "codex", totalTokens: 1_000, tokens: { input: 100, cacheRead: 900 } },
+    ]);
+    // Alphabetical roster order, NOT the 1000-then-50 size order.
+    expect(bucketShares(today, timeline.agents).map((s) => s.agent)).toEqual([
+      "claude",
+      "codex",
+    ]);
+    // A silent bucket has nobody to name, so the card renders nothing.
+    expect(bucketShares(timeline.buckets[1], timeline.agents)).toEqual([]);
   });
 
   it("spans from the first recorded bucket for the all period", () => {
