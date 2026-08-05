@@ -88,18 +88,35 @@ describe("a context rebuild", () => {
     // The main thread closed while a subagent ran, so the ending is held
     // for the last bracket to replay. A rebuild is not a turn boundary and
     // must not drop it — nothing else would ever finish the pane.
+    //
+    // Driven as the REAL stream: a compaction reports its summarizer's
+    // `SubagentStop` first, and that close names an agent this pane never
+    // opened a bracket for (measured on 2.1.222: a populated `agent_id`
+    // with no matching `SubagentStart`), so it must pass through inert.
     const held = fold(
       { kind: "turn-start", at: 100 },
       { kind: "agent-turn-start", at: 110, id: "a" },
       { kind: "turn-end", at: 120 },
-      compacted(130),
+      { kind: "agent-turn-end", at: 130, id: "summarizer" },
+      compacted(140),
     );
     expect(held?.heldEnd).toBe(120);
     expect(held?.activity).toEqual({ state: "working", since: 100 });
+    expect(held?.openAgentTurns).toEqual(new Set(["a"]));
 
     expect(
       reduceStatus(held, { kind: "agent-turn-end", at: 200, id: "a" })
         ?.activity,
     ).toEqual({ state: "done", at: 200, interrupted: false });
+  });
+
+  it("absorbs a second rebuild instead of restamping the first", () => {
+    // Compactions repeat — a long session compacts many times — and the
+    // pane is no longer failed after the first. The second must come back
+    // as the SAME object: a fresh one costs a re-render and would drag the
+    // card's age forward to an instant nothing happened at.
+    const failed = status({ state: "failed", at: 100, error: "rate_limit" });
+    const settled = reduceStatus(failed, compacted(200));
+    expect(reduceStatus(settled, compacted(300))).toBe(settled);
   });
 });

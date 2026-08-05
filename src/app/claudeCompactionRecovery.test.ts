@@ -109,21 +109,32 @@ describe("a pane that failed on an oversize request", () => {
 
   it("ignores the session events that merely announce a prompt", () => {
     // A boot and a resume both fire SessionStart. Reading either as a
-    // lifecycle fact would card every pane the moment it starts.
-    const working = receive(
+    // compaction would retire a failure nobody addressed.
+    //
+    // Driven from `failed` ON PURPOSE. Against a running pane this case
+    // proves nothing: the fold leaves a live turn alone for EVERY
+    // `context-compacted`, so it would pass just as green with the
+    // normalizer's `source` check deleted. `failed` is the one state the
+    // edge moves, which makes the assertion discriminating.
+    const failed = receive(
       null,
-      { ...SESSION, hook_event_name: "UserPromptSubmit" },
+      {
+        ...SESSION,
+        hook_event_name: "StopFailure",
+        error: "invalid_request",
+        error_details: "prompt is too long",
+      },
       100,
     );
     for (const source of ["startup", "resume", "clear", "fork"]) {
       expect(
         receive(
-          working,
+          failed,
           { ...SESSION, hook_event_name: "SessionStart", source },
           200,
         ),
         source,
-      ).toBe(working);
+      ).toBe(failed);
     }
   });
 });
