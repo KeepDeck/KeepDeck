@@ -14,6 +14,10 @@ import { DAY_MS, utcWeekStart, WEEK_MS } from "./time";
  * Pure and time-injected like every stats query.
  */
 
+/** Derived, not typed out: the week length these captions count against is
+ * the same one `WEEK_MS` already states. */
+const DAYS_PER_WEEK = WEEK_MS / DAY_MS;
+
 export interface UsageWeek {
   /** The week's UTC Monday 00:00. */
   start: number;
@@ -138,10 +142,30 @@ function topModel(fold: WeekFold | undefined): UsageWeek["topModel"] {
  * wearing last year's suffix made the in-progress row read historical.
  * Both ends labeled in UTC like every stats day bucket. */
 export function formatWeekLabel(start: number, now: number): string {
+  // The week in progress is named by its RELATION to now, not by its dates.
+  // That is what carries "still filling" — the row used to say it by going
+  // translucent, which in an interface means disabled, not unfinished.
+  if (start === utcWeekStart(now)) return "This week";
   const end = start + 6 * DAY_MS;
   const range = `${formatUtcDay(start)} – ${formatUtcDay(end)}`;
   const year = new Date(end).getUTCFullYear();
   return year === new Date(now).getUTCFullYear() ? range : `${range} · ${year}`;
+}
+
+/** How many of the week's seven days have STARTED, 1–7 — the honest measure
+ * of how much of an in-progress week is in hand. Days, not hours: the row's
+ * numbers are day-bucketed like every other stats total, so a fraction of a
+ * day would claim a precision the data does not carry. */
+export function weekDaysElapsed(start: number, now: number): number {
+  const days = Math.floor((now - start) / DAY_MS) + 1;
+  return Math.min(DAYS_PER_WEEK, Math.max(1, days));
+}
+
+/** "2 of 7 days" — what an in-progress week says where a completed one
+ * shows its delta. The cell is the same cell: a week with nothing to
+ * compare against still has something true to report. */
+export function weekProgressCaption(start: number, now: number): string {
+  return `${weekDaysElapsed(start, now)} of ${DAYS_PER_WEEK} days`;
 }
 
 /** "↑ +18%" / "↓ -41%" / a flat "0%" — the row's week-over-week clause,

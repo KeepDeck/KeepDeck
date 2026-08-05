@@ -50,12 +50,35 @@ describe("Weeks", () => {
       }),
       event({ occurredAt: NOW - 2 * WEEK_MS, tokens: { input: 50 } }),
     ]);
-    expect(host.textContent).toContain("Jul 20 – Jul 26");
+    expect(host.textContent).toContain("Jul 13 – Jul 19");
     expect(host.textContent).toContain("↑ +100%"); // the FINISHED claude week
     expect(host.textContent).toContain("claude-sonnet-5· 100");
     expect(host.textContent).toContain("≈$1.50");
-    expect(host.querySelector(".stats__week-row--current")).not.toBeNull();
     expect(host.querySelector(".stats__weeks-pager")).toBeNull(); // one page
+  });
+
+  it("marks the week in progress without dimming it", () => {
+    const host = render([
+      event({ tokens: { input: 300 } }),
+      event({ occurredAt: NOW - WEEK_MS, tokens: { input: 100 } }),
+    ]);
+    const rows = [...host.querySelectorAll<HTMLElement>('[role="row"]')];
+    const current = rows[0];
+    // Named and counted, not faded: translucency reads as disabled, and
+    // this is the freshest row on the block.
+    expect(current.textContent).toContain("This week");
+    expect(current.querySelector(".stats__week-progress")!.textContent).toBe(
+      "3 of 7 days",
+    );
+    expect(current.querySelector(".stats__week-rest")).not.toBeNull();
+    // The delta cell is the progress cell — an in-progress week has nothing
+    // to compare against, so the column carries the other true thing.
+    expect(current.querySelector(".stats__week-delta")).toBeNull();
+
+    // A finished week keeps its dates, its delta, and no remainder track.
+    expect(rows[1].textContent).toContain("Jul 13 – Jul 19");
+    expect(rows[1].querySelector(".stats__week-rest")).toBeNull();
+    expect(rows[1].querySelector(".stats__week-progress")).toBeNull();
   });
 
   it("answers a bar hover with the week's per-agent breakdown", () => {
@@ -69,7 +92,7 @@ describe("Weeks", () => {
       anchor.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     });
     const tip = document.querySelector('[role="tooltip"]')!;
-    expect(tip.textContent).toContain("Jul 20 – Jul 26");
+    expect(tip.textContent).toContain("This week");
     expect(tip.textContent).toContain("codex · 700");
     expect(tip.textContent).toContain("claude · 300");
   });
@@ -78,8 +101,9 @@ describe("Weeks", () => {
     const host = render([
       event({ occurredAt: NOW - WEEK_MS, tokens: { input: 100 } }),
     ]);
-    expect(host.querySelectorAll('[role="row"]')).toHaveLength(2);
-    const current = host.querySelector(".stats__week-row--current")!;
+    const rows = [...host.querySelectorAll('[role="row"]')];
+    expect(rows).toHaveLength(2);
+    const current = rows[0];
     expect(current.textContent).toContain("in progress");
     expect(current.textContent).toContain("no usage yet");
     // No husk cells: the empty state REPLACES the number columns.
