@@ -79,8 +79,11 @@ export type AgentStatusEvent =
   | { kind: "turn-failed"; at: number; error: string; detail?: string }
   /** The CLI rebuilt its own context — a compaction. It says nothing about
    * a turn RUNNING; the one thing it settles is that a recorded FAILURE is
-   * no longer current, because the condition behind it (a context that no
-   * longer fits) is what the rebuild just addressed.
+   * no longer current — ANY recorded failure, not only the oversize request
+   * that motivated the edge. A failure describes a turn that is already
+   * over, the rebuild is the user's own hand in that pane, and a cause that
+   * is still live fails the next turn and says so again. That is the rule
+   * `turn-start` already follows, and this is the second edge to follow it.
    *
    * Deliberately not `turn-start`. The two compaction shapes differ in a
    * way this edge cannot see (claude 2.1.222, probe-verified): an automatic

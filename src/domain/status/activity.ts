@@ -35,8 +35,12 @@ export type PaneActivity =
   | { state: "working"; since: number }
   /** The turn is blocked on the user. */
   | { state: "waiting"; since: number; reason: StatusWaitReason }
-  /** The last turn is over. `interrupted` says HOW: completed, or cut by
-   * the user — the card reads differently ("Done" vs "Interrupted"). */
+  /** The last turn is over. `interrupted` says whether it ran to the end:
+   * false when the turn completed, true when it stopped short — the user's
+   * Esc, or a failure retired by a context rebuild. The card reads
+   * differently ("Done" vs "Interrupted"). The flag stays a boolean because
+   * nothing reads the CAUSE: both surfaces that branch on it want the same
+   * answer for every way a turn stops short. */
   | { state: "done"; at: number; interrupted: boolean }
   /** The last turn died on an API error. `error` is the CLI's typed reason
    * (`rate_limit`, `authentication_failed`, …), `detail` its prose. */
@@ -215,12 +219,24 @@ export function reduceStatus(
     return current;
   }
 
-  // A context rebuild settles ONE thing — that a recorded failure is stale
-  // — so at a pane that has reported nothing it settles nothing. Minting a
-  // status here would card a pane the deck has never heard from, on an edge
-  // that makes no claim about a turn. Asked before the fold, which cannot
-  // return "no status at all".
-  if (event.kind === "context-compacted" && current === null) return null;
+  // A context rebuild retires a recorded FAILURE and touches nothing else.
+  // "Nothing else" includes the absence of a status: a pane that has
+  // reported nothing is left unheard-of rather than carded, on an edge that
+  // makes no claim about a turn. That is the same rule as leaving a running
+  // or finished pane alone, so it is written once, here — the fold below
+  // cannot spell "no status at all", and splitting the rule across the two
+  // would give one decision two homes that can disagree.
+  //
+  // Position is load-bearing in one direction only: BEFORE the bookkeeping,
+  // so an edge that changes nothing cannot disturb the bracket set or the
+  // held ending. It is independent of the ending-absorb block above, which
+  // gates only `isEnding` kinds.
+  if (
+    event.kind === "context-compacted" &&
+    current?.activity.state !== "failed"
+  ) {
+    return current;
+  }
 
   const open = reduceOpenTurns(current?.openAgentTurns ?? NO_TURNS, event);
   const holds = event.kind === "turn-end" && open.size > 0;
@@ -285,11 +301,6 @@ function reduceHeldEnd(
     case "waiting":
     case "resumed":
     case "parked":
-    // A context rebuild is not a turn boundary either: the main thread
-    // closed before it and the agents that held that ending open are
-    // untouched by it. Dropping the ending here would leave the last
-    // bracket's close with nothing to replay, stranding the pane.
-    case "context-compacted":
       return held;
     default:
       return null;
@@ -407,22 +418,18 @@ function reduceActivity(
         error: event.error,
         ...(event.detail !== undefined ? { detail: event.detail } : {}),
       };
-    case "context-compacted": {
-      // The ONLY escape from `failed` other than a new turn, and the reason
-      // this edge exists: the CLI rebuilt the context that the failure was
-      // about, so the error is history and the pane rests idle until the
-      // next prompt. `interrupted` because the turn ended without
-      // completing — which is what happened — and the tone is the neutral
-      // one, so the pane stops shouting about something already dealt with.
+    case "context-compacted":
+      // Reached ONLY for a `failed` activity: [`reduceStatus`] returns the
+      // pane untouched for every other state, absence included, so there is
+      // no second answer to keep in step here.
       //
-      // Every other state is left EXACTLY as it was. A compaction inside a
-      // live turn (claude's automatic one runs between the turn's start and
-      // its `Stop`) proves nothing about that turn, a standing wait is not
-      // answered by one, and a finished turn is not re-finished. `null` is
-      // dropped upstream in [`reduceStatus`] and cannot reach here.
-      return current === null || current.state === "failed"
-        ? { state: "done", at: event.at, interrupted: true }
-        : current;
-    }
+      // This is the only escape from `failed` besides a new turn. Like
+      // `turn-start`, it does not read WHICH failure it retires — a
+      // recorded failure describes a turn that is over, and if its cause is
+      // still live the next turn fails again and says so. `interrupted`
+      // because the turn ended without completing, which is what happened;
+      // the tone is the neutral one, so the pane stops shouting about
+      // something the user has already acted on.
+      return { state: "done", at: event.at, interrupted: true };
   }
 }

@@ -2,10 +2,18 @@
  * The Claude Code CLI plugin: identity, detection, and the spawn/resume
  * hooks. Identity is reporter-based, same scheme as every agent: claude
  * mints its own session id and the SessionStart hook posts it back at
- * startup — and again on `/clear`/compaction, which swap the id underneath
- * an otherwise-silent pane (probe-verified on 2.1.205: the startup event
+ * startup — and again on `/clear`, which swaps the id underneath an
+ * otherwise-silent pane (probe-verified on 2.1.205: the startup event
  * carries the self-minted id). Resume REUSES the recorded id (forking is
  * opt-in upstream).
+ *
+ * Compaction fires SessionStart too, but KEEPS the id and the transcript
+ * path — measured on 2.1.222, 6 of 6 compactions, manual and automatic;
+ * only `/fork` mints a new one, which is why it has its own `source`. So
+ * it rebinds nothing, and the status lane is the only reader that cares:
+ * `source: "compact"` is what tells a pane its recorded failure is stale
+ * ([`normalizeClaudeStatus`]). Do not "simplify" that edge away on the
+ * theory that a rebind already clears the pane — no rebind happens.
  */
 import type {
   KeepDeckPlugin,
