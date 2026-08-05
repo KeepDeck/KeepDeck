@@ -8,8 +8,7 @@ const geometry: BurnGeometry = {
   observed: [{ x: 0, y: 0.2, at: 100, usedPct: 20 }, newest],
   projected: [newest, projectedEnd],
   out: { x: 1, y: 1, level: "warn" },
-  yMaxPct: 100,
-  resetAtEdge: false,
+  endPct: 100,
 };
 
 describe("burnInspectionAt", () => {

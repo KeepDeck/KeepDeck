@@ -8,6 +8,7 @@ import {
 } from "../../domain/usage";
 import { seriesColorFor } from "../../domain/usage/chartPalette";
 import { type WindowReport } from "../../domain/usage/reportJournal";
+import { windowBurn } from "../../domain/usage/windowBurn";
 import {
   accountWindowForecasts,
   panelWindowCaption,
@@ -130,10 +131,8 @@ export function UsagePanel({
                       )}
                     </span>
                     <WindowBurn
+                      geometry={windowBurn(reports, window, forecast, now, "data")}
                       stroke={seriesColorFor(seriesColors, agent.id)}
-                      window={window}
-                      reports={reports}
-                      forecast={forecast}
                       now={now}
                       size="compact"
                     />

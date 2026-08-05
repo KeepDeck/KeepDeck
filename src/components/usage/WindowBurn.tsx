@@ -1,12 +1,11 @@
 import {
   useId,
-  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { formatBucket, formatPct, type UsageWindow } from "../../domain/usage";
+import { formatMoment, formatPct } from "../../domain/usage";
 import {
   CHART_ITEM_INK,
   CHART_LABEL_INK,
@@ -14,9 +13,8 @@ import {
   CHART_TOOLTIP_BORDER,
   OVERFLOW_COLOR,
 } from "../../domain/usage/chartPalette";
-import type { WindowReport } from "../../domain/usage/reportJournal";
-import { windowBurn, type BurnGeometry } from "../../domain/usage/windowBurn";
-import type { WindowForecast } from "../../domain/usage/windowForecast";
+import type { BurnGeometry } from "../../domain/usage/windowBurn";
+import type { BurnEdge } from "../../domain/usage/windowForecast";
 import {
   useAnchoredTooltipPosition,
   type TooltipAnchorRect,
@@ -57,42 +55,54 @@ const dotLeft = (pct: number) =>
   `clamp(3px, ${pct.toFixed(2)}%, calc(100% - 3px))`;
 
 export function WindowBurn({
+  geometry,
   stroke = OVERFLOW_COLOR,
-  window,
-  reports,
-  forecast,
+  edge = null,
   now,
   size = "card",
 }: {
+  /** Computed by the SURFACE, not here: the card's caption names where the
+   * projection lands, so the chart and the sentence under it must read the
+   * same geometry rather than each deriving its own. */
+  geometry: BurnGeometry | null;
   /** Series color — supplied by the surface, which owns the roster the
    * palette contract requires (agentSeriesColors on a one-agent roster
    * breaks spare-slot ranking). */
   stroke?: string;
-  window: UsageWindow;
-  reports: readonly WindowReport[];
-  forecast: WindowForecast;
+  /** What the right edge IS, as a moment (see `burnEdgeLabel`). */
+  edge?: BurnEdge | null;
+  /** The surface's clock — every instant this plot names is named relative
+   * to it, so the hover card and the edge label cannot drift apart. */
   now: number;
   size?: keyof typeof PLOT_HEIGHTS;
 }) {
-  const geometry = useMemo(
-    () => windowBurn(reports, window, forecast, now),
-    [reports, window, forecast, now],
-  );
   // A single observation is not a curve — the chart earns its place with
   // the second report and never renders as an empty frame. Keeping interactive
   // state in the child also discards it when geometry temporarily disappears.
   if (geometry === null) return null;
 
-  return <WindowBurnPlot geometry={geometry} stroke={stroke} size={size} />;
+  return (
+    <WindowBurnPlot
+      geometry={geometry}
+      stroke={stroke}
+      edge={edge}
+      now={now}
+      size={size}
+    />
+  );
 }
 
 function WindowBurnPlot({
   geometry,
   stroke,
+  edge,
+  now,
   size,
 }: {
   geometry: BurnGeometry;
   stroke: string;
+  edge: BurnEdge | null;
+  now: number;
   size: keyof typeof PLOT_HEIGHTS;
 }) {
   const [pointer, setPointer] = useState<PointerInspection | null>(null);
@@ -190,7 +200,7 @@ function WindowBurnPlot({
             y2={yPx(0)}
             vectorEffect="non-scaling-stroke"
           />
-          {geometry.resetAtEdge && (
+          {edge?.atReset === true && (
             <line
               className="usage-burn__edge"
               x1="100"
@@ -241,8 +251,10 @@ function WindowBurnPlot({
           />
         )}
         {size === "card" && (
+          // The frame's top IS the limit now, so this labels the ceiling
+          // line rather than reporting a scale that moved with the data.
           <span className="usage-burn__ymax" aria-hidden>
-            {Math.round(geometry.yMaxPct)}%
+            100%
           </span>
         )}
         {sample && (
@@ -267,7 +279,14 @@ function WindowBurnPlot({
       {size === "card" && (
         <span className="usage-burn__foot" aria-hidden>
           <span>0</span>
-          {geometry.resetAtEdge && <span>reset</span>}
+          {/* The right edge is where the projection ends, and that instant
+              is the whole question — named as a clock time rather than left
+              to be derived from a countdown in another line. */}
+          {edge !== null && (
+            <span className={edge.level ? `usage-level--${edge.level}` : undefined}>
+              {edge.text}
+            </span>
+          )}
         </span>
       )}
       {sample && getAnchorRect && (
@@ -276,6 +295,7 @@ function WindowBurnPlot({
           getAnchorRect={getAnchorRect}
           sample={sample}
           stroke={stroke}
+          now={now}
           ownerDocument={plotRef.current?.ownerDocument ?? document}
         />
       )}
@@ -288,12 +308,14 @@ function BurnTooltip({
   getAnchorRect,
   sample,
   stroke,
+  now,
   ownerDocument,
 }: {
   id: string;
   getAnchorRect(): TooltipAnchorRect | null;
   sample: BurnInspectionSample;
   stroke: string;
+  now: number;
   ownerDocument: Document;
 }) {
   const { tooltipRef, position } = useAnchoredTooltipPosition({
@@ -321,7 +343,12 @@ function BurnTooltip({
         className="usage-burn-tooltip__label"
         style={{ color: CHART_LABEL_INK }}
       >
-        {formatBucket(Math.round(sample.at), "hour", "long")}
+        {/* The SAME clock the edge label under this plot speaks. It used to
+            go through the bucket formatter, which is UTC on purpose — but
+            a report instant is not an aggregation boundary, and with a
+            local label sitting two lines below, one widget was naming one
+            moment in two timezones. */}
+        {formatMoment(Math.round(sample.at), now)}
       </span>
       <span
         className="usage-burn-tooltip__value"

@@ -61,6 +61,12 @@ export interface ProviderWindowGroup {
   reportedAt: number;
   stale: boolean;
   rows: ProviderWindowRow[];
+  /** Every window this account reported has since reset, so nothing here
+   * describes the present. A domain question, not a rendering one — a
+   * `keepdeck status` printer needs the same answer to know whether to
+   * qualify the percentages it prints. Guaranteed meaningful because a
+   * group with no rows is never emitted; `[].every()` would say yes. */
+  idle: boolean;
 }
 
 /** Every reported provider as a group: providers alphabetical, each
@@ -110,6 +116,7 @@ export function providerWindowGroups(
       reportedAt: account.reportedAt,
       stale: usageStale(account.reportedAt, now),
       rows,
+      idle: rows.every((row) => row.expired),
     });
   }
   return groups;

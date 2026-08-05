@@ -30,13 +30,35 @@ export interface BurnGeometry {
   projected: [BurnPoint, BurnPoint] | null;
   /** The ceiling-touch verdict dot; null when the pace survives the reset. */
   out: { x: number; y: number; level: "warn" | "critical" } | null;
-  /** Top of the y scale in percent: 100 whenever the projection reaches
-   * the ceiling, otherwise headroom above the observed maximum — a 1%-used
-   * window must not render as an empty frame. */
-  yMaxPct: number;
-  /** The right edge IS the reset (the projection was capped by it). */
-  resetAtEdge: boolean;
+  /** Where the plot's right edge sits, in percent. The CAPTION does not read
+   * this — `WindowForecast.endPct` owns that fact, so a sentence never needs
+   * a chart built before it can be written; this is the drawn copy. */
+  endPct: number | null;
 }
+
+/**
+ * What the top of the frame means — a CHOICE the surface makes, because the
+ * two plots answer different questions.
+ *
+ * `"limit"`: the frame is 100%. The card asks "how close am I to the wall",
+ * and it can afford the answer: 60px of height, a labelled ceiling and a
+ * labelled floor. The scale used to follow the data here — 100 when the
+ * projection reached the ceiling, otherwise about 1.25× the peak — so every
+ * curve filled its frame and a window heading for 33% drew the same climb
+ * into the same corner as one heading for 100%. The shape carried no
+ * information, only alarm.
+ *
+ * `"data"`: the frame is the peak plus headroom. The popover sparkline is
+ * 20px tall with no ceiling label, no floor label and no room for either;
+ * it asks "is this rising", and the percentage beside it already carries
+ * the level. Forcing the limit scale there flattened a 10% window to 1.6px
+ * above its own floor line — inside the two strokes' combined width, so the
+ * curve disappeared into the axis.
+ *
+ * The cost of `"limit"` is real and correct where it applies: a window at
+ * 1% is a flat line along the floor of the card. Nothing IS happening.
+ */
+export type BurnScale = "limit" | "data";
 
 const MAX_OBSERVED_POINTS = 300;
 
@@ -57,6 +79,9 @@ export function windowBurn(
   window: UsageWindow,
   forecast: WindowForecast,
   now: number,
+  /** Required, not defaulted: a surface that does not state which question
+   * its plot answers is a surface that has not decided. */
+  scale: BurnScale,
 ): BurnGeometry | null {
   if (windowExpired(window, now)) return null;
   const segment = currentSegment(reports).filter(
@@ -83,10 +108,6 @@ export function windowBurn(
   if (tEnd <= tMin) return null;
 
   const drawn = sampleReports(segment);
-  const observedMax = drawn.reduce(
-    (max, report) => Math.max(max, report.usedPct),
-    0,
-  );
   const projSpan = outAt !== null ? outAt - newest.reportedAt : 0;
   const projEndPct =
     projEndAt !== null && outAt !== null
@@ -96,10 +117,17 @@ export function windowBurn(
             ((projEndAt - newest.reportedAt) / projSpan)
         : 100 // the wall is at (or before) the newest report
       : null;
+  const observedMax = drawn.reduce(
+    (max, report) => Math.max(max, report.usedPct),
+    0,
+  );
   const peak = Math.max(observedMax, projEndPct ?? 0);
   const yMaxPct =
-    peak >= 99.5 ? 100 : Math.min(100, Math.max(10, Math.ceil(peak * 1.25)));
-
+    scale === "limit"
+      ? 100
+      : peak >= 99.5
+        ? 100
+        : Math.min(100, Math.max(10, Math.ceil(peak * 1.25)));
   const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
   const plotPoint = (at: number, pct: number) => ({
     x: clamp01((at - tMin) / (tEnd - tMin)),
@@ -127,15 +155,10 @@ export function windowBurn(
           level: forecast.level,
         }
       : null;
-  const resetAtEdge =
-    projEndAt !== null &&
-    window.resetsAt !== null &&
-    projEndAt === window.resetsAt;
   return {
     observed,
     projected,
     out,
-    yMaxPct,
-    resetAtEdge,
+    endPct: projEndPct,
   };
 }

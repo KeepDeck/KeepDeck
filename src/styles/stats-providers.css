@@ -1,8 +1,17 @@
 /* The Providers tab — provider cards with rate-limit windows and their
    ledger joins. */
+/* ONE column, deliberately. A provider's card is exactly as tall as it has
+   windows — claude has two with curves, codex one, an idle account none —
+   so a multi-column grid put cards of three different heights side by side
+   and left half a screen of nothing under the shortest. Nothing about the
+   content wanted columns; only the width did.
+
+   The width is the point of giving them up. These charts answer "when do I
+   hit the limit", and that answer is a label at the right edge of a time
+   axis: at 360px there is no room for it, at full width there is. */
 .stats__providers {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -31,6 +40,14 @@
 .stats__provider-head small {
   color: #596273;
   font-size: 10px;
+}
+
+/* Why a card has nothing live to show, said once above its windows. */
+.stats__provider-idle {
+  margin: 0;
+  color: #596273;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .stats__window {

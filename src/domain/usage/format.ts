@@ -1,4 +1,5 @@
 import type { UsageStatsPeriod } from "./history/query";
+import { DAY_MS } from "./time";
 import {
   windowExpired,
   type AccountUsage,
@@ -142,7 +143,9 @@ export function windowResetCaption(
   form: "short" | "long" = "short",
 ): string {
   if (windowExpired(window, now)) {
-    return form === "long" ? "reset passed · % is from the previous window" : "";
+    // Short and unqualified: WHY the number is stale belongs to the card,
+    // said once above its windows, not repeated under each of them.
+    return form === "long" ? "reset passed" : "";
   }
   const countdown = formatCountdown(window.resetsAt, now);
   if (countdown) return `resets in ${countdown}`;
@@ -185,6 +188,43 @@ export function formatUtcDay(at: number, withYear = false): string {
     ...(withYear ? { year: "numeric" } : {}),
     timeZone: "UTC",
   });
+}
+
+/**
+ * A future instant as a wall clock the reader can plan against: "06:40",
+ * "tomorrow 06:40", "Thu 06:40", "Aug 12, 06:40".
+ *
+ * LOCAL time, unlike every other label in this file. Stats buckets speak UTC
+ * because they are aggregation boundaries and must agree across zones; this
+ * is the opposite kind of fact — the moment a person's own limit runs out,
+ * which is only useful in the clock they are looking at.
+ *
+ * Named by relation while the relation is short, because "tomorrow 06:40"
+ * places a moment that "Aug 7, 06:40" makes the reader work out.
+ */
+export function formatMoment(at: number, now: number): string {
+  const time = new Date(at).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const startOfDay = (instant: number) => {
+    const date = new Date(instant);
+    date.setHours(0, 0, 0, 0);
+    return date.getTime();
+  };
+  const days = Math.round((startOfDay(at) - startOfDay(now)) / DAY_MS);
+  if (days <= 0) return time;
+  if (days === 1) return `tomorrow ${time}`;
+  if (days < 7) {
+    const weekday = new Date(at).toLocaleDateString("en-US", { weekday: "short" });
+    return `${weekday} ${time}`;
+  }
+  const day = new Date(at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  return `${day}, ${time}`;
 }
 
 /** THE chart bucket label, both granularities and both surfaces (axis tick

@@ -16,7 +16,11 @@ import {
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import { cardCaptionParts } from "../../domain/usage/windowForecast";
+import { windowBurn } from "../../domain/usage/windowBurn";
+import {
+  burnEdgeLabel,
+  cardCaptionParts,
+} from "../../domain/usage/windowForecast";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { WindowBurn } from "../usage/WindowBurn";
 
@@ -71,6 +75,18 @@ export function Providers({
                 updated {formatAge(group.reportedAt, now)}
               </small>
             </header>
+            {/* Said ONCE per card, whenever ANY window has reset — not only
+                when they all have. Gating it on "all" left the common case
+                worse than before the note existed: a card with a live
+                weekly window and an expired 5h one showed a dimmed
+                percentage with nothing anywhere saying it describes a
+                window that is gone. */}
+            {group.rows.some((row) => row.expired) && (
+              <p className="stats__provider-idle">
+                A window that has reset keeps showing the previous window
+                &apos;s percentage until this account reports again.
+              </p>
+            )}
             {group.rows.map((row) => (
               <ProviderWindow
                 key={row.id}
@@ -96,6 +112,10 @@ function ProviderWindow({
   now: number;
 }) {
   const level = windowLevel(row.window, now);
+  const burn = useMemo(
+    () => windowBurn(row.reports, row.window, row.forecast, now, "limit"),
+    [row.reports, row.window, row.forecast, now],
+  );
   const caption = cardCaptionParts(row.window, row.forecast, now);
   return (
     <div
@@ -109,10 +129,9 @@ function ProviderWindow({
       </div>
       <UsageWindowBar window={row.window} now={now} />
       <WindowBurn
+        geometry={burn}
         stroke={stroke}
-        window={row.window}
-        reports={row.reports}
-        forecast={row.forecast}
+        edge={burnEdgeLabel(row.window, row.forecast, now)}
         now={now}
       />
       <small>

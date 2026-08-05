@@ -3,7 +3,13 @@ import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { WindowReport } from "../../domain/usage/reportJournal";
-import { windowForecast } from "../../domain/usage/windowForecast";
+import type { UsageWindow } from "../../domain/usage/usage";
+import { windowBurn } from "../../domain/usage/windowBurn";
+import {
+  burnEdgeLabel,
+  windowForecast,
+  type WindowForecast,
+} from "../../domain/usage/windowForecast";
 import { WindowBurn } from "./WindowBurn";
 
 (
@@ -32,22 +38,35 @@ describe("WindowBurn", () => {
   let plotLeft: number;
   let plotTop: number;
 
+  /** The surface computes the geometry now — the card's caption reads the
+   * same object — so the test assembles it the way a surface would. */
   const render = (
     size: ComponentProps<typeof WindowBurn>["size"],
-    overrides: Partial<ComponentProps<typeof WindowBurn>> = {},
+    overrides: {
+      window?: UsageWindow;
+      reports?: readonly WindowReport[];
+      now?: number;
+      forecast?: WindowForecast;
+      edge?: ComponentProps<typeof WindowBurn>["edge"];
+    } = {},
   ) => {
     const nextWindow = overrides.window ?? window;
     const nextReports = overrides.reports ?? reports;
     const nextNow = overrides.now ?? NOW;
+    const forecast =
+      overrides.forecast ?? windowForecast(nextReports, nextWindow, nextNow);
     act(() =>
       root.render(
         createElement(WindowBurn, {
           stroke: "#3987e5",
-          window: nextWindow,
-          reports: nextReports,
-          forecast:
-            overrides.forecast ??
-            windowForecast(nextReports, nextWindow, nextNow),
+          geometry: windowBurn(
+            nextReports,
+            nextWindow,
+            forecast,
+            nextNow,
+            size === "card" ? "limit" : "data",
+          ),
+          edge: overrides.edge ?? burnEdgeLabel(nextWindow, forecast, nextNow),
           now: nextNow,
           size,
         }),
@@ -106,7 +125,11 @@ describe("WindowBurn", () => {
       expect(tooltip.dataset.kind).toBe(expectedKind.toLowerCase());
       expect(tooltip.textContent).toContain(expectedKind);
       expect(tooltip.textContent).toContain("% used");
-      expect(tooltip.textContent).toContain("UTC");
+      // The SAME clock the edge label under the plot speaks. It used to go
+      // through the UTC bucket formatter, so one widget named one moment in
+      // two timezones — half-hour offsets made that a visible contradiction.
+      expect(tooltip.textContent).toMatch(/\d{2}:\d{2}/);
+      expect(tooltip.textContent).not.toContain("UTC");
       expect(plot.querySelector(".usage-burn__cursor")).not.toBeNull();
       expect(plot.querySelector(".usage-burn__dot--active")).not.toBeNull();
 
@@ -116,6 +139,47 @@ describe("WindowBurn", () => {
       expect(document.querySelector("[role='tooltip']")).toBeNull();
     },
   );
+
+  it("labels the card's ceiling as the limit, and only on the card", () => {
+    // The frame's top IS 100% now. If this ever went back to reading a
+    // field off the geometry — an easy slip after `yMaxPct` became
+    // `endPct` — the label would follow the data again and quietly
+    // reintroduce the wrong-scale bug on every surviving window.
+    render("card");
+    expect(host.querySelector(".usage-burn__ymax")!.textContent).toBe("100%");
+  });
+
+  it("gives the compact plot no ceiling or floor label to contradict", () => {
+    // Which is exactly why its scale is the data's rather than the limit's:
+    // there is nothing on it disclosing what the frame means.
+    render("compact");
+    expect(host.querySelector(".usage-burn__ymax")).toBeNull();
+    expect(host.querySelector(".usage-burn__foot")).toBeNull();
+  });
+
+  it("keeps a quiet window off its own axis line in the 20px sparkline", () => {
+    // The popover is 20px tall with 2px of padding: on the limit scale a
+    // 10%-used window sat 1.6px above the floor grid line, inside the two
+    // strokes' combined width, and the curve vanished into the axis.
+    const quiet = [10, 10, 10, 10, 10].map((usedPct, index) => ({
+      agent: "claude",
+      windowMinutes: 300,
+      usedPct,
+      reportedAt: NOW - (4 - index) * 10 * MIN,
+      resetsAt: window.resetsAt,
+    }));
+    const plot = render("compact", {
+      reports: quiet,
+      window: { ...window, usedPct: 10 },
+    })!;
+    const points = plot
+      .querySelector("polyline")!
+      .getAttribute("points")!
+      .split(" ")
+      .map((pair) => Number(pair.split(",")[1]));
+    // The floor of a 20px plot with PAD 2 is y=18.
+    for (const y of points) expect(y).toBeLessThan(16);
+  });
 
   it("exposes the latest observed value immediately on keyboard focus", () => {
     const plot = render("compact")!;
