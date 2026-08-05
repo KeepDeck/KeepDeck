@@ -133,6 +133,37 @@ describe("kd-status-hook.sh", () => {
     ).toHaveLength(0);
   });
 
+  it("carries a compaction's `source` through to the edge", () => {
+    // The whole oversize-failure recovery rests on one field surviving the
+    // shell: `source`. The script forwards payloads verbatim, so nothing
+    // here is agent-specific — but nothing PINNED that for this event, and
+    // a reduction or an extraction added later would silently turn every
+    // compaction into "not a compaction", putting the pane back to staying
+    // red forever with every unit test still green.
+    const dir = inbox();
+    run(
+      dir,
+      JSON.stringify({
+        hook_event_name: "SessionStart",
+        source: "compact",
+        session_id: "6b1641cc",
+      }),
+    );
+    expect(normalizeClaudeStatus(envelopeEvent(dir), 100)).toEqual({
+      kind: "context-compacted",
+      at: 100,
+    });
+
+    // And the sibling source that must NOT read as one — a pane boots far
+    // more often than it compacts.
+    const boot = inbox();
+    run(
+      boot,
+      JSON.stringify({ hook_event_name: "SessionStart", source: "startup" }),
+    );
+    expect(normalizeClaudeStatus(envelopeEvent(boot), 100)).toBeNull();
+  });
+
   it("reduces only past the bridge's own limit, measured in BYTES", () => {
     // Under the cap the payload rides whole. The guard used to fire at half
     // the size that needs it, reducing payloads the bridge would have
