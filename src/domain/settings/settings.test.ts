@@ -12,6 +12,8 @@ import {
   settingsProvenance,
   withPluginMuted,
   withSettings,
+  type Settings,
+  type SettingsKey,
 } from "./settings";
 
 describe("hydrateSettings", () => {
@@ -562,6 +564,75 @@ describe("an explicit choice survives a change of default", () => {
     const out = serializeSettings(doc);
     expect(out).not.toContain("dockMode");
     expect(out).not.toContain("mcpServer");
+  });
+});
+
+/**
+ * One non-default value per setting. The mapped type is TOTAL, so a new
+ * setting cannot be added without giving the properties below something to
+ * drive — which is the point: before this block, "round-trips losslessly"
+ * exercised two keys out of thirteen, and a key with a wrong or missing reader
+ * passed every test while being erased from disk on the next save.
+ */
+const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
+  defaultAgent: "opencode",
+  defaultYolo: true,
+  scrollback: 42_000,
+  deckLayout: "list",
+  minimizeStyle: "none",
+  suspendedAgentPlacement: "tray",
+  dockMode: "floating",
+  plugins: {
+    enabled: { "keepdeck.git": true },
+    values: { "keepdeck.git": { remote: "origin" } },
+    consented: { "acme.tool": "fingerprint" },
+  },
+  notifications: { enabled: false, mode: "app", mutedPlugins: ["keepdeck.run"] },
+  usageDisplay: "left",
+  remoteAgents: true,
+  parkAgentsOnLaunch: true,
+  mcpServer: true,
+};
+
+const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as SettingsKey[];
+
+describe("every setting, by construction", () => {
+  it("has a sample that really differs from its default", () => {
+    // Without this the three properties below could pass vacuously.
+    for (const key of SETTINGS_KEYS) {
+      expect(NON_DEFAULT[key], key).not.toEqual(DEFAULT_SETTINGS[key]);
+    }
+  });
+
+  it("survives a write → read round trip", () => {
+    for (const key of SETTINGS_KEYS) {
+      const doc = withSettings(defaultSettingsDocument(), {
+        [key]: NON_DEFAULT[key],
+      } as Partial<Settings>);
+      const back = hydrateSettings(serializeSettings(doc));
+      expect(back, key).not.toBeNull();
+      expect(back!.settings[key], key).toEqual(NON_DEFAULT[key]);
+    }
+  });
+
+  it("is written when chosen, even at its default value", () => {
+    for (const key of SETTINGS_KEYS) {
+      const doc = withSettings(defaultSettingsDocument(), {
+        [key]: DEFAULT_SETTINGS[key],
+      } as Partial<Settings>);
+      expect(JSON.parse(serializeSettings(doc)), key).toHaveProperty(key);
+    }
+  });
+
+  it("rejects a value of the wrong shape", () => {
+    // An object no key can make sense of: a reader copy-pasted from a
+    // neighbour would accept it, and the file is hand-editable.
+    for (const key of SETTINGS_KEYS) {
+      const stored = JSON.stringify({ [key]: { nonsense: true } });
+      expect(hydrateSettings(stored)!.settings[key], key).toEqual(
+        DEFAULT_SETTINGS[key],
+      );
+    }
   });
 });
 
