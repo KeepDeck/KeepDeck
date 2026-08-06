@@ -14,9 +14,11 @@ import { collectExtras, isRecord } from "../json";
  * - a malformed value degrades just its own key to the default;
  * - unknown keys survive a save round-trip (hand edits and keys written by a
  *   newer build are preserved, not stripped);
- * - serialization is sparse — only keys that differ from the default are
- *   written, so a default improved in a later version reaches every user who
- *   never overrode it.
+ * - serialization is sparse in one direction only: a setting nobody has ever
+ *   chosen is left out, so a default improved in a later version reaches every
+ *   user who never overrode it — but anything CHOSEN is written even when it
+ *   equals today's default, or a later change of default would silently
+ *   override the choice (see [`SettingsDocument.explicit`]).
  *
  * Every key is declared exactly once, in [`SETTINGS_CODECS`]; the defaults and
  * the known-key set are DERIVED from it.
