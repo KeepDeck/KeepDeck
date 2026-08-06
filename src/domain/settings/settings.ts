@@ -332,6 +332,67 @@ export function withSettings(
   };
 }
 
+/**
+ * Fold a stand-in document — one the app only has because the settings file
+ * could not be read — onto the `stored` document that has since turned up.
+ *
+ * The stored file WINS for everything the stand-in did not explicitly choose,
+ * so a transient unreadable load can no longer end with the user's whole file
+ * replaced by defaults: the only values that survive from the stand-in are the
+ * ones somebody actually set while it was live. Extras come from the file too —
+ * a stand-in has none, and dropping a newer build's keys would be its own
+ * silent loss.
+ */
+export function reconcileProvisional(
+  stored: SettingsDocument,
+  provisional: SettingsDocument,
+): SettingsDocument {
+  // Correlating `key` with `Settings[key]` across a loop is beyond what the
+  // checker can track; the keys come from `explicit`, so each value is that
+  // key's own type by construction.
+  const patch = {} as Record<SettingsKey, unknown>;
+  for (const key of provisional.explicit) patch[key] = provisional.settings[key];
+  return withSettings(stored, patch as Partial<Settings>);
+}
+
+/**
+ * What a load learned about the stored TEXT, beyond the values it yielded: the
+ * revision it was written at, and the keys it carried whose values this build
+ * had to discard.
+ *
+ * Read separately from [`hydrateSettings`] rather than returned with the
+ * document, because it describes the FILE, and a document stops corresponding
+ * to its file the moment `withSettings` touches it — a field carried along
+ * would quietly become a lie. The cost is re-parsing one small document once
+ * per launch, and it buys a load that says what it dropped: a silent per-key
+ * degrade is exactly what makes "my settings reset" impossible to diagnose.
+ */
+export interface SettingsProvenance {
+  /** The document's own revision, or `null` when it declares none. */
+  version: number | null;
+  /** Keys present in the file whose value fell back to its default. */
+  degraded: SettingsKey[];
+}
+
+export function settingsProvenance(json: string): SettingsProvenance {
+  const blank: SettingsProvenance = { version: null, degraded: [] };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return blank;
+  }
+  if (!isRecord(raw)) return blank;
+  const degraded: SettingsKey[] = [];
+  for (const [key, codec] of settingsCodecs()) {
+    if (key in raw && codec.read(raw[key]) === undefined) degraded.push(key);
+  }
+  return {
+    version: typeof raw.version === "number" ? raw.version : null,
+    degraded,
+  };
+}
+
 /** `version` plus every key `Settings` owns, plus retired keys we still
  * consume (a retired key riding extras would be rewritten forever). */
 const KNOWN_KEYS: ReadonlySet<string> = new Set([

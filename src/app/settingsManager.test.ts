@@ -140,6 +140,102 @@ describe("settingsManager", () => {
     expect(saved.futureToggle).toBe(true);
   });
 
+  it("merges into a settings file that appears after a defaults boot", async () => {
+    // The reported failure shape: one load answers "no file", the app runs on
+    // defaults, and the first change writes those defaults over a file that
+    // was there all along. The stand-in must look again and lose.
+    ipc.loadSettings.mockResolvedValueOnce(null);
+    await initSettings();
+    ipc.loadSettings.mockResolvedValueOnce(
+      JSON.stringify({
+        version: SETTINGS_VERSION,
+        mcpServer: true,
+        dockMode: "floating",
+      }),
+    );
+
+    updateSettings({ scrollback: 20_000 });
+    await flush();
+
+    const saved = JSON.parse(ipc.saveSettings.mock.calls[0][0]);
+    expect(saved.mcpServer).toBe(true); // the user's stored flag survived
+    expect(saved.dockMode).toBe("floating");
+    expect(saved.scrollback).toBe(20_000); // this session's choice still landed
+    // And the live document is the merged one, not the stand-in.
+    expect(getSettings()?.mcpServer).toBe(true);
+  });
+
+  it("this session's choice outranks the file it adopts", async () => {
+    // Same race, but the appearing file disagrees about the very key the user
+    // just set: a change made while the stand-in was live is a real decision.
+    ipc.loadSettings.mockResolvedValueOnce(null);
+    await initSettings();
+    ipc.loadSettings.mockResolvedValueOnce(
+      JSON.stringify({ version: SETTINGS_VERSION, mcpServer: true }),
+    );
+
+    updateSettings({ mcpServer: false });
+    await flush();
+
+    expect(JSON.parse(ipc.saveSettings.mock.calls[0][0]).mcpServer).toBe(false);
+    expect(getSettings()?.mcpServer).toBe(false);
+  });
+
+  it("looks again exactly once, then trusts the stand-in", async () => {
+    ipc.loadSettings.mockResolvedValue(null);
+    await initSettings();
+
+    updateSettings({ scrollback: 20_000 });
+    await flush();
+    expect(ipc.loadSettings).toHaveBeenCalledTimes(2); // boot + one look
+
+    updateSettings({ scrollback: 25_000 });
+    await flush();
+    expect(ipc.loadSettings).toHaveBeenCalledTimes(2); // no look per save
+  });
+
+  it("re-reads before the first save after an unusable file too", async () => {
+    // The quarantine is best-effort; if it did not land, the file is still
+    // there, so writing defaults over it blind is the same mistake.
+    ipc.loadSettings.mockResolvedValueOnce("{typo");
+    await initSettings();
+    ipc.loadSettings.mockResolvedValueOnce(
+      JSON.stringify({ version: SETTINGS_VERSION, dockMode: "floating" }),
+    );
+
+    updateSettings({ scrollback: 20_000 });
+    await flush();
+
+    expect(JSON.parse(ipc.saveSettings.mock.calls[0][0]).dockMode).toBe(
+      "floating",
+    );
+  });
+
+  it("a document read from disk is never re-read before a save", async () => {
+    ipc.loadSettings.mockResolvedValue(
+      JSON.stringify({ version: SETTINGS_VERSION, scrollback: 30_000 }),
+    );
+    await initSettings();
+
+    updateSettings({ defaultAgent: "codex" });
+    await flush();
+    expect(ipc.loadSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the stand-in when the re-read fails", async () => {
+    ipc.loadSettings.mockResolvedValueOnce(null);
+    await initSettings();
+    ipc.loadSettings.mockRejectedValueOnce(new Error("io"));
+
+    updateSettings({ scrollback: 20_000 });
+    await flush();
+
+    // A failed look must not cost the user the change they just made.
+    expect(JSON.parse(ipc.saveSettings.mock.calls[0][0]).scrollback).toBe(
+      20_000,
+    );
+  });
+
   it("notifies subscribers on load and on update; unsubscribing stops", async () => {
     ipc.loadSettings.mockResolvedValue(null);
     const seen: (number | undefined)[] = [];

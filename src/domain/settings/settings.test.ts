@@ -7,7 +7,9 @@ import {
   clampScrollback,
   defaultSettingsDocument,
   hydrateSettings,
+  reconcileProvisional,
   serializeSettings,
+  settingsProvenance,
   withPluginMuted,
   withSettings,
 } from "./settings";
@@ -560,6 +562,68 @@ describe("an explicit choice survives a change of default", () => {
     const out = serializeSettings(doc);
     expect(out).not.toContain("dockMode");
     expect(out).not.toContain("mcpServer");
+  });
+});
+
+describe("reconcileProvisional", () => {
+  const provisionalWith = (patch: Partial<Parameters<typeof withSettings>[1]>) =>
+    withSettings(defaultSettingsDocument(), patch);
+
+  it("the stored file wins for everything the stand-in never set", () => {
+    const stored = hydrateSettings(
+      JSON.stringify({ mcpServer: true, dockMode: "floating", futureKey: 1 }),
+    )!;
+    const merged = reconcileProvisional(stored, provisionalWith({ scrollback: 20_000 }));
+    expect(merged.settings.mcpServer).toBe(true);
+    expect(merged.settings.dockMode).toBe("floating");
+    expect(merged.settings.scrollback).toBe(20_000);
+    // A newer build's unknown keys are the file's too — dropping them would be
+    // its own silent loss.
+    expect(merged.extras).toEqual({ futureKey: 1 });
+  });
+
+  it("a value set while the stand-in was live outranks the file", () => {
+    const stored = hydrateSettings('{"mcpServer":true}')!;
+    const merged = reconcileProvisional(stored, provisionalWith({ mcpServer: false }));
+    expect(merged.settings.mcpServer).toBe(false);
+    // Still explicit, so the disagreement is recorded rather than dropped.
+    expect(merged.explicit.has("mcpServer")).toBe(true);
+    expect(JSON.parse(serializeSettings(merged)).mcpServer).toBe(false);
+  });
+
+  it("a stand-in that chose nothing surrenders completely", () => {
+    const stored = hydrateSettings('{"scrollback":30000,"mcpServer":true}')!;
+    const merged = reconcileProvisional(stored, defaultSettingsDocument());
+    expect(merged.settings).toEqual(stored.settings);
+    expect(merged.explicit).toEqual(stored.explicit);
+  });
+});
+
+describe("settingsProvenance", () => {
+  it("reports the revision and every key it had to discard", () => {
+    const { version, degraded } = settingsProvenance(
+      JSON.stringify({
+        version: 9,
+        scrollback: "lots", // unusable
+        dockMode: "sideways", // outside the allow-list
+        mcpServer: true, // fine
+      }),
+    );
+    expect(version).toBe(9);
+    expect(degraded).toEqual(["scrollback", "dockMode"]);
+  });
+
+  it("an absent key is not a degraded one", () => {
+    expect(settingsProvenance("{}")).toEqual({ version: null, degraded: [] });
+  });
+
+  it("an unstamped document reports no revision", () => {
+    expect(settingsProvenance('{"scrollback":30000}').version).toBeNull();
+  });
+
+  it("unreadable text degrades to a blank report rather than throwing", () => {
+    expect(settingsProvenance("{typo")).toEqual({ version: null, degraded: [] });
+    expect(settingsProvenance("[1,2]")).toEqual({ version: null, degraded: [] });
   });
 });
 
