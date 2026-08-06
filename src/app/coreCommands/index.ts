@@ -22,6 +22,7 @@ import {
 import { inspectRepo } from "../../ipc/worktree";
 import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
 import { mintAgentSeq } from "../ids";
+import type { PaneActivity } from "../../domain/status";
 import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
 import { getSettings } from "../settingsManager";
 import type {
@@ -46,6 +47,14 @@ import { registerSkillsCommands } from "./skills";
 export interface CoreCommandDeps {
   deck(): Deck;
   agents(): AgentInfo[];
+  /** What a pane's agent is doing, when anything reports for it.
+   *
+   * The roster carries it because the deck can SEE this from outside and a
+   * session cannot see it at all. An agent that has to ask a teammate "are
+   * you done yet?" spends a turn, waits for a reply, and pays for both — so
+   * every question the host can already answer belongs in the answer it
+   * gives for free. */
+  activityOf(paneId: string): PaneActivity | undefined;
   /** Select a pane and hand keyboard input to its live terminal. */
   activatePane(wsId: string, paneId: string): void;
   /** Open the close-confirm flow — voice/MCP closes go through the same
@@ -136,6 +145,10 @@ export function registerCoreCommands(
             agentType: paneAgentType(p),
             branch: p.branch ?? null,
             cwd: p.cwd ?? ws.cwd,
+            // Null when nothing reports — a pane that is provisioning,
+            // stopped, or running a CLI with no status reporter. Absent
+            // information, not an absent pane.
+            activity: deps.activityOf(p.id) ?? null,
           })),
         }));
       },

@@ -37,6 +37,7 @@ describe("workspace commands", () => {
               agentType: "claude",
               branch: null,
               cwd: "/repo",
+              activity: null,
             },
           ],
         },
@@ -48,6 +49,53 @@ describe("workspace commands", () => {
           panes: [],
         },
       ]);
+  });
+
+  it("carries what each agent is DOING, so asking a teammate costs nothing", async () => {
+    // The deck sees this from outside; a session cannot see it at all. An
+    // agent that has to ask "are you done yet?" spends a turn, waits for a
+    // reply, and pays for both — so anything the host already knows belongs
+    // in the answer it gives for free.
+    const { registry, activityOf } = setup([
+      workspace({
+        panes: [
+          { id: "p1", agentType: "claude" },
+          { id: "p2", agentType: "claude" },
+        ],
+      }),
+    ]);
+    activityOf.mockImplementation((paneId) =>
+      paneId === "p1"
+        ? { state: "working", since: 500 }
+        : { state: "waiting", since: 700, reason: "permission" },
+    );
+    const result = await registry.execute("workspace.list", {}, HOST);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const panes = (result.value as { panes: { activity: unknown }[] }[])[0].panes;
+      expect(panes[0].activity).toEqual({ state: "working", since: 500 });
+      expect(panes[1].activity).toEqual({
+        state: "waiting",
+        since: 700,
+        reason: "permission",
+      });
+    }
+  });
+
+  it("reports a pane nothing speaks for as unknown, not as idle", async () => {
+    // Provisioning, stopped, or a CLI with no status reporter. Absent
+    // information about a live pane, which is a different thing from a pane
+    // that has finished — and a lead reading the roster must not confuse
+    // them.
+    const { registry } = setup([
+      workspace({ panes: [{ id: "p1", agentType: "claude" }] }),
+    ]);
+    const result = await registry.execute("workspace.list", {}, HOST);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const panes = (result.value as { panes: { activity: unknown }[] }[])[0].panes;
+      expect(panes[0].activity).toBeNull();
+    }
   });
 
   it("resolves the exact active input target without guessing", async () => {

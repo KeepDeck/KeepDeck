@@ -220,6 +220,7 @@ export function createAppRuntime(
     paneInputFocus,
     paneView: paneViewActions,
     skills,
+    activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
   });
   const worktreeSweeper = createWorktreeSweeper(
     deckStore,

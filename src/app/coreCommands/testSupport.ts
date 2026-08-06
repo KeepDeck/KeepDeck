@@ -11,6 +11,7 @@ import { vi } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import { createCommandRegistry } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
+import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type {
   CreatePaneOutcome,
@@ -150,9 +151,13 @@ export function setup(workspaces: Workspace[]) {
   // views) are pinned in its suite, and what the commands owe is the calls they
   // make.
   const skills = fakeSkillsLibrary();
+  const activityOf = vi.fn<(paneId: string) => PaneActivity | undefined>(
+    () => undefined,
+  );
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
+    activityOf,
     activatePane,
     requestCloseAgent,
     suspendAgent,
@@ -166,6 +171,7 @@ export function setup(workspaces: Workspace[]) {
     registry,
     deck,
     skills,
+    activityOf,
     activatePane,
     requestCloseAgent,
     suspendAgent,
