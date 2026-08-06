@@ -89,6 +89,13 @@ pub fn settings_quarantine() -> Result<(), String> {
     quarantine(&settings_path()?).map_err(|e| e.to_string())
 }
 
+/// Keep a copy of the settings before an app update — the restore point and
+/// the evidence if the document comes back changed. See [`snapshot`].
+#[tauri::command(async)]
+pub fn settings_snapshot() -> Result<(), String> {
+    snapshot(&settings_path()?).map_err(|e| e.to_string())
+}
+
 fn state_path() -> Result<PathBuf, String> {
     doc_path(DECK_FILE)
 }
@@ -165,13 +172,11 @@ pub(crate) fn write_atomic_mode(
 /// second quarantine silently destroyed the evidence of the first.
 const KEEP_BACKUPS: usize = 5;
 
-fn quarantine(path: &Path) -> io::Result<()> {
-    let name = match path.file_name() {
-        Some(n) => n.to_string_lossy().into_owned(),
-        None => return Ok(()),
-    };
-    // deck.json → deck.json.bak.<millis>; bump on the (theoretical) same-
-    // millisecond collision instead of renaming over an older backup.
+/// An unused `<file>.bak.<millis>` sibling of `path`. `None` only for a path
+/// with no file name at all. Bumps the stamp on the (theoretical) same-
+/// millisecond collision rather than clobbering an older generation.
+fn free_backup_target(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name()?.to_string_lossy().into_owned();
     let mut stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -181,10 +186,39 @@ fn quarantine(path: &Path) -> io::Result<()> {
         stamp += 1;
         target = path.with_file_name(format!("{name}.bak.{stamp}"));
     }
+    Some(target)
+}
+
+fn quarantine(path: &Path) -> io::Result<()> {
+    let Some(target) = free_backup_target(path) else {
+        return Ok(());
+    };
     match fs::rename(path, &target) {
         // Nothing on disk to quarantine is fine (e.g. the file vanished).
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
         other => other?,
+    }
+    prune_backups(path, KEEP_BACKUPS);
+    Ok(())
+}
+
+/// Keep a COPY of `path` beside it, in the same rotating generations the
+/// quarantine uses — the original stays exactly where it is.
+///
+/// Taken before something that has historically been followed by "my settings
+/// reset": an app update. Without a copy from before, a document that comes
+/// back changed can neither be proved nor restored, and the file itself carries
+/// no history. A missing source is not an error — there is simply nothing to
+/// keep.
+fn snapshot(path: &Path) -> io::Result<()> {
+    let Some(target) = free_backup_target(path) else {
+        return Ok(());
+    };
+    if let Err(e) = fs::copy(path, &target) {
+        if e.kind() == ErrorKind::NotFound {
+            return Ok(());
+        }
+        return Err(e);
     }
     prune_backups(path, KEEP_BACKUPS);
     Ok(())
@@ -217,7 +251,7 @@ fn prune_backups(path: &Path, keep: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{load, quarantine, save_atomic, KEEP_BACKUPS};
+    use super::{load, quarantine, save_atomic, snapshot, KEEP_BACKUPS};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -290,6 +324,40 @@ mod tests {
             .collect();
         contents.sort();
         assert_eq!(contents, vec!["first".to_string(), "second".to_string()]);
+    }
+
+    #[test]
+    fn snapshot_copies_and_leaves_the_original_in_place() {
+        let path = temp_deck();
+        save_atomic(&path, "live").unwrap();
+        snapshot(&path).unwrap();
+
+        // Unlike the quarantine, the document the app is using stays put.
+        assert_eq!(load(&path).unwrap().as_deref(), Some("live"));
+        let backups = backups_of(&path);
+        assert_eq!(backups.len(), 1);
+        assert_eq!(std::fs::read_to_string(&backups[0]).unwrap(), "live");
+    }
+
+    #[test]
+    fn snapshot_of_a_missing_document_is_a_no_op() {
+        // The real shape of this case: the home exists, the document does not
+        // (a first run). Nothing to keep is not a failure — it must never block
+        // the update the user asked for.
+        let path = temp_deck();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        snapshot(&path).unwrap();
+        assert!(backups_of(&path).is_empty());
+    }
+
+    #[test]
+    fn snapshots_and_quarantines_share_the_same_rotation() {
+        let path = temp_deck();
+        for i in 0..(KEEP_BACKUPS + 2) {
+            save_atomic(&path, &format!("gen-{i}")).unwrap();
+            snapshot(&path).unwrap();
+        }
+        assert_eq!(backups_of(&path).len(), KEEP_BACKUPS);
     }
 
     #[test]

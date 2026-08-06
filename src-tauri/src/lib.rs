@@ -183,6 +183,7 @@ pub fn run() {
             state::settings_load,
             state::settings_save,
             state::settings_quarantine,
+            state::settings_snapshot,
             state::usage_cache_load,
             state::usage_cache_save,
             state::achievements_load,

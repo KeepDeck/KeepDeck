@@ -7,6 +7,7 @@ import {
   relaunchApp,
   type AvailableUpdate,
 } from "../ipc/updater";
+import { snapshotSettings } from "../ipc/settings";
 import { sliceChangelog, type ChangelogEntry } from "../domain/changelog";
 import type { DownloadManager } from "./downloadManager";
 
@@ -219,6 +220,17 @@ export async function restartToUpdate(): Promise<void> {
   apply({ phase: "installing" });
   let installed = false;
   try {
+    // Keep a copy of the settings first. An update is the one moment users
+    // report their settings changing underneath them, and settings.json carries
+    // no history — without a copy from before, such a report can be neither
+    // proved nor undone. Best-effort by design: failing to keep evidence must
+    // never block the update the user asked for.
+    await snapshotSettings().catch((e) =>
+      log.warn(
+        "web:update",
+        `settings snapshot before the update failed: ${describeError(e)}`,
+      ),
+    );
     await installUpdate(pending.id);
     installed = true;
     await relaunchApp();

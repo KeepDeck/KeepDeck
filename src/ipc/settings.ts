@@ -22,3 +22,11 @@ export function saveSettings(json: string): Promise<void> {
 export function quarantineSettings(): Promise<void> {
   return invoke("settings_quarantine");
 }
+
+/** Keep a COPY of the stored settings as a rotating `.bak.<millis>` sibling,
+ * leaving the live document in place. Taken before an app update: settings that
+ * come back changed afterwards can otherwise neither be proved nor restored,
+ * since the file carries no history of its own. */
+export function snapshotSettings(): Promise<void> {
+  return invoke("settings_snapshot");
+}
