@@ -93,6 +93,36 @@ export function decideDelivery(
   return { kind: "deliver" };
 }
 
+/**
+ * The delivery report owed to the sender of a message that aged out, or null
+ * when none is owed.
+ *
+ * §7's rule with its teeth in: an expired message goes BACK to its sender as
+ * undelivered rather than quietly landing late. Two messages earn no report
+ * and both would be a bug if they did — a report about a report is a chain
+ * that feeds itself, and a host notice has no pane to report to.
+ *
+ * The hop is COPIED, never incremented. A report is the mail system
+ * accounting for itself; letting it advance the counter would spend a
+ * sender's chain budget on news it never asked for.
+ *
+ * `id` and `at` come from the caller because minting and clock-reading are
+ * the owner's, not the rule's — which is what keeps this testable.
+ */
+export function expiryNotice(mail: Mail, id: string, at: number): Mail | null {
+  if (mail.from.kind !== "pane" || mail.kind === "undelivered") return null;
+  return {
+    id,
+    kind: "undelivered",
+    body: `Undelivered: your ${mail.kind} did not reach its pane within the delivery window, and has been dropped.`,
+    from: { kind: "host" },
+    toPaneId: mail.from.pane.paneId,
+    at,
+    replyTo: mail.id,
+    hop: mail.hop,
+  };
+}
+
 /** Why a send was refused. Typed rather than prose: rendering a refusal for
  * the calling agent is the command layer's job, the same split
  * `resumeRefusalText` already draws. */

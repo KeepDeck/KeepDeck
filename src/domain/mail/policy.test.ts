@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PaneActivity } from "../status";
 import type { Mail, MailSender } from "./message";
-import { MAIL_LIMITS, decideDelivery, decideSend } from "./policy";
+import { MAIL_LIMITS, decideDelivery, decideSend, expiryNotice } from "./policy";
 
 const sender: MailSender = {
   paneId: "pane-1",
@@ -16,7 +16,7 @@ function mail(over: Partial<Mail> = {}): Mail {
     id: "mail-1",
     kind: "question",
     body: "which signature does the port take?",
-    from: sender,
+    from: { kind: "pane", pane: sender },
     toPaneId: "pane-2",
     at: SENT_AT,
     hop: 0,
@@ -131,5 +131,39 @@ describe("decideSend", () => {
       kind: "refuse",
       refusal: "self-addressed",
     });
+  });
+});
+
+describe("expiryNotice", () => {
+  it("reports back to the pane that sent the expired message", () => {
+    const notice = expiryNotice(mail({ kind: "task", hop: 2 }), "mail-9", 5_000);
+    expect(notice).toMatchObject({
+      id: "mail-9",
+      kind: "undelivered",
+      from: { kind: "host" },
+      toPaneId: sender.paneId,
+      replyTo: "mail-1",
+      at: 5_000,
+    });
+    expect(notice?.body).toContain("task");
+  });
+
+  it("copies the hop instead of advancing it", () => {
+    // A report is the mail system accounting for itself. Advancing the
+    // counter would spend the sender's chain budget on news it never asked
+    // for, and could refuse the reply it is about to want to send.
+    expect(expiryNotice(mail({ hop: 4 }), "mail-9", 5_000)?.hop).toBe(4);
+  });
+
+  it("owes nothing for a report that itself expired", () => {
+    // Otherwise every undelivered notice mints another one, forever, and
+    // the hop counter cannot stop it because the hop never advances.
+    expect(expiryNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
+  });
+
+  it("owes nothing when the host was the sender", () => {
+    expect(
+      expiryNotice(mail({ from: { kind: "host" } }), "mail-9", 5_000),
+    ).toBeNull();
   });
 });
