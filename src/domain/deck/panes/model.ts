@@ -141,9 +141,28 @@ export interface Pane {
   /** The in-flight (or failed) worktree create behind this pane — no terminal
    * mounts until it resolves. */
   provisioning?: PaneProvisioning;
+  /** Which team this agent belongs to, and under what role. Durable: a team
+   * describes a piece of work in progress, and a deck restored tomorrow
+   * should come back with the same one. Absent = not in a team, which is
+   * every pane until somebody says otherwise. */
+  team?: PaneTeam;
   /** Persisted keys this build doesn't know (written by a newer revision) —
    * carried verbatim so a save round-trip never strips them. */
   extras?: Record<string, unknown>;
+}
+
+/**
+ * A pane's place in a team.
+ *
+ * `role` is an ADDRESS, not a job title: it is how teammates name each other
+ * ("ask impl-1"), which is why it has to be unique inside its team and why
+ * `lead` is simply the role the lead happens to hold rather than a separate
+ * flag. One team per pane, because two would make "who is the lead here"
+ * a question with more than one answer.
+ */
+export interface PaneTeam {
+  name: string;
+  role: string;
 }
 
 /** The id for the pane numbered `seq` — the single mint point, since it's the

@@ -1,6 +1,6 @@
 import type { JournalRecords } from "../journal";
 import type { WorkspaceInstance } from "../workspaceInstance";
-import type { Pane, PaneSession } from "./panes";
+import type { Pane, PaneSession, PaneTeam } from "./panes";
 import type { DeckState } from "./reducer";
 import type { Workspace } from "./workspaces";
 
@@ -21,6 +21,13 @@ export type DeckAction =
   | { type: "setDockTab"; wsId: string; tabId: string }
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
   | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string }
+  | {
+      type: "setPaneTeam";
+      wsId: string;
+      paneId: string;
+      /** Null takes the pane off its team. */
+      team: PaneTeam | null;
+    }
   | { type: "hydrate"; state: DeckState }
   | { type: "clearPaneIdle"; wsId: string; paneId: string }
   | {

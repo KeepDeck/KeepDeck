@@ -22,6 +22,7 @@ import {
 import { inspectRepo } from "../../ipc/worktree";
 import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
 import { mintAgentSeq } from "../ids";
+import { teamOf } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
 import { getSettings } from "../settingsManager";
@@ -149,6 +150,10 @@ export function registerCoreCommands(
             // stopped, or running a CLI with no status reporter. Absent
             // information, not an absent pane.
             activity: deps.activityOf(p.id) ?? null,
+            // Who this agent is on the team, when it is on one. The roster
+            // is where an agent learns the roles it may write to, so the
+            // field is here rather than behind a command of its own.
+            team: teamOf(p),
           })),
         }));
       },

@@ -38,6 +38,7 @@ describe("workspace commands", () => {
               branch: null,
               cwd: "/repo",
               activity: null,
+              team: null,
             },
           ],
         },

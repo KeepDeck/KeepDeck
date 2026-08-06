@@ -67,6 +67,7 @@ function setup(initial: boolean | null) {
       commands: {
         deck: () => ({ workspaces: workspaces() }) as unknown as Deck,
         agents: () => [{ id: "claude", label: "Claude" }],
+        setPaneTeam: () => {},
       },
     },
   );

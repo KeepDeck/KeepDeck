@@ -52,8 +52,10 @@ export type MigrationOutcome =
  *       native-server endpoint).
  *   9 — + `Pane.idle` carrying the `suspended` reason (a pane the user
  *       suspended stays suspended across a restart instead of waking).
+ *  10 — + `Pane.team` (which team the agent belongs to and under what role,
+ *       so messages can be addressed by role instead of by pane).
  */
-export const DECK_STATE_VERSION = 9;
+export const DECK_STATE_VERSION = 10;
 /** The oldest reader that can still make sense of a current document. Held at
  * 1 deliberately: v1→v4, v6 and v7 were additive, and v5's `run` retirement
  * moves data an old reader wouldn't understand INTO keys it preserves as
@@ -135,6 +137,13 @@ function migrateDeckFromV8toV9(doc: RawDoc): RawDoc {
   return doc;
 }
 
+/** v9 → v10: `Pane.team` added — additive, nothing to transform. A v9 file's
+ * panes belong to no team, which is what every pane is until somebody says
+ * otherwise, so addressing falls back to pane titles exactly as before. */
+function migrateDeckFromV9toV10(doc: RawDoc): RawDoc {
+  return doc;
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
@@ -144,6 +153,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
   6: migrateDeckFromV6toV7,
   7: migrateDeckFromV7toV8,
   8: migrateDeckFromV8toV9,
+  9: migrateDeckFromV9toV10,
 };
 
 /**

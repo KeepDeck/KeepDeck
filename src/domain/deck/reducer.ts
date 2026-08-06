@@ -29,6 +29,7 @@ import {
   failPaneWake,
   parkPane,
   setPaneAutoTitle,
+  setPaneTeam,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setPaneSession,
@@ -392,6 +393,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return withWorkspaces(
         state,
         setPaneAutoTitle(state.workspaces, action.wsId, action.paneId, action.title),
+      );
+    case "setPaneTeam":
+      // Same no-op contract. Whether the role was free is decided before the
+      // dispatch — this rung only applies the answer.
+      return withWorkspaces(
+        state,
+        setPaneTeam(state.workspaces, action.wsId, action.paneId, action.team),
       );
     case "hydrate":
       // deck.json knows nothing of the journal — keep the live slice (its

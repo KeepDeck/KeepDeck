@@ -55,12 +55,28 @@ function setup() {
     schedule: () => () => {},
   });
   const registry: CommandRegistry = createCommandRegistry();
+  // Applies the assignment to the live fixture, the way the deck store would
+  // — so a `team.assign` followed by a `mail.send` reads what it just wrote.
+  const setPaneTeam = (
+    workspaceId: string,
+    paneId: string,
+    team: { name: string; role: string } | null,
+  ) => {
+    const target = workspaces
+      .find((ws) => ws.id === workspaceId)
+      ?.panes.find((p) => p.id === paneId);
+    if (target) {
+      if (team) target.team = team;
+      else delete target.team;
+    }
+  };
   const dispose = registerMailCommands(registry, {
     mail,
     deck: () => ({ workspaces }) as unknown as Deck,
     agents: () => [{ id: "claude", label: "Claude" }],
+    setPaneTeam,
   });
-  return { registry, mail, delivered, dispose };
+  return { registry, mail, delivered, dispose, workspaces };
 }
 
 async function run(
@@ -196,13 +212,68 @@ describe("mail.inbox", () => {
   });
 });
 
+describe("team.assign", () => {
+  it("puts an agent on a team, and lets a teammate address it by role", async () => {
+    const { registry, delivered } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
+    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
+    // The address a lead can actually be told to use.
+    const sent = await run(
+      registry,
+      "mail.send",
+      { to: "impl-1", kind: "task", body: "take the parser" },
+      lead,
+    );
+    expect(sent.ok).toBe(true);
+    expect(delivered[0].toPaneId).toBe("pane-2");
+  });
+
+  it("refuses a role another pane already answers to", async () => {
+    const { registry } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
+    const clash = await run(
+      registry,
+      "team.assign",
+      { agent: "pane-2", team: "api", role: "lead" },
+      lead,
+    );
+    expect(clash.ok).toBe(false);
+    if (!clash.ok) expect(clash.error.message).toContain("already taken");
+  });
+
+  it("cannot put a pane from another workspace on a team", async () => {
+    // The same boundary the messages themselves obey.
+    const { registry } = setup();
+    const result = await run(
+      registry,
+      "team.assign",
+      { agent: "pane-9", team: "api", role: "impl-2" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("takes an agent off its team when neither field is given", async () => {
+    const { registry, workspaces } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
+    expect(workspaces[0].panes[1].team).toBeDefined();
+    await run(registry, "team.assign", { agent: "pane-2" }, lead);
+    expect(workspaces[0].panes[1].team).toBeUndefined();
+  });
+});
+
 describe("registerMailCommands", () => {
-  it("takes both commands away again, so they stop being MCP tools", () => {
+  it("takes every command away again, so they stop being MCP tools", () => {
     const { registry, dispose } = setup();
-    expect(registry.has("mail.send")).toBe(true);
-    expect(registry.has("mail.inbox")).toBe(true);
+    for (const id of ["mail.send", "mail.inbox", "team.assign"]) {
+      expect(registry.has(id)).toBe(true);
+    }
     dispose();
-    expect(registry.has("mail.send")).toBe(false);
-    expect(registry.has("mail.inbox")).toBe(false);
+    for (const id of ["mail.send", "mail.inbox", "team.assign"]) {
+      expect(registry.has(id)).toBe(false);
+    }
   });
 });

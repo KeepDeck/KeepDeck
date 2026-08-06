@@ -14,6 +14,7 @@ import {
 } from "./agentOrchestrator";
 import { createAgentStatusChannel } from "./agentStatusChannel";
 import { createApplicationController } from "./applicationController";
+import { createDeckActions } from "./deckActions";
 import { createDeckPersistence } from "./deckPersistence";
 import { createDeckStore } from "./deckStore";
 import {
@@ -85,6 +86,7 @@ export function createAppRuntime(
   const paneInputFocus = createPaneInputFocusController();
   const paneViewActions = createPaneViewActions(deckStore, paneInputFocus);
   const deckPersistence = createDeckPersistence(deckStore);
+  const deckActions = createDeckActions(deckStore);
   /** How a pane reads, for anything that has to name one. Read per call — a
    * plugin can be installed or removed while the deck is up. */
   const agentLabels = () =>
@@ -175,6 +177,8 @@ export function createAppRuntime(
       commands: {
         deck: () => readDeck(deckStore),
         agents: agentLabels,
+        setPaneTeam: (workspaceId, paneId, team) =>
+          deckActions.setPaneTeam(workspaceId, paneId, team),
       },
     },
   );

@@ -3,6 +3,7 @@ import {
   type DeckState,
   type Pane,
   type PaneSession,
+  type PaneTeam,
   type Workspace,
 } from "../domain/deck";
 import type { JournalRecords } from "../domain/journal";
@@ -100,6 +101,8 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "renamePane", wsId, paneId, name }),
     setPaneAutoTitle: (wsId: string, paneId: string, title: string) =>
       dispatch({ type: "setPaneAutoTitle", wsId, paneId, title }),
+    setPaneTeam: (wsId: string, paneId: string, team: PaneTeam | null) =>
+      dispatch({ type: "setPaneTeam", wsId, paneId, team }),
     hydrate: (state: DeckState) => dispatch({ type: "hydrate", state }),
     clearPaneIdle: (wsId: string, paneId: string) =>
       dispatch({ type: "clearPaneIdle", wsId, paneId }),

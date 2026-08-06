@@ -17,8 +17,16 @@ import {
   type CommandRegistry,
   type CommandSource,
 } from "../../domain/commands";
-import { findWorkspaceOfPane } from "../../domain/deck";
-import { senderOf, type Mail, type MailKind, type MailSender } from "../../domain/mail";
+import { findWorkspaceOfPane, type Pane, type Workspace } from "../../domain/deck";
+import {
+  checkTeamAssignment,
+  LEAD_ROLE,
+  resolveMailTarget,
+  senderOf,
+  type Mail,
+  type MailKind,
+  type MailSender,
+} from "../../domain/mail";
 import type { Deck } from "../useDeck";
 import type { MailManager } from "./mailManager";
 
@@ -27,6 +35,25 @@ export interface MailCommandDeps {
   deck(): Deck;
   /** Just enough to name a pane the way its header does. */
   agents(): readonly { id: string; label: string }[];
+  /** Put a pane on a team, or take it off one. */
+  setPaneTeam(
+    workspaceId: string,
+    paneId: string,
+    team: { name: string; role: string } | null,
+  ): void;
+}
+
+/** The workspace a caller belongs to, refusing anyone who belongs to none.
+ * Every command here starts with this: the caller's workspace is both who
+ * they are and how far they can reach. */
+function callerWorkspace(
+  deps: MailCommandDeps,
+  sender: MailSender,
+): { workspace: Workspace; pane: Pane } {
+  const workspace = findWorkspaceOfPane(deps.deck().workspaces, sender.paneId);
+  const pane = workspace?.panes.find((p) => p.id === sender.paneId);
+  if (!workspace || !pane) throw new Error(NOT_AN_AGENT_MESSAGE);
+  return { workspace, pane };
 }
 
 /** What an agent may put in `kind`. `undelivered` is missing on purpose: it
@@ -105,15 +132,21 @@ export function registerMailCommands(
             `unknown mail kind ${JSON.stringify(String(args.kind))} — expected one of ${SENDABLE_KINDS.join(", ")}`,
           );
         }
-        const workspaces = deps.deck().workspaces;
         // The sender's OWN workspace, and nothing else, is where a recipient
         // may be named. The workspace is the feature's hard boundary: an
         // agent has no business reaching into a piece of work it is not part
         // of, and with no permission gate anywhere in the registry yet, this
         // resolution IS the boundary rather than a convenience.
-        const workspace = findWorkspaceOfPane(workspaces, from.paneId);
-        if (!workspace) throw new Error(NOT_AN_AGENT_MESSAGE);
-        const resolved = resolvePaneRef(workspace, deps.agents(), str(args, "to") ?? "");
+        const { workspace, pane } = callerWorkspace(deps, from);
+        // A teammate's ROLE outranks every other way to name a pane — see
+        // `resolveMailTarget`. A workspace with no teams behaves exactly as
+        // it did before teams existed.
+        const resolved = resolveMailTarget(
+          workspace,
+          deps.agents(),
+          pane,
+          str(args, "to") ?? "",
+        );
         if (!resolved.ok) throw new Error(resolved.message);
         const result = deps.mail.send({
           from,
@@ -149,6 +182,47 @@ export function registerMailCommands(
         return deps.mail
           .inbox(reader.paneId, since)
           .map(wire);
+      },
+    }),
+    registry.register({
+      id: "team.assign",
+      title: "Put an agent on a team under a role",
+      args: [
+        {
+          name: "agent",
+          type: "string",
+          required: true,
+          description: "Agent pane title, name, or id — in your own workspace",
+        },
+        {
+          name: "team",
+          type: "string",
+          description: "Team name; omit to take the agent off its team",
+        },
+        {
+          name: "role",
+          type: "string",
+          description: `How teammates will address it (e.g. "${LEAD_ROLE}", "impl-1"); omit to remove`,
+        },
+      ],
+      run: (args, source) => {
+        const caller = requireSender(source);
+        const { workspace } = callerWorkspace(deps, caller);
+        const target = resolvePaneRef(workspace, deps.agents(), str(args, "agent") ?? "");
+        if (!target.ok) throw new Error(target.message);
+        const name = str(args, "team");
+        const role = str(args, "role");
+        if (!name && !role) {
+          deps.setPaneTeam(workspace.id, target.value.id, null);
+          return { paneId: target.value.id, team: null };
+        }
+        const checked = checkTeamAssignment(workspace, target.value.id, {
+          name: name ?? "",
+          role: role ?? "",
+        });
+        if (!checked.ok) throw new Error(checked.message);
+        deps.setPaneTeam(workspace.id, target.value.id, checked.value);
+        return { paneId: target.value.id, team: checked.value };
       },
     }),
   ];
