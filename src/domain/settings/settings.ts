@@ -287,11 +287,49 @@ function settingsCodecs(): [SettingsKey, SettingCodec<unknown>][] {
 export interface SettingsDocument {
   settings: Settings;
   extras: Record<string, unknown>;
+  /**
+   * Keys this document must WRITE even when their value equals today's
+   * default: the ones the stored file carried a usable value for, plus the
+   * ones set since through [`withSettings`].
+   *
+   * Without it, "never chosen" and "chosen, and it happens to equal today's
+   * default" are the same thing on disk, and sparse serialization erases the
+   * second. Two consequences, both real: a stored `false` vanished from the
+   * file, and any release that CHANGED a default silently flipped the setting
+   * for everyone who had deliberately picked the old value (this already
+   * happened once — `defaultAgent` went from `null` to `"claude"`).
+   *
+   * A key the file mentioned but whose value had to be discarded is
+   * deliberately NOT here: re-writing garbage as a synthesized default would
+   * grow the file on every load without recording any decision.
+   */
+  explicit: ReadonlySet<SettingsKey>;
 }
 
-/** The document a first run (or a quarantined file) starts from. */
+/** The document a first run (or a quarantined file) starts from. Nothing is
+ * explicit yet — no file said anything and the user has chosen nothing, so a
+ * save writes only the version markers. */
 export function defaultSettingsDocument(): SettingsDocument {
-  return { settings: { ...DEFAULT_SETTINGS }, extras: {} };
+  return { settings: { ...DEFAULT_SETTINGS }, extras: {}, explicit: new Set() };
+}
+
+/**
+ * The document with `patch` applied — the ONE way a chosen value enters a
+ * document. Every patched key becomes explicit, because the user picking the
+ * value that happens to be today's default is still a decision, and the file
+ * is where that decision has to survive a change of default.
+ */
+export function withSettings(
+  doc: SettingsDocument,
+  patch: Partial<Settings>,
+): SettingsDocument {
+  const explicit = new Set(doc.explicit);
+  for (const key of Object.keys(patch) as SettingsKey[]) explicit.add(key);
+  return {
+    settings: { ...doc.settings, ...patch },
+    extras: doc.extras,
+    explicit,
+  };
 }
 
 /** `version` plus every key `Settings` owns, plus retired keys we still
@@ -423,6 +461,7 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   if (settingsFloorBreach(doc) !== null) return null;
 
   const settings = { ...DEFAULT_SETTINGS } as Record<SettingsKey, unknown>;
+  const explicit = new Set<SettingsKey>();
   for (const [key, codec] of settingsCodecs()) {
     // `in` rather than an undefined check: JSON cannot carry `undefined`, so
     // presence is exactly "the file said something about this key" — which is
@@ -431,6 +470,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
     const value = codec.read(doc[key]);
     if (value === undefined) continue;
     settings[key] = value;
+    // The file carried a usable value, so it stays in the file — even if it
+    // equals today's default. See [`SettingsDocument.explicit`].
+    explicit.add(key);
   }
   const restored = settings as Settings;
   // Settings v5 graduation: the retired run-presets experiment flag maps onto
@@ -453,11 +495,17 @@ export function hydrateSettings(json: string): SettingsDocument | null {
     };
   }
 
-  return { settings: restored, extras: collectExtras(doc, KNOWN_KEYS) };
+  return {
+    settings: restored,
+    extras: collectExtras(doc, KNOWN_KEYS),
+    explicit,
+  };
 }
 
-/** Serialize for storage: version, preserved extras, then only the settings
- * that differ from their defaults. */
+/** Serialize for storage: version, preserved extras, then every setting that
+ * either differs from its default or was explicitly chosen (see
+ * [`SettingsDocument.explicit`] — a value equal to today's default still has
+ * to survive tomorrow's change of default). */
 export function serializeSettings(doc: SettingsDocument): string {
   const out: Record<string, unknown> = {
     version: SETTINGS_VERSION,
@@ -465,7 +513,9 @@ export function serializeSettings(doc: SettingsDocument): string {
     ...doc.extras,
   };
   for (const [key, codec] of settingsCodecs()) {
-    if (doc.settings[key] !== codec.default) out[key] = doc.settings[key];
+    if (doc.explicit.has(key) || doc.settings[key] !== codec.default) {
+      out[key] = doc.settings[key];
+    }
   }
   return JSON.stringify(out);
 }

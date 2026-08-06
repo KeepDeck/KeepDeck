@@ -9,6 +9,7 @@ import {
   hydrateSettings,
   serializeSettings,
   withPluginMuted,
+  withSettings,
 } from "./settings";
 
 describe("hydrateSettings", () => {
@@ -16,6 +17,7 @@ describe("hydrateSettings", () => {
     expect(hydrateSettings("{}")).toEqual({
       settings: DEFAULT_SETTINGS,
       extras: {},
+      explicit: new Set(),
     });
   });
 
@@ -64,14 +66,20 @@ describe("hydrateSettings", () => {
     });
   });
 
-  it("reads parkAgentsOnLaunch and stays sparse when off", () => {
+  it("reads parkAgentsOnLaunch, and a stored off survives the save", () => {
     const on = hydrateSettings('{"parkAgentsOnLaunch":true}')!.settings;
     expect(on.parkAgentsOnLaunch).toBe(true);
-    // Off is the default (wake everything, as before the setting existed).
+    // Off is today's default, but the file SAID off — so the file keeps
+    // saying off. Dropping it here is what let a change of default silently
+    // override a user who had chosen the old one.
     const offJson = serializeSettings(
       hydrateSettings('{"parkAgentsOnLaunch":false}')!,
     );
-    expect(offJson).not.toContain("parkAgentsOnLaunch");
+    expect(JSON.parse(offJson).parkAgentsOnLaunch).toBe(false);
+    // A document that never mentioned it still writes nothing.
+    expect(serializeSettings(hydrateSettings("{}")!)).not.toContain(
+      "parkAgentsOnLaunch",
+    );
   });
 
   it("ignores a malformed parkAgentsOnLaunch instead of reading it as truthy", () => {
@@ -84,6 +92,7 @@ describe("hydrateSettings", () => {
       serializeSettings({
         settings: { ...DEFAULT_SETTINGS, parkAgentsOnLaunch: true },
         extras: {},
+        explicit: new Set(),
       }),
     );
     corrupted.parkAgentsOnLaunch = "yes";
@@ -92,14 +101,13 @@ describe("hydrateSettings", () => {
     ).toBe(false);
   });
 
-  it("reads remoteAgents and stays sparse when off", () => {
+  it("reads remoteAgents, and a stored off survives the save", () => {
     const on = hydrateSettings('{"remoteAgents":true}')!.settings;
     expect(on.remoteAgents).toBe(true);
-    // Off is the default → never written.
     const offJson = serializeSettings(
       hydrateSettings('{"remoteAgents":false}')!,
     );
-    expect(offJson).not.toContain("remoteAgents");
+    expect(JSON.parse(offJson).remoteAgents).toBe(false);
   });
 
   it("snaps a malformed remoteAgents back to the default (off)", () => {
@@ -108,12 +116,15 @@ describe("hydrateSettings", () => {
     expect(hydrateSettings('{"remoteAgents":null}')!.settings.remoteAgents).toBe(false);
   });
 
-  it("reads mcpServer and stays sparse when off", () => {
-    const on = hydrateSettings('{"mcpServer":true}')!.settings;
-    expect(on.mcpServer).toBe(true);
-    // Off is the default → never written.
-    const offJson = serializeSettings(hydrateSettings('{"mcpServer":false}')!);
-    expect(offJson).not.toContain("mcpServer");
+  it("reads mcpServer, and a stored value survives every save", () => {
+    // The reported bug: a stored flag came back off after an update. Reading
+    // it was never broken — this pins the OTHER half, that a load→save cycle
+    // cannot drop what the file said, whatever today's default happens to be.
+    const on = hydrateSettings('{"mcpServer":true}')!;
+    expect(on.settings.mcpServer).toBe(true);
+    expect(JSON.parse(serializeSettings(on)).mcpServer).toBe(true);
+    const off = hydrateSettings('{"mcpServer":false}')!;
+    expect(JSON.parse(serializeSettings(off)).mcpServer).toBe(false);
   });
 
   it("snaps a malformed mcpServer back to the default (off)", () => {
@@ -435,7 +446,12 @@ describe("hydrateSettings — notifications bag", () => {
       mode: "system",
       mutedPlugins: ["keepdeck.run"],
     };
-    expect(hydrateSettings(serializeSettings(doc))).toEqual(doc);
+    const back = hydrateSettings(serializeSettings(doc))!;
+    expect(back.settings).toEqual(doc.settings);
+    expect(back.extras).toEqual({});
+    // Reading a written key back records it as explicit: the file said it, so
+    // the file keeps saying it.
+    expect(back.explicit).toEqual(new Set(["notifications"]));
   });
 
   it("withPluginMuted adds once, removes cleanly, and never mutates the input", () => {
@@ -491,7 +507,59 @@ describe("serializeSettings", () => {
     const doc = defaultSettingsDocument();
     doc.settings.defaultAgent = "opencode";
     doc.settings.scrollback = 42_000;
-    expect(hydrateSettings(serializeSettings(doc))).toEqual(doc);
+    const back = hydrateSettings(serializeSettings(doc))!;
+    expect(back.settings).toEqual(doc.settings);
+    expect(back.explicit).toEqual(new Set(["defaultAgent", "scrollback"]));
+  });
+});
+
+describe("an explicit choice survives a change of default", () => {
+  it("keeps a stored value that merely EQUALS today's default", () => {
+    // The whole point: sparse storage cannot tell "never chosen" from "chosen,
+    // and it matches today's default" — so anything the file said stays said.
+    const doc = hydrateSettings('{"usageDisplay":"used","dockMode":"docked"}')!;
+    const out = JSON.parse(serializeSettings(doc));
+    expect(out.usageDisplay).toBe("used");
+    expect(out.dockMode).toBe("docked");
+  });
+
+  it("a later build that flips the default does NOT override the user", () => {
+    // Simulate tomorrow's release: the stored file chose `tray`, and `tray` is
+    // today's default. If the save dropped it, a build defaulting to `none`
+    // would silently change the user's deck. The value therefore stays in the
+    // file, where the next build reads it back over its own default.
+    const stored = serializeSettings(hydrateSettings('{"minimizeStyle":"tray"}')!);
+    expect(JSON.parse(stored).minimizeStyle).toBe("tray");
+    expect(hydrateSettings(stored)!.settings.minimizeStyle).toBe("tray");
+  });
+
+  it("withSettings marks the patched key, default-valued or not", () => {
+    const chosen = withSettings(defaultSettingsDocument(), {
+      mcpServer: false,
+    });
+    expect(chosen.explicit).toEqual(new Set(["mcpServer"]));
+    expect(JSON.parse(serializeSettings(chosen)).mcpServer).toBe(false);
+    // Choosing does not disturb the neighbours' sparseness.
+    expect(serializeSettings(chosen)).not.toContain("remoteAgents");
+  });
+
+  it("withSettings accumulates keys and never mutates its input", () => {
+    const base = defaultSettingsDocument();
+    const once = withSettings(base, { defaultYolo: false });
+    const twice = withSettings(once, { dockMode: "docked" });
+    expect(twice.explicit).toEqual(new Set(["defaultYolo", "dockMode"]));
+    expect(once.explicit).toEqual(new Set(["defaultYolo"]));
+    expect(base.explicit).toEqual(new Set());
+  });
+
+  it("a value the file carried but we could not use is NOT kept explicit", () => {
+    // Re-writing garbage as a synthesized default would grow the file on every
+    // load while recording no decision at all.
+    const doc = hydrateSettings('{"dockMode":"sideways","mcpServer":"yes"}')!;
+    expect(doc.explicit).toEqual(new Set());
+    const out = serializeSettings(doc);
+    expect(out).not.toContain("dockMode");
+    expect(out).not.toContain("mcpServer");
   });
 });
 

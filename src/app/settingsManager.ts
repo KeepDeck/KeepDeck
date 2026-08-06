@@ -2,6 +2,7 @@ import {
   defaultSettingsDocument,
   hydrateSettings,
   serializeSettings,
+  withSettings,
   type Settings,
   type SettingsDocument,
 } from "../domain/settings";
@@ -81,10 +82,10 @@ export function getSettings(): Settings | null {
  * keys ride along untouched. No-op before the load settles. */
 export function updateSettings(patch: Partial<Settings>): void {
   if (!doc) return;
-  const next: SettingsDocument = {
-    settings: { ...doc.settings, ...patch },
-    extras: doc.extras,
-  };
+  // `withSettings`, not a spread: a patched key must also be recorded as
+  // explicitly chosen, or a value equal to today's default is dropped from the
+  // file and a later change of default silently overrides the user.
+  const next = withSettings(doc, patch);
   apply(next);
   const json = serializeSettings(next);
   chain = chain.then(() =>
