@@ -17,6 +17,9 @@ import { collectExtras, isRecord } from "../json";
  * - serialization is sparse — only keys that differ from the default are
  *   written, so a default improved in a later version reaches every user who
  *   never overrode it.
+ *
+ * Every key is declared exactly once, in [`SETTINGS_CODECS`]; the defaults and
+ * the known-key set are DERIVED from it.
  */
 
 // Revision + compatibility floor live with every other document's in
@@ -161,26 +164,123 @@ export interface Settings {
   mcpServer: boolean;
 }
 
-export const DEFAULT_SETTINGS: Settings = {
-  defaultAgent: "claude",
-  defaultYolo: false,
-  scrollback: 10_000,
-  deckLayout: "grid",
-  minimizeStyle: "tray",
-  suspendedAgentPlacement: "pane",
-  dockMode: "docked",
-  plugins: { enabled: {}, values: {}, consented: {} },
-  notifications: { enabled: true, mode: "system-and-app", mutedPlugins: [] },
-  usageDisplay: "used",
-  remoteAgents: false,
-  parkAgentsOnLaunch: false,
-  mcpServer: false,
-};
+/** Every settings key. Derived from [`SETTINGS_CODECS`], so the key set has
+ * exactly one home. */
+export type SettingsKey = keyof Settings;
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
  * above ~200k xterm's buffer memory (per pane, up to 16 panes) bites. */
 export const SCROLLBACK_MIN = 1_000;
 export const SCROLLBACK_MAX = 200_000;
+
+/** The default bags, standalone so both the codec table and the bags' own
+ * readers can name them: a reader that degrades to "the default" must return
+ * THIS object, and deriving the defaults from the table would otherwise make
+ * the two mutually recursive. Their object IDENTITY is load-bearing — see
+ * [`readNotifications`]. */
+const DEFAULT_PLUGINS: Settings["plugins"] = {
+  enabled: {},
+  values: {},
+  consented: {},
+};
+const DEFAULT_NOTIFICATIONS: Settings["notifications"] = {
+  enabled: true,
+  mode: "system-and-app",
+  mutedPlugins: [],
+};
+
+/**
+ * How ONE setting is read from the stored document, and what it falls back to.
+ *
+ * `read` answers `undefined` for anything this build cannot use — absent, the
+ * wrong type, outside the allow-list — and hydration then keeps the default.
+ * It returns the accepted VALUE rather than merely vouching for the raw one,
+ * because readers normalize: scrollback clamps, and the two bags rebuild
+ * themselves entry by entry.
+ */
+interface SettingCodec<T> {
+  default: T;
+  read(stored: unknown): T | undefined;
+}
+
+/** A reader for a closed set of string literals: the stored value when the
+ * allow-list admits it. */
+function readOneOf<T extends string>(
+  allowed: readonly T[],
+): (stored: unknown) => T | undefined {
+  return (stored) => (allowed.includes(stored as T) ? (stored as T) : undefined);
+}
+
+function readBoolean(stored: unknown): boolean | undefined {
+  return typeof stored === "boolean" ? stored : undefined;
+}
+
+/** Any non-empty string id is kept: the id set is open (agents come from
+ * plugins, hydration runs before their bootstrap). A preference whose plugin
+ * is gone simply loses the picker vote — `defaultAgentType` snaps to the first
+ * selectable agent. */
+function readAgentId(stored: unknown): AgentType | undefined {
+  return typeof stored === "string" && stored ? stored : undefined;
+}
+
+/** A stored scrollback is CLAMPED rather than rejected — a hand-edited 5 or
+ * 1e9 is a real intent expressed out of range. Only a non-number degrades. */
+function readScrollback(stored: unknown): number | undefined {
+  return typeof stored === "number" && Number.isFinite(stored)
+    ? clampScrollback(stored)
+    : undefined;
+}
+
+/**
+ * THE settings table: every key's default and its tolerant reader, together.
+ *
+ * The mapped type over `SettingsKey` is TOTAL, so adding a field to
+ * [`Settings`] without a codec here is a compile error — which is the whole
+ * point. A key used to live in four uncoupled places (the interface, the
+ * defaults object, a hand-written `if` in hydration, and the known-key set).
+ * Omitting the `if` left a setting that looked wired up but was never
+ * restored, and the sparse writer then ERASED it from disk on the next save —
+ * silently, with the file still looking healthy. Nothing caught that, and it
+ * is the shape every "my settings reset after the update" report takes.
+ *
+ * Key ORDER here is the order a saved document lists its keys.
+ */
+const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
+  defaultAgent: { default: "claude", read: readAgentId },
+  defaultYolo: { default: false, read: readBoolean },
+  scrollback: { default: 10_000, read: readScrollback },
+  deckLayout: { default: "grid", read: readOneOf(DECK_LAYOUTS) },
+  minimizeStyle: { default: "tray", read: readOneOf(MINIMIZE_STYLES) },
+  suspendedAgentPlacement: {
+    default: "pane",
+    read: readOneOf(SUSPENDED_AGENT_PLACEMENTS),
+  },
+  dockMode: { default: "docked", read: readOneOf(DOCK_MODES) },
+  plugins: { default: DEFAULT_PLUGINS, read: readPlugins },
+  notifications: { default: DEFAULT_NOTIFICATIONS, read: readNotifications },
+  usageDisplay: { default: "used", read: readOneOf(USAGE_DISPLAYS) },
+  remoteAgents: { default: false, read: readBoolean },
+  parkAgentsOnLaunch: { default: false, read: readBoolean },
+  mcpServer: { default: false, read: readBoolean },
+};
+
+/** Every setting at its default — DERIVED from the table, never hand-kept.
+ * `Object.fromEntries` cannot carry the per-key types, so this is the one
+ * place they are re-assembled into `Settings`; the table's totality is what
+ * makes the assertion sound (a missing key fails to compile up there, so it
+ * cannot be missing down here). */
+export const DEFAULT_SETTINGS: Settings = Object.fromEntries(
+  settingsCodecs().map(([key, codec]) => [key, codec.default]),
+) as unknown as Settings;
+
+/** The table as entries, typed once so hydration and the derivations above
+ * don't each re-assert the key type. */
+function settingsCodecs(): [SettingsKey, SettingCodec<unknown>][] {
+  return Object.entries(SETTINGS_CODECS) as [
+    SettingsKey,
+    SettingCodec<unknown>,
+  ][];
+}
 
 /** A settings value plus the unknown top-level keys of the stored document,
  * carried so a save can write them back verbatim. */
@@ -200,7 +300,7 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "version",
   "minVersion",
   "experimentRunPresets",
-  ...Object.keys(DEFAULT_SETTINGS),
+  ...Object.keys(SETTINGS_CODECS),
 ]);
 
 /** Clamp a raw scrollback to a sane whole number of lines. */
@@ -220,19 +320,19 @@ export function withPluginMuted(
 }
 
 /**
- * Tolerant read of the persisted plugin settings bag: `null` when there's
+ * Tolerant read of the persisted plugin settings bag: `undefined` when there's
  * nothing to keep — an absent/malformed field, or one whose sub-parts all
  * degrade to empty — so hydration leaves `settings.plugins` pointing at the
- * shared `DEFAULT_SETTINGS.plugins` object and a later save stays sparse
- * (mirrors how a malformed value elsewhere degrades to its exact default,
- * object identity included, instead of a fresh-but-equal object that would
- * defeat the `!==`-against-default check in `serializeSettings`).
+ * shared default object and a later save stays sparse (mirrors how a malformed
+ * value elsewhere degrades to its exact default, object identity included,
+ * instead of a fresh-but-equal object that would defeat the `!==`-against-
+ * default check in `serializeSettings`).
  *
  * Each of `enabled` and `values` degrades independently, and within each, one
  * bad entry never drops its siblings — the file is hand-editable.
  */
-function readPlugins(value: unknown): Settings["plugins"] | null {
-  if (!isRecord(value)) return null;
+function readPlugins(value: unknown): Settings["plugins"] | undefined {
+  if (!isRecord(value)) return undefined;
   const enabled: Record<string, boolean> = {};
   if (isRecord(value.enabled)) {
     for (const [id, v] of Object.entries(value.enabled)) {
@@ -258,7 +358,7 @@ function readPlugins(value: unknown): Settings["plugins"] | null {
     Object.keys(values).length === 0 &&
     Object.keys(consented).length === 0
   ) {
-    return null;
+    return undefined;
   }
   return { enabled, values, consented };
 }
@@ -266,14 +366,16 @@ function readPlugins(value: unknown): Settings["plugins"] | null {
 /**
  * Tolerant read of the notifications bag, per-field like everything else:
  * a malformed field falls back to its own default without dragging the
- * siblings down. `null` when the result IS the default — hydration then keeps
- * `settings.notifications` pointing at `DEFAULT_SETTINGS.notifications` so
- * the sparse-write `!==`-against-default check stays correct (the same
+ * siblings down. `undefined` when the result IS the default — hydration then
+ * keeps `settings.notifications` pointing at the shared default object so the
+ * sparse-write `!==`-against-default check stays correct (the same
  * object-identity contract as [`readPlugins`]).
  */
-function readNotifications(value: unknown): Settings["notifications"] | null {
-  if (!isRecord(value)) return null;
-  const defaults = DEFAULT_SETTINGS.notifications;
+function readNotifications(
+  value: unknown,
+): Settings["notifications"] | undefined {
+  if (!isRecord(value)) return undefined;
+  const defaults = DEFAULT_NOTIFICATIONS;
   const enabled =
     typeof value.enabled === "boolean" ? value.enabled : defaults.enabled;
   const mode = NOTIFICATION_MODES.includes(value.mode as NotificationsMode)
@@ -292,11 +394,10 @@ function readNotifications(value: unknown): Settings["notifications"] | null {
     mode === defaults.mode &&
     mutedPlugins.length === 0
   ) {
-    return null;
+    return undefined;
   }
   return { enabled, mode, mutedPlugins };
 }
-
 
 /**
  * Restore settings from stored JSON. Returns `null` only for a document that
@@ -321,57 +422,17 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   // half-understanding it would be worse than defaults + kept evidence).
   if (settingsFloorBreach(doc) !== null) return null;
 
-  const settings: Settings = { ...DEFAULT_SETTINGS };
-  // Any non-empty string id is kept: the id set is open (agents come from
-  // plugins, hydration runs before their bootstrap). A preference whose
-  // plugin is gone simply loses the picker vote — `defaultAgentType` snaps
-  // to the first selectable agent.
-  if (typeof doc.defaultAgent === "string" && doc.defaultAgent) {
-    settings.defaultAgent = doc.defaultAgent;
+  const settings = { ...DEFAULT_SETTINGS } as Record<SettingsKey, unknown>;
+  for (const [key, codec] of settingsCodecs()) {
+    // `in` rather than an undefined check: JSON cannot carry `undefined`, so
+    // presence is exactly "the file said something about this key" — which is
+    // what separates an absent key from one whose value we had to discard.
+    if (!(key in doc)) continue;
+    const value = codec.read(doc[key]);
+    if (value === undefined) continue;
+    settings[key] = value;
   }
-  if (typeof doc.defaultYolo === "boolean") {
-    settings.defaultYolo = doc.defaultYolo;
-  }
-  if (typeof doc.scrollback === "number" && Number.isFinite(doc.scrollback)) {
-    settings.scrollback = clampScrollback(doc.scrollback);
-  }
-  if (DECK_LAYOUTS.includes(doc.deckLayout as DeckLayout)) {
-    settings.deckLayout = doc.deckLayout as DeckLayout;
-  }
-  if (MINIMIZE_STYLES.includes(doc.minimizeStyle as MinimizeStyle)) {
-    settings.minimizeStyle = doc.minimizeStyle as MinimizeStyle;
-  }
-  if (
-    SUSPENDED_AGENT_PLACEMENTS.includes(
-      doc.suspendedAgentPlacement as SuspendedAgentPlacement,
-    )
-  ) {
-    settings.suspendedAgentPlacement =
-      doc.suspendedAgentPlacement as SuspendedAgentPlacement;
-  }
-  if (DOCK_MODES.includes(doc.dockMode as DockMode)) {
-    settings.dockMode = doc.dockMode as DockMode;
-  }
-  const notifications = readNotifications(doc.notifications);
-  if (notifications) settings.notifications = notifications;
-  if (USAGE_DISPLAYS.includes(doc.usageDisplay as UsageDisplay)) {
-    settings.usageDisplay = doc.usageDisplay as UsageDisplay;
-  }
-  if (typeof doc.remoteAgents === "boolean") {
-    settings.remoteAgents = doc.remoteAgents;
-  }
-  if (typeof doc.parkAgentsOnLaunch === "boolean") {
-    settings.parkAgentsOnLaunch = doc.parkAgentsOnLaunch;
-  }
-  if (typeof doc.mcpServer === "boolean") {
-    settings.mcpServer = doc.mcpServer;
-  }
-  const plugins = readPlugins(doc.plugins);
-  // Only replace the default's object reference when there's genuinely
-  // something to keep — otherwise `settings.plugins` stays pointing at
-  // `DEFAULT_SETTINGS.plugins`, which is what lets serialization's `!==`
-  // default check correctly treat an all-empty bag as sparse (unwritten).
-  if (plugins) settings.plugins = plugins;
+  const restored = settings as Settings;
   // Settings v5 graduation: the retired run-presets experiment flag maps onto
   // the Run plugin's enabled toggle so a user's prior state carries across the
   // transition — someone who had the experiment ON keeps Run on (plugins now
@@ -381,18 +442,18 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   // re-apply the mapping after the user later toggles the plugin.
   if (
     typeof doc.experimentRunPresets === "boolean" &&
-    settings.plugins.enabled["keepdeck.run"] === undefined
+    restored.plugins.enabled["keepdeck.run"] === undefined
   ) {
-    settings.plugins = {
-      ...settings.plugins,
+    restored.plugins = {
+      ...restored.plugins,
       enabled: {
-        ...settings.plugins.enabled,
+        ...restored.plugins.enabled,
         "keepdeck.run": doc.experimentRunPresets,
       },
     };
   }
 
-  return { settings, extras: collectExtras(doc, KNOWN_KEYS) };
+  return { settings: restored, extras: collectExtras(doc, KNOWN_KEYS) };
 }
 
 /** Serialize for storage: version, preserved extras, then only the settings
@@ -403,8 +464,8 @@ export function serializeSettings(doc: SettingsDocument): string {
     minVersion: SETTINGS_MIN_READER,
     ...doc.extras,
   };
-  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
-    if (doc.settings[key] !== DEFAULT_SETTINGS[key]) out[key] = doc.settings[key];
+  for (const [key, codec] of settingsCodecs()) {
+    if (doc.settings[key] !== codec.default) out[key] = doc.settings[key];
   }
   return JSON.stringify(out);
 }
