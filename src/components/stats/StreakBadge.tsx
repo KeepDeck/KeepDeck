@@ -1,4 +1,5 @@
 import { useId, useMemo } from "react";
+import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { latestOccurredAt } from "../../domain/usage/history/query";
 import {
@@ -24,19 +25,33 @@ import { useWallClock } from "../../ui/useWallClock";
  */
 export function StreakBadge() {
   const history = useUsageHistorySnapshot();
+  const usage = useUsage();
   // Wall-clock-derived: a dialog left open across midnight must notice the
   // day change without a ledger append. Memoized on the shared clock — the
   // full-ledger scan runs per tick/append, never per render. The ledger's
-  // newest instant floors the clock: an event recorded on a fresh UTC day
+  // newest instant floors the clock: an event recorded on a fresh day
   // extends the streak immediately, not on the next tick.
   const latest = useMemo(
     () => latestOccurredAt(history.events),
     [history.events],
   );
   const now = useWallClock(latest);
+  // BOTH witnesses. The ledger proves the days you spent something; a live
+  // report proves today before that spend exists, and the gap between them
+  // is a whole first turn — long enough that the count looked stuck while
+  // the user was plainly working. A report is not merely "the app is open":
+  // it is emitted from an agent's own answer, so it means the same thing
+  // the ledger means, only sooner.
+  const activeAt = useMemo(
+    () => [
+      ...history.events.map((event) => event.occurredAt),
+      ...[...usage.panes.values()].map((pane) => pane.reportedAt),
+    ],
+    [history.events, usage.panes],
+  );
   const days = useMemo(
-    () => currentStreakDays(history.events, now),
-    [history.events, now],
+    () => currentStreakDays(activeAt, now),
+    [activeAt, now],
   );
   if (days === 0) return null;
   const heat = streakHeat(days);

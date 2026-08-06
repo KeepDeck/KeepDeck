@@ -1,4 +1,3 @@
-import type { UsageEventV2 } from "./history/event";
 import { localDayNumber } from "./time";
 
 /**
@@ -12,16 +11,24 @@ import { localDayNumber } from "./time";
  * today is the reader's own — bucketing it in UTC meant the count turned
  * over at 03:00 for a UTC+3 reader, so a session after midnight extended
  * yesterday and left the day it happened on looking empty.
+ *
+ * INSTANTS, not events. Activity has two witnesses and this function knows
+ * neither: recorded spend, and a live report that has not become spend yet.
+ * It used to read the ledger and behave as though that were the only
+ * evidence there is, which is why the count lagged the start of work — the
+ * first report of a session seeds a baseline and writes nothing, so nothing
+ * reached the ledger until the first turn actually spent something. Who
+ * counts as a witness is the caller's question; this one is about days.
  */
 
 export function currentStreakDays(
-  events: readonly UsageEventV2[],
+  activeAt: Iterable<number>,
   now: number,
 ): number {
   const days = new Set<number>();
-  for (const event of events) {
-    if (event.occurredAt > now) continue;
-    days.add(localDayNumber(event.occurredAt));
+  for (const at of activeAt) {
+    if (at > now) continue;
+    days.add(localDayNumber(at));
   }
   const today = localDayNumber(now);
   const anchor = days.has(today) ? today : days.has(today - 1) ? today - 1 : null;

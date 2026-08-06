@@ -16,6 +16,18 @@ vi.mock("../../app/useUsageHistorySnapshot", () => ({
   useUsageHistorySnapshot: () => history.snapshot,
 }));
 
+/** The LIVE side: a pane that has reported today proves the reader is here
+ * before that report has become recorded spend. */
+const usage = vi.hoisted(() => ({
+  snapshot: {
+    accounts: new Map(),
+    panes: new Map<string, { agent: string; reportedAt: number }>(),
+  },
+}));
+vi.mock("../../app/useUsage", () => ({
+  useUsage: () => usage.snapshot,
+}));
+
 import {
   TEST_NOW,
   usageEvent as baseEvent,
@@ -55,8 +67,15 @@ describe("StreakBadge", () => {
     vi.useRealTimers();
   });
 
-  const render = (events: UsageEventV2[]) => {
+  const render = (events: UsageEventV2[], reportedAt?: number) => {
     history.snapshot = { ready: true, events, error: null, complete: true };
+    usage.snapshot = {
+      accounts: new Map(),
+      panes:
+        reportedAt === undefined
+          ? new Map()
+          : new Map([["pane-1", { agent: "claude", reportedAt }]]),
+    };
     act(() => root.render(createElement(StreakBadge)));
     return host.querySelector(".stats__streak");
   };
@@ -91,6 +110,32 @@ describe("StreakBadge", () => {
 
     expect(render(streakOf(31))!.className).toContain("stats__streak--blaze");
     expect(render(streakOf(101))!.className).toContain("stats__streak--inferno");
+  });
+
+  it("counts today from a live report, before it has become recorded spend", () => {
+    // THE lag. The first report of a session seeds a baseline and writes
+    // nothing to the ledger, so nothing landed there until the first turn
+    // actually spent something — the count sat on yesterday's number while
+    // the user was plainly working. A report is emitted from an agent's own
+    // answer, so it means the same thing the ledger means, only sooner.
+    const yesterdayOnly = [
+      baseEvent({ eventId: "y", occurredAt: NOW - DAY }),
+      baseEvent({ eventId: "y2", occurredAt: NOW - 2 * DAY }),
+    ];
+    expect(render(yesterdayOnly)!.getAttribute("aria-label")).toBe(
+      "2-day streak",
+    );
+    expect(render(yesterdayOnly, NOW - 60_000)!.getAttribute("aria-label")).toBe(
+      "3-day streak",
+    );
+  });
+
+  it("does not let a stale report claim today", () => {
+    // A pane whose last word was yesterday proves yesterday, not now.
+    const yesterdayOnly = [baseEvent({ eventId: "y", occurredAt: NOW - DAY })];
+    expect(render(yesterdayOnly, NOW - DAY)!.getAttribute("aria-label")).toBe(
+      "1-day streak",
+    );
   });
 
   it("says nothing at all once the streak is broken", () => {
