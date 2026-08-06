@@ -182,6 +182,8 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       needs the two cases apart: it may adopt a better default for a v15
  *       file's absent key, while a v≤14 file's absent key may still be
  *       hiding a deliberate choice.
+ *  16 — + agentMail: the Experimental toggle for messages between agent
+ *       panes (off by default).
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -189,7 +191,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 15;
+export const SETTINGS_VERSION = 16;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

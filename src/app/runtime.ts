@@ -23,6 +23,9 @@ import {
 } from "./downloadManager";
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
+import { commands } from "./commandRegistry";
+import { readDeck } from "./deckSurface";
+import { createMailService, deliverMailThroughPty } from "./mail";
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdByMcpToken, peekPaneSpawnSpec } from "./spawnSpecs";
@@ -82,6 +85,12 @@ export function createAppRuntime(
   const paneInputFocus = createPaneInputFocusController();
   const paneViewActions = createPaneViewActions(deckStore, paneInputFocus);
   const deckPersistence = createDeckPersistence(deckStore);
+  /** How a pane reads, for anything that has to name one. Read per call — a
+   * plugin can be installed or removed while the deck is up. */
+  const agentLabels = () =>
+    plugins.pluginRegistries.agents
+      .list()
+      .map(({ entry }) => ({ id: entry.id, label: entry.label }));
   const minimizePolicy = createMinimizePolicy(deckStore, {
     minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
     subscribe: subscribeSettings,
@@ -104,10 +113,7 @@ export function createAppRuntime(
       identify: createPaneIdentity({
         workspaces: () => deckStore.getSnapshot().workspaces,
         paneOf: paneIdByMcpToken,
-        agents: () =>
-          plugins.pluginRegistries.agents
-            .list()
-            .map(({ entry }) => ({ id: entry.id, label: entry.label })),
+        agents: agentLabels,
       }),
     },
   );
@@ -139,10 +145,38 @@ export function createAppRuntime(
     workspaces: () => deckStore.getSnapshot().workspaces,
     secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
   });
+  // Mail exists only while its Experimental toggle is on, so the lifecycle
+  // owner looks it up instead of holding it — hence the forward reference.
   const lifecycle = createPaneLifecycle(
     usageManager,
     statusTracker,
     attribution,
+    () => mail.current(),
+  );
+  const mail = createMailService(
+    {
+      agentMail: () => getSettings()?.agentMail ?? null,
+      subscribe: subscribeSettings,
+    },
+    {
+      registry: commands,
+      activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
+      subscribeActivity: statusTracker.subscribe,
+      deliver: deliverMailThroughPty,
+      livePaneIds: () =>
+        new Set(
+          deckStore
+            .getSnapshot()
+            .workspaces.flatMap((workspace) =>
+              workspace.panes.map((pane) => pane.id),
+            ),
+        ),
+      subscribePanes: deckStore.subscribe,
+      commands: {
+        deck: () => readDeck(deckStore),
+        agents: agentLabels,
+      },
+    },
   );
   const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager(
@@ -214,6 +248,7 @@ export function createAppRuntime(
     paneInputFocus,
     paneViewActions,
     mcp,
+    mail,
     usageManager,
     activityWitness,
     statusTracker,
@@ -280,6 +315,7 @@ export function createAppRuntime(
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       minimizePolicy.dispose();
+      mail.dispose();
       mcp.dispose();
       journalPersistence.dispose();
       sessionBinding?.dispose();

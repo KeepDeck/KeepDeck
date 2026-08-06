@@ -1,4 +1,3 @@
-import type { AgentInfo } from "../agents";
 import type { Pane, Workspace } from "../deck";
 import { paneDisplayTitle } from "../deck";
 
@@ -40,7 +39,13 @@ export function resolveWorkspaceRef(
  */
 export function resolvePaneRef(
   ws: Workspace,
-  agents: AgentInfo[],
+  // Only what naming a pane actually needs, which is what `paneDisplayTitle`
+  // takes. `AgentInfo[]` satisfies it, so every existing caller is unchanged
+  // — but a caller that can produce labels without assembling a full catalog
+  // (the composition root reads them straight off the plugin registry) no
+  // longer has to invent `command`, `features` and `installed` to ask a
+  // question that never reads them.
+  agents: readonly { id: string; label: string }[],
   ref: string,
 ): Resolved<Pane> {
   const byId = ws.panes.find((p) => p.id === ref);

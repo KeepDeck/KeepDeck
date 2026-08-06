@@ -136,6 +136,16 @@ export interface Settings {
    * brings the socket up, Off tears it down and disconnects its clients.
    * Default off; opt-in only while the feature is experimental. */
   mcpServer: boolean;
+  /** Messages between agent panes ([F6] → Experimental): agents can write to
+   * each other through the deck. A LIVE switch in both directions, and it
+   * gates the whole feature rather than half of it — Off unregisters the
+   * `mail.*` commands (so they stop being MCP tools) AND stops delivery, or
+   * a pane could receive what it has no way to answer.
+   *
+   * Needs `mcpServer` to be useful: sending is an MCP call, and with the
+   * socket down nothing can make one. Default off; opt-in only while the
+   * feature is experimental. */
+  agentMail: boolean;
 }
 
 /** Every settings key. `keyof Settings` here, and the codec table is checked

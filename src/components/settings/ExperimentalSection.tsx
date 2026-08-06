@@ -13,12 +13,19 @@ import { writeText } from "../../ipc/clipboard";
  * typography match every other section, and each choice persists across
  * restarts like every other setting.
  *
- * The two toggles gate differently — the hints say so, this is why: Remote
+ * The toggles gate differently — the hints say so, this is why: Remote
  * agents gates the CREATION surface (the "+ Agent" dialog) only, so turning
  * it off hides the option going forward while existing remote panes keep
  * their endpoint until closed. MCP server is a LIVE switch in both
  * directions: On brings the deck's command socket up, Off tears it down and
- * disconnects its clients.
+ * disconnects its clients. Agent mail is live in both directions too, and
+ * gates BOTH halves of its feature — off, nothing can be sent and nothing
+ * is delivered.
+ *
+ * Agent mail depends on the MCP server and says so only when the pairing is
+ * actually wrong. Delivery reaches a pane through its terminal either way,
+ * but sending is an MCP call, so mail-on/socket-off is the one combination
+ * that leaves a pane able to receive and unable to answer.
  *
  * The connect row keys on the CONFIRMED transport status, not the setting:
  * the setting is a wish, and the two differ exactly when the user most needs
@@ -33,6 +40,7 @@ export function ExperimentalSection() {
   const remoteAgents =
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
   const mcpServer = settings?.mcpServer ?? DEFAULT_SETTINGS.mcpServer;
+  const agentMail = settings?.agentMail ?? DEFAULT_SETTINGS.agentMail;
   const mcpStatus = useMcpStatus();
   const served = mcpStatus.socket !== null;
   // The invocation comes from the transport's own status — a fact about the
@@ -156,6 +164,38 @@ export function ExperimentalSection() {
         <span className="settings__hint kd-selectable">
           The server is up, but the connect command could not be determined:{" "}
           {connectError}
+        </span>
+      )}
+
+      <span className="form__label">Agent mail</span>
+      <div className="form__types">
+        {[true, false].map((on) => (
+          <button
+            key={String(on)}
+            type="button"
+            className={`form__type${agentMail === on ? " form__type--active" : ""}`}
+            onClick={() => updateSettings({ agentMail: on })}
+          >
+            {on ? "On" : "Off"}
+          </button>
+        ))}
+      </div>
+      <span className="settings__hint">
+        Lets agents write to each other through the deck — a lead can hand out
+        a task, and an agent stuck on something can ask another and get an
+        answer. A message waits while its pane sits on a permission prompt,
+        and is dropped rather than delivered late. Off by default — the
+        feature is experimental.
+      </span>
+
+      {agentMail && !mcpServer && (
+        // Stated only in the combination that is actually broken. Delivery
+        // rides the pane's terminal and works regardless, but SENDING is an
+        // MCP call — so with the socket down a pane can be written to and has
+        // no way to answer, which is worse than the feature being off.
+        <span className="settings__hint">
+          Turn the MCP server on as well: agents send mail by calling the
+          deck, so with the socket down they can receive but never reply.
         </span>
       )}
     </>
