@@ -84,10 +84,53 @@ describe("decideDelivery", () => {
     expect(decideDelivery(mail(), working, justInTime)).toEqual({ kind: "deliver" });
   });
 
+  it("waits for a turn boundary when the agent will come asking", () => {
+    // The channel split: a running turn is the one state where a BETTER way
+    // in is coming, because the agent asks the deck when the turn ends and
+    // an answer given there is labelled rather than pasted.
+    expect(decideDelivery(mail(), working, SENT_AT, MAIL_LIMITS, true)).toEqual({
+      kind: "hold",
+      reason: "turn-boundary",
+    });
+  });
+
+  it("gives up waiting and uses the terminal rather than losing the message", () => {
+    // A turn can run far longer than a course correction stays useful.
+    // Late-but-labelled is worth a short wait; never-because-we-waited is
+    // not.
+    const spent = SENT_AT + MAIL_LIMITS.hookWaitMs;
+    expect(decideDelivery(mail(), working, spent, MAIL_LIMITS, true)).toEqual({
+      kind: "deliver",
+    });
+  });
+
+  it("waits only for a RUNNING turn — an idle agent will never come asking", () => {
+    // Nothing fires a turn-end hook for a pane that has stopped, so holding
+    // one of these would be holding it until it expired.
+    for (const activity of [done, failed, asking]) {
+      expect(decideDelivery(mail(), activity, SENT_AT, MAIL_LIMITS, true)).toEqual({
+        kind: "deliver",
+      });
+    }
+    // ...and a permission prompt is still the dangerous case, hook or not.
+    expect(decideDelivery(mail(), approving, SENT_AT, MAIL_LIMITS, true)).toEqual({
+      kind: "hold",
+      reason: "permission",
+    });
+  });
+
+  it("steers straight into a running turn when no hook exists", () => {
+    // The pre-existing behaviour, and what every CLI without a mail-capable
+    // hook still gets.
+    expect(decideDelivery(mail(), working, SENT_AT, MAIL_LIMITS, false)).toEqual({
+      kind: "deliver",
+    });
+  });
+
   it("reads the limits it is given, not only the shipped ones", () => {
     // Guards against the bound being read from the module constant instead
     // of the argument — a bug no default-limits test can see.
-    const limits = { undeliveredMs: 10, maxHops: 1 };
+    const limits = { undeliveredMs: 10, maxHops: 1, hookWaitMs: 5 };
     expect(decideDelivery(mail(), working, SENT_AT + 10, limits)).toEqual({ kind: "expire" });
     expect(decideDelivery(mail(), working, SENT_AT + 9, limits)).toEqual({ kind: "deliver" });
   });

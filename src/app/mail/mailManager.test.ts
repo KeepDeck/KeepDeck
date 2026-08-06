@@ -18,7 +18,7 @@ function last<T>(items: readonly T[]): T | undefined {
   return items[items.length - 1];
 }
 
-function harness() {
+function harness(options: { asksAtTurnEnd?: boolean } = {}) {
   let clock = 1_000;
   let deliverable = true;
   const activity = new Map<string, PaneActivity>();
@@ -37,6 +37,7 @@ function harness() {
       delivered.push(mail);
       return true;
     },
+    asksAtTurnEnd: () => options.asksAtTurnEnd === true,
     now: () => clock,
     schedule: (fn, ms) => {
       timer = { at: clock + ms, fn };
@@ -284,6 +285,54 @@ describe("createMailManager", () => {
     ).toEqual({ ok: false, refusal: "self-addressed" });
     expect(h.delivered).toHaveLength(0);
     expect(h.manager.inbox(A.paneId)).toEqual([]);
+  });
+
+  it("waits out a running turn when the agent will come asking", async () => {
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, { state: "working", since: 500 });
+    const result = h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "careful" });
+    expect(result).toMatchObject({ ok: true, delivered: false });
+    // Not pasted into a running turn: the labelled channel is coming.
+    expect(h.delivered).toHaveLength(0);
+    const taken = h.manager.takeAtTurnEnd(B.paneId);
+    expect(taken.map((mail) => mail.body)).toEqual(["careful"]);
+    // Handed over exactly once — booking is what stops a second channel
+    // delivering the same message again.
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
+    expect(h.manager.inbox(B.paneId)).toHaveLength(1);
+  });
+
+  it("falls back to the terminal when the turn outlasts the wait", () => {
+    // A turn can run far longer than a correction stays useful. Waiting is
+    // bounded precisely so a message is never lost to the waiting.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, { state: "working", since: 500 });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "careful" });
+    expect(h.delivered).toHaveLength(0);
+    h.advance(MAIL_LIMITS.hookWaitMs);
+    expect(h.delivered.map((mail) => mail.body)).toEqual(["careful"]);
+  });
+
+  it("keeps a permission prompt held even when asked at a turn boundary", () => {
+    // The prompt is about the TERMINAL. Arriving through a hook does not
+    // make it safe to answer one.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, approving);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "careful" });
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
+    expect(h.delivered).toHaveLength(0);
+  });
+
+  it("reports an expired message to its sender even on the asking path", () => {
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(A.paneId, done);
+    h.reports(B.paneId, { state: "working", since: 500 });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.advance(MAIL_LIMITS.undeliveredMs);
+    // It aged out along the way; the hand-over yields nothing and the
+    // sender still hears about it.
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
+    expect(h.delivered.map((mail) => mail.kind)).toEqual(["undelivered"]);
   });
 
   it("writes into no pane once disposed, even when still called", () => {

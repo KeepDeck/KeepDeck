@@ -71,6 +71,10 @@ export interface MailManagerDeps {
   /** Hand one message to its pane. False means the pane has no live input
    * channel at this instant — a retry, not a failure. */
   deliver(mail: Mail): boolean;
+  /** Whether this pane's agent asks the deck for its mail when a turn ends.
+   * True means a running turn is worth waiting out — the answer given at
+   * that boundary is labelled, and a paste is not. */
+  asksAtTurnEnd?(paneId: string): boolean;
   now?(): number;
   /** `setTimeout`, injected so tests drive the clock. Returns its cancel. */
   schedule?(fn: () => void, ms: number): () => void;
@@ -80,6 +84,16 @@ export interface MailManagerDeps {
 export interface MailManager {
   /** Accept a message, then try to place it immediately. */
   send(request: MailSendRequest): MailSendResult;
+  /** Hand over everything waiting for this pane, because its agent just
+   * asked at a turn boundary — the moment the labelled channel is open.
+   *
+   * Takes them out of the queue and books them exactly as a delivery does,
+   * so nothing can be handed over twice. Expired messages are dropped and
+   * reported to their senders on the way, the same as any other pass, and
+   * a message held for a permission prompt stays held: the prompt is about
+   * the terminal, and the hook is not going to make it safe.
+   */
+  takeAtTurnEnd(paneId: string): Mail[];
   /** What this pane has been handed, oldest first. `since` is the id of the
    * last message the caller already saw; an id that has aged out of the
    * buffer yields everything still held, which is honest — better a repeat
@@ -102,6 +116,7 @@ function earlier(a: number | null, b: number | null): number | null {
 
 export function createMailManager(deps: MailManagerDeps): MailManager {
   const limits = deps.limits ?? MAIL_LIMITS;
+  const asksAtTurnEnd = deps.asksAtTurnEnd ?? (() => false);
   const now = deps.now ?? (() => Date.now());
   const schedule =
     deps.schedule ??
@@ -156,7 +171,13 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     for (;;) {
       const head = queue[0];
       if (!head) return null;
-      const verdict = decideDelivery(head, deps.activityOf(paneId), at, limits);
+      const verdict = decideDelivery(
+        head,
+        deps.activityOf(paneId),
+        at,
+        limits,
+        asksAtTurnEnd(paneId),
+      );
       if (verdict.kind === "expire") {
         queue.shift();
         const notice = expiryNotice(head, mintId(), at);
@@ -166,8 +187,15 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         }
         continue;
       }
-      // Held: the pane is on a permission prompt or not reporting yet. Both
-      // resolve through the activity subscription, so the only thing left to
+      // Held for a turn boundary: the wait is bounded, so the deadline is
+      // when waiting stops being worth it — not when the message dies.
+      // Missing that distinction would leave a pane whose turn never ends
+      // silently losing its mail instead of falling back to the terminal.
+      if (verdict.kind === "hold" && verdict.reason === "turn-boundary") {
+        return head.at + limits.hookWaitMs;
+      }
+      // Held on a prompt, or on a pane nothing speaks for. Both resolve
+      // through the activity subscription, so the only thing left to
       // schedule is the moment this message stops being worth delivering.
       if (verdict.kind === "hold") return head.at + limits.undeliveredMs;
       const last = lastDeliveryAt.get(paneId);
@@ -238,6 +266,38 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       const pending = queues.get(mail.toPaneId);
       const delivered = !pending?.some((queued) => queued.id === mail.id);
       return { ok: true, id: mail.id, delivered };
+    },
+
+    takeAtTurnEnd(paneId) {
+      const at = now();
+      const queue = queues.get(paneId);
+      if (!queue) return [];
+      const taken: Mail[] = [];
+      while (queue.length > 0) {
+        const head = queue[0];
+        // The clock still rules: a message too old to paste is too old to
+        // hand over politely, and its sender is owed the same report.
+        if (at - head.at >= limits.undeliveredMs) {
+          queue.shift();
+          const notice = expiryNotice(head, mintId(), at);
+          if (notice) enqueue(notice);
+          continue;
+        }
+        // A permission prompt is about the TERMINAL, and arriving through a
+        // hook does not make answering one safe — the pane is still parked
+        // where keystrokes pick menu items. Held, exactly as before.
+        const activity = deps.activityOf(paneId);
+        if (activity?.state === "waiting" && activity.reason === "permission") break;
+        queue.shift();
+        chainHop.set(paneId, head.hop);
+        remember(paneId, head);
+        taken.push(head);
+      }
+      if (queue.length === 0) queues.delete(paneId);
+      // Whatever is left (a held prompt, a fresh notice) still needs its
+      // timer, and the queue just moved under it.
+      drain();
+      return taken;
     },
 
     inbox(paneId, since) {

@@ -14,6 +14,9 @@ export interface MailLimits {
   undeliveredMs: number;
   /** How many mail-caused wakes ONE chain may spend. */
   maxHops: number;
+  /** How long to wait for a running turn to reach its own boundary, where
+   * the agent asks the deck whether anything is waiting. */
+  hookWaitMs: number;
 }
 
 /**
@@ -36,6 +39,7 @@ export interface MailLimits {
 export const MAIL_LIMITS: MailLimits = {
   undeliveredMs: 5 * 60_000,
   maxHops: 8,
+  hookWaitMs: 45_000,
 };
 
 /** Why a message is still sitting undelivered. Both resolve on their own —
@@ -45,7 +49,11 @@ export type MailHoldReason =
   /** The pane is parked on a permission prompt. */
   | "permission"
   /** Nothing is reporting activity for this pane yet. */
-  | "not-reporting";
+  | "not-reporting"
+  /** A turn is running and this agent asks the deck for its mail when that
+   * turn ends. Waiting buys a labelled envelope instead of a paste that
+   * reads like the user typed it. */
+  | "turn-boundary";
 
 export type MailVerdict =
   | { kind: "deliver" }
@@ -65,6 +73,10 @@ export function decideDelivery(
   activity: PaneActivity | undefined,
   now: number,
   limits: MailLimits = MAIL_LIMITS,
+  /** Whether this pane's agent ASKS the deck for its mail when a turn ends.
+   * False for a CLI with no such hook, and for one whose plugin does not
+   * render mail — either way the terminal is the only way in. */
+  asksAtTurnEnd = false,
 ): MailVerdict {
   // Expiry is judged BEFORE deliverability, and the order is the rule, not
   // an accident: the case that matters is a held message whose pane just
@@ -85,6 +97,22 @@ export function decideDelivery(
   // answer, and it is why messages need a clock at all.
   if (activity.state === "waiting" && activity.reason === "permission") {
     return { kind: "hold", reason: "permission" };
+  }
+  // A running turn is the ONE state where a better channel is coming. The
+  // agent will ask the deck at its own turn boundary, and an answer given
+  // there arrives inside the CLI's own envelope — labelled as another
+  // agent's words rather than pasted in looking like the user typed them.
+  //
+  // Bounded, because that is what makes it safe to wait: a turn can run far
+  // longer than a course correction stays useful, so once the wait is spent
+  // the message goes through the terminal after all. Late-but-labelled is
+  // worth a short wait; never-because-we-waited is not.
+  if (
+    asksAtTurnEnd &&
+    activity.state === "working" &&
+    now - mail.at < limits.hookWaitMs
+  ) {
+    return { kind: "hold", reason: "turn-boundary" };
   }
   // Everything else takes it. `working` is steering — a correction mid-run
   // is the normal mode, not an intrusion. `waiting("question")` is a pane
