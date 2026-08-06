@@ -14,6 +14,29 @@ export function utcDayStart(at: number): number {
   return Math.floor(at / DAY_MS) * DAY_MS;
 }
 
+/**
+ * Which of the READER'S calendar days an instant falls on, as a day number.
+ *
+ * Not the same question as `utcDayStart`, and the difference is the whole
+ * point. A UTC bucket is an aggregation boundary: charts and weeks use it so
+ * the same data buckets identically wherever it is read. A streak is not an
+ * aggregation — it is "did I show up today", and today is a fact about the
+ * person's own calendar. At UTC+3 the UTC day turns over at 03:00 local, so
+ * a session at half past midnight counted toward yesterday and the day it
+ * actually happened on looked empty; far enough west the reverse, with an
+ * evening session already landing on tomorrow.
+ *
+ * Consecutive days are consecutive numbers, DST included: this counts
+ * calendar days rather than dividing elapsed milliseconds, so a 23- or
+ * 25-hour day still advances the count by exactly one.
+ */
+export function localDayNumber(at: number): number {
+  const date = new Date(at);
+  return Math.floor(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS,
+  );
+}
+
 export const WEEK_MS = 7 * DAY_MS;
 
 /** UTC Monday 00:00 of the week containing `at` — weeks are UTC buckets

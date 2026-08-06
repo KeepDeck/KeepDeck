@@ -1,12 +1,17 @@
 import type { UsageEventV2 } from "./history/event";
-import { DAY_MS } from "./time";
+import { localDayNumber } from "./time";
 
 /**
- * The CURRENT streak — consecutive active UTC days ending now. Distinct
- * from the achievements' longest-ever streak: this one is alive. The
- * Duolingo rule applies: a streak survives an inactive today (the day is
- * not over), but an inactive yesterday means it is broken and the count
- * starts over.
+ * The CURRENT streak — consecutive active days ending now, in the READER'S
+ * calendar. Distinct from the achievements' longest-ever streak: this one is
+ * alive. The Duolingo rule applies: a streak survives an inactive today (the
+ * day is not over), but an inactive yesterday means it is broken and the
+ * count starts over.
+ *
+ * Local days, not UTC ones. A streak answers "did I show up today", and
+ * today is the reader's own — bucketing it in UTC meant the count turned
+ * over at 03:00 for a UTC+3 reader, so a session after midnight extended
+ * yesterday and left the day it happened on looking empty.
  */
 
 export function currentStreakDays(
@@ -16,9 +21,9 @@ export function currentStreakDays(
   const days = new Set<number>();
   for (const event of events) {
     if (event.occurredAt > now) continue;
-    days.add(Math.floor(event.occurredAt / DAY_MS));
+    days.add(localDayNumber(event.occurredAt));
   }
-  const today = Math.floor(now / DAY_MS);
+  const today = localDayNumber(now);
   const anchor = days.has(today) ? today : days.has(today - 1) ? today - 1 : null;
   if (anchor === null) return 0;
   let streak = 0;

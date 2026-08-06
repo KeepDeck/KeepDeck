@@ -8,6 +8,43 @@ const NOW = TEST_NOW;
 const event = (occurredAt: number) =>
   usageEvent({ occurredAt, capturedAt: occurredAt });
 
+describe("the day a streak counts in", () => {
+  /** Local midnight, whatever zone the suite runs in. */
+  const midnight = (dayOffset = 0) => {
+    const date = new Date(NOW);
+    date.setHours(0, 0, 0, 0);
+    return date.getTime() + dayOffset * DAY;
+  };
+
+  it("turns over at the reader's midnight, not at UTC's", () => {
+    // THE bug. Bucketing on `floor(t / DAY_MS)` puts the boundary at UTC
+    // midnight, so at UTC+3 a session at 00:30 local landed on yesterday
+    // and the day it actually happened on read as empty. Half past
+    // midnight and half past eleven at night are the same local day here,
+    // and in most zones they are NOT the same UTC day.
+    const justAfterMidnight = midnight() + 30 * 60_000;
+    const lateTonight = midnight() + 23 * 60 * 60_000 + 30 * 60_000;
+    const later = midnight() + 12 * 60 * 60_000;
+    expect(currentStreakDays([event(justAfterMidnight)], later)).toBe(1);
+    // Yesterday plus today is two, counted from the reader's calendar.
+    expect(
+      currentStreakDays([event(midnight(-1) + 60_000), event(justAfterMidnight)], later),
+    ).toBe(2);
+    // And a late-night session belongs to the day it feels like, not the
+    // next one — one active day, not two.
+    expect(
+      currentStreakDays([event(justAfterMidnight), event(lateTonight)], lateTonight),
+    ).toBe(1);
+  });
+
+  it("advances by exactly one across a day of any length", () => {
+    // Counting calendar days rather than dividing elapsed milliseconds is
+    // what makes a 23- or 25-hour DST day still worth one day.
+    const days = [4, 3, 2, 1, 0].map((back) => event(midnight(-back) + 9 * 60 * 60_000));
+    expect(currentStreakDays(days, midnight() + 20 * 60 * 60_000)).toBe(5);
+  });
+});
+
 describe("currentStreakDays", () => {
   it("counts consecutive days ending today", () => {
     expect(

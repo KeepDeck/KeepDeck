@@ -383,6 +383,74 @@ describe("usageHistoryManager", () => {
     // contains. A reader deleting on absence would act on this snapshot.
     ipc.loadUsageHistory.mockRejectedValue(new Error("invalid utf-8"));
     await initUsageHistory();
+    const report = (totalTokens: { input: number; output: number }) =>
+      recordPaneUsage(
+        {
+          agent: "opencode",
+          sessionId: "session-1",
+          totalTokens,
+          costUsd: 1,
+          reportedAt: NOW,
+        },
+        context,
+        NOW,
+      );
+    // The first report SEEDS — see the baselineOnly rule in `record`.
+    await report({ input: 100, output: 10 });
+    // The second is a true delta against it, so it appends and clears the
+    // error. Completeness must not follow the error back to true.
+    await report({ input: 130, output: 15 });
+    const snapshot = getUsageHistorySnapshot();
+    expect(snapshot.error).toBeNull();
+    expect(snapshot.events.length).toBeGreaterThan(0);
+    expect(snapshot.complete).toBe(false);
+  });
+
+  it("seeds rather than counts the first report when the ledger is unreadable", async () => {
+    // A CLI reports cumulative totals, so a delta with no baseline is the
+    // WHOLE session — and after a failed load `baselines` is empty while
+    // the history it came from is still on disk. Appending that total
+    // double-counts every token of the session the moment the file becomes
+    // readable again.
+    ipc.loadUsageHistory.mockRejectedValue(new Error("invalid utf-8"));
+    await initUsageHistory();
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 5_000, output: 500 },
+        costUsd: 12,
+        reportedAt: NOW,
+      },
+      context,
+      NOW,
+    );
+    expect(ipc.appendUsageHistory).not.toHaveBeenCalled();
+
+    // The next report is a real delta against that seed: 200 in, 20 out.
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 5_200, output: 520 },
+        costUsd: 12.5,
+        reportedAt: NOW + 1,
+      },
+      context,
+      NOW + 1,
+    );
+    expect(ipc.appendUsageHistory).toHaveBeenCalledTimes(1);
+    const appended = JSON.parse(ipc.appendUsageHistory.mock.calls[0][0][0]);
+    expect(appended.tokens).toMatchObject({ input: 200, output: 20 });
+    expect(appended.costUsd).toBeCloseTo(0.5, 5);
+  });
+
+  it("still counts the first report normally when the ledger read fine", async () => {
+    // The seeding rule is scoped to an unreadable ledger. A healthy empty
+    // history has no hidden past to double-count, so a first report is real
+    // usage and must be recorded as such.
+    ipc.loadUsageHistory.mockResolvedValue([]);
+    await initUsageHistory();
     await recordPaneUsage(
       {
         agent: "opencode",
@@ -394,10 +462,7 @@ describe("usageHistoryManager", () => {
       context,
       NOW,
     );
-    const snapshot = getUsageHistorySnapshot();
-    expect(snapshot.error).toBeNull();
-    expect(snapshot.events.length).toBeGreaterThan(0);
-    expect(snapshot.complete).toBe(false);
+    expect(ipc.appendUsageHistory).toHaveBeenCalledTimes(1);
   });
 
   it("migrates v1 lines and compacts them as v2 instead of erasing history", async () => {

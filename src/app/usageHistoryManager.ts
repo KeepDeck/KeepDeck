@@ -178,7 +178,22 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
       });
       const previous = baselines.get(key);
       const delta = usageDelta(usage, previous, {
-        baselineOnly: context.baselineOnly === true,
+        // SEED, never count, when the ledger could not be read. A CLI
+        // reports cumulative totals, so a delta with no baseline IS the
+        // whole session — and after a failed load `baselines` is empty
+        // while the history it was built from is still sitting on disk.
+        // Appending that total would count every token of the session a
+        // second time, permanently, the moment the file becomes readable
+        // again. Appending still works on a file the load could not open
+        // (`read_to_string` rejects invalid UTF-8; `append` does not), so
+        // this is reachable, not theoretical.
+        //
+        // Seeding is the same move a resumed session already makes with no
+        // checkpoint: this report becomes the baseline, and everything
+        // after it is a true delta. What is lost is the consumption before
+        // the first report of this session — which is exactly what the
+        // unreadable ledger was holding, and cannot be recovered anyway.
+        baselineOnly: context.baselineOnly === true || !loaded,
       });
       if (usageDeltaEmpty(delta)) {
         baselines.set(key, delta.observation);

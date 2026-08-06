@@ -5,7 +5,7 @@ import {
   providerCostOf,
 } from "../history/event";
 import { addMoney } from "../money";
-import { DAY_MS, HOUR_MS, utcDayStart } from "../time";
+import { HOUR_MS, localDayNumber, utcDayStart } from "../time";
 import {
   achievementId,
   earnedTierCount,
@@ -142,7 +142,12 @@ export function createAchievementEngine(): AchievementEngine {
         maxSessionSpendUsd = Math.max(maxSessionSpendUsd, sessionSpend);
       }
 
-      streak.add(day / DAY_MS);
+      // The reader's calendar day, NOT the UTC bucket the peaks above use.
+      // A streak answers "did I show up today"; a peak answers "how big was
+      // the biggest day", and only the first of those is a fact about the
+      // person's own clock. Sharing one bucket made the longest-ever streak
+      // turn over at 03:00 for a UTC+3 reader — see `localDayNumber`.
+      streak.add(localDayNumber(event.occurredAt));
     },
     value: (metric) => values[metric](),
     earnedIds() {

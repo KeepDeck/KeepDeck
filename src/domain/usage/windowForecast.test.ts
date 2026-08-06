@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatPct } from "./format";
+import { formatMoment, formatPct } from "./format";
 import {
   accountWindowKeys,
   currentSegment,
@@ -373,14 +373,20 @@ describe("captions", () => {
   it("names the plot's right edge as a moment, and always names it", () => {
     // The edge already IS "when do I hit 100%" — the out dot sits on it —
     // and it no longer needs a geometry built first to say so.
+    // Compared against the formatter rather than a shape: the fixture's
+    // run-out is 2h35m out, which crosses LOCAL midnight in some zones and
+    // not others, so `/^\d{2}:\d{2}$/` pinned the runner's timezone instead
+    // of the contract. What matters is that the edge names that instant.
     const edge = burnEdgeLabel(FIVE_H, out, NOW);
-    expect(edge.text).toMatch(/^\d{2}:\d{2}$/); // today, so just a clock time
+    expect(edge.text).toBe(
+      formatMoment((out as { outAt: number }).outAt, NOW),
+    );
     expect(edge.level).toBe("warn");
     expect(edge.atReset).toBe(false);
 
     // A surviving pace ends at the reset, and says so.
     const resetEdge = burnEdgeLabel(FIVE_H, ok, NOW);
-    expect(resetEdge.text).toMatch(/^reset \d{2}:\d{2}$/);
+    expect(resetEdge.text).toBe(`reset ${formatMoment(FIVE_H.resetsAt!, NOW)}`);
     expect(resetEdge.atReset).toBe(true);
 
     // No projection at all: the axis ends at now. Saying so is what turns
