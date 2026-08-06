@@ -34,6 +34,9 @@ export interface MailServiceDeps {
   activityOf(paneId: string): PaneActivity | undefined;
   subscribeActivity(listener: () => void): () => void;
   deliver(mail: Mail): boolean;
+  /** Whether this pane's agent asks the deck for its mail at a turn
+   * boundary — see `createMailManager`. */
+  asksAtTurnEnd?(paneId: string): boolean;
   /** The panes that exist right now, and a way to hear about changes.
    * Sweeping is CORRECTNESS, not hygiene: `pane-N` is a reusable slot, so a
    * queue or inbox left behind by a closed pane would be handed to whoever
@@ -72,6 +75,7 @@ export function createMailService(
         activityOf: deps.activityOf,
         subscribeActivity: deps.subscribeActivity,
         deliver: deps.deliver,
+        ...(deps.asksAtTurnEnd ? { asksAtTurnEnd: deps.asksAtTurnEnd } : {}),
       });
       unregister = registerMailCommands(deps.registry, {
         ...deps.commands,

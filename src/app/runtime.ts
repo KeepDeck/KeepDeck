@@ -1,4 +1,4 @@
-import { panesRunningIn } from "../domain/deck";
+import { paneAgentType, panesRunningIn } from "../domain/deck";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
@@ -26,7 +26,7 @@ import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { commands } from "./commandRegistry";
 import { readDeck } from "./deckSurface";
-import { createMailService, deliverMailThroughPty } from "./mail";
+import { answerMailAsk, createMailService, deliverMailThroughPty } from "./mail";
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdByMcpToken, peekPaneSpawnSpec } from "./spawnSpecs";
@@ -42,6 +42,7 @@ import {
   subscribeSessions,
 } from "./ptyManager";
 import { subscribePaneKeys } from "./paneKeys";
+import { replyToBridgeHook } from "../ipc/status";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
@@ -62,6 +63,18 @@ import { createWorktreeManager, deckViewOf } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
+
+/** Which CLI a pane runs, or null when the deck no longer holds it. */
+function paneAgentTypeOf(
+  deck: ReturnType<typeof createDeckStore>,
+  paneId: string,
+): string | null {
+  for (const workspace of deck.getSnapshot().workspaces) {
+    const pane = workspace.panes.find((candidate) => candidate.id === paneId);
+    if (pane) return paneAgentType(pane);
+  }
+  return null;
+}
 
 /** The live agent contributions as the orchestrator needs them. */
 function agentCatalogPort(
@@ -165,6 +178,20 @@ export function createAppRuntime(
       activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
       subscribeActivity: statusTracker.subscribe,
       deliver: deliverMailThroughPty,
+      // A pane whose CLI plugin renders mail will come asking at its turn
+      // boundary, so a running turn is worth waiting out for the labelled
+      // channel. Read per call: a plugin can be enabled or disabled while
+      // the deck is up, and the answer must follow.
+      asksAtTurnEnd: (paneId: string) => {
+        const agentType = paneAgentTypeOf(deckStore, paneId);
+        if (!agentType) return false;
+        return Boolean(
+          plugins.pluginRegistries.agents
+            .list()
+            .find(({ entry }) => entry.id === agentType)?.entry.status
+            ?.renderMail,
+        );
+      },
       livePaneIds: () =>
         new Set(
           deckStore
@@ -283,6 +310,20 @@ export function createAppRuntime(
         { subscribe: subscribeSessions, state: paneSessionState },
         attribution,
         { subscribe: subscribePaneKeys },
+        (paneId, payload) =>
+          answerMailAsk(
+            {
+              mail: () => mail.current(),
+              rendererFor: (agentId) =>
+                plugins.pluginRegistries.agents
+                  .list()
+                  .find(({ entry }) => entry.id === agentId)?.entry.status
+                  ?.renderMail,
+              reply: replyToBridgeHook,
+            },
+            paneId,
+            payload,
+          ),
       );
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,

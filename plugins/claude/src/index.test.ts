@@ -80,6 +80,14 @@ describe("claude plugin hooks", () => {
     // stale extra would be read as one — the reporter is silent on failure,
     // so a broken command stops status with no error anywhere.
     const command = "/bin/sh '/App/resources/kd-status-hook.sh' claude";
+    // Two of them ask as well as report. `--ask` makes the reporter wait
+    // for the deck's answer and print it, which only a turn boundary can
+    // act on — Stop can be blocked to hand mail over without a fresh wake,
+    // and UserPromptSubmit can append to the turn just opened. Arming it
+    // anywhere else would buy a round trip per tool call for an answer that
+    // event cannot use.
+    const asking = `${command} --ask`;
+    const asks = new Set(["Stop", "UserPromptSubmit"]);
     // Each of these closes a hole the others cannot. StopFailure fires
     // INSTEAD of Stop on an API error; PostToolUseFailure fires INSTEAD of
     // PostToolUse when an approved tool then fails — both are the failure
@@ -102,7 +110,9 @@ describe("claude plugin hooks", () => {
       "SessionStart",
     ];
     for (const event of armed) {
-      expect(settings.hooks[event][0].hooks[0].command, event).toBe(command);
+      expect(settings.hooks[event][0].hooks[0].command, event).toBe(
+        asks.has(event) ? asking : command,
+      );
     }
     // EXACTLY these: an event armed by accident feeds the lane edges nobody
     // reasoned about, and the normalizer's default arm drops them silently.

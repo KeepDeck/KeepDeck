@@ -94,6 +94,11 @@ export interface MailManager {
    * the terminal, and the hook is not going to make it safe.
    */
   takeAtTurnEnd(paneId: string): Mail[];
+  /** Put back messages taken at a turn boundary that could not be rendered
+   * after all. They go to the FRONT, because they were the oldest waiting
+   * and taking them must not cost them their place; their inbox entry is
+   * withdrawn too, or a later read would show a message never delivered. */
+  restore(messages: readonly Mail[]): void;
   /** What this pane has been handed, oldest first. `since` is the id of the
    * last message the caller already saw; an id that has aged out of the
    * buffer yields everything still held, which is honest — better a repeat
@@ -298,6 +303,19 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // timer, and the queue just moved under it.
       drain();
       return taken;
+    },
+
+    restore(messages) {
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const mail = messages[i];
+        const queue = queues.get(mail.toPaneId);
+        if (queue) queue.unshift(mail);
+        else queues.set(mail.toPaneId, [mail]);
+        const held = inboxes.get(mail.toPaneId);
+        const at = held?.findIndex((seen) => seen.id === mail.id) ?? -1;
+        if (held && at >= 0) held.splice(at, 1);
+      }
+      drain();
     },
 
     inbox(paneId, since) {

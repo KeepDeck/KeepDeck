@@ -123,7 +123,46 @@ export interface AgentStatus {
   /** Normalize this agent's bridge status payloads (hook reporters, the
    * host tailer's interrupt markers — whatever its reporters emit). */
   normalize: StatusNormalizer;
+  /** Turn messages waiting for this pane into what the CLI's own hook must
+   * print so the agent READS them as another agent's words.
+   *
+   * Lives beside `normalize` because it answers the same event: the hook
+   * that reports a turn ending is the hook that asks whether anything is
+   * waiting, and one round trip serves both. Absent = this agent has no
+   * labelled channel, and its mail arrives through the terminal instead. */
+  renderMail?: MailReplyRenderer;
 }
+
+/** One message, as the CLI's own dialect will have to phrase it. */
+export interface DeliverableMail {
+  id: string;
+  /** `task`, `question`, `answer`, `note`, or `undelivered` for a report
+   * from the deck itself. */
+  kind: string;
+  body: string;
+  /** How the sending agent reads, or null when the deck is speaking. */
+  from: string | null;
+  /** The message this one answers, when it answers one. */
+  replyTo?: string;
+}
+
+export interface MailReplyInput {
+  /** The hook payload verbatim, as the CLI sent it. The renderer decides
+   * whether THIS event can carry an answer at all — most cannot. */
+  event: Record<string, unknown>;
+  /** Never empty: the host does not ask for a rendering of nothing. */
+  messages: readonly DeliverableMail[];
+}
+
+/**
+ * What the hook should print, or null when this event cannot carry mail.
+ *
+ * The string is written to the hook's stdout verbatim, so it is the CLI's
+ * own hook-output schema — `decision: "block"` for claude, `should_block`
+ * plus continuation fragments for codex. Returning null leaves the hook
+ * silent, which every CLI treats as "nothing to add".
+ */
+export type MailReplyRenderer = (input: MailReplyInput) => string | null;
 
 /* ---- Authoring helpers ----------------------------------------------- */
 

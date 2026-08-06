@@ -26,6 +26,9 @@ export { mapMcpServers } from "./agents.ts";
 export type {
   AgentStatus,
   AgentStatusEvent,
+  DeliverableMail,
+  MailReplyInput,
+  MailReplyRenderer,
   StatusNormalizer,
   StatusWaitReason,
 } from "./status.ts";

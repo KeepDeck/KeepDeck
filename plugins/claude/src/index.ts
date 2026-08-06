@@ -22,7 +22,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
-import { normalizeClaudeStatus } from "./status";
+import { normalizeClaudeStatus, renderClaudeMail } from "./status";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
 
@@ -53,11 +53,24 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
    * same event for different facts — and an assignment would silently drop
    * whichever ran second, taking session binding or the status lane with
    * it. claude runs every entry an event has. */
-  const arm = (event: string, script: string) => {
+  const arm = (event: string, script: string, ask = false) => {
     (hooks[event] ??= []).push({
-      hooks: [{ type: "command", command: `/bin/sh ${shellQuote(script)} claude` }],
+      hooks: [
+        {
+          type: "command",
+          command: `/bin/sh ${shellQuote(script)} claude${ask ? " --ask" : ""}`,
+        },
+      ],
     });
   };
+  /** The two events that can carry mail BACK, and the only ones armed to
+   * ask. `Stop` matters most: blocking it hands a teammate's words over and
+   * keeps the turn alive to read them, so nothing pays for a fresh wake.
+   * `UserPromptSubmit` appends to a turn the user just opened, which is
+   * where mail that arrived while the pane sat idle belongs. Asking on the
+   * rest would be a round trip per tool call for an answer none of them can
+   * act on. */
+  const ASKS_FOR_MAIL = new Set(["Stop", "UserPromptSubmit"]);
   if (session) {
     // The agent id is the argument, same as the status reporter's: the
     // payload does not name its CLI, and the deck refuses a binding whose
@@ -93,7 +106,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       "SubagentStop",
       "SessionStart",
     ]) {
-      arm(event, status);
+      arm(event, status, ASKS_FOR_MAIL.has(event));
     }
   }
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
@@ -157,7 +170,7 @@ const plugin: KeepDeckPlugin = {
         normalize: normalizeClaudeStatusline,
         tail: "claude",
       },
-      status: { normalize: normalizeClaudeStatus },
+      status: { normalize: normalizeClaudeStatus, renderMail: renderClaudeMail },
       history: claudeHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {

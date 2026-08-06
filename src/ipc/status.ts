@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 
 /**
  * Agent-status events: a pane's agent process reports its turn lifecycle
@@ -25,4 +26,21 @@ export function onAgentStatus(
   return listen<AgentStatusReportEvent>(AGENT_STATUS_EVENT, (event) =>
     handler(event.payload),
   );
+}
+
+/**
+ * Answer a hook that is waiting on the bridge's run directory.
+ *
+ * `body` is what that hook will PRINT verbatim — its own CLI's hook-output
+ * schema, rendered by that agent's plugin. An empty body is a real answer
+ * and the common one: it lets a waiting hook stop waiting immediately
+ * instead of sitting out its whole timeout on every turn that had no mail.
+ *
+ * Fire and forget by design. A reply that cannot be written leaves the hook
+ * to time out, which every CLI reads as "the hook had nothing to add" —
+ * the recoverable direction, and the same one the bridge chooses everywhere
+ * else.
+ */
+export function replyToBridgeHook(id: string, body: string): void {
+  void invoke("bridge_reply", { id, body }).catch(() => {});
 }

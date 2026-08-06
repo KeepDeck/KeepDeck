@@ -30,6 +30,31 @@ export LC_ALL
 agent="$1"
 [ -n "$agent" ] || exit 0
 
+# `--ask` turns this from a statement into a QUESTION: the same envelope
+# also asks the deck whether anything is waiting for this pane, and the
+# answer is printed for the CLI to act on.
+#
+# Armed per EVENT, not per agent: only a turn boundary can carry a reply,
+# and asking on every PostToolUse would be a round trip per tool call. The
+# arming site knows which event it is arming; this script deliberately does
+# not read the payload, so the flag comes in on argv beside the agent id —
+# the same reason the agent id is there.
+#
+# One envelope for both, deliberately. The deck's answer depends on the
+# status it is being told about in the same breath, and two envelopes would
+# let those be read in either order — the pane could be marked finished by
+# one while the other was still deciding to keep it running.
+ask=""
+[ "$2" = "--ask" ] && ask="yes"
+
+# How long to wait for the deck. The deck answers from state it already
+# holds, so this is a guard against it being GONE (app quit while the CLI
+# lives), not a budget for thinking. Short on purpose: a hook that hangs
+# holds up the CLI, and having nothing to say is the overwhelmingly common
+# answer.
+ASK_TRIES=40
+ASK_SLEEP=0.05
+
 # The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a path
 # without quotes — extracting quoted JSON strings with sed is safe here.
 field() {
@@ -82,20 +107,55 @@ if [ "$bytes" -gt 261120 ]; then
   payload=$(printf '{"hook_event_name":"%s"}' "$name")
 fi
 
+# The correlation the deck answers on. mktemp mints it AND reserves it, and
+# its pattern is alphanumeric on purpose: the deck refuses a correlation that
+# could not safely become a filename, and a rejected one would just time out
+# below for no reason. The reservation file itself is never read — it carries
+# no `.json`, so the inbox watcher ignores it — and the trap reaps it.
+correlation=""
+if [ -n "$ask" ]; then
+  reserved=$(mktemp "$dir/askXXXXXXXX" 2>/dev/null) && correlation=${reserved##*/}
+fi
+
 # mktemp = the unique name AND the tmp stage; the rename to .json publishes.
 # The trap reaps the staging file if this process is killed mid-write (kimi
 # enforces a hook timeout with a signal) — after a successful mv there is
 # nothing at $f and the rm is a no-op. The inbox never sweeps strays itself.
 f=$(mktemp "$dir/agent.status-XXXXXXXX" 2>/dev/null) || exit 0
-trap 'rm -f "$f"' EXIT INT TERM
-# The reporting process rides on this lane too: the pane's identity is pinned
-# to one process, and a report from another is somebody else's numbers no
-# matter how correct its secret and agent are.
-if [ -n "$reporter" ]; then
-  printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","reporter":"%s","event":%s}}' \
-    "$pane" "$token" "$agent" "$reporter" "$payload" > "$f" && mv "$f" "$f.json"
-else
-  printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s}}' \
-    "$pane" "$token" "$agent" "$payload" > "$f" && mv "$f" "$f.json"
+trap 'rm -f "$f" ${reserved:+"$reserved"}' EXIT INT TERM
+# The host-owned keys that may or may not be there, built as one fragment so
+# the envelope stays a SINGLE printf. A branch per combination would be four
+# copies of one line, in a file three plugins carry byte-for-byte.
+#
+# `reporter` — WHICH process is reporting: the pane's identity is pinned to
+# one process, and a report from another is somebody else's numbers no matter
+# how correct its secret and agent are.
+# `reply` — the correlation the deck answers on, present only when asking.
+extra=""
+[ -n "$reporter" ] && extra="$extra\"reporter\":\"$reporter\","
+[ -n "$correlation" ] && extra="$extra\"reply\":\"$correlation\","
+printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s",%s"event":%s}}' \
+  "$pane" "$token" "$agent" "$extra" "$payload" > "$f" && mv "$f" "$f.json"
+
+# Wait for the answer, if one was asked for. Everything about this loop is
+# built to FAIL OPEN: a deck that has quit, a reply that never comes, a
+# `sleep` that cannot take a fraction — each ends the same way, silently and
+# with nothing printed, which every CLI reads as "the hook had nothing to
+# add". The alternative failure, a hook that hangs, holds up the CLI itself.
+if [ -n "$correlation" ]; then
+  reply="$dir/$correlation.reply"
+  tries=$ASK_TRIES
+  while [ "$tries" -gt 0 ]; do
+    if [ -f "$reply" ]; then
+      # Printed verbatim: the deck rendered it through this agent's own
+      # plugin, so the schema is the CLI's and this script stays ignorant
+      # of it — the same division it keeps for payloads on the way in.
+      cat "$reply" 2>/dev/null
+      rm -f "$reply"
+      break
+    fi
+    sleep "$ASK_SLEEP" 2>/dev/null
+    tries=$((tries - 1))
+  done
 fi
 exit 0
