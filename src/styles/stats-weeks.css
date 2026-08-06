@@ -4,13 +4,24 @@
    reshapes the columns and styles the block's own cells. */
 
 .stats__week-row {
-  /* ONE flexible column — the bar. Every other column hugs its content
-     (the model capped, its name ellipsizes), so the leftover width lives
-     in exactly one place and the delta·model·cost cluster sits tight at
-     the right edge instead of floating in ragged gaps. */
-  grid-template-columns:
-    max-content 64px minmax(110px, 1fr) 58px
-    fit-content(240px) 64px;
+  /* Every track FIXED but the bar, because each row is its own grid — the
+     table is a plain box, not a shared one — so a content-sized track
+     resolves against that row's text and nothing lines up with the row
+     above. `max-content` on the label and `fit-content` on the model read
+     as "hug the content"; across independent grids they mean "let every
+     row pick its own column positions", which is what they did: measured,
+     the number column started at 380, 404, 407 and 449px on four rows of
+     the same table. It only ever looked aligned because every label used
+     to be a date range of the same width, and naming the current week
+     "This week" made the difference visible.
+
+     128px fits the widest label the formatter can produce — a range
+     carrying its year, "Sep 8 – Sep 14 · 2025" at 127px — because the
+     label is the row's identity and must not be the thing that
+     ellipsizes. 160px fits a model name plus its count; a longer name
+     ellipsizes, which is what `.stats__week-model-name` is for. The bar
+     absorbs the slack, so the right-hand cluster keeps its position. */
+  grid-template-columns: 128px 64px minmax(110px, 1fr) 58px 160px 64px;
 }
 
 /* The week in progress is NOT dimmed. Translucency in an interface reads as
@@ -162,8 +173,11 @@
 }
 
 @media (max-width: 720px) {
+  /* The model drops out, so this is five tracks, not six — and the label
+     stays FIXED for the same reason it is above: independent per-row grids
+     make a content-sized track a per-row decision. */
   .stats__week-row {
-    grid-template-columns: max-content 64px minmax(80px, 1fr) 58px 64px;
+    grid-template-columns: 128px 64px minmax(80px, 1fr) 58px 64px;
   }
 
   .stats__week-model {
