@@ -25,6 +25,7 @@
 //! before applying anything.
 
 mod inbox;
+mod reply;
 mod wire;
 
 use notify::{Event, EventKind, RecursiveMode, Watcher};
@@ -92,6 +93,20 @@ pub fn start(app: &AppHandle) -> Result<Bridge, String> {
         _lock: lock,
         _watcher: watcher,
     })
+}
+
+/// Answer a hook that is waiting on this run's inbox.
+///
+/// The deck decides — it holds the deck, the queues and the status lane —
+/// and Rust only carries the answer back, exactly as it carries envelopes
+/// the other way. A failure is logged rather than raised: a hook that never
+/// sees its file times out and behaves as if there were nothing for it,
+/// which is the recoverable direction.
+#[tauri::command]
+pub fn bridge_reply(bridge: tauri::State<Bridge>, id: String, body: String) {
+    if let Err(e) = reply::write(&bridge.run_dir, &id, &body) {
+        log::warn!("bridge: {e}");
+    }
 }
 
 /// Why an inbox file yielded no event.
