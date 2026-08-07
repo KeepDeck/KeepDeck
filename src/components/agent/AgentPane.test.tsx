@@ -322,7 +322,7 @@ describe("AgentPane — activity badge", () => {
     expect(pane!.className).toContain("pane--frame-failed");
   });
 
-  it("ranks the frame by the domain ladder — attention beats selection, done yields", () => {
+  it("ranks the frame by the domain ladder — attention beats selection, working and done yield", () => {
     // Selected (and neither maximized nor solo): the selection frame shows
     // until an attention state takes it.
     act(() =>
@@ -351,6 +351,20 @@ describe("AgentPane — activity badge", () => {
     );
     pane = document.querySelector<HTMLElement>(".pane");
     expect(pane!.className).toContain("pane--frame-done");
+
+    // Working frames on its own rung…
+    reportEdge({ kind: "turn-start", at: Date.now() });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-working");
+
+    // …and yields to selection exactly like done does.
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, { ...baseProps, selected: true }),
+      ),
+    );
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-selected");
   });
 
   it("shows nothing before the first edge, and renders the tracker verbatim", () => {

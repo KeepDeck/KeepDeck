@@ -40,10 +40,17 @@ const LONG_PRESS_MS = 300;
 const MOVE_CANCEL_PX = 10;
 const REORDER_ANIMATION_MS = 140;
 
+/** The dot's class for one frame — "none"/absent means the bare gray dot.
+ * The item and its drag ghost share this: the ghost is the item's image,
+ * so it wears the same frame. */
+const railDotClass = (dot: StatusFrame | undefined) =>
+  `rail__dot${!dot || dot === "none" ? "" : ` rail__dot--${dot}`}`;
+
 interface DragSource {
   id: string;
   name: string;
   active: boolean;
+  dot?: StatusFrame;
   grabOffsetY: number;
   rect: { left: number; top: number; width: number; height: number };
 }
@@ -53,6 +60,7 @@ interface DragGhost {
   id: string;
   name: string;
   active: boolean;
+  dot?: StatusFrame;
   left: number;
   width: number;
   height: number;
@@ -138,6 +146,7 @@ export function WorkspacesRail({
         id: source.id,
         name: source.name,
         active: source.active,
+        dot: source.dot,
         left: source.rect.left,
         width: source.rect.width,
         height: source.rect.height,
@@ -174,6 +183,7 @@ export function WorkspacesRail({
       id: ws.id,
       name: ws.name,
       active: ws.id === activeId,
+      dot: ws.dot,
       grabOffsetY: e.clientY - r.top,
       rect: { left: r.left, top: r.top, width: r.width, height: r.height },
     });
@@ -228,13 +238,7 @@ export function WorkspacesRail({
                 onDoubleClick={() => rename.start(ws.id, ws.name)}
                 aria-current={active}
               >
-                <span
-                  className={`rail__dot${
-                    !ws.dot || ws.dot === "none"
-                      ? ""
-                      : ` rail__dot--${ws.dot}`
-                  }`}
-                />
+                <span className={railDotClass(ws.dot)} />
                 <span className="rail__name">{ws.name}</span>
               </button>
               <span className="rail__count">{ws.agentCount}</span>
@@ -259,7 +263,7 @@ export function WorkspacesRail({
             className={`rail__ghost${ghost.active ? " rail__ghost--active" : ""}`}
             style={{ left: ghost.left, width: ghost.width, height: ghost.height }}
           >
-            <span className="rail__dot" />
+            <span className={railDotClass(ghost.dot)} />
             <span className="rail__name">{ghost.name}</span>
           </div>,
           document.body,

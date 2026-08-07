@@ -1,17 +1,20 @@
 /* The status frame ladder — the ONE home of the agent-status palette and
-   rhythms, shared by every surface that renders `paneFrame()` (pane border
-   now; tray items and the rail dot join it). The domain ranks (frame.ts);
-   this file only paints.
+   rhythms, shared by every surface that renders `paneFrame()`: the pane
+   border, the minimized stand-in, and the rail dot. The domain ranks
+   (frame.ts); this file only paints.
 
    Rhythm is state IDENTITY, not urgency: failed always pulses at 1s,
-   waiting always breathes at 2s — a frame never changes rhythm, so the
-   pace itself names the state from across the room. */
+   waiting always breathes at 2s, working always glows at 1.6s — a frame
+   never changes rhythm, so the pace itself names the state from across
+   the room. */
 :root {
   --status-working: #7aa2f7;
   --status-waiting: #e0af68;
   --status-failed: #f7768e;
   --status-done: #9ece6a;
-  --status-selected: #58b368;
+  /* The selection hue's home is the base palette's --kd-ok (one hex for
+     "good/live/chosen" across the app); this rung aliases it. */
+  --status-selected: var(--kd-ok);
 }
 
 /* The header dot's hues — the SAME four names as the frames, so "change
@@ -64,6 +67,14 @@
   border-color: var(--status-done);
 }
 
+/* Working's 1.6s glow — the same rhythm the header dot already names it
+   with, quieter than waiting's breathe because a running agent is a
+   normal sight, not a request. */
+.pane--frame-working {
+  border-color: var(--status-working);
+  animation: status-frame-working 1.6s ease-in-out infinite;
+}
+
 .pane--frame-waiting {
   border-color: var(--status-waiting);
   animation: status-frame-breathe 2s ease-in-out infinite;
@@ -83,6 +94,11 @@
    specificity by source order. */
 .minimized.minimized--frame-done {
   border: 1px solid var(--status-done);
+}
+
+.minimized.minimized--frame-working {
+  border: 1px solid var(--status-working);
+  animation: status-frame-working 1.6s ease-in-out infinite;
 }
 
 .minimized.minimized--frame-waiting {
@@ -109,6 +125,11 @@
   background-color: var(--status-done);
 }
 
+.rail__dot--working {
+  background-color: var(--status-working);
+  animation: status-dot-working 1.6s ease-in-out infinite;
+}
+
 .rail__dot--waiting {
   background-color: var(--status-waiting);
   animation: status-dot-breathe 2s ease-in-out infinite;
@@ -131,12 +152,21 @@
   }
 }
 
-/* Both rhythms modulate the frame's own colour toward transparent
-   (color-mix), so the animation needs one keyframe pair per rhythm, not
-   one per colour — and a surface that reuses them stays on palette. */
+/* The frame glows modulate the rung's own colour toward transparent
+   (color-mix): one keyframe pair per rung, carrying its palette variable
+   and fade depth (waiting and working both fade to 40% — a shared calm;
+   failed to 30% — an alarm). The RHYTHM that names the state (1s, 2s,
+   1.6s) lives on each surface's `animation` shorthand, not here, so a
+   surface that reuses a pair stays on palette and picks its own pace. */
 @keyframes status-frame-breathe {
   50% {
     border-color: color-mix(in srgb, var(--status-waiting) 40%, transparent);
+  }
+}
+
+@keyframes status-frame-working {
+  50% {
+    border-color: color-mix(in srgb, var(--status-working) 40%, transparent);
   }
 }
 
@@ -150,10 +180,13 @@
 @media (prefers-reduced-motion: reduce) {
   .pane--frame-waiting,
   .pane--frame-failed,
+  .pane--frame-working,
   .minimized.minimized--frame-waiting,
   .minimized.minimized--frame-failed,
+  .minimized.minimized--frame-working,
   .rail__dot--waiting,
   .rail__dot--failed,
+  .rail__dot--working,
   .pane__activity--working .pane__activity-dot {
     animation: none;
   }

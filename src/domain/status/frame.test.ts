@@ -27,9 +27,17 @@ describe("paneFrame", () => {
     expect(paneFrame(interrupted, false)).toBe("done");
   });
 
-  it("working never frames — a quiet deck is the point", () => {
-    expect(paneFrame(working, false)).toBe("none");
+  it("working frames, but yields to selection like done does", () => {
+    expect(paneFrame(working, false)).toBe("working");
     expect(paneFrame(working, true)).toBe("selected");
+  });
+
+  it("every activity state wears its own rung — none can silently fall through", () => {
+    // The failure mode the single SEVERITY home exists against: a state
+    // ranked in the fold but unhandled at the pane reads as "none".
+    for (const activity of [failed, waiting, working, done]) {
+      expect(paneFrame(activity, false)).toBe(activity.state);
+    }
   });
 
   it("no activity: selection or nothing", () => {
@@ -49,14 +57,21 @@ describe("workspaceFrame", () => {
     expect(workspaceFrame([failed], true)).toBe("failed");
   });
 
-  it("done marks only a background workspace — the active one is on screen", () => {
-    expect(workspaceFrame([working, done], false)).toBe("done");
-    expect(workspaceFrame([working, done], true)).toBe("selected");
+  it("a live fact outranks a finished turn's tail in the fold", () => {
+    expect(workspaceFrame([working], false)).toBe("working");
+    expect(workspaceFrame([done, working], false)).toBe("working");
+    expect(workspaceFrame([working, waiting, done], false)).toBe("waiting");
   });
 
-  it("quiet panes leave the dot to the active/none default", () => {
-    expect(workspaceFrame([working, undefined], true)).toBe("selected");
-    expect(workspaceFrame([working, undefined], false)).toBe("none");
+  it("working and done mark only a background workspace — the active one is on screen", () => {
+    expect(workspaceFrame([done], false)).toBe("done");
+    expect(workspaceFrame([working, done], true)).toBe("selected");
+    expect(workspaceFrame([working], true)).toBe("selected");
+  });
+
+  it("a quiet pane leaves the dot to the active/none default", () => {
+    expect(workspaceFrame([undefined], true)).toBe("selected");
+    expect(workspaceFrame([undefined], false)).toBe("none");
   });
 
   it("an empty workspace still answers: active green, background gray", () => {

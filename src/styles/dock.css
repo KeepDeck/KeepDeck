@@ -59,7 +59,7 @@
 
 .dock__tab--active {
   color: #c5c8c6;
-  border-bottom-color: #58b368;
+  border-bottom-color: var(--kd-ok);
 }
 
 .dock__body {
