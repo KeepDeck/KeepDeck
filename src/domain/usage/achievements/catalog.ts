@@ -310,12 +310,9 @@ export const RECALIBRATED_IDS_V2: ReadonlyMap<string, string> = new Map([
   ["streakDays-100", "streakDays-90"],
 ]);
 
-/** Every id the catalog has ever minted, live or retired — the live ones plus
- * every key of every recalibration map. A build uses this to tell "a tier I
- * know about" from "a tier some newer build invented", which is the line
- * between an id it may reason about and one it must only carry. */
-export function knownAchievementIds(): Set<string> {
-  const ids = new Set(achievementCatalog().map((entry) => entry.id));
-  for (const retired of RECALIBRATED_IDS_V2.keys()) ids.add(retired);
-  return ids;
-}
+// A `knownAchievementIds()` used to live here, so the notifier's sweep could
+// tell "a tier I know about" from "a tier some newer build invented" and keep
+// the latter. It was deleted with the sweep's narrowing: revocation is now
+// scoped to ids a migration could have WRITTEN, and those all come from this
+// build's own maps, so an unknown id is out of scope by construction rather
+// than by a second lookup.

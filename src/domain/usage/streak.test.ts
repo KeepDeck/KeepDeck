@@ -3,9 +3,24 @@ import { TEST_NOW } from "./history/event.testSupport";
 import { currentStreakDays, streakHeat } from "./streak";
 
 /** Instants, not events: the function is about days, and who witnessed an
- * instant — a recorded spend or a live report — is the caller's question. */
+ * instant — a recorded spend or a live report — is the caller's question,
+ * answered by `createActivityWitness` and tested there. */
 const DAY = 24 * 60 * 60 * 1_000;
 const NOW = TEST_NOW;
+
+/** Run a body in a FIXED zone, whatever the runner is in. Node re-reads
+ * `process.env.TZ` for each Date operation, so this genuinely pins a real
+ * transition rather than hoping CI happens to sit in a zone that has one. */
+function inZone(tz: string, body: () => void): void {
+  const before = process.env.TZ;
+  process.env.TZ = tz;
+  try {
+    body();
+  } finally {
+    if (before === undefined) delete process.env.TZ;
+    else process.env.TZ = before;
+  }
+}
 
 describe("the day a streak counts in", () => {
   /** Local midnight, whatever zone the suite runs in. */
@@ -42,22 +57,35 @@ describe("the day a streak counts in", () => {
     const days = [4, 3, 2, 1, 0].map((back) => midnight(-back) + 9 * 60 * 60_000);
     expect(currentStreakDays(days, midnight() + 20 * 60 * 60_000)).toBe(5);
   });
+
+  it.each([
+    ["springs forward", 2, 8, 23],
+    ["falls back", 10, 1, 25],
+  ])("holds across a day that %s", (_label, month, day, hours) => {
+    // The case above cannot actually prove its own claim: its instants are a
+    // fixed 24h apart from a JULY fixture, so no real zone has a transition
+    // in that window and the assertion passes under a rule that divides
+    // elapsed milliseconds — the very rule this function exists to avoid.
+    // Here the zone is PINNED, because the suite's own is not (no TZ is set
+    // in the vitest config), and in UTC there is no DST to cross.
+    inZone("America/New_York", () => {
+      const noon = (of: number) => new Date(2026, month, of, 12, 0).getTime();
+      // The transition sits at 02:00, so the odd-length span is the one
+      // ENDING at this day's noon. Asserting it is what stops the case from
+      // quietly degenerating into three ordinary days if a date ever drifts.
+      expect((noon(day) - noon(day - 1)) / 3_600_000).toBe(hours);
+      const run = [noon(day - 2), noon(day - 1), noon(day)];
+      expect(currentStreakDays(run, noon(day) + 6 * 3_600_000)).toBe(3);
+    });
+  });
 });
 
 describe("what counts as being active", () => {
-  it("takes any instant as evidence, whoever witnessed it", () => {
-    // The point of the signature. A recorded spend and a live report are
-    // both proof that the reader was here; the function does not ask which
-    // it is holding, and that is why the count no longer waits for the
-    // first turn to finish before noticing today.
-    const spendYesterday = NOW - 1 * DAY;
-    const reportToday = NOW - 1_000;
-    expect(currentStreakDays([spendYesterday], NOW)).toBe(1);
-    expect(currentStreakDays([spendYesterday, reportToday], NOW)).toBe(2);
-  });
-
   it("ignores an instant from the future rather than opening a day for it", () => {
-    // A clock-skewed report must not invent tomorrow and break the chain.
+    // A skewed clock's row in the never-pruned ledger must not invent
+    // tomorrow — which would anchor the walk a day early and break the chain
+    // at today. WHO produced the instant is not asked here on purpose; that
+    // is the witness's question.
     expect(currentStreakDays([NOW - 1_000, NOW + 2 * DAY], NOW)).toBe(1);
   });
 });

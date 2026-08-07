@@ -6,7 +6,10 @@ import {
   peekPaneSpawnSpec,
   spawnPlanNeedsUsageBaseline,
 } from "./spawnSpecs";
-import { recordPaneUsage } from "./usageHistoryManager";
+import {
+  recordPaneUsage,
+  type UsageSessionOrigin,
+} from "./usageHistoryManager";
 import { usageSourceTimestamp } from "./usageProvenance";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
@@ -82,10 +85,17 @@ export function createUsageMaintenanceLane({
       }
       const sessionId = paneUsage.sessionId ?? pane.session?.id;
       if (!sessionId) continue;
-      const baselineOnly = spawnPlanNeedsUsageBaseline(
-        peekPaneSpawnSpec(paneId),
-        sessionId,
-      );
+      // A pane with NO cached plan is one this run did not spawn — attached
+      // or restored across a restart — so its session may predate the run and
+      // the ledger is the only thing that knows. A plan whose resume/fork id
+      // does not match means this run's own spawn minted the session, and
+      // nothing about it can be on disk.
+      const spec = peekPaneSpawnSpec(paneId);
+      const origin: UsageSessionOrigin = !spec
+        ? "unknown"
+        : spawnPlanNeedsUsageBaseline(spec, sessionId)
+          ? "inherited"
+          : "fresh";
       const index = workspace.panes.indexOf(pane);
       void recordPaneUsage(paneUsage, {
         workspaceId: workspace.id,
@@ -94,7 +104,7 @@ export function createUsageMaintenanceLane({
         paneId,
         paneName: pane.name ?? pane.autoTitle ?? `Agent ${index + 1}`,
         sessionId,
-        ...(baselineOnly ? { baselineOnly: true } : {}),
+        origin,
         ...(pane.cwd
           ? {
               worktree: {

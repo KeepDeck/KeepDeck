@@ -94,7 +94,20 @@ function mergePaneFields(base: PaneUsage, overlay: PaneUsage): PaneUsage {
     base.context || overlay.context
       ? { ...base.context, ...overlay.context }
       : undefined;
-  return { ...base, ...overlay, ...(context ? { context } : {}) };
+  return {
+    ...base,
+    ...overlay,
+    // MONOTONE: the field means "the newest thing this pane has said", and a
+    // plain overlay let it walk backwards. Claude's arm-time drain pushes the
+    // root transcript's events before each subagent's, and a dialect's
+    // catch-up order is a fixed list of KINDS, not a timestamp sort — so an
+    // older line routinely lands after a newer one and used to pin the pane
+    // to the earlier instant. Anything reading this as freshness (the wall
+    // clock's floor, the chip's staleness) would then read a report that
+    // already arrived as not having arrived yet.
+    reportedAt: Math.max(base.reportedAt, overlay.reportedAt),
+    ...(context ? { context } : {}),
+  };
 }
 
 /** The percentage a context bag amounts to, however it was reported. */

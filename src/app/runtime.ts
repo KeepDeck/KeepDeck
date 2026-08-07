@@ -7,6 +7,7 @@ import {
   saveNotifiedAchievements,
 } from "../ipc/achievements";
 import { createAchievementNotifier } from "./achievementNotifier";
+import { createActivityWitness } from "./activityWitness";
 import {
   createAgentOrchestrator,
   type AgentCatalogPort,
@@ -118,6 +119,16 @@ export function createAppRuntime(
   // them. Runtime state like the deck store: the orchestrator retires panes
   // and the bridge channels report in with no component mounted.
   const usageManager = createUsageManager();
+  // Built here, not in `start()`: the streak chip reads it through the
+  // runtime the moment the stats dialog mounts, and a witness that started
+  // late would have missed the days its two stores already hold.
+  const activityWitness = createActivityWitness({
+    history: {
+      getSnapshot: getUsageHistorySnapshot,
+      subscribe: subscribeUsageHistory,
+    },
+    usage: usageManager,
+  });
   const statusTracker = createAgentStatusTracker();
   // Who may speak for a pane. Built before the lanes that ask it, and handed
   // to each as a value, so identity, usage and status cannot drift apart on
@@ -194,6 +205,7 @@ export function createAppRuntime(
     paneViewActions,
     mcp,
     usageManager,
+    activityWitness,
     statusTracker,
     windowReportJournal,
     start() {
@@ -249,6 +261,7 @@ export function createAppRuntime(
       disposed = true;
       application.dispose();
       paneInputFocus.dispose();
+      activityWitness.dispose();
       exhaustionNotifier?.dispose();
       windowReportJournal.dispose();
       achievementNotifier?.dispose();

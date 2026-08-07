@@ -1,4 +1,4 @@
-import { localDayNumber } from "./time";
+import { localDayNumber, shiftDay, type LocalDayNumber } from "./time";
 
 /**
  * The CURRENT streak — consecutive active days ending now, in the READER'S
@@ -17,24 +17,34 @@ import { localDayNumber } from "./time";
  * It used to read the ledger and behave as though that were the only
  * evidence there is, which is why the count lagged the start of work — the
  * first report of a session seeds a baseline and writes nothing, so nothing
- * reached the ledger until the first turn actually spent something. Who
- * counts as a witness is the caller's question; this one is about days.
+ * reached the ledger until the first turn actually spent something.
+ *
+ * Who counts as a witness is NOT this function's question, and not a view's
+ * either: it belongs to `createActivityWitness`, which also owns the fact
+ * that a day already witnessed stays witnessed. This one is about days.
  */
 
 export function currentStreakDays(
   activeAt: Iterable<number>,
   now: number,
 ): number {
-  const days = new Set<number>();
+  const days = new Set<LocalDayNumber>();
   for (const at of activeAt) {
+    // A future instant is corrupt input, not tomorrow: a skewed clock's row
+    // in the never-pruned ledger must not open a day nobody has lived yet.
     if (at > now) continue;
     days.add(localDayNumber(at));
   }
   const today = localDayNumber(now);
-  const anchor = days.has(today) ? today : days.has(today - 1) ? today - 1 : null;
+  const yesterday = shiftDay(today, -1);
+  const anchor = days.has(today)
+    ? today
+    : days.has(yesterday)
+      ? yesterday
+      : null;
   if (anchor === null) return 0;
   let streak = 0;
-  for (let day = anchor; days.has(day); day -= 1) streak += 1;
+  for (let day = anchor; days.has(day); day = shiftDay(day, -1)) streak += 1;
   return streak;
 }
 

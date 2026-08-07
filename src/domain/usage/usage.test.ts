@@ -66,6 +66,23 @@ describe("mergePaneUsage", () => {
     });
   });
 
+  it("never lets the report instant walk backwards", () => {
+    // `reportedAt` means "the newest thing this pane has said", and a plain
+    // overlay let an out-of-order delivery undo it. Claude's arm-time drain
+    // pushes the root transcript before each subagent's, and a dialect's
+    // catch-up order is a fixed list of KINDS rather than a timestamp sort,
+    // so an older line routinely lands after a newer one. Anything reading
+    // this as freshness — the wall clock's floor, the chip's staleness —
+    // would then treat a report that already arrived as not yet arrived.
+    const newer = { agent: "claude", model: "sonnet", reportedAt: 200 };
+    const older = { agent: "claude", costUsd: 3, reportedAt: 150 };
+    const merged = mergePaneUsage(newer, older);
+    expect(merged.reportedAt).toBe(200);
+    // The rest of the late report is still absorbed — only the instant is
+    // held, so nothing it actually carries is dropped.
+    expect(merged).toMatchObject({ model: "sonnet", costUsd: 3 });
+  });
+
   it("replaces wholesale when the pane changed agents", () => {
     const codex = { agent: "codex", model: "gpt-5.6-sol", reportedAt: 1 };
     const claude = { agent: "claude", reportedAt: 2 };

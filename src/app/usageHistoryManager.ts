@@ -16,6 +16,24 @@ import {
   loadUsageHistory,
 } from "../ipc/usageHistory";
 
+/**
+ * Where a provider session came from — the ONE thing that decides whether its
+ * first cumulative snapshot is a baseline or a real delta.
+ *
+ * - `inherited` — resume or fork: the counters already include work this
+ *   ledger may already hold. Always seeds.
+ * - `fresh` — this run's own spawn minted the session. Nothing about it can
+ *   be on disk, so its first turn is real usage and must be COUNTED.
+ * - `unknown` — no spawn plan for the pane: attached or restored, so the
+ *   session may predate this run. Seeds only when the ledger could not be
+ *   read, because that is the only state where the checkpoint is missing.
+ *
+ * A three-way fact rather than the `baselineOnly?: boolean` it replaces: the
+ * boolean could say "inherited" but had no way to say "definitely not", so
+ * the manager had to treat every caller's silence as "maybe" and seed.
+ */
+export type UsageSessionOrigin = "fresh" | "inherited" | "unknown";
+
 export interface UsageCaptureContext {
   workspaceId: string;
   workspaceName: string;
@@ -23,10 +41,39 @@ export interface UsageCaptureContext {
   paneId: string;
   paneName: string;
   sessionId: string;
-  /** This provider session begins with inherited counters (resume or fork).
-   * If history has no checkpoint, its first lifetime snapshot seeds only. */
-  baselineOnly?: boolean;
+  origin: UsageSessionOrigin;
   worktree?: UsageEventV2["worktree"];
+}
+
+/**
+ * Seed, or count? The whole rule, in one place.
+ *
+ * `unknown` + an unreadable ledger is the case worth spelling out. A CLI
+ * reports cumulative totals, so a delta with no baseline IS the whole
+ * session — and after a failed load `baselines` is empty while the history it
+ * was built from is still sitting on disk. Appending that total would count
+ * every token of the session a second time, permanently, the moment the file
+ * becomes readable again. Appending still works on a file the load could not
+ * open (`read_to_string` rejects invalid UTF-8; `append` does not), so this
+ * is reachable, not theoretical.
+ *
+ * `fresh` is exempt, and that exemption is the fix: the guard used to be a
+ * bare `!loaded`, which is sticky for the whole process (the load is never
+ * retried), so EVERY session started after one failed read had its first
+ * turn seeded away — for Claude, an entire opening request with the system
+ * prompt and tool schemas in it. Nothing about such a session is on disk, so
+ * there was never anything to double-count.
+ *
+ * Residual, named rather than hidden: a pane spawned fresh whose user then
+ * resumes a different session from INSIDE the CLI reports under an id that
+ * may have history, and this build still calls it `fresh`. That double-counts
+ * one session once, and only when the ledger is also unreadable — a strictly
+ * smaller and rarer loss than the certain, repeating one it replaces.
+ */
+function seedsBaseline(origin: UsageSessionOrigin, loaded: boolean): boolean {
+  if (origin === "inherited") return true;
+  if (origin === "fresh") return false;
+  return !loaded;
 }
 
 export interface UsageHistorySnapshot {
@@ -177,23 +224,11 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
         sessionId: context.sessionId,
       });
       const previous = baselines.get(key);
+      // Seeding is the same move a resumed session already makes with no
+      // checkpoint: this report becomes the baseline, and everything after it
+      // is a true delta. See [`seedsBaseline`] for which origins take it.
       const delta = usageDelta(usage, previous, {
-        // SEED, never count, when the ledger could not be read. A CLI
-        // reports cumulative totals, so a delta with no baseline IS the
-        // whole session — and after a failed load `baselines` is empty
-        // while the history it was built from is still sitting on disk.
-        // Appending that total would count every token of the session a
-        // second time, permanently, the moment the file becomes readable
-        // again. Appending still works on a file the load could not open
-        // (`read_to_string` rejects invalid UTF-8; `append` does not), so
-        // this is reachable, not theoretical.
-        //
-        // Seeding is the same move a resumed session already makes with no
-        // checkpoint: this report becomes the baseline, and everything
-        // after it is a true delta. What is lost is the consumption before
-        // the first report of this session — which is exactly what the
-        // unreadable ledger was holding, and cannot be recovered anyway.
-        baselineOnly: context.baselineOnly === true || !loaded,
+        baselineOnly: seedsBaseline(context.origin, loaded),
       });
       if (usageDeltaEmpty(delta)) {
         baselines.set(key, delta.observation);
