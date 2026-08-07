@@ -66,6 +66,22 @@ describe("mergePaneUsage", () => {
     });
   });
 
+  it("keeps the instant with the payload it describes", () => {
+    // An out-of-order delivery does walk `reportedAt` backwards, and taking
+    // the max here was tried and reverted: this field answers WHEN THIS
+    // OBSERVATION HAPPENED — `record` writes it into the ledger as
+    // `occurredAt` and mixes it into the deterministic `eventId` — so a max
+    // stamps a stale payload with a fresh instant. The reader that wants
+    // "newest" keeps its own max (see activityWitness.test.ts).
+    const newer = { agent: "claude", model: "sonnet", reportedAt: 200 };
+    const older = { agent: "claude", costUsd: 3, reportedAt: 150 };
+    expect(mergePaneUsage(newer, older)).toMatchObject({
+      model: "sonnet",
+      costUsd: 3,
+      reportedAt: 150,
+    });
+  });
+
   it("replaces wholesale when the pane changed agents", () => {
     const codex = { agent: "codex", model: "gpt-5.6-sol", reportedAt: 1 };
     const claude = { agent: "claude", reportedAt: 2 };

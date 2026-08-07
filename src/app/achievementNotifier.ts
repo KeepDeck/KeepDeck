@@ -4,7 +4,6 @@ import {
 } from "../domain/usage/achievements/captions";
 import {
   achievementCatalog,
-  knownAchievementIds,
   RECALIBRATED_IDS_V2,
 } from "../domain/usage/achievements/catalog";
 import { createAchievementEngine } from "../domain/usage/achievements/engine";
@@ -73,7 +72,6 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
   dispose(): void;
 } {
   const catalog = achievementCatalog();
-  const known = knownAchievementIds();
   let engine = createAchievementEngine();
   let processed = 0;
   /** Identity of the first folded event — the wholesale-replacement guard.
@@ -85,10 +83,39 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
   let congratulated: Set<string> | null = null;
   /** The version the file was READ at, so a write never lowers it. */
   let fileVersion = 0;
+  /** The ids the migrations this file missed were able to write — the only
+   * ones the sweep below may revoke. Empty for an up-to-date file, which is
+   * why a launch that migrates nothing can no longer take an award away. */
+  let rewritable: ReadonlySet<string> = new Set();
   /** The ledger sweep below runs once, on the first ready snapshot. */
   let reconciled = false;
   let writes: Promise<void> = Promise.resolve();
   let disposed = false;
+
+  /**
+   * A file may only be stamped forward once the repair that belongs with the
+   * rewrite has actually run. The two used to be independent, and the gap
+   * was permanent in both directions:
+   *
+   * - stamping WITHOUT sweeping (the snapshot was incomplete, so the sweep
+   *   was skipped, but some unrelated award made the write happen) closed
+   *   the repair window for good — the next launch reads a v2 file, finds
+   *   nothing rewritable, and the unearned id the rewrite handed out lives
+   *   there forever;
+   * - sweeping without stamping — `persist` fires only when something is
+   *   `dirty`, and an established user's launch changes nothing — left the
+   *   file at v1 indefinitely, which keeps every migration target revocable
+   *   on EVERY later launch. That is how a badge could still evaporate on
+   *   a timezone change months after the upgrade, through the narrowed
+   *   sweep this commit introduced.
+   *
+   * So: no write at all while a migration is pending and unrepaired, and a
+   * forced write once the repair lands. The cost is that awards delivered
+   * during an incomplete-ledger launch go unrecorded and re-announce next
+   * time — a duplicate banner, against a permanently spent one.
+   */
+  const migrationSettled = () =>
+    fileVersion >= NOTIFIED_SCHEMA_VERSION || reconciled;
 
   const persist = (ids: ReadonlySet<string>) => {
     const json = JSON.stringify({
@@ -138,11 +165,16 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     // cannot see what they did — and then write that down.
     if (!reconciled && snapshot.complete) {
       reconciled = true;
-      const kept = reconcileCongratulated(congratulated, earned, known);
+      const kept = reconcileCongratulated(congratulated, earned, rewritable);
       if (kept.size !== congratulated.size) {
         congratulated = kept;
         dirty = true;
       }
+      // Force the write even when the repair found nothing: the version
+      // stamp is what RETIRES `rewritable`, and an established user's launch
+      // is exactly the one that changes nothing else. Without this the file
+      // sits below the migration for good and every target stays revocable.
+      if (fileVersion < NOTIFIED_SCHEMA_VERSION) dirty = true;
     }
     // Catalog order: a ladder announces lowest tier first, so the bell's
     // newest-first list tops out at the most impressive fresh award.
@@ -163,7 +195,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
         dirty = true;
       }
     }
-    if (dirty) persist(congratulated);
+    if (dirty && migrationSettled()) persist(congratulated);
   };
 
   const unsubscribe = deps.history.subscribe(check);
@@ -177,6 +209,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     const file = decode(json);
     congratulated = file.notified;
     fileVersion = file.version;
+    rewritable = rewritableIds(file.version);
     check();
   });
 
@@ -255,7 +288,21 @@ export function migrateFrom(version: number, ids: Iterable<string>): Set<string>
 }
 
 /**
- * Drop congratulations the ledger does not actually support.
+ * Every id the migrations this file MISSED are able to write. Nothing else
+ * can have been handed out by a rewrite, so nothing else is a candidate for
+ * repair — see [`reconcileCongratulated`].
+ */
+export function rewritableIds(version: number): Set<string> {
+  const out = new Set<string>();
+  for (const step of NOTIFIED_MIGRATIONS) {
+    if (version >= step.to) continue;
+    for (const to of step.ids.values()) out.add(to);
+  }
+  return out;
+}
+
+/**
+ * Drop congratulations a REWRITE handed out without the ledger's support.
  *
  * A rewrite carries an award onto the tier that REPLACED it, and a
  * replacement can sit HIGHER than the tier it replaced — the spend ladder
@@ -265,23 +312,33 @@ export function migrateFrom(version: number, ids: Iterable<string>): Set<string>
  * day the user genuinely crosses $100 — the banner they were owed, spent in
  * advance on a tier they never had.
  *
- * Sweeping the whole set against the ledger, rather than only what a
- * migration just introduced, is deliberate: it also repairs a file an earlier
- * build already damaged, and it makes replaying a map harmless — a second
- * pass can only produce ids the ledger will reject. That is what turns the
- * version gate from a correctness requirement into an optimisation.
+ * NARROWED to ids a migration could actually have written (`rewritable`).
+ * It used to sweep the WHOLE set against the ledger, which quietly made this
+ * a general revocation engine: any change to how a metric is COMPUTED — not
+ * just to where a threshold sits — would delete an award the user really
+ * earned. The live case is the streak, which now folds in the reader's own
+ * calendar and therefore moves when the reader does; under the old rule,
+ * flying east could erase a badge from disk and then re-announce it on the
+ * way back. A metric is allowed to be re-derived; an award is not allowed to
+ * evaporate underneath one.
  *
- * Ids outside `known` are KEPT. They belong to a newer build's catalog, and
- * "my catalog has never heard of it" is not evidence the user lacks it.
+ * What the narrowing gives up is repairing a file damaged by a build that
+ * shipped the rewrite WITHOUT this sweep. Those files were repaired by the
+ * builds in between — the sweep has run on every launch since it shipped —
+ * and a file that never met one is a file still stamped below the migration,
+ * so `rewritable` covers it on the next launch anyway.
+ *
+ * Ids this build's catalog has never heard of cannot appear in `rewritable`,
+ * so a newer build's set survives a downgrade untouched, as before.
  */
 export function reconcileCongratulated(
   ids: ReadonlySet<string>,
   earned: ReadonlySet<string>,
-  known: ReadonlySet<string>,
+  rewritable: ReadonlySet<string>,
 ): Set<string> {
   const kept = new Set<string>();
   for (const id of ids) {
-    if (!known.has(id) || earned.has(id)) kept.add(id);
+    if (!rewritable.has(id) || earned.has(id)) kept.add(id);
   }
   return kept;
 }

@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AccountUsage, UsageWindow } from "../../domain/usage";
+import { formatMoment, type AccountUsage, type UsageWindow } from "../../domain/usage";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
   TEST_NOW,
@@ -136,17 +136,20 @@ describe("Providers", () => {
 
     // The clause answers WHEN first; the margin against the reset follows
     // as the qualifier it is.
-    expect(host.textContent).toMatch(/on pace to hit 100% ~\d{2}:\d{2}/);
+    // The run-out instant, phrased by the formatter — spelling the shape
+    // out here would pin the runner's timezone instead: 2h35m from the
+    // fixture crosses LOCAL midnight in some zones and not others.
+    const moment = formatMoment(NOW + 131 * MIN, NOW);
+    expect(host.textContent).toContain("on pace to hit 100% ~");
     expect(host.textContent).toContain("before reset");
     expect(host.textContent).toContain("resets in 2h 35m");
     expect(host.querySelector(".usage-burn")).not.toBeNull();
     expect(host.querySelector(".usage-burn__dot--warn")).not.toBeNull();
     // The plot's right edge names that same moment, so the curve and the
-    // sentence under it cannot disagree. A bare /\d{2}:\d{2}/ would have
-    // accepted the reset-prefixed label too — the wrong branch entirely.
+    // sentence under it cannot disagree. Matching a bare clock shape would
+    // have accepted the reset-prefixed label too — the wrong branch.
     const foot = host.querySelector(".usage-burn__foot")!.textContent ?? "";
-    expect(foot).toMatch(/^0\d{2}:\d{2}$/);
-    expect(foot).not.toContain("reset");
+    expect(foot).toBe(`0${moment}`);
   });
 
   it("stays silent about the race when the journal has no pace yet", () => {

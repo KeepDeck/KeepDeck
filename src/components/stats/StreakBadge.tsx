@@ -1,12 +1,6 @@
-import { useId, useMemo } from "react";
-import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
-import { latestOccurredAt } from "../../domain/usage/history/query";
-import {
-  currentStreakDays,
-  streakHeat,
-  type StreakHeat,
-} from "../../domain/usage/streak";
-import { useWallClock } from "../../ui/useWallClock";
+import { useId } from "react";
+import { useStreakDays } from "../../app/useStreakDays";
+import { streakHeat, type StreakHeat } from "../../domain/usage/streak";
 
 /**
  * The live streak chip — the longer the streak, the louder the look. Each
@@ -19,25 +13,13 @@ import { useWallClock } from "../../ui/useWallClock";
  * ACCEPTED PROVISIONALLY (user, 2026-08-01): the visual treatment is "good
  * enough for now" — a dedicated design pass is planned separately.
  *
- * Self-sufficient (reads the ledger itself) so it can sit in the dialog's
- * footer corner, outside the tab body.
+ * Self-sufficient (asks for the number itself, takes no props) so it can sit
+ * in the dialog's footer corner, outside the tab body. WHAT counts as an
+ * active day, and how the clock is floored, belong to [`useStreakDays`] and
+ * the witness behind it — the chip only draws the answer.
  */
 export function StreakBadge() {
-  const history = useUsageHistorySnapshot();
-  // Wall-clock-derived: a dialog left open across midnight must notice the
-  // day change without a ledger append. Memoized on the shared clock — the
-  // full-ledger scan runs per tick/append, never per render. The ledger's
-  // newest instant floors the clock: an event recorded on a fresh UTC day
-  // extends the streak immediately, not on the next tick.
-  const latest = useMemo(
-    () => latestOccurredAt(history.events),
-    [history.events],
-  );
-  const now = useWallClock(latest);
-  const days = useMemo(
-    () => currentStreakDays(history.events, now),
-    [history.events, now],
-  );
+  const days = useStreakDays();
   if (days === 0) return null;
   const heat = streakHeat(days);
   return (

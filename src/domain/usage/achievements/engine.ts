@@ -5,7 +5,14 @@ import {
   providerCostOf,
 } from "../history/event";
 import { addMoney } from "../money";
-import { DAY_MS, HOUR_MS, utcDayStart } from "../time";
+import {
+  HOUR_MS,
+  localDayNumber,
+  shiftDay,
+  utcDayStart,
+  type LocalDayNumber,
+  type UtcDayStart,
+} from "../time";
 import {
   achievementId,
   earnedTierCount,
@@ -17,18 +24,18 @@ import {
  * its neighboring runs in O(1) (run lengths are kept valid at run
  * boundaries), so the longest run is the same whatever order days arrive. */
 function createStreakTracker() {
-  const days = new Set<number>();
-  const runLengthAt = new Map<number, number>();
+  const days = new Set<LocalDayNumber>();
+  const runLengthAt = new Map<LocalDayNumber, number>();
   let longest = 0;
   return {
-    add(day: number) {
+    add(day: LocalDayNumber) {
       if (days.has(day)) return;
       days.add(day);
-      const left = runLengthAt.get(day - 1) ?? 0;
-      const right = runLengthAt.get(day + 1) ?? 0;
+      const left = runLengthAt.get(shiftDay(day, -1)) ?? 0;
+      const right = runLengthAt.get(shiftDay(day, 1)) ?? 0;
       const length = left + 1 + right;
-      runLengthAt.set(day - left, length);
-      runLengthAt.set(day + right, length);
+      runLengthAt.set(shiftDay(day, -left), length);
+      runLengthAt.set(shiftDay(day, right), length);
       runLengthAt.set(day, length);
       longest = Math.max(longest, length);
     },
@@ -55,9 +62,9 @@ export function createAchievementEngine(): AchievementEngine {
   const providers = new Set<string>();
   const models = new Set<string>();
   const workspaces = new Set<string>();
-  const dayTokenTotals = new Map<number, number>();
-  const daySessionSets = new Map<number, Set<string>>();
-  const dayProviderSets = new Map<number, Set<string>>();
+  const dayTokenTotals = new Map<UtcDayStart, number>();
+  const daySessionSets = new Map<UtcDayStart, Set<string>>();
+  const dayProviderSets = new Map<UtcDayStart, Set<string>>();
   const sessionTokenTotals = new Map<string, number>();
   const sessionTurnCounts = new Map<string, number>();
   const sessionMinAt = new Map<string, number>();
@@ -109,20 +116,20 @@ export function createAchievementEngine(): AchievementEngine {
         spendUsd = addMoney(spendUsd, cost);
       }
 
-      const day = utcDayStart(event.occurredAt);
-      const dayTokens = (dayTokenTotals.get(day) ?? 0) + eventTokens;
-      dayTokenTotals.set(day, dayTokens);
+      const utcDay = utcDayStart(event.occurredAt);
+      const dayTokens = (dayTokenTotals.get(utcDay) ?? 0) + eventTokens;
+      dayTokenTotals.set(utcDay, dayTokens);
       maxDayTokens = Math.max(maxDayTokens, dayTokens);
 
       const key = usageSessionKey(event);
       sessions.add(key);
-      const daySessions = daySessionSets.get(day) ?? new Set();
+      const daySessions = daySessionSets.get(utcDay) ?? new Set();
       daySessions.add(key);
-      daySessionSets.set(day, daySessions);
+      daySessionSets.set(utcDay, daySessions);
       maxDaySessions = Math.max(maxDaySessions, daySessions.size);
-      const dayProviders = dayProviderSets.get(day) ?? new Set();
+      const dayProviders = dayProviderSets.get(utcDay) ?? new Set();
       dayProviders.add(event.agent);
-      dayProviderSets.set(day, dayProviders);
+      dayProviderSets.set(utcDay, dayProviders);
       maxDayProviders = Math.max(maxDayProviders, dayProviders.size);
 
       const sessionTokens = (sessionTokenTotals.get(key) ?? 0) + eventTokens;
@@ -142,7 +149,27 @@ export function createAchievementEngine(): AchievementEngine {
         maxSessionSpendUsd = Math.max(maxSessionSpendUsd, sessionSpend);
       }
 
-      streak.add(day / DAY_MS);
+      // The reader's calendar day, NOT the UTC bucket the peaks above use.
+      // A streak answers "did I show up today"; a peak answers "how big was
+      // the biggest day", and only the first of those is a fact about the
+      // person's own clock. The UTC bucket was not merely late here, it was
+      // WRONG: it merges days the calendar separates, so working every other
+      // local day could read as an unbroken run (see `localDayNumber`).
+      //
+      // TWO consequences worth naming, because both look like bugs:
+      //
+      // LEDGER ONLY. The live chip also counts a day proven by a report that
+      // has not become spend yet; this fold deliberately does not. An award
+      // has to be derivable from the file, or it stops being reproducible —
+      // so a day with a report and no spend shows on the chip and not here,
+      // and the seam closes the moment anything is spent.
+      //
+      // NOT REPRODUCIBLE ACROSS ZONES. The event carries no offset, so this
+      // folds in whatever calendar the reader is in NOW: fly far enough and
+      // the number moves. That is why `reconcileCongratulated` no longer
+      // revokes on a value it did not itself move — a badge you earned must
+      // not evaporate because you changed timezone.
+      streak.add(localDayNumber(event.occurredAt));
     },
     value: (metric) => values[metric](),
     earnedIds() {

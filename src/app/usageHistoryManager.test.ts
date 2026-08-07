@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeUsageEvent, type UsageEventV2 } from "../domain/usage/history/event";
 import { TEST_NOW, usageEvent } from "../domain/usage/history/event.testSupport";
-import { createUsageHistoryManager } from "./usageHistoryManager";
+import {
+  createUsageHistoryManager,
+  type UsageCaptureContext,
+} from "./usageHistoryManager";
 
 // The manager is a factory over an injected persistence port — each test
 // builds a fresh instance over these fakes; there is no shared state and
@@ -19,13 +22,17 @@ const recordPaneUsage: ReturnType<typeof createUsageHistoryManager>["record"] = 
 const getUsageHistorySnapshot = () => manager.getSnapshot();
 
 const NOW = TEST_NOW;
-const context = {
+/** The default is `unknown` — a pane this run did not spawn — because that
+ * is the origin whose seeding rule depends on the ledger, and so the one
+ * most of these cases are actually about. */
+const context: UsageCaptureContext = {
   workspaceId: "ws-1",
   workspaceName: "KeepDeck",
   workspaceCwd: "/repo",
   paneId: "pane-1",
   paneName: "Agent 1",
   sessionId: "session-1",
+  origin: "unknown",
 };
 
 /** This file's personality over the shared builder: the manager tests speak
@@ -196,10 +203,10 @@ describe("usageHistoryManager", () => {
 
   it("uses the first resumed cumulative report only as a baseline", async () => {
     await initUsageHistory();
-    const claudeContext = {
+    const claudeContext: UsageCaptureContext = {
       ...context,
       sessionId: "resumed-claude",
-      baselineOnly: true,
+      origin: "inherited",
     };
     const report = (costUsd: number, output: number, cacheRead: number) => ({
       agent: "claude",
@@ -383,6 +390,149 @@ describe("usageHistoryManager", () => {
     // contains. A reader deleting on absence would act on this snapshot.
     ipc.loadUsageHistory.mockRejectedValue(new Error("invalid utf-8"));
     await initUsageHistory();
+    const report = (totalTokens: { input: number; output: number }) =>
+      recordPaneUsage(
+        {
+          agent: "opencode",
+          sessionId: "session-1",
+          totalTokens,
+          costUsd: 1,
+          reportedAt: NOW,
+        },
+        context,
+        NOW,
+      );
+    // The first report SEEDS — see `seedsBaseline`; this pane's origin is
+    // `unknown`, so an unreadable ledger is exactly the case that seeds.
+    await report({ input: 100, output: 10 });
+    // The second is a true delta against it, so it appends and clears the
+    // error. Completeness must not follow the error back to true.
+    await report({ input: 130, output: 15 });
+    const snapshot = getUsageHistorySnapshot();
+    expect(snapshot.error).toBeNull();
+    expect(snapshot.events.length).toBeGreaterThan(0);
+    expect(snapshot.complete).toBe(false);
+  });
+
+  it("seeds rather than counts the first report when the ledger is unreadable", async () => {
+    // A CLI reports cumulative totals, so a delta with no baseline is the
+    // WHOLE session — and after a failed load `baselines` is empty while
+    // the history it came from is still on disk. Appending that total
+    // double-counts every token of the session the moment the file becomes
+    // readable again.
+    ipc.loadUsageHistory.mockRejectedValue(new Error("invalid utf-8"));
+    await initUsageHistory();
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 5_000, output: 500 },
+        costUsd: 12,
+        reportedAt: NOW,
+      },
+      context,
+      NOW,
+    );
+    expect(ipc.appendUsageHistory).not.toHaveBeenCalled();
+
+    // The next report is a real delta against that seed: 200 in, 20 out.
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 5_200, output: 520 },
+        costUsd: 12.5,
+        reportedAt: NOW + 1,
+      },
+      context,
+      NOW + 1,
+    );
+    expect(ipc.appendUsageHistory).toHaveBeenCalledTimes(1);
+    const appended = JSON.parse(ipc.appendUsageHistory.mock.calls[0][0][0]);
+    expect(appended.tokens).toMatchObject({ input: 200, output: 20 });
+    expect(appended.costUsd).toBeCloseTo(0.5, 5);
+  });
+
+  it("seeds an unknown session when the load withheld a newer build's lines", async () => {
+    // "The checkpoint may be missing" is `complete`, not `loaded`, and the
+    // difference is a real double-count rather than a wording nicety. A
+    // downgrade past a usage-event schema bump LOADS FINE and preserves the
+    // newer build's lines without decoding them, so a session whose rows are
+    // all withheld has history on disk and no entry in `baselines` — and
+    // counting its cumulative total appends the whole session a second time.
+    ipc.loadUsageHistory.mockResolvedValue([
+      JSON.stringify({ ...event({ eventId: "future" }), schemaVersion: 3 }),
+    ]);
+    await initUsageHistory();
+    expect(getUsageHistorySnapshot()).toMatchObject({
+      error: null,
+      complete: false,
+    });
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 5_000, output: 500 },
+        costUsd: 12,
+        reportedAt: NOW,
+      },
+      context,
+      NOW,
+    );
+    expect(ipc.appendUsageHistory).not.toHaveBeenCalled();
+  });
+
+  it("still counts a FRESH session's first turn on an unreadable ledger", async () => {
+    // The guard used to be a bare `!loaded`, which is sticky for the whole
+    // process — the load is never retried — so after one failed read EVERY
+    // session started afterwards lost its opening turn, permanently and
+    // silently. For Claude that is the whole first request: system prompt,
+    // tool schemas, cacheWrite and its cost. A session this run spawned
+    // itself cannot be on disk, so there was never anything to double-count.
+    ipc.loadUsageHistory.mockRejectedValue(new Error("invalid utf-8"));
+    await initUsageHistory();
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "spawned-here",
+        totalTokens: { input: 5_000, output: 500 },
+        costUsd: 12,
+        reportedAt: NOW,
+      },
+      { ...context, sessionId: "spawned-here", origin: "fresh" },
+      NOW,
+    );
+    expect(ipc.appendUsageHistory).toHaveBeenCalledTimes(1);
+    const appended = JSON.parse(ipc.appendUsageHistory.mock.calls[0][0][0]);
+    expect(appended.tokens).toMatchObject({ input: 5_000, output: 500 });
+    expect(appended.costUsd).toBeCloseTo(12, 5);
+  });
+
+  it("still seeds an INHERITED session even when the ledger read fine", async () => {
+    // The other half of the same rule: resume/fork carries counters that may
+    // already be in the file, and a healthy read does not make them ours.
+    ipc.loadUsageHistory.mockResolvedValue([]);
+    await initUsageHistory();
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "resumed",
+        totalTokens: { input: 5_000, output: 500 },
+        costUsd: 12,
+        reportedAt: NOW,
+      },
+      { ...context, sessionId: "resumed", origin: "inherited" },
+      NOW,
+    );
+    expect(ipc.appendUsageHistory).not.toHaveBeenCalled();
+  });
+
+  it("still counts the first report normally when the ledger read fine", async () => {
+    // The seeding rule is scoped to an unreadable ledger. A healthy empty
+    // history has no hidden past to double-count, so a first report is real
+    // usage and must be recorded as such.
+    ipc.loadUsageHistory.mockResolvedValue([]);
+    await initUsageHistory();
     await recordPaneUsage(
       {
         agent: "opencode",
@@ -394,10 +544,7 @@ describe("usageHistoryManager", () => {
       context,
       NOW,
     );
-    const snapshot = getUsageHistorySnapshot();
-    expect(snapshot.error).toBeNull();
-    expect(snapshot.events.length).toBeGreaterThan(0);
-    expect(snapshot.complete).toBe(false);
+    expect(ipc.appendUsageHistory).toHaveBeenCalledTimes(1);
   });
 
   it("migrates v1 lines and compacts them as v2 instead of erasing history", async () => {

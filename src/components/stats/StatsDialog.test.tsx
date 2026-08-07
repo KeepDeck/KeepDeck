@@ -32,6 +32,14 @@ vi.mock("../../app/useUsage", () => ({
   useUsage: () => usage.snapshot,
 }));
 
+/** The chip asks the runtime for one number; this suite is about WHERE the
+ * dialog seats it, so the number is a constant here and the witness behind
+ * it is tested in `activityWitness.test.ts`. */
+const streak = vi.hoisted(() => ({ days: 0 }));
+vi.mock("../../app/useStreakDays", () => ({
+  useStreakDays: () => streak.days,
+}));
+
 const windowReports = vi.hoisted(() => ({
   snapshot: { ready: true, byKey: new Map() } as {
     ready: boolean;
@@ -227,17 +235,10 @@ describe("UsageStats", () => {
   });
 
   it("seats the streak chip in the footer, outside the tab body", () => {
-    // WHERE it sits is the dialog's decision — the chip reads the ledger
-    // itself precisely so it can live outside the tabs. What it then says
-    // is its own suite's business (StreakBadge.test.tsx).
-    const DAY = 24 * 60 * 60 * 1_000;
-    history.snapshot = {
-      ...ledger(
-        [0, 1, 2, 3].map((daysAgo) =>
-          usageEvent({ eventId: `d-${daysAgo}`, occurredAt: NOW - daysAgo * DAY }),
-        ),
-      ),
-    };
+    // WHERE it sits is the dialog's decision — the chip takes no props
+    // precisely so it can live outside the tabs. What it then says is its own
+    // suite's business (StreakBadge.test.tsx).
+    streak.days = 4;
     act(() => root.render(createElement(DialogHost, { onClose: vi.fn() })));
 
     const footer = document.body.querySelector(".stats-dialog__actions")!;

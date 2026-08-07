@@ -4,9 +4,13 @@ import { latestCodexRollout } from "../ipc/usage";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import {
   peekPaneSpawnSpec,
+  spawnPlanInheritsSession,
   spawnPlanNeedsUsageBaseline,
 } from "./spawnSpecs";
-import { recordPaneUsage } from "./usageHistoryManager";
+import {
+  recordPaneUsage,
+  type UsageSessionOrigin,
+} from "./usageHistoryManager";
 import { usageSourceTimestamp } from "./usageProvenance";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
@@ -82,10 +86,20 @@ export function createUsageMaintenanceLane({
       }
       const sessionId = paneUsage.sessionId ?? pane.session?.id;
       if (!sessionId) continue;
-      const baselineOnly = spawnPlanNeedsUsageBaseline(
-        peekPaneSpawnSpec(paneId),
+      // A pane with NO cached plan is one this run did not spawn — attached
+      // or restored across a restart — so its session may predate the run.
+      // `fresh` needs POSITIVE evidence that this run's own spawn minted the
+      // session, never merely the absence of a match: a plan that inherits
+      // from something answers `unknown` until the id it inherits is known.
+      const spec = peekPaneSpawnSpec(paneId);
+      const origin: UsageSessionOrigin = spawnPlanNeedsUsageBaseline(
+        spec,
         sessionId,
-      );
+      )
+        ? "inherited"
+        : spec && !spawnPlanInheritsSession(spec)
+          ? "fresh"
+          : "unknown";
       const index = workspace.panes.indexOf(pane);
       void recordPaneUsage(paneUsage, {
         workspaceId: workspace.id,
@@ -94,7 +108,7 @@ export function createUsageMaintenanceLane({
         paneId,
         paneName: pane.name ?? pane.autoTitle ?? `Agent ${index + 1}`,
         sessionId,
-        ...(baselineOnly ? { baselineOnly: true } : {}),
+        origin,
         ...(pane.cwd
           ? {
               worktree: {

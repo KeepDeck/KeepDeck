@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   achievementCatalog,
   achievementId,
-  knownAchievementIds,
   LADDERS,
   RECALIBRATED_IDS_V2,
 } from "./catalog";
@@ -43,15 +42,17 @@ describe("the catalog's ids", () => {
     }
   });
 
-  it("counts a retired id among the ones it knows", () => {
-    const known = knownAchievementIds();
-    // Live…
-    expect(known.has("tokens-25000000")).toBe(true);
-    // …and retired: the notifier must be able to tell an id this build has
-    // heard of from one a NEWER build invented, and a retired tier is the
-    // first kind, not the second.
-    expect(known.has("tokens-10000000")).toBe(true);
-    expect(known.has("some-future-tier")).toBe(false);
+  it("keeps every retired id reachable as a migration source", () => {
+    // A retired tier is not forgotten — it is the LEFT side of a pair, which
+    // is what lets a persisted set from an older build be carried forward.
+    // (The `knownAchievementIds()` this used to assert on was deleted with
+    // the notifier's sweep narrowing; the pairs are the durable contract.)
+    expect(RECALIBRATED_IDS_V2.has("tokens-10000000")).toBe(true);
+    expect(RECALIBRATED_IDS_V2.get("tokens-10000000")).toBe("tokens-25000000");
+    expect(
+      achievementCatalog().some((entry) => entry.id === "tokens-25000000"),
+    ).toBe(true);
+    expect(RECALIBRATED_IDS_V2.has("some-future-tier")).toBe(false);
   });
 });
 
