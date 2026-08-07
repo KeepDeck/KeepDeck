@@ -32,6 +32,14 @@ describe("paneFrame", () => {
     expect(paneFrame(working, true)).toBe("selected");
   });
 
+  it("every activity state wears its own rung — none can silently fall through", () => {
+    // The failure mode the single SEVERITY home exists against: a state
+    // ranked in the fold but unhandled at the pane reads as "none".
+    for (const activity of [failed, waiting, working, done]) {
+      expect(paneFrame(activity, false)).toBe(activity.state);
+    }
+  });
+
   it("no activity: selection or nothing", () => {
     expect(paneFrame(undefined, true)).toBe("selected");
     expect(paneFrame(undefined, false)).toBe("none");
