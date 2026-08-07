@@ -1,7 +1,11 @@
 import type { PaneActivity } from "./activity";
 
-/** The one frame a status surface wears — a closed set so the CSS ladder
- * is exhaustive and a new rung is a compile error at the view. The `selected` rung means "the surface the user's cursor owns": the
+/** The one frame a status surface wears — a closed set so the ladder is
+ * exhaustive for every RANKER. The views are not exhaustive: they build
+ * their class by interpolation (`pane--frame-${frame}` and kin), so a new
+ * rung compiles and renders UNSTYLED until status.css paints it — the
+ * type cannot enforce the paint, only this sentence can warn about it.
+ * The `selected` rung means "the surface the user's cursor owns": the
  * selected pane's border on the deck, the active workspace's green on
  * the rail — one rung, because it is one fact (where the cursor is), and
  * one hex on purpose. */
