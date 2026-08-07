@@ -12,7 +12,9 @@
   --status-waiting: #e0af68;
   --status-failed: #f7768e;
   --status-done: #9ece6a;
-  --status-selected: #58b368;
+  /* The selection hue's home is the base palette's --kd-ok (one hex for
+     "good/live/chosen" across the app); this rung aliases it. */
+  --status-selected: var(--kd-ok);
 }
 
 /* The header dot's hues — the SAME four names as the frames, so "change

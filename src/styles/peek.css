@@ -133,11 +133,11 @@
 
 /* A toggle action, currently on. */
 .peek__act--on {
-  color: #58b368;
+  color: var(--kd-ok);
 }
 
 .peek__act--on:hover {
-  color: #6fd07f;
+  color: var(--kd-ok-strong);
 }
 
 /* The second header line: where the content sits — mono, muted, one line. */

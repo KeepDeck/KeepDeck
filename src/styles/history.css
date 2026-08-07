@@ -68,7 +68,7 @@
 }
 
 .history__state--live {
-  background-color: #58b368;
+  background-color: var(--kd-ok);
 }
 
 .history__glyph {
@@ -142,7 +142,7 @@
 
 .history__resume:hover,
 .history__fork:hover {
-  border-color: #58b368;
+  border-color: var(--kd-ok);
   color: #c5c8c6;
 }
 
@@ -411,7 +411,7 @@
  * currentColor) borders, which left a faint colored curve on the RIGHT
  * corners of every turn. A shadow hugs the left edge and nothing else. */
 .browser__turn--user {
-  box-shadow: inset 2px 0 0 #58b368;
+  box-shadow: inset 2px 0 0 var(--kd-ok);
 }
 
 .browser__turn--assistant {

@@ -92,12 +92,12 @@
  * sits downloaded and verified, and a single click restarts into it. */
 .bar__action--update {
   border-color: #2c5136;
-  color: #58b368;
+  color: var(--kd-ok);
 }
 
 .bar__action--update:hover:not(:disabled) {
   background-color: #16241b;
-  border-color: #58b368;
+  border-color: var(--kd-ok);
 }
 
 .deck__status {
