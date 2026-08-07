@@ -12,7 +12,7 @@
  * the pane mint are all decided there already, and a private copy of that
  * reasoning would drift the first time one of them changed.
  */
-import type { TeamPlan } from "../../domain/mail";
+import { teamBriefing, teamFarewell, type TeamPlan } from "../../domain/mail";
 
 export interface TeamSetupDeps {
   /** Put a pane on the team under a role, or take it off with `null`. */
@@ -33,6 +33,10 @@ export interface TeamSetupDeps {
   ): Promise<string | null>;
   /** Tell the person about a recruit that never started. */
   report(title: string, message: string): void;
+  /** Tell an AGENT where it now stands. Absent when the mail feature is
+   * off — the roles are still recorded, there is simply nothing running to
+   * tell. */
+  announce?(paneId: string, kind: "team", body: string): void;
 }
 
 /**
@@ -47,6 +51,8 @@ export async function applyTeamPlan(
   workspaceId: string,
   plan: TeamPlan,
 ): Promise<void> {
+  /** Who ends up on the team, in roster order — the briefing's content. */
+  const landed: { paneId: string; role: string }[] = [];
   for (const paneId of plan.released) {
     deps.setPaneTeam(workspaceId, paneId, null);
   }
@@ -55,6 +61,7 @@ export async function applyTeamPlan(
       name: plan.name,
       role: member.role,
     });
+    landed.push(member);
   }
   for (const recruit of plan.recruits) {
     let paneId: string | null = null;
@@ -76,5 +83,25 @@ export async function applyTeamPlan(
       continue;
     }
     deps.setPaneTeam(workspaceId, paneId, { name: plan.name, role: recruit.role });
+    landed.push({ paneId, role: recruit.role });
+  }
+
+  // Told LAST, and only about what actually landed: a briefing naming a
+  // teammate whose agent failed to start would send someone writing into
+  // nothing. Composed from the plan rather than re-read from the deck,
+  // because the deck's own view of a dispatch made a moment ago is not
+  // guaranteed to have caught up.
+  const everyRole = landed.map((member) => member.role);
+  for (const member of landed) {
+    deps.announce?.(
+      member.paneId,
+      "team",
+      teamBriefing(plan.name, member.role, everyRole),
+    );
+  }
+  // And whoever left hears once, so it stops addressing roles that no
+  // longer reach anyone.
+  for (const paneId of plan.released) {
+    deps.announce?.(paneId, "team", teamFarewell(plan.name));
   }
 }

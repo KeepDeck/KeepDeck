@@ -373,6 +373,9 @@ export function useAppController() {
     forkDialog,
     teamDialog,
     setTeamDialog,
+    /** The mail owner, looked up per call — it exists only while the
+     * Experimental toggle is on. */
+    mail: runtime.mail,
     frozen,
     frozenAck,
     gitHeads,

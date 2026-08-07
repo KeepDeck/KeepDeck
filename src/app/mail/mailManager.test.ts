@@ -335,6 +335,30 @@ describe("createMailManager", () => {
     expect(h.delivered.map((mail) => mail.kind)).toEqual(["undelivered"]);
   });
 
+  it("lets the deck speak for itself, without spending a chain", () => {
+    // The host already speaks for delivery reports; a team briefing is the
+    // other thing only the deck knows. It starts no conversation, so it
+    // must not cost the pane a hop from its budget.
+    const h = harness();
+    h.reports(B.paneId, done);
+    h.manager.announce(B.paneId, "team", "you are lead on api");
+    expect(h.delivered).toHaveLength(1);
+    expect(h.delivered[0].from).toEqual({ kind: "host" });
+    expect(h.delivered[0].kind).toBe("team");
+    expect(h.delivered[0].hop).toBe(0);
+  });
+
+  it("holds an announcement at a permission prompt like any other message", () => {
+    // It travels the ordinary route, so the one dangerous state stays
+    // dangerous no matter who is speaking.
+    const h = harness();
+    h.reports(B.paneId, approving);
+    h.manager.announce(B.paneId, "team", "you are lead on api");
+    expect(h.delivered).toHaveLength(0);
+    h.reports(B.paneId, done);
+    expect(h.delivered).toHaveLength(1);
+  });
+
   it("writes into no pane once disposed, even when still called", () => {
     const h = harness();
     h.reports(B.paneId, done);

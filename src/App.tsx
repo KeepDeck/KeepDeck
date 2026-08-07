@@ -87,6 +87,7 @@ function App() {
     setForkDialog,
     teamDialog,
     setTeamDialog,
+    mail,
     setFrozenAck,
     setRailCollapsed,
     openSettings,
@@ -431,6 +432,11 @@ function App() {
                       return (result.value as { paneId?: string }).paneId ?? null;
                     },
                     report: pushAlert,
+                    // Only while the feature is on: with it off the roles
+                    // are still recorded, there is simply nothing running
+                    // to be told about them.
+                    announce: (paneId, kind, body) =>
+                      mail.current()?.announce(paneId, kind, body),
                   },
                   active.id,
                   plan,

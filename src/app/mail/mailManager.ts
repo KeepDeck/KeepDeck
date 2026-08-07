@@ -84,6 +84,18 @@ export interface MailManagerDeps {
 export interface MailManager {
   /** Accept a message, then try to place it immediately. */
   send(request: MailSendRequest): MailSendResult;
+  /** Say something to a pane as the DECK, not as another agent.
+   *
+   * The host already speaks this way for delivery reports; this is the same
+   * lane for the other thing only the deck knows — that a pane has joined a
+   * team, or left one. It travels the ordinary route, so it waits out a
+   * permission prompt and arrives labelled through the hook channel like
+   * any other message.
+   *
+   * Hop zero: a fact stated by the deck starts no conversation and must not
+   * spend the pane's chain budget on one.
+   */
+  announce(paneId: string, kind: MailKind, body: string): void;
   /** Hand over everything waiting for this pane, because its agent just
    * asked at a turn boundary — the moment the labelled channel is open.
    *
@@ -271,6 +283,19 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       const pending = queues.get(mail.toPaneId);
       const delivered = !pending?.some((queued) => queued.id === mail.id);
       return { ok: true, id: mail.id, delivered };
+    },
+
+    announce(paneId, kind, body) {
+      enqueue({
+        id: mintId(),
+        kind,
+        body,
+        from: { kind: "host" },
+        toPaneId: paneId,
+        at: now(),
+        hop: 0,
+      });
+      drain();
     },
 
     takeAtTurnEnd(paneId) {

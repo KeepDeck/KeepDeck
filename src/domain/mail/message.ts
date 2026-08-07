@@ -29,7 +29,13 @@ export type MailKind =
    * rather than a `note` because the receiver must be able to tell a fact
    * about the mail system from a peer's words — and because a report about
    * a report would start a chain of its own. */
-  | "undelivered";
+  | "undelivered"
+  /** The deck telling a pane where it now stands: its team, its role, and
+   * the roles it can write to. An agent cannot discover any of that on its
+   * own — nothing about a pane's own process says it joined a team — so it
+   * has to be told at the moment it happens, or it works alone without
+   * knowing there was anyone to ask. */
+  | "team";
 
 /**
  * The pane that sent it, as it read AT SEND TIME.

@@ -5,7 +5,10 @@ import { applyTeamPlan } from "./teamSetup";
 function setup(spawn?: TeamSetupSpawn) {
   const calls: string[] = [];
   const reports: string[] = [];
+  const told: { paneId: string; body: string }[] = [];
   const deps = {
+    announce: (paneId: string, _kind: "team", body: string) =>
+      told.push({ paneId, body }),
     setPaneTeam: (
       _ws: string,
       paneId: string,
@@ -14,7 +17,7 @@ function setup(spawn?: TeamSetupSpawn) {
     spawn: spawn ?? (async () => "pane-new"),
     report: (title: string) => reports.push(title),
   };
-  return { deps, calls, reports };
+  return { deps, calls, reports, told };
 }
 
 type TeamSetupSpawn = (
@@ -95,6 +98,66 @@ describe("applyTeamPlan", () => {
     );
     expect(h.calls).toEqual(["pane-1=lead@api"]);
     expect(h.reports).toEqual(['Could not start claude as “impl-1”']);
+  });
+
+  it("tells every member its role and who else it can write to", async () => {
+    // An agent cannot work this out for itself — nothing about its own
+    // process says it has teammates — so it has to be told at the moment
+    // it becomes true, or the feature exists and nobody uses it.
+    const h = setup();
+    await applyTeamPlan(
+      h.deps,
+      "ws-1",
+      plan({
+        members: [
+          { paneId: "pane-1", role: "lead" },
+          { paneId: "pane-2", role: "impl-1" },
+        ],
+      }),
+    );
+    expect(h.told.map((t) => t.paneId)).toEqual(["pane-1", "pane-2"]);
+    expect(h.told[0].body).toContain('as "lead"');
+    expect(h.told[0].body).toContain("impl-1");
+    // ...and never names itself among the teammates it can write to.
+    expect(h.told[0].body).not.toMatch(/by role:[^\n]*lead/);
+    expect(h.told[1].body).toContain('as "impl-1"');
+    expect(h.told[1].body).toContain("lead");
+  });
+
+  it("names only teammates that actually landed", async () => {
+    // A briefing naming an agent whose spawn failed would send someone
+    // writing into nothing.
+    const h = setup(async () => {
+      throw new Error("workspace is full");
+    });
+    await applyTeamPlan(
+      h.deps,
+      "ws-1",
+      plan({
+        members: [{ paneId: "pane-1", role: "lead" }],
+        recruits: [{ agentType: "claude", role: "impl-1", yolo: false }],
+      }),
+    );
+    expect(h.told).toHaveLength(1);
+    expect(h.told[0].body).not.toContain("impl-1");
+    expect(h.told[0].body).toContain("only member");
+  });
+
+  it("tells whoever left, so it stops writing to roles that reach nobody", async () => {
+    const h = setup();
+    await applyTeamPlan(h.deps, "ws-1", plan({ released: ["pane-9"] }));
+    expect(h.told).toEqual([
+      { paneId: "pane-9", body: expect.stringContaining("no longer on the team") },
+    ]);
+  });
+
+  it("records the roles even with nothing running to tell", async () => {
+    // The feature's toggle can be off; membership is still deck state.
+    const h = setup();
+    const deps = { ...h.deps, announce: undefined };
+    await applyTeamPlan(deps, "ws-1", plan({ members: [{ paneId: "pane-1", role: "lead" }] }));
+    expect(h.calls).toEqual(["pane-1=lead@api"]);
+    expect(h.told).toEqual([]);
   });
 
   it("reports a refusal that answered with no pane", async () => {
