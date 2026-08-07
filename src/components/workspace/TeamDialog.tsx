@@ -15,6 +15,7 @@ import {
 } from "../../domain/mail";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { AgentGlyph } from "../../ui/AgentGlyph";
+import { Dropdown } from "../../ui/Dropdown";
 import { noAutoCorrect } from "../../ui/inputProps";
 
 interface TeamDialogProps {
@@ -231,18 +232,19 @@ export function TeamDialog({
                   </>
                 ) : (
                   <>
-                    <select
-                      className="form__input team__row-agent"
+                    {/* The app's own dropdown, never a native <select>: a
+                        system popup is foreign chrome in a window that
+                        renders every other interaction itself. */}
+                    <Dropdown
+                      className="team__row-agent"
+                      options={canRecruit.map((agent) => ({
+                        value: agent.id,
+                        label: agent.label,
+                      }))}
                       value={row.agentType}
-                      aria-label="Agent to start"
-                      onChange={(e) => row.setAgentType(e.target.value)}
-                    >
-                      {canRecruit.map((agent) => (
-                        <option key={agent.id} value={agent.id}>
-                          {agent.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={row.setAgentType}
+                      ariaLabel="Agent to start"
+                    />
                     <span className="team__row-where">starts when you confirm</span>
                   </>
                 )}

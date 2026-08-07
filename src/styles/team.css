@@ -43,8 +43,7 @@
 /* The role LEADS the row. It is the address teammates use, and a column of
    addresses is what gets scanned for duplicates — so it is first, fixed, and
    aligned down the list. */
-.team__row-role,
-.team__row-agent {
+.team__row-role {
   flex: none;
   width: 120px;
   font-size: 12px;
@@ -52,6 +51,16 @@
      flex row that margin is dead space that makes the row taller than its
      neighbours. */
   margin-bottom: 0;
+}
+
+/* Sized to its CONTENT, not to the role column beside it. Matching that
+   width truncated "Claude Code" to "Claude Co…" — and an agent picker whose
+   whole job is naming which agent must never be the thing that hides the
+   name. There is room: the dialog is 560px and this row has one flexible
+   column to give it back. */
+.team__row-agent {
+  flex: none;
+  width: 180px;
 }
 
 .team__row-who {

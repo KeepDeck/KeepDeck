@@ -18,7 +18,7 @@ import { readStyles, ruleBody } from "./testSupport";
 const team = readStyles("team.css");
 const form = readStyles("form.css");
 
-const ROW_CONTROLS = ".team__row-role,\n.team__row-agent";
+const ROW_CONTROLS = ".team__row-role";
 
 describe("the team roster", () => {
   it("gives every row the same height, whichever list it is in", () => {
@@ -45,6 +45,15 @@ describe("the team roster", () => {
     const controls = ruleBody(team, ROW_CONTROLS);
     expect(controls.width).toMatch(/^\d/);
     expect(controls.flex).toBe("none");
+  });
+
+  it("gives the agent picker room for the name it exists to show", () => {
+    // Sized to the role column beside it, it truncated "Claude Code" to
+    // "Claude Co…" — the one control whose whole job is naming an agent
+    // must not be the thing that hides the name.
+    const picker = parseFloat(ruleBody(team, ".team__row-agent").width);
+    const role = parseFloat(ruleBody(team, ROW_CONTROLS).width);
+    expect(picker).toBeGreaterThan(role);
   });
 
   it("scrolls the dialog, never the lists inside it", () => {

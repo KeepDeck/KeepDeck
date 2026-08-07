@@ -190,6 +190,20 @@ describe("TeamDialog", () => {
     expect(roles()[0].value).toBe("reviewer");
   });
 
+  it("renders no system control anywhere", () => {
+    // The window draws every other interaction itself, so a native select
+    // popup — or a system checkbox — is foreign chrome sitting in the
+    // middle of it. `Dropdown` exists for exactly this and says so.
+    open(workspace([pane("pane-1")]));
+    act(() => adds()[0].click());
+    act(() => startNew().click());
+    expect(document.querySelector("select")).toBeNull();
+    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(document.querySelector('input[type="radio"]')).toBeNull();
+    // ...and the agent picker is genuinely there, in the app's own form.
+    expect(document.querySelector(".team__row-agent")).not.toBeNull();
+  });
+
   it("shows an agent still to be started as a member, not as a footnote", () => {
     // It is on the team the moment it is asked for; the only difference
     // from the others is that it does not exist yet.
