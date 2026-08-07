@@ -20,6 +20,7 @@ const ipc = vi.hoisted(() => ({
   loadSettings: vi.fn<() => Promise<string | null>>(async () => null),
   saveSettings: vi.fn<(json: string) => Promise<void>>(async () => {}),
   quarantineSettings: vi.fn<() => Promise<void>>(async () => {}),
+  snapshotSettings: vi.fn<() => Promise<void>>(async () => {}),
 }));
 vi.mock("../../ipc/settings", () => ipc);
 

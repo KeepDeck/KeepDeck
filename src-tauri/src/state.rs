@@ -89,6 +89,13 @@ pub fn settings_quarantine() -> Result<(), String> {
     quarantine(&settings_path()?).map_err(|e| e.to_string())
 }
 
+/// Keep a copy of the settings before an app update — the restore point and
+/// the evidence if the document comes back changed. See [`snapshot`].
+#[tauri::command(async)]
+pub fn settings_snapshot() -> Result<(), String> {
+    snapshot(&settings_path()?).map_err(|e| e.to_string())
+}
+
 fn state_path() -> Result<PathBuf, String> {
     doc_path(DECK_FILE)
 }
@@ -161,46 +168,99 @@ pub(crate) fn write_atomic_mode(
     fs::rename(&tmp, path)
 }
 
-/// Quarantined generations kept per document. One slot proved too few: the
-/// second quarantine silently destroyed the evidence of the first.
-const KEEP_BACKUPS: usize = 5;
+/// The two kinds of kept generation, each with its OWN filename lane and its
+/// own count. They must not share: a quarantine is rare forensic evidence the
+/// user may need months later, while a pre-update copy is taken on every
+/// update and is therefore always newer. Pruning by age across one shared lane
+/// deletes the quarantine first — guaranteed, not merely likely — which is the
+/// opposite of what either lane is for.
+#[derive(Clone, Copy)]
+struct BackupLane {
+    /// Inserted between the file name and the stamp: `settings.json.bak.<ms>`.
+    suffix: &'static str,
+    keep: usize,
+}
 
-fn quarantine(path: &Path) -> io::Result<()> {
-    let name = match path.file_name() {
-        Some(n) => n.to_string_lossy().into_owned(),
-        None => return Ok(()),
-    };
-    // deck.json → deck.json.bak.<millis>; bump on the (theoretical) same-
-    // millisecond collision instead of renaming over an older backup.
+/// Rejected documents. One slot proved too few: the second quarantine silently
+/// destroyed the evidence of the first.
+const QUARANTINE: BackupLane = BackupLane {
+    suffix: "bak",
+    keep: 5,
+};
+
+/// Copies taken before an app update. Two is enough to answer "did the update
+/// change my settings" for the current and the previous update; more would only
+/// crowd the directory the user is meant to be able to read.
+const PRE_UPDATE: BackupLane = BackupLane {
+    suffix: "pre-update",
+    keep: 2,
+};
+
+/// An unused `<file>.<suffix>.<millis>` sibling of `path`. `None` only for a
+/// path with no file name at all. Bumps the stamp on the (theoretical) same-
+/// millisecond collision rather than clobbering an older generation.
+fn free_backup_target(path: &Path, lane: BackupLane) -> Option<PathBuf> {
+    let name = path.file_name()?.to_string_lossy().into_owned();
     let mut stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let mut target = path.with_file_name(format!("{name}.bak.{stamp}"));
+    let mut target = path.with_file_name(format!("{name}.{}.{stamp}", lane.suffix));
     while target.exists() {
         stamp += 1;
-        target = path.with_file_name(format!("{name}.bak.{stamp}"));
+        target = path.with_file_name(format!("{name}.{}.{stamp}", lane.suffix));
     }
+    Some(target)
+}
+
+fn quarantine(path: &Path) -> io::Result<()> {
+    let Some(target) = free_backup_target(path, QUARANTINE) else {
+        return Ok(());
+    };
     match fs::rename(path, &target) {
         // Nothing on disk to quarantine is fine (e.g. the file vanished).
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
         other => other?,
     }
-    prune_backups(path, KEEP_BACKUPS);
+    prune_backups(path, QUARANTINE);
     Ok(())
 }
 
-/// Best-effort: keep the newest `keep` backups of `path` — everything named
-/// `<file>.bak*`, the legacy un-suffixed `.bak` included — and delete the
-/// rest. The quarantine itself already succeeded; a failing prune only logs.
-fn prune_backups(path: &Path, keep: usize) {
+/// Keep a COPY of `path` beside it, in the pre-update lane — the original stays
+/// exactly where it is, and no quarantined generation is ever touched.
+///
+/// Taken before something that has historically been followed by "my settings
+/// reset": an app update. Without a copy from before, a document that comes
+/// back changed can neither be proved nor restored, and the file itself carries
+/// no history. A missing source is not an error — there is simply nothing to
+/// keep.
+fn snapshot(path: &Path) -> io::Result<()> {
+    let Some(target) = free_backup_target(path, PRE_UPDATE) else {
+        return Ok(());
+    };
+    if let Err(e) = fs::copy(path, &target) {
+        if e.kind() == ErrorKind::NotFound {
+            return Ok(());
+        }
+        return Err(e);
+    }
+    prune_backups(path, PRE_UPDATE);
+    Ok(())
+}
+
+/// Best-effort: keep the newest `lane.keep` generations of `path` IN THAT LANE
+/// — `<file>.<suffix>*`, and for the quarantine the legacy un-suffixed `.bak`
+/// too — and delete the rest. Scoped to one lane so a routine pre-update copy
+/// can never evict a quarantine. The operation itself already succeeded; a
+/// failing prune only logs.
+fn prune_backups(path: &Path, lane: BackupLane) {
     let (Some(dir), Some(name)) = (
         path.parent(),
         path.file_name().map(|n| n.to_string_lossy().into_owned()),
     ) else {
         return;
     };
-    let prefix = format!("{name}.bak");
+    let prefix = format!("{name}.{}", lane.suffix);
     let Ok(entries) = fs::read_dir(dir) else { return };
     let mut backups: Vec<(std::time::SystemTime, PathBuf)> = entries
         .flatten()
@@ -208,7 +268,7 @@ fn prune_backups(path: &Path, keep: usize) {
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
     backups.sort_by_key(|(modified, _)| Reverse(*modified)); // newest first
-    for (_, old) in backups.into_iter().skip(keep) {
+    for (_, old) in backups.into_iter().skip(lane.keep) {
         if let Err(e) = fs::remove_file(&old) {
             log::warn!("backup prune failed for {}: {e}", old.display());
         }
@@ -217,7 +277,7 @@ fn prune_backups(path: &Path, keep: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{load, quarantine, save_atomic, KEEP_BACKUPS};
+    use super::{load, quarantine, save_atomic, snapshot, PRE_UPDATE, QUARANTINE};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -251,14 +311,31 @@ mod tests {
         assert!(!path.with_extension("json.tmp").exists());
     }
 
-    /// Every backup generation of `path`, any suffix style.
-    fn backups_of(path: &std::path::Path) -> Vec<PathBuf> {
-        let prefix = format!("{}.bak", path.file_name().unwrap().to_string_lossy());
+    /// Every kept generation of `path` in ONE lane — the lanes are separate on
+    /// disk, so a test that conflates them cannot see the eviction that
+    /// separating them prevents.
+    fn generations_of(path: &std::path::Path, suffix: &str) -> Vec<PathBuf> {
+        let prefix = format!("{}.{suffix}", path.file_name().unwrap().to_string_lossy());
         std::fs::read_dir(path.parent().unwrap())
             .unwrap()
             .flatten()
             .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
             .map(|e| e.path())
+            .collect()
+    }
+
+    fn quarantines_of(path: &std::path::Path) -> Vec<PathBuf> {
+        generations_of(path, QUARANTINE.suffix)
+    }
+
+    fn snapshots_of(path: &std::path::Path) -> Vec<PathBuf> {
+        generations_of(path, PRE_UPDATE.suffix)
+    }
+
+    fn contents_of(paths: &[PathBuf]) -> Vec<String> {
+        paths
+            .iter()
+            .map(|p| std::fs::read_to_string(p).unwrap())
             .collect()
     }
 
@@ -269,7 +346,7 @@ mod tests {
         quarantine(&path).unwrap();
 
         assert_eq!(load(&path).unwrap(), None);
-        let backups = backups_of(&path);
+        let backups = quarantines_of(&path);
         assert_eq!(backups.len(), 1);
         assert_eq!(std::fs::read_to_string(&backups[0]).unwrap(), "not json");
     }
@@ -284,43 +361,93 @@ mod tests {
         save_atomic(&path, "second").unwrap();
         quarantine(&path).unwrap();
 
-        let mut contents: Vec<String> = backups_of(&path)
-            .iter()
-            .map(|p| std::fs::read_to_string(p).unwrap())
-            .collect();
+        let mut contents = contents_of(&quarantines_of(&path));
         contents.sort();
         assert_eq!(contents, vec!["first".to_string(), "second".to_string()]);
     }
 
     #[test]
+    fn snapshot_copies_and_leaves_the_original_in_place() {
+        let path = temp_deck();
+        save_atomic(&path, "live").unwrap();
+        snapshot(&path).unwrap();
+
+        // Unlike the quarantine, the document the app is using stays put.
+        assert_eq!(load(&path).unwrap().as_deref(), Some("live"));
+        let backups = snapshots_of(&path);
+        assert_eq!(backups.len(), 1);
+        assert_eq!(std::fs::read_to_string(&backups[0]).unwrap(), "live");
+        // And it lands in its OWN lane, never among the quarantines.
+        assert!(quarantines_of(&path).is_empty());
+    }
+
+    #[test]
+    fn snapshot_of_a_missing_document_is_a_no_op() {
+        // The real shape of this case: the home exists, the document does not
+        // (a first run). Nothing to keep is not a failure — it must never block
+        // the update the user asked for.
+        let path = temp_deck();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        snapshot(&path).unwrap();
+        assert!(snapshots_of(&path).is_empty());
+    }
+
+    #[test]
+    fn a_quarantine_survives_any_number_of_snapshots() {
+        // The two lanes used to share one 5-slot rotation pruned by age, so a
+        // user who took five updates after a corrupt settings file lost the
+        // evidence — the very thing the quarantine exists to keep, deleted by
+        // the very feature added to preserve their settings.
+        let path = temp_deck();
+        save_atomic(&path, "REJECTED").unwrap();
+        quarantine(&path).unwrap();
+
+        for i in 0..(QUARANTINE.keep + PRE_UPDATE.keep + 3) {
+            save_atomic(&path, &format!("update-{i}")).unwrap();
+            snapshot(&path).unwrap();
+        }
+
+        assert_eq!(contents_of(&quarantines_of(&path)), vec!["REJECTED".to_string()]);
+    }
+
+    #[test]
+    fn snapshots_rotate_within_their_own_lane() {
+        let path = temp_deck();
+        for i in 0..(PRE_UPDATE.keep + 2) {
+            save_atomic(&path, &format!("gen-{i}")).unwrap();
+            snapshot(&path).unwrap();
+        }
+        let kept = snapshots_of(&path);
+        assert_eq!(kept.len(), PRE_UPDATE.keep);
+        // The newest copy always survives — it is the one a restore wants.
+        assert!(contents_of(&kept).contains(&format!("gen-{}", PRE_UPDATE.keep + 1)));
+    }
+
+    #[test]
     fn prune_keeps_only_the_newest_generations() {
         let path = temp_deck();
-        for i in 0..(KEEP_BACKUPS + 2) {
+        for i in 0..(QUARANTINE.keep + 2) {
             save_atomic(&path, &format!("gen-{i}")).unwrap();
             quarantine(&path).unwrap();
         }
-        let backups = backups_of(&path);
-        assert_eq!(backups.len(), KEEP_BACKUPS);
+        let backups = quarantines_of(&path);
+        assert_eq!(backups.len(), QUARANTINE.keep);
         // The newest generation always survives.
-        let contents: Vec<String> = backups
-            .iter()
-            .map(|p| std::fs::read_to_string(p).unwrap())
-            .collect();
-        assert!(contents.contains(&format!("gen-{}", KEEP_BACKUPS + 1)));
+        assert!(contents_of(&backups).contains(&format!("gen-{}", QUARANTINE.keep + 1)));
     }
 
     #[test]
     fn legacy_unsuffixed_bak_counts_toward_the_limit() {
         let path = temp_deck();
         save_atomic(&path.with_extension("json.bak"), "legacy").unwrap();
-        for i in 0..KEEP_BACKUPS {
+        for i in 0..QUARANTINE.keep {
             save_atomic(&path, &format!("gen-{i}")).unwrap();
             quarantine(&path).unwrap();
         }
-        // legacy + KEEP_BACKUPS new ones → pruned back to the limit, and the
+        // legacy + QUARANTINE.keep new ones → pruned back to the limit, and the
         // legacy file (oldest by mtime) is what went.
-        let backups = backups_of(&path);
-        assert_eq!(backups.len(), KEEP_BACKUPS);
+        let backups = quarantines_of(&path);
+        assert_eq!(backups.len(), QUARANTINE.keep);
         assert!(!path.with_extension("json.bak").exists());
     }
 

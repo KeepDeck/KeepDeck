@@ -15,6 +15,9 @@ import {
 } from "./updateManager";
 
 vi.mock("../ipc/app", () => ({ fetchAppInfo: vi.fn() }));
+vi.mock("./settingsManager", () => ({
+  snapshotSettingsForUpdate: vi.fn(async () => {}),
+}));
 vi.mock("../ipc/updater", () => ({
   checkForUpdate: vi.fn(),
   discardUpdate: vi.fn(async () => {}),
@@ -28,6 +31,7 @@ vi.mock("../ipc/log", () => ({
 }));
 
 import { fetchAppInfo } from "../ipc/app";
+import { snapshotSettingsForUpdate } from "./settingsManager";
 import {
   checkForUpdate,
   discardUpdate,
@@ -40,6 +44,7 @@ const mockCheck = vi.mocked(checkForUpdate);
 const mockDiscard = vi.mocked(discardUpdate);
 const mockInstall = vi.mocked(installUpdate);
 const mockRelaunch = vi.mocked(relaunchApp);
+const mockSnapshot = vi.mocked(snapshotSettingsForUpdate);
 
 const available = (version = "1.2.0"): AvailableUpdate => ({
   id: `update-${version}`,
@@ -212,6 +217,35 @@ describe("update manager", () => {
     await downloadUpdate();
     await restartToUpdate();
     expect(mockInstall).toHaveBeenCalledWith(update.id);
+    expect(mockRelaunch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a copy of the settings BEFORE swapping the bundle", async () => {
+    // An update is the one moment users report their settings changing
+    // underneath them, and settings.json has no history — so the copy has to
+    // exist before the new build can touch it, not after.
+    const order: string[] = [];
+    mockSnapshot.mockImplementationOnce(async () => {
+      order.push("snapshot");
+    });
+    mockInstall.mockImplementationOnce(async () => {
+      order.push("install");
+    });
+    mockCheck.mockResolvedValue(available());
+    await initUpdates(downloads);
+    await downloadUpdate();
+    await restartToUpdate();
+    expect(order).toEqual(["snapshot", "install"]);
+  });
+
+  it("installs anyway when the settings copy fails", async () => {
+    // Evidence is worth less than the update the user asked for.
+    mockSnapshot.mockRejectedValueOnce(new Error("no room"));
+    mockCheck.mockResolvedValue(available());
+    await initUpdates(downloads);
+    await downloadUpdate();
+    await restartToUpdate();
+    expect(mockInstall).toHaveBeenCalledOnce();
     expect(mockRelaunch).toHaveBeenCalledOnce();
   });
 

@@ -74,7 +74,10 @@ describe("buildNotes", () => {
   });
 });
 
-describe("end to end in a real repo", () => {
+// Real repositories, real git invocations: seconds per case, and more under
+// parallel load. Declared rather than left on the 5s default (see the same note
+// in version-bump.test.mjs).
+describe("end to end in a real repo", { timeout: 120_000 }, () => {
   let dir;
   afterEach(() => {
     if (dir) rmSync(dir, { recursive: true, force: true });

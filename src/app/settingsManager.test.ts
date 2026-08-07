@@ -1,113 +1,180 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, SETTINGS_VERSION } from "../domain/settings";
-import {
-  getSettings,
-  initSettings,
-  resetSettingsManager,
-  subscribeSettings,
-  updateSettings,
-} from "./settingsManager";
+import { createSettingsManager, type SettingsPorts } from "./settingsManager";
 
-const ipc = vi.hoisted(() => ({
-  loadSettings: vi.fn<() => Promise<string | null>>(),
-  saveSettings: vi.fn<(json: string) => Promise<void>>(() => Promise.resolve()),
-  quarantineSettings: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+vi.mock("../ipc/log", () => ({
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  describeError: (e: unknown) => String(e),
 }));
-vi.mock("../ipc/settings", () => ipc);
 
-/** Let the queued save chain settle (each save is a macrotask-free chain,
- * so draining microtasks is enough). */
-const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+/**
+ * Built through the factory with fakes — no module mocking, no shared state to
+ * reset between cases. That is the point of the factory: the "did I remember to
+ * clear field N" class of test bug cannot exist here.
+ */
+function managerOver(overrides: Partial<SettingsPorts> = {}) {
+  const ports = {
+    loadSettings: vi.fn<() => Promise<string | null>>(() => Promise.resolve(null)),
+    saveSettings: vi.fn<(json: string) => Promise<void>>(() => Promise.resolve()),
+    quarantineSettings: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+    snapshotSettings: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+  };
+  // Assigned rather than spread so `ports` keeps its mock types for assertions.
+  Object.assign(ports, overrides);
+  return { manager: createSettingsManager(ports), ports };
+}
 
-describe("settingsManager", () => {
-  beforeEach(() => {
-    ipc.loadSettings.mockReset();
-    ipc.saveSettings.mockClear();
-    ipc.saveSettings.mockImplementation(() => Promise.resolve());
-    ipc.quarantineSettings.mockClear();
-    resetSettingsManager();
-  });
+const stored = (settings: Record<string, unknown>) =>
+  JSON.stringify({ version: SETTINGS_VERSION, ...settings });
 
-  afterEach(() => resetSettingsManager());
+const savedBy = (calls: [string][]) =>
+  calls.map(([json]) => JSON.parse(json) as Record<string, unknown>);
 
+describe("reading the stored document", () => {
   it("is null until the load settles — the paint gate", async () => {
     let resolveLoad!: (json: string | null) => void;
-    ipc.loadSettings.mockReturnValue(
-      new Promise((resolve) => {
-        resolveLoad = resolve;
-      }),
-    );
-    const booted = initSettings();
-    expect(getSettings()).toBeNull();
+    const { manager } = managerOver({
+      loadSettings: vi.fn(
+        () => new Promise<string | null>((resolve) => (resolveLoad = resolve)),
+      ),
+    });
+    const booted = manager.init();
+    expect(manager.get()).toBeNull();
 
     resolveLoad(null);
     await booted;
-    expect(getSettings()).toEqual(DEFAULT_SETTINGS);
+    expect(manager.get()).toEqual(DEFAULT_SETTINGS);
   });
 
   it("repeated init shares one load", async () => {
-    ipc.loadSettings.mockResolvedValue(null);
-    await Promise.all([initSettings(), initSettings()]);
-    expect(ipc.loadSettings).toHaveBeenCalledTimes(1);
+    const { manager, ports } = managerOver();
+    await Promise.all([manager.init(), manager.init()]);
+    expect(ports.loadSettings).toHaveBeenCalledTimes(1);
   });
 
-  it("exposes the stored values once loaded", async () => {
-    ipc.loadSettings.mockResolvedValue(
-      JSON.stringify({ version: 1, scrollback: 30_000 }),
-    );
-    await initSettings();
-    expect(getSettings()).toEqual({ ...DEFAULT_SETTINGS, scrollback: 30_000 });
-    // Loading alone must not write — a boot must not touch the file.
-    expect(ipc.saveSettings).not.toHaveBeenCalled();
+  it("exposes the stored values, and loading alone never writes", async () => {
+    const { manager, ports } = managerOver({
+      loadSettings: vi.fn(() => Promise.resolve(stored({ scrollback: 30_000 }))),
+    });
+    await manager.init();
+    expect(manager.get()).toEqual({ ...DEFAULT_SETTINGS, scrollback: 30_000 });
+    expect(ports.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("quarantines an unusable file and runs on defaults", async () => {
-    ipc.loadSettings.mockResolvedValue("{typo");
-    await initSettings();
-    expect(ipc.quarantineSettings).toHaveBeenCalledTimes(1);
-    expect(getSettings()).toEqual(DEFAULT_SETTINGS);
+  it("retries once when the load rejects, and adopts the second answer", async () => {
+    // The failures that produce a rejected read are usually momentary, and
+    // giving up costs the whole session its ability to save.
+    const loadSettings = vi
+      .fn<() => Promise<string | null>>()
+      .mockRejectedValueOnce(new Error("EMFILE"))
+      .mockResolvedValueOnce(stored({ mcpServer: true }));
+    const { manager } = managerOver({ loadSettings });
+
+    await manager.init();
+
+    expect(loadSettings).toHaveBeenCalledTimes(2);
+    expect(manager.get()?.mcpServer).toBe(true);
   });
 
-  it("runs on defaults when the load itself fails", async () => {
-    ipc.loadSettings.mockRejectedValue(new Error("io"));
-    await initSettings();
-    expect(getSettings()).toEqual(DEFAULT_SETTINGS);
-    expect(ipc.quarantineSettings).not.toHaveBeenCalled();
+  it("quarantines an unusable file, waits for it, then starts from defaults", async () => {
+    const { manager, ports } = managerOver({
+      loadSettings: vi.fn(() => Promise.resolve("{typo")),
+    });
+    await manager.init();
+    expect(ports.quarantineSettings).toHaveBeenCalledTimes(1);
+    expect(manager.get()).toEqual(DEFAULT_SETTINGS);
+
+    // The evidence is preserved, so the slot is genuinely free: writing is fine.
+    manager.update({ scrollback: 20_000 });
+    await manager.flush();
+    expect(savedBy(ports.saveSettings.mock.calls)[0].scrollback).toBe(20_000);
+  });
+});
+
+describe("a file we could not read is never overwritten", () => {
+  it("refuses to save for the rest of the session when the load keeps failing", async () => {
+    // Writing our defaults over a file we cannot see IS the "my settings reset"
+    // report. The change still applies in memory so the app stays usable.
+    const { manager, ports } = managerOver({
+      loadSettings: vi.fn(() => Promise.reject(new Error("EACCES"))),
+    });
+    await manager.init();
+
+    manager.update({ scrollback: 20_000 });
+    await manager.flush();
+
+    expect(manager.get()?.scrollback).toBe(20_000); // applied
+    expect(ports.saveSettings).not.toHaveBeenCalled(); // but never written
+    // And it stays refused — a later change must not sneak past either.
+    manager.update({ mcpServer: true });
+    await manager.flush();
+    expect(ports.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("refuses to save when the quarantine of an unusable file failed", async () => {
+    // A quarantine that did not land leaves the original in place, so the file
+    // is still there to be destroyed.
+    const { manager, ports } = managerOver({
+      loadSettings: vi.fn(() => Promise.resolve("{typo")),
+      quarantineSettings: vi.fn(() => Promise.reject(new Error("read-only fs"))),
+    });
+    await manager.init();
+
+    manager.update({ scrollback: 20_000 });
+    await manager.flush();
+
+    expect(ports.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("an absent file IS a confirmed answer, so a first run saves normally", async () => {
+    // `null` means NotFound and nothing else, so there is nothing to destroy.
+    const { manager, ports } = managerOver();
+    await manager.init();
+
+    manager.update({ scrollback: 20_000 });
+    await manager.flush();
+
+    expect(savedBy(ports.saveSettings.mock.calls)[0]).toEqual({
+      version: SETTINGS_VERSION,
+      minVersion: 1,
+      scrollback: 20_000,
+    });
+  });
+});
+
+describe("writing", () => {
+  it("update applies at once and writes the chosen keys through", async () => {
+    const { manager, ports } = managerOver();
+    await manager.init();
+
+    manager.update({ defaultAgent: "opencode" });
+    expect(manager.get()?.defaultAgent).toBe("opencode");
+    await manager.flush();
+    expect(savedBy(ports.saveSettings.mock.calls)).toEqual([
+      { version: SETTINGS_VERSION, minVersion: 1, defaultAgent: "opencode" },
+    ]);
   });
 
   it("update before the load settles is a no-op", () => {
-    ipc.loadSettings.mockReturnValue(new Promise(() => {}));
-    void initSettings();
-    updateSettings({ scrollback: 20_000 });
-    expect(getSettings()).toBeNull();
-    expect(ipc.saveSettings).not.toHaveBeenCalled();
-  });
-
-  it("update applies at once and writes the sparse document through", async () => {
-    ipc.loadSettings.mockResolvedValue(null);
-    await initSettings();
-
-    updateSettings({ defaultAgent: "opencode" });
-    expect(getSettings()?.defaultAgent).toBe("opencode");
-    await flush();
-    expect(ipc.saveSettings).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(ipc.saveSettings.mock.calls[0][0])).toEqual({
-      version: SETTINGS_VERSION,
-      minVersion: 1,
-      defaultAgent: "opencode",
+    const { manager, ports } = managerOver({
+      loadSettings: vi.fn(() => new Promise<string | null>(() => {})),
     });
+    void manager.init();
+    manager.update({ scrollback: 20_000 });
+    expect(manager.get()).toBeNull();
+    expect(ports.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("same-tick updates chain — the last write carries both", async () => {
-    ipc.loadSettings.mockResolvedValue(null);
-    await initSettings();
+  it("same-tick updates chain, and the last write carries both", async () => {
+    const { manager, ports } = managerOver();
+    await manager.init();
 
-    updateSettings({ scrollback: 20_000 });
-    updateSettings({ defaultAgent: "codex" });
-    await flush();
-    const calls = ipc.saveSettings.mock.calls;
-    const last = calls[calls.length - 1][0];
-    expect(JSON.parse(last)).toEqual({
+    manager.update({ scrollback: 20_000 });
+    manager.update({ defaultAgent: "codex" });
+    await manager.flush();
+
+    const writes = savedBy(ports.saveSettings.mock.calls);
+    expect(writes[writes.length - 1]).toEqual({
       version: SETTINGS_VERSION,
       minVersion: 1,
       scrollback: 20_000,
@@ -116,43 +183,98 @@ describe("settingsManager", () => {
   });
 
   it("a failed save doesn't wedge the chain — the next change still writes", async () => {
-    ipc.loadSettings.mockResolvedValue(null);
-    await initSettings();
+    // A rejection left on the chain would make every later `.then` skip its
+    // callback, and settings would stop persisting for the session in silence.
+    const saveSettings = vi
+      .fn<(json: string) => Promise<void>>()
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockResolvedValue(undefined);
+    const { manager, ports } = managerOver({ saveSettings });
+    await manager.init();
 
-    ipc.saveSettings.mockRejectedValueOnce(new Error("disk full"));
-    updateSettings({ scrollback: 20_000 });
-    await flush();
-    updateSettings({ scrollback: 25_000 });
-    await flush();
-    expect(ipc.saveSettings).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(ipc.saveSettings.mock.calls[1][0]).scrollback).toBe(25_000);
+    manager.update({ scrollback: 20_000 });
+    await manager.flush();
+    manager.update({ scrollback: 25_000 });
+    await manager.flush();
+
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+    expect(savedBy(ports.saveSettings.mock.calls)[1].scrollback).toBe(25_000);
   });
 
   it("preserves a stored unknown key across an update", async () => {
-    ipc.loadSettings.mockResolvedValue(
-      JSON.stringify({ version: 1, futureToggle: true }),
-    );
-    await initSettings();
+    const { manager, ports } = managerOver({
+      loadSettings: vi.fn(() => Promise.resolve(stored({ futureToggle: true }))),
+    });
+    await manager.init();
 
-    updateSettings({ scrollback: 20_000 });
-    await flush();
-    const saved = JSON.parse(ipc.saveSettings.mock.calls[0][0]);
-    expect(saved.futureToggle).toBe(true);
+    manager.update({ scrollback: 20_000 });
+    await manager.flush();
+    expect(savedBy(ports.saveSettings.mock.calls)[0].futureToggle).toBe(true);
+  });
+
+  it("keeps a stored value the user chose at today's default", async () => {
+    const { manager, ports } = managerOver({
+      loadSettings: vi.fn(() => Promise.resolve(stored({ mcpServer: false }))),
+    });
+    await manager.init();
+
+    manager.update({ scrollback: 20_000 });
+    await manager.flush();
+    expect(savedBy(ports.saveSettings.mock.calls)[0].mcpServer).toBe(false);
   });
 
   it("notifies subscribers on load and on update; unsubscribing stops", async () => {
-    ipc.loadSettings.mockResolvedValue(null);
+    const { manager } = managerOver();
     const seen: (number | undefined)[] = [];
-    const unsubscribe = subscribeSettings(() =>
-      seen.push(getSettings()?.scrollback),
-    );
+    const unsubscribe = manager.subscribe(() => seen.push(manager.get()?.scrollback));
 
-    await initSettings();
-    updateSettings({ scrollback: 20_000 });
+    await manager.init();
+    manager.update({ scrollback: 20_000 });
     expect(seen).toEqual([DEFAULT_SETTINGS.scrollback, 20_000]);
 
     unsubscribe();
-    updateSettings({ scrollback: 25_000 });
+    manager.update({ scrollback: 25_000 });
     expect(seen).toHaveLength(2);
+  });
+});
+
+describe("the pre-update snapshot", () => {
+  it("waits for a queued write, so it copies what the user actually has", async () => {
+    // A copy taken mid-write preserves the document being replaced, which is
+    // the one state a restore point must not hold.
+    const order: string[] = [];
+    let releaseSave!: () => void;
+    const { manager } = managerOver({
+      saveSettings: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseSave = () => {
+              order.push("save");
+              resolve();
+            };
+          }),
+      ),
+      snapshotSettings: vi.fn(async () => {
+        order.push("snapshot");
+      }),
+    });
+    await manager.init();
+
+    manager.update({ scrollback: 20_000 });
+    // Let the queued step reach the save port (the chain hands off in a
+    // microtask), so the snapshot really does queue behind an IN-FLIGHT write.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const snapshotting = manager.snapshot();
+    releaseSave();
+    await snapshotting;
+
+    expect(order).toEqual(["save", "snapshot"]);
+  });
+
+  it("still copies when there is nothing queued", async () => {
+    const { manager, ports } = managerOver();
+    await manager.init();
+    await manager.snapshot();
+    expect(ports.snapshotSettings).toHaveBeenCalledTimes(1);
   });
 });
