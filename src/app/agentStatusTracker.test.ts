@@ -27,6 +27,44 @@ const literal = (payload: unknown, at: number): AgentStatusEvent | null => {
   }
 };
 
+describe("agentStatusTracker — context rebuilds", () => {
+  const rebuildNormalizer = (payload: unknown, at: number): AgentStatusEvent | null => {
+    const kind = (payload as { event?: { kind?: string } }).event?.kind;
+    if (kind === "start") return turnStart(at);
+    if (kind === "compact") return { kind: "context-compacted", at };
+    return null;
+  };
+
+  it("reports a compaction that moves no activity at all", () => {
+    // The trap this exists for: on an ordinary pane the fold returns the
+    // SAME status object for a compaction, deliberately. Anything watching
+    // the snapshot would never learn one happened — and a compaction is
+    // exactly when an agent may have lost what the deck told it.
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", rebuildNormalizer);
+    const rebuilt: string[] = [];
+    tracker.onContextRebuilt((paneId) => rebuilt.push(paneId));
+
+    tracker.report("pane-1", { agent: "claude", event: { kind: "start" } }, 1);
+    const before = tracker.getSnapshot();
+    tracker.report("pane-1", { agent: "claude", event: { kind: "compact" } }, 2);
+
+    expect(rebuilt).toEqual(["pane-1"]);
+    // ...and it really did move nothing, which is what makes the edge the
+    // only place one can be seen.
+    expect(tracker.getSnapshot()).toBe(before);
+  });
+
+  it("says nothing for an ordinary edge", () => {
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", rebuildNormalizer);
+    const rebuilt: string[] = [];
+    tracker.onContextRebuilt((paneId) => rebuilt.push(paneId));
+    tracker.report("pane-1", { agent: "claude", event: { kind: "start" } }, 1);
+    expect(rebuilt).toEqual([]);
+  });
+});
+
 describe("agentStatusTracker", () => {
   it("folds a report through the registered normalizer into the snapshot", () => {
     const tracker = createAgentStatusTracker();

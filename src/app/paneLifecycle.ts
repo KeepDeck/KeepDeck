@@ -37,6 +37,10 @@ export function createPaneLifecycle(
    * feature is switched on, and a reference captured here would outlive a
    * toggle. Null is the ordinary case, not an error. */
   mail: () => MailManager | null = () => null,
+  /** Told when a pane's agent starts a conversation that remembers nothing
+   * of the last one. Anything the deck had said to it is gone with the old
+   * generation, which is a different fact from telemetry going stale. */
+  onSessionBegan: (paneId: string) => void = () => {},
 ): PaneLifecycle {
   return {
     retire(paneId) {
@@ -52,6 +56,7 @@ export function createPaneLifecycle(
     beginSession(paneId, sessionId) {
       usage.beginPaneSession(paneId, sessionId);
       tracker.clear(paneId);
+      onSessionBegan(paneId);
     },
   };
 }

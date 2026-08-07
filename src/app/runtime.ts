@@ -26,7 +26,13 @@ import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { commands } from "./commandRegistry";
 import { readDeck } from "./deckSurface";
-import { answerMailAsk, createMailService, deliverMailThroughPty } from "./mail";
+import {
+  answerMailAsk,
+  createMailService,
+  createTeamPresence,
+  deliverMailThroughPty,
+} from "./mail";
+import { teamMembers } from "../domain/mail";
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdByMcpToken, peekPaneSpawnSpec } from "./spawnSpecs";
@@ -167,7 +173,12 @@ export function createAppRuntime(
     statusTracker,
     attribution,
     () => mail.current(),
+    (paneId) => sessionsBegun.forEach((listener) => listener(paneId)),
   );
+  /** Panes whose agent just started a conversation with no memory of the
+   * last. A plain fan-out rather than a store: nothing needs the history,
+   * only the moment. */
+  const sessionsBegun = new Set<(paneId: string) => void>();
   const mail = createMailService(
     {
       agentTeams: () => getSettings()?.agentTeams ?? null,
@@ -252,6 +263,32 @@ export function createAppRuntime(
     paneView: paneViewActions,
     skills,
     activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
+  });
+  // Re-states a pane's standing whenever its memory of it may have gone —
+  // a fresh conversation, or a compaction. Built after the mail service, so
+  // it can reach the manager that only exists while the feature is on.
+  const teamPresence = createTeamPresence({
+    standingOf: (paneId) => {
+      for (const workspace of deckStore.getSnapshot().workspaces) {
+        const pane = workspace.panes.find((candidate) => candidate.id === paneId);
+        if (!pane?.team) continue;
+        const name = pane.team.name;
+        return {
+          team: name,
+          role: pane.team.role,
+          everyRole: teamMembers(workspace, name)
+            .map((member) => member.team?.role)
+            .filter((role): role is string => Boolean(role)),
+        };
+      }
+      return null;
+    },
+    announce: (paneId, body) => mail.current()?.announce(paneId, "team", body),
+    onSessionBegan: (listener) => {
+      sessionsBegun.add(listener);
+      return () => sessionsBegun.delete(listener);
+    },
+    onContextRebuilt: statusTracker.onContextRebuilt,
   });
   const worktreeSweeper = createWorktreeSweeper(
     deckStore,
@@ -361,6 +398,7 @@ export function createAppRuntime(
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       minimizePolicy.dispose();
+      teamPresence.dispose();
       mail.dispose();
       mcp.dispose();
       journalPersistence.dispose();
