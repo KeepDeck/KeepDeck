@@ -97,8 +97,8 @@ export function shouldRecord(
 export const INSTANCE_JUMP_MS = 60_000;
 
 /**
- * A window INSTANCE boundary. The current segment is everything since the
- * last one — the only span a pace may be computed over.
+ * The current segment: everything since the last instance boundary — the only
+ * span a pace may be computed over.
  *
  * A window instance IS its reset instant, so that is what says the window
  * turned over. A drop in `usedPct` used to say it too, and that was wrong in
@@ -110,27 +110,50 @@ export const INSTANCE_JUMP_MS = 60_000;
  * 0.16 %/min, and a window with three and a half hours of headroom was
  * announced as running out in forty minutes.
  *
- * A drop with no reset movement is therefore noise, not a boundary. The
- * fallback stays for windows whose reset instant is unknown, where the drop
- * is the only evidence there is.
- *
  * Failure direction, deliberately: if a provider reports a genuine reset but
- * lags its `resetsAt`, the boundary is missed, the pace across the drop goes
- * negative, and `windowForecast` returns "no projection". The forecast says
- * nothing rather than something false.
+ * lags its `resetsAt`, the boundary is missed and the pace across the drop
+ * goes negative — which `windowForecast` treats as a journal contradicting
+ * itself and refuses to project from, rather than dressing up as an answer.
  */
+/**
+ * THE instance-boundary rule, in one place — did the window turn over between
+ * these two readings?
+ *
+ * `dropPct` is the only dial: how deep a fall counts as a refill when there is
+ * no reset instant to go by. The journal wants every dip it can see (1pp); the
+ * exhaustion alarm wants a coarser one (5pp) because it compares across panes,
+ * where small corrections are ordinary. That difference is REAL, so it is a
+ * parameter — and making it a parameter is what keeps the rule itself from
+ * being written twice and drifting, which is exactly what had happened.
+ */
+export function instanceChanged(
+  prev: Pick<WindowReport, "usedPct" | "resetsAt">,
+  next: Pick<WindowReport, "usedPct" | "resetsAt">,
+  dropPct: number,
+): boolean {
+  const knownReset = prev.resetsAt !== null && next.resetsAt !== null;
+  if (knownReset) {
+    // Both sides know when they end, so the reset instant answers it outright
+    // and a fall is noise. Forward movement only: a reset that appears to move
+    // BACKWARD is a correction, not a turnover.
+    return next.resetsAt! > prev.resetsAt! + INSTANCE_JUMP_MS;
+  }
+  // No reset instant on one side — the fall is the only evidence there is.
+  return next.usedPct < prev.usedPct - dropPct;
+}
+
+/** The journal's own dip tolerance: the reporters send whole percents, so a
+ * single point of wobble is quantisation, not a refill. */
+export const SEGMENT_DROP_PCT = 1;
+
 export function currentSegment(
   reports: readonly WindowReport[],
 ): WindowReport[] {
   let start = 0;
   for (let index = 1; index < reports.length; index += 1) {
-    const prev = reports[index - 1];
-    const item = reports[index];
-    const dropped = item.usedPct < prev.usedPct - 1;
-    const knownReset = item.resetsAt !== null && prev.resetsAt !== null;
-    const resetJumped =
-      knownReset && item.resetsAt! > prev.resetsAt! + INSTANCE_JUMP_MS;
-    if (resetJumped || (dropped && !knownReset)) start = index;
+    if (instanceChanged(reports[index - 1], reports[index], SEGMENT_DROP_PCT)) {
+      start = index;
+    }
   }
   return reports.slice(start);
 }

@@ -131,7 +131,10 @@ describe("UsagePanel", () => {
   it("keeps today's quiet row when the journal has no pace", () => {
     const host = render(new Map());
     expect(host.textContent).toContain("resets in 2h 35m");
-    expect(host.textContent).not.toContain("runs out");
+    // Against the phrase the popover ACTUALLY prints. The old negative
+    // named "runs out", which production stopped saying — so it was
+    // permanently true and guarded nothing.
+    expect(host.textContent).not.toContain("the limit");
     expect(host.querySelector(".usage-burn--compact")).toBeNull();
   });
 });

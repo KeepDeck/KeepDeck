@@ -1,7 +1,7 @@
 import { windowLabel, windowResetCaption } from "./format";
-import { INSTANCE_JUMP_MS, type WindowReport } from "./reportJournal";
+import { instanceChanged, type WindowReport } from "./reportJournal";
 import type { AccountUsage } from "./usage";
-import { accountWindowForecasts, runOutCountdown } from "./windowForecast";
+import { accountWindowForecasts, runOutPhrase } from "./windowForecast";
 
 /**
  * The exhaustion-alarm policy — WHEN a window's forecast deserves a
@@ -18,10 +18,10 @@ import { accountWindowForecasts, runOutCountdown } from "./windowForecast";
  */
 
 /** The fired memory per window key: the instance the alarm sounded for,
- * read off the WINDOW REPORT'S OWN VALUES fold over fold — a reset instant
- * that jumps forward past jitter ([`INSTANCE_JUMP_MS`], the journal's own
- * boundary rule), or a balance refilled in one deep drop. Deliberately NOT
- * the journal's segment slice: retention pruning moves a segment's head
+ * read off the WINDOW REPORT'S OWN VALUES fold over fold, and judged by the
+ * journal's own [`instanceChanged`] at this file's coarser drop threshold.
+ * Deliberately NOT the journal's segment slice: retention pruning moves a
+ * segment's head
  * mid-instance (one alarm PER REPORT on an aged plan-window journal), and
  * a 1–2pp cross-pane correction restarts a segment without any reset —
  * both turned one alarm into a drumbeat. BOTH fields re-anchor to the
@@ -33,12 +33,18 @@ export interface ExhaustionAlert {
   usedPct: number;
 }
 
-/** A single-step drop this deep is a refill/top-up — a NEW allowance worth
- * a fresh alarm; a real top-up lands as one report, so its whole depth
- * arrives in one fold step. Deeper than the journal's 1pp segment boundary
- * on purpose: segmentation protects pace math and wants every dip;
- * re-arming faces the user and must shrug off cross-pane corrections
- * (~1–2pp in the field). */
+/** How deep a single-step fall counts as a refill when the window has no
+ * reset instant to go by — a NEW allowance worth a fresh alarm; a real
+ * top-up lands as one report, so its whole depth arrives in one fold step.
+ * Deeper than the journal's 1pp on purpose: re-arming faces the user and
+ * must shrug off cross-pane corrections (~1–2pp in the field).
+ *
+ * It is only a THRESHOLD. The rule itself — that a fall means nothing once
+ * both sides name the same reset instant — lives in `instanceChanged`, and
+ * this file used to carry its own copy without that guard. The consequence
+ * was reachable and ugly: the exact quantisation outlier the journal had
+ * just learned to ignore still re-armed the alarm, so one bad reading meant
+ * a second banner for the same window with the countdown going UP. */
 const REFILL_DROP_PCT = 5;
 
 export type ExhaustionAlerts = ReadonlyMap<string, ExhaustionAlert>;
@@ -73,10 +79,7 @@ export function foldExhaustionAlerts(
       // ahead of the series a fold reads.)
       const newInstance =
         fired !== undefined &&
-        ((fired.resetsAt !== null &&
-          window.resetsAt !== null &&
-          window.resetsAt > fired.resetsAt + INSTANCE_JUMP_MS) ||
-          window.usedPct < fired.usedPct - REFILL_DROP_PCT);
+        instanceChanged(fired, window, REFILL_DROP_PCT);
       const forecast = row.forecast;
       if (
         forecast.kind === "out" &&
@@ -88,7 +91,7 @@ export function foldExhaustionAlerts(
           // The one run-out phrase, composed for a notification — the
           // alarm never invents a second wording for the fact.
           title: `${agent} ${windowLabel(window, "long")} window ${
-            runOutCountdown(forecast.outAt, now)
+            runOutPhrase(forecast.outAt, now, "join")
           }`,
           body: windowResetCaption(window, now, "long"),
         });
@@ -96,7 +99,15 @@ export function foldExhaustionAlerts(
           resetsAt: window.resetsAt ?? null,
           usedPct: window.usedPct,
         });
-      } else if (fired !== undefined && !newInstance && forecast.kind !== "ok") {
+        // Everything the old `!== "ok"` covered: the window has not been
+        // shown to survive, so the alarm stays armed and its memory has to
+        // keep up with the values it will next be compared against.
+      } else if (
+        fired !== undefined &&
+        !newInstance &&
+        forecast.kind !== "lasts" &&
+        forecast.kind !== "idle"
+      ) {
         // Re-anchor BOTH values: neither sub-jitter drift nor a slow
         // decline may accumulate into a false instance change.
         alerts.set(row.key, {

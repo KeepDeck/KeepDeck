@@ -17,6 +17,7 @@ import {
   cardCaptionParts,
   panelWindowCaption,
   windowForecast,
+  type WindowForecast,
 } from "./windowForecast";
 import { NO_REPORTS } from "./reportJournal";
 import type { AccountUsage, UsageWindow } from "./usage";
@@ -117,7 +118,7 @@ describe("reportJournal", () => {
     // The whole point: the verdict flips with it. Reset is 155m out, and
     // the honest pace over this tail lands nowhere near the ceiling.
     const forecast = windowForecast(spike, FIVE_H, NOW);
-    expect(forecast.kind).toBe("ok");
+    expect(forecast.kind).toBe("lasts");
   });
 
   it("still segments on a drop when the window has no known reset", () => {
@@ -223,9 +224,73 @@ describe("windowForecast", () => {
       report({ reportedAt: NOW - 20 * MIN, usedPct: 62 }),
       report({ reportedAt: NOW, usedPct: 62 }),
     ];
-    // Inside the lookback the usage is flat → ok; including the -50m point
-    // would have called a runaway pace.
-    expect(windowForecast(tail, FIVE_H, NOW)).toEqual({ kind: "ok", outAt: null, endPct: null });
+    // Inside the lookback the usage is flat → idle, EXACTLY: the fit is
+    // taken from the newest report, so a flat tail has a covariance of zero
+    // rather than a few-ulp residue that would read as a pace.
+    expect(windowForecast(tail, FIVE_H, NOW)).toEqual({ kind: "idle" });
+  });
+
+  it("weighs recent readings heavier, so a hard turn still raises the alarm", () => {
+    // The fit exists to survive ±1 quantisation noise, but an UNWEIGHTED one
+    // is order-blind — and pace is not. These two tails are opposites: nine
+    // flat readings then a jump (someone just started; the wall is minutes
+    // away) versus a jump then nine flat (someone spent and went to read;
+    // the wall is never). A plain least-squares slope returns the SAME
+    // answer for both, which pushed the run-out past the critical hour and
+    // silenced the exhaustion alarm on the dangerous one.
+    const tail = (pcts: number[]) =>
+      pcts.map((usedPct, index) =>
+        report({
+          reportedAt: NOW - (pcts.length - 1 - index) * 5 * MIN,
+          usedPct,
+          resetsAt: NOW + 300 * MIN,
+        }),
+      );
+    const window: UsageWindow = {
+      usedPct: 70,
+      resetsAt: NOW + 300 * MIN,
+      windowMinutes: 300,
+    };
+    const turn = windowForecast(tail([40, 40, 40, 40, 40, 40, 40, 40, 40, 70]), window, NOW);
+    const idled = windowForecast(tail([40, 70, 70, 70, 70, 70, 70, 70, 70, 70]), window, NOW);
+    expect(turn).toMatchObject({ kind: "out", level: "critical" });
+    expect(idled).toMatchObject({ kind: "out", level: "warn" });
+    // Not merely different levels — the run-outs are far apart, which is the
+    // property an unweighted fit cannot have.
+    if (turn.kind === "out" && idled.kind === "out") {
+      expect(idled.outAt - turn.outAt).toBeGreaterThan(90 * MIN);
+    }
+  });
+
+  it("still averages quantisation noise away on a steady climb", () => {
+    // The other half of the same trade: whole-percent reporting means every
+    // reading carries up to a point of noise, and the endpoint line put all
+    // of it on the slope. A true 0.16 %/min climb read as 0.114 that way.
+    const points = Array.from({ length: 21 }, (_, index) => {
+      const minutesAgo = (20 - index) * 2.2;
+      const exact = 13 + 0.16 * (20 - minutesAgo / 2.2) * 2.2;
+      const noise = index === 0 ? 1 : index === 20 ? -1 : 0;
+      return report({
+        reportedAt: NOW - minutesAgo * MIN,
+        usedPct: Math.round(exact) + noise,
+        resetsAt: NOW + 600 * MIN,
+      });
+    });
+    const window: UsageWindow = {
+      usedPct: points[points.length - 1].usedPct,
+      resetsAt: NOW + 600 * MIN,
+      windowMinutes: 300,
+    };
+    const verdict = windowForecast(points, window, NOW);
+    expect(verdict.kind).toBe("out");
+    if (verdict.kind === "out") {
+      // Recovered pace, read back off the projection. The endpoint line
+      // would have said 0.114 here — a 29% understatement that puts the
+      // run-out three hours further away than it is.
+      const paceMin = (100 - window.usedPct) / ((verdict.outAt - NOW) / MIN);
+      expect(paceMin).toBeGreaterThan(0.135);
+      expect(paceMin).toBeLessThan(0.175);
+    }
   });
 
   it("keeps a fresh-tail verdict through a silent stretch — push data does not age", () => {
@@ -289,13 +354,32 @@ describe("windowForecast", () => {
     ).toBe("unknown");
   });
 
-  it("says ok when the pace survives to the reset (or is flat)", () => {
+  it("says the window lasts when the pace survives to the reset", () => {
     // 0.1%/min: 38% left needs 380m, reset in 155m → survives.
     const slow = windowForecast(ramp(0.1, 5, 10, 62), FIVE_H, NOW);
-    expect(slow.kind).toBe("ok");
-    // Flat usage → ok with no projected exhaustion at all.
+    expect(slow.kind).toBe("lasts");
+    // Flat usage → a real answer, and its own kind: nothing is being spent.
     const flat = windowForecast(ramp(0, 5, 10, 62), FIVE_H, NOW);
-    expect(flat).toEqual({ kind: "ok", outAt: null, endPct: null });
+    expect(flat).toEqual({ kind: "idle" });
+  });
+
+  it("refuses to project from a journal that contradicts itself", () => {
+    // A FALLING counter is not "idle" — it is impossible, so this tail
+    // straddles something segmentation could not see (a provider that reset
+    // but lagged its `resetsAt`). Calling it "not spending" stated a
+    // confident falsehood over a window that may be climbing hard, for a
+    // whole lookback horizon.
+    const falling = [
+      report({ reportedAt: NOW - 40 * MIN, usedPct: 88 }),
+      report({ reportedAt: NOW - 30 * MIN, usedPct: 90 }),
+      report({ reportedAt: NOW - 20 * MIN, usedPct: 1 }),
+      report({ reportedAt: NOW - 10 * MIN, usedPct: 3 }),
+      report({ reportedAt: NOW, usedPct: 4 }),
+    ];
+    expect(windowForecast(falling, FIVE_H, NOW)).toEqual({ kind: "unknown" });
+    expect(cardCaptionParts(FIVE_H, { kind: "unknown" }, NOW)[1].text).toBe(
+      "Not enough data yet",
+    );
   });
 
   it("calls the race for the pace when it beats the reset", () => {
@@ -304,7 +388,6 @@ describe("windowForecast", () => {
     expect(verdict.kind).toBe("out");
     if (verdict.kind === "out") {
       expect(verdict.level).toBe("warn");
-      expect(verdict.beforeResetMs).toBeGreaterThan(20 * MIN);
       expect(Math.abs(verdict.outAt - (NOW + 131 * MIN))).toBeLessThan(2 * MIN);
     }
   });
@@ -322,25 +405,38 @@ describe("windowForecast", () => {
       window,
       NOW,
     );
-    expect(verdict).toMatchObject({ kind: "out", beforeResetMs: null });
+    expect(verdict).toMatchObject({ kind: "out" });
   });
 
   it("never computes a pace across a reset boundary", () => {
+    // The reset MOVES — that is what makes this a boundary, and the fixture
+    // has to say so. It used to leave `resetsAt` untouched on all four rows
+    // and passed anyway, because the un-segmented slope happened to come out
+    // negative: the test named segmentation and proved arithmetic.
+    const before = NOW + 20 * MIN;
+    const after = NOW + 320 * MIN;
+    const window: UsageWindow = { usedPct: 6, resetsAt: after, windowMinutes: 300 };
     const acrossReset = [
-      report({ reportedAt: NOW - 40 * MIN, usedPct: 95 }),
-      report({ reportedAt: NOW - 30 * MIN, usedPct: 2 }),
-      report({ reportedAt: NOW - 15 * MIN, usedPct: 4 }),
-      report({ reportedAt: NOW, usedPct: 6 }),
+      report({ reportedAt: NOW - 40 * MIN, usedPct: 95, resetsAt: before }),
+      report({ reportedAt: NOW - 30 * MIN, usedPct: 2, resetsAt: after }),
+      report({ reportedAt: NOW - 15 * MIN, usedPct: 4, resetsAt: after }),
+      report({ reportedAt: NOW, usedPct: 6, resetsAt: after }),
     ];
-    const verdict = windowForecast(acrossReset, FIVE_H, NOW);
     // Only the post-reset segment counts: 2→6% over 30m — slow, survives.
-    expect(verdict.kind).toBe("ok");
+    // Across the boundary the 95 would drag the pace negative, so a broken
+    // segmentation reads as `unknown` rather than as this.
+    expect(windowForecast(acrossReset, window, NOW)).toMatchObject({
+      kind: "lasts",
+    });
   });
 
-  it("leaves the near-tie to the reset — no flicker at the margin", () => {
-    // Out lands ~1m short of the reset: inside the margin → ok.
+  it("states the near-tie to the reset, but without a colour", () => {
+    // Out lands ~1m short of the reset. The limit IS reached — saying
+    // otherwise was the falsehood this replaced — but inside the margin the
+    // projection cannot call a race, and a verdict that flickers at the
+    // boundary is worse than none. So: `out` with no level.
     const verdict = windowForecast(ramp(0.2465, 5, 10, 62), FIVE_H, NOW);
-    expect(verdict.kind).toBe("ok");
+    expect(verdict).toMatchObject({ kind: "out", level: null });
   });
 
   it("hides behind expiry", () => {
@@ -373,6 +469,22 @@ describe("captions", () => {
     expect(critParts[0].level).toBe("critical");
   });
 
+  it("says the wall is here when there is nothing left to count down to", () => {
+    // The one phrasing no fixture reached: every "critical" tail in the
+    // suite still had minutes on the clock, so `formatCountdown` never
+    // returned null and both spellings shipped unexercised.
+    const reached: WindowForecast = { kind: "out", outAt: NOW, level: "critical" };
+    const parts = cardCaptionParts(FIVE_H, reached, NOW);
+    // Critical leads the line, ahead of the reset anchor.
+    expect(parts[0]).toEqual({ text: "Limit reached", level: "critical" });
+    // The popover joins it into its own sentence — same fact, same phrase,
+    // lower case because it continues rather than starts.
+    expect(panelWindowCaption(FIVE_H, reached, NOW)).toEqual({
+      text: "limit reached",
+      level: "critical",
+    });
+  });
+
   it("tells a surviving window how much it has LEFT, not where its curve stops", () => {
     // "ends near 33%" named the number the line lands on. The reader is not
     // holding a line; they are holding a budget, so the useful quantity is
@@ -381,10 +493,13 @@ describe("captions", () => {
     expect(parts).toHaveLength(2);
     expect(parts[1].text).toMatch(/^Won't hit the limit · ~\d+% left$/);
     expect(parts[1].level).toBeNull();
-    // Percentages follow the app's rule — CEIL, like every other one on the
-    // card — and this one is the complement of the landing level.
+    // Through `formatPct`'s own "left" mode. Ceiling the complement by hand
+    // rounds the wrong way: that mode ceils the USED side on purpose, so
+    // `100 - ceil(endPct)` understates headroom where `ceil(100 - endPct)`
+    // overstates it, and the two disagree by a point at every non-integer
+    // landing.
     expect(parts[1].text).toContain(
-      formatPct(100 - (ok as { endPct: number }).endPct, "used"),
+      formatPct((ok as { endPct: number }).endPct, "left"),
     );
   });
 
@@ -413,13 +528,19 @@ describe("captions", () => {
     const resetsAt = NOW + 180 * MIN;
     const window: UsageWindow = { usedPct: 62, resetsAt, windowMinutes: 300 };
     // Exhausts 177 minutes out, three before the reset: inside the 6-minute
-    // margin a 5h window allows, so the verdict is "ok".
+    // margin a 5h window allows.
     const reports = ramp((100 - 62) / 177, 5, 10, 62, resetsAt);
     const forecast = windowForecast(reports, window, NOW);
-    expect(forecast.kind).toBe("ok");
+    // It reaches the limit — `out`, and the sentence says so. What the
+    // margin buys is the absence of a colour, not the inversion of the fact.
+    expect(forecast).toMatchObject({ kind: "out", level: null });
     const parts = cardCaptionParts(window, forecast, NOW);
-    expect(parts[1].text).toBe("Won't hit the limit · ~0% left");
+    expect(parts[1].text).toMatch(/^Will hit the limit in ~/);
     expect(parts[1].level).toBeNull();
+    // And the plot's edge names the same instant, so the two cannot
+    // disagree — which they did: "Won't hit the limit" sat under a dashed
+    // line ending at 100 with its edge labelled the run-out clock time.
+    expect(burnEdgeLabel(window, forecast, NOW).atReset).toBe(false);
   });
 
   it("names the plot's right edge as a moment, and always names it", () => {

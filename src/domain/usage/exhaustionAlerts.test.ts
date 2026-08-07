@@ -75,7 +75,7 @@ describe("foldExhaustionAlerts", () => {
       kind: "out",
       level: "warn",
     });
-    expect(windowForecast(OK(), FIVE_H, NOW).kind).toBe("ok");
+    expect(windowForecast(OK(), FIVE_H, NOW).kind).toBe("lasts");
   });
 
   it("fires on ENTERING critical and holds silent while it lasts", () => {
@@ -267,6 +267,37 @@ describe("foldExhaustionAlerts", () => {
       fired.alerts,
       accountsOf([dipped]),
       seriesOf([dipped], dipSeries),
+      later,
+    );
+    expect(held.notices).toHaveLength(0);
+  });
+
+  it("holds through a DEEP dip when the reset instant never moved", () => {
+    // The rule the journal already learned and this file used to contradict.
+    // A window instance IS its reset instant: if that has not moved, the
+    // window did not turn over and a fall is a bad reading — the reporters
+    // send whole percents, and a real journal carried a lone `8` between two
+    // `19`s. The journal ignores it; the alarm kept its own copy of the rule
+    // WITHOUT the guard, so the same outlier re-armed it and the user got a
+    // second banner for one instance, with the countdown going UP.
+    //
+    // Deliberately deeper than REFILL_DROP_PCT — under the old copy this is
+    // exactly what fired.
+    const windows = [FIVE_H];
+    const fired = foldExhaustionAlerts(
+      NONE,
+      accountsOf(windows),
+      seriesOf(windows, CRITICAL()),
+      NOW,
+    );
+    expect(fired.notices).toHaveLength(1);
+
+    const later = NOW + 4 * MIN;
+    const dipped: UsageWindow = { ...FIVE_H, usedPct: 77 };
+    const held = foldExhaustionAlerts(
+      fired.alerts,
+      accountsOf([dipped]),
+      seriesOf([dipped], [...CRITICAL(), report({ reportedAt: later, usedPct: 77 })]),
       later,
     );
     expect(held.notices).toHaveLength(0);
