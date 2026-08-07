@@ -18,6 +18,7 @@ import { ModalOverlay } from "../../ui/ModalOverlay";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Dropdown } from "../../ui/Dropdown";
 import { useEscape } from "../../ui/useEscape";
+import { YoloField } from "../../ui/YoloField";
 import { noAutoCorrect } from "../../ui/inputProps";
 
 interface TeamDialogProps {
@@ -239,67 +240,65 @@ export function TeamDialog({
         ) : (
           <ul className="team__roster">
             {roster.map((row) => (
-              <li key={row.key} className="team__row">
-                <input
-                  {...noAutoCorrect}
-                  className="form__input team__row-role"
-                  value={row.role}
-                  onChange={(e) => row.setRole(e.target.value)}
-                  placeholder="role"
-                  aria-label={`Role for ${row.label}`}
-                />
-                {row.pane ? (
-                  <>
-                    <AgentGlyph icon={iconOf(row.pane)} />
-                    <span className="team__row-who">{row.label}</span>
-                    <span className="team__row-where">{whereOf(row.pane)}</span>
-                  </>
-                ) : (
-                  <>
-                    {/* The app's own dropdown, never a native <select>: a
-                        system popup is foreign chrome in a window that
-                        renders every other interaction itself. */}
-                    <Dropdown
-                      className="team__row-agent"
-                      options={canRecruit.map((agent) => ({
-                        value: agent.id,
-                        label: agent.label,
-                      }))}
-                      value={row.agentType}
-                      onChange={row.setAgentType}
-                      ariaLabel="Agent to start"
-                    />
-                    {/* Per recruit, because a lead reading diffs and an
-                        implementer grinding through a refactor want
-                        different answers — one setting for the whole team
-                        would make the safe choice the expensive one. Shown
-                        only where the agent declares the mode, the same
-                        gate every other spawn surface uses. */}
-                    {agentSupportsYolo(agents, row.agentType) && (
-                      <button
-                        type="button"
-                        className={`team__row-yolo${
-                          row.yolo ? " team__row-yolo--on" : ""
-                        }`}
-                        aria-pressed={row.yolo}
-                        title="YOLO mode — runs without permission prompts, the agent acts on its own"
-                        onClick={() => row.setYolo(!row.yolo)}
-                      >
-                        YOLO
-                      </button>
-                    )}
-                    <span className="team__row-where">starts when you confirm</span>
-                  </>
+              <li
+                key={row.key}
+                className={`team__member${row.pane ? "" : " team__member--new"}`}
+              >
+                <div className="team__row">
+                  <input
+                    {...noAutoCorrect}
+                    className="form__input team__row-role"
+                    value={row.role}
+                    onChange={(e) => row.setRole(e.target.value)}
+                    placeholder="role"
+                    aria-label={`Role for ${row.label}`}
+                  />
+                  {row.pane ? (
+                    <>
+                      <AgentGlyph icon={iconOf(row.pane)} />
+                      <span className="team__row-who">{row.label}</span>
+                      <span className="team__row-where">{whereOf(row.pane)}</span>
+                    </>
+                  ) : (
+                    <>
+                      {/* The app's own dropdown, never a native <select>: a
+                          system popup is foreign chrome in a window that
+                          renders every other interaction itself. */}
+                      <Dropdown
+                        className="team__row-agent"
+                        options={canRecruit.map((agent) => ({
+                          value: agent.id,
+                          label: agent.label,
+                        }))}
+                        value={row.agentType}
+                        onChange={row.setAgentType}
+                        ariaLabel="Agent to start"
+                      />
+                      <span className="team__row-where">new</span>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className="team__row-drop"
+                    aria-label={`Take ${row.label} off the team`}
+                    title="Take off the team"
+                    onClick={row.remove}
+                  >
+                    ×
+                  </button>
+                </div>
+                {/* The SAME anatomy every other spawn surface uses — the
+                    "+ Agent" and fork dialogs both render this field, and
+                    `YoloField` exists so the hazard reads identically
+                    wherever an agent is born. A compact chip of my own
+                    saved a line and broke that.
+                    Asked per recruit, because a lead reading diffs and an
+                    implementer grinding through a refactor want different
+                    answers; shown only where the agent declares the mode,
+                    the same gate the other two apply. */}
+                {!row.pane && agentSupportsYolo(agents, row.agentType) && (
+                  <YoloField checked={row.yolo} onChange={row.setYolo} />
                 )}
-                <button
-                  type="button"
-                  className="team__row-drop"
-                  aria-label={`Take ${row.label} off the team`}
-                  title="Take off the team"
-                  onClick={row.remove}
-                >
-                  ×
-                </button>
               </li>
             ))}
           </ul>

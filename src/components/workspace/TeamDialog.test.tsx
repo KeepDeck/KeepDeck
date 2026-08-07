@@ -279,18 +279,18 @@ describe("TeamDialog", () => {
     expect(roles()[0].value).toBe("reviewer");
   });
 
-  it("renders no system control anywhere", () => {
-    // The window draws every other interaction itself, so a native select
-    // popup — or a system checkbox — is foreign chrome sitting in the
-    // middle of it. `Dropdown` exists for exactly this and says so.
+  it("opens no system popup, and reuses the shared YOLO field for the rest", () => {
+    // A native <select> hands the whole menu to the OS in a window that
+    // renders every other interaction itself; `Dropdown` exists for that.
+    // The YOLO checkbox is NOT the same thing — it is styled in place and
+    // is the anatomy every spawn surface shares, so reproducing it here
+    // would be the mistake, not reusing it.
     open(workspace([pane("pane-1")]));
     act(() => adds()[0].click());
     act(() => startNew().click());
     expect(document.querySelector("select")).toBeNull();
-    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
-    expect(document.querySelector('input[type="radio"]')).toBeNull();
-    // ...and the agent picker is genuinely there, in the app's own form.
     expect(document.querySelector(".team__row-agent")).not.toBeNull();
+    expect(document.querySelector(".form__yolo")).not.toBeNull();
   });
 
   it("shows an agent still to be started as a member, not as a footnote", () => {
@@ -316,16 +316,13 @@ describe("TeamDialog", () => {
     type(nameField(), "api");
     act(() => startNew().click());
     act(() => startNew().click());
-    const toggles = all<HTMLButtonElement>(".team__row-yolo");
+    const toggles = all<HTMLInputElement>('.form__yolo input[type="checkbox"]');
     expect(toggles).toHaveLength(2);
-    expect(toggles.every((button) => button.getAttribute("aria-pressed") === "false"))
-      .toBe(true);
+    expect(toggles.every((box) => !box.checked)).toBe(true);
     act(() => toggles[1].click());
     expect(
-      all<HTMLButtonElement>(".team__row-yolo").map((b) =>
-        b.getAttribute("aria-pressed"),
-      ),
-    ).toEqual(["false", "true"]);
+      all<HTMLInputElement>('.form__yolo input[type="checkbox"]').map((b) => b.checked),
+    ).toEqual([false, true]);
     type(roles()[0], "lead");
     type(roles()[1], "impl-1");
     act(() => submit().click());
@@ -347,8 +344,9 @@ describe("TeamDialog", () => {
     );
     act(() => startNew().click());
     expect(
-      document.querySelector(".team__row-yolo")!.getAttribute("aria-pressed"),
-    ).toBe("true");
+      document.querySelector<HTMLInputElement>('.form__yolo input[type="checkbox"]')!
+        .checked,
+    ).toBe(true);
   });
 
   it("counts a role an unstarted agent will take as already used", () => {

@@ -96,37 +96,32 @@
   color: #6b7280;
 }
 
-/* The per-recruit YOLO opt-in, compact enough for a row.
- *
- * Not `.form__yolo`: that anatomy is a checkbox with a two-line explanation,
- * right for a dialog that asks the question once and wrong for a list that
- * asks it per row. The wording moves to the tooltip and the WARNING TINT
- * does the work — off it is as quiet as any other control, on it is amber,
- * because a team where one member runs unprompted must show which one at a
- * glance. */
-.team__row-yolo {
-  flex: none;
-  padding: 3px 8px;
-  border: 1px solid #2a3242;
-  border-radius: 6px;
-  background: transparent;
-  color: #6b7280;
-  font: inherit;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  cursor: pointer;
+/* A member is a row; an agent still to be started is a row PLUS the spawn
+ * question that comes with it. Stacking rather than cramming: squeezed onto
+ * one line the note truncated to "starts when you confi…", and the YOLO
+ * opt-in had to shrink into a chip of its own invention — which broke the
+ * one anatomy every spawn surface shares. */
+.team__member {
+  display: flex;
+  flex-direction: column;
 }
 
-.team__row-yolo:hover {
-  border-color: #3a4658;
-  color: #9aa3af;
+/* Its own block, set apart from the plain rows around it: it carries a
+ * question none of them do, and a member who does not exist yet reads
+ * differently from one who does. */
+.team__member--new {
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0b0e14;
 }
 
-.team__row-yolo--on,
-.team__row-yolo--on:hover {
-  border-color: #6b4f1f;
-  background-color: #1f1808;
-  color: #c9a23c;
+/* `.form__yolo` is built for a stacked dialog and carries its own 20px
+   gap to the next field. Inside this block the block's padding is the
+   spacing. */
+.team__member--new .form__yolo {
+  margin-bottom: 0;
 }
 
 .team__row-take {
