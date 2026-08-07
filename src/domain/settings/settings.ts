@@ -14,11 +14,11 @@ import { collectExtras, isRecord } from "../json";
  * - a malformed value degrades just its own key to the default;
  * - unknown keys survive a save round-trip (hand edits and keys written by a
  *   newer build are preserved, not stripped);
- * - serialization is sparse in one direction only: a setting nobody has ever
- *   chosen is left out, so a default improved in a later version reaches every
- *   user who never overrode it — but anything CHOSEN is written even when it
- *   equals today's default, or a later change of default would silently
- *   override the choice (see [`SettingsDocument.explicit`]).
+ * - the file holds exactly the DECISIONS someone made — see
+ *   [`SettingsDocument.chosen`]. A setting nobody ever chose is absent, so an
+ *   improved default reaches every such user; a setting somebody chose is
+ *   present even when it equals today's default, so tomorrow's change of
+ *   default cannot silently override them.
  *
  * Every key is declared exactly once, in [`SETTINGS_CODECS`]; the defaults and
  * the known-key set are DERIVED from it.
@@ -175,34 +175,52 @@ export type SettingsKey = keyof Settings;
 export const SCROLLBACK_MIN = 1_000;
 export const SCROLLBACK_MAX = 200_000;
 
-/** The default bags, standalone so both the codec table and the bags' own
- * readers can name them: a reader that degrades to "the default" must return
- * THIS object, and deriving the defaults from the table would otherwise make
- * the two mutually recursive. Their object IDENTITY is load-bearing — see
- * [`readNotifications`]. */
-const DEFAULT_PLUGINS: Settings["plugins"] = {
+/** Freeze `value` and the containers one level inside it. The default bags
+ * below are SHARED into every document that chose neither, so a stray
+ * `settings.plugins.enabled[id] = x` would poison the default for every module
+ * that reads it as a fallback, process-wide and with no way back short of a
+ * reload. One level down is exactly as deep as such a write reaches. */
+function freezeBag<T extends object>(value: T): T {
+  for (const inner of Object.values(value)) {
+    if (typeof inner === "object" && inner !== null) Object.freeze(inner);
+  }
+  Object.freeze(value);
+  return value;
+}
+
+/** The default bags, standalone so the codec table can name them. */
+const DEFAULT_PLUGINS = freezeBag<Settings["plugins"]>({
   enabled: {},
   values: {},
   consented: {},
-};
-const DEFAULT_NOTIFICATIONS: Settings["notifications"] = {
+});
+const DEFAULT_NOTIFICATIONS = freezeBag<Settings["notifications"]>({
   enabled: true,
   mode: "system-and-app",
   mutedPlugins: [],
-};
+});
+
+/** Where a discarded stored value is reported, so a load can say what it
+ * dropped: a key (`"dockMode"`) or a path inside one (`"plugins.enabled.foo"`).
+ * Readers call it; [`hydrateSettings`] collects. */
+type Discard = (path: string) => void;
 
 /**
  * How ONE setting is read from the stored document, and what it falls back to.
  *
- * `read` answers `undefined` for anything this build cannot use — absent, the
- * wrong type, outside the allow-list — and hydration then keeps the default.
+ * `read` answers `undefined` only for a value this build cannot use AT ALL —
+ * the wrong type, or outside the allow-list — and hydration then keeps the
+ * default. A value it CAN use is returned even when it equals the default:
+ * "usable" and "different from the default" are separate questions, and
+ * conflating them is what erased a stored setting on the next save.
+ *
  * It returns the accepted VALUE rather than merely vouching for the raw one,
  * because readers normalize: scrollback clamps, and the two bags rebuild
- * themselves entry by entry.
+ * themselves entry by entry, reporting each entry they drop.
  */
 interface SettingCodec<T> {
   default: T;
-  read(stored: unknown): T | undefined;
+  read(stored: unknown, discard: Discard): T | undefined;
 }
 
 /** A reader for a closed set of string literals: the stored value when the
@@ -241,7 +259,7 @@ function readScrollback(stored: unknown): number | undefined {
  * point. A key used to live in four uncoupled places (the interface, the
  * defaults object, a hand-written `if` in hydration, and the known-key set).
  * Omitting the `if` left a setting that looked wired up but was never
- * restored, and the sparse writer then ERASED it from disk on the next save —
+ * restored, and the writer then ERASED it from disk on the next save —
  * silently, with the file still looking healthy. Nothing caught that, and it
  * is the shape every "my settings reset after the update" report takes.
  *
@@ -284,115 +302,69 @@ function settingsCodecs(): [SettingsKey, SettingCodec<unknown>][] {
   ][];
 }
 
-/** A settings value plus the unknown top-level keys of the stored document,
- * carried so a save can write them back verbatim. */
+/**
+ * A settings document: the decisions it carries, the values those decisions
+ * resolve to, and the unknown keys of the stored file.
+ */
 export interface SettingsDocument {
-  settings: Settings;
-  extras: Record<string, unknown>;
   /**
-   * Keys this document must WRITE even when their value equals today's
-   * default: the ones the stored file carried a usable value for, plus the
-   * ones set since through [`withSettings`].
+   * Exactly the settings somebody CHOSE — the stored file's usable keys, plus
+   * whatever [`withSettings`] has set since. This IS what a save writes, so
+   * "which keys land on disk" has one home and no predicate.
    *
-   * Without it, "never chosen" and "chosen, and it happens to equal today's
-   * default" are the same thing on disk, and sparse serialization erases the
-   * second. Two consequences, both real: a stored `false` vanished from the
-   * file, and any release that CHANGED a default silently flipped the setting
-   * for everyone who had deliberately picked the old value (this already
-   * happened once — `defaultAgent` went from `null` to `"claude"`).
-   *
-   * A key the file mentioned but whose value had to be discarded is
-   * deliberately NOT here: re-writing garbage as a synthesized default would
-   * grow the file on every load without recording any decision.
+   * Absence therefore means "never chosen", which is what lets an improved
+   * default reach that user; presence means "chosen", even when the value
+   * equals today's default, which is what stops tomorrow's change of default
+   * from silently overriding them. Sparse storage without this distinction
+   * erased a stored `false`, and it already flipped users once —
+   * `defaultAgent` went from `null` to `"claude"`.
    */
-  explicit: ReadonlySet<SettingsKey>;
+  readonly chosen: Readonly<Partial<Settings>>;
+  /** Every setting's effective value: the defaults with `chosen` laid over
+   * them. DERIVED — [`settingsDocument`] is the only place it is built, so it
+   * can never disagree with `chosen`. */
+  readonly settings: Readonly<Settings>;
+  /** Top-level keys of the stored file this build does not know, kept so a
+   * save writes them back verbatim (hand edits, and keys from a newer build). */
+  readonly extras: Readonly<Record<string, unknown>>;
 }
 
-/** The document a first run (or a quarantined file) starts from. Nothing is
- * explicit yet — no file said anything and the user has chosen nothing, so a
- * save writes only the version markers. */
+/** THE document constructor: materializes `settings` from `chosen` so the two
+ * are built together or not at all. */
+function settingsDocument(
+  chosen: Partial<Settings>,
+  extras: Record<string, unknown>,
+): SettingsDocument {
+  return { chosen, settings: { ...DEFAULT_SETTINGS, ...chosen }, extras };
+}
+
+/** The document a first run (or a quarantined file) starts from: no decisions,
+ * so a save writes only the version markers. */
 export function defaultSettingsDocument(): SettingsDocument {
-  return { settings: { ...DEFAULT_SETTINGS }, extras: {}, explicit: new Set() };
+  return settingsDocument({}, {});
 }
 
 /**
  * The document with `patch` applied — the ONE way a chosen value enters a
- * document. Every patched key becomes explicit, because the user picking the
+ * document. Every patched key becomes a decision, because the user picking the
  * value that happens to be today's default is still a decision, and the file
  * is where that decision has to survive a change of default.
+ *
+ * A key the table does not know is dropped, and so is an explicit `undefined`:
+ * `Partial<Settings>` admits `{mcpServer: undefined}`, which would otherwise
+ * record a decision whose value `JSON.stringify` then omits — a key at once
+ * chosen and erased.
  */
 export function withSettings(
   doc: SettingsDocument,
   patch: Partial<Settings>,
 ): SettingsDocument {
-  const explicit = new Set(doc.explicit);
-  for (const key of Object.keys(patch) as SettingsKey[]) explicit.add(key);
-  return {
-    settings: { ...doc.settings, ...patch },
-    extras: doc.extras,
-    explicit,
-  };
-}
-
-/**
- * Fold a stand-in document — one the app only has because the settings file
- * could not be read — onto the `stored` document that has since turned up.
- *
- * The stored file WINS for everything the stand-in did not explicitly choose,
- * so a transient unreadable load can no longer end with the user's whole file
- * replaced by defaults: the only values that survive from the stand-in are the
- * ones somebody actually set while it was live. Extras come from the file too —
- * a stand-in has none, and dropping a newer build's keys would be its own
- * silent loss.
- */
-export function reconcileProvisional(
-  stored: SettingsDocument,
-  provisional: SettingsDocument,
-): SettingsDocument {
-  // Correlating `key` with `Settings[key]` across a loop is beyond what the
-  // checker can track; the keys come from `explicit`, so each value is that
-  // key's own type by construction.
-  const patch = {} as Record<SettingsKey, unknown>;
-  for (const key of provisional.explicit) patch[key] = provisional.settings[key];
-  return withSettings(stored, patch as Partial<Settings>);
-}
-
-/**
- * What a load learned about the stored TEXT, beyond the values it yielded: the
- * revision it was written at, and the keys it carried whose values this build
- * had to discard.
- *
- * Read separately from [`hydrateSettings`] rather than returned with the
- * document, because it describes the FILE, and a document stops corresponding
- * to its file the moment `withSettings` touches it — a field carried along
- * would quietly become a lie. The cost is re-parsing one small document once
- * per launch, and it buys a load that says what it dropped: a silent per-key
- * degrade is exactly what makes "my settings reset" impossible to diagnose.
- */
-export interface SettingsProvenance {
-  /** The document's own revision, or `null` when it declares none. */
-  version: number | null;
-  /** Keys present in the file whose value fell back to its default. */
-  degraded: SettingsKey[];
-}
-
-export function settingsProvenance(json: string): SettingsProvenance {
-  const blank: SettingsProvenance = { version: null, degraded: [] };
-  let raw: unknown;
-  try {
-    raw = JSON.parse(json);
-  } catch {
-    return blank;
+  const chosen: Partial<Settings> = { ...doc.chosen };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined || !(key in SETTINGS_CODECS)) continue;
+    (chosen as Record<string, unknown>)[key] = value;
   }
-  if (!isRecord(raw)) return blank;
-  const degraded: SettingsKey[] = [];
-  for (const [key, codec] of settingsCodecs()) {
-    if (key in raw && codec.read(raw[key]) === undefined) degraded.push(key);
-  }
-  return {
-    version: typeof raw.version === "number" ? raw.version : null,
-    degraded,
-  };
+  return settingsDocument(chosen, doc.extras);
 }
 
 /** `version` plus every key `Settings` owns, plus retired keys we still
@@ -421,164 +393,174 @@ export function withPluginMuted(
 }
 
 /**
- * Tolerant read of the persisted plugin settings bag: `undefined` when there's
- * nothing to keep — an absent/malformed field, or one whose sub-parts all
- * degrade to empty — so hydration leaves `settings.plugins` pointing at the
- * shared default object and a later save stays sparse (mirrors how a malformed
- * value elsewhere degrades to its exact default, object identity included,
- * instead of a fresh-but-equal object that would defeat the `!==`-against-
- * default check in `serializeSettings`).
+ * Tolerant read of the persisted plugin settings bag. A record is ALWAYS
+ * accepted and rebuilt entry by entry — an empty result is a real choice ("no
+ * plugin decisions"), not a failure, and calling it one is what erased the key
+ * on the next save. `undefined` is reserved for a value that is not a record
+ * at all.
  *
  * Each of `enabled` and `values` degrades independently, and within each, one
- * bad entry never drops its siblings — the file is hand-editable.
+ * bad entry never drops its siblings — the file is hand-editable — and every
+ * dropped entry is reported, so the load can say what it discarded.
  */
-function readPlugins(value: unknown): Settings["plugins"] | undefined {
+function readPlugins(
+  value: unknown,
+  discard: Discard,
+): Settings["plugins"] | undefined {
   if (!isRecord(value)) return undefined;
   const enabled: Record<string, boolean> = {};
   if (isRecord(value.enabled)) {
     for (const [id, v] of Object.entries(value.enabled)) {
       if (typeof v === "boolean") enabled[id] = v;
+      else discard(`plugins.enabled.${id}`);
     }
-  }
+  } else if (value.enabled !== undefined) discard("plugins.enabled");
   const values: Record<string, Record<string, unknown>> = {};
   if (isRecord(value.values)) {
     for (const [id, v] of Object.entries(value.values)) {
       // The per-plugin values object is opaque past this point — kept
       // verbatim, like a workspace's plugin slot.
       if (isRecord(v)) values[id] = v;
+      else discard(`plugins.values.${id}`);
     }
-  }
+  } else if (value.values !== undefined) discard("plugins.values");
   const consented: Record<string, string> = {};
   if (isRecord(value.consented)) {
     for (const [id, v] of Object.entries(value.consented)) {
       if (typeof v === "string") consented[id] = v;
+      else discard(`plugins.consented.${id}`);
     }
-  }
-  if (
-    Object.keys(enabled).length === 0 &&
-    Object.keys(values).length === 0 &&
-    Object.keys(consented).length === 0
-  ) {
-    return undefined;
-  }
+  } else if (value.consented !== undefined) discard("plugins.consented");
   return { enabled, values, consented };
 }
 
 /**
- * Tolerant read of the notifications bag, per-field like everything else:
- * a malformed field falls back to its own default without dragging the
- * siblings down. `undefined` when the result IS the default — hydration then
- * keeps `settings.notifications` pointing at the shared default object so the
- * sparse-write `!==`-against-default check stays correct (the same
- * object-identity contract as [`readPlugins`]).
+ * Tolerant read of the notifications bag, per-field like everything else: a
+ * malformed field falls back to its own default, on its own, and says so. A
+ * record is ALWAYS accepted (see [`readPlugins`] for why an all-default result
+ * must not read as a failure); `undefined` means it was not a record.
  */
 function readNotifications(
   value: unknown,
+  discard: Discard,
 ): Settings["notifications"] | undefined {
   if (!isRecord(value)) return undefined;
-  const defaults = DEFAULT_NOTIFICATIONS;
-  const enabled =
-    typeof value.enabled === "boolean" ? value.enabled : defaults.enabled;
-  const mode = NOTIFICATION_MODES.includes(value.mode as NotificationsMode)
-    ? (value.mode as NotificationsMode)
-    : defaults.mode;
-  // A fresh [] rather than defaults.mutedPlugins: this bag is only returned
-  // when some field is non-default, and sharing the module-level default
-  // array into a live settings object would let any future in-place mutation
-  // poison the process-wide default (readPlugins builds fresh maps for the
-  // same reason).
-  const mutedPlugins = Array.isArray(value.mutedPlugins)
-    ? value.mutedPlugins.filter((id): id is string => typeof id === "string")
-    : [];
-  if (
-    enabled === defaults.enabled &&
-    mode === defaults.mode &&
-    mutedPlugins.length === 0
-  ) {
-    return undefined;
-  }
+  let enabled = DEFAULT_NOTIFICATIONS.enabled;
+  if (typeof value.enabled === "boolean") enabled = value.enabled;
+  else if (value.enabled !== undefined) discard("notifications.enabled");
+  let mode = DEFAULT_NOTIFICATIONS.mode;
+  if (NOTIFICATION_MODES.includes(value.mode as NotificationsMode)) {
+    mode = value.mode as NotificationsMode;
+  } else if (value.mode !== undefined) discard("notifications.mode");
+  const mutedPlugins: string[] = [];
+  if (Array.isArray(value.mutedPlugins)) {
+    for (const id of value.mutedPlugins) {
+      if (typeof id === "string") mutedPlugins.push(id);
+      else discard("notifications.mutedPlugins");
+    }
+  } else if (value.mutedPlugins !== undefined) discard("notifications.mutedPlugins");
   return { enabled, mode, mutedPlugins };
 }
 
 /**
- * Restore settings from stored JSON. Returns `null` only for a document that
- * isn't a JSON object at all — the caller quarantines it and starts from
- * defaults. Anything else yields usable settings: each recognized key is
- * validated on its own and falls back to its default individually. The
- * `version` field is written for future migrations but deliberately not
- * gated on here — with per-key tolerance, reading a newer document extracts
- * whatever this build understands and preserves the rest as extras.
+ * What a load learned about the stored text, beyond the values it yielded.
+ * Returned WITH the document by [`hydrateSettings`], never carried on it: it
+ * describes the FILE, and a document stops corresponding to its file the
+ * moment `withSettings` touches it. Computed by the read itself rather than by
+ * a second pass, so it cannot drift from what the read actually did.
  */
-export function hydrateSettings(json: string): SettingsDocument | null {
+export interface SettingsProvenance {
+  /** The document's own revision, or `null` when it declares none. */
+  version: number | null;
+  /** What the file carried and the read could not use — a key, or a path
+   * inside one (`"plugins.enabled.foo"`). Each fell back to its default. */
+  degraded: string[];
+}
+
+/** A stored document, restored: the values, and what reading them discarded. */
+export interface HydratedSettings {
+  doc: SettingsDocument;
+  provenance: SettingsProvenance;
+}
+
+/**
+ * Restore settings from stored JSON. Returns `null` only for a document that
+ * isn't a JSON object at all, or one whose compatibility floor is above this
+ * build — the caller quarantines it and starts from defaults. Anything else
+ * yields usable settings: each recognized key is validated on its own and
+ * falls back to its default individually.
+ */
+export function hydrateSettings(json: string): HydratedSettings | null {
   let raw: unknown;
   try {
     raw = JSON.parse(json);
   } catch {
     return null;
   }
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
-  const doc = raw as Record<string, unknown>;
+  if (!isRecord(raw)) return null;
+  const doc = raw;
   // Above our compatibility floor → quarantine (per-key tolerance covers
   // additive futures; a raised floor means a key CHANGED MEANING, and
   // half-understanding it would be worse than defaults + kept evidence).
   if (settingsFloorBreach(doc) !== null) return null;
 
-  const settings = { ...DEFAULT_SETTINGS } as Record<SettingsKey, unknown>;
-  const explicit = new Set<SettingsKey>();
+  const degraded: string[] = [];
+  const discard = (path: string) => degraded.push(path);
+  const chosen: Partial<Settings> = {};
   for (const [key, codec] of settingsCodecs()) {
     // `in` rather than an undefined check: JSON cannot carry `undefined`, so
     // presence is exactly "the file said something about this key" — which is
     // what separates an absent key from one whose value we had to discard.
     if (!(key in doc)) continue;
-    const value = codec.read(doc[key]);
-    if (value === undefined) continue;
-    settings[key] = value;
-    // The file carried a usable value, so it stays in the file — even if it
-    // equals today's default. See [`SettingsDocument.explicit`].
-    explicit.add(key);
+    const value = codec.read(doc[key], discard);
+    if (value === undefined) {
+      degraded.push(key);
+      continue;
+    }
+    (chosen as Record<string, unknown>)[key] = value;
   }
-  const restored = settings as Settings;
   // Settings v5 graduation: the retired run-presets experiment flag maps onto
   // the Run plugin's enabled toggle so a user's prior state carries across the
   // transition — someone who had the experiment ON keeps Run on (plugins now
   // default OFF, so without this they'd lose it), and an explicit OFF stays
   // off. Only applied while the plugins bag has no say of its own, and the key
   // is consumed (KNOWN_KEYS), never re-written — rewriting it forever would
-  // re-apply the mapping after the user later toggles the plugin.
+  // re-apply the mapping after the user later toggles the plugin. The result
+  // is a CHOICE, so it enters `chosen`: relying on it merely differing from
+  // the default would lose the Run plugin the moment that fallback is tidied
+  // away.
+  const bag = chosen.plugins ?? DEFAULT_PLUGINS;
   if (
     typeof doc.experimentRunPresets === "boolean" &&
-    restored.plugins.enabled["keepdeck.run"] === undefined
+    bag.enabled["keepdeck.run"] === undefined
   ) {
-    restored.plugins = {
-      ...restored.plugins,
-      enabled: {
-        ...restored.plugins.enabled,
-        "keepdeck.run": doc.experimentRunPresets,
-      },
+    chosen.plugins = {
+      enabled: { ...bag.enabled, "keepdeck.run": doc.experimentRunPresets },
+      values: { ...bag.values },
+      consented: { ...bag.consented },
     };
   }
 
   return {
-    settings: restored,
-    extras: collectExtras(doc, KNOWN_KEYS),
-    explicit,
+    doc: settingsDocument(chosen, collectExtras(doc, KNOWN_KEYS)),
+    provenance: {
+      version: typeof doc.version === "number" ? doc.version : null,
+      degraded,
+    },
   };
 }
 
-/** Serialize for storage: version, preserved extras, then every setting that
- * either differs from its default or was explicitly chosen (see
- * [`SettingsDocument.explicit`] — a value equal to today's default still has
- * to survive tomorrow's change of default). */
+/** Serialize for storage: the version markers, the preserved extras, then
+ * exactly the settings this document says were chosen — in table order, so a
+ * saved file's key order is stable across builds and hand edits. */
 export function serializeSettings(doc: SettingsDocument): string {
   const out: Record<string, unknown> = {
     version: SETTINGS_VERSION,
     minVersion: SETTINGS_MIN_READER,
     ...doc.extras,
   };
-  for (const [key, codec] of settingsCodecs()) {
-    if (doc.explicit.has(key) || doc.settings[key] !== codec.default) {
-      out[key] = doc.settings[key];
-    }
+  for (const [key] of settingsCodecs()) {
+    if (key in doc.chosen) out[key] = doc.chosen[key];
   }
   return JSON.stringify(out);
 }

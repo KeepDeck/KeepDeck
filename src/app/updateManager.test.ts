@@ -15,7 +15,9 @@ import {
 } from "./updateManager";
 
 vi.mock("../ipc/app", () => ({ fetchAppInfo: vi.fn() }));
-vi.mock("../ipc/settings", () => ({ snapshotSettings: vi.fn(async () => {}) }));
+vi.mock("./settingsManager", () => ({
+  snapshotSettingsForUpdate: vi.fn(async () => {}),
+}));
 vi.mock("../ipc/updater", () => ({
   checkForUpdate: vi.fn(),
   discardUpdate: vi.fn(async () => {}),
@@ -29,7 +31,7 @@ vi.mock("../ipc/log", () => ({
 }));
 
 import { fetchAppInfo } from "../ipc/app";
-import { snapshotSettings } from "../ipc/settings";
+import { snapshotSettingsForUpdate } from "./settingsManager";
 import {
   checkForUpdate,
   discardUpdate,
@@ -42,7 +44,7 @@ const mockCheck = vi.mocked(checkForUpdate);
 const mockDiscard = vi.mocked(discardUpdate);
 const mockInstall = vi.mocked(installUpdate);
 const mockRelaunch = vi.mocked(relaunchApp);
-const mockSnapshot = vi.mocked(snapshotSettings);
+const mockSnapshot = vi.mocked(snapshotSettingsForUpdate);
 
 const available = (version = "1.2.0"): AvailableUpdate => ({
   id: `update-${version}`,

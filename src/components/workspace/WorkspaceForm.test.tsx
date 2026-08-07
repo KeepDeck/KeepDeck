@@ -39,6 +39,7 @@ vi.mock("../../ipc/settings", () => ({
   loadSettings: async () => null,
   saveSettings: async () => {},
   quarantineSettings: async () => {},
+  snapshotSettings: async () => {},
 }));
 
 /** Boot the settings store and set the default-agent preference. */
