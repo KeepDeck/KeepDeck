@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Pane, Workspace } from "../deck";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import { checkTeamAssignment, resolveMailTarget, teamMembers, teamOf } from "./team";
+import {
+  checkTeamAssignment,
+  decideTeamSpec,
+  formatTeamSpec,
+  parseTeamSpec,
+  resolveMailTarget,
+  teamMembers,
+  teamOf,
+} from "./team";
 
 const AGENTS = [{ id: "claude", label: "Claude" }];
 
@@ -52,6 +60,65 @@ describe("checkTeamAssignment", () => {
     const ws = workspace([pane("pane-1")]);
     expect(checkTeamAssignment(ws, "pane-1", { name: "  ", role: "lead" }).ok).toBe(false);
     expect(checkTeamAssignment(ws, "pane-1", { name: "api", role: "" }).ok).toBe(false);
+  });
+});
+
+describe("parseTeamSpec", () => {
+  it("reads role@team, trimming both halves", () => {
+    expect(parseTeamSpec("  impl-1 @ api  ")).toEqual({ name: "api", role: "impl-1" });
+  });
+
+  it("reads blank as leaving the team", () => {
+    expect(parseTeamSpec("   ")).toBeNull();
+  });
+
+  it("refuses a role with no team rather than guessing one", () => {
+    // Guessing which team a pane joins is how a role ends up answering in
+    // the wrong conversation.
+    expect(parseTeamSpec("impl-1")).toBeNull();
+    expect(parseTeamSpec("@api")).toBeNull();
+    expect(parseTeamSpec("impl-1@")).toBeNull();
+    expect(parseTeamSpec("a@b@c")).toBeNull();
+  });
+
+  it("round-trips what it formats", () => {
+    expect(formatTeamSpec({ name: "api", role: "lead" })).toBe("lead@api");
+    expect(parseTeamSpec(formatTeamSpec({ name: "api", role: "lead" }))).toEqual({
+      name: "api",
+      role: "lead",
+    });
+    expect(formatTeamSpec(null)).toBe("");
+  });
+});
+
+describe("decideTeamSpec", () => {
+  it("turns a typed field into the one thing to store", () => {
+    const ws = workspace([pane("pane-1")]);
+    expect(decideTeamSpec(ws, "pane-1", "lead@api")).toEqual({
+      ok: true,
+      value: { name: "api", role: "lead" },
+    });
+  });
+
+  it("reads an emptied field as leaving the team", () => {
+    // The same convention a cleared rename follows: blank means "undo the
+    // thing I set", not "reject my input".
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
+    expect(decideTeamSpec(ws, "pane-1", "  ")).toEqual({ ok: true, value: null });
+  });
+
+  it("says how to write it when the field is not a role and a team", () => {
+    const ws = workspace([pane("pane-1")]);
+    const result = decideTeamSpec(ws, "pane-1", "impl-1");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("role@team");
+  });
+
+  it("refuses a role that is already taken, with the same words as the tool path", () => {
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" }), pane("pane-2")]);
+    const result = decideTeamSpec(ws, "pane-2", "lead@api");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("already taken");
   });
 });
 

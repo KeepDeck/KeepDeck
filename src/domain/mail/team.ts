@@ -59,6 +59,63 @@ export function checkTeamAssignment(
   return { ok: true, value: { name, role } };
 }
 
+/**
+ * One field, both facts: `role@team`.
+ *
+ * Teams are two names and a header has room for one input, so they share it
+ * the way an address does — and `name@team` is the shape Claude Code's own
+ * teams use, which is what an agent reading about this elsewhere will
+ * expect. Blank means "off the team", the same as clearing a rename means
+ * "back to the automatic title".
+ *
+ * Returns null for blank (a removal) and for anything that is not exactly
+ * two non-empty halves. Deliberately strict: `impl-1` alone would have to
+ * guess a team, and guessing which team a pane joins is how a role ends up
+ * answering in the wrong conversation.
+ */
+export function parseTeamSpec(text: string): TeamAssignment | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const at = trimmed.indexOf("@");
+  if (at <= 0) return null;
+  const role = trimmed.slice(0, at).trim();
+  const name = trimmed.slice(at + 1).trim();
+  if (!role || !name || name.includes("@")) return null;
+  return { name, role };
+}
+
+/** The inverse, for filling the field with what is already there. */
+export function formatTeamSpec(team: TeamAssignment | null | undefined): string {
+  return team ? `${team.role}@${team.name}` : "";
+}
+
+/**
+ * What a typed `role@team` means for this pane: the assignment to store,
+ * null to take it off its team, or a refusal to show the person.
+ *
+ * The whole decision in one pure step, so the surface that collected the
+ * text only has to dispatch or complain. A refusal reaches a HUMAN here,
+ * unlike the command path's, which reaches an agent — but the wording is
+ * the same because the mistake is: the role is taken, or the field was not
+ * a `role@team`.
+ */
+export function decideTeamSpec(
+  workspace: Workspace,
+  paneId: string,
+  spec: string,
+): Resolved<TeamAssignment | null> {
+  if (!spec.trim()) return { ok: true, value: null };
+  const parsed = parseTeamSpec(spec);
+  if (!parsed) {
+    return {
+      ok: false,
+      message: `"${spec.trim()}" is not a role and a team — write it as role@team, for example lead@api`,
+    };
+  }
+  const checked = checkTeamAssignment(workspace, paneId, parsed);
+  return checked.ok ? { ok: true, value: checked.value } : checked;
+}
+
 /** The panes making up a team, in deck order. */
 export function teamMembers(workspace: Workspace, name: string): Pane[] {
   const needle = name.trim().toLowerCase();

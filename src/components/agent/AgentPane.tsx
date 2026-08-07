@@ -58,6 +58,10 @@ export interface AgentPaneProps {
    * commands (a lead assigns its members), so this is how the person
    * watching learns what the agents arranged among themselves. */
   team?: { name: string; role: string } | null;
+  /** Whether the team surface is switched on (the agent-mail experiment). */
+  teams?: boolean;
+  /** Commit a typed `role@team`, or blank to leave the team. */
+  onSetTeam?(spec: string): void;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -155,6 +159,8 @@ export function AgentPane({
   gitBadge,
   yolo,
   team,
+  teams,
+  onSetTeam,
   visible,
   focused,
   hidden,
@@ -326,6 +332,8 @@ export function AgentPane({
         paneLive={paneLive}
         yolo={yolo}
         team={team}
+        teams={teams}
+        onSetTeam={onSetTeam}
         gitBadge={gitBadge}
         onSelect={onSelect}
         onRename={onRename}

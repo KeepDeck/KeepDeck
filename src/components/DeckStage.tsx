@@ -93,6 +93,13 @@ interface DeckStageProps {
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
+  /** Whether the team surface is on — the agent-mail experiment. Off, the
+   * header carries no team chip at all. */
+  teamsEnabled?: boolean;
+  /** Commit a typed `role@team` for a pane, or blank to leave the team.
+   * The text arrives raw: deciding what it means is the deck holder's, not
+   * the header's. */
+  onSetPaneTeam?(wsId: string, paneId: string, spec: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
   /** Idle panes blocked from waking: paneId → the missing directory
@@ -178,6 +185,8 @@ export function DeckStage({
   onRestoreSuspendedPane,
   onCloseAgent,
   onRenamePane,
+  teamsEnabled = false,
+  onSetPaneTeam = () => {},
   onPaneTitle,
   idleBlocked,
   wakeFailed,
@@ -458,6 +467,8 @@ export function DeckStage({
               gitBadge={badge}
               yolo={pane.yolo}
               team={pane.team ?? null}
+              teams={teamsEnabled}
+              onSetTeam={(spec) => onSetPaneTeam(ws.id, pane.id, spec)}
               visible={layout.visible}
               focused={layout.focused}
               hidden={layout.hidden}

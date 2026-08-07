@@ -1,4 +1,5 @@
 import { askForPaneBack } from "./app/resumeOutcome";
+import { decideTeamSpec } from "./domain/mail";
 import { isFoundUpdate, restartToUpdate } from "./app/updateManager";
 import { useAppController } from "./app/useAppController";
 import {
@@ -271,6 +272,18 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
+            teamsEnabled={settings.agentMail}
+            onSetPaneTeam={(wsId, paneId, spec) => {
+              // The header collects text; deciding what it means needs the
+              // whole workspace (a role is an address, and an address has to
+              // be unique), so the decision lives in the domain and lands
+              // here as one answer to dispatch or to show.
+              const workspace = deck.workspaces.find((ws) => ws.id === wsId);
+              if (!workspace) return;
+              const decided = decideTeamSpec(workspace, paneId, spec);
+              if (!decided.ok) return pushAlert("Can't set that role", decided.message);
+              deck.setPaneTeam(wsId, paneId, decided.value);
+            }}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}
