@@ -1,11 +1,12 @@
 /* The status frame ladder — the ONE home of the agent-status palette and
-   rhythms, shared by every surface that renders `paneFrame()` (pane border
-   now; tray items and the rail dot join it). The domain ranks (frame.ts);
-   this file only paints.
+   rhythms, shared by every surface that renders `paneFrame()`: the pane
+   border, the minimized stand-in, and the rail dot. The domain ranks
+   (frame.ts); this file only paints.
 
    Rhythm is state IDENTITY, not urgency: failed always pulses at 1s,
-   waiting always breathes at 2s — a frame never changes rhythm, so the
-   pace itself names the state from across the room. */
+   waiting always breathes at 2s, working always glows at 1.6s — a frame
+   never changes rhythm, so the pace itself names the state from across
+   the room. */
 :root {
   --status-working: #7aa2f7;
   --status-waiting: #e0af68;
@@ -64,6 +65,14 @@
   border-color: var(--status-done);
 }
 
+/* Working's 1.6s glow — the same rhythm the header dot already names it
+   with, quieter than waiting's breathe because a running agent is a
+   normal sight, not a request. */
+.pane--frame-working {
+  border-color: var(--status-working);
+  animation: status-frame-working 1.6s ease-in-out infinite;
+}
+
 .pane--frame-waiting {
   border-color: var(--status-waiting);
   animation: status-frame-breathe 2s ease-in-out infinite;
@@ -83,6 +92,11 @@
    specificity by source order. */
 .minimized.minimized--frame-done {
   border: 1px solid var(--status-done);
+}
+
+.minimized.minimized--frame-working {
+  border: 1px solid var(--status-working);
+  animation: status-frame-working 1.6s ease-in-out infinite;
 }
 
 .minimized.minimized--frame-waiting {
@@ -107,6 +121,11 @@
 
 .rail__dot--done {
   background-color: var(--status-done);
+}
+
+.rail__dot--working {
+  background-color: var(--status-working);
+  animation: status-dot-working 1.6s ease-in-out infinite;
 }
 
 .rail__dot--waiting {
@@ -140,6 +159,12 @@
   }
 }
 
+@keyframes status-frame-working {
+  50% {
+    border-color: color-mix(in srgb, var(--status-working) 40%, transparent);
+  }
+}
+
 @keyframes status-frame-pulse {
   50% {
     border-color: color-mix(in srgb, var(--status-failed) 30%, transparent);
@@ -150,10 +175,13 @@
 @media (prefers-reduced-motion: reduce) {
   .pane--frame-waiting,
   .pane--frame-failed,
+  .pane--frame-working,
   .minimized.minimized--frame-waiting,
   .minimized.minimized--frame-failed,
+  .minimized.minimized--frame-working,
   .rail__dot--waiting,
   .rail__dot--failed,
+  .rail__dot--working,
   .pane__activity--working .pane__activity-dot {
     animation: none;
   }

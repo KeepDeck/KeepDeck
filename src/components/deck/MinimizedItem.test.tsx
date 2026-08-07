@@ -167,6 +167,16 @@ describe("MinimizedItem", () => {
     button = document.querySelector<HTMLButtonElement>(".minimized")!;
     // No selection in the tray: done shows on its own rung.
     expect(button.className).toContain("minimized--frame-done");
+
+    act(() =>
+      statusTracker.report("pane-1", {
+        agent: "claude",
+        edge: { kind: "turn-start", at: Date.now() },
+      }),
+    );
+    button = document.querySelector<HTMLButtonElement>(".minimized")!;
+    // A running agent shows too — the tray is exactly where it isn't on screen.
+    expect(button.className).toContain("minimized--frame-working");
   });
 
   it("names the pane's live status in the hover details", () => {

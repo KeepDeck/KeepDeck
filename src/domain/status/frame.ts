@@ -6,21 +6,28 @@ import type { PaneActivity } from "./activity";
  * selected pane's border on the deck, the active workspace's green on
  * the rail — one rung, because it is one fact (where the cursor is), and
  * one hex on purpose. */
-export type StatusFrame = "failed" | "waiting" | "selected" | "done" | "none";
+export type StatusFrame =
+  | "failed"
+  | "waiting"
+  | "selected"
+  | "working"
+  | "done"
+  | "none";
 
 /**
  * The single home of the frame priority ladder ([`paneBody`] precedent —
  * the domain decides, surfaces render). One frame, never a blend: mixing
  * two frames on one border was tried and rejected.
  *
- *   failed > waiting > selected > done > none
+ *   failed > waiting > selected > working > done > none
  *
  * The two ATTENTION states outrank selection because selection is where
  * the cursor is, not where the eyes are — a selected pane's approval
- * prompt is exactly as easy to miss as any other pane's. Done yields to
- * selection: it is a courtesy signal, and the selected pane is the one
- * surface whose outcome the user is closest to already knowing. Working
- * never frames — a quiet deck is the point.
+ * prompt is exactly as easy to miss as any other pane's. Working frames
+ * but yields to selection: the cursor's place outranks a live fact the
+ * selected pane's own header already spells out, and a working frame on
+ * it would hide that place. Done ranks last: a courtesy tail of a
+ * finished turn, weaker than the live fact of a running one.
  *
  * `selectionFrame` is whether the surface would wear the selection border
  * at all (the deck's existing rule: selected, not maximized, not the only
@@ -33,17 +40,19 @@ export function paneFrame(
   if (activity?.state === "failed") return "failed";
   if (activity?.state === "waiting") return "waiting";
   if (selectionFrame) return "selected";
+  if (activity?.state === "working") return "working";
   if (activity?.state === "done") return "done";
   return "none";
 }
 
-/** How loudly one activity ranks in the fold — working stays 0 because it
- * never frames (a quiet deck is the point). */
+/** How loudly one activity ranks in the fold — working outranks done
+ * (a live fact beats a finished turn's tail) but stays below the
+ * attention pair. */
 const SEVERITY: Record<PaneActivity["state"], number> = {
-  failed: 3,
-  waiting: 2,
+  failed: 4,
+  waiting: 3,
+  working: 2,
   done: 1,
-  working: 0,
 };
 
 /**
@@ -51,9 +60,9 @@ const SEVERITY: Record<PaneActivity["state"], number> = {
  * answer. Literally [`paneFrame`] of the workspace's LOUDEST pane, so the
  * two surfaces can never rank attention differently: any pane's attention
  * wins for the workspace (the ACTIVE workspace's dot goes amber/red too —
- * active is where the cursor is, not where the eyes are), and done is
- * worth a dot only on a background workspace, exactly as it yields to
- * selection on a pane.
+ * active is where the cursor is, not where the eyes are), and working or
+ * done are worth a dot only on a background workspace, exactly as they
+ * yield to selection on a pane.
  */
 export function workspaceFrame(
   activities: Iterable<PaneActivity | undefined>,
@@ -66,8 +75,5 @@ export function workspaceFrame(
       loudest = activity;
     }
   }
-  return paneFrame(
-    loudest && SEVERITY[loudest.state] > 0 ? loudest : undefined,
-    active,
-  );
+  return paneFrame(loudest, active);
 }

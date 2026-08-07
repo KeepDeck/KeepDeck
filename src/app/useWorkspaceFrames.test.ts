@@ -90,4 +90,14 @@ describe("useWorkspaceFrames", () => {
     reportEdge("pane-3", { kind: "turn-end", at: Date.now() });
     expect(latest.get("ws-2")).toBe("done");
   });
+
+  it("a background workspace with a running pane wears the working dot", () => {
+    render("ws-1");
+    reportEdge("pane-3", { kind: "turn-start", at: Date.now() });
+    expect(latest.get("ws-2")).toBe("working");
+
+    // On the ACTIVE workspace the same fact keeps the dot green.
+    reportEdge("pane-1", { kind: "turn-start", at: Date.now() });
+    expect(latest.get("ws-1")).toBe("selected");
+  });
 });
