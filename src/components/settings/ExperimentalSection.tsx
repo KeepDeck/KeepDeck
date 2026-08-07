@@ -40,7 +40,7 @@ export function ExperimentalSection() {
   const remoteAgents =
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
   const mcpServer = settings?.mcpServer ?? DEFAULT_SETTINGS.mcpServer;
-  const agentMail = settings?.agentMail ?? DEFAULT_SETTINGS.agentMail;
+  const agentTeams = settings?.agentTeams ?? DEFAULT_SETTINGS.agentTeams;
   const mcpStatus = useMcpStatus();
   const served = mcpStatus.socket !== null;
   // The invocation comes from the transport's own status — a fact about the
@@ -167,28 +167,43 @@ export function ExperimentalSection() {
         </span>
       )}
 
-      <span className="form__label">Agent mail</span>
+      <span className="form__label">Agent teams</span>
       <div className="form__types">
         {[true, false].map((on) => (
           <button
             key={String(on)}
             type="button"
-            className={`form__type${agentMail === on ? " form__type--active" : ""}`}
-            onClick={() => updateSettings({ agentMail: on })}
+            className={`form__type${agentTeams === on ? " form__type--active" : ""}`}
+            onClick={() => updateSettings({ agentTeams: on })}
           >
             {on ? "On" : "Off"}
           </button>
         ))}
       </div>
       <span className="settings__hint">
-        Lets agents write to each other through the deck — a lead can hand out
-        a task, and an agent stuck on something can ask another and get an
+        Groups the agents in a workspace into a team, each under a role, and
+        lets them write to each other by that role — a lead can hand out a
+        task, and an agent stuck on something can ask a teammate and get an
         answer. A message waits while its pane sits on a permission prompt,
         and is dropped rather than delivered late. Off by default — the
         feature is experimental.
       </span>
 
-      {agentMail && !mcpServer && (
+      {agentTeams && (
+        // Where to actually do it. The gesture is in a pane header and
+        // nothing else announces it, so the setting that turns the feature
+        // on is the one place guaranteed to be read by someone looking for
+        // it.
+        <span className="settings__hint">
+          To build one: double-click the “team” chip in an agent’s header and
+          type a role and a team, like <code>lead@api</code>. Do the same on
+          the others with <code>impl-1@api</code>, <code>impl-2@api</code>.
+          The role is the address teammates use; clearing the field takes an
+          agent off the team.
+        </span>
+      )}
+
+      {agentTeams && !mcpServer && (
         // Stated only in the combination that is actually broken. Delivery
         // rides the pane's terminal and works regardless, but SENDING is an
         // MCP call — so with the socket down a pane can be written to and has

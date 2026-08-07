@@ -84,6 +84,12 @@ export function useAppController() {
     wsId: string;
     record: SessionHandle;
   } | null>(null);
+  /** The team surface: `editing` names the team being changed, or is null
+   * for a new one. A transaction like every other dialog, so the same gate
+   * keeps a second one from stacking over it. */
+  const [teamDialog, setTeamDialog] = useState<{ editing: string | null } | null>(
+    null,
+  );
   const specByPane = runView.specs;
   const failedPanes = runView.planFailed;
   const usageLiveAgents = useMemo(() => {
@@ -127,6 +133,7 @@ export function useAppController() {
     agentFlow.dialog,
     closeFlow.closing,
     forkDialog,
+    teamDialog,
     error,
     frozen && !frozenAck ? frozen : null,
   ];
@@ -364,6 +371,8 @@ export function useAppController() {
     error,
     failedPanes,
     forkDialog,
+    teamDialog,
+    setTeamDialog,
     frozen,
     frozenAck,
     gitHeads,

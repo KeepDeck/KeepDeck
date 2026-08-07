@@ -162,27 +162,18 @@ describe("AgentPane — header badges", () => {
     expect(ctx!.className).toContain("usage-level--warn");
   });
 
-  it("offers a place to start a team only while the feature is on", () => {
-    // The empty chip IS the affordance: a pane with no team has no badge to
-    // double-click, and a team has to start somewhere. Gating it on the
-    // experiment keeps it off the headers of everyone not using teams.
+  it("names which teammate this pane is, and shows nothing when it is none", () => {
+    // Indicator only — membership is settled in the team dialog, where the
+    // whole roster is visible. A header can say WHICH teammate this is; it
+    // cannot answer "are these roles unique", which is the question that
+    // decides whether a team works.
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
     expect(document.querySelector(".pane__team")).toBeNull();
 
     act(() =>
-      root.render(createElement(PaneUnderTest, { ...baseProps, teams: true })),
-    );
-    const empty = document.querySelector<HTMLElement>(".pane__team--empty");
-    expect(empty).not.toBeNull();
-    expect(empty!.textContent).toBe("team");
-  });
-
-  it("shows the role once the pane is on a team", () => {
-    act(() =>
       root.render(
         createElement(PaneUnderTest, {
           ...baseProps,
-          teams: true,
           team: { name: "api", role: "impl-1" },
         }),
       ),
@@ -191,44 +182,6 @@ describe("AgentPane — header badges", () => {
     expect(badge!.textContent).toBe("impl-1");
     // The team name is the tooltip's job — the role is the address.
     expect(badge!.title).toContain("api");
-    expect(document.querySelector(".pane__team--empty")).toBeNull();
-  });
-
-  it("hands the typed field over raw, without deciding what it means", () => {
-    // Parsing and refusing need the whole workspace (a role is an address,
-    // and an address has to be unique), which a header does not have.
-    const committed: string[] = [];
-    act(() =>
-      root.render(
-        createElement(PaneUnderTest, {
-          ...baseProps,
-          teams: true,
-          onSetTeam: (spec: string) => committed.push(spec),
-        }),
-      ),
-    );
-    const empty = document.querySelector<HTMLElement>(".pane__team--empty")!;
-    act(() => {
-      empty.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    });
-    const input = document.querySelector<HTMLInputElement>(".pane__team-edit");
-    expect(input).not.toBeNull();
-    // Through the NATIVE setter: React tracks the value itself, so a plain
-    // assignment is invisible to it and the commit would carry "".
-    const setValue = Object.getOwnPropertyDescriptor(
-      HTMLInputElement.prototype,
-      "value",
-    )!.set!;
-    act(() => {
-      setValue.call(input!, "lead@api");
-      input!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    act(() => {
-      input!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-      );
-    });
-    expect(committed).toEqual(["lead@api"]);
   });
 
   it("shows no context meter when the pane reports no usage", () => {

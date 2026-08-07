@@ -25,7 +25,7 @@ import { createMailManager, type MailManager } from "./mailManager";
 
 export interface MailPolicy {
   /** The wish, or null while settings have not loaded. */
-  agentMail(): boolean | null;
+  agentTeams(): boolean | null;
   subscribe(listener: () => void): () => void;
 }
 
@@ -68,7 +68,7 @@ export function createMailService(
     // `null` (settings still loading) is treated as off: starting the
     // feature on a guess and tearing it down a moment later would deliver
     // into panes the user may have meant to leave alone.
-    const wanted = policy.agentMail() === true;
+    const wanted = policy.agentTeams() === true;
     if (wanted === (manager !== null)) return;
     if (wanted) {
       manager = createMailManager({

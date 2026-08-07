@@ -1,4 +1,3 @@
-import { formatTeamSpec } from "../../domain/mail";
 import type { ActivityBadge } from "../../domain/status";
 import { contextLevel, formatAge } from "../../domain/usage";
 import { noAutoCorrect } from "../../ui/inputProps";
@@ -8,7 +7,6 @@ import {
   MaximizeIcon,
   MinimizeIcon,
   RestoreIcon,
-  UsersIcon,
 } from "../../ui/icons";
 import { BranchBadge, TeamBadge, YoloBadge } from "../../ui/badges";
 import { CloseButton } from "../../ui/CloseButton";
@@ -35,14 +33,6 @@ export interface AgentPaneHeaderProps {
   /** The pane's place on a team, when it is on one. Shown as the role,
    * because the role is the address teammates use. */
   team?: { name: string; role: string } | null;
-  /** Whether the team surface is switched on at all — the agent-mail
-   * experiment. Off, the header carries no team chip and no placeholder,
-   * so nobody who is not using teams pays a pixel for them. */
-  teams?: boolean;
-  /** Commit a `role@team` spec, or blank to leave the team. Parsing and
-   * refusing belong to whoever holds the deck; this only reports the text
-   * the user typed. */
-  onSetTeam?(spec: string): void;
   gitBadge?: GitBadge | null;
   /** False while a modal or covering dock owns keyboard interaction — an
    * inline rename must not be left in flight underneath one. */
@@ -74,8 +64,6 @@ export function AgentPaneHeader({
   paneLive,
   yolo,
   team,
-  teams,
-  onSetTeam,
   gitBadge,
   keyboardFocusEnabled,
   onSelect,
@@ -89,14 +77,6 @@ export function AgentPaneHeader({
     (_key, name) => onRename(name),
     keyboardFocusEnabled,
   );
-  // The same gesture for team membership, and the same "empty means clear"
-  // convention: a blank commit takes the pane off its team, exactly as a
-  // blank rename returns it to its automatic title.
-  const teamRename = useInlineRename(
-    (_key, spec) => onSetTeam?.(spec),
-    keyboardFocusEnabled,
-  );
-  const teamEditing = teamRename.editing;
   return (
     <header className="pane__bar" onClick={folded ? onSelect : undefined}>
       {folded && (
@@ -164,39 +144,17 @@ export function AgentPaneHeader({
           />
         )}
         {yolo && <YoloBadge className="pane__yolo" />}
-        {teams &&
+        {team && (
+          // Indicator only. Membership is settled in the team dialog, where
+          // the whole roster is visible — a header can show WHICH teammate
+          // this is, but it cannot answer "are these roles unique", which is
+          // the question that decides whether a team works at all.
+          //
           // Before the branch chip: which teammate this is outranks which
           // branch it sits on when reading a deck mid-conversation, and the
           // narrow-header cascade drops from the right.
-          //
-          // The empty chip is the AFFORDANCE. A team has to start somewhere,
-          // and a pane with no team has no badge to double-click — so the
-          // placeholder stands in its place, and only while the feature is
-          // switched on, which keeps it off the headers of everyone not
-          // using teams.
-          (teamEditing !== null ? (
-            <input
-              {...noAutoCorrect}
-              {...teamRename.inputProps}
-              className="pane__team-edit"
-              autoFocus
-              aria-label="Set team and role, as role@team"
-              placeholder="role@team"
-              onMouseDown={(e) => e.stopPropagation()}
-            />
-          ) : team ? (
-            <span onDoubleClick={() => teamRename.start(paneId, formatTeamSpec(team))}>
-              <TeamBadge className="pane__team" team={team.name} role={team.role} />
-            </span>
-          ) : (
-            <Chip
-              className="pane__team pane__team--empty"
-              icon={<UsersIcon />}
-              label="team"
-              title="Double-click to put this agent on a team"
-              onDoubleClick={() => teamRename.start(paneId, "")}
-            />
-          ))}
+          <TeamBadge className="pane__team" team={team.name} role={team.role} />
+        )}
         {gitBadge && (
           <BranchBadge
             className="pane__branch"

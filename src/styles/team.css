@@ -1,0 +1,63 @@
+/* The team dialog's roster.
+ *
+ * A row is one agent: a tick, its name, and — once ticked — the role it will
+ * answer to. Everything else in the dialog is ordinary `.form__*` chrome, so
+ * only what is genuinely new to this surface lives here. */
+
+.team__members {
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* A workspace can hold sixteen panes. The roster scrolls rather than
+     pushing the dialog's actions off screen, which would leave the person
+     unable to confirm the team they just built. */
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.team__member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The tick and the agent's name are ONE target: a name is much easier to
+   hit than a checkbox, and the two always mean the same thing. */
+.team__member-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.team__member-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #c5c8c6;
+}
+
+/* Fixed, so the role fields line up down the roster — a column of addresses
+   is the thing being checked for duplicates, and a ragged one is harder to
+   scan. */
+.team__member-role,
+.team__member-agent {
+  flex: none;
+  width: 132px;
+  font-size: 12px;
+}
+
+/* Why a pane is not available at a glance: it already answers to another
+   team. Muted, because it states a fact rather than a problem — ticking it
+   simply moves it. */
+.team__member-note {
+  flex: none;
+  font-size: 12px;
+  color: #6b7280;
+}

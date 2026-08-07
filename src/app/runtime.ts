@@ -170,7 +170,7 @@ export function createAppRuntime(
   );
   const mail = createMailService(
     {
-      agentMail: () => getSettings()?.agentMail ?? null,
+      agentTeams: () => getSettings()?.agentTeams ?? null,
       subscribe: subscribeSettings,
     },
     {

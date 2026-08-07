@@ -1,5 +1,8 @@
 import { askForPaneBack } from "./app/resumeOutcome";
-import { decideTeamSpec } from "./domain/mail";
+import { applyTeamPlan } from "./app/mail";
+import { teamNameIn } from "./domain/mail";
+import { commands } from "./app/commandRegistry";
+import { TeamDialog } from "./components/workspace/TeamDialog";
 import { isFoundUpdate, restartToUpdate } from "./app/updateManager";
 import { useAppController } from "./app/useAppController";
 import {
@@ -82,6 +85,8 @@ function App() {
     sessionsBrowser,
     setCreating,
     setForkDialog,
+    teamDialog,
+    setTeamDialog,
     setFrozenAck,
     setRailCollapsed,
     openSettings,
@@ -172,6 +177,26 @@ function App() {
           >
             + Agent
           </button>
+          {settings.agentTeams && active && (
+            // Beside "+ Agent" because it is the same kind of act — setting
+            // up who is working here — and because a team is a property of
+            // this workspace, which is what this bar is about. Shown only
+            // while the experiment is on, so nobody else pays a button for
+            // it. The label follows the workspace: there is a team here, or
+            // there is not.
+            <button
+              type="button"
+              className="bar__action"
+              onClick={() => setTeamDialog({ editing: teamNameIn(active) })}
+              title={
+                teamNameIn(active)
+                  ? `Edit team “${teamNameIn(active)}” — who is on it and what each is called`
+                  : "Group these agents into a team so they can write to each other"
+              }
+            >
+              {teamNameIn(active) ? `Team: ${teamNameIn(active)}` : "+ Team"}
+            </button>
+          )}
           <span className="deck__status">
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
@@ -272,18 +297,6 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
-            teamsEnabled={settings.agentMail}
-            onSetPaneTeam={(wsId, paneId, spec) => {
-              // The header collects text; deciding what it means needs the
-              // whole workspace (a role is an address, and an address has to
-              // be unique), so the decision lives in the domain and lands
-              // here as one answer to dispatch or to show.
-              const workspace = deck.workspaces.find((ws) => ws.id === wsId);
-              if (!workspace) return;
-              const decided = decideTeamSpec(workspace, paneId, spec);
-              if (!decided.ok) return pushAlert("Can't set that role", decided.message);
-              deck.setPaneTeam(wsId, paneId, decided.value);
-            }}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}
@@ -393,6 +406,36 @@ function App() {
                   );
               }}
               onCancel={() => setForkDialog(null)}
+            />
+          )}
+          {teamDialog && active && (
+            <TeamDialog
+              workspace={active}
+              agents={agents}
+              editing={teamDialog.editing}
+              onConfirm={(plan) => {
+                setTeamDialog(null);
+                void applyTeamPlan(
+                  {
+                    setPaneTeam: deck.setPaneTeam,
+                    // Through the command, so worktree defaults, YOLO and
+                    // the full-workspace refusal stay decided in one place.
+                    spawn: async (workspaceId, agentType) => {
+                      const result = await commands.execute(
+                        "agent.spawn",
+                        { workspace: workspaceId, agentType },
+                        { kind: "host" },
+                      );
+                      if (!result.ok) throw new Error(result.error.message);
+                      return (result.value as { paneId?: string }).paneId ?? null;
+                    },
+                    report: pushAlert,
+                  },
+                  active.id,
+                  plan,
+                );
+              }}
+              onCancel={() => setTeamDialog(null)}
             />
           )}
           {error && (

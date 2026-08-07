@@ -201,31 +201,6 @@
   font-size: 12px;
 }
 
-/* The "put this agent on a team" affordance, standing where the role will.
-   Muted because it names an absence: it must read as an empty slot, not as
-   a pane already belonging to a team called "team". */
-.pane__team--empty {
-  opacity: 0.55;
-}
-
-/* The same field the title rename uses, sized to the chip it stands in for
-   so committing a role does not make the header jump. The box is copied
-   rather than shared because the two differ in exactly one way that
-   matters: the title grows to fill the identity block, a role does not. */
-.pane__team-edit {
-  flex: none;
-  width: min(120px, 30vw);
-  min-width: 0;
-  padding: 1px 4px;
-  border: 1px solid #3a4658;
-  border-radius: 4px;
-  background-color: #0b0e14;
-  color: #c5c8c6;
-  font: inherit;
-  font-size: 12px;
-  outline: none;
-}
-
 .pane__branch {
   overflow: hidden;
   /* No `flex` here: a chip does not yield, and chip.css says so once for all

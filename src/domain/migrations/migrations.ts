@@ -192,8 +192,9 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       needs the two cases apart: it may adopt a better default for a v15
  *       file's absent key, while a v≤14 file's absent key may still be
  *       hiding a deliberate choice.
- *  16 — + agentMail: the Experimental toggle for messages between agent
- *       panes (off by default).
+ *  16 — + agentTeams: the Experimental toggle for agent teams — roles,
+ *       addressing by role, and messages between teammates (off by
+ *       default).
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay

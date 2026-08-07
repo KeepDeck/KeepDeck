@@ -42,7 +42,7 @@ function setup(initial: boolean | null) {
 
   const service = createMailService(
     {
-      agentMail: () => wish,
+      agentTeams: () => wish,
       subscribe: (listener) => {
         settingsListeners.add(listener);
         return () => settingsListeners.delete(listener);
