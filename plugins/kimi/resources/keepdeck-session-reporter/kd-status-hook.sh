@@ -50,12 +50,20 @@ agent="$1"
 ask=""
 [ "$2" = "--ask" ] && ask="yes"
 
-# How long to wait for the deck. The deck answers from state it already
-# holds, so this is a guard against it being GONE (app quit while the CLI
-# lives), not a budget for thinking. Short on purpose: a hook that hangs
-# holds up the CLI, and having nothing to say is the overwhelmingly common
-# answer.
-ASK_TRIES=40
+# How long to wait for the deck.
+#
+# The deck answers from state it already holds, and it ALWAYS answers —
+# an empty reply when there is no mail. So this budget is never spent on
+# thinking; it is spent, in full, only when the deck is not there to answer
+# at all. And the deck is not there precisely when the app is closing, which
+# is also when the CLI is shutting down: every extra moment a hook holds a
+# dying agent open is a moment its session file stays locked, and codex
+# refuses to resume a thread that "already has an active writer".
+#
+# So it is short. 600ms is generous for bridge → webview → reply on a
+# machine doing anything at all, and cheap to pay when the answer never
+# comes.
+ASK_TRIES=12
 ASK_SLEEP=0.05
 
 # The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a path
