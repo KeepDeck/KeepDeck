@@ -22,8 +22,15 @@ export interface TeamSetupDeps {
     team: { name: string; role: string } | null,
   ): void;
   /** Start an agent in this workspace, answering with its pane id — the
-   * `agent.spawn` command, so every creation default stays in one place. */
-  spawn(workspaceId: string, agentType: string): Promise<string | null>;
+   * `agent.spawn` command, so every creation default stays in one place.
+   * `yolo` is passed through rather than left to the global default: the
+   * dialog asked per recruit, and dropping the answer here would silently
+   * ignore it. */
+  spawn(
+    workspaceId: string,
+    agentType: string,
+    yolo: boolean,
+  ): Promise<string | null>;
   /** Tell the person about a recruit that never started. */
   report(title: string, message: string): void;
 }
@@ -52,7 +59,7 @@ export async function applyTeamPlan(
   for (const recruit of plan.recruits) {
     let paneId: string | null = null;
     try {
-      paneId = await deps.spawn(workspaceId, recruit.agentType);
+      paneId = await deps.spawn(workspaceId, recruit.agentType, recruit.yolo);
     } catch (error) {
       paneId = null;
       deps.report(

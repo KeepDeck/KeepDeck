@@ -28,6 +28,11 @@ export interface TeamMemberDraft {
 export interface TeamRecruitDraft {
   agentType: AgentType;
   role: string;
+  /** Runs with its permission prompts disabled. Per recruit, not per team:
+   * a lead reading diffs and an implementer grinding through a refactor
+   * want different answers, and forcing one on the whole team would make
+   * the safe choice the expensive one. */
+  yolo: boolean;
 }
 
 /** What the surface holds while the person is still deciding. */
@@ -44,7 +49,7 @@ export interface TeamPlan {
   /** Panes leaving the team — everyone holding its name that the draft
    * dropped. */
   released: string[];
-  recruits: { agentType: AgentType; role: string }[];
+  recruits: TeamRecruitDraft[];
 }
 
 /**
@@ -95,7 +100,7 @@ export function planTeam(
     role: member.role.trim(),
   }));
   const recruits = draft.recruits.map((recruit) => ({
-    agentType: recruit.agentType,
+    ...recruit,
     role: recruit.role.trim(),
   }));
 

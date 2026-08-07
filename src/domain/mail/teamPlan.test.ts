@@ -74,7 +74,7 @@ describe("planTeam", () => {
       ws,
       draft({
         members: [{ paneId: "pane-1", role: "impl-1" }],
-        recruits: [{ agentType: "claude", role: "IMPL-1" }],
+        recruits: [{ agentType: "claude", role: "IMPL-1", yolo: false }],
       }),
     );
     expect(result.ok).toBe(false);
@@ -91,7 +91,7 @@ describe("planTeam", () => {
       planTeam(ws, draft({ members: [{ paneId: "pane-1", role: " " }] })).ok,
     ).toBe(false);
     expect(
-      planTeam(ws, draft({ recruits: [{ agentType: "claude", role: "" }] })).ok,
+      planTeam(ws, draft({ recruits: [{ agentType: "claude", role: "", yolo: false }] })).ok,
     ).toBe(false);
   });
 

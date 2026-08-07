@@ -212,6 +212,12 @@ export function registerCoreCommands(
         },
         { name: "name", type: "string", description: "Pane name" },
         {
+          name: "yolo",
+          type: "boolean",
+          description:
+            "Run without permission prompts; omitted follows the global default",
+        },
+        {
           name: "task",
           type: "string",
           description: "Initial prompt, typed into the agent once it starts",
@@ -247,10 +253,13 @@ export function registerCoreCommands(
         const id = paneId(mintAgentSeq());
         const index = nextAgentIndex(ws);
 
-        // The global YOLO default reaches this surface too, gated on the
-        // resolved agent's support like every other creation path.
+        // An explicit answer wins; without one the global default reaches
+        // this surface like every other creation path. Either way it is
+        // gated on the resolved agent's support, so a caller cannot turn on
+        // a mode the agent does not have.
+        const asked = args.yolo;
         const yolo =
-          (getSettings()?.defaultYolo ?? false) &&
+          (typeof asked === "boolean" ? asked : (getSettings()?.defaultYolo ?? false)) &&
           agentSupportsYolo(agents, agentType);
         // Location mirrors the "+ Agent" dialog's defaults: a repo workspace
         // with a base folder gets the first FREE worktree suggestion (never a

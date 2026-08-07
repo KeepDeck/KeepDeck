@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import {
   agentSupportsNew,
+  agentSupportsYolo,
   selectableAgents,
   type AgentInfo,
-  type AgentType,
 } from "../../domain/agents";
 import type { Pane, Workspace } from "../../domain/deck";
 import { baseName, paneAgentType, paneDisplayTitle } from "../../domain/deck";
@@ -12,6 +12,7 @@ import {
   planTeam,
   teamPlanIsEmpty,
   type TeamPlan,
+  type TeamRecruitDraft,
 } from "../../domain/mail";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { AgentGlyph } from "../../ui/AgentGlyph";
@@ -22,8 +23,11 @@ interface TeamDialogProps {
   workspace: Workspace;
   agents: AgentInfo[];
   /** The team to edit, or null to start a new one. Editing an existing team
-   * opens with its members already ticked and their roles filled. */
+   * opens with its members already on the roster and their roles filled. */
   editing: string | null;
+  /** The YOLO toggle's starting position for a new recruit — the global
+   * preference, the same seed the "+ Agent" and fork dialogs use. */
+  defaultYolo: boolean;
   onConfirm(plan: TeamPlan): void;
   onCancel(): void;
 }
@@ -62,6 +66,7 @@ export function TeamDialog({
   workspace,
   agents,
   editing,
+  defaultYolo,
   onConfirm,
   onCancel,
 }: TeamDialogProps) {
@@ -80,9 +85,7 @@ export function TeamDialog({
   /** Ticked panes and the role each is to hold. A pane absent from the map
    * is simply not on the team. */
   const [roles, setRoles] = useState<Map<string, string>>(startingMembers);
-  const [recruits, setRecruits] = useState<{ agentType: AgentType; role: string }[]>(
-    [],
-  );
+  const [recruits, setRecruits] = useState<TeamRecruitDraft[]>([]);
   /** Whether the person has done anything yet. A form that greets you with
    * "the team needs a name" is scolding you for not having typed — the
    * complaint is only true, and only useful, once something was attempted. */
@@ -141,8 +144,10 @@ export function TeamDialog({
         pane: pane ?? null,
         label: pane ? titleOf(pane) : paneId,
         agentType: "",
+        yolo: false,
         setRole: (next: string) => setRole(paneId, next),
         setAgentType: () => {},
+        setYolo: () => {},
         remove: () => drop(paneId),
       };
     }),
@@ -152,6 +157,7 @@ export function TeamDialog({
       pane: null,
       label: `the new ${recruit.agentType}`,
       agentType: recruit.agentType,
+      yolo: recruit.yolo,
       setRole: (next: string) =>
         setRecruits((current) =>
           current.map((row, i) => (i === index ? { ...row, role: next } : row)),
@@ -159,6 +165,10 @@ export function TeamDialog({
       setAgentType: (next: string) =>
         setRecruits((current) =>
           current.map((row, i) => (i === index ? { ...row, agentType: next } : row)),
+        ),
+      setYolo: (next: boolean) =>
+        setRecruits((current) =>
+          current.map((row, i) => (i === index ? { ...row, yolo: next } : row)),
         ),
       remove: () =>
         setRecruits((current) => current.filter((_, i) => i !== index)),
@@ -245,6 +255,25 @@ export function TeamDialog({
                       onChange={row.setAgentType}
                       ariaLabel="Agent to start"
                     />
+                    {/* Per recruit, because a lead reading diffs and an
+                        implementer grinding through a refactor want
+                        different answers — one setting for the whole team
+                        would make the safe choice the expensive one. Shown
+                        only where the agent declares the mode, the same
+                        gate every other spawn surface uses. */}
+                    {agentSupportsYolo(agents, row.agentType) && (
+                      <button
+                        type="button"
+                        className={`team__row-yolo${
+                          row.yolo ? " team__row-yolo--on" : ""
+                        }`}
+                        aria-pressed={row.yolo}
+                        title="YOLO mode — runs without permission prompts, the agent acts on its own"
+                        onClick={() => row.setYolo(!row.yolo)}
+                      >
+                        YOLO
+                      </button>
+                    )}
                     <span className="team__row-where">starts when you confirm</span>
                   </>
                 )}
@@ -308,6 +337,9 @@ export function TeamDialog({
                 {
                   agentType: canRecruit[0].id,
                   role: suggestRole(roles.size + current.length),
+                  // Seeded from the global preference, like every other
+                  // spawn surface, and changeable per row from there.
+                  yolo: defaultYolo,
                 },
               ]);
             }}

@@ -17,7 +17,11 @@ function setup(spawn?: TeamSetupSpawn) {
   return { deps, calls, reports };
 }
 
-type TeamSetupSpawn = (workspaceId: string, agentType: string) => Promise<string | null>;
+type TeamSetupSpawn = (
+  workspaceId: string,
+  agentType: string,
+  yolo: boolean,
+) => Promise<string | null>;
 
 const plan = (over: Partial<TeamPlan> = {}): TeamPlan => ({
   name: "api",
@@ -47,10 +51,32 @@ describe("applyTeamPlan", () => {
     await applyTeamPlan(
       h.deps,
       "ws-1",
-      plan({ recruits: [{ agentType: "claude", role: "impl-1" }] }),
+      plan({ recruits: [{ agentType: "claude", role: "impl-1", yolo: false }] }),
     );
-    expect(spawn).toHaveBeenCalledWith("ws-1", "claude");
+    expect(spawn).toHaveBeenCalledWith("ws-1", "claude", false);
     expect(h.calls).toEqual(["pane-9=impl-1@api"]);
+  });
+
+  it("carries each recruit's OWN yolo answer, not the global default", async () => {
+    // Asked per row precisely because a lead and an implementer want
+    // different answers. Dropping it here would silently ignore what the
+    // person just chose.
+    const asked: boolean[] = [];
+    const h = setup(async (_ws, _agent, yolo) => {
+      asked.push(yolo);
+      return "pane-9";
+    });
+    await applyTeamPlan(
+      h.deps,
+      "ws-1",
+      plan({
+        recruits: [
+          { agentType: "claude", role: "lead", yolo: false },
+          { agentType: "claude", role: "impl-1", yolo: true },
+        ],
+      }),
+    );
+    expect(asked).toEqual([false, true]);
   });
 
   it("keeps the team that DID form when a recruit will not start", async () => {
@@ -64,7 +90,7 @@ describe("applyTeamPlan", () => {
       "ws-1",
       plan({
         members: [{ paneId: "pane-1", role: "lead" }],
-        recruits: [{ agentType: "claude", role: "impl-1" }],
+        recruits: [{ agentType: "claude", role: "impl-1", yolo: false }],
       }),
     );
     expect(h.calls).toEqual(["pane-1=lead@api"]);
@@ -78,7 +104,7 @@ describe("applyTeamPlan", () => {
     await applyTeamPlan(
       h.deps,
       "ws-1",
-      plan({ recruits: [{ agentType: "claude", role: "impl-1" }] }),
+      plan({ recruits: [{ agentType: "claude", role: "impl-1", yolo: false }] }),
     );
     expect(h.calls).toEqual([]);
     expect(h.reports).toHaveLength(1);
@@ -96,8 +122,8 @@ describe("applyTeamPlan", () => {
       "ws-1",
       plan({
         recruits: [
-          { agentType: "claude", role: "impl-1" },
-          { agentType: "codex", role: "impl-2" },
+          { agentType: "claude", role: "impl-1", yolo: false },
+          { agentType: "codex", role: "impl-2", yolo: false },
         ],
       }),
     );

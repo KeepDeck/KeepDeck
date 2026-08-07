@@ -413,6 +413,7 @@ function App() {
               workspace={active}
               agents={agents}
               editing={teamDialog.editing}
+              defaultYolo={settings.defaultYolo}
               onConfirm={(plan) => {
                 setTeamDialog(null);
                 void applyTeamPlan(
@@ -420,10 +421,10 @@ function App() {
                     setPaneTeam: deck.setPaneTeam,
                     // Through the command, so worktree defaults, YOLO and
                     // the full-workspace refusal stay decided in one place.
-                    spawn: async (workspaceId, agentType) => {
+                    spawn: async (workspaceId, agentType, yolo) => {
                       const result = await commands.execute(
                         "agent.spawn",
-                        { workspace: workspaceId, agentType },
+                        { workspace: workspaceId, agentType, yolo },
                         { kind: "host" },
                       );
                       if (!result.ok) throw new Error(result.error.message);

@@ -17,7 +17,10 @@ const AGENTS: AgentInfo[] = [
     id: "claude",
     label: "Claude",
     command: "claude",
-    features: [{ id: "session.new", label: "New sessions" }],
+    features: [
+      { id: "session.new", label: "New sessions" },
+      { id: "execution.yolo", label: "YOLO mode" },
+    ],
     installed: true,
     path: "/c",
   },
@@ -62,6 +65,7 @@ describe("TeamDialog", () => {
           workspace: ws,
           agents: AGENTS,
           editing,
+          defaultYolo: false,
           onConfirm: (plan: TeamPlan) => confirmed.push(plan),
           onCancel: () => {},
         }),
@@ -214,7 +218,52 @@ describe("TeamDialog", () => {
     expect(roles()).toHaveLength(2);
     type(roles()[1], "impl-1");
     act(() => submit().click());
-    expect(confirmed[0].recruits).toEqual([{ agentType: "claude", role: "impl-1" }]);
+    expect(confirmed[0].recruits).toEqual([
+      { agentType: "claude", role: "impl-1", yolo: false },
+    ]);
+  });
+
+  it("asks YOLO per recruit and carries each answer into the plan", () => {
+    // A lead reading diffs and an implementer grinding through a refactor
+    // want different answers; one setting for the whole team would make the
+    // safe choice the expensive one.
+    open(workspace([]));
+    type(nameField(), "api");
+    act(() => startNew().click());
+    act(() => startNew().click());
+    const toggles = all<HTMLButtonElement>(".team__row-yolo");
+    expect(toggles).toHaveLength(2);
+    expect(toggles.every((button) => button.getAttribute("aria-pressed") === "false"))
+      .toBe(true);
+    act(() => toggles[1].click());
+    expect(
+      all<HTMLButtonElement>(".team__row-yolo").map((b) =>
+        b.getAttribute("aria-pressed"),
+      ),
+    ).toEqual(["false", "true"]);
+    type(roles()[0], "lead");
+    type(roles()[1], "impl-1");
+    act(() => submit().click());
+    expect(confirmed[0].recruits.map((recruit) => recruit.yolo)).toEqual([false, true]);
+  });
+
+  it("seeds the toggle from the global preference", () => {
+    act(() =>
+      root.render(
+        createElement(TeamDialog, {
+          workspace: workspace([]),
+          agents: AGENTS,
+          editing: null,
+          defaultYolo: true,
+          onConfirm: (plan: TeamPlan) => confirmed.push(plan),
+          onCancel: () => {},
+        }),
+      ),
+    );
+    act(() => startNew().click());
+    expect(
+      document.querySelector(".team__row-yolo")!.getAttribute("aria-pressed"),
+    ).toBe("true");
   });
 
   it("counts a role an unstarted agent will take as already used", () => {
