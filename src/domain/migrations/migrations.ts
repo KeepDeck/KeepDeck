@@ -169,7 +169,19 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *  13 — + dockMode (docked|floating): whether the right-hand dock takes a
  *       column beside the deck or floats over it.
  *  14 — + mcpServer: the Experimental toggle for the local MCP command
- *       socket (off by default).
+ *       socket (off by default). Also + suspendedAgentPlacement
+ *       (pane|tray), which shipped without its own entry.
+ *  15 — ABSENCE became authoritative. Up to v14 a save wrote a key only when
+ *       its value differed from that build's default, so an absent key was
+ *       ambiguous: nobody chose it, OR somebody chose exactly what happened
+ *       to be the default and the writer dropped it. From v15 a save writes
+ *       every key the user chose, so absence means "never chosen" and
+ *       nothing else. No value changed shape or meaning — hence no ladder
+ *       step and no raised floor — but the DOCUMENT now asserts something it
+ *       could not assert before, and the next release that improves a default
+ *       needs the two cases apart: it may adopt a better default for a v15
+ *       file's absent key, while a v≤14 file's absent key may still be
+ *       hiding a deliberate choice.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -177,7 +189,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 14;
+export const SETTINGS_VERSION = 15;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own
