@@ -218,6 +218,54 @@ describe("TeamDialog", () => {
     expect(confirmed[0].released).toEqual(["pane-1", "pane-2"]);
   });
 
+  it("closes on Escape, like every other dialog here", () => {
+    let cancelled = 0;
+    act(() =>
+      root.render(
+        createElement(TeamDialog, {
+          workspace: workspace([pane("pane-1")]),
+          agents: AGENTS,
+          editing: null,
+          defaultYolo: false,
+          onConfirm: (plan: TeamPlan) => confirmed.push(plan),
+          onCancel: () => (cancelled += 1),
+        }),
+      ),
+    );
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(cancelled).toBe(1);
+    // Nothing was applied on the way out — settling the team as one plan is
+    // exactly what makes leaving mid-edit free.
+    expect(confirmed).toEqual([]);
+  });
+
+  it("takes a held Escape as one dismissal", () => {
+    // A repeat would pop whatever dialog queued behind this one, which the
+    // person never saw.
+    let cancelled = 0;
+    act(() =>
+      root.render(
+        createElement(TeamDialog, {
+          workspace: workspace([]),
+          agents: AGENTS,
+          editing: null,
+          defaultYolo: false,
+          onConfirm: () => {},
+          onCancel: () => (cancelled += 1),
+        }),
+      ),
+    );
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", repeat: true }),
+      );
+    });
+    expect(cancelled).toBe(1);
+  });
+
   it("offers no disband for a team that does not exist yet", () => {
     open(workspace([pane("pane-1")]));
     expect(document.querySelector(".team__disband")).toBeNull();

@@ -17,6 +17,7 @@ import {
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Dropdown } from "../../ui/Dropdown";
+import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
 
 interface TeamDialogProps {
@@ -90,6 +91,10 @@ export function TeamDialog({
    * "the team needs a name" is scolding you for not having typed — the
    * complaint is only true, and only useful, once something was attempted. */
   const [touched, setTouched] = useState(false);
+  // Escape closes it, like every other dialog here. Nothing has happened
+  // yet when it does: the whole point of settling a team as one plan is
+  // that leaving mid-edit changes nothing.
+  useEscape(onCancel);
 
   const canRecruit = useMemo(
     () => selectableAgents(agents).filter((agent) => agentSupportsNew(agents, agent.id)),
