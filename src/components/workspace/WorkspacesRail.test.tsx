@@ -11,7 +11,7 @@ import { WorkspacesRail, type WorkspaceItem } from "./WorkspacesRail";
 
 const START: WorkspaceItem[] = [
   { id: "a", name: "Alpha", agentCount: 1 },
-  { id: "b", name: "Beta", agentCount: 2 },
+  { id: "b", name: "Beta", agentCount: 2, dot: "waiting" },
   { id: "c", name: "Gamma", agentCount: 3 },
   { id: "d", name: "Delta", agentCount: 4 },
 ];
@@ -167,6 +167,10 @@ describe("WorkspacesRail drag reorder", () => {
       vi.advanceTimersByTime(300);
     });
     expect(document.querySelector(".rail__ghost")).not.toBeNull();
+    // The ghost is the item's image: it wears the item's status frame.
+    expect(document.querySelector(".rail__ghost .rail__dot")!.className).toBe(
+      "rail__dot rail__dot--waiting",
+    );
 
     act(() =>
       window.dispatchEvent(pointerEvent("pointermove", { clientY: 105 })),
