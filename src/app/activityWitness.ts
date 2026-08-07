@@ -73,9 +73,22 @@ export interface ActivityWitnessDeps {
 export function createActivityWitness(
   deps: ActivityWitnessDeps,
 ): ActivityWitness {
-  /** Day → the instant that first proved it. One entry per day, so the
-   * exported array is short and its identity is quiet. */
-  const firstOfDay = new Map<LocalDayNumber, number>();
+  /** Day → the EARLIEST instant that proves it. One entry per day, so the
+   * exported array is short and its identity is quiet.
+   *
+   * Earliest, not first-admitted, and that is a correctness rule rather
+   * than a preference. `currentStreakDays` drops an instant that is ahead
+   * of the clock — a skewed row in the never-pruned ledger must not open a
+   * day nobody has lived yet — and it can only see the one instant kept
+   * here. Keeping whichever arrived first let a single future-stamped row
+   * SHADOW its whole calendar day: the honest work of that day, ledger and
+   * live report alike, never reached the filter, and the chip dropped a day
+   * or unmounted while the user was working. Keeping the minimum makes the
+   * day-level filter exactly equivalent to the per-instant one — a day
+   * survives iff its earliest instant does — which is the property the
+   * per-instant version had for free.
+   */
+  const earliestOfDay = new Map<LocalDayNumber, number>();
   let activeAt: readonly number[] = [];
   let latestAt = 0;
   let snapshot: ActivityWitnessSnapshot = { activeAt, latestAt };
@@ -94,7 +107,7 @@ export function createActivityWitness(
   }
 
   /** Record one instant. Returns whether anything actually changed — a
-   * report on a day already witnessed only moves the clock floor. */
+   * later report on a day already witnessed only moves the clock floor. */
   function admit(at: number): boolean {
     if (!Number.isFinite(at) || at <= 0) return false;
     let changed = false;
@@ -103,9 +116,10 @@ export function createActivityWitness(
       changed = true;
     }
     const day = localDayNumber(at);
-    if (!firstOfDay.has(day)) {
-      firstOfDay.set(day, at);
-      activeAt = [...firstOfDay.values()];
+    const earliest = earliestOfDay.get(day);
+    if (earliest === undefined || at < earliest) {
+      earliestOfDay.set(day, at);
+      activeAt = [...earliestOfDay.values()];
       changed = true;
     }
     return changed;

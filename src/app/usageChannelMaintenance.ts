@@ -4,6 +4,7 @@ import { latestCodexRollout } from "../ipc/usage";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import {
   peekPaneSpawnSpec,
+  spawnPlanInheritsSession,
   spawnPlanNeedsUsageBaseline,
 } from "./spawnSpecs";
 import {
@@ -86,16 +87,19 @@ export function createUsageMaintenanceLane({
       const sessionId = paneUsage.sessionId ?? pane.session?.id;
       if (!sessionId) continue;
       // A pane with NO cached plan is one this run did not spawn — attached
-      // or restored across a restart — so its session may predate the run and
-      // the ledger is the only thing that knows. A plan whose resume/fork id
-      // does not match means this run's own spawn minted the session, and
-      // nothing about it can be on disk.
+      // or restored across a restart — so its session may predate the run.
+      // `fresh` needs POSITIVE evidence that this run's own spawn minted the
+      // session, never merely the absence of a match: a plan that inherits
+      // from something answers `unknown` until the id it inherits is known.
       const spec = peekPaneSpawnSpec(paneId);
-      const origin: UsageSessionOrigin = !spec
-        ? "unknown"
-        : spawnPlanNeedsUsageBaseline(spec, sessionId)
-          ? "inherited"
-          : "fresh";
+      const origin: UsageSessionOrigin = spawnPlanNeedsUsageBaseline(
+        spec,
+        sessionId,
+      )
+        ? "inherited"
+        : spec && !spawnPlanInheritsSession(spec)
+          ? "fresh"
+          : "unknown";
       const index = workspace.panes.indexOf(pane);
       void recordPaneUsage(paneUsage, {
         workspaceId: workspace.id,

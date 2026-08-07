@@ -66,21 +66,20 @@ describe("mergePaneUsage", () => {
     });
   });
 
-  it("never lets the report instant walk backwards", () => {
-    // `reportedAt` means "the newest thing this pane has said", and a plain
-    // overlay let an out-of-order delivery undo it. Claude's arm-time drain
-    // pushes the root transcript before each subagent's, and a dialect's
-    // catch-up order is a fixed list of KINDS rather than a timestamp sort,
-    // so an older line routinely lands after a newer one. Anything reading
-    // this as freshness — the wall clock's floor, the chip's staleness —
-    // would then treat a report that already arrived as not yet arrived.
+  it("keeps the instant with the payload it describes", () => {
+    // An out-of-order delivery does walk `reportedAt` backwards, and taking
+    // the max here was tried and reverted: this field answers WHEN THIS
+    // OBSERVATION HAPPENED — `record` writes it into the ledger as
+    // `occurredAt` and mixes it into the deterministic `eventId` — so a max
+    // stamps a stale payload with a fresh instant. The reader that wants
+    // "newest" keeps its own max (see activityWitness.test.ts).
     const newer = { agent: "claude", model: "sonnet", reportedAt: 200 };
     const older = { agent: "claude", costUsd: 3, reportedAt: 150 };
-    const merged = mergePaneUsage(newer, older);
-    expect(merged.reportedAt).toBe(200);
-    // The rest of the late report is still absorbed — only the instant is
-    // held, so nothing it actually carries is dropped.
-    expect(merged).toMatchObject({ model: "sonnet", costUsd: 3 });
+    expect(mergePaneUsage(newer, older)).toMatchObject({
+      model: "sonnet",
+      costUsd: 3,
+      reportedAt: 150,
+    });
   });
 
   it("replaces wholesale when the pane changed agents", () => {

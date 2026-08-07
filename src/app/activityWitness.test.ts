@@ -16,6 +16,16 @@ import type { UsageSnapshot } from "./usageManager";
 
 const NOW = TEST_NOW;
 const DAY = 24 * 60 * 60 * 1_000;
+const HOUR = 60 * 60 * 1_000;
+
+/** Local noon of the day containing NOW. Cases that need two instants on the
+ * SAME calendar day build them from here — a bare `NOW ± hours` lands on two
+ * different local days in some zones and the suite pins none. */
+const noon = () => {
+  const date = new Date(NOW);
+  date.setHours(12, 0, 0, 0);
+  return date.getTime();
+};
 
 const ledger = (events: UsageEventV2[]): UsageHistorySnapshot => ({
   ready: true,
@@ -130,6 +140,49 @@ describe("a day that has been witnessed stays witnessed", () => {
 
     store.setPanes([]);
     expect(currentStreakDays(witness.getSnapshot().activeAt, NOW)).toBe(3);
+    witness.dispose();
+  });
+
+  it("does not let a clock-skewed row shadow the day it landed on", () => {
+    // One instant per day is what keeps the exported array short, but the
+    // day's REPRESENTATIVE has to be its earliest: `currentStreakDays` drops
+    // an instant ahead of the clock, and it can only see the one kept here.
+    // Keeping whichever arrived first meant a single future-stamped ledger
+    // row — a clock that ran fast and was corrected back, which `occurredAt`
+    // cannot clamp because `capturedAt` was equally fast — deleted the whole
+    // day, honest work and live report alike. Measured before the fix: 2
+    // became 1 here, and 1 became 0 without yesterday, which unmounts the
+    // chip in front of someone who is working.
+    const store = fakes([
+      spend(noon() - DAY, "yesterday"),
+      spend(noon() + 3 * HOUR, "skewed"),
+      spend(noon() - 60_000, "honest"),
+    ]);
+    const witness = createActivityWitness(store);
+    expect(currentStreakDays(witness.getSnapshot().activeAt, noon())).toBe(2);
+
+    // Same shadow, with the live witness as the day's only honest evidence.
+    const live = fakes([spend(noon() + 3 * HOUR, "skewed")]);
+    const second = createActivityWitness(live);
+    live.setPanes([["pane-1", pane(noon() - 60_000)]]);
+    expect(currentStreakDays(second.getSnapshot().activeAt, noon())).toBe(1);
+    witness.dispose();
+    second.dispose();
+  });
+
+  it("holds the newest instant even when a merge walks a pane backwards", () => {
+    // `mergePaneUsage` deliberately keeps `reportedAt` with the payload it
+    // describes, so an out-of-order delivery does move a pane's instant
+    // back. The witness is the reader that wants "newest", so it keeps its
+    // own max — and the day, once seen, is not up for reconsideration.
+    const store = fakes([spend(noon() - DAY)]);
+    const witness = createActivityWitness(store);
+    store.setPanes([["pane-1", pane(noon() - 60_000)]]);
+    expect(witness.getSnapshot().latestAt).toBe(noon() - 60_000);
+
+    store.setPanes([["pane-1", pane(noon() - 30 * 60_000)]]);
+    expect(witness.getSnapshot().latestAt).toBe(noon() - 60_000);
+    expect(currentStreakDays(witness.getSnapshot().activeAt, noon())).toBe(2);
     witness.dispose();
   });
 

@@ -138,7 +138,14 @@ describe("createAchievementNotifier", () => {
     await settle();
 
     expect(notify).not.toHaveBeenCalled();
-    expect(saved).toHaveLength(0);
+    // Whatever is written carries no NEWS — the ids are the ones that came
+    // in, carried across the rewrite. (That a write happens at all is the
+    // version stamp, and belongs to its own case below.)
+    for (const json of saved) {
+      const notified = JSON.parse(json).notified as string[];
+      expect(notified).toContain("streakDays-1");
+      expect(notified).toContain("spendUsd-10");
+    }
     notifier.dispose();
   });
 
@@ -227,7 +234,11 @@ describe("createAchievementNotifier", () => {
     await settle();
 
     expect(notify).toHaveBeenCalledTimes(2);
-    expect(saved).toHaveLength(0); // nothing persisted as congratulated
+    // The version stamp still lands (the baseline file is below it), but it
+    // carries NO congratulations — which is the claim.
+    for (const json of saved) {
+      expect(JSON.parse(json).notified).toEqual([]);
+    }
 
     notify.mockReturnValue(true); // user re-enables notifications
     history.set(ledger([event(), event()]));
@@ -562,6 +573,70 @@ describe("reconciling a congratulated set against the ledger", () => {
     };
     expect(persisted.notified).toContain("streakDays-14");
     expect(persisted.notified).toContain("spendUsd-500");
+    notifier.dispose();
+  });
+
+  it("stamps the version forward on a launch with nothing else to say", async () => {
+    // The narrowing made the version stamp LOAD-BEARING: it is what retires
+    // `rewritable`. But `persist` only fires when something is dirty, and an
+    // established user's launch is dirty at nothing — so the file sat at v1
+    // forever, every migration target stayed revocable on every later launch,
+    // and a timezone change months after the upgrade could still take a badge
+    // away through the very sweep this commit narrowed.
+    const { deps, saved, notify, history } = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({
+          version: 1,
+          notified: [
+            "tokens-1000000",
+            "dayTokens-1000000",
+            "sessions-1",
+            "streakDays-1",
+            "spendUsd-1",
+          ],
+        }),
+    });
+    history.set(ledger(richEvents()));
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    await settle();
+    expect(notify).not.toHaveBeenCalled();
+    expect(saved).toHaveLength(1);
+    expect(JSON.parse(saved[0]).version).toBe(2);
+    // And a file already at the version writes nothing — the stamp is a
+    // one-shot, not a write on every launch.
+    const settled = fakeDeps({ loadNotified: async () => saved[0] });
+    settled.history.set(ledger(richEvents()));
+    const second = createAchievementNotifier(settled.deps);
+    await settle();
+    await settle();
+    expect(settled.saved).toHaveLength(0);
+    notifier.dispose();
+    second.dispose();
+  });
+
+  it("does not stamp a version past a repair it could not perform", async () => {
+    // The mirror hole. The sweep is gated on `complete`; the stamp was not.
+    // A downgrade past a usage-event schema bump publishes a ready, error-free
+    // snapshot missing most of the history, so the sweep is skipped — and if
+    // any unrelated award made the write happen, the file advanced to v2 and
+    // the repair window shut for good.
+    const { deps, saved, history } = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({ version: 1, notified: ["spendUsd-10"] }),
+    });
+    history.set({
+      ready: true,
+      events: [event({ costSource: "provider", costUsd: 60 })],
+      error: null,
+      complete: false,
+    });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    await settle();
+    // Nothing written at all: the migrated set may not go to disk until the
+    // repair that belongs with it can run.
+    expect(saved).toHaveLength(0);
     notifier.dispose();
   });
 

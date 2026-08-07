@@ -94,20 +94,18 @@ function mergePaneFields(base: PaneUsage, overlay: PaneUsage): PaneUsage {
     base.context || overlay.context
       ? { ...base.context, ...overlay.context }
       : undefined;
-  return {
-    ...base,
-    ...overlay,
-    // MONOTONE: the field means "the newest thing this pane has said", and a
-    // plain overlay let it walk backwards. Claude's arm-time drain pushes the
-    // root transcript's events before each subagent's, and a dialect's
-    // catch-up order is a fixed list of KINDS, not a timestamp sort — so an
-    // older line routinely lands after a newer one and used to pin the pane
-    // to the earlier instant. Anything reading this as freshness (the wall
-    // clock's floor, the chip's staleness) would then read a report that
-    // already arrived as not having arrived yet.
-    reportedAt: Math.max(base.reportedAt, overlay.reportedAt),
-    ...(context ? { context } : {}),
-  };
+  // `reportedAt` travels with the payload it describes, like every other
+  // field. It is tempting to take the max — an out-of-order delivery (Claude's
+  // arm-time drain pushes the root transcript before each subagent's, and a
+  // dialect's catch-up order is a fixed list of KINDS rather than a timestamp
+  // sort) does walk it backwards. But this field answers WHEN THIS
+  // OBSERVATION HAPPENED, not how fresh the pane is: `record` writes it into
+  // the ledger as `occurredAt` and mixes it into the deterministic `eventId`.
+  // A max would stamp a stale payload with a fresh instant, and would let a
+  // replay win the one field `mergePaneReplay` exists to keep it from
+  // winning. The reader that genuinely wants "newest" is the activity
+  // witness, and it takes its own max over every report it sees.
+  return { ...base, ...overlay, ...(context ? { context } : {}) };
 }
 
 /** The percentage a context bag amounts to, however it was reported. */

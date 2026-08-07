@@ -453,6 +453,35 @@ describe("usageHistoryManager", () => {
     expect(appended.costUsd).toBeCloseTo(0.5, 5);
   });
 
+  it("seeds an unknown session when the load withheld a newer build's lines", async () => {
+    // "The checkpoint may be missing" is `complete`, not `loaded`, and the
+    // difference is a real double-count rather than a wording nicety. A
+    // downgrade past a usage-event schema bump LOADS FINE and preserves the
+    // newer build's lines without decoding them, so a session whose rows are
+    // all withheld has history on disk and no entry in `baselines` — and
+    // counting its cumulative total appends the whole session a second time.
+    ipc.loadUsageHistory.mockResolvedValue([
+      JSON.stringify({ ...event({ eventId: "future" }), schemaVersion: 3 }),
+    ]);
+    await initUsageHistory();
+    expect(getUsageHistorySnapshot()).toMatchObject({
+      error: null,
+      complete: false,
+    });
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 5_000, output: 500 },
+        costUsd: 12,
+        reportedAt: NOW,
+      },
+      context,
+      NOW,
+    );
+    expect(ipc.appendUsageHistory).not.toHaveBeenCalled();
+  });
+
   it("still counts a FRESH session's first turn on an unreadable ledger", async () => {
     // The guard used to be a bare `!loaded`, which is sticky for the whole
     // process — the load is never retried — so after one failed read EVERY

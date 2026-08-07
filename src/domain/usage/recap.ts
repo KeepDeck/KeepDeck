@@ -6,7 +6,7 @@ import {
   type UsageStats,
   type UsageStatsPeriod,
 } from "./history/query";
-import { DAY_MS, utcDayStart } from "./time";
+import { DAY_MS, utcDayStart, type UtcDayStart } from "./time";
 
 /**
  * The Highlights line — the period's numbers with their context: how the
@@ -22,7 +22,10 @@ export interface UsageRecap {
    * coverage varies by session, so a cost delta would routinely lie. */
   tokensDeltaPct: number | null;
   topModel: { model: string; totalTokens: number } | null;
-  busiestDay: { dayStart: number; totalTokens: number } | null;
+  /** Typed as the branded bucket, not a bare number, so this map and the
+   * ones in the achievements engine cannot be keyed with `localDayNumber`
+   * — a different calendar AND a different unit, which reads the same. */
+  busiestDay: { dayStart: UtcDayStart; totalTokens: number } | null;
 }
 
 /** `current` is the caller's already-aggregated period stats — the recap
@@ -118,7 +121,7 @@ function busiestDay(
   now: number,
 ): UsageRecap["busiestDay"] {
   const cutoff = periodCutoff(period, now);
-  const days = new Map<number, number>();
+  const days = new Map<UtcDayStart, number>();
   for (const event of events) {
     if (event.occurredAt < cutoff || event.occurredAt > now) continue;
     const dayStart = utcDayStart(event.occurredAt);

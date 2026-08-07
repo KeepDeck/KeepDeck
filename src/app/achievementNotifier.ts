@@ -92,6 +92,31 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
   let writes: Promise<void> = Promise.resolve();
   let disposed = false;
 
+  /**
+   * A file may only be stamped forward once the repair that belongs with the
+   * rewrite has actually run. The two used to be independent, and the gap
+   * was permanent in both directions:
+   *
+   * - stamping WITHOUT sweeping (the snapshot was incomplete, so the sweep
+   *   was skipped, but some unrelated award made the write happen) closed
+   *   the repair window for good — the next launch reads a v2 file, finds
+   *   nothing rewritable, and the unearned id the rewrite handed out lives
+   *   there forever;
+   * - sweeping without stamping — `persist` fires only when something is
+   *   `dirty`, and an established user's launch changes nothing — left the
+   *   file at v1 indefinitely, which keeps every migration target revocable
+   *   on EVERY later launch. That is how a badge could still evaporate on
+   *   a timezone change months after the upgrade, through the narrowed
+   *   sweep this commit introduced.
+   *
+   * So: no write at all while a migration is pending and unrepaired, and a
+   * forced write once the repair lands. The cost is that awards delivered
+   * during an incomplete-ledger launch go unrecorded and re-announce next
+   * time — a duplicate banner, against a permanently spent one.
+   */
+  const migrationSettled = () =>
+    fileVersion >= NOTIFIED_SCHEMA_VERSION || reconciled;
+
   const persist = (ids: ReadonlySet<string>) => {
     const json = JSON.stringify({
       // NEVER the bare constant. A file written by a newer build carries a
@@ -145,6 +170,11 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
         congratulated = kept;
         dirty = true;
       }
+      // Force the write even when the repair found nothing: the version
+      // stamp is what RETIRES `rewritable`, and an established user's launch
+      // is exactly the one that changes nothing else. Without this the file
+      // sits below the migration for good and every target stays revocable.
+      if (fileVersion < NOTIFIED_SCHEMA_VERSION) dirty = true;
     }
     // Catalog order: a ladder announces lowest tier first, so the bell's
     // newest-first list tops out at the most impressive fresh award.
@@ -165,7 +195,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
         dirty = true;
       }
     }
-    if (dirty) persist(congratulated);
+    if (dirty && migrationSettled()) persist(congratulated);
   };
 
   const unsubscribe = deps.history.subscribe(check);

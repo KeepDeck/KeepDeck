@@ -25,8 +25,9 @@ import {
  * - `fresh` — this run's own spawn minted the session. Nothing about it can
  *   be on disk, so its first turn is real usage and must be COUNTED.
  * - `unknown` — no spawn plan for the pane: attached or restored, so the
- *   session may predate this run. Seeds only when the ledger could not be
- *   read, because that is the only state where the checkpoint is missing.
+ *   session may predate this run. Seeds whenever the ledger is not fully
+ *   readable, because that is when a checkpoint may exist on disk that
+ *   `baselines` does not have.
  *
  * A three-way fact rather than the `baselineOnly?: boolean` it replaces: the
  * boolean could say "inherited" but had no way to say "definitely not", so
@@ -48,14 +49,21 @@ export interface UsageCaptureContext {
 /**
  * Seed, or count? The whole rule, in one place.
  *
- * `unknown` + an unreadable ledger is the case worth spelling out. A CLI
- * reports cumulative totals, so a delta with no baseline IS the whole
- * session — and after a failed load `baselines` is empty while the history it
- * was built from is still sitting on disk. Appending that total would count
- * every token of the session a second time, permanently, the moment the file
- * becomes readable again. Appending still works on a file the load could not
- * open (`read_to_string` rejects invalid UTF-8; `append` does not), so this
- * is reachable, not theoretical.
+ * `unknown` + a ledger this build cannot fully read is the case worth
+ * spelling out. A CLI reports cumulative totals, so a delta with no baseline
+ * IS the whole session — and `baselines` is built only from lines this build
+ * DECODED, while the history it was built from is still sitting on disk.
+ * Appending that total would count every token of the session a second time,
+ * permanently, the moment the file becomes readable again. Appending still
+ * works on a file the load could not open (`read_to_string` rejects invalid
+ * UTF-8; `append` does not), so this is reachable, not theoretical.
+ *
+ * "Fully readable" is `complete`, NOT `loaded`, and the difference is a real
+ * hole rather than a wording nicety: a downgrade past a usage-event schema
+ * bump loads fine and preserves the newer build's lines WITHOUT decoding
+ * them, so a session whose rows are all withheld has history on disk and no
+ * entry in `baselines`. Keying on `loaded` alone counted that session's
+ * entire lifetime a second time.
  *
  * `fresh` is exempt, and that exemption is the fix: the guard used to be a
  * bare `!loaded`, which is sticky for the whole process (the load is never
@@ -70,10 +78,13 @@ export interface UsageCaptureContext {
  * one session once, and only when the ledger is also unreadable — a strictly
  * smaller and rarer loss than the certain, repeating one it replaces.
  */
-function seedsBaseline(origin: UsageSessionOrigin, loaded: boolean): boolean {
+function seedsBaseline(
+  origin: UsageSessionOrigin,
+  readable: boolean,
+): boolean {
   if (origin === "inherited") return true;
   if (origin === "fresh") return false;
-  return !loaded;
+  return !readable;
 }
 
 export interface UsageHistorySnapshot {
@@ -228,7 +239,10 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
       // checkpoint: this report becomes the baseline, and everything after it
       // is a true delta. See [`seedsBaseline`] for which origins take it.
       const delta = usageDelta(usage, previous, {
-        baselineOnly: seedsBaseline(context.origin, loaded),
+        // The same expression the snapshot publishes as `complete` — one
+        // question, and a reader that acts on the ABSENCE of history has to
+        // ask it the same way the snapshot's own doc says to.
+        baselineOnly: seedsBaseline(context.origin, loaded && withheld === 0),
       });
       if (usageDeltaEmpty(delta)) {
         baselines.set(key, delta.observation);

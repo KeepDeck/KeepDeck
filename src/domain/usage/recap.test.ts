@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { queryUsageStats } from "./history/query";
 import { recapCaption, usageRecap } from "./recap";
+import { utcDayStart } from "./time";
 
 /** The production call shape: recap describes an already-aggregated period. */
 const recapOf = (
@@ -125,7 +126,10 @@ describe("recapCaption", () => {
           tokensDeltaPct: 12,
           topModel: { model: "gpt-5.6-terra", totalTokens: 1_500_000 },
           busiestDay: {
-            dayStart: Date.parse("2026-07-20T00:00:00.000Z"),
+            // Through the bucket rule rather than a bare parse: the field is
+            // branded, and minting one by hand is exactly what the brand is
+            // there to stop.
+            dayStart: utcDayStart(Date.parse("2026-07-20T00:00:00.000Z")),
             totalTokens: 900_000,
           },
         },
