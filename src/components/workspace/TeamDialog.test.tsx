@@ -74,38 +74,58 @@ describe("TeamDialog", () => {
       el.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
-  const ticks = () =>
-    [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
-  const roleFields = () =>
-    [...document.querySelectorAll<HTMLInputElement>(".team__member-role")];
-  const submit = () =>
-    document.querySelector<HTMLButtonElement>(".form__create")!;
+  const all = <T extends HTMLElement>(selector: string) => [
+    ...document.querySelectorAll<T>(selector),
+  ];
+  /** The pool's "Add" controls — one per agent NOT on the team. */
+  const adds = () => all<HTMLButtonElement>(".team__row-take");
+  /** The roster's role fields, in roster order. */
+  const roles = () => all<HTMLInputElement>(".team__row-role");
+  const drops = () => all<HTMLButtonElement>(".team__row-drop");
+  const nameField = () => document.querySelector<HTMLInputElement>(".form__input")!;
+  const submit = () => document.querySelector<HTMLButtonElement>(".form__create")!;
+  const startNew = () => document.querySelector<HTMLButtonElement>(".team__add")!;
 
-  it("lists every agent in the workspace, none on the team until ticked", () => {
+  it("starts with an empty team and everyone in the pool", () => {
     open(workspace([pane("pane-1"), pane("pane-2")]));
-    expect(ticks()).toHaveLength(2);
-    expect(ticks().every((box) => !box.checked)).toBe(true);
-    expect(roleFields()).toHaveLength(0);
-    // Nothing to do is not confirmable: a dialog that dispatches a no-op
-    // teaches people it did something.
+    // The roster IS the team, so an empty one has no rows at all — nothing
+    // to decode, unlike a list of unticked boxes.
+    expect(roles()).toHaveLength(0);
+    expect(adds()).toHaveLength(2);
+    expect(document.body.textContent).toContain("Nobody yet");
+    // Nothing to do is not confirmable.
     expect(submit().disabled).toBe(true);
   });
 
-  it("does not scold a form nobody has touched yet", () => {
-    // It opened complaining "the team needs a name" over an empty field
-    // whose placeholder read like a value — the form looked filled in and
-    // wrong at the same time.
+  it("moves an agent out of the pool as it joins the team", () => {
+    // Each agent appears exactly once, and WHERE it appears is the answer.
+    open(workspace([pane("pane-1"), pane("pane-2")]));
+    act(() => adds()[0].click());
+    expect(roles()).toHaveLength(1);
+    expect(adds()).toHaveLength(1);
+    act(() => drops()[0].click());
+    expect(roles()).toHaveLength(0);
+    expect(adds()).toHaveLength(2);
+  });
+
+  it("suggests lead first, then numbers the rest", () => {
+    open(workspace([pane("pane-1"), pane("pane-2")]));
+    act(() => adds()[0].click());
+    act(() => adds()[0].click());
+    expect(roles().map((field) => field.value)).toEqual(["lead", "impl-1"]);
+  });
+
+  it("does not scold a dialog nobody has touched yet", () => {
     open(workspace([pane("pane-1")]));
     expect(document.querySelector('[role="alert"]')).toBeNull();
-    const nameField = document.querySelector<HTMLInputElement>(".form__input")!;
-    expect(nameField.value).toBe("");
+    expect(nameField().value).toBe("");
     // The placeholder must not be mistakable for a value.
-    expect(nameField.placeholder.startsWith("e.g.")).toBe(true);
+    expect(nameField().placeholder.startsWith("e.g.")).toBe(true);
   });
 
   it("complains only once something has been attempted, and in the refusal style", () => {
     open(workspace([pane("pane-1")]));
-    act(() => ticks()[0].click());
+    act(() => adds()[0].click());
     const alert = document.querySelector<HTMLElement>('[role="alert"]')!;
     expect(alert.textContent).toContain("name");
     // NOT the git hint's class: that one is green, and a refusal in the
@@ -123,28 +143,20 @@ describe("TeamDialog", () => {
     (first as { branch?: string }).branch = "kd/api/1";
     (second as { cwd?: string }).cwd = "/repo/worktrees/kd-api-2";
     open(workspace([first, second]));
-    const wheres = [
-      ...document.querySelectorAll<HTMLElement>(".team__member-where"),
-    ].map((el) => el.textContent);
-    expect(wheres).toEqual(["kd/api/1", "kd-api-2"]);
-  });
-
-  it("suggests lead for the first pick and numbers the rest", () => {
-    open(workspace([pane("pane-1"), pane("pane-2")]));
-    act(() => ticks()[0].click());
-    act(() => ticks()[1].click());
-    expect(roleFields().map((field) => field.value)).toEqual(["lead", "impl-1"]);
+    expect(all(".team__row-where").map((el) => el.textContent)).toEqual([
+      "kd/api/1",
+      "kd-api-2",
+    ]);
   });
 
   it("refuses to confirm two members sharing a role, and says which", () => {
     // The question a per-pane surface can never answer, because it never
     // sees the whole roster.
-    const ws = workspace([pane("pane-1"), pane("pane-2")]);
-    open(ws);
-    type(document.querySelector<HTMLInputElement>(".form__input")!, "api");
-    act(() => ticks()[0].click());
-    act(() => ticks()[1].click());
-    type(roleFields()[1], "lead");
+    open(workspace([pane("pane-1"), pane("pane-2")]));
+    type(nameField(), "api");
+    act(() => adds()[0].click());
+    act(() => adds()[0].click());
+    type(roles()[1], "lead");
     expect(submit().disabled).toBe(true);
     expect(document.querySelector('[role="alert"]')!.textContent).toContain("lead");
   });
@@ -155,11 +167,10 @@ describe("TeamDialog", () => {
       pane("pane-2", { name: "api", role: "impl-1" }),
     ]);
     open(ws, "api");
-    // Opens with both already on, roles filled.
-    expect(ticks().every((box) => box.checked)).toBe(true);
-    expect(roleFields().map((field) => field.value)).toEqual(["lead", "impl-1"]);
-    // Drop the second one.
-    act(() => ticks()[1].click());
+    // Opens with the team already assembled, roles filled, pool empty.
+    expect(roles().map((field) => field.value)).toEqual(["lead", "impl-1"]);
+    expect(adds()).toHaveLength(0);
+    act(() => drops()[1].click());
     act(() => submit().click());
     expect(confirmed).toEqual([
       {
@@ -171,46 +182,44 @@ describe("TeamDialog", () => {
     ]);
   });
 
-  it("keeps a re-ticked member's own role instead of renaming it", () => {
+  it("keeps a re-added member's own role instead of renaming it", () => {
     const ws = workspace([pane("pane-1", { name: "api", role: "reviewer" })]);
     open(ws, "api");
-    act(() => ticks()[0].click());
-    act(() => ticks()[0].click());
-    expect(roleFields()[0].value).toBe("reviewer");
+    act(() => drops()[0].click());
+    act(() => adds()[0].click());
+    expect(roles()[0].value).toBe("reviewer");
   });
 
-  it("carries agents to start alongside the ones already here", () => {
-    const ws = workspace([pane("pane-1")]);
-    open(ws);
-    type(document.querySelector<HTMLInputElement>(".form__input")!, "api");
-    act(() => ticks()[0].click());
-    act(() => document.querySelector<HTMLButtonElement>(".team__add")!.click());
-    const recruitRole = roleFields()[1];
-    type(recruitRole, "impl-1");
+  it("shows an agent still to be started as a member, not as a footnote", () => {
+    // It is on the team the moment it is asked for; the only difference
+    // from the others is that it does not exist yet.
+    open(workspace([pane("pane-1")]));
+    type(nameField(), "api");
+    act(() => adds()[0].click());
+    act(() => startNew().click());
+    expect(roles()).toHaveLength(2);
+    type(roles()[1], "impl-1");
     act(() => submit().click());
     expect(confirmed[0].recruits).toEqual([{ agentType: "claude", role: "impl-1" }]);
   });
 
-  it("counts a role an unspawned recruit will take as already used", () => {
-    // Checking only the live half is how a team ends up with two impl-1s
-    // the moment the second one starts.
-    const ws = workspace([pane("pane-1")]);
-    open(ws);
-    type(document.querySelector<HTMLInputElement>(".form__input")!, "api");
-    act(() => ticks()[0].click());
-    act(() => document.querySelector<HTMLButtonElement>(".team__add")!.click());
-    type(roleFields()[1], "lead");
+  it("counts a role an unstarted agent will take as already used", () => {
+    open(workspace([pane("pane-1")]));
+    type(nameField(), "api");
+    act(() => adds()[0].click());
+    act(() => startNew().click());
+    type(roles()[1], "lead");
     expect(submit().disabled).toBe(true);
   });
 
-  it("says when a pane already answers to another team", () => {
+  it("says when a pooled pane already answers to another team", () => {
     const ws = workspace([pane("pane-1", { name: "web", role: "lead" })]);
     open(ws);
-    type(document.querySelector<HTMLInputElement>(".form__input")!, "api");
-    expect(document.querySelector(".team__member-note")!.textContent).toContain("web");
-    // Once ticked the plan already moves it, so the note would be describing
-    // a state the person just changed.
-    act(() => ticks()[0].click());
-    expect(document.querySelector(".team__member-note")).toBeNull();
+    type(nameField(), "api");
+    expect(document.querySelector(".team__row-note")!.textContent).toContain("web");
+    // Once taken, the plan already moves it — the note would describe a
+    // state the person just changed.
+    act(() => adds()[0].click());
+    expect(document.querySelector(".team__row-note")).toBeNull();
   });
 });

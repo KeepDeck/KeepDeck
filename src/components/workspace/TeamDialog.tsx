@@ -102,19 +102,72 @@ export function TeamDialog({
   // a dialog that dispatches a no-op teaches people it did something.
   const valid = planned.ok && !teamPlanIsEmpty(planned.value);
 
-  const toggle = (pane: Pane) => {
+  const take = (pane: Pane) =>
     setRoles((current) => {
       const next = new Map(current);
-      if (next.has(pane.id)) next.delete(pane.id);
-      // Its EXISTING role when it has one — re-ticking a member of the team
+      // Its EXISTING role when it has one — re-adding a member of the team
       // being edited must not silently rename it — else the next suggestion.
-      else next.set(pane.id, pane.team?.role ?? suggestRole(next.size));
+      next.set(pane.id, pane.team?.role ?? suggestRole(next.size + recruits.length));
       return next;
     });
-  };
+
+  const drop = (paneId: string) =>
+    setRoles((current) => {
+      const next = new Map(current);
+      next.delete(paneId);
+      return next;
+    });
 
   const setRole = (paneId: string, role: string) =>
     setRoles((current) => new Map(current).set(paneId, role));
+
+  const iconOf = (pane: Pane) =>
+    agents.find((agent) => agent.id === paneAgentType(pane))?.icon;
+
+  const titleOf = (pane: Pane) =>
+    paneDisplayTitle(pane, workspace.panes.indexOf(pane), agents);
+
+  /** The team as it currently stands: taken panes first, in the order they
+   * were taken, then the agents to start. One list, because to the person
+   * reading it they are all members — the difference is only that some do
+   * not exist yet. */
+  const roster = [
+    ...[...roles].map(([paneId, role]) => {
+      const pane = workspace.panes.find((candidate) => candidate.id === paneId);
+      return {
+        key: paneId,
+        role,
+        pane: pane ?? null,
+        label: pane ? titleOf(pane) : paneId,
+        agentType: "",
+        setRole: (next: string) => setRole(paneId, next),
+        setAgentType: () => {},
+        remove: () => drop(paneId),
+      };
+    }),
+    ...recruits.map((recruit, index) => ({
+      key: `new-${index}`,
+      role: recruit.role,
+      pane: null,
+      label: `the new ${recruit.agentType}`,
+      agentType: recruit.agentType,
+      setRole: (next: string) =>
+        setRecruits((current) =>
+          current.map((row, i) => (i === index ? { ...row, role: next } : row)),
+        ),
+      setAgentType: (next: string) =>
+        setRecruits((current) =>
+          current.map((row, i) => (i === index ? { ...row, agentType: next } : row)),
+        ),
+      remove: () =>
+        setRecruits((current) => current.filter((_, i) => i !== index)),
+    })),
+  ];
+
+  /** Everyone in the workspace who is NOT on the team. */
+  const available = workspace.panes
+    .filter((pane) => !roles.has(pane.id))
+    .map((pane) => ({ pane, label: titleOf(pane) }));
 
   return (
     <ModalOverlay>
@@ -148,121 +201,101 @@ export function TeamDialog({
           autoFocus
         />
 
-        <span className="form__label">Who is on the team</span>
-        {workspace.panes.length === 0 ? (
+        {/* THE TEAM — a roster of roles, which is what a team IS. The role
+            leads each row because it is the address teammates use and the
+            column that has to be scanned for duplicates; who fills it comes
+            second. Rows stay in the order they were added, so the first one
+            is the lead and reads like one. */}
+        <span className="form__label">The team</span>
+        {roster.length === 0 ? (
           <p className="form__desc">
-            No agents here yet — add one below and it starts on the team.
+            Nobody yet — take an agent from below, or start a new one.
           </p>
         ) : (
-          <ul className="team__members">
-            {workspace.panes.map((pane, index) => {
-              const on = roles.has(pane.id);
-              const elsewhere =
-                pane.team && pane.team.name.toLowerCase() !== name.trim().toLowerCase()
-                  ? pane.team.name
-                  : null;
-              return (
-                <li key={pane.id} className="team__member">
-                  <label className="team__member-pick">
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => {
-                        setTouched(true);
-                        toggle(pane);
-                      }}
-                    />
-                    <AgentGlyph
-                      icon={
-                        agents.find((agent) => agent.id === paneAgentType(pane))?.icon
-                      }
-                    />
-                    <span className="team__member-name">
-                      {paneDisplayTitle(pane, index, agents)}
-                    </span>
-                    {/* Titles come from the terminal, so several panes
-                        legitimately read "Workspace" at once — the roster is
-                        where you pick WHICH agent, so a row that cannot be
-                        told from its neighbour is a row that cannot be used.
-                        The branch, else the folder, is what differs. */}
-                    <span className="team__member-where">{whereOf(pane)}</span>
-                  </label>
-                  {on ? (
-                    <input
-                      {...noAutoCorrect}
-                      className="form__input team__member-role"
-                      value={roles.get(pane.id) ?? ""}
-                      onChange={(e) => setRole(pane.id, e.target.value)}
-                      placeholder="role"
-                      aria-label={`Role for ${paneDisplayTitle(pane, index, agents)}`}
-                    />
-                  ) : (
-                    // Said only while the pane is NOT being taken: once it is
-                    // ticked, the plan already moves it and the warning would
-                    // be describing a state the person just changed.
-                    elsewhere && (
-                      <span className="team__member-note">on “{elsewhere}”</span>
-                    )
-                  )}
-                </li>
-              );
-            })}
+          <ul className="team__roster">
+            {roster.map((row) => (
+              <li key={row.key} className="team__row">
+                <input
+                  {...noAutoCorrect}
+                  className="form__input team__row-role"
+                  value={row.role}
+                  onChange={(e) => row.setRole(e.target.value)}
+                  placeholder="role"
+                  aria-label={`Role for ${row.label}`}
+                />
+                {row.pane ? (
+                  <>
+                    <AgentGlyph icon={iconOf(row.pane)} />
+                    <span className="team__row-who">{row.label}</span>
+                    <span className="team__row-where">{whereOf(row.pane)}</span>
+                  </>
+                ) : (
+                  <>
+                    <select
+                      className="form__input team__row-agent"
+                      value={row.agentType}
+                      aria-label="Agent to start"
+                      onChange={(e) => row.setAgentType(e.target.value)}
+                    >
+                      {canRecruit.map((agent) => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="team__row-where">starts when you confirm</span>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="team__row-drop"
+                  aria-label={`Take ${row.label} off the team`}
+                  title="Take off the team"
+                  onClick={row.remove}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
           </ul>
         )}
 
-        <span className="form__label">Add new agents</span>
-        <ul className="team__members">
-          {recruits.map((recruit, index) => (
-            <li key={index} className="team__member">
-              <select
-                className="form__input team__member-agent"
-                value={recruit.agentType}
-                aria-label="Agent to start"
-                onChange={(e) =>
-                  setRecruits((current) =>
-                    current.map((row, i) =>
-                      i === index ? { ...row, agentType: e.target.value } : row,
-                    ),
-                  )
-                }
-              >
-                {canRecruit.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                {...noAutoCorrect}
-                className="form__input team__member-role"
-                value={recruit.role}
-                onChange={(e) =>
-                  setRecruits((current) =>
-                    current.map((row, i) =>
-                      i === index ? { ...row, role: e.target.value } : row,
-                    ),
-                  )
-                }
-                placeholder="role"
-                aria-label="Role for the new agent"
-              />
-              <button
-                type="button"
-                className="form__field-btn"
-                aria-label="Remove this new agent"
-                onClick={() =>
-                  setRecruits((current) => current.filter((_, i) => i !== index))
-                }
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
+        {/* THE POOL — only what is NOT on the team. A pane that has been
+            taken leaves this list, so the two together always read as one
+            answer to "who is where" instead of a field of checkboxes that
+            has to be decoded. */}
+        {available.length > 0 && (
+          <>
+            <span className="form__label">Also running here</span>
+            <ul className="team__pool">
+              {available.map(({ pane, label }) => (
+                <li key={pane.id} className="team__row">
+                  <AgentGlyph icon={iconOf(pane)} />
+                  <span className="team__row-who">{label}</span>
+                  <span className="team__row-where">{whereOf(pane)}</span>
+                  {pane.team &&
+                    pane.team.name.toLowerCase() !== name.trim().toLowerCase() && (
+                      <span className="team__row-note">on “{pane.team.name}”</span>
+                    )}
+                  <button
+                    type="button"
+                    className="team__row-take"
+                    onClick={() => {
+                      setTouched(true);
+                      take(pane);
+                    }}
+                  >
+                    Add
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
         {canRecruit.length > 0 && (
-          // Deliberately small and secondary: full width it read as the
-          // dialog's main action and competed with "Create team", which is
-          // the one button that finishes anything here.
+          // Secondary by construction: starting an agent is a step ON THE
+          // WAY to a team, never the thing that finishes one.
           <button
             type="button"
             className="team__add"
@@ -277,7 +310,7 @@ export function TeamDialog({
               ]);
             }}
           >
-            + Agent
+            + Start a new agent
           </button>
         )}
 

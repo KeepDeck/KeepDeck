@@ -1,55 +1,70 @@
-/* The team dialog's roster.
+/* The team dialog.
  *
- * A row is one agent: a tick, its name, and — once ticked — the role it will
- * answer to. Everything else in the dialog is ordinary `.form__*` chrome, so
- * only what is genuinely new to this surface lives here. */
+ * Two lists that answer one question between them: the ROSTER is the team as
+ * it stands, the POOL is everyone here who is not on it. A pane taken from
+ * the pool leaves it, so at any moment each agent appears exactly once and
+ * its position IS the answer — no field of checkboxes to decode.
+ *
+ * Both lists share a row, because they are the same kind of thing seen from
+ * two sides, and a shared row is what keeps their columns lined up. */
 
-.team__members {
+.team__roster,
+.team__pool {
   margin: 0 0 20px;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* A workspace can hold sixteen panes. The roster scrolls rather than
-     pushing the dialog's actions off screen, which would leave the person
-     unable to confirm the team they just built. */
-  max-height: 260px;
+  /* A workspace can hold sixteen panes. The lists scroll rather than pushing
+     the dialog's actions off screen, which would leave someone unable to
+     confirm the team they just built. */
+  max-height: 220px;
   overflow-y: auto;
 }
 
-.team__member {
+.team__row {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Constant, so a row never changes height as it moves between the lists
+     and the rows below it never shuffle under the cursor. The value is the
+     role field's own height: padding, borders and one line. */
+  min-height: 34px;
 }
 
-/* The tick and the agent's name are ONE target: a name is much easier to
-   hit than a checkbox, and the two always mean the same thing. */
-.team__member-pick {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1 1 auto;
+/* The role LEADS the row. It is the address teammates use, and a column of
+   addresses is what gets scanned for duplicates — so it is first, fixed, and
+   aligned down the list. */
+.team__row-role,
+.team__row-agent {
+  flex: none;
+  width: 120px;
+  font-size: 12px;
+  /* `.form__input` carries a 20px bottom margin for STACKED fields. Inside a
+     flex row that margin is dead space that makes the row taller than its
+     neighbours. */
+  margin-bottom: 0;
+}
+
+.team__row-who {
+  flex: 0 1 auto;
   min-width: 0;
-  cursor: pointer;
-}
-
-.team__member-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
   color: #c5c8c6;
-  flex: 0 1 auto;
 }
 
-/* What tells two identically-titled panes apart. Muted and secondary — it is
-   there to disambiguate, not to be read first — and it shrinks before the
-   name does, because the name is what the person is looking for. */
-.team__member-where {
+/* What tells two identically-titled panes apart — titles come from the
+   terminal, so several legitimately read "Workspace" at once. Muted, and it
+   shrinks before the name does, because the name is what the eye hunts for.
+   `margin-right: auto` is what pushes the row's control to the far edge. */
+.team__row-where {
   flex: 0 1 auto;
   min-width: 0;
+  margin-right: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -57,18 +72,56 @@
   color: #6b7280;
 }
 
-/* Fixed, so the role fields line up down the roster — a column of addresses
-   is the thing being checked for duplicates, and a ragged one is harder to
-   scan. */
-.team__member-role,
-.team__member-agent {
+/* A pane already answering to a different team. A fact, not a problem —
+   taking it simply moves it — so it is stated, not warned about. */
+.team__row-note {
   flex: none;
-  width: 132px;
   font-size: 12px;
+  color: #6b7280;
 }
 
-/* Secondary by construction: adding a row is a step ON THE WAY to creating
-   the team, never the thing that finishes it. Full width it read as the
+.team__row-take {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid #2a3242;
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.team__row-take:hover {
+  border-color: #3a4658;
+  color: #c5c8c6;
+}
+
+/* Removal is a glyph rather than a button: it repeats down the roster, and a
+   labelled control on every row would out-shout the roles, which are the
+   thing being read. */
+.team__row-drop {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.team__row-drop:hover {
+  background-color: #1b2230;
+  color: #e5736f;
+}
+
+/* Secondary by construction: starting an agent is a step ON THE WAY to a
+   team, never the thing that finishes one. Full width it read as the
    dialog's main action and competed with "Create team". */
 .team__add {
   align-self: flex-start;
@@ -86,13 +139,4 @@
 .team__add:hover {
   border-color: #3a4658;
   color: #c5c8c6;
-}
-
-/* Why a pane is not available at a glance: it already answers to another
-   team. Muted, because it states a fact rather than a problem — ticking it
-   simply moves it. */
-.team__member-note {
-  flex: none;
-  font-size: 12px;
-  color: #6b7280;
 }
