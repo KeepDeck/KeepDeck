@@ -96,10 +96,29 @@ export function shouldRecord(
  * the exhaustion alarm's re-arm rule, so "same instance" can never fork. */
 export const INSTANCE_JUMP_MS = 60_000;
 
-/** A window INSTANCE boundary: usage fell (the window reset and started
- * refilling) or the reset instant moved forward past jitter (a new window
- * took over). The current segment is everything since the last boundary —
- * the only span a pace may be computed over. */
+/**
+ * A window INSTANCE boundary. The current segment is everything since the
+ * last one — the only span a pace may be computed over.
+ *
+ * A window instance IS its reset instant, so that is what says the window
+ * turned over. A drop in `usedPct` used to say it too, and that was wrong in
+ * a way that inverted the verdict: the reporter sends whole percents, one
+ * spurious low reading lands between two honest ones with the reset instant
+ * UNCHANGED, and the segment restarted at the outlier. The climb back to the
+ * true level then read as burn. Measured on a real journal — a lone `8`
+ * between two `19`s — the pace came out 1.42 %/min against an actual
+ * 0.16 %/min, and a window with three and a half hours of headroom was
+ * announced as running out in forty minutes.
+ *
+ * A drop with no reset movement is therefore noise, not a boundary. The
+ * fallback stays for windows whose reset instant is unknown, where the drop
+ * is the only evidence there is.
+ *
+ * Failure direction, deliberately: if a provider reports a genuine reset but
+ * lags its `resetsAt`, the boundary is missed, the pace across the drop goes
+ * negative, and `windowForecast` returns "no projection". The forecast says
+ * nothing rather than something false.
+ */
 export function currentSegment(
   reports: readonly WindowReport[],
 ): WindowReport[] {
@@ -108,11 +127,10 @@ export function currentSegment(
     const prev = reports[index - 1];
     const item = reports[index];
     const dropped = item.usedPct < prev.usedPct - 1;
+    const knownReset = item.resetsAt !== null && prev.resetsAt !== null;
     const resetJumped =
-      item.resetsAt !== null &&
-      prev.resetsAt !== null &&
-      item.resetsAt > prev.resetsAt + INSTANCE_JUMP_MS;
-    if (dropped || resetJumped) start = index;
+      knownReset && item.resetsAt! > prev.resetsAt! + INSTANCE_JUMP_MS;
+    if (resetJumped || (dropped && !knownReset)) start = index;
   }
   return reports.slice(start);
 }

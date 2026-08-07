@@ -79,20 +79,57 @@ describe("reportJournal", () => {
     ).toBe(true); // heartbeat keeps "pace ~0" a fresh fact
   });
 
-  it("segments at a usage drop and at a forward reset jump", () => {
-    const dropped = [
-      report({ reportedAt: NOW - 60 * MIN, usedPct: 90 }),
-      report({ reportedAt: NOW - 30 * MIN, usedPct: 3 }), // reset happened
-      report({ reportedAt: NOW - 20 * MIN, usedPct: 5 }),
+  it("segments where the RESET moved, not merely where usage fell", () => {
+    // A window instance IS its reset instant. A real turnover moves both.
+    const reset = [
+      report({ reportedAt: NOW - 60 * MIN, usedPct: 90, resetsAt: NOW - 40 * MIN }),
+      report({ reportedAt: NOW - 30 * MIN, usedPct: 3, resetsAt: NOW + 260 * MIN }),
+      report({ reportedAt: NOW - 20 * MIN, usedPct: 5, resetsAt: NOW + 260 * MIN }),
     ];
-    expect(currentSegment(dropped)).toHaveLength(2);
-    expect(currentSegment(dropped)[0].usedPct).toBe(3);
+    expect(currentSegment(reset)).toHaveLength(2);
+    expect(currentSegment(reset)[0].usedPct).toBe(3);
 
+    // A forward reset jump alone is still a boundary — the counter need not
+    // have fallen for the window to have turned over.
     const jumped = [
       report({ reportedAt: NOW - 60 * MIN, resetsAt: NOW - 40 * MIN }),
       report({ reportedAt: NOW - 30 * MIN, resetsAt: NOW + 260 * MIN, usedPct: 11 }),
     ];
     expect(currentSegment(jumped)).toHaveLength(1);
+  });
+
+  it("keeps a lone bad reading from passing as a window turnover", () => {
+    // THE inversion, from a real journal: the reporters send whole percents,
+    // and one spurious low reading landed between two honest ones with the
+    // reset instant UNCHANGED. Restarting the segment there made the climb
+    // back to the true level read as burn — 1.42 %/min against an actual
+    // 0.16 — and a window with 3h40m of headroom was announced as running
+    // out in forty minutes.
+    const spike = [
+      report({ reportedAt: NOW - 44 * MIN, usedPct: 13 }),
+      report({ reportedAt: NOW - 20 * MIN, usedPct: 17 }),
+      report({ reportedAt: NOW - 6 * MIN, usedPct: 19 }),
+      report({ reportedAt: NOW - 5 * MIN, usedPct: 8 }), // the outlier
+      report({ reportedAt: NOW, usedPct: 19 }),
+    ];
+    expect(currentSegment(spike)).toHaveLength(5);
+
+    // The whole point: the verdict flips with it. Reset is 155m out, and
+    // the honest pace over this tail lands nowhere near the ceiling.
+    const forecast = windowForecast(spike, FIVE_H, NOW);
+    expect(forecast.kind).toBe("ok");
+  });
+
+  it("still segments on a drop when the window has no known reset", () => {
+    // Plan windows report no reset instant, so the fall is the only
+    // evidence a turnover happened and has to keep counting as one.
+    const dropped = [
+      report({ reportedAt: NOW - 60 * MIN, usedPct: 90, resetsAt: null }),
+      report({ reportedAt: NOW - 30 * MIN, usedPct: 3, resetsAt: null }),
+      report({ reportedAt: NOW - 20 * MIN, usedPct: 5, resetsAt: null }),
+    ];
+    expect(currentSegment(dropped)).toHaveLength(2);
+    expect(currentSegment(dropped)[0].usedPct).toBe(3);
   });
 
   it("scales the retention horizon with the window length", () => {
@@ -319,55 +356,70 @@ describe("captions", () => {
   const crit = windowForecast(ramp(1, 5, 10, 88), FIVE_H, NOW);
   const ok = windowForecast(ramp(0.1, 5, 10, 62), FIVE_H, NOW);
 
-  it("leads the card clause with WHEN, keeping the margin as the qualifier", () => {
-    // The old phrasing gave only "~38h 25m early", which had to be
-    // subtracted from a reset countdown printed elsewhere in the same line,
-    // in a different unit, before it answered anything.
+  it("names the thing you run into, and when, in the reset's own unit", () => {
+    // The clause used to lead with a clock face and trail a MARGIN
+    // ("~38h 25m before reset"), which is a derived quantity: the reset
+    // countdown is already on this line, and nobody subtracts two clocks in
+    // their head. A countdown to the run-out answers the question directly
+    // and is comparable to its neighbour at a glance.
     const warnParts = cardCaptionParts(FIVE_H, out, NOW);
-    // "on pace to", never a bare "hits": the module's contract is that a
-    // forecast always names itself an extrapolation, and dropping the hedge
-    // here attached the STRONGER claim to the WEAKER verdict.
-    expect(warnParts[1].text).toMatch(
-      /^on pace to hit 100% ~.+ · ~.+ before reset$/,
-    );
-    // Imminent keeps the countdown: minutes from now need no clock face.
+    expect(warnParts[1].text).toMatch(/^Will hit the limit in ~.+$/);
+    expect(warnParts[1].text).not.toContain("before reset");
+    // "the limit", not "100%": a percentage is a number, not an outcome.
+    expect(warnParts[1].text).not.toContain("100%");
+    // Imminent takes the same shape — only the level and the ordering move.
     const critParts = cardCaptionParts(FIVE_H, crit, NOW);
-    expect(critParts[0].text).toMatch(/^on pace to run out in ~/);
+    expect(critParts[0].text).toMatch(/^Will hit the limit in ~/);
+    expect(critParts[0].level).toBe("critical");
   });
 
-  it("gives a surviving window something to say about how it ends", () => {
-    // The most common state used to be the least legible: a curve climbing
-    // across a frame, and a caption that named only the reset. The forecast
-    // owns the landing now, so no chart has to exist first.
+  it("tells a surviving window how much it has LEFT, not where its curve stops", () => {
+    // "ends near 33%" named the number the line lands on. The reader is not
+    // holding a line; they are holding a budget, so the useful quantity is
+    // the headroom.
     const parts = cardCaptionParts(FIVE_H, ok, NOW);
     expect(parts).toHaveLength(2);
-    expect(parts[1].text).toMatch(/^on pace to last the window · ends near \d+%$/);
+    expect(parts[1].text).toMatch(/^Won't hit the limit · ~\d+% left$/);
     expect(parts[1].level).toBeNull();
-    // The percentage follows the app's rule — CEIL, like every other one on
-    // the card. A local round made the chart's own tooltip and the sentence
-    // under it disagree about the same point.
-    expect(parts[1].text).toContain(formatPct((ok as { endPct: number }).endPct, "used"));
-    // A pace of ~zero has nothing to extrapolate and claims nothing.
-    const flat = windowForecast(ramp(0, 5, 10, 20), FIVE_H, NOW);
-    expect(cardCaptionParts(FIVE_H, flat, NOW)).toHaveLength(1);
+    // Percentages follow the app's rule — CEIL, like every other one on the
+    // card — and this one is the complement of the landing level.
+    expect(parts[1].text).toContain(
+      formatPct(100 - (ok as { endPct: number }).endPct, "used"),
+    );
   });
 
-  it("speaks up for a pace that reaches the ceiling inside the verdict margin", () => {
-    // `ok` means "too close to call a race", NOT "will be fine": when the
-    // run-out lands within the margin of the reset the projection still
-    // ends AT 100. That band drew a dashed line into the top-right corner
-    // with no clause, no edge label and no dot — up to 3h21m wide on a
-    // week window.
+  it("separates an idle window from one it cannot read yet", () => {
+    // Both used to be the same silence, so the state most windows are in for
+    // their first minutes was indistinguishable from an account nobody is
+    // using — and neither explained the burn plot's empty right half.
+    const flat = windowForecast(ramp(0, 5, 10, 20), FIVE_H, NOW);
+    expect(cardCaptionParts(FIVE_H, flat, NOW)[1].text).toBe(
+      "Not spending right now",
+    );
+    const blind = windowForecast(NO_REPORTS, FIVE_H, NOW);
+    expect(blind.kind).toBe("unknown");
+    expect(cardCaptionParts(FIVE_H, blind, NOW)[1].text).toBe(
+      "Not enough data yet",
+    );
+  });
+
+  it("does not call landing exactly on the limit a warning", () => {
+    // THE mis-signal. When the run-out lands inside the verdict margin of
+    // the reset, the pace reaches ~100% right as the window renews — the
+    // whole allowance used and nothing wasted, which is the BEST outcome.
+    // It was painted amber and phrased "on pace to reach 100% by the reset",
+    // one word away from the actual alarm ("on pace to hit 100%"), so the
+    // reader could not tell the best case from the worst.
     const resetsAt = NOW + 180 * MIN;
     const window: UsageWindow = { usedPct: 62, resetsAt, windowMinutes: 300 };
-    // A pace that exhausts 177 minutes out, three minutes before the reset:
-    // inside the 6-minute margin a 5h window allows, so the verdict is "ok".
+    // Exhausts 177 minutes out, three before the reset: inside the 6-minute
+    // margin a 5h window allows, so the verdict is "ok".
     const reports = ramp((100 - 62) / 177, 5, 10, 62, resetsAt);
     const forecast = windowForecast(reports, window, NOW);
     expect(forecast.kind).toBe("ok");
     const parts = cardCaptionParts(window, forecast, NOW);
-    expect(parts[1].text).toMatch(/^on pace to reach 100% by the reset$/);
-    expect(parts[1].level).toBe("warn");
+    expect(parts[1].text).toBe("Won't hit the limit · ~0% left");
+    expect(parts[1].level).toBeNull();
   });
 
   it("names the plot's right edge as a moment, and always names it", () => {
@@ -412,7 +464,7 @@ describe("captions", () => {
       level: null,
     });
     const swapped = panelWindowCaption(FIVE_H, out, NOW);
-    expect(swapped.text).toMatch(/^runs out in ~/);
+    expect(swapped.text).toMatch(/^hits the limit in ~/);
     expect(swapped.level).toBe("warn");
   });
 });

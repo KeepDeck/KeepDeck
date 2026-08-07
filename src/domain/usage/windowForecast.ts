@@ -72,6 +72,36 @@ function forecastMinSpanMs(windowMinutes: number | null): number {
   return Math.max(5 * 60_000, windowMinutes * 60_000 * 0.01);
 }
 
+/**
+ * Percent per millisecond across the tail — a least-squares slope, not the
+ * line through its two endpoints.
+ *
+ * The reporters send WHOLE percents, so a real journal reads 10, 11, 10, 11,
+ * 12, 13, 12, 13 … : every value carries up to a point of quantisation
+ * noise. Taking first and last put all of that noise on the slope and none of
+ * the twenty-odd readings between them on anything — on a 44-minute tail that
+ * is about ±14% of the pace, wobbling the run-out clock with no new spending.
+ * A slope over every point averages the noise out instead.
+ *
+ * Endpoints are kept for the projection ORIGIN (`last`): the extrapolation
+ * has to start from what the provider currently says, not from a fitted
+ * value that no report ever claimed.
+ */
+function tailPace(tail: readonly WindowReport[]): number {
+  const meanAt =
+    tail.reduce((sum, report) => sum + report.reportedAt, 0) / tail.length;
+  const meanPct =
+    tail.reduce((sum, report) => sum + report.usedPct, 0) / tail.length;
+  let covariance = 0;
+  let variance = 0;
+  for (const report of tail) {
+    const dt = report.reportedAt - meanAt;
+    covariance += dt * (report.usedPct - meanPct);
+    variance += dt * dt;
+  }
+  return variance === 0 ? 0 : covariance / variance;
+}
+
 export function windowForecast(
   reports: readonly WindowReport[],
   window: UsageWindow,
@@ -100,7 +130,7 @@ export function windowForecast(
   if (spanMs < forecastMinSpanMs(window.windowMinutes)) {
     return { kind: "unknown" };
   }
-  const pace = (last.usedPct - first.usedPct) / spanMs; // pct per ms
+  const pace = tailPace(tail); // pct per ms
   if (pace <= 0) return { kind: "ok", outAt: null, endPct: null };
   const outAt = last.reportedAt + (100 - last.usedPct) / pace;
   if (outAt <= now) {
@@ -212,22 +242,11 @@ function forecastClause(
   now: number,
 ): ForecastCaptionPart | null {
   if (forecast.kind !== "out") return null;
-  if (forecast.level === "critical" || forecast.beforeResetMs === null) {
-    return {
-      text: `on pace to run out in ~${formatCountdown(forecast.outAt, now) ?? "0m"}`,
-      level: forecast.level,
-    };
-  }
-  const early = formatCountdown(now + forecast.beforeResetMs, now);
-  const margin = early === null ? "" : ` · ~${early} before reset`;
-  // "on pace to", not a bare "hits": this module's contract (top of file)
-  // is that a forecast always names itself an extrapolation. The critical
-  // arm above kept the hedge; dropping it here attached the STRONGER claim
-  // to the WEAKER verdict.
-  return {
-    text: `on pace to hit 100% ~${formatMoment(forecast.outAt, now)}${margin}`,
-    level: "warn",
-  };
+  const countdown = formatCountdown(forecast.outAt, now);
+  // The wall is here. Nothing to count down to, so the verdict is the whole
+  // sentence.
+  if (countdown === null) return { text: "Limit reached", level: forecast.level };
+  return { text: `Will hit the limit in ~${countdown}`, level: forecast.level };
 }
 
 /**
@@ -313,18 +332,25 @@ export function burnEdgeLabel(
  * pace of about zero has nothing to extrapolate and says nothing.
  */
 function survivalClause(forecast: WindowForecast): ForecastCaptionPart | null {
-  if (forecast.kind !== "ok" || forecast.endPct === null) return null;
-  // `formatPct`, not a local round: every other percentage on this card
-  // goes through it, and it ceils on purpose (understating consumption
-  // reads as a bug — the field report is in its doc). A local `Math.round`
-  // here made the chart's own hover tooltip say "34% used" while the
-  // sentence beneath it said "ends near 33%", about the same point.
-  const pct = formatPct(forecast.endPct, "used");
-  // A pace that reaches the ceiling inside the verdict margin is not a
-  // race — too close to call — but it is not "lasts the window" either.
-  return forecast.endPct >= 99.5
-    ? { text: `on pace to reach ${pct} by the reset`, level: "warn" }
-    : { text: `on pace to last the window · ends near ${pct}`, level: null };
+  if (forecast.kind !== "ok") return null;
+  // Reports, but no growth across the tail. Distinct from "unknown": there
+  // IS an answer, and it is that nothing is being spent right now. The two
+  // used to be one silence, which made the most common early-window state
+  // indistinguishable from an idle account.
+  if (forecast.endPct === null) return { text: "Not spending right now", level: null };
+  // What is LEFT at the reset, not where the line ends. "ends near 33%" said
+  // which number the curve stops on; nobody holds a curve in their head, and
+  // the useful quantity is the headroom. `formatPct` because every other
+  // percentage on this card goes through it.
+  const left = formatPct(Math.max(0, 100 - forecast.endPct), "used");
+  // NOT a warning, at any landing percentage. Reaching ~100% exactly as the
+  // window resets is the best possible outcome — the whole allowance used,
+  // nothing wasted — and painting it amber told the reader they were in
+  // trouble for spending precisely what they had. The old wording made it
+  // worse by echoing the run-out clause: "on pace to reach 100% by the
+  // reset" against "on pace to hit 100%", one sentence apart in meaning and
+  // one word apart on screen.
+  return { text: `Won't hit the limit · ~${left} left`, level: null };
 }
 
 /** The card's full caption, ordered: the reset stays the anchor fact, the
@@ -335,7 +361,16 @@ export function cardCaptionParts(
   now: number,
 ): ForecastCaptionPart[] {
   const reset = windowResetCaption(window, now, "long");
-  const clause = forecastClause(forecast, now) ?? survivalClause(forecast);
+  const clause =
+    forecastClause(forecast, now) ??
+    survivalClause(forecast) ??
+    // Not enough reports, too short a span, or a stale journal — the state
+    // most windows are in for their first minutes. Saying so is what keeps
+    // it from reading as a broken card, and is also what explains the burn
+    // plot's empty right half.
+    (forecast.kind === "unknown"
+      ? { text: "Not enough data yet", level: null }
+      : null);
   const parts: ForecastCaptionPart[] = [];
   if (clause !== null && clause.level === "critical") parts.push(clause);
   if (reset !== "") parts.push({ text: reset, level: null });
@@ -343,12 +378,14 @@ export function cardCaptionParts(
   return parts;
 }
 
-/** THE run-out phrase — "runs out in ~12m" — one wording for the fact,
+/** THE run-out phrase — "hits the limit in ~12m" — one wording for the fact,
  * composed into a different sentence by each surface (the popover line,
  * the exhaustion-alarm title). The surfaces may drift in COMPOSITION, never
- * in the phrase itself. */
+ * in the phrase itself. "the limit" and not "100%": a percentage is a
+ * number, and what the reader needs is the thing they run into. */
 export function runOutCountdown(outAt: number, now: number): string {
-  return `runs out in ~${formatCountdown(outAt, now) ?? "0m"}`;
+  const countdown = formatCountdown(outAt, now);
+  return countdown === null ? "limit reached" : `hits the limit in ~${countdown}`;
 }
 
 /** The popover line shows THE next relevant event, always "… in X": the

@@ -505,7 +505,7 @@ describe("foldExhaustionAlerts", () => {
       seriesOf(windows, CRITICAL()),
       NOW,
     );
-    expect(notices[0].title).toBe("claude 5h window runs out in ~12m");
+    expect(notices[0].title).toBe("claude 5h window hits the limit in ~12m");
     expect(notices[0].body).toBe("resets in 2h 35m");
   });
 
@@ -540,7 +540,7 @@ describe("foldExhaustionAlerts", () => {
       NOW,
     );
     expect(notices).toHaveLength(1);
-    expect(notices[0].title).toBe("kimi quota window runs out in ~10m");
+    expect(notices[0].title).toBe("kimi quota window hits the limit in ~10m");
     expect(notices[0].body).toBe("plan allowance");
   });
 });

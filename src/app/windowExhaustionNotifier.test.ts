@@ -98,7 +98,7 @@ describe("createWindowExhaustionNotifier", () => {
     await settle();
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify).toHaveBeenCalledWith({
-      title: "claude 5h window runs out in ~12m",
+      title: "claude 5h window hits the limit in ~12m",
       body: "resets in 2h 35m",
       icon: "⏳",
       severity: "warning",
