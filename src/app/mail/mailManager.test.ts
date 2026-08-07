@@ -23,6 +23,7 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
   let deliverable = true;
   const activity = new Map<string, PaneActivity>();
   const listeners = new Set<() => void>();
+  const channelWatchers = new Set<() => void>();
   const delivered: Mail[] = [];
   let timer: { at: number; fn: () => void } | null = null;
 
@@ -31,6 +32,10 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
     subscribeActivity: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    subscribeChannels: (listener) => {
+      channelWatchers.add(listener);
+      return () => channelWatchers.delete(listener);
     },
     deliver: (mail) => {
       if (!deliverable) return false;
@@ -58,8 +63,11 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
     noChannel() {
       deliverable = false;
     },
+    /** The terminal mounts: the registry says so, and NOTHING else does —
+     * no status is emitted for it. */
     channelBack() {
       deliverable = true;
+      for (const listener of [...channelWatchers]) listener();
     },
     advance(ms: number) {
       clock += ms;
@@ -204,17 +212,32 @@ describe("createMailManager", () => {
     expect(last(h.delivered)?.hop).toBe(0);
   });
 
-  it("retries through a terminal that is not ready yet", () => {
+  it("delivers to a pane that has never reported anything at all", () => {
+    // The live failure this exists for: a status reporter speaks on turn
+    // events, so an idle pane reports NOTHING, and a task to a teammate
+    // sitting at its prompt is exactly the message that must land.
     const h = harness();
-    h.reports(B.paneId, done);
+    const result = h.manager.send({
+      from: A,
+      toPaneId: "pane-silent",
+      kind: "task",
+      body: "review the parser",
+    });
+    expect(result).toMatchObject({ ok: true, delivered: true });
+    expect(h.delivered).toHaveLength(1);
+  });
+
+  it("waits for the terminal to MOUNT, which no status ever announces", () => {
+    // A pane can be alive and silent, so the channel's refusal is the only
+    // thing that says "not writable yet" — and its recovery is the
+    // registry, not an activity edge that may never come.
+    const h = harness();
     h.noChannel();
     const result = h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "go" });
     expect(result).toMatchObject({ ok: true, delivered: false });
     expect(h.delivered).toHaveLength(0);
-    // A pane whose input registers a beat after its status does is a race,
-    // not a failure — the next status edge re-drains.
+    // No status is reported here on purpose — the mount alone must do it.
     h.channelBack();
-    h.reports(B.paneId, done);
     expect(h.delivered).toHaveLength(1);
   });
 

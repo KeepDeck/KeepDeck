@@ -48,8 +48,9 @@ export const MAIL_LIMITS: MailLimits = {
 export type MailHoldReason =
   /** The pane is parked on a permission prompt. */
   | "permission"
-  /** Nothing is reporting activity for this pane yet. */
-  | "not-reporting"
+  /** The pane has no live input channel — it is starting, or stopped. The
+   * delivery channel says so; nothing else can. */
+  | "no-channel"
   /** A turn is running and this agent asks the deck for its mail when that
    * turn ends. Waiting buys a labelled envelope instead of a paste that
    * reads like the user typed it. */
@@ -84,11 +85,18 @@ export function decideDelivery(
   // exists to prevent — the correction arrives after the action it was
   // meant to stop.
   if (now - mail.at >= limits.undeliveredMs) return { kind: "expire" };
-  // No activity means one of two things and there is no need to tell them
-  // apart: the pane is starting (status lands a beat after the process) or
-  // it is suspended and never will report. Holding serves both — the first
-  // resolves itself, the second expires above and is reported back.
-  if (!activity) return { kind: "hold", reason: "not-reporting" };
+  // No activity is NOT a reason to hold, and treating it as one was the bug
+  // that made the whole feature look broken: a status reporter speaks on
+  // turn events, so a pane sitting idle at its prompt — never had a turn,
+  // or came back from a restart — reports nothing at all. That is the pane
+  // most in need of waking, and it was the one guaranteed never to be
+  // woken, because the retry waited on an activity change that a silent
+  // pane never produces. Observed live: a task to an idle teammate sat
+  // undelivered until a person typed into it by hand.
+  //
+  // Whether a pane can actually take the message is the delivery channel's
+  // question, and it already answers it — a refusal there is what holds.
+  if (!activity) return { kind: "deliver" };
   // The one genuinely dangerous state. A permission prompt answers
   // keystrokes by CHOOSING A MENU ITEM, so text pushed there is not read as
   // text at all — its characters answer the prompt, and the tracker cannot

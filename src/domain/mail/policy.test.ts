@@ -51,11 +51,15 @@ describe("decideDelivery", () => {
     });
   });
 
-  it("holds while nothing reports for the pane — starting and suspended look alike", () => {
-    expect(decideDelivery(mail(), undefined, SENT_AT)).toEqual({
-      kind: "hold",
-      reason: "not-reporting",
-    });
+  it("tries a pane that reports nothing, rather than waiting on it", () => {
+    // The bug that made the feature look broken. A status reporter speaks
+    // on turn events, so a pane sitting idle at its prompt reports NOTHING
+    // — and holding it meant waiting for an activity change a silent pane
+    // never produces. Observed live: a task to an idle teammate sat
+    // undelivered until a person typed into it by hand. Whether it can
+    // actually take the message is the channel's question, and the channel
+    // is the one thing that can answer it.
+    expect(decideDelivery(mail(), undefined, SENT_AT)).toEqual({ kind: "deliver" });
   });
 
   it("expiry outranks EVERY other verdict, holds included", () => {

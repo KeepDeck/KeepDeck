@@ -51,6 +51,7 @@ function setup(initial: boolean | null) {
     {
       registry,
       activityOf: (paneId) => activity.get(paneId),
+      subscribeChannels: () => () => {},
       subscribeActivity: (listener) => {
         activityListeners.add(listener);
         return () => activityListeners.delete(listener);

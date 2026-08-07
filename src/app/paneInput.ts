@@ -29,6 +29,28 @@ export interface PaneInput {
 }
 
 const entries = new Map<string, PaneInput>();
+const watchers = new Set<() => void>();
+
+/**
+ * Tell me when any pane's input appears or goes away.
+ *
+ * The registry is the ONLY thing that knows a pane became writable, and
+ * that moment is not visible anywhere else: a terminal mounting emits no
+ * status, so anything waiting to write to a pane and watching activity
+ * instead would wait for a change that never comes. Mail waited exactly
+ * that way, and a task sent to an idle teammate sat undelivered until a
+ * person typed into it by hand.
+ */
+export function subscribePaneInput(listener: () => void): () => void {
+  watchers.add(listener);
+  return () => {
+    watchers.delete(listener);
+  };
+}
+
+function announce(): void {
+  for (const listener of [...watchers]) listener();
+}
 
 /** Register a pane's input (both channels); returns an unregister fn for
  * cleanup. */
@@ -37,10 +59,14 @@ export function registerPaneInput(
   input: PaneInput,
 ): () => void {
   entries.set(id, input);
+  announce();
   return () => {
     // Only delete if it's still ours — guards against a re-mount that already
     // replaced the entry (e.g. a StrictMode double-mount).
-    if (entries.get(id) === input) entries.delete(id);
+    if (entries.get(id) === input) {
+      entries.delete(id);
+      announce();
+    }
   };
 }
 

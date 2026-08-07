@@ -47,6 +47,7 @@ function setup() {
   const mail = createMailManager({
     activityOf: () => READY,
     subscribeActivity: () => () => {},
+    subscribeChannels: () => () => {},
     deliver: (message) => {
       delivered.push(message);
       return true;

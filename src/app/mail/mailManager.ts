@@ -68,6 +68,11 @@ export interface MailManagerDeps {
    * prompt is precisely the event a held message waits for, and without
    * this the only thing that could notice would be the expiry timer. */
   subscribeActivity(listener: () => void): () => void;
+  /** Tell me when a pane's input channel appears. A terminal mounting emits
+   * no status, so this is the ONLY signal that a pane which reported
+   * nothing has become writable — and a pane that reports nothing is
+   * precisely the one waiting on this. */
+  subscribeChannels(listener: () => void): () => void;
   /** Hand one message to its pane. False means the pane has no live input
    * channel at this instant — a retry, not a failure. */
   deliver(mail: Mail): boolean;
@@ -217,10 +222,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       if (verdict.kind === "hold") return head.at + limits.undeliveredMs;
       const last = lastDeliveryAt.get(paneId);
       if (last !== undefined && at - last < SERIALIZE_MS) return last + SERIALIZE_MS;
-      // No input channel yet, though the pane reports activity — a narrow
-      // race around a starting terminal. Waiting on activity rather than
-      // polling: the next status edge re-drains, and if none comes the
-      // message expires on the deadline returned here.
+      // No input channel: the pane is starting, or stopped. This is the ONE
+      // refusal that says so — a pane can be perfectly alive and report no
+      // activity at all — and it resolves through `subscribeChannels`, not
+      // through activity, because a terminal mounting emits no status. The
+      // deadline is only the backstop for a pane that never comes back.
       if (!deps.deliver(head)) return head.at + limits.undeliveredMs;
       queue.shift();
       lastDeliveryAt.set(paneId, at);
@@ -259,7 +265,10 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     }, Math.max(1, deadline - at));
   }
 
-  const unsubscribe = deps.subscribeActivity(() => drain());
+  const unsubscribes = [
+    deps.subscribeActivity(() => drain()),
+    deps.subscribeChannels(() => drain()),
+  ];
 
   return {
     send(request) {
@@ -365,7 +374,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
 
     dispose() {
       disposed = true;
-      unsubscribe();
+      for (const unsubscribe of unsubscribes) unsubscribe();
       cancelTimer?.();
       cancelTimer = null;
     },

@@ -33,6 +33,8 @@ export interface MailServiceDeps {
   registry: CommandRegistry;
   activityOf(paneId: string): PaneActivity | undefined;
   subscribeActivity(listener: () => void): () => void;
+  /** When a pane's input channel appears — see `createMailManager`. */
+  subscribeChannels(listener: () => void): () => void;
   deliver(mail: Mail): boolean;
   /** Whether this pane's agent asks the deck for its mail at a turn
    * boundary — see `createMailManager`. */
@@ -74,6 +76,7 @@ export function createMailService(
       manager = createMailManager({
         activityOf: deps.activityOf,
         subscribeActivity: deps.subscribeActivity,
+        subscribeChannels: deps.subscribeChannels,
         deliver: deps.deliver,
         ...(deps.asksAtTurnEnd ? { asksAtTurnEnd: deps.asksAtTurnEnd } : {}),
       });

@@ -16,6 +16,7 @@ function setup(options: { render?: MailReplyRenderer | undefined; off?: boolean 
   const manager: MailManager = createMailManager({
     activityOf: () => WORKING,
     subscribeActivity: () => () => {},
+    subscribeChannels: () => () => {},
     deliver: (mail) => {
       pasted.push(mail);
       return true;

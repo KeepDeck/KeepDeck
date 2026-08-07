@@ -48,6 +48,7 @@ import {
   subscribeSessions,
 } from "./ptyManager";
 import { subscribePaneKeys } from "./paneKeys";
+import { subscribePaneInput } from "./paneInput";
 import { replyToBridgeHook } from "../ipc/status";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
@@ -188,6 +189,7 @@ export function createAppRuntime(
       registry: commands,
       activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
       subscribeActivity: statusTracker.subscribe,
+      subscribeChannels: subscribePaneInput,
       deliver: deliverMailThroughPty,
       // A pane whose CLI plugin renders mail will come asking at its turn
       // boundary, so a running turn is worth waiting out for the labelled
