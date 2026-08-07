@@ -44,7 +44,9 @@ describe("codex plugin hooks", () => {
 
     const spawn = output();
     await activate("/kd/hook.sh").hooks["spawn.plan"]!({ ...input, mcp }, spawn);
-    expect(spawn.args.join(" ")).toContain('mcp_servers."keepdeck"=');
+    // Bare, not quoted: codex reads the key literally and refuses a quoted
+    // one outright — see mcp.test.ts.
+    expect(spawn.args.join(" ")).toContain("mcp_servers.keepdeck=");
 
     const resume = output();
     await activate("/kd/hook.sh").hooks["resume.plan"]!({ ...input, mcp, sessionId: "s" }, resume);
