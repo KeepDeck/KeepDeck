@@ -113,6 +113,11 @@ export function serializeDeck(
           ...(p.branch !== undefined && { branch: p.branch }),
           ...(p.name !== undefined && { name: p.name }),
           ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
+          // A team describes a piece of work in progress, so it outlives a
+          // restart: a deck that came back with everyone anonymous would
+          // have silently disbanded a team nobody dismissed, and the roles
+          // teammates address each other by would be gone with it.
+          ...(p.team !== undefined && { team: p.team }),
           ...(p.session !== undefined && { session: p.session }),
           // Sparse, and only the durable reason: `waking`/`parked` describe
           // a launch, so writing them would make every ordinary restart look
@@ -261,6 +266,7 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "branch",
   "name",
   "autoTitle",
+  "team",
   "session",
   "idle",
   "provisioning",
@@ -329,6 +335,19 @@ function readPane(value: unknown): Pane | null {
   if (typeof value.branch === "string") pane.branch = value.branch;
   if (typeof value.name === "string") pane.name = value.name;
   if (typeof value.autoTitle === "string") pane.autoTitle = value.autoTitle;
+  // BOTH halves or neither: a role with no team cannot be addressed and a
+  // team with no role gives its holder no name, so a half-written entry is
+  // read as no membership rather than as a member nobody can reach.
+  const team = value.team;
+  if (
+    isRecord(team) &&
+    typeof team.name === "string" &&
+    team.name &&
+    typeof team.role === "string" &&
+    team.role
+  ) {
+    pane.team = { name: team.name, role: team.role };
+  }
   const session = value.session;
   if (
     isRecord(session) &&

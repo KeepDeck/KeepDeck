@@ -195,6 +195,27 @@
   margin-bottom: 12px;
 }
 
+/* Ending a team, kept away from the confirm pair: `margin-right: auto` puts
+   it at the far left of the action row, so it can never be hit on the way to
+   "Save team". Quiet until hovered — it is not a hazard (the agents keep
+   running and keep their work) but it is not an ordinary edit either. */
+.team__disband {
+  margin-right: auto;
+  padding: 8px 14px;
+  border: 1px solid #2a3242;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7280;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.team__disband:hover {
+  border-color: #6b3a38;
+  color: #e5736f;
+}
+
 /* Secondary by construction: starting an agent is a step ON THE WAY to a
    team, never the thing that finishes one. Full width it read as the
    dialog's main action and competed with "Create team". */

@@ -186,6 +186,43 @@ describe("TeamDialog", () => {
     ]);
   });
 
+  it("can end a team outright, releasing everyone and starting nobody", () => {
+    // It was possible before only as a side effect of emptying the roster,
+    // which is not a thing anyone would think to try. Ending a team is a
+    // deliberate act and has to be sayable.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+      pane("pane-3", { name: "web", role: "lead" }),
+    ]);
+    open(ws, "api");
+    act(() => document.querySelector<HTMLButtonElement>(".team__disband")!.click());
+    expect(confirmed).toEqual([
+      { name: "api", members: [], released: ["pane-1", "pane-2"], recruits: [] },
+    ]);
+    // Another team in the same workspace is none of this one's business.
+    expect(confirmed[0].released).not.toContain("pane-3");
+  });
+
+  it("releases everyone still on the team, not just who the draft kept", () => {
+    // Dropping a member and then disbanding must still let that member go:
+    // reading the release list off the DRAFT would leave whoever was
+    // dropped first wearing a role on a team that no longer exists.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+    ]);
+    open(ws, "api");
+    act(() => drops()[1].click());
+    act(() => document.querySelector<HTMLButtonElement>(".team__disband")!.click());
+    expect(confirmed[0].released).toEqual(["pane-1", "pane-2"]);
+  });
+
+  it("offers no disband for a team that does not exist yet", () => {
+    open(workspace([pane("pane-1")]));
+    expect(document.querySelector(".team__disband")).toBeNull();
+  });
+
   it("keeps a re-added member's own role instead of renaming it", () => {
     const ws = workspace([pane("pane-1", { name: "api", role: "reviewer" })]);
     open(ws, "api");

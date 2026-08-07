@@ -175,6 +175,15 @@ export function TeamDialog({
     })),
   ];
 
+  /** Everyone holding the edited team's name RIGHT NOW — what disbanding
+   * has to release, read from the deck rather than from the draft, because
+   * the draft may already have dropped some of them. */
+  const current = editing
+    ? workspace.panes
+        .filter((pane) => pane.team?.name.toLowerCase() === editing.toLowerCase())
+        .map((pane) => pane.id)
+    : [];
+
   /** Everyone in the workspace who is NOT on the team. */
   const available = workspace.panes
     .filter((pane) => !roles.has(pane.id))
@@ -359,6 +368,27 @@ export function TeamDialog({
         )}
 
         <div className="form__actions">
+          {editing && (
+            // Disbanding was possible before this — take everyone off the
+            // roster and confirm — but only as a side effect of emptying a
+            // list, which is not a thing anyone would think to try. Ending
+            // a team is a deliberate act and deserves to be sayable.
+            //
+            // It takes the roles away and NOTHING else: the agents keep
+            // running, keep their panes and keep their work. A control that
+            // also closed them would be a destructive action wearing an
+            // organisational label.
+            <button
+              type="button"
+              className="team__disband"
+              title={`Take every agent off “${editing}” — they keep running`}
+              onClick={() =>
+                onConfirm({ name: editing, members: [], released: current, recruits: [] })
+              }
+            >
+              Disband
+            </button>
+          )}
           <button type="button" className="form__cancel" onClick={onCancel}>
             Cancel
           </button>
