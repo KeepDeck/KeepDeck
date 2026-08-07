@@ -91,6 +91,22 @@ describe("codex plugin hooks", () => {
         out.args.filter((a) => a.startsWith(`hooks.${event}=`)),
       ).toHaveLength(1);
     }
+    // WHICH events ask the deck back, pinned because nothing else would
+    // notice it changing: the reporter is silent on failure, so a stale or
+    // missing `--ask` stops mail reaching this CLI with no error anywhere.
+    // Only the two turn boundaries can act on an answer — Stop is
+    // blockable with continuation fragments, UserPromptSubmit spills extra
+    // context — and asking on a per-tool-call event would buy a round trip
+    // for an answer it cannot use.
+    for (const [event, asks] of [
+      ["Stop", true],
+      ["UserPromptSubmit", true],
+      ["PermissionRequest", false],
+      ["PostToolUse", false],
+    ] as const) {
+      const rule = out.args.find((a) => a.startsWith(`hooks.${event}=`))!;
+      expect(rule.includes("codex --ask"), event).toBe(asks);
+    }
     // Trust must be ONE table: codex takes the last `-c hooks.state=`
     // wholesale, so a second table would silently untrust the first.
     const state = out.args.filter((a) => a.startsWith("hooks.state="));

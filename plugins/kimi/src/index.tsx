@@ -15,7 +15,7 @@ import {
   type SetupState,
 } from "./setupController";
 import { createSetupSection } from "./SetupSection";
-import { normalizeKimiStatus } from "./status";
+import { normalizeKimiStatus, renderKimiMail } from "./status";
 import { normalizeKimiUsages, normalizeKimiWire } from "./usage";
 
 let activeController: ReturnType<typeof createKimiSetupController> | null = null;
@@ -71,7 +71,7 @@ const plugin: KeepDeckPlugin = {
       // Turn lifecycle from the companion's hooks — the fullest surface of
       // the four agents (native Interrupt, PermissionResult, typed
       // StopFailure), so no out-of-band recovery is needed at all.
-      status: { normalize: normalizeKimiStatus },
+      status: { normalize: normalizeKimiStatus, renderMail: renderKimiMail },
       history: kimiHistory(ctx),
       hooks: {
         "spawn.plan": (input, output) => {

@@ -14,7 +14,7 @@ import { codexHistory } from "./history";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
 import { cliArgs, shellQuote } from "./trust";
-import { normalizeCodexStatus } from "./status";
+import { normalizeCodexStatus, renderCodexMail } from "./status";
 import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
 
 /** The `-c` override args arming the reporters — SessionStart identity plus
@@ -60,7 +60,15 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse"].map(
           (event) => ({
             event,
-            command: `/bin/sh ${shellQuote(status)} codex`,
+            // `--ask` makes the reporter WAIT for the deck and print its
+            // answer. Only the two turn boundaries can act on one: Stop is
+            // blockable with continuation fragments, and UserPromptSubmit
+            // spills extra context into the session. PermissionRequest and
+            // PostToolUse read nothing back, and asking there would cost a
+            // round trip per tool call.
+            command: `/bin/sh ${shellQuote(status)} codex${
+              event === "Stop" || event === "UserPromptSubmit" ? " --ask" : ""
+            }`,
           }),
         )
       : []),
@@ -120,7 +128,7 @@ const plugin: KeepDeckPlugin = {
           normalize: normalizeCodexRateLimits,
         },
       },
-      status: { normalize: normalizeCodexStatus },
+      status: { normalize: normalizeCodexStatus, renderMail: renderCodexMail },
       history: codexHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
