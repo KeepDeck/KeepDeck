@@ -106,7 +106,7 @@ describe("UsagePanel", () => {
     );
     // Exactly one row swaps to the run-out; the 30% twin keeps its reset.
     expect(host.querySelectorAll("small.usage-level--critical")).toHaveLength(1);
-    expect(host.textContent).toContain("runs out in ~");
+    expect(host.textContent).toContain("hits the limit in ~");
     expect(host.textContent).toContain("resets in 1h 40m");
   });
 
@@ -122,7 +122,7 @@ describe("UsagePanel", () => {
     const host = render(new Map([[keys.get(window)!.key, reports]]));
 
     // The next relevant event replaces the reset countdown, colored.
-    expect(host.textContent).toContain("runs out in ~");
+    expect(host.textContent).toContain("hits the limit in ~");
     expect(host.textContent).not.toContain("resets in");
     expect(host.querySelector("small.usage-level--warn")).not.toBeNull();
     expect(host.querySelector(".usage-burn--compact")).not.toBeNull();
@@ -131,7 +131,10 @@ describe("UsagePanel", () => {
   it("keeps today's quiet row when the journal has no pace", () => {
     const host = render(new Map());
     expect(host.textContent).toContain("resets in 2h 35m");
-    expect(host.textContent).not.toContain("runs out");
+    // Against the phrase the popover ACTUALLY prints. The old negative
+    // named "runs out", which production stopped saying — so it was
+    // permanently true and guarded nothing.
+    expect(host.textContent).not.toContain("the limit");
     expect(host.querySelector(".usage-burn--compact")).toBeNull();
   });
 });

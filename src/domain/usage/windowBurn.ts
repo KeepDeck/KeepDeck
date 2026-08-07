@@ -28,8 +28,11 @@ export interface BurnGeometry {
   /** From the newest report to the projected end (the out instant, or the
    * reset when the pace survives it). Null without a usable pace. */
   projected: [BurnPoint, BurnPoint] | null;
-  /** The ceiling-touch verdict dot; null when the pace survives the reset. */
-  out: { x: number; y: number; level: "warn" | "critical" } | null;
+  /** The ceiling-touch verdict dot; null when the pace survives the reset.
+   * `level` is null for a touch that lands inside the reset's verdict margin
+   * — the dot still marks where the line meets the ceiling, but the verdict
+   * is too close to call, so it is drawn without a colour. */
+  out: { x: number; y: number; level: "warn" | "critical" | null } | null;
   /** Where the plot's right edge sits, in percent. The CAPTION does not read
    * this — `WindowForecast.endPct` owns that fact, so a sentence never needs
    * a chart built before it can be written; this is the drawn copy. */
@@ -92,7 +95,7 @@ export function windowBurn(
   const tMin = segment[0].reportedAt;
 
   const outAt =
-    (forecast.kind === "out" || forecast.kind === "ok") && forecast.outAt !== null
+    forecast.kind === "out" || forecast.kind === "lasts"
       ? forecast.outAt
       : null;
   // >= now, not > now: the "already at the wall" verdict clamps outAt to

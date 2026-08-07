@@ -134,14 +134,20 @@ describe("Providers", () => {
       ]),
     });
 
-    // The clause answers WHEN first; the margin against the reset follows
-    // as the qualifier it is.
-    // The run-out instant, phrased by the formatter — spelling the shape
-    // out here would pin the runner's timezone instead: 2h35m from the
-    // fixture crosses LOCAL midnight in some zones and not others.
+    // The clause names the thing you run into and counts down to it, in the
+    // same unit as the reset beside it — no clock face to convert and no
+    // margin to subtract.
+    // The run-out instant is still phrased by the formatter on the PLOT's
+    // edge below; spelling that shape out here would pin the runner's
+    // timezone instead: 2h35m from the fixture crosses LOCAL midnight in
+    // some zones and not others.
     const moment = formatMoment(NOW + 131 * MIN, NOW);
-    expect(host.textContent).toContain("on pace to hit 100% ~");
-    expect(host.textContent).toContain("before reset");
+    // The phrase and its unit, not the exact minute: the fixture's run-out
+    // lands on a `Math.ceil` boundary, so pinning "2h 12m" would flake on any
+    // change to the pace estimator that is still perfectly correct. The
+    // domain suite owns the arithmetic; this one owns the wiring.
+    expect(host.textContent).toMatch(/Will hit the limit in ~2h \d+m/);
+    expect(host.textContent).not.toContain("before reset");
     expect(host.textContent).toContain("resets in 2h 35m");
     expect(host.querySelector(".usage-burn")).not.toBeNull();
     expect(host.querySelector(".usage-burn__dot--warn")).not.toBeNull();
@@ -165,7 +171,13 @@ describe("Providers", () => {
       ]),
     });
     expect(host.textContent).toContain("resets in 2h 35m");
-    expect(host.textContent).not.toContain("on pace");
+    // Against what the card ACTUALLY prints now. The old negative named "on
+    // pace", a phrase production no longer uses anywhere, so it was
+    // permanently true. And the positive assertion is the point: this state
+    // has words of its own, and they are only checked as a pure function
+    // elsewhere — nothing proved they reach the DOM.
+    expect(host.textContent).not.toContain("the limit");
+    expect(host.textContent).toContain("Not enough data yet");
     expect(host.querySelector(".usage-burn")).toBeNull();
   });
 
