@@ -136,7 +136,12 @@ version = "0.1.0"
   });
 });
 
-describe("end-to-end against a real git repo", () => {
+// Each case builds a throwaway repository and runs the real script over it, so
+// a case costs seconds, not milliseconds — and several seconds more when the
+// whole suite is running in parallel. Declared here rather than left on the 5s
+// default, which turned a slow-but-correct test into a failure that only
+// reproduced under load.
+describe("end-to-end against a real git repo", { timeout: 120_000 }, () => {
   let repo;
 
   const git = (...args) =>

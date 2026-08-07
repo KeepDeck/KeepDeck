@@ -6,7 +6,10 @@ import { tokenizeLines } from "./highlighter";
  * contract is exactly the part a fake would hide: that the engine's output,
  * after alignment, reconstructs the viewer's lines byte for byte.
  */
-describe("tokenizeLines", () => {
+// Tokenizing loads a real grammar per language, and the coverage case loads
+// every one of them — seconds of genuine work, more under parallel load. The 5s
+// default made that read as a failure only when the machine was busy.
+describe("tokenizeLines", { timeout: 60_000 }, () => {
   it("returns one entry per split line, reconstructing each verbatim", async () => {
     const text = 'const x: number = 1\n\nexport function f() {\n  return "s"\n}\n';
     const lines = await tokenizeLines(text, "typescript");
