@@ -150,9 +150,12 @@
   }
 }
 
-/* Both rhythms modulate the frame's own colour toward transparent
-   (color-mix), so the animation needs one keyframe pair per rhythm, not
-   one per colour — and a surface that reuses them stays on palette. */
+/* The frame glows modulate the rung's own colour toward transparent
+   (color-mix): one keyframe pair per rung, carrying its palette variable
+   and fade depth (waiting and working both fade to 40% — a shared calm;
+   failed to 30% — an alarm). The RHYTHM that names the state (1s, 2s,
+   1.6s) lives on each surface's `animation` shorthand, not here, so a
+   surface that reuses a pair stays on palette and picks its own pace. */
 @keyframes status-frame-breathe {
   50% {
     border-color: color-mix(in srgb, var(--status-waiting) 40%, transparent);
