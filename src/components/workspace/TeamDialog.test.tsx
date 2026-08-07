@@ -91,6 +91,44 @@ describe("TeamDialog", () => {
     expect(submit().disabled).toBe(true);
   });
 
+  it("does not scold a form nobody has touched yet", () => {
+    // It opened complaining "the team needs a name" over an empty field
+    // whose placeholder read like a value — the form looked filled in and
+    // wrong at the same time.
+    open(workspace([pane("pane-1")]));
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    const nameField = document.querySelector<HTMLInputElement>(".form__input")!;
+    expect(nameField.value).toBe("");
+    // The placeholder must not be mistakable for a value.
+    expect(nameField.placeholder.startsWith("e.g.")).toBe(true);
+  });
+
+  it("complains only once something has been attempted, and in the refusal style", () => {
+    open(workspace([pane("pane-1")]));
+    act(() => ticks()[0].click());
+    const alert = document.querySelector<HTMLElement>('[role="alert"]')!;
+    expect(alert.textContent).toContain("name");
+    // NOT the git hint's class: that one is green, and a refusal in the
+    // colour of a positive result reads as one.
+    expect(alert.className).toContain("form__error");
+    expect(alert.className).not.toContain("form__git");
+  });
+
+  it("tells two identically-titled panes apart", () => {
+    // Titles come from the terminal, so several panes legitimately read
+    // "Workspace" at once. A row that cannot be told from its neighbour is
+    // a row that cannot be used.
+    const first = pane("pane-1");
+    const second = pane("pane-2");
+    (first as { branch?: string }).branch = "kd/api/1";
+    (second as { cwd?: string }).cwd = "/repo/worktrees/kd-api-2";
+    open(workspace([first, second]));
+    const wheres = [
+      ...document.querySelectorAll<HTMLElement>(".team__member-where"),
+    ].map((el) => el.textContent);
+    expect(wheres).toEqual(["kd/api/1", "kd-api-2"]);
+  });
+
   it("suggests lead for the first pick and numbers the rest", () => {
     open(workspace([pane("pane-1"), pane("pane-2")]));
     act(() => ticks()[0].click());
@@ -146,7 +184,7 @@ describe("TeamDialog", () => {
     open(ws);
     type(document.querySelector<HTMLInputElement>(".form__input")!, "api");
     act(() => ticks()[0].click());
-    act(() => document.querySelector<HTMLButtonElement>(".form__dir-btn")!.click());
+    act(() => document.querySelector<HTMLButtonElement>(".team__add")!.click());
     const recruitRole = roleFields()[1];
     type(recruitRole, "impl-1");
     act(() => submit().click());
@@ -160,7 +198,7 @@ describe("TeamDialog", () => {
     open(ws);
     type(document.querySelector<HTMLInputElement>(".form__input")!, "api");
     act(() => ticks()[0].click());
-    act(() => document.querySelector<HTMLButtonElement>(".form__dir-btn")!.click());
+    act(() => document.querySelector<HTMLButtonElement>(".team__add")!.click());
     type(roleFields()[1], "lead");
     expect(submit().disabled).toBe(true);
   });

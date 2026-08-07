@@ -6,7 +6,7 @@ import {
   type AgentType,
 } from "../../domain/agents";
 import type { Pane, Workspace } from "../../domain/deck";
-import { paneAgentType, paneDisplayTitle } from "../../domain/deck";
+import { baseName, paneAgentType, paneDisplayTitle } from "../../domain/deck";
 import {
   LEAD_ROLE,
   planTeam,
@@ -32,6 +32,14 @@ interface TeamDialogProps {
  * knows to look for; the rest number themselves. */
 function suggestRole(index: number): string {
   return index === 0 ? LEAD_ROLE : `impl-${index}`;
+}
+
+/** What tells one pane from another when their titles do not. The branch
+ * first — that is what an agent is actually working on — else the folder it
+ * runs in. Empty when the pane has neither and the title is all there is. */
+function whereOf(pane: Pane): string {
+  if (pane.branch) return pane.branch;
+  return pane.cwd ? baseName(pane.cwd) : "";
 }
 
 /**
@@ -74,6 +82,10 @@ export function TeamDialog({
   const [recruits, setRecruits] = useState<{ agentType: AgentType; role: string }[]>(
     [],
   );
+  /** Whether the person has done anything yet. A form that greets you with
+   * "the team needs a name" is scolding you for not having typed — the
+   * complaint is only true, and only useful, once something was attempted. */
+  const [touched, setTouched] = useState(false);
 
   const canRecruit = useMemo(
     () => selectableAgents(agents).filter((agent) => agentSupportsNew(agents, agent.id)),
@@ -124,15 +136,21 @@ export function TeamDialog({
           {...noAutoCorrect}
           className="form__input"
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="api"
+          onChange={(e) => {
+            setTouched(true);
+            setName(e.target.value);
+          }}
+          // "e.g." on purpose: a bare "api" reads as a value already in the
+          // field, which is exactly how an empty form comes to look filled
+          // in while complaining that it is empty.
+          placeholder="e.g. api"
           aria-label="Team name"
           autoFocus
         />
 
-        <span className="form__label">Agents in this workspace</span>
+        <span className="form__label">Who is on the team</span>
         {workspace.panes.length === 0 ? (
-          <p className="form__git">
+          <p className="form__desc">
             No agents here yet — add one below and it starts on the team.
           </p>
         ) : (
@@ -149,7 +167,10 @@ export function TeamDialog({
                     <input
                       type="checkbox"
                       checked={on}
-                      onChange={() => toggle(pane)}
+                      onChange={() => {
+                        setTouched(true);
+                        toggle(pane);
+                      }}
                     />
                     <AgentGlyph
                       icon={
@@ -159,6 +180,12 @@ export function TeamDialog({
                     <span className="team__member-name">
                       {paneDisplayTitle(pane, index, agents)}
                     </span>
+                    {/* Titles come from the terminal, so several panes
+                        legitimately read "Workspace" at once — the roster is
+                        where you pick WHICH agent, so a row that cannot be
+                        told from its neighbour is a row that cannot be used.
+                        The branch, else the folder, is what differs. */}
+                    <span className="team__member-where">{whereOf(pane)}</span>
                   </label>
                   {on ? (
                     <input
@@ -183,7 +210,7 @@ export function TeamDialog({
           </ul>
         )}
 
-        <span className="form__label">Start new agents on it</span>
+        <span className="form__label">Add new agents</span>
         <ul className="team__members">
           {recruits.map((recruit, index) => (
             <li key={index} className="team__member">
@@ -233,25 +260,33 @@ export function TeamDialog({
           ))}
         </ul>
         {canRecruit.length > 0 && (
+          // Deliberately small and secondary: full width it read as the
+          // dialog's main action and competed with "Create team", which is
+          // the one button that finishes anything here.
           <button
             type="button"
-            className="form__dir-btn"
-            onClick={() =>
+            className="team__add"
+            onClick={() => {
+              setTouched(true);
               setRecruits((current) => [
                 ...current,
                 {
                   agentType: canRecruit[0].id,
                   role: suggestRole(roles.size + current.length),
                 },
-              ])
-            }
+              ]);
+            }}
           >
             + Agent
           </button>
         )}
 
-        {!planned.ok && (
-          <p className="form__git" role="alert">
+        {touched && !planned.ok && (
+          // Its own style, not the git hint's: that one is green, and a
+          // refusal rendered in the colour of a positive result is read as
+          // one. Directly above the actions, where the disabled button that
+          // it explains actually is.
+          <p className="form__error" role="alert">
             ⚠ {planned.message}
           </p>
         )}

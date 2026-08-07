@@ -41,6 +41,20 @@
   white-space: nowrap;
   font-size: 13px;
   color: #c5c8c6;
+  flex: 0 1 auto;
+}
+
+/* What tells two identically-titled panes apart. Muted and secondary — it is
+   there to disambiguate, not to be read first — and it shrinks before the
+   name does, because the name is what the person is looking for. */
+.team__member-where {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #6b7280;
 }
 
 /* Fixed, so the role fields line up down the roster — a column of addresses
@@ -51,6 +65,27 @@
   flex: none;
   width: 132px;
   font-size: 12px;
+}
+
+/* Secondary by construction: adding a row is a step ON THE WAY to creating
+   the team, never the thing that finishes it. Full width it read as the
+   dialog's main action and competed with "Create team". */
+.team__add {
+  align-self: flex-start;
+  margin-bottom: 20px;
+  padding: 5px 10px;
+  border: 1px solid #2a3242;
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.team__add:hover {
+  border-color: #3a4658;
+  color: #c5c8c6;
 }
 
 /* Why a pane is not available at a glance: it already answers to another
