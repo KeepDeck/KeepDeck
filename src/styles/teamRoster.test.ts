@@ -47,13 +47,33 @@ describe("the team roster", () => {
     expect(controls.flex).toBe("none");
   });
 
-  it("bounds both lists so the actions cannot be pushed off screen", () => {
-    // Sixteen panes is a legal deck. Someone unable to reach "Create team"
-    // cannot finish the thing they just built.
-    for (const list of [".team__roster,\n.team__pool"]) {
-      const body = ruleBody(team, list);
-      expect(body["max-height"]).toBeDefined();
-      expect(body["overflow-y"]).toBe("auto");
-    }
+  it("scrolls the dialog, never the lists inside it", () => {
+    // Capping each list gave one dialog two separate little scroll boxes,
+    // each with its own thumb — a shape that reads as broken before it
+    // reads as scrollable — and put a scrollbar over the "Add" button the
+    // pointer was heading for. The cap belongs to the dialog.
+    const lists = ruleBody(team, ".team__roster,\n.team__pool");
+    expect(lists["max-height"]).toBeUndefined();
+    expect(lists["overflow-y"]).toBeUndefined();
+    const dialog = ruleBody(team, ".team-form");
+    expect(dialog["max-height"]).toBeDefined();
+    expect(dialog["overflow-y"]).toBe("auto");
+  });
+
+  it("gives wrapped prose room to breathe", () => {
+    // The app's default leading is `normal` (~1.2), which sets wrapped 12px
+    // text almost solid. This is the only dialog whose prose explains a
+    // concept rather than labelling a field, so it is the one that wraps.
+    expect(parseFloat(ruleBody(team, ".team__desc,\n.team__empty")["line-height"]))
+      .toBeGreaterThanOrEqual(1.4);
+  });
+
+  it("undoes the tuck-under-the-title margin at the two sites that reuse it", () => {
+    // `.form__desc` and `.form__error` are positioned for life directly
+    // under the dialog title. Here they follow a label and a button, and
+    // the negative margin pulls each into whatever is above it.
+    expect(parseFloat(ruleBody(form, ".form__desc")["margin-top"])).toBeLessThan(0);
+    expect(parseFloat(ruleBody(form, ".form__error")["margin-top"])).toBeLessThan(0);
+    expect(parseFloat(ruleBody(team, ".team__empty,\n.team__error")["margin-top"])).toBe(0);
   });
 });

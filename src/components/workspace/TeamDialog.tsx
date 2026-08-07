@@ -172,14 +172,14 @@ export function TeamDialog({
   return (
     <ModalOverlay>
       <form
-        className="form"
+        className="form team-form"
         onSubmit={(e) => {
           e.preventDefault();
           if (planned.ok && valid) onConfirm(planned.value);
         }}
       >
         <h2 className="form__title">{editing ? "Edit team" : "New team"}</h2>
-        <p className="form__desc">
+        <p className="form__desc team__desc">
           Agents on a team can write to each other by role — “ask impl-1”,
           “report to lead”. The role is the address, so it has to be unique.
         </p>
@@ -208,7 +208,7 @@ export function TeamDialog({
             is the lead and reads like one. */}
         <span className="form__label">The team</span>
         {roster.length === 0 ? (
-          <p className="form__desc">
+          <p className="form__desc team__empty">
             Nobody yet — take an agent from below, or start a new one.
           </p>
         ) : (
@@ -319,7 +319,7 @@ export function TeamDialog({
           // refusal rendered in the colour of a positive result is read as
           // one. Directly above the actions, where the disabled button that
           // it explains actually is.
-          <p className="form__error" role="alert">
+          <p className="form__error team__error" role="alert">
             ⚠ {planned.message}
           </p>
         )}

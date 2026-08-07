@@ -8,6 +8,18 @@
  * Both lists share a row, because they are the same kind of thing seen from
  * two sides, and a shared row is what keeps their columns lined up. */
 
+/* The dialog is what scrolls, not the lists inside it.
+ *
+ * Capping each list gave a deck of any size two separate little scroll boxes
+ * stacked in one dialog, each with its own thumb — a shape that reads as
+ * broken before it reads as scrollable, and it put a scrollbar directly over
+ * the "Add" button the pointer was heading for. One scroll region at the
+ * edge of the dialog is where people already expect to find it. */
+.team-form {
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+
 .team__roster,
 .team__pool {
   margin: 0 0 20px;
@@ -16,11 +28,6 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* A workspace can hold sixteen panes. The lists scroll rather than pushing
-     the dialog's actions off screen, which would leave someone unable to
-     confirm the team they just built. */
-  max-height: 220px;
-  overflow-y: auto;
 }
 
 .team__row {
@@ -118,6 +125,32 @@
 .team__row-drop:hover {
   background-color: #1b2230;
   color: #e5736f;
+}
+
+/* Prose in this dialog wraps — it is the only one here that explains a
+   concept rather than labelling a field — and the app's default leading
+   (`normal`, ~1.2) sets wrapped 12px text almost solid. Scoped rather than
+   fixed on `.form__desc`, whose other users are all single lines that would
+   only gain slack from it. */
+.team__desc,
+.team__empty {
+  line-height: 1.5;
+}
+
+/* `.form__desc` and `.form__error` both carry `margin-top: -12px`, which is
+   right where they were designed to sit — tucked under the dialog's TITLE.
+   In this dialog they follow a label and a button instead, and the negative
+   margin pulls each up into whatever is above it. These undo it at the two
+   sites, rather than changing a rule the other dialogs depend on. */
+.team__empty,
+.team__error {
+  margin-top: 0;
+}
+
+/* Above the actions it explains, with air of its own — a refusal jammed
+   against the button it disables reads as part of the button. */
+.team__error {
+  margin-bottom: 12px;
 }
 
 /* Secondary by construction: starting an agent is a step ON THE WAY to a
