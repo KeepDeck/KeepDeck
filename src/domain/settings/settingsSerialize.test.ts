@@ -6,7 +6,7 @@ import {
   serializeSettings,
   withSettings,
   type Settings,
-} from "./settings";
+} from ".";
 import {
   NON_DEFAULT,
   SETTINGS_KEYS,

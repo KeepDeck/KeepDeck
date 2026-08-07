@@ -5,7 +5,7 @@ import {
   type SettingsDocument,
   type SettingsKey,
   type SettingsProvenance,
-} from "./settings";
+} from ".";
 
 /**
  * Shared fixtures for the settings suites. Extracted rather than copied into

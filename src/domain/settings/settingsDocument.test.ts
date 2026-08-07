@@ -9,7 +9,7 @@ import {
   withPluginMuted,
   withSettings,
   type Settings,
-} from "./settings";
+} from ".";
 import { restore } from "./settings.testSupport";
 
 /** How a chosen value enters a document, and the two value helpers. */

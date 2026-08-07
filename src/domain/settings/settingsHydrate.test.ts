@@ -5,7 +5,7 @@ import {
   SCROLLBACK_MIN,
   hydrateSettings,
   serializeSettings,
-} from "./settings";
+} from ".";
 import { restore } from "./settings.testSupport";
 
 /** Per-key tolerant reading of a stored settings document. */
