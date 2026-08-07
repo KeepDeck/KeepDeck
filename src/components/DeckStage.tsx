@@ -457,6 +457,7 @@ export function DeckStage({
               cwd={executionCwd}
               gitBadge={badge}
               yolo={pane.yolo}
+              team={pane.team ?? null}
               visible={layout.visible}
               focused={layout.focused}
               hidden={layout.hidden}

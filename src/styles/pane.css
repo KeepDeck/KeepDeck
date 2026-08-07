@@ -191,6 +191,16 @@
   flex: none;
 }
 
+/* Same anatomy as the branch chip: a role is a short name that must still be
+   allowed to ellipsize rather than push the window controls off. It keeps its
+   own cap because a role is short by convention ("lead", "impl-1") while a
+   branch can be anything. */
+.pane__team {
+  overflow: hidden;
+  max-width: min(120px, 30vw);
+  font-size: 12px;
+}
+
 .pane__branch {
   overflow: hidden;
   /* No `flex` here: a chip does not yield, and chip.css says so once for all
@@ -267,12 +277,20 @@
   .pane__branch .chip__label {
     display: none;
   }
+
+  /* The role does NOT collapse to a glyph here, unlike the branch: a users
+     icon on its own says "on a team" and withholds the one thing worth
+     reading, which is WHICH teammate this is. It is short enough to keep. */
 }
 
 /* Narrower: the branch chip yields entirely — identity goes first, window
    controls last. */
 @container pane-header (max-width: 200px) {
   .pane__branch,
+  /* The role yields with the branch. It outranks the branch while both fit
+     — which is why it sits ahead of it in the header — but neither may
+     squeeze out maximize/close. */
+  .pane__team,
   /* The activity dot yields with it: the FRAME still carries the state,
      and a header this narrow must never squeeze maximize/close out. */
   .pane__activity {

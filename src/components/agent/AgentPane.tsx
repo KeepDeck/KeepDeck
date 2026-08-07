@@ -53,6 +53,11 @@ export interface AgentPaneProps {
   /** The pane runs in YOLO mode — a standing warning chip in the header, so
    * the disabled-prompts state stays visible for the pane's whole life. */
   yolo?: boolean;
+  /** The pane's place on a team, when it is on one — a settled fact handed
+   * in, like every other badge here. Teams are formed through the deck's
+   * commands (a lead assigns its members), so this is how the person
+   * watching learns what the agents arranged among themselves. */
+  team?: { name: string; role: string } | null;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -149,6 +154,7 @@ export function AgentPane({
   cwd,
   gitBadge,
   yolo,
+  team,
   visible,
   focused,
   hidden,
@@ -319,6 +325,7 @@ export function AgentPane({
         ctxPct={ctxPct}
         paneLive={paneLive}
         yolo={yolo}
+        team={team}
         gitBadge={gitBadge}
         onSelect={onSelect}
         onRename={onRename}

@@ -8,7 +8,7 @@ import {
   MinimizeIcon,
   RestoreIcon,
 } from "../../ui/icons";
-import { BranchBadge, YoloBadge } from "../../ui/badges";
+import { BranchBadge, TeamBadge, YoloBadge } from "../../ui/badges";
 import { CloseButton } from "../../ui/CloseButton";
 import { Chip } from "../../ui/Chip";
 import type { GitBadge } from "../../ui/gitBadge";
@@ -30,6 +30,9 @@ export interface AgentPaneHeaderProps {
   ctxPct: number | undefined;
   paneLive: boolean;
   yolo?: boolean;
+  /** The pane's place on a team, when it is on one. Shown as the role,
+   * because the role is the address teammates use. */
+  team?: { name: string; role: string } | null;
   gitBadge?: GitBadge | null;
   /** False while a modal or covering dock owns keyboard interaction — an
    * inline rename must not be left in flight underneath one. */
@@ -60,6 +63,7 @@ export function AgentPaneHeader({
   ctxPct,
   paneLive,
   yolo,
+  team,
   gitBadge,
   keyboardFocusEnabled,
   onSelect,
@@ -140,6 +144,12 @@ export function AgentPaneHeader({
           />
         )}
         {yolo && <YoloBadge className="pane__yolo" />}
+        {team && (
+          // Before the branch chip: which teammate this is outranks which
+          // branch it sits on when reading a deck mid-conversation, and the
+          // narrow-header cascade drops from the right.
+          <TeamBadge className="pane__team" team={team.name} role={team.role} />
+        )}
         {gitBadge && (
           <BranchBadge
             className="pane__branch"

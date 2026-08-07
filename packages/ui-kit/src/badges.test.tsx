@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BranchBadge,
   StoppedMarker,
+  TeamBadge,
   YoloBadge,
   YOLO_BADGE_LABEL,
   YOLO_BADGE_TITLE,
   STOPPED_MARKER_TITLE,
+  teamBadgeTitle,
 } from "./badges";
 
 (
@@ -60,6 +62,32 @@ describe("badges", () => {
       expect(badge.getAttribute("aria-label")).toBeNull();
       // The native title stays: it is the only wording a hover gets.
       expect(badge.title).toBe(YOLO_BADGE_TITLE);
+    });
+  });
+
+  describe("TeamBadge", () => {
+    it("shows the ROLE, and keeps the team name for the tooltip", () => {
+      // The role is the address teammates use, so it is what a person
+      // needs to read a conversation. A deck rarely holds two teams at
+      // once and always holds several roles — the team name settles the
+      // rare ambiguity from the tooltip.
+      act(() =>
+        root.render(createElement(TeamBadge, { team: "api", role: "impl-1" })),
+      );
+      const chip = host.querySelector<HTMLElement>(".chip")!;
+      expect(chip.querySelector(".chip__label")!.textContent).toBe("impl-1");
+      expect(chip.title).toBe(teamBadgeTitle("api", "impl-1"));
+      expect(chip.title).toContain("api");
+      expect(chip.querySelector("svg")).not.toBeNull();
+    });
+
+    it("goes silent for assistive tech inside an already-labelled control", () => {
+      act(() =>
+        root.render(
+          createElement(TeamBadge, { team: "api", role: "lead", decorative: true }),
+        ),
+      );
+      expect(host.querySelector(".chip")!.getAttribute("aria-hidden")).toBe("true");
     });
   });
 

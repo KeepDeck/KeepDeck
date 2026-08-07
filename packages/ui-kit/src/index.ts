@@ -29,9 +29,12 @@ export { AgentGlyph, type AgentGlyphIcon } from "./AgentGlyph.tsx";
 export {
   BranchBadge,
   StoppedMarker,
+  TeamBadge,
   YoloBadge,
+  teamBadgeTitle,
   type BranchBadgeProps,
   type StoppedMarkerProps,
+  type TeamBadgeProps,
   type YoloBadgeProps,
 } from "./badges.tsx";
 export { Chip, type ChipProps } from "./Chip.tsx";

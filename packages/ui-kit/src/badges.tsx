@@ -7,7 +7,7 @@
  * cascade, max-widths).
  */
 import { Chip } from "./Chip.tsx";
-import { BoltIcon, GitBranchIcon, PowerIcon } from "./icons.tsx";
+import { BoltIcon, GitBranchIcon, PowerIcon, UsersIcon } from "./icons.tsx";
 
 /** One wording for the YOLO warning wherever the badge stands. */
 export const YOLO_BADGE_TITLE = "YOLO mode — runs without permission prompts";
@@ -82,6 +82,52 @@ export function BranchBadge({
       icon={<GitBranchIcon />}
       label={label}
       title={title}
+      aria-hidden={decorative || undefined}
+    />
+  );
+}
+
+/** One wording for the team badge wherever it stands. */
+export function teamBadgeTitle(team: string, role: string): string {
+  return `${role} on team ${team} — teammates address it by this role`;
+}
+
+export interface TeamBadgeProps {
+  /** The team's name. */
+  team: string;
+  /** How teammates address this pane. */
+  role: string;
+  /** md in the pane header (default), sm in the minimized stand-in. */
+  size?: "md" | "sm";
+  /** Site class hook (max-width, container queries). */
+  className?: string;
+  /** True inside an already-labeled control. */
+  decorative?: boolean;
+}
+
+/**
+ * The pane's place on a team, as the bordered chip.
+ *
+ * It shows the ROLE, not the team, because the role is what a person needs
+ * to read a conversation: it is the address teammates use, and a deck rarely
+ * holds two teams at once while it always holds several roles. The team name
+ * is in the tooltip, where it settles the ambiguity on the rare occasion
+ * there is one.
+ */
+export function TeamBadge({
+  team,
+  role,
+  size,
+  className,
+  decorative,
+}: TeamBadgeProps) {
+  return (
+    <Chip
+      size={size}
+      className={className}
+      icon={<UsersIcon />}
+      label={role}
+      title={teamBadgeTitle(team, role)}
       aria-hidden={decorative || undefined}
     />
   );
