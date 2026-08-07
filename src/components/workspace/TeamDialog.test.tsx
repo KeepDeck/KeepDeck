@@ -290,7 +290,26 @@ describe("TeamDialog", () => {
     act(() => startNew().click());
     expect(document.querySelector("select")).toBeNull();
     expect(document.querySelector(".team__row-agent")).not.toBeNull();
-    expect(document.querySelector(".form__yolo")).not.toBeNull();
+    expect(document.querySelector(".team__row-yolo")).not.toBeNull();
+  });
+
+  it("explains YOLO once for the column, not once per row", () => {
+    // The full field printed its two-line rationale under every recruit and
+    // turned the roster into a wall of warnings.
+    open(workspace([]));
+    act(() => startNew().click());
+    act(() => startNew().click());
+    expect(all(".team__row-yolo")).toHaveLength(2);
+    expect(all(".team__yolo-note")).toHaveLength(1);
+    expect(document.querySelector(".team__yolo-note")!.textContent).toContain(
+      "permission prompts",
+    );
+    // And nothing repeats that sentence inside the rows.
+    expect(
+      all(".team__row-yolo").every(
+        (cell) => !cell.textContent!.includes("permission"),
+      ),
+    ).toBe(true);
   });
 
   it("shows an agent still to be started as a member, not as a footnote", () => {
@@ -316,12 +335,12 @@ describe("TeamDialog", () => {
     type(nameField(), "api");
     act(() => startNew().click());
     act(() => startNew().click());
-    const toggles = all<HTMLInputElement>('.form__yolo input[type="checkbox"]');
+    const toggles = all<HTMLInputElement>('.team__row-yolo input[type="checkbox"]');
     expect(toggles).toHaveLength(2);
     expect(toggles.every((box) => !box.checked)).toBe(true);
     act(() => toggles[1].click());
     expect(
-      all<HTMLInputElement>('.form__yolo input[type="checkbox"]').map((b) => b.checked),
+      all<HTMLInputElement>('.team__row-yolo input[type="checkbox"]').map((b) => b.checked),
     ).toEqual([false, true]);
     type(roles()[0], "lead");
     type(roles()[1], "impl-1");
@@ -344,7 +363,7 @@ describe("TeamDialog", () => {
     );
     act(() => startNew().click());
     expect(
-      document.querySelector<HTMLInputElement>('.form__yolo input[type="checkbox"]')!
+      document.querySelector<HTMLInputElement>('.team__row-yolo input[type="checkbox"]')!
         .checked,
     ).toBe(true);
   });

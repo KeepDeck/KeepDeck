@@ -18,7 +18,6 @@ import { ModalOverlay } from "../../ui/ModalOverlay";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Dropdown } from "../../ui/Dropdown";
 import { useEscape } from "../../ui/useEscape";
-import { YoloField } from "../../ui/YoloField";
 import { noAutoCorrect } from "../../ui/inputProps";
 
 interface TeamDialogProps {
@@ -275,6 +274,29 @@ export function TeamDialog({
                         ariaLabel="Agent to start"
                       />
                       <span className="team__row-where">new</span>
+                      {/* Asked per row, explained ONCE below. A lead reading
+                          diffs and an implementer grinding through a
+                          refactor want different answers, so the question
+                          belongs in every row — but its two-line rationale
+                          repeated six times turns a roster into a wall of
+                          warnings, which is what the shared field did here.
+                          The header carries the meaning, the cells carry the
+                          answers. Gated on the agent's own declaration, the
+                          same check every spawn surface applies. */}
+                      {agentSupportsYolo(agents, row.agentType) && (
+                        <label
+                          className={`team__row-yolo${
+                            row.yolo ? " team__row-yolo--on" : ""
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={row.yolo}
+                            onChange={(e) => row.setYolo(e.target.checked)}
+                          />
+                          YOLO
+                        </label>
+                      )}
                     </>
                   )}
                   <button
@@ -287,21 +309,18 @@ export function TeamDialog({
                     ×
                   </button>
                 </div>
-                {/* The SAME anatomy every other spawn surface uses — the
-                    "+ Agent" and fork dialogs both render this field, and
-                    `YoloField` exists so the hazard reads identically
-                    wherever an agent is born. A compact chip of my own
-                    saved a line and broke that.
-                    Asked per recruit, because a lead reading diffs and an
-                    implementer grinding through a refactor want different
-                    answers; shown only where the agent declares the mode,
-                    the same gate the other two apply. */}
-                {!row.pane && agentSupportsYolo(agents, row.agentType) && (
-                  <YoloField checked={row.yolo} onChange={row.setYolo} />
-                )}
               </li>
             ))}
           </ul>
+        )}
+        {roster.some((row) => !row.pane) && (
+          // Said once for the column, not once per row: the rationale is
+          // the same for every agent, and repeating it turned the roster
+          // into a wall of warnings.
+          <p className="form__desc team__desc team__yolo-note">
+            <span className="team__yolo-word">YOLO</span> runs an agent without
+            its permission prompts — it acts on its own.
+          </p>
         )}
 
         {/* THE POOL — only what is NOT on the team. A pane that has been

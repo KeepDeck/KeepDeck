@@ -96,32 +96,48 @@
   color: #6b7280;
 }
 
-/* A member is a row; an agent still to be started is a row PLUS the spawn
- * question that comes with it. Stacking rather than cramming: squeezed onto
- * one line the note truncated to "starts when you confi…", and the YOLO
- * opt-in had to shrink into a chip of its own invention — which broke the
- * one anatomy every spawn surface shares. */
 .team__member {
   display: flex;
   flex-direction: column;
 }
 
-/* Its own block, set apart from the plain rows around it: it carries a
- * question none of them do, and a member who does not exist yet reads
- * differently from one who does. */
-.team__member--new {
-  gap: 4px;
-  padding: 8px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background-color: #0b0e14;
+/* The per-recruit YOLO answer.
+ *
+ * The full `.form__yolo` — checkbox plus a two-line rationale — is right in
+ * a dialog that creates ONE agent and asks once. Repeated down a roster it
+ * printed the same sentence six times and turned the list into a wall of
+ * warnings. So the cell keeps the checkbox (the app's own control, amber
+ * accent, same as every spawn surface) and the sentence moves out to a
+ * single line under the list. */
+.team__row-yolo {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  cursor: pointer;
 }
 
-/* `.form__yolo` is built for a stacked dialog and carries its own 20px
-   gap to the next field. Inside this block the block's padding is the
-   spacing. */
-.team__member--new .form__yolo {
-  margin-bottom: 0;
+.team__row-yolo input {
+  accent-color: #b8863b;
+  cursor: pointer;
+}
+
+/* Amber only when armed: a team where one member runs unprompted has to
+   show WHICH one at a glance, and an always-tinted label would say nothing. */
+.team__row-yolo--on {
+  color: #c9a23c;
+}
+
+/* The rationale, once. Pulled up under the roster it belongs to. */
+.team__yolo-note {
+  margin-top: -12px;
+}
+
+.team__yolo-word {
+  color: #c9a23c;
 }
 
 .team__row-take {
