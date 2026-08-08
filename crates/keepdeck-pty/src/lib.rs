@@ -28,6 +28,14 @@ use portable_pty::{
 /// full channel backpressures the pump thread instead of growing without limit.
 const EVENT_CHANNEL_CAP: usize = 1024;
 
+/// How long a child gets between being asked to stop and being made to.
+///
+/// It has to cover the CLI's own shutdown, not just the shell's: an agent
+/// flushes its transcript and releases the lock it holds on its session file
+/// on the way out, and one killed before it can is exactly the state that
+/// refuses to resume afterwards.
+pub const STOP_GRACE: Duration = Duration::from_secs(3);
+
 /// Terminal size in character cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TermSize {
@@ -114,7 +122,7 @@ pub struct PtySession {
     writer: Mutex<Box<dyn Write + Send>>,
     /// Kill fallback (non-Unix / no pid); the Unix path needs no lock at all.
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
-    /// Child pid, for the SIGTERM→SIGKILL escalation in [`kill`](Self::kill) (Unix).
+    /// Child pid — the group id every signal below is aimed at (Unix).
     pid: Option<u32>,
     /// Set by the reaper once the child is waited on, so `kill`'s escalation
     /// timer never signals an already-reaped (possibly recycled) pid.
@@ -217,41 +225,79 @@ impl PtySession {
             .map_err(to_io)
     }
 
-    /// Terminate the child: SIGTERM now, then SIGKILL after a grace period if
-    /// it's still alive — so a well-behaved agent can clean up, but a trap that
-    /// swallows the signal can't survive a close. (A bare `ChildKiller::kill`
-    /// only sends a catchable SIGHUP.) The Unix path takes no lock, so a close
-    /// always lands even while a write is blocked on a hung child.
+    /// Whether the child has been reaped.
     ///
-    /// Both signals go to the child's process GROUP: the PTY spawn made the
+    /// The reaper sets it in the same breath as the exit event, so this is
+    /// also the only safe guard on signalling: once a group empties, the
+    /// kernel may recycle its id, and a late signal would land on a stranger.
+    pub fn has_exited(&self) -> bool {
+        self.exited.load(Ordering::Relaxed)
+    }
+
+    /// Ask the child's whole tree to stop, and return without waiting.
+    ///
+    /// SIGTERM rather than the bare `ChildKiller::kill`, which only sends a
+    /// catchable SIGHUP — and a CLI that holds its own children survives one.
+    /// The Unix path takes no lock, so this always lands even while a write is
+    /// blocked on a hung child.
+    ///
+    /// The signal goes to the child's process GROUP: the PTY spawn made the
     /// child a session leader (its pid doubles as the pgid), and a non-
     /// interactive `sh -c` runs without job control, so a run command's whole
     /// tree — `&`-backgrounded children included — shares that group. Killing
     /// only the leader let those children outlive the pane. A process that
     /// double-forks out of the session (a self-daemonizer) is beyond any
     /// group signal; that one is out of scope by design.
-    pub fn kill(&self) -> io::Result<()> {
+    pub fn signal_stop(&self) -> io::Result<()> {
         #[cfg(unix)]
         if let Some(pid) = self.pid {
-            // Already reaped → nothing to signal. The group id is the reaped
-            // pid, and once the group empties the id can be recycled — a late
-            // group signal could hit an unrelated process.
-            if self.exited.load(Ordering::Relaxed) {
+            if self.has_exited() {
                 return Ok(());
             }
-            let pid = pid as i32;
-            signal_tree(pid, libc::SIGTERM);
-            let exited = self.exited.clone();
-            thread::spawn(move || {
-                thread::sleep(Duration::from_secs(3));
-                if !exited.load(Ordering::Relaxed) {
-                    signal_tree(pid, libc::SIGKILL);
-                }
-            });
+            signal_tree(pid as i32, libc::SIGTERM);
             return Ok(());
         }
         // No pid, or non-Unix: fall back to the killer's signal.
         self.killer.lock().expect("pty killer poisoned").kill()
+    }
+
+    /// End the child's whole tree outright. Nothing survives SIGKILL and
+    /// nothing gets to clean up, so this is the last resort after
+    /// [`signal_stop`] and [`STOP_GRACE`] have gone by.
+    pub fn force_stop(&self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.pid {
+            if self.has_exited() {
+                return;
+            }
+            signal_tree(pid as i32, libc::SIGKILL);
+        }
+    }
+
+    /// Terminate the child: [`signal_stop`] now, [`force_stop`] after
+    /// [`STOP_GRACE`] if it is still alive — so a well-behaved agent can clean
+    /// up, but a trap that swallows the signal can't survive a close.
+    ///
+    /// Returns immediately; the escalation runs on its own thread, because the
+    /// caller is a pane closing and must not sit through the grace period.
+    /// A caller taking down MANY sessions at once wants the primitives instead
+    /// — one shared wait rather than one per session.
+    ///
+    /// [`signal_stop`]: Self::signal_stop
+    /// [`force_stop`]: Self::force_stop
+    pub fn kill(&self) -> io::Result<()> {
+        self.signal_stop()?;
+        #[cfg(unix)]
+        if let Some(pid) = self.pid {
+            let (pid, exited) = (pid as i32, self.exited.clone());
+            thread::spawn(move || {
+                thread::sleep(STOP_GRACE);
+                if !exited.load(Ordering::Relaxed) {
+                    signal_tree(pid, libc::SIGKILL);
+                }
+            });
+        }
+        Ok(())
     }
 }
 

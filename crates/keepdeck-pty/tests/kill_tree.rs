@@ -89,6 +89,30 @@ fn kill_reaches_backgrounded_children() {
 }
 
 #[test]
+fn asking_a_tree_to_stop_is_not_the_same_as_making_it() {
+    // The two halves `kill` runs back to back, taken apart — this is the pair
+    // a fleet shutdown drives itself, so that it can ask everyone at once and
+    // wait for them together instead of paying the grace period per session.
+    let (session, events) = spawn_sh("trap '' TERM; echo READY; sleep 30");
+    read_until(&events, "READY", Duration::from_secs(5));
+    assert!(!session.has_exited(), "still running before anything is sent");
+
+    session.signal_stop().expect("signal_stop");
+    // A tree that swallows SIGTERM outlives the ask. That is the entire
+    // reason a shutdown has to WAIT before deciding nothing more is coming:
+    // asking is not evidence of anything.
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(
+        !session.has_exited(),
+        "a TERM-immune tree must survive signal_stop",
+    );
+
+    session.force_stop();
+    wait_exit(&events, Duration::from_secs(5));
+    assert!(session.has_exited(), "reaped after force_stop");
+}
+
+#[test]
 fn kill_escalates_to_sigkill_for_term_immune_trees() {
     // A shell that swallows SIGTERM stands in for a misbehaving process; only
     // the 3s SIGKILL escalation can end it.
