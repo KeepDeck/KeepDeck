@@ -208,11 +208,24 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * At most ONE message is handed over per call: the next needs its spacing
    * gap, and the timer this returns is what comes back for it. Expiring
    * messages do not consume that budget — they never reached the pane.
+   *
+   * Two of the three holds are facts about the PANE — it is at a permission
+   * prompt, its turn has not ended — and those stop the walk, because they
+   * are just as true of everything behind them. The third is a fact about
+   * the MESSAGE: one that may only arrive labelled is waiting for a
+   * different channel entirely, and stopping there would let a briefing
+   * nobody has collected stand in front of every task the terminal could
+   * carry. Observed live: a lead's pings to two teammates both came back
+   * `delivered: false`, queued behind briefings restated at session start.
    */
   function drainPane(paneId: string, queue: Mail[], at: number): number | null {
-    for (;;) {
-      const head = queue[0];
-      if (!head) return null;
+    /** The earliest deadline owed to messages this walk stepped OVER. They
+     * are still queued and still expire, so their clock has to survive a
+     * pass that found nothing deliverable behind them. */
+    let skipped: number | null = null;
+    let index = 0;
+    while (index < queue.length) {
+      const head = queue[index];
       const verdict = decideDelivery(
         head,
         deps.activityOf(paneId),
@@ -221,7 +234,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         asksAtTurnEnd(paneId),
       );
       if (verdict.kind === "expire") {
-        queue.shift();
+        queue.splice(index, 1);
         log.info("web:mail", `expired unread after ${at - head.at}ms: ${trace(head)}`);
         const notice = expiryNotice(head, mintId(), at);
         if (notice) {
@@ -230,23 +243,33 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         }
         continue;
       }
+      // The message's own restriction, not the pane's: step over it and keep
+      // looking. It leaves through `takeAtTurnEnd` or not at all.
+      if (verdict.kind === "hold" && verdict.reason === "labelled-only") {
+        log.debug("web:mail", `waiting for the labelled channel: ${trace(head)}`);
+        skipped = earlier(skipped, head.at + limits.undeliveredMs);
+        index += 1;
+        continue;
+      }
       // Held for a turn boundary: the wait is bounded, so the deadline is
       // when waiting stops being worth it — not when the message dies.
       // Missing that distinction would leave a pane whose turn never ends
       // silently losing its mail instead of falling back to the terminal.
       if (verdict.kind === "hold" && verdict.reason === "turn-boundary") {
         log.debug("web:mail", `held for a turn boundary: ${trace(head)}`);
-        return head.at + limits.hookWaitMs;
+        return earlier(skipped, head.at + limits.hookWaitMs);
       }
-      // Held on a prompt, or on a pane nothing speaks for. Both resolve
-      // through the activity subscription, so the only thing left to
-      // schedule is the moment this message stops being worth delivering.
+      // Held on a permission prompt, which resolves through the activity
+      // subscription — so the only thing left to schedule is the moment this
+      // message stops being worth delivering.
       if (verdict.kind === "hold") {
         log.debug("web:mail", `held on ${verdict.reason}: ${trace(head)}`);
-        return head.at + limits.undeliveredMs;
+        return earlier(skipped, head.at + limits.undeliveredMs);
       }
       const last = lastDeliveryAt.get(paneId);
-      if (last !== undefined && at - last < SERIALIZE_MS) return last + SERIALIZE_MS;
+      if (last !== undefined && at - last < SERIALIZE_MS) {
+        return earlier(skipped, last + SERIALIZE_MS);
+      }
       // No input channel: the pane is starting, or stopped. This is the ONE
       // refusal that says so — a pane can be perfectly alive and report no
       // activity at all — and it resolves through `subscribeChannels`, not
@@ -254,17 +277,18 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // deadline is only the backstop for a pane that never comes back.
       if (!deps.deliver(head)) {
         log.debug("web:mail", `no input channel yet: ${trace(head)}`);
-        return head.at + limits.undeliveredMs;
+        return earlier(skipped, head.at + limits.undeliveredMs);
       }
       log.info("web:mail", `pasted into the pane: ${trace(head)}`);
-      queue.shift();
+      queue.splice(index, 1);
       lastDeliveryAt.set(paneId, at);
       // The receiver now stands one message deep in this chain: whatever it
       // sends next continues from here, which is what bounds a conversation.
       chainHop.set(paneId, head.hop);
       remember(paneId, head);
-      return queue.length > 0 ? at + SERIALIZE_MS : null;
+      return earlier(skipped, queue.length > 0 ? at + SERIALIZE_MS : null);
     }
+    return skipped;
   }
 
   function drain(): void {

@@ -388,6 +388,42 @@ describe("createMailManager", () => {
     ]);
   });
 
+  it("lets a task past a briefing that is still waiting for its channel", () => {
+    // Head-of-line blocking, seen live: a lead's pings to two teammates both
+    // came back `delivered: false`, sitting behind briefings restated at
+    // session start that nothing had collected. A briefing waits for a
+    // DIFFERENT channel — that is a fact about the message, not about the
+    // pane — so it must not stand in front of what the terminal can carry.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.announce(B.paneId, "team", "you are impl-1 on api");
+    const sent = h.manager.send({
+      from: A,
+      toPaneId: B.paneId,
+      kind: "task",
+      body: "take the parser",
+    });
+    expect(sent).toMatchObject({ ok: true, delivered: true });
+    expect(h.delivered.map((mail) => mail.kind)).toEqual(["task"]);
+    // And the briefing kept its place rather than being consumed with it.
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.kind)).toEqual([
+      "team",
+    ]);
+  });
+
+  it("still expires a briefing it stepped over, on that briefing's own clock", () => {
+    // Stepping over a message must not cost it its timer: the walk can end
+    // with nothing deliverable behind it, and the only thing left to
+    // schedule is the moment the skipped one stops being worth holding.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.announce(B.paneId, "team", "you are impl-1 on api");
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "take it" });
+    expect(h.delivered).toHaveLength(1);
+    h.advance(MAIL_LIMITS.undeliveredMs);
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
+  });
+
   it("drops a briefing nobody asked for rather than typing it in late", () => {
     // The wait is bounded like every other, and the end of it is NOT a
     // fallback to the terminal — that fallback is exactly what this kind
