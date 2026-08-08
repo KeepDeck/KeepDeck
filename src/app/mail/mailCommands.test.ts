@@ -191,6 +191,31 @@ describe("mail.inbox", () => {
     if (sent.ok) expect(sent.value).toEqual([]);
   });
 
+  it("names the sender by the ROLE it answers to, not by its pane title", async () => {
+    // The receiver replies to whatever it is shown, and only a role is an
+    // address. Shown a pane title, an agent sent to the title and was
+    // refused — it got through only on a second try after being told the
+    // roles.
+    const { registry, workspaces, delivered } = setup();
+    const lead = from("pane-1", "ws-1", "Структура команды и количество подчинённых");
+    workspaces[0].panes[0].team = { name: "test", role: "lead" };
+    await run(
+      registry,
+      "mail.send",
+      { to: "pane-2", kind: "note", body: "ping" },
+      lead,
+    );
+    expect(delivered[0].from).toEqual({
+      kind: "pane",
+      pane: {
+        paneId: "pane-1",
+        workspaceId: "ws-1",
+        label: "Структура команды и количество подчинённых",
+        role: "lead",
+      },
+    });
+  });
+
   it("keeps the hop counter off the wire", async () => {
     // It bounds the conversation. An agent that could read it could try to
     // reason its way around it, and it answers no question an agent has.

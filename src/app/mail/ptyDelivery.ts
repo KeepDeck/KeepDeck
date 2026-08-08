@@ -28,10 +28,15 @@ import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
  * preamble per note would cost more context than the notes are worth.
  */
 export function renderMail(mail: Mail): string {
+  // Named by ROLE, never by pane title. The receiver replies to whatever it
+  // was told the sender was, and only a role is an address — shown a title,
+  // an agent sent to the title and was refused. A sender on no team has no
+  // address to give, so its title stands in and the reply has to be
+  // addressed some other way.
   const origin =
     mail.from.kind === "host"
       ? "from KeepDeck itself"
-      : `from ${mail.from.pane.label}, another agent in this deck and not your user`;
+      : `from ${mail.from.pane.role ?? mail.from.pane.label}, another agent in this deck and not your user`;
   return `[keepdeck mail ${mail.id} — ${mail.kind}, ${origin}; reply with mail.send replyTo="${mail.id}"]\n${mail.body}`;
 }
 

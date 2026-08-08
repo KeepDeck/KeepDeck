@@ -138,6 +138,12 @@ export function registerMailCommands(
         // of, and with no permission gate anywhere in the registry yet, this
         // resolution IS the boundary rather than a convenience.
         const { workspace, pane } = callerWorkspace(deps, from);
+        // Stamp the ROLE the sender answers to. The receiver replies to
+        // whatever it is shown as the sender, so showing anything that is
+        // not an address is showing it a dead end.
+        const speaking: MailSender = pane.team
+          ? { ...from, role: pane.team.role }
+          : from;
         // A teammate's ROLE outranks every other way to name a pane — see
         // `resolveMailTarget`. A workspace with no teams behaves exactly as
         // it did before teams existed.
@@ -149,7 +155,7 @@ export function registerMailCommands(
         );
         if (!resolved.ok) throw new Error(resolved.message);
         const result = deps.mail.send({
-          from,
+          from: speaking,
           toPaneId: resolved.value.id,
           kind: kind as MailKind,
           body: args.body as string,

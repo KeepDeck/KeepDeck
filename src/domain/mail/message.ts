@@ -49,6 +49,15 @@ export interface MailSender {
   paneId: string;
   workspaceId: string;
   label: string;
+  /** The role this pane answered to when it spoke, if any.
+   *
+   * This, not `label`, is what the receiver is shown — because a receiver
+   * replies to whatever it was told the sender was, and the role is the only
+   * name that IS an address. Shown a pane title, an agent dutifully sent to
+   * the title and was refused; it only got through on a second try after
+   * being told the roles. Snapshot at send time for the same reason the
+   * label is: roles move. */
+  role?: string;
 }
 
 /**

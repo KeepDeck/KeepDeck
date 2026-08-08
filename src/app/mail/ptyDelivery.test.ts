@@ -50,6 +50,31 @@ describe("renderMail", () => {
     expect(text.endsWith("\nwhich signature does the port take?")).toBe(true);
   });
 
+  it("names a teammate by its role, so the reply has an address to use", () => {
+    // The title is what an agent was shown before, and it dutifully replied
+    // to the title — which is not an address, and was refused.
+    const text = renderMail(
+      mail({
+        from: {
+          kind: "pane",
+          pane: {
+            paneId: "pane-1",
+            workspaceId: "ws-1",
+            label: "Структура команды",
+            role: "lead",
+          },
+        },
+      }),
+    );
+    expect(text).toContain("from lead,");
+    expect(text).not.toContain("Структура команды");
+  });
+
+  it("falls back to the title for a sender on no team", () => {
+    // No role means no address to give; the title is all there is.
+    expect(renderMail(mail())).toContain("from Agent 1,");
+  });
+
   it("distinguishes a report from KeepDeck itself", () => {
     const text = renderMail(
       mail({ kind: "undelivered", from: { kind: "host" }, body: "Undelivered: ..." }),

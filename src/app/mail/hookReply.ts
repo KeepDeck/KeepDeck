@@ -42,7 +42,14 @@ function forAgent(mail: Mail): DeliverableMail {
     id: mail.id,
     kind: mail.kind,
     body: mail.body,
-    from: mail.from.kind === "pane" ? mail.from.pane.label : null,
+    // The ROLE, because the receiver answers to whatever it is shown — and
+    // only a role is an address. A pane title is not one: shown a title, an
+    // agent sent to the title and was refused. The title is the fallback for
+    // a sender on no team, where there is no address to give.
+    from:
+      mail.from.kind === "pane"
+        ? (mail.from.pane.role ?? mail.from.pane.label)
+        : null,
     ...(mail.replyTo ? { replyTo: mail.replyTo } : {}),
   };
 }
