@@ -353,9 +353,12 @@ describe("createMailManager", () => {
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
     h.advance(MAIL_LIMITS.undeliveredMs);
     // It aged out along the way; the hand-over yields nothing and the
-    // sender still hears about it.
+    // sender still hears about it. The report waits for A's own hook first,
+    // like everything else, and reaches the terminal once that wait is up.
     expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
-    expect(h.delivered.map((mail) => mail.kind)).toEqual(["undelivered"]);
+    expect(h.manager.takeAtTurnEnd(A.paneId).map((mail) => mail.kind)).toEqual([
+      "undelivered",
+    ]);
   });
 
   it("lets the deck speak for itself, without spending a chain", () => {
@@ -397,13 +400,15 @@ describe("createMailManager", () => {
     const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, done);
     h.manager.announce(B.paneId, "team", "you are impl-1 on api");
-    const sent = h.manager.send({
+    h.manager.send({
       from: A,
       toPaneId: B.paneId,
       kind: "task",
       body: "take the parser",
     });
-    expect(sent).toMatchObject({ ok: true, delivered: true });
+    // Once the wait for a hook is spent, the task takes the terminal — and
+    // the briefing standing in front of it must not have stopped that.
+    h.advance(MAIL_LIMITS.hookWaitMs);
     expect(h.delivered.map((mail) => mail.kind)).toEqual(["task"]);
     // And the briefing kept its place rather than being consumed with it.
     expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.kind)).toEqual([
@@ -419,6 +424,7 @@ describe("createMailManager", () => {
     h.reports(B.paneId, done);
     h.manager.announce(B.paneId, "team", "you are impl-1 on api");
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "take it" });
+    h.advance(MAIL_LIMITS.hookWaitMs);
     expect(h.delivered).toHaveLength(1);
     h.advance(MAIL_LIMITS.undeliveredMs);
     expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);

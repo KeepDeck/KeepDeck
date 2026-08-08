@@ -51,9 +51,9 @@ export type MailHoldReason =
   /** The pane has no live input channel — it is starting, or stopped. The
    * delivery channel says so; nothing else can. */
   | "no-channel"
-  /** A turn is running and this agent asks the deck for its mail when that
-   * turn ends. Waiting buys a labelled envelope instead of a paste that
-   * reads like the user typed it. */
+  /** This agent asks the deck for its mail at a turn boundary. Waiting buys
+   * a labelled envelope instead of a paste that reads like the user typed
+   * it — and that a TUI may not even submit. */
   | "turn-boundary"
   /** This message may only arrive labelled, and the labelled channel has
    * not asked yet. See [`WAKES_A_PANE`]. */
@@ -120,47 +120,43 @@ export function decideDelivery(
   // The hook channel takes them straight out of the queue and never asks
   // this, so holding here is exactly "the labelled channel or nothing".
   if (!WAKES_A_PANE.has(mail.kind)) return { kind: "hold", reason: "labelled-only" };
-  // No activity is NOT a reason to hold, and treating it as one was the bug
-  // that made the whole feature look broken: a status reporter speaks on
-  // turn events, so a pane sitting idle at its prompt — never had a turn,
-  // or came back from a restart — reports nothing at all. That is the pane
-  // most in need of waking, and it was the one guaranteed never to be
-  // woken, because the retry waited on an activity change that a silent
-  // pane never produces. Observed live: a task to an idle teammate sat
-  // undelivered until a person typed into it by hand.
-  //
-  // Whether a pane can actually take the message is the delivery channel's
-  // question, and it already answers it — a refusal there is what holds.
-  if (!activity) return { kind: "deliver" };
   // The one genuinely dangerous state. A permission prompt answers
   // keystrokes by CHOOSING A MENU ITEM, so text pushed there is not read as
   // text at all — its characters answer the prompt, and the tracker cannot
   // see that happen, because a write like this deliberately never enters the
   // keystroke channel (`src/app/paneKeys.ts`). Holding is the only safe
   // answer, and it is why messages need a clock at all.
-  if (activity.state === "waiting" && activity.reason === "permission") {
+  //
+  // No activity at all is NOT this state, and treating it as any kind of
+  // hold was once a bug of its own: a status reporter speaks on turn events,
+  // so a pane sitting idle at its prompt reports nothing whatsoever.
+  if (activity?.state === "waiting" && activity.reason === "permission") {
     return { kind: "hold", reason: "permission" };
   }
-  // A running turn is the ONE state where a better channel is coming. The
-  // agent will ask the deck at its own turn boundary, and an answer given
-  // there arrives inside the CLI's own envelope — labelled as another
-  // agent's words rather than pasted in looking like the user typed them.
+  // If this agent has a labelled channel at all, WAIT for it — whatever the
+  // pane happens to be doing. This used to wait only on a `working` pane,
+  // which made the terminal the normal path rather than the exception: a
+  // pane sitting at its prompt reports `done` (or nothing), so the good
+  // channel was skipped for exactly the messages that had time to use it.
   //
-  // Bounded, because that is what makes it safe to wait: a turn can run far
-  // longer than a course correction stays useful, so once the wait is spent
-  // the message goes through the terminal after all. Late-but-labelled is
-  // worth a short wait; never-because-we-waited is not.
-  if (
-    asksAtTurnEnd &&
-    activity.state === "working" &&
-    now - mail.at < limits.hookWaitMs
-  ) {
+  // The terminal is the undesirable one, and the reason is not taste. Text
+  // pushed at a TUI is indistinguishable from what the user typed, and it
+  // is not even reliably delivered — the submit is a separate keystroke, and
+  // a pane that was not ready for it leaves the message sitting in the
+  // composer, unsent, looking to the deck exactly like a message that
+  // arrived. Seen live, twice.
+  //
+  // Still BOUNDED, because that is what keeps it a preference rather than a
+  // trap: an agent that never takes another turn would otherwise hold its
+  // mail until it expired. Once the wait is spent the terminal takes it
+  // after all — late-but-labelled is worth a wait; never is not.
+  if (asksAtTurnEnd && now - mail.at < limits.hookWaitMs) {
     return { kind: "hold", reason: "turn-boundary" };
   }
-  // Everything else takes it. `working` is steering — a correction mid-run
-  // is the normal mode, not an intrusion. `waiting("question")` is a pane
-  // parked on a question, where the message is most likely the answer.
-  // `done`/`failed` simply start a new turn.
+  // The last resort, and everything that has no labelled channel at all.
+  // `working` is steering — a correction mid-run is the normal mode, not an
+  // intrusion. `waiting("question")` is a pane parked on a question, where
+  // the message is most likely the answer. `done`/`failed` start a new turn.
   return { kind: "deliver" };
 }
 

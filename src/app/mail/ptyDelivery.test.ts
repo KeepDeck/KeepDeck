@@ -92,10 +92,24 @@ describe("renderMail", () => {
   });
 });
 
+/** A moment past every settle window — the ordinary case, where the pane has
+ * been up for a while by the time anything is sent to it. */
+const SETTLED = Date.now() + 60_000;
+
 describe("deliverMailThroughPty", () => {
+  it("refuses a pane that only just became writable, as a retry", () => {
+    // "A writer exists" is not "the CLI reads it". Pasting into a starting
+    // TUI leaves the text in the composer and loses the submit after it —
+    // seen live, twice — and a paste is answered by nothing, so the deck
+    // cannot tell that from a delivery. Nothing is written at all.
+    const calls = pane("pane-2");
+    expect(deliverMailThroughPty(mail(), Date.now())).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
   it("pastes the message, then submits with a raw CR outside the paste", () => {
     const calls = pane("pane-2");
-    expect(deliverMailThroughPty(mail())).toBe(true);
+    expect(deliverMailThroughPty(mail(), SETTLED)).toBe(true);
     expect(calls).toHaveLength(2);
     expect(calls[0].channel).toBe("paste");
     expect(calls[0].text).toContain("which signature does the port take?");
@@ -106,7 +120,7 @@ describe("deliverMailThroughPty", () => {
 
   it("carries a body containing its own CR without submitting halfway", () => {
     const calls = pane("pane-2");
-    expect(deliverMailThroughPty(mail({ body: "stop\rnow" }))).toBe(true);
+    expect(deliverMailThroughPty(mail({ body: "stop\rnow" }), SETTLED)).toBe(true);
     // One paste holding the whole body, and exactly one submit after it.
     expect(calls.filter((call) => call.channel === "write")).toEqual([
       { channel: "write", text: "\r" },
@@ -115,14 +129,14 @@ describe("deliverMailThroughPty", () => {
   });
 
   it("reports a pane with no live session as a retry, writing nothing", () => {
-    expect(deliverMailThroughPty(mail({ toPaneId: "pane-nobody" }))).toBe(false);
+    expect(deliverMailThroughPty(mail({ toPaneId: "pane-nobody" }), SETTLED)).toBe(false);
   });
 
   it("refuses a type-only pane rather than submitting an empty prompt", () => {
     // A pane with no paste channel would otherwise take the bare CR below
     // and send an empty line into the agent's composer.
     const calls = pane("pane-2", { paste: false });
-    expect(deliverMailThroughPty(mail())).toBe(false);
+    expect(deliverMailThroughPty(mail(), SETTLED)).toBe(false);
     expect(calls).toEqual([]);
   });
 });

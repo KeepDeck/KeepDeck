@@ -16,7 +16,12 @@
  * everywhere, and it promises exactly as much as it can keep.
  */
 import type { Mail } from "../../domain/mail";
-import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
+import {
+  paneInputReady,
+  paneInputSettled,
+  pasteToPane,
+  writeRawToPane,
+} from "../paneInput";
 
 /**
  * The text one message becomes in a terminal.
@@ -44,8 +49,14 @@ export function renderMail(mail: Mail): string {
  * Deliver through the pane's terminal. False means the pane has no live
  * input channel right now, which the owner treats as a retry.
  */
-export function deliverMailThroughPty(mail: Mail): boolean {
+export function deliverMailThroughPty(mail: Mail, now?: number): boolean {
   if (!paneInputReady(mail.toPaneId)) return false;
+  // A pane that has only just become writable is not yet READING. Pasting
+  // then puts the text in the composer and loses the submit after it, which
+  // is how a briefing came to sit in an agent's input box unsent — and the
+  // deck could not tell that from a delivery, because a paste is answered by
+  // nothing at all. Reported as a retry, which is exactly what it is.
+  if (!paneInputSettled(mail.toPaneId, now)) return false;
   // The PASTE channel, framed by the renderer, so a body containing its own
   // newlines or a CR arrives whole instead of submitting itself halfway
   // through. That framing is the reason the submit below has to be separate.

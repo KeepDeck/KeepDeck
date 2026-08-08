@@ -147,19 +147,37 @@ describe("decideDelivery", () => {
     });
   });
 
-  it("waits only for a RUNNING turn — an idle agent will never come asking", () => {
-    // Nothing fires a turn-end hook for a pane that has stopped, so holding
-    // one of these would be holding it until it expired.
-    for (const activity of [done, failed, asking]) {
-      expect(decideDelivery(mail(), activity, SENT_AT, MAIL_LIMITS, true)).toEqual({
-        kind: "deliver",
-      });
+  it("waits for the labelled channel whatever the pane is doing", () => {
+    // This used to wait only on a RUNNING pane, which made the terminal the
+    // normal path rather than the exception: an idle pane reports `done`, so
+    // the good channel was skipped for exactly the messages with time to use
+    // it. The terminal is not merely unlabelled, it is unreliable — its
+    // submit is a separate keystroke that a pane can fail to take, leaving
+    // the message in the composer and the deck none the wiser.
+    for (const activity of [working, done, failed, asking, undefined]) {
+      expect(
+        decideDelivery(mail(), activity, SENT_AT, MAIL_LIMITS, true),
+        String(activity?.state),
+      ).toEqual({ kind: "hold", reason: "turn-boundary" });
     }
-    // ...and a permission prompt is still the dangerous case, hook or not.
+    // ...and a permission prompt outranks it, hook or not.
     expect(decideDelivery(mail(), approving, SENT_AT, MAIL_LIMITS, true)).toEqual({
       kind: "hold",
       reason: "permission",
     });
+  });
+
+  it("falls back to the terminal once the wait for a hook is spent", () => {
+    // The bound is what keeps the preference from becoming a trap: an agent
+    // that never takes another turn would otherwise hold its mail until it
+    // expired, and the message would reach nobody at all.
+    const late = SENT_AT + MAIL_LIMITS.hookWaitMs;
+    expect(decideDelivery(mail(), done, late, MAIL_LIMITS, true)).toEqual({
+      kind: "deliver",
+    });
+    // And the wait is strictly shorter than the life of the message, or the
+    // fallback would never get a turn.
+    expect(MAIL_LIMITS.hookWaitMs).toBeLessThan(MAIL_LIMITS.undeliveredMs);
   });
 
   it("steers straight into a running turn when no hook exists", () => {

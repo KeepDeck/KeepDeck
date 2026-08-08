@@ -29,7 +29,33 @@ export interface PaneInput {
 }
 
 const entries = new Map<string, PaneInput>();
+/** When each pane's input was registered — see [`paneInputSettled`]. */
+const registeredAt = new Map<string, number>();
 const watchers = new Set<() => void>();
+
+/**
+ * How long a freshly registered pane is given before anything is pushed at
+ * it unasked.
+ *
+ * "A writer exists" is not "the CLI reads it". `deliverTask` has always
+ * known this and waits out the same kind of gap before its own paste; the
+ * number here is that one. Under it, a paste lands in a TUI that is still
+ * starting and the submit keystroke after it goes nowhere — the text sits in
+ * the composer, unsent, and the deck has no way to tell that from a delivery.
+ */
+const SETTLE_MS = 1_500;
+
+/**
+ * Whether this pane has been writable long enough to be pushed at.
+ *
+ * Only for text nobody asked for — mail, mostly. A person's own paste or
+ * keystroke needs no such gate: they can see the pane, and they are the ones
+ * who decided it was ready.
+ */
+export function paneInputSettled(id: string, now: number = Date.now()): boolean {
+  const since = registeredAt.get(id);
+  return since !== undefined && now - since >= SETTLE_MS;
+}
 
 /**
  * Tell me when any pane's input appears or goes away.
@@ -59,12 +85,20 @@ export function registerPaneInput(
   input: PaneInput,
 ): () => void {
   entries.set(id, input);
+  registeredAt.set(id, Date.now());
   announce();
+  // Becoming SETTLED is a second event, and nothing else would publish it:
+  // a caller that was turned away for pushing too early is waiting on a
+  // moment no status and no mount reports. Without this it would wait for
+  // whatever happened to poke the registry next.
+  const settled = setTimeout(announce, SETTLE_MS);
   return () => {
+    clearTimeout(settled);
     // Only delete if it's still ours — guards against a re-mount that already
     // replaced the entry (e.g. a StrictMode double-mount).
     if (entries.get(id) === input) {
       entries.delete(id);
+      registeredAt.delete(id);
       announce();
     }
   };
