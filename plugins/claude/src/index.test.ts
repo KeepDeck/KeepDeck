@@ -117,6 +117,19 @@ describe("claude plugin hooks", () => {
     // EXACTLY these: an event armed by accident feeds the lane edges nobody
     // reasoned about, and the normalizer's default arm drops them silently.
     expect(Object.keys(settings.hooks).sort()).toEqual([...armed].sort());
+    // And EVERY one carries a limit of ours. claude's own default is not
+    // something this deck can read, and a limit under the reporter's ~2s
+    // wait would kill it mid-round-trip — losing not a status edge but
+    // MAIL, which the deck hands over before the answer is written. It
+    // would then sit in the pane's inbox, never in its context, silently on
+    // both sides.
+    for (const event of armed) {
+      for (const entry of settings.hooks[event] as {
+        hooks: { timeout?: number }[];
+      }[]) {
+        expect(entry.hooks[0].timeout, event).toBeGreaterThanOrEqual(5);
+      }
+    }
   });
 
   it("lets both reporters ride SessionStart, in arming order", async () => {

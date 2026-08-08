@@ -30,6 +30,22 @@ import { claudeHistory } from "./history";
  * KeepDeck.app can live under a path with spaces. */
 const shellQuote = (path: string) => `'${path.split("'").join(`'\\''`)}'`;
 
+/**
+ * How long claude may let one of our hooks run, in seconds.
+ *
+ * Stated rather than left to claude's default, which is not something this
+ * deck gets to know: the reporter's own wait for the deck's answer is ~2s,
+ * and a limit under that would kill it mid-wait. What is lost then is not a
+ * status edge — it is MAIL, because the deck hands messages over before the
+ * answer is written, so they land in the pane's inbox and never in its
+ * context. That failure is silent on both sides, which is exactly why the
+ * number is ours and not theirs.
+ *
+ * Five times the wait: enough that a slow round trip still lands, short
+ * enough that a genuinely stuck hook does not hold a turn open.
+ */
+const HOOK_TIMEOUT_SECONDS = 10;
+
 /** The `--settings` args arming both reporters — the SessionStart identity
  * hook and the statusLine usage reporter; each degrades independently when
  * its script is missing (`[]` only when neither resolves). The inline JSON
@@ -59,6 +75,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
         {
           type: "command",
           command: `/bin/sh ${shellQuote(script)} claude${ask ? " --ask" : ""}`,
+          timeout: HOOK_TIMEOUT_SECONDS,
         },
       ],
     });

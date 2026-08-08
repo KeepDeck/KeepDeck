@@ -54,17 +54,40 @@ export async function cliArgs(rules: readonly HookRule[]): Promise<string[]> {
   return args;
 }
 
+/**
+ * codex's own hook timeout, in seconds, applied when a hook declares none.
+ *
+ * NOT a number this file chose — it is codex's default, and reproducing it
+ * is mandatory: the fingerprint below is taken over the NORMALIZED hook, so
+ * a value that disagrees with codex's produces a hash codex rejects, and a
+ * rejected hook is refused in silence. It is stated here rather than buried
+ * in the literal because it is also the answer to "how long may our reporter
+ * run": ten minutes, against the ~2s it actually waits for the deck. That
+ * margin is why codex needs no timeout of ours, while claude — whose default
+ * we cannot read — is given one explicitly.
+ *
+ * If codex ever changes it, hook trust breaks first and everything armed
+ * through this module goes quiet. That is the symptom to recognise.
+ */
+export const CODEX_HOOK_TIMEOUT_SECONDS = 600;
+
 /** codex's fingerprint of the normalized hook identity:
  * `sha256:<hex>` over the compact, KEY-SORTED JSON of
  * `{event_name, hooks:[{async, command, timeout, type}]}` — defaults
- * applied (`timeout` 600, `async` false), `None` fields omitted, matcher
- * absent. JSON.stringify preserves insertion order, so the literals below
- * are written in alphabetical key order to match serde_json's sorted map. */
+ * applied ([`CODEX_HOOK_TIMEOUT_SECONDS`], `async` false), `None` fields
+ * omitted, matcher absent. JSON.stringify preserves insertion order, so the
+ * literals below are written in alphabetical key order to match
+ * serde_json's sorted map. */
 export async function trustedHash(rule: HookRule): Promise<string> {
   const identity = {
     event_name: snakeCase(rule.event),
     hooks: [
-      { async: false, command: rule.command, timeout: 600, type: "command" },
+      {
+        async: false,
+        command: rule.command,
+        timeout: CODEX_HOOK_TIMEOUT_SECONDS,
+        type: "command",
+      },
     ],
   };
   const bytes = new TextEncoder().encode(JSON.stringify(identity));

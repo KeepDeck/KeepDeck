@@ -3,6 +3,7 @@ import {
   cliArgs,
   sessionFlagsStateKey,
   shellQuote,
+  CODEX_HOOK_TIMEOUT_SECONDS,
   trustedHash,
 } from "./trust";
 
@@ -15,6 +16,19 @@ describe("codex trust fingerprint (TS port of the host's Rust module)", () => {
    * The SAME pinned hex the Rust test used, so the port is provably
    * byte-identical. Its input is a bare path, which is what makes it
    * externally verifiable — and also why it can't stand alone; see below. */
+  it("reproduces codex's OWN hook timeout, which the fingerprint depends on", async () => {
+    // Not a number this deck picked. The fingerprint is taken over the
+    // NORMALIZED hook, so a value that disagrees with codex's default
+    // produces a hash codex rejects — and a rejected hook is refused in
+    // silence, taking status and mail with it. The pinned hexes below are
+    // what actually catch a drift; this states what they are pinning.
+    //
+    // It is also why codex gets no timeout of ours the way claude does: ten
+    // minutes against the ~2s the reporter waits is margin enough that
+    // naming our own number would only add a second place to get wrong.
+    expect(CODEX_HOOK_TIMEOUT_SECONDS).toBe(600);
+  });
+
   it("reproduces the verified codex fingerprint", async () => {
     expect(
       await trustedHash(
