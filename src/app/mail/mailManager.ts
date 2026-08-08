@@ -326,7 +326,13 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   return {
     send(request) {
       const inherited = chainHop.get(request.from.paneId) ?? null;
-      const verdict = decideSend(request.from, request.toPaneId, inherited, limits);
+      const verdict = decideSend(
+        request.from,
+        request.toPaneId,
+        inherited,
+        limits,
+        request.kind,
+      );
       if (verdict.kind === "refuse") return { ok: false, refusal: verdict.refusal };
       const mail: Mail = {
         id: mintId(),

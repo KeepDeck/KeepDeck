@@ -8,11 +8,7 @@
  */
 import { resolvePaneRef, type Resolved } from "../commands";
 import type { Pane, Workspace } from "../deck";
-
-/** The conventional role of whoever runs a team. Nothing enforces that one
- * exists — a team of peers is legitimate — but when it does, this is the
- * name to hold, so every agent can guess where to send a question. */
-export const LEAD_ROLE = "lead";
+import { parseRoleAddress, teamRoles } from "./roles";
 
 export interface TeamAssignment {
   name: string;
@@ -43,6 +39,17 @@ export function checkTeamAssignment(
   const role = assignment.role.trim();
   if (!name || !role) {
     return { ok: false, message: "a team and a role both need a name" };
+  }
+  // The same catalog the dialog picks from — an agent driving `team.assign`
+  // over MCP must not be able to invent a role the deck cannot describe, or
+  // its holder would be briefed with nothing said about what it is for.
+  if (!parseRoleAddress(role)) {
+    return {
+      ok: false,
+      message: `"${role}" is not a role this deck knows — use one of ${teamRoles()
+        .map((known) => (known.repeatable ? `${known.id}-<n>` : known.id))
+        .join(", ")}`,
+    };
   }
   const clash = workspace.panes.find(
     (pane) =>

@@ -1,0 +1,208 @@
+/**
+ * What a role IS, as opposed to what it is called.
+ *
+ * A role used to be a free string that happened to be an address, and that is
+ * all it was — nothing read it, so nothing could act on it. Asked what they
+ * were, a briefed team answered honestly and uselessly: the lead said "in
+ * charge is not quite the word", and an implementer said a teammate's message
+ * is input rather than instruction. Both were repeating exactly what they had
+ * been told, because the briefing was symmetrical and said nothing about
+ * responsibility.
+ *
+ * So a role carries a CHARTER: what this member does, and what it does not.
+ * The holder is told its own; everyone else is told the one-line summary, so
+ * a teammate knows what may be asked of whom.
+ *
+ * THIS FILE IS THE ONLY PLACE THAT KNOWS ROLE NAMES. Nothing else may spell
+ * `"lead"` — not a validation, not a briefing, not a dialog default. That is
+ * what keeps the catalog replaceable: the built-in list below is meant to
+ * grow a second source later (a file, a settings surface), and every consumer
+ * already reads it through [`teamRoles`] rather than reaching for a literal.
+ */
+
+/** One role a team member can hold. */
+export interface TeamRole {
+  /** The address teammates type, and this catalog's key. A repeatable role
+   * numbers its holders (`impl-1`), a singleton stands alone (`lead`). */
+  id: string;
+  /** How a person picks it. */
+  label: string;
+  /** Whether a team may hold more than one. */
+  repeatable: boolean;
+  /** Told to the agent HOLDING this role — second person, and specific about
+   * what it does NOT do, because that is the half an agent invents when it
+   * is not said. */
+  charter: readonly string[];
+  /** Told to every OTHER member, one line, so the roster says what each
+   * teammate is for rather than only what it is called. */
+  summary: string;
+}
+
+/** The one role that answers for a team. Named because two rules refer to it
+ * — a team needs exactly one, and only it assigns work — never because a
+ * message or a form should spell it. */
+const LEAD_ID = "lead";
+
+/**
+ * The roles KeepDeck ships with.
+ *
+ * Four, and deliberately not more: a role nobody can explain in three lines
+ * is one that will be used as a synonym for another. Custom roles are the
+ * planned next step and change nothing here — they extend what
+ * [`teamRoles`] answers.
+ */
+const BUILT_IN_ROLES: readonly TeamRole[] = [
+  {
+    id: LEAD_ID,
+    label: "Lead",
+    repeatable: false,
+    summary: "runs the team and hands out the work",
+    charter: [
+      "You LEAD this KeepDeck team. You decide what gets done, split it up, and hand it out.",
+      'Assign work with mail.send kind "task" — yours are the only tasks that are work orders on this team.',
+      "Teammates report back with answer or note; read anything you have not seen with mail.inbox. The plan stays yours.",
+      "You answer for the result: a teammate that is wrong, stuck or idle is yours to correct or to reassign.",
+    ],
+  },
+  {
+    id: "impl",
+    label: "Implementer",
+    repeatable: true,
+    summary: "carries out the work the lead hands it",
+    charter: [
+      "You IMPLEMENT. A task from lead is work assigned to you — carry it out.",
+      "An ambiguous task goes back to lead as a question. Do not guess at what was meant and build it.",
+      "Report the outcome as an answer, quoting the task's id in replyTo, whether it went well or not.",
+      "You do not hand work to other members. If something else needs doing, tell lead.",
+    ],
+  },
+  {
+    id: "reviewer",
+    label: "Reviewer",
+    repeatable: true,
+    summary: "reads what the others produce and says what is wrong with it",
+    charter: [
+      "You REVIEW what the others produce: read the change, judge it, and name what is wrong with it.",
+      "Findings go to lead as a note, or as an answer when you were asked. Say what you verified and what you only suspect.",
+      "You do not make the change yourself unless lead asks you to — a reviewer that edits has nothing left to review.",
+      "You may ask an implementer directly, but as a question or a note; assigning work is lead's.",
+    ],
+  },
+  {
+    id: "tester",
+    label: "Tester",
+    repeatable: true,
+    summary: "runs it and reports what actually happens",
+    charter: [
+      "You TEST. Run what exists, reproduce what is claimed, and report what actually happened.",
+      "A result is what you observed, not what should have happened. Report a failure exactly as it appeared.",
+      "Results go to lead as a note, or as an answer when you were asked.",
+      "You do not fix what you find unless lead asks you to.",
+    ],
+  },
+];
+
+/**
+ * The catalog every consumer reads.
+ *
+ * A function rather than the array, and that is the whole seam for custom
+ * roles: when they arrive, this is where the built-ins and the user's own are
+ * merged, and no caller changes.
+ */
+export function teamRoles(): readonly TeamRole[] {
+  return BUILT_IN_ROLES;
+}
+
+/** One role by its id, or undefined for a name the catalog does not have. */
+export function roleById(id: string): TeamRole | undefined {
+  const needle = id.trim().toLowerCase();
+  return teamRoles().find((role) => role.id === needle);
+}
+
+/** The role that answers for a team. Present by construction — a catalog
+ * without it could not describe a team at all. */
+export function leadRole(): TeamRole {
+  const lead = roleById(LEAD_ID);
+  if (!lead) throw new Error("the role catalog has no lead");
+  return lead;
+}
+
+/** Whether this address belongs to the lead. The one question two rules ask,
+ * asked in one place so neither spells the name. */
+export function isLeadAddress(address: string | undefined): boolean {
+  return address !== undefined && parseRoleAddress(address)?.role.id === LEAD_ID;
+}
+
+/** The address the nth holder of a role answers to. A singleton IS its role
+ * name; a repeatable one carries the number, because the number is the only
+ * thing telling two implementers apart. */
+export function roleAddress(role: TeamRole, ordinal: number): string {
+  return role.repeatable ? `${role.id}-${ordinal}` : role.id;
+}
+
+/**
+ * The role an address names, and which holder it is.
+ *
+ * The address is the ONLY thing stored, so this is what makes it more than a
+ * string. Only a trailing `-<digits>` counts as an ordinal, which is what
+ * lets a future role id contain a dash of its own (`code-reviewer-2` reads as
+ * the second `code-reviewer`, not as `code` holder `reviewer-2`).
+ *
+ * Null for anything the catalog does not have — an address a person typed
+ * before the catalog existed, or a role that has since been removed.
+ */
+export function parseRoleAddress(
+  address: string,
+): { role: TeamRole; ordinal: number } | null {
+  const trimmed = address.trim().toLowerCase();
+  const exact = roleById(trimmed);
+  // A bare id is the address of a SINGLETON only. Letting `reviewer` stand
+  // for `reviewer-1` would give one member two spellings, and addressing
+  // compares them as strings — a teammate told one of them would be writing
+  // to nobody.
+  if (exact) return exact.repeatable ? null : { role: exact, ordinal: 1 };
+  const numbered = /^(.+)-(\d+)$/.exec(trimmed);
+  if (!numbered) return null;
+  const role = roleById(numbered[1]);
+  if (!role || !role.repeatable) return null;
+  return { role, ordinal: Number.parseInt(numbered[2], 10) };
+}
+
+/**
+ * The role a new member takes when nobody has said which.
+ *
+ * The lead while that is free — a team needs exactly one and it is the first
+ * thing anyone fills — then the first repeatable role the catalog offers.
+ * It lives here rather than in the dialog for the reason the whole file
+ * exists: a surface that picked a default by name would be a second place
+ * that knows role names, and the first to fall out of step with the catalog.
+ */
+export function defaultRoleFor(taken: Iterable<string>): TeamRole {
+  const lead = leadRole();
+  if (mintRoleAddress(lead, taken)) return lead;
+  return teamRoles().find((role) => role.repeatable) ?? lead;
+}
+
+/**
+ * A free address for `role`, given what is already taken.
+ *
+ * Numbering is the deck's job, not the person's: an address has to be unique
+ * to work at all, and asking someone to keep track of that is asking them to
+ * do bookkeeping the deck can see and they cannot. Null when a singleton role
+ * is already held — the caller says so rather than minting a second `lead`.
+ */
+export function mintRoleAddress(
+  role: TeamRole,
+  taken: Iterable<string>,
+): string | null {
+  const held = new Set([...taken].map((address) => address.trim().toLowerCase()));
+  if (!role.repeatable) {
+    return held.has(role.id) ? null : role.id;
+  }
+  for (let ordinal = 1; ordinal <= held.size + 1; ordinal += 1) {
+    const address = roleAddress(role, ordinal);
+    if (!held.has(address)) return address;
+  }
+  // Unreachable: one more candidate than there are taken addresses.
+  return null;
+}

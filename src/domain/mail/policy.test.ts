@@ -206,6 +206,39 @@ describe("decideSend", () => {
     expect(decideSend(sender, "pane-2", 3)).toEqual({ kind: "accept", hop: 4 });
   });
 
+  it("lets only the lead hand out work on a team", () => {
+    // The rule that makes "lead" mean something rather than describe
+    // something. Told but unenforced, the hierarchy lasts exactly until the
+    // first agent decides it disagrees.
+    const lead = { ...sender, role: "lead" };
+    const impl = { ...sender, role: "impl-1" };
+    expect(decideSend(lead, "pane-2", null, MAIL_LIMITS, "task")).toEqual({
+      kind: "accept",
+      hop: 0,
+    });
+    expect(decideSend(impl, "pane-2", null, MAIL_LIMITS, "task")).toEqual({
+      kind: "refuse",
+      refusal: "not-yours-to-assign",
+    });
+    // Everything else it may say to anyone: a member that can only be
+    // spoken to is not a member, and reporting back is the whole point.
+    for (const kind of ["question", "answer", "note"] as const) {
+      expect(decideSend(impl, "pane-2", null, MAIL_LIMITS, kind), kind).toEqual({
+        kind: "accept",
+        hop: 0,
+      });
+    }
+  });
+
+  it("leaves a pane on no team exactly as it was before teams existed", () => {
+    // No team is no hierarchy. Restricting a sender that answers to nobody
+    // would take away a capability to enforce a structure it is not in.
+    expect(decideSend(sender, "pane-2", null, MAIL_LIMITS, "task")).toEqual({
+      kind: "accept",
+      hop: 0,
+    });
+  });
+
   it("refuses a pane mailing itself — a loop of one, and it never ends", () => {
     expect(decideSend(sender, sender.paneId, null)).toEqual({
       kind: "refuse",

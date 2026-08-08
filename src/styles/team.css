@@ -53,6 +53,22 @@
   margin-bottom: 0;
 }
 
+/* The address the role resolves to — `lead`, `impl-2`. Beside the picker,
+   because the picker names what a member is FOR and this is what teammates
+   type: two implementers are one word apart in the picker and only this
+   tells them apart. Monospace, so a column of them lines up the way the
+   duplicates it exists to reveal would. */
+.team__row-address {
+  flex: none;
+  width: 68px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Sized to its CONTENT, not to the role column beside it. Matching that
    width truncated "Claude Code" to "Claude Co…" — and an agent picker whose
    whole job is naming which agent must never be the thing that hides the

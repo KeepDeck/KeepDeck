@@ -20,12 +20,14 @@ import {
 import { findWorkspaceOfPane, type Pane, type Workspace } from "../../domain/deck";
 import {
   checkTeamAssignment,
-  LEAD_ROLE,
+  leadRole,
   resolveMailTarget,
   senderOf,
+  teamRoles,
   type Mail,
   type MailKind,
   type MailSender,
+  type SendRefusal,
 } from "../../domain/mail";
 import type { Deck } from "../useDeck";
 import type { MailManager } from "./mailManager";
@@ -208,7 +210,9 @@ export function registerMailCommands(
         {
           name: "role",
           type: "string",
-          description: `How teammates will address it (e.g. "${LEAD_ROLE}", "impl-1"); omit to remove`,
+          description: `The role it takes, which is also how teammates address it — one of ${teamRoles()
+            .map((role) => (role.repeatable ? `${role.id}-<n>` : role.id))
+            .join(", ")}; omit to remove`,
         },
       ],
       run: (args, source) => {
@@ -240,8 +244,13 @@ export function registerMailCommands(
 /** Why the deck would not take a message, said to the agent that tried.
  * Prose lives here rather than in the domain, the same split
  * `resumeRefusalText` draws. */
-function refusalText(refusal: "self-addressed" | "hop-limit"): string {
-  return refusal === "self-addressed"
-    ? "a pane cannot send mail to itself"
-    : "this exchange has gone back and forth too many times — answer it yourself, or ask the user";
+function refusalText(refusal: SendRefusal): string {
+  switch (refusal) {
+    case "self-addressed":
+      return "a pane cannot send mail to itself";
+    case "not-yours-to-assign":
+      return `only ${leadRole().id} hands out work on a team — send a question or a note instead, or ask ${leadRole().id} to assign it`;
+    case "hop-limit":
+      return "this exchange has gone back and forth too many times — answer it yourself, or ask the user";
+  }
 }

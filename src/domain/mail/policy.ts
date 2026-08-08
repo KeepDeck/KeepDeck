@@ -8,6 +8,7 @@
  */
 import type { PaneActivity } from "../status";
 import type { Mail, MailKind, MailSender } from "./message";
+import { isLeadAddress } from "./roles";
 
 export interface MailLimits {
   /** How long a message stays worth delivering after it was spoken. */
@@ -193,7 +194,7 @@ export function expiryNotice(mail: Mail, id: string, at: number): Mail | null {
 /** Why a send was refused. Typed rather than prose: rendering a refusal for
  * the calling agent is the command layer's job, the same split
  * `resumeRefusalText` already draws. */
-export type SendRefusal = "self-addressed" | "hop-limit";
+export type SendRefusal = "self-addressed" | "hop-limit" | "not-yours-to-assign";
 
 export type SendVerdict =
   /** Accepted, carrying the hop this message is stamped with. */
@@ -214,11 +215,21 @@ export function decideSend(
   toPaneId: string,
   inheritedHop: number | null,
   limits: MailLimits = MAIL_LIMITS,
+  /** What is being sent. Only `task` is restricted, and only on a team. */
+  kind: MailKind = "note",
 ): SendVerdict {
   // A pane mailing itself wakes itself, forever, for money. There is no
   // legitimate shape of it — anything an agent wants to tell itself, it can
   // simply keep thinking.
   if (from.paneId === toPaneId) return { kind: "refuse", refusal: "self-addressed" };
+  // A task is a WORK ORDER, and on a team exactly one member gives those.
+  // This is the rule that makes "lead" mean something rather than describe
+  // something: told-but-unenforced, the hierarchy lasts until the first
+  // agent decides it disagrees. A sender on no team is under no hierarchy
+  // and keeps the behaviour it had before teams existed.
+  if (kind === "task" && from.role !== undefined && !isLeadAddress(from.role)) {
+    return { kind: "refuse", refusal: "not-yours-to-assign" };
+  }
   const hop = inheritedHop === null ? 0 : inheritedHop + 1;
   if (hop > limits.maxHops) return { kind: "refuse", refusal: "hop-limit" };
   return { kind: "accept", hop };

@@ -83,8 +83,23 @@ describe("TeamDialog", () => {
   ];
   /** The pool's "Add" controls — one per agent NOT on the team. */
   const adds = () => all<HTMLButtonElement>(".team__row-take");
-  /** The roster's role fields, in roster order. */
-  const roles = () => all<HTMLInputElement>(".team__row-role");
+  /** The roster's ADDRESSES, in roster order — `lead`, `impl-1`. What a
+   * teammate types, and the column duplicates show up in. */
+  const roles = () =>
+    all<HTMLElement>(".team__row-address").map((cell) => cell.textContent ?? "");
+  /** The roster's role pickers, in roster order. */
+  const rolePickers = () =>
+    all<HTMLButtonElement>(".team__row-role .dropdown__button");
+  /** Pick a role for the nth roster row, the way a person does: open the
+   * menu, click the option. The address is the deck's to mint from it. */
+  const pickRole = (index: number, label: string) => {
+    act(() => rolePickers()[index].click());
+    const option = all<HTMLButtonElement>('[role="option"]').find(
+      (button) => button.textContent === label,
+    );
+    if (!option) throw new Error(`no role option "${label}"`);
+    act(() => option.click());
+  };
   const drops = () => all<HTMLButtonElement>(".team__row-drop");
   const nameField = () => document.querySelector<HTMLInputElement>(".form__input")!;
   const submit = () => document.querySelector<HTMLButtonElement>(".form__create")!;
@@ -116,7 +131,7 @@ describe("TeamDialog", () => {
     open(workspace([pane("pane-1"), pane("pane-2")]));
     act(() => adds()[0].click());
     act(() => adds()[0].click());
-    expect(roles().map((field) => field.value)).toEqual(["lead", "impl-1"]);
+    expect(roles()).toEqual(["lead", "impl-1"]);
   });
 
   it("does not scold a dialog nobody has touched yet", () => {
@@ -160,7 +175,11 @@ describe("TeamDialog", () => {
     type(nameField(), "api");
     act(() => adds()[0].click());
     act(() => adds()[0].click());
-    type(roles()[1], "lead");
+    // The second row is offered the Lead the first one already holds; the
+    // deck cannot mint a second address for a singleton, so the duplicate
+    // stands and is refused in words rather than swallowed by a dead click.
+    pickRole(1, "Lead");
+    expect(roles()).toEqual(["lead", "lead"]);
     expect(submit().disabled).toBe(true);
     expect(document.querySelector('[role="alert"]')!.textContent).toContain("lead");
   });
@@ -172,7 +191,7 @@ describe("TeamDialog", () => {
     ]);
     open(ws, "api");
     // Opens with the team already assembled, roles filled, pool empty.
-    expect(roles().map((field) => field.value)).toEqual(["lead", "impl-1"]);
+    expect(roles()).toEqual(["lead", "impl-1"]);
     expect(adds()).toHaveLength(0);
     act(() => drops()[1].click());
     act(() => submit().click());
@@ -272,11 +291,11 @@ describe("TeamDialog", () => {
   });
 
   it("keeps a re-added member's own role instead of renaming it", () => {
-    const ws = workspace([pane("pane-1", { name: "api", role: "reviewer" })]);
+    const ws = workspace([pane("pane-1", { name: "api", role: "reviewer-1" })]);
     open(ws, "api");
     act(() => drops()[0].click());
     act(() => adds()[0].click());
-    expect(roles()[0].value).toBe("reviewer");
+    expect(roles()[0]).toBe("reviewer-1");
   });
 
   it("opens no system popup, and reuses the shared YOLO field for the rest", () => {
@@ -319,8 +338,7 @@ describe("TeamDialog", () => {
     type(nameField(), "api");
     act(() => adds()[0].click());
     act(() => startNew().click());
-    expect(roles()).toHaveLength(2);
-    type(roles()[1], "impl-1");
+    expect(roles()).toEqual(["lead", "impl-1"]);
     act(() => submit().click());
     expect(confirmed[0].recruits).toEqual([
       { agentType: "claude", role: "impl-1", yolo: false },
@@ -342,8 +360,7 @@ describe("TeamDialog", () => {
     expect(
       all<HTMLInputElement>('.team__row-yolo input[type="checkbox"]').map((b) => b.checked),
     ).toEqual([false, true]);
-    type(roles()[0], "lead");
-    type(roles()[1], "impl-1");
+    expect(roles()).toEqual(["lead", "impl-1"]);
     act(() => submit().click());
     expect(confirmed[0].recruits.map((recruit) => recruit.yolo)).toEqual([false, true]);
   });
@@ -373,7 +390,7 @@ describe("TeamDialog", () => {
     type(nameField(), "api");
     act(() => adds()[0].click());
     act(() => startNew().click());
-    type(roles()[1], "lead");
+    pickRole(1, "Lead");
     expect(submit().disabled).toBe(true);
   });
 

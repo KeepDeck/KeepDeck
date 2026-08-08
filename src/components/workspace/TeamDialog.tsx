@@ -8,9 +8,13 @@ import {
 import type { Pane, Workspace } from "../../domain/deck";
 import { baseName, paneAgentType, paneDisplayTitle } from "../../domain/deck";
 import {
-  LEAD_ROLE,
+  defaultRoleFor,
+  mintRoleAddress,
+  parseRoleAddress,
   planTeam,
+  roleById,
   teamPlanIsEmpty,
+  teamRoles,
   type TeamPlan,
   type TeamRecruitDraft,
 } from "../../domain/mail";
@@ -33,11 +37,13 @@ interface TeamDialogProps {
   onCancel(): void;
 }
 
-/** A role suggestion for a row the person has not filled yet. The first row
- * gets `lead` because a team usually has one and it is the role every agent
- * knows to look for; the rest number themselves. */
-function suggestRole(index: number): string {
-  return index === 0 ? LEAD_ROLE : `impl-${index}`;
+/** The address a row gets when nobody has picked one. WHICH role that is, and
+ * the numbering, both belong to the catalog — this only says what the roster
+ * already holds. A duplicate can only come back for a singleton already
+ * taken, and `planTeam` says so in words the person can act on. */
+function suggestAddress(taken: readonly string[]): string {
+  const role = defaultRoleFor(taken);
+  return mintRoleAddress(role, taken) ?? role.id;
 }
 
 /** What tells one pane from another when their titles do not. The branch
@@ -100,6 +106,17 @@ export function TeamDialog({
     () => selectableAgents(agents).filter((agent) => agentSupportsNew(agents, agent.id)),
     [agents],
   );
+  /** The catalog, as the picker takes it. Roles are chosen, never typed —
+   * a role now carries what a member is FOR, and that only exists for one
+   * the catalog has. */
+  const roleOptions = useMemo(
+    () => teamRoles().map((role) => ({ value: role.id, label: role.label })),
+    [],
+  );
+  /** The catalog id behind a stored address, which is what the picker shows.
+   * Empty for an address the catalog cannot account for — `planTeam` refuses
+   * it, and an empty picker is the honest rendering of "no role yet". */
+  const roleIdOf = (address: string) => parseRoleAddress(address)?.role.id ?? "";
 
   const draft = {
     name,
@@ -111,12 +128,33 @@ export function TeamDialog({
   // a dialog that dispatches a no-op teaches people it did something.
   const valid = planned.ok && !teamPlanIsEmpty(planned.value);
 
+  /** Every address the roster holds, apart from one row's own — what a fresh
+   * address has to avoid. */
+  const addressesBesides = (mine: string): string[] =>
+    [...roles.values(), ...recruits.map((recruit) => recruit.role)].filter(
+      (address) => address !== mine,
+    );
+
+  /** The address for a chosen ROLE. The picker answers with a catalog id; the
+   * roster stores an address, because two implementers need telling apart.
+   * A singleton already held comes back as itself, and the duplicate is
+   * refused in words rather than swallowed by a click that does nothing. */
+  const addressFor = (roleId: string, mine: string): string => {
+    const role = roleById(roleId);
+    if (!role) return mine;
+    return mintRoleAddress(role, addressesBesides(mine)) ?? role.id;
+  };
+
   const take = (pane: Pane) =>
     setRoles((current) => {
       const next = new Map(current);
       // Its EXISTING role when it has one — re-adding a member of the team
       // being edited must not silently rename it — else the next suggestion.
-      next.set(pane.id, pane.team?.role ?? suggestRole(next.size + recruits.length));
+      next.set(
+        pane.id,
+        pane.team?.role ??
+          suggestAddress([...next.values(), ...recruits.map((r) => r.role)]),
+      );
       return next;
     });
 
@@ -127,8 +165,10 @@ export function TeamDialog({
       return next;
     });
 
-  const setRole = (paneId: string, role: string) =>
-    setRoles((current) => new Map(current).set(paneId, role));
+  const setRole = (paneId: string, roleId: string) =>
+    setRoles((current) =>
+      new Map(current).set(paneId, addressFor(roleId, current.get(paneId) ?? "")),
+    );
 
   const iconOf = (pane: Pane) =>
     agents.find((agent) => agent.id === paneAgentType(pane))?.icon;
@@ -165,7 +205,9 @@ export function TeamDialog({
       yolo: recruit.yolo,
       setRole: (next: string) =>
         setRecruits((current) =>
-          current.map((row, i) => (i === index ? { ...row, role: next } : row)),
+          current.map((row, i) =>
+            i === index ? { ...row, role: addressFor(next, row.role) } : row,
+          ),
         ),
       setAgentType: (next: string) =>
         setRecruits((current) =>
@@ -244,14 +286,23 @@ export function TeamDialog({
                 className={`team__member${row.pane ? "" : " team__member--new"}`}
               >
                 <div className="team__row">
-                  <input
-                    {...noAutoCorrect}
-                    className="form__input team__row-role"
-                    value={row.role}
-                    onChange={(e) => row.setRole(e.target.value)}
-                    placeholder="role"
-                    aria-label={`Role for ${row.label}`}
+                  {/* A role is picked, not typed. It is no longer just an
+                      address: it carries what the member is FOR, and that
+                      only exists for a role the catalog has. Typing one in
+                      could only ever produce a member nothing can describe. */}
+                  <Dropdown
+                    className="team__row-role"
+                    options={roleOptions}
+                    value={roleIdOf(row.role)}
+                    onChange={(next) => row.setRole(next)}
+                    ariaLabel={`Role for ${row.label}`}
                   />
+                  {/* The ADDRESS, beside the role and not instead of it. The
+                      picker names what a member is for; only this tells two
+                      implementers apart, and it is the string a teammate
+                      types — hiding it would leave the person unable to read
+                      their own roster. */}
+                  <span className="team__row-address">{row.role}</span>
                   {row.pane ? (
                     <>
                       <AgentGlyph icon={iconOf(row.pane)} />
@@ -368,7 +419,10 @@ export function TeamDialog({
                 ...current,
                 {
                   agentType: canRecruit[0].id,
-                  role: suggestRole(roles.size + current.length),
+                  role: suggestAddress([
+                    ...roles.values(),
+                    ...current.map((row) => row.role),
+                  ]),
                   // Seeded from the global preference, like every other
                   // spawn surface, and changeable per row from there.
                   yolo: defaultYolo,

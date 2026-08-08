@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { updateSettings } from "../../app/settingsManager";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
+import { leadRole, teamRoles } from "../../domain/mail";
 import { shellLine } from "../../domain/mcp";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { writeText } from "../../ipc/clipboard";
@@ -35,6 +36,10 @@ import { writeText } from "../../ipc/clipboard";
  * true whether or not this dialog is open, so the MCP owner looks it up once
  * per settled transition instead of this row re-fetching on every mount.
  */
+/** The roles on offer, read from the catalog rather than listed here: a
+ * second place that spelt them would be the first to fall out of step. */
+const roleSummary = teamRoles().map((role) => role.label).join(", ");
+
 export function ExperimentalSection() {
   const settings = useSettings();
   const remoteAgents =
@@ -195,11 +200,11 @@ export function ExperimentalSection() {
         // on is the one place guaranteed to be read by someone looking for
         // it.
         <span className="settings__hint">
-          To build one: double-click the “team” chip in an agent’s header and
-          type a role and a team, like <code>lead@api</code>. Do the same on
-          the others with <code>impl-1@api</code>, <code>impl-2@api</code>.
-          The role is the address teammates use; clearing the field takes an
-          agent off the team.
+          To build one: use the team button in the workspace bar. Name the
+          team, put agents on it, and give each a role — {roleSummary}. The
+          role says what a member is for AND is the address teammates write
+          to; a team needs exactly one {leadRole().label.toLowerCase()},
+          which is the member that hands out the work.
         </span>
       )}
 
