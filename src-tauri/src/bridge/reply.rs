@@ -20,10 +20,19 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// The longest correlation id worth accepting. Ids are minted per hook
 /// invocation and only have to be unique within one run directory.
 const MAX_CORRELATION_LEN: usize = 64;
+
+/// How long to wait before asking whether an answer was collected.
+///
+/// The hook polls for `ASK_TRIES * ASK_SLEEP` — 2s in kd-status-hook.sh — and
+/// this is that window plus room for the last tick and the process's own
+/// teardown. Too short and a hook still reading would be called a miss; too
+/// long only delays the verdict, so it errs long.
+pub const HOOK_WAIT: Duration = Duration::from_millis(2_500);
 
 /// Whether `id` may become part of a filename.
 ///
@@ -68,9 +77,55 @@ pub fn write(run_dir: &Path, id: &str, body: &str) -> Result<(), String> {
     })
 }
 
+/// Whether the hook collected the answer written for `id`.
+///
+/// The script `cat`s the reply and REMOVES it in the same breath, so the file
+/// still being here means nobody read it — a hook that timed out first, or a
+/// process killed while waiting. That is the only evidence either side has:
+/// the deck cannot see a hook run, and the hook cannot tell the deck it did.
+///
+/// Only meaningful once [`HOOK_WAIT`] has passed; asked earlier it reports
+/// every answer as uncollected, because the hook is still polling for it.
+pub fn was_collected(run_dir: &Path, id: &str) -> bool {
+    !reply_path(run_dir, id).exists()
+}
+
+/// Drop an answer nobody came for. Named apart from the check because the two
+/// happen at different moments in the caller and only one of them is a
+/// question: a stale reply that stays would outlive its run directory's
+/// usefulness and, worse, could be read by a later hook that reused the name.
+pub fn discard(run_dir: &Path, id: &str) {
+    let _ = fs::remove_file(reply_path(run_dir, id));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_answer_reads_as_collected_only_once_the_file_is_gone() {
+        // The hook's `cat` + `rm` is the entire protocol: nothing else tells
+        // the deck whether its answer was read.
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "id-1", "mail").unwrap();
+        assert!(!was_collected(dir.path(), "id-1"));
+        fs::remove_file(dir.path().join("id-1.reply")).unwrap();
+        assert!(was_collected(dir.path(), "id-1"));
+        // An id nobody ever answered has nothing outstanding either.
+        assert!(was_collected(dir.path(), "never-written"));
+    }
+
+    #[test]
+    fn discarding_removes_an_uncollected_answer_and_tolerates_a_collected_one() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "id-2", "mail").unwrap();
+        discard(dir.path(), "id-2");
+        // The file itself, not `was_collected` — one broken function must not
+        // be able to make the other's test pass.
+        assert!(!dir.path().join("id-2.reply").exists());
+        // Idempotent: the common case is a hook that already took the file.
+        discard(dir.path(), "id-2");
+    }
 
     #[test]
     fn a_reply_lands_whole_and_out_of_the_watcher_s_way() {

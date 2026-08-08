@@ -16,6 +16,7 @@
 import { isRecord } from "../../domain/json";
 import type { DeliverableMail, MailReplyRenderer } from "@keepdeck/plugin-api";
 import type { Mail } from "../../domain/mail";
+import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
 
 export interface HookReplyDeps {
@@ -84,6 +85,15 @@ export function answerMailAsk(
   const taken = manager.takeAtTurnEnd(paneId);
   if (taken.length === 0) return answerNothing();
   const rendered = render({ event, messages: taken.map(forAgent) });
+  // The one place that knows WHICH hook event a message left through. Without
+  // it, a message that reached the pane's inbox and never reached its context
+  // is indistinguishable from one the plugin declined to render: both end
+  // with the queue empty and nothing in the terminal.
+  log.info(
+    "web:mail",
+    `answering ${agent} ${String(event.hook_event_name)} on ${correlation}` +
+      ` with ${taken.length} message(s): ${rendered === null ? "this event carries none" : `${rendered.length} bytes`}`,
+  );
   if (rendered === null) {
     // This event cannot carry mail after all. Give it back rather than drop
     // it — the pane will ask again at an event that can, and the ordinary

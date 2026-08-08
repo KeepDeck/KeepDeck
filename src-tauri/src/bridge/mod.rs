@@ -106,7 +106,25 @@ pub fn start(app: &AppHandle) -> Result<Bridge, String> {
 pub fn bridge_reply(bridge: tauri::State<Bridge>, id: String, body: String) {
     if let Err(e) = reply::write(&bridge.run_dir, &id, &body) {
         log::warn!("bridge: {e}");
+        return;
     }
+    // An EMPTY answer is the common one — most turns end with nothing waiting
+    // — and it carries nothing to lose, so nobody has to come for it. An
+    // answer with content does: the deck has already handed those messages
+    // over, and if the hook timed out first they are gone. Watch for it.
+    if body.is_empty() {
+        return;
+    }
+    let run_dir = bridge.run_dir.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(reply::HOOK_WAIT);
+        if reply::was_collected(&run_dir, &id) {
+            log::info!("bridge: reply {id} collected");
+        } else {
+            log::warn!("bridge: reply {id} was never collected — the hook did not read it");
+            reply::discard(&run_dir, &id);
+        }
+    });
 }
 
 /// Why an inbox file yielded no event.

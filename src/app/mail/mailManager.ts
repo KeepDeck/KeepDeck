@@ -29,6 +29,7 @@ import {
   type SendRefusal,
 } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
+import { log } from "../../ipc/log";
 
 /**
  * The smallest gap between two deliveries into the SAME pane.
@@ -44,6 +45,24 @@ const SERIALIZE_MS = 400;
  * because nothing prunes it otherwise and a long-lived pane would grow one
  * without limit. */
 const INBOX_LIMIT = 50;
+
+/**
+ * One message, named the way a log line can carry it.
+ *
+ * Every outcome below is logged, and the reason is that mail has TWO channels
+ * with no shared trace: a paste is visible in the pane and a hook answer is
+ * visible nowhere. Which one carried a given message — or that neither did —
+ * is otherwise unanswerable after the fact, and it is the first question any
+ * report about mail not arriving has to settle. The body is never logged: it
+ * is one agent's words to another, and the id is enough to follow it.
+ */
+function trace(mail: Mail): string {
+  const who =
+    mail.from.kind === "host"
+      ? "deck"
+      : (mail.from.pane.role ?? mail.from.pane.label);
+  return `${mail.id} ${mail.kind} ${who} → ${mail.toPaneId}`;
+}
 
 export interface MailSendRequest {
   from: MailSender;
@@ -169,6 +188,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   }
 
   function enqueue(mail: Mail): void {
+    log.info("web:mail", `queued: ${trace(mail)}`);
     const queue = queues.get(mail.toPaneId);
     if (queue) queue.push(mail);
     else queues.set(mail.toPaneId, [mail]);
@@ -202,6 +222,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       );
       if (verdict.kind === "expire") {
         queue.shift();
+        log.info("web:mail", `expired unread after ${at - head.at}ms: ${trace(head)}`);
         const notice = expiryNotice(head, mintId(), at);
         if (notice) {
           enqueue(notice);
@@ -214,12 +235,16 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // Missing that distinction would leave a pane whose turn never ends
       // silently losing its mail instead of falling back to the terminal.
       if (verdict.kind === "hold" && verdict.reason === "turn-boundary") {
+        log.debug("web:mail", `held for a turn boundary: ${trace(head)}`);
         return head.at + limits.hookWaitMs;
       }
       // Held on a prompt, or on a pane nothing speaks for. Both resolve
       // through the activity subscription, so the only thing left to
       // schedule is the moment this message stops being worth delivering.
-      if (verdict.kind === "hold") return head.at + limits.undeliveredMs;
+      if (verdict.kind === "hold") {
+        log.debug("web:mail", `held on ${verdict.reason}: ${trace(head)}`);
+        return head.at + limits.undeliveredMs;
+      }
       const last = lastDeliveryAt.get(paneId);
       if (last !== undefined && at - last < SERIALIZE_MS) return last + SERIALIZE_MS;
       // No input channel: the pane is starting, or stopped. This is the ONE
@@ -227,7 +252,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // activity at all — and it resolves through `subscribeChannels`, not
       // through activity, because a terminal mounting emits no status. The
       // deadline is only the backstop for a pane that never comes back.
-      if (!deps.deliver(head)) return head.at + limits.undeliveredMs;
+      if (!deps.deliver(head)) {
+        log.debug("web:mail", `no input channel yet: ${trace(head)}`);
+        return head.at + limits.undeliveredMs;
+      }
+      log.info("web:mail", `pasted into the pane: ${trace(head)}`);
       queue.shift();
       lastDeliveryAt.set(paneId, at);
       // The receiver now stands one message deep in this chain: whatever it
@@ -330,6 +359,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         queue.shift();
         chainHop.set(paneId, head.hop);
         remember(paneId, head);
+        log.info("web:mail", `handed to the turn-end hook: ${trace(head)}`);
         taken.push(head);
       }
       if (queue.length === 0) queues.delete(paneId);
@@ -342,6 +372,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     restore(messages) {
       for (let i = messages.length - 1; i >= 0; i -= 1) {
         const mail = messages[i];
+        log.info("web:mail", `put back, nobody took it: ${trace(mail)}`);
         const queue = queues.get(mail.toPaneId);
         if (queue) queue.unshift(mail);
         else queues.set(mail.toPaneId, [mail]);
