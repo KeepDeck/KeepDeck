@@ -74,6 +74,27 @@ pub fn shim_mode(args: impl IntoIterator<Item = String>) -> Option<ShimMode> {
     None
 }
 
+/// The pane secret carried by `KEEPDECK_BRIDGE`, when this process inherited
+/// one.
+///
+/// The fallback identity, and for one client the ONLY one: kimi takes its
+/// MCP servers from a plugin manifest, which is per INSTALL rather than per
+/// pane, so there is nowhere in that invocation to write a secret. But an
+/// MCP server is a child of the agent, which is a child of the pane, and the
+/// whole tree inherits this variable already — the reporters name their pane
+/// exactly this way. Measured (2026-08-01): claude, opencode and kimi all
+/// pass their environment to MCP children; codex does not, and codex takes
+/// the injected flag instead.
+///
+/// Parsed rather than pattern-matched because the value is KeepDeck's own
+/// JSON. Any failure yields None, which is simply an anonymous session.
+fn bridge_secret() -> Option<String> {
+    let raw = std::env::var("KEEPDECK_BRIDGE").ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let token = parsed.get("token")?.as_str()?;
+    (!token.is_empty()).then(|| token.to_string())
+}
+
 /// Run the pump to completion. Returns the process exit code: 0 once the
 /// server closes the connection (toggle Off, app quit), non-zero when there
 /// is nothing to connect to — with a hint, because "server not enabled" is
@@ -98,7 +119,10 @@ pub fn run(mode: ShimMode) -> i32 {
     // the deck binds the name to THIS connection, and a request that arrived
     // first would be attributed to nobody. A failure here is not fatal — an
     // anonymous session still works, it just cannot be told apart.
-    if let Some(client) = mode.client {
+    // The injected flag first, the inherited environment second: an explicit
+    // argument is the deck naming this invocation, and it must win over a
+    // variable a whole process tree shares.
+    if let Some(client) = mode.client.or_else(bridge_secret) {
         let announced = serde_json::json!({
             "jsonrpc": "2.0",
             "method": "deck/client",
@@ -174,6 +198,39 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Read the secret out of a `KEEPDECK_BRIDGE` value without touching the
+    /// process environment — the parse is the whole logic, and tests that
+    /// set env vars race each other inside one test binary.
+    fn secret_in(raw: &str) -> Option<String> {
+        let parsed: serde_json::Value = serde_json::from_str(raw).ok()?;
+        let token = parsed.get("token")?.as_str()?;
+        (!token.is_empty()).then(|| token.to_string())
+    }
+
+    #[test]
+    fn the_bridge_variable_names_the_pane_when_no_flag_was_injected() {
+        // The only identity kimi's MCP servers can produce: they come from a
+        // plugin manifest, which is per install, so nothing per-pane can be
+        // written into the invocation.
+        assert_eq!(
+            secret_in(r#"{"v":1,"dir":"/run","pane":"pane-2","token":"sec-9"}"#).as_deref(),
+            Some("sec-9"),
+        );
+        // Anything unusable is an anonymous session, never a guess: no
+        // variable, not JSON, no token, an empty one, or a token that is not
+        // a string at all.
+        for hostile in [
+            "",
+            "not json",
+            r#"{"v":1,"pane":"pane-2"}"#,
+            r#"{"token":""}"#,
+            r#"{"token":42}"#,
+            "[]",
+        ] {
+            assert_eq!(secret_in(hostile), None, "must refuse {hostile:?}");
+        }
     }
 
     #[test]

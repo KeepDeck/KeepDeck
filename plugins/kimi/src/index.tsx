@@ -3,10 +3,11 @@ import { kimiForkPlan } from "./fork";
 import { kimiHistory } from "./history";
 import type { KeepDeckPlugin, SpawnSkillsInput } from "@keepdeck/plugin-api";
 import {
-  COMPANION_DESCRIPTOR,
+  COMPANION_DESCRIPTORS,
   COMPANION_MANIFEST_RESOURCE,
   parentDirectory,
 } from "./companion";
+import { createKimiCompanionFleet } from "./fleet";
 import { icon } from "./icon";
 import { createKimiCompanionManager } from "./manager";
 import { createKimiServerManager } from "./serverManager";
@@ -100,16 +101,26 @@ const plugin: KeepDeckPlugin = {
       },
     });
 
+    // The RESOURCES ROOT, not one companion's folder: the fleet installs
+    // several plugins that live side by side under it, and each knows its
+    // own directory name. Resolved through the reporter's manifest because
+    // `resources.path` answers about files, and every companion's root is
+    // this one's parent.
     const companionManifest = await ctx.resources.path(
       COMPANION_MANIFEST_RESOURCE,
     );
     const companionDirectory = companionManifest
-      ? parentDirectory(companionManifest)
+      ? parentDirectory(parentDirectory(companionManifest) ?? "")
       : null;
     const server = createKimiServerManager(ctx.services.sessions);
-    const manager = createKimiCompanionManager(server, COMPANION_DESCRIPTOR);
+    const fleet = createKimiCompanionFleet(
+      COMPANION_DESCRIPTORS.map((descriptor) => ({
+        descriptor,
+        manager: createKimiCompanionManager(server, descriptor),
+      })),
+    );
     const controller = createKimiSetupController(
-      manager,
+      fleet,
       companionDirectory,
       ctx.log,
     );

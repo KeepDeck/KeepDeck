@@ -203,7 +203,15 @@ export function isPaneSpawnSpecPending(paneId: string): boolean {
   return pending.has(paneId);
 }
 
-/** The pane whose CURRENT plan carries this MCP secret, or null.
+/** The pane whose CURRENT plan carries this secret, or null.
+ *
+ * EITHER of the pane's two secrets answers. The MCP one is what an injected
+ * `--client` carries; the bridge one is what the pane's whole process tree
+ * already inherits in `KEEPDECK_BRIDGE`, and it is the only identity a
+ * client can produce when nothing was injected into its invocation — kimi's
+ * MCP servers come from a plugin manifest that is per INSTALL, so there is
+ * no per-pane place to write a token at all. Both are minted per pane and
+ * per process generation, so they name exactly the same thing.
  *
  * The cache IS the registry of live secrets — no second store to keep in
  * sync: every path that retires a process drops the spec first, so a secret
@@ -211,9 +219,9 @@ export function isPaneSpawnSpecPending(paneId: string): boolean {
  * lingering MCP child of a dead pane therefore resolves to nobody, rather
  * than to whoever inherited its reusable `pane-N` slot.
  */
-export function paneIdByMcpToken(token: string): string | null {
+export function paneIdBySpawnSecret(secret: string): string | null {
   for (const [paneId, plan] of specs) {
-    if (plan.mcpToken === token) return paneId;
+    if (plan.mcpToken === secret || plan.token === secret) return paneId;
   }
   return null;
 }

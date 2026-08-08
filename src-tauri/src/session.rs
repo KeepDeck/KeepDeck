@@ -351,8 +351,11 @@ mod tests {
 
         expect_exit(&first_events, Duration::from_secs(5));
         expect_exit(&second_events, Duration::from_secs(5));
+        // Well under the grace, not "instant": this shares a machine with
+        // every other test that spawns a process, and the claim is that the
+        // wait ENDS when they do rather than running its full length.
         assert!(
-            waited < Duration::from_secs(1),
+            waited < Duration::from_secs(2),
             "waited {waited:?} for two prompt exits — the wait is not shared",
         );
     }

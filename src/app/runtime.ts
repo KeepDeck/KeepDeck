@@ -35,7 +35,7 @@ import {
 import { teamMembers } from "../domain/mail";
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
-import { paneIdByMcpToken, peekPaneSpawnSpec } from "./spawnSpecs";
+import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
 import { createPaneAttribution } from "./paneAttribution";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
@@ -134,7 +134,7 @@ export function createAppRuntime(
       retract: (roots) => worktrees.retractMcp(roots),
       identify: createPaneIdentity({
         workspaces: () => deckStore.getSnapshot().workspaces,
-        paneOf: paneIdByMcpToken,
+        paneOf: paneIdBySpawnSecret,
         agents: agentLabels,
       }),
     },

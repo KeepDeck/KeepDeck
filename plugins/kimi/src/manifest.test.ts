@@ -51,4 +51,62 @@ describe("kimi companion manifest", () => {
       expect(hook.timeout, hook.event).toBeGreaterThanOrEqual(5);
     }
   });
+
+  it("arms NO SessionStart ask, because kimi throws that result away", () => {
+    // Measured in the shipped 0.34.0 binary: `triggerSessionStart` awaits
+    // the hook and never reads its result, and the docs call the event
+    // observation-only. Arming it to ask would make the reporter wait two
+    // seconds at every session start to be ignored.
+    expect(commandFor("SessionStart")).not.toContain("--ask");
+  });
+});
+
+/**
+ * The SECOND companion, and the only door Kimi has into a starting session.
+ *
+ * A plugin session-start skill is injected as `<plugin_session_start>` before
+ * the first turn, which is how a Kimi pane can learn it is on a team without
+ * anybody messaging it first. Nothing type-checks this file either, and a
+ * plugin whose sessionStart names a skill that is not there fails with a
+ * warning in Kimi's own log — somewhere nobody looks.
+ */
+describe("kimi teams manifest", () => {
+  const teams = JSON.parse(
+    readFileSync(
+      new URL("../resources/keepdeck-teams/kimi.plugin.json", import.meta.url),
+      "utf8",
+    ),
+  ) as {
+    name: string;
+    skills?: string;
+    sessionStart?: { skill?: string };
+    hooks?: unknown[];
+  };
+
+  it("points its session start at a skill that exists on disk", () => {
+    expect(teams.sessionStart?.skill).toBe("keepdeck-team");
+    const skill = readFileSync(
+      new URL(
+        `../resources/keepdeck-teams/skills/${teams.sessionStart!.skill}/SKILL.md`,
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    // Kimi resolves a skill by its DIRECTORY name; the front matter has to
+    // agree or the registry lookup the injector does comes back empty.
+    expect(skill).toContain(`name: ${teams.sessionStart!.skill}`);
+    // The one thing the text must actually make happen: a pane cannot be
+    // told its role statically, so it has to go and ask.
+    expect(skill).toContain("mail.inbox");
+  });
+
+  it("declares where its skills live, since they are not in the plugin root", () => {
+    expect(teams.skills).toBe("./skills/");
+  });
+
+  it("owns no hooks — those are the reporter's zone", () => {
+    // Two plugins, two jobs. Arming a hook here would put turn-lifecycle
+    // reporting in two places, and the deck would hear every edge twice.
+    expect(teams.hooks).toBeUndefined();
+  });
 });

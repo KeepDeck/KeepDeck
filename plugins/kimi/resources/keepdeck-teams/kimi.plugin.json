@@ -1,0 +1,16 @@
+{
+  "name": "keepdeck-teams",
+  "version": "1.0.0",
+  "description": "Tells a Kimi Code session, at the moment it starts, that KeepDeck may have placed it on a team.",
+  "author": "KeepDeck",
+  "interface": {
+    "displayName": "KeepDeck Teams",
+    "shortDescription": "Lets a Kimi session find out it is on a KeepDeck team.",
+    "longDescription": "Kimi Code discards whatever a SessionStart hook prints, so the deck cannot tell a starting session anything through the reporter. A plugin session-start skill is the one door Kimi has, and this plugin is that door: it asks the session to read its own standing from KeepDeck before it starts working, so a teammate does not have to be messaged first to learn it has a role at all. Inert in any session where KeepDeck's tools are absent.",
+    "developerName": "KeepDeck"
+  },
+  "skills": "./skills/",
+  "sessionStart": {
+    "skill": "keepdeck-team"
+  }
+}

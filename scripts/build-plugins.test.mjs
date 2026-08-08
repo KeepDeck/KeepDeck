@@ -211,6 +211,24 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     expect(
       readFileSync(join(kimiCompanion, "kd-session-hook.sh"), "utf8"),
     ).toContain('"type":"session.bound"');
+
+    // The SECOND companion, whose payload is a skill file rather than a
+    // script. A copy that shipped the manifest without the skill it names
+    // installs cleanly and injects nothing, which is the failure this
+    // catches: Kimi only warns about it in its own log.
+    const kimiTeams = join(
+      distRoot,
+      "plugins",
+      "keepdeck.kimi",
+      "resources",
+      "keepdeck-teams",
+    );
+    expect(
+      JSON.parse(readFileSync(join(kimiTeams, "kimi.plugin.json"), "utf8")).sessionStart,
+    ).toEqual({ skill: "keepdeck-team" });
+    expect(
+      readFileSync(join(kimiTeams, "skills", "keepdeck-team", "SKILL.md"), "utf8"),
+    ).toContain("mail.inbox");
   });
 
   it("is a no-op that still writes an empty index.json when plugins/ has none", () => {
