@@ -118,6 +118,11 @@ describe("applyTeamPlan", () => {
     expect(h.told.map((t) => t.paneId)).toEqual(["pane-1", "pane-2"]);
     expect(h.told[0].body).toContain('as "lead"');
     expect(h.told[0].body).toContain("impl-1");
+    // "KeepDeck team", never a bare "team": asked what its team was, a
+    // briefed agent answered about its own subagents instead, because the
+    // word already means those to it.
+    expect(h.told[0].body).toContain("KeepDeck team");
+    expect(h.told[0].body).toContain("not your subagents");
     // ...and never names itself among the teammates it can write to.
     expect(h.told[0].body).not.toMatch(/by role:[^\n]*lead/);
     expect(h.told[1].body).toContain('as "impl-1"');
@@ -147,7 +152,10 @@ describe("applyTeamPlan", () => {
     const h = setup();
     await applyTeamPlan(h.deps, "ws-1", plan({ released: ["pane-9"] }));
     expect(h.told).toEqual([
-      { paneId: "pane-9", body: expect.stringContaining("no longer on the team") },
+      {
+        paneId: "pane-9",
+        body: expect.stringContaining("no longer on the KeepDeck team"),
+      },
     ]);
   });
 

@@ -72,9 +72,14 @@ export function teamBriefing(
 ): string {
   const mates = everyRole.filter((other) => other !== role);
   return [
-    `You have joined the team "${team}" in this workspace, as "${role}".`,
+    // "KeepDeck team" every time, never a bare "team". Asked what its team
+    // was, a briefed agent answered about its OWN mechanisms instead —
+    // Claude Code has native Agent Teams and its own subagent types, and
+    // the word already means those to it. An unqualified "team" does not
+    // reach past what the agent thinks it already knows.
+    `You are on the KeepDeck team "${team}", as "${role}". These are OTHER CLI agents running beside you in KeepDeck panes — not your subagents, and not your CLI's own teammates.`,
     mates.length
-      ? `Teammates, addressed by role: ${mates.join(", ")}.`
+      ? `The rest of the KeepDeck team, addressed by role: ${mates.join(", ")}.`
       : "You are its only member so far.",
     'Write to one with the keepdeck mail.send tool — to: "<role>", plus kind (task, question, answer or note) and body.',
     "Read anything you have not seen with mail.inbox; answer by quoting the message id in replyTo.",
@@ -87,7 +92,7 @@ export function teamBriefing(
  * reach anyone, and an agent that keeps writing into a dissolved team would
  * spend turns on messages nobody receives. */
 export function teamFarewell(team: string): string {
-  return `You are no longer on the team "${team}". Its roles no longer reach anyone, and nothing further will arrive from it.`;
+  return `You are no longer on the KeepDeck team "${team}". Its roles no longer reach anyone, and nothing further will arrive from it.`;
 }
 
 /**
