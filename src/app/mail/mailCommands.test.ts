@@ -98,9 +98,33 @@ describe("mail.send", () => {
       { to: "pane-2", kind: "question", body: "which port?" },
       from("pane-1", "ws-1", "Agent 1"),
     );
-    expect(result).toEqual({ ok: true, value: { id: "mail-1", delivered: true } });
+    expect(result).toEqual({
+      ok: true,
+      value: { id: "mail-1", status: "delivered", note: expect.any(String) },
+    });
     expect(delivered).toHaveLength(1);
     expect(delivered[0].toPaneId).toBe("pane-2");
+  });
+
+  it("calls an undelivered message QUEUED, and says it needs nothing", async () => {
+    // A boolean was read as failure: shown `delivered: false` for all three
+    // teammates, a lead re-sent and then went looking for whether they were
+    // alive at all, while three good messages sat in the queue. Queued is
+    // the ordinary outcome for a teammate that is not mid-turn.
+    const { registry, mail } = setup();
+    mail.dispose(); // nothing can land, so the send can only be accepted
+    const result = await run(
+      registry,
+      "mail.send",
+      { to: "pane-2", kind: "note", body: "ping" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const value = result.value as { status: string; note: string };
+      expect(value.status).toBe("queued");
+      expect(value.note).toContain("do not re-send");
+    }
   });
 
   it("refuses a caller it cannot name", async () => {

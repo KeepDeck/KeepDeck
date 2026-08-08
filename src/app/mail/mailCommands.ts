@@ -105,7 +105,8 @@ export function registerMailCommands(
   const disposers = [
     registry.register({
       id: "mail.send",
-      title: "Send a message to another agent",
+      title:
+        "Send a message to another agent. Answers status: delivered, or queued — queued means accepted and waiting for the recipient's next turn boundary, which is normal and needs nothing from you",
       args: [
         {
           name: "to",
@@ -164,10 +165,19 @@ export function registerMailCommands(
           ...(str(args, "replyTo") ? { replyTo: str(args, "replyTo") } : {}),
         });
         if (!result.ok) throw new Error(refusalText(result.refusal));
-        // `delivered` is not a read receipt and says so in the description:
-        // a message handed to a running turn is read whenever that turn gets
-        // to it, and one that is false will land when the pane can take it.
-        return { id: result.id, delivered: result.delivered };
+        // ACCEPTED either way, and the answer has to say so in a word rather
+        // than in a boolean. Shown `delivered: false`, a lead read it as
+        // failure: it re-sent, then went looking for whether its teammates
+        // were alive at all, while three perfectly good messages sat in the
+        // queue. `queued` is the normal outcome for a teammate that is not
+        // mid-turn, and it is not something the sender can or should fix.
+        return {
+          id: result.id,
+          status: result.delivered ? "delivered" : "queued",
+          note: result.delivered
+            ? "handed to the recipient now"
+            : "waiting for the recipient's next turn boundary — it will land on its own; do not re-send or go looking",
+        };
       },
     }),
 
