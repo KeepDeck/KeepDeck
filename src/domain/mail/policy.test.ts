@@ -57,12 +57,22 @@ describe("decideDelivery", () => {
         reason: "labelled-only",
       });
     }
-    // ...and having a hook does not change it either: the hook takes mail
-    // out of the queue without consulting this, so "hold" IS "the labelled
-    // channel or nothing".
-    expect(decideDelivery(briefing, done, SENT_AT, MAIL_LIMITS, true)).toEqual({
+    // Forever, for an agent that has no labelled channel: there is no later
+    // moment at which typing it in becomes acceptable.
+    const late = SENT_AT + MAIL_LIMITS.hookWaitMs;
+    expect(decideDelivery(briefing, done, late)).toEqual({
       kind: "hold",
       reason: "labelled-only",
+    });
+    // An agent that HAS one waits for it like everything else, and is then
+    // nudged into the turn that collects it — which is how a recruit that
+    // will never take a turn on its own gets briefed at all.
+    expect(decideDelivery(briefing, done, SENT_AT, MAIL_LIMITS, true)).toEqual({
+      kind: "hold",
+      reason: "turn-boundary",
+    });
+    expect(decideDelivery(briefing, done, late, MAIL_LIMITS, true)).toEqual({
+      kind: "wake",
     });
     // Expiry still outranks it — a briefing nobody came for is dropped
     // rather than held forever.
@@ -137,13 +147,14 @@ describe("decideDelivery", () => {
     });
   });
 
-  it("gives up waiting and uses the terminal rather than losing the message", () => {
-    // A turn can run far longer than a course correction stays useful.
-    // Late-but-labelled is worth a short wait; never-because-we-waited is
-    // not.
+  it("stops waiting and NUDGES rather than losing the message", () => {
+    // A turn can run far longer than a course correction stays useful, so
+    // the wait is bounded. What the terminal does at the end of it is wake
+    // the pane, not carry the words: the turn that starts fires the hook,
+    // and the hook delivers properly.
     const spent = SENT_AT + MAIL_LIMITS.hookWaitMs;
     expect(decideDelivery(mail(), working, spent, MAIL_LIMITS, true)).toEqual({
-      kind: "deliver",
+      kind: "wake",
     });
   });
 
@@ -167,13 +178,13 @@ describe("decideDelivery", () => {
     });
   });
 
-  it("falls back to the terminal once the wait for a hook is spent", () => {
-    // The bound is what keeps the preference from becoming a trap: an agent
-    // that never takes another turn would otherwise hold its mail until it
-    // expired, and the message would reach nobody at all.
+  it("nudges once the wait for a hook is spent", () => {
+    // The bound is what keeps the preference from becoming a trap: an idle
+    // agent fires no hook, so waiting longer only runs the clock out. The
+    // nudge buys a turn, and the turn is what carries the message.
     const late = SENT_AT + MAIL_LIMITS.hookWaitMs;
     expect(decideDelivery(mail(), done, late, MAIL_LIMITS, true)).toEqual({
-      kind: "deliver",
+      kind: "wake",
     });
     // And the wait is strictly shorter than the life of the message, or the
     // fallback would never get a turn.

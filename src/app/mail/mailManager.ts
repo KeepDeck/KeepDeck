@@ -95,6 +95,10 @@ export interface MailManagerDeps {
   /** Hand one message to its pane. False means the pane has no live input
    * channel at this instant — a retry, not a failure. */
   deliver(mail: Mail): boolean;
+  /** Nudge a pane into taking a turn WITHOUT handing it anything. For an
+   * agent that can receive mail properly: the turn fires the hook, and the
+   * hook is what carries the words. Same false-means-retry contract. */
+  wake(paneId: string): boolean;
   /** Whether this pane's agent asks the deck for its mail when a turn ends.
    * True means a running turn is worth waiting out — the answer given at
    * that boundary is labelled, and a paste is not. */
@@ -176,6 +180,14 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   const chainHop = new Map<string, number>();
   /** When each pane last took delivery, for spacing. */
   const lastDeliveryAt = new Map<string, number>();
+  /** When each pane was last nudged into a turn.
+   *
+   * A wake hands nothing over, so nothing about the queue changes to stop
+   * the next pass doing it again. This is what stops it: one nudge per pane
+   * per wait window, which is also the interval after which a nudge that
+   * produced no turn is worth repeating. Without it a pane whose hook never
+   * answers would be prodded on every drain until its mail expired. */
+  const lastWakeAt = new Map<string, number>();
 
   let sequence = 0;
   let cancelTimer: (() => void) | null = null;
@@ -265,6 +277,23 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       if (verdict.kind === "hold") {
         log.debug("web:mail", `held on ${verdict.reason}: ${trace(head)}`);
         return earlier(skipped, head.at + limits.undeliveredMs);
+      }
+      // A nudge, not a delivery: the message stays exactly where it is, and
+      // what it buys is a TURN — whose hook then carries the words properly.
+      // Nothing about the queue changes, so the only thing stopping the next
+      // pass repeating it is the clock.
+      if (verdict.kind === "wake") {
+        const woken = lastWakeAt.get(paneId);
+        if (woken !== undefined && at - woken < limits.hookWaitMs) {
+          return earlier(skipped, woken + limits.hookWaitMs);
+        }
+        if (!deps.wake(paneId)) {
+          log.debug("web:mail", `no input channel to wake: ${trace(head)}`);
+          return earlier(skipped, head.at + limits.undeliveredMs);
+        }
+        log.info("web:mail", `nudged the pane into a turn for: ${trace(head)}`);
+        lastWakeAt.set(paneId, at);
+        return earlier(skipped, at + limits.hookWaitMs);
       }
       const last = lastDeliveryAt.get(paneId);
       if (last !== undefined && at - last < SERIALIZE_MS) {
@@ -421,7 +450,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     retain(liveIds) {
-      for (const map of [queues, inboxes, chainHop, lastDeliveryAt]) {
+      for (const map of [queues, inboxes, chainHop, lastDeliveryAt, lastWakeAt]) {
         for (const id of [...map.keys()]) {
           if (!liveIds.has(id)) map.delete(id);
         }
@@ -431,6 +460,10 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     clear(paneId) {
       chainHop.delete(paneId);
       lastDeliveryAt.delete(paneId);
+      // A nudge was aimed at the process that just retired. The next one
+      // starts fresh and is owed one of its own — most of all here, since a
+      // restarted pane is exactly the pane that has forgotten everything.
+      lastWakeAt.delete(paneId);
     },
 
     dispose() {

@@ -15,8 +15,10 @@ export interface MailLimits {
   undeliveredMs: number;
   /** How many mail-caused wakes ONE chain may spend. */
   maxHops: number;
-  /** How long to wait for a running turn to reach its own boundary, where
-   * the agent asks the deck whether anything is waiting. */
+  /** How long to hope the receiver takes a turn of its own before spending
+   * one on it. At a turn boundary the agent asks the deck what is waiting
+   * and the message rides in free; past this, the deck nudges the pane into
+   * a turn instead — which delivers just as properly and costs one. */
   hookWaitMs: number;
 }
 
@@ -36,6 +38,14 @@ export interface MailLimits {
  * system stops two agents from politely answering each other forever —
  * claude's `stop_hook_active` guards one agent against its own hook and
  * cannot see the other agent at all.
+ *
+ * `hookWaitMs` — 45 seconds buys a free ride often enough to be worth it (a
+ * teammate mid-task reaches a boundary well inside it) without making a
+ * message to an idle agent feel lost. It is a COST knob, not a correctness
+ * one: waiting longer is cheaper and slower, waiting less is the reverse,
+ * and either way the message arrives through the same labelled channel. It
+ * must stay well under `undeliveredMs`, or the nudge would never get a turn
+ * before the message aged out.
  */
 export const MAIL_LIMITS: MailLimits = {
   undeliveredMs: 5 * 60_000,
@@ -88,7 +98,24 @@ const WAKES_A_PANE: ReadonlySet<MailKind> = new Set<MailKind>([
 ]);
 
 export type MailVerdict =
+  /** Push the message itself into the pane's terminal. Only for an agent
+   * with no labelled channel at all — for everyone else, see `wake`. */
   | { kind: "deliver" }
+  /**
+   * Nudge the pane into taking a turn, and leave the message where it is.
+   *
+   * The terminal's ONE remaining job for an agent that can receive mail
+   * properly. A turn beginning fires the hook that asks the deck what is
+   * waiting, and the message then arrives through the labelled channel —
+   * so the crude channel carries a wake and never the words.
+   *
+   * That split is what makes a lost keystroke survivable. Pushing the
+   * message itself meant the submit could fail and leave a teammate's task
+   * sitting in a composer, unsent, looking to the deck exactly like a
+   * delivery: observed twice on claude. A wake that fails to submit loses a
+   * nudge, and the message is still in the queue for the next turn.
+   */
+  | { kind: "wake" }
   | { kind: "hold"; reason: MailHoldReason }
   /** Too old to be worth landing; goes back to the sender undelivered. No
    * reason field — there is one way to expire, and nothing branches on it. */
@@ -116,17 +143,13 @@ export function decideDelivery(
   // exists to prevent — the correction arrives after the action it was
   // meant to stop.
   if (now - mail.at >= limits.undeliveredMs) return { kind: "expire" };
-  // Before anything about the pane: some messages have no business in a
-  // terminal at all, whatever state the receiver is in ([`WAKES_A_PANE`]).
-  // The hook channel takes them straight out of the queue and never asks
-  // this, so holding here is exactly "the labelled channel or nothing".
-  if (!WAKES_A_PANE.has(mail.kind)) return { kind: "hold", reason: "labelled-only" };
-  // The one genuinely dangerous state. A permission prompt answers
-  // keystrokes by CHOOSING A MENU ITEM, so text pushed there is not read as
-  // text at all — its characters answer the prompt, and the tracker cannot
-  // see that happen, because a write like this deliberately never enters the
-  // keystroke channel (`src/app/paneKeys.ts`). Holding is the only safe
-  // answer, and it is why messages need a clock at all.
+  // The one genuinely dangerous state, and it outranks everything below. A
+  // permission prompt answers keystrokes by CHOOSING A MENU ITEM, so text
+  // pushed there is not read as text at all — its characters answer the
+  // prompt, and the tracker cannot see that happen, because a write like
+  // this deliberately never enters the keystroke channel
+  // (`src/app/paneKeys.ts`). Holding is the only safe answer, and it is why
+  // messages need a clock at all.
   //
   // No activity at all is NOT this state, and treating it as any kind of
   // hold was once a bug of its own: a status reporter speaks on turn events,
@@ -134,31 +157,27 @@ export function decideDelivery(
   if (activity?.state === "waiting" && activity.reason === "permission") {
     return { kind: "hold", reason: "permission" };
   }
-  // If this agent has a labelled channel at all, WAIT for it — whatever the
-  // pane happens to be doing. This used to wait only on a `working` pane,
-  // which made the terminal the normal path rather than the exception: a
-  // pane sitting at its prompt reports `done` (or nothing), so the good
-  // channel was skipped for exactly the messages that had time to use it.
-  //
-  // The terminal is the undesirable one, and the reason is not taste. Text
-  // pushed at a TUI is indistinguishable from what the user typed, and it
-  // is not even reliably delivered — the submit is a separate keystroke, and
-  // a pane that was not ready for it leaves the message sitting in the
-  // composer, unsent, looking to the deck exactly like a message that
-  // arrived. Seen live, twice.
-  //
-  // Still BOUNDED, because that is what keeps it a preference rather than a
-  // trap: an agent that never takes another turn would otherwise hold its
-  // mail until it expired. Once the wait is spent the terminal takes it
-  // after all — late-but-labelled is worth a wait; never is not.
-  if (asksAtTurnEnd && now - mail.at < limits.hookWaitMs) {
+  // An agent with NO labelled channel has the terminal or nothing, and what
+  // may be pushed at it is decided by what the message is FOR
+  // ([`WAKES_A_PANE`]).
+  if (!asksAtTurnEnd) {
+    return WAKES_A_PANE.has(mail.kind)
+      ? { kind: "deliver" }
+      : { kind: "hold", reason: "labelled-only" };
+  }
+  // Everyone else WAITS for their own channel, whatever the pane happens to
+  // be doing. This used to wait only on a `working` pane, which made the
+  // terminal the normal path rather than the exception: a pane sitting at
+  // its prompt reports `done` (or nothing), so the good channel was skipped
+  // for exactly the messages that had time to use it.
+  if (now - mail.at < limits.hookWaitMs) {
     return { kind: "hold", reason: "turn-boundary" };
   }
-  // The last resort, and everything that has no labelled channel at all.
-  // `working` is steering — a correction mid-run is the normal mode, not an
-  // intrusion. `waiting("question")` is a pane parked on a question, where
-  // the message is most likely the answer. `done`/`failed` start a new turn.
-  return { kind: "deliver" };
+  // The wait is spent and no turn came — the pane is idle, and an idle agent
+  // fires no hook, so waiting longer only runs the clock out. Nudge it into
+  // a turn and let ITS OWN channel carry the words. The message stays where
+  // it is: the terminal's job here is to wake, never to deliver.
+  return { kind: "wake" };
 }
 
 /**

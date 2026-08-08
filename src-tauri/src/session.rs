@@ -345,18 +345,19 @@ mod tests {
         registry.insert(first);
         registry.insert(second);
 
+        // A grace far longer than anything a `sleep` takes to die, so the
+        // claim rests on the GAP rather than on absolute timing: a wait that
+        // ran its full length would take half a minute, and one that ends
+        // when the sessions do takes a moment even on a loaded machine.
         let started = Instant::now();
-        registry.shutdown(Duration::from_secs(3));
+        registry.shutdown(Duration::from_secs(30));
         let waited = started.elapsed();
 
         expect_exit(&first_events, Duration::from_secs(5));
         expect_exit(&second_events, Duration::from_secs(5));
-        // Well under the grace, not "instant": this shares a machine with
-        // every other test that spawns a process, and the claim is that the
-        // wait ENDS when they do rather than running its full length.
         assert!(
-            waited < Duration::from_secs(2),
-            "waited {waited:?} for two prompt exits — the wait is not shared",
+            waited < Duration::from_secs(5),
+            "waited {waited:?} of a 30s grace for two prompt exits — the wait is not shared",
         );
     }
 

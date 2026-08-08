@@ -36,6 +36,7 @@ export interface MailServiceDeps {
   /** When a pane's input channel appears — see `createMailManager`. */
   subscribeChannels(listener: () => void): () => void;
   deliver(mail: Mail): boolean;
+  wake(paneId: string): boolean;
   /** Whether this pane's agent asks the deck for its mail at a turn
    * boundary — see `createMailManager`. */
   asksAtTurnEnd?(paneId: string): boolean;
@@ -78,6 +79,7 @@ export function createMailService(
         subscribeActivity: deps.subscribeActivity,
         subscribeChannels: deps.subscribeChannels,
         deliver: deps.deliver,
+        wake: deps.wake,
         ...(deps.asksAtTurnEnd ? { asksAtTurnEnd: deps.asksAtTurnEnd } : {}),
       });
       unregister = registerMailCommands(deps.registry, {

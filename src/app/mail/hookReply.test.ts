@@ -27,6 +27,7 @@ function setup(
       pasted.push(mail);
       return true;
     },
+    wake: () => true,
     asksAtTurnEnd: () => true,
     now: () => 1_000,
     schedule: () => () => {},

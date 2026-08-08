@@ -60,6 +60,7 @@ function setup(initial: boolean | null) {
         delivered.push(mail);
         return true;
       },
+      wake: () => true,
       livePaneIds: () => new Set(panes.map((p) => p.id)),
       subscribePanes: (listener) => {
         paneListeners.add(listener);

@@ -25,6 +25,9 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
   const listeners = new Set<() => void>();
   const channelWatchers = new Set<() => void>();
   const delivered: Mail[] = [];
+  /** Panes nudged into a turn, in order. A wake carries nothing, so this is
+   * the only trace of one. */
+  const woken: string[] = [];
   let timer: { at: number; fn: () => void } | null = null;
 
   const manager = createMailManager({
@@ -42,6 +45,11 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
       delivered.push(mail);
       return true;
     },
+    wake: (paneId) => {
+      if (!deliverable) return false;
+      woken.push(paneId);
+      return true;
+    },
     asksAtTurnEnd: () => options.asksAtTurnEnd === true,
     now: () => clock,
     schedule: (fn, ms) => {
@@ -55,6 +63,7 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
   return {
     manager,
     delivered,
+    woken,
     /** Set a pane's activity and tell the manager, as the tracker would. */
     reports(paneId: string, next: PaneActivity) {
       activity.set(paneId, next);
@@ -325,15 +334,40 @@ describe("createMailManager", () => {
     expect(h.manager.inbox(B.paneId)).toHaveLength(1);
   });
 
-  it("falls back to the terminal when the turn outlasts the wait", () => {
-    // A turn can run far longer than a correction stays useful. Waiting is
-    // bounded precisely so a message is never lost to the waiting.
+  it("nudges the pane when the wait is spent, and hands the message to nobody", () => {
+    // The terminal's whole remaining job for an agent that can receive mail
+    // properly. Pushing the message itself is what left a teammate's task
+    // sitting unsent in a composer, indistinguishable from a delivery; a
+    // nudge that fails loses a keystroke and the message is still queued.
     const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, { state: "working", since: 500 });
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "careful" });
-    expect(h.delivered).toHaveLength(0);
     h.advance(MAIL_LIMITS.hookWaitMs);
-    expect(h.delivered.map((mail) => mail.body)).toEqual(["careful"]);
+    expect(h.woken).toEqual([B.paneId]);
+    // NOTHING was handed over, and the message is still there for the turn
+    // the nudge is about to start.
+    expect(h.delivered).toEqual([]);
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
+      "careful",
+    ]);
+  });
+
+  it("nudges a pane once per wait, however often it is asked to", () => {
+    // A wake changes nothing about the queue, so nothing but the clock stops
+    // the next pass repeating it — and a pane whose hook never answers would
+    // be prodded on every drain until its mail expired.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "careful" });
+    h.advance(MAIL_LIMITS.hookWaitMs);
+    expect(h.woken).toEqual([B.paneId]);
+    h.reports(B.paneId, { state: "working", since: 2 });
+    h.reports(B.paneId, done);
+    expect(h.woken).toEqual([B.paneId]);
+    // ...and it IS worth repeating once that long has gone by with nothing
+    // collected: the first nudge evidently produced no turn.
+    h.advance(MAIL_LIMITS.hookWaitMs);
+    expect(h.woken).toEqual([B.paneId, B.paneId]);
   });
 
   it("keeps a permission prompt held even when asked at a turn boundary", () => {
@@ -397,7 +431,10 @@ describe("createMailManager", () => {
     // session start that nothing had collected. A briefing waits for a
     // DIFFERENT channel — that is a fact about the message, not about the
     // pane — so it must not stand in front of what the terminal can carry.
-    const h = harness({ asksAtTurnEnd: true });
+    // On an agent with NO labelled channel, which is where the hazard now
+    // lives: a briefing there waits forever, because there is no later
+    // moment at which typing it in becomes acceptable.
+    const h = harness();
     h.reports(B.paneId, done);
     h.manager.announce(B.paneId, "team", "you are impl-1 on api");
     h.manager.send({
@@ -406,9 +443,6 @@ describe("createMailManager", () => {
       kind: "task",
       body: "take the parser",
     });
-    // Once the wait for a hook is spent, the task takes the terminal — and
-    // the briefing standing in front of it must not have stopped that.
-    h.advance(MAIL_LIMITS.hookWaitMs);
     expect(h.delivered.map((mail) => mail.kind)).toEqual(["task"]);
     // And the briefing kept its place rather than being consumed with it.
     expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.kind)).toEqual([
@@ -420,11 +454,10 @@ describe("createMailManager", () => {
     // Stepping over a message must not cost it its timer: the walk can end
     // with nothing deliverable behind it, and the only thing left to
     // schedule is the moment the skipped one stops being worth holding.
-    const h = harness({ asksAtTurnEnd: true });
+    const h = harness();
     h.reports(B.paneId, done);
     h.manager.announce(B.paneId, "team", "you are impl-1 on api");
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "take it" });
-    h.advance(MAIL_LIMITS.hookWaitMs);
     expect(h.delivered).toHaveLength(1);
     h.advance(MAIL_LIMITS.undeliveredMs);
     expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);

@@ -31,6 +31,7 @@ import {
   createMailService,
   createTeamPresence,
   deliverMailThroughPty,
+  wakePaneForMail,
 } from "./mail";
 import { teamMembers } from "../domain/mail";
 import { createMcpService } from "./mcp";
@@ -191,6 +192,7 @@ export function createAppRuntime(
       subscribeActivity: statusTracker.subscribe,
       subscribeChannels: subscribePaneInput,
       deliver: deliverMailThroughPty,
+      wake: wakePaneForMail,
       // A pane whose CLI plugin renders mail will come asking at its turn
       // boundary, so a running turn is worth waiting out for the labelled
       // channel. Read per call: a plugin can be enabled or disabled while

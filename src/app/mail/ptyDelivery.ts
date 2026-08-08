@@ -46,6 +46,37 @@ export function renderMail(mail: Mail): string {
 }
 
 /**
+ * The whole of what the terminal says to an agent that can receive mail
+ * properly.
+ *
+ * It carries no message and names no sender, because it is not a delivery:
+ * it exists to make an idle pane take a turn, and a turn beginning is what
+ * fires the hook that asks the deck what is waiting. The words then arrive
+ * through the agent's own channel, labelled.
+ *
+ * The second sentence is the fallback and the reason this is not merely a
+ * blank line: if the hook does not answer — the plugin is off, the round
+ * trip timed out — the agent has still been told where to look. And it says
+ * whose line this is, because everything typed into a terminal otherwise
+ * reads as the user's.
+ */
+const WAKE_LINE =
+  "[keepdeck] A teammate's message is waiting for you. This line is from KeepDeck, not from your user — read what is waiting with the keepdeck mail.inbox tool.";
+
+/**
+ * Nudge a pane into taking a turn, without saying anything that matters.
+ *
+ * Same channel and same caveats as a delivery, and the same answer: false
+ * means nothing was written and the caller should try again later.
+ */
+export function wakePaneForMail(paneId: string, now?: number): boolean {
+  if (!paneInputReady(paneId) || !paneInputSettled(paneId, now)) return false;
+  if (!pasteToPane(paneId, WAKE_LINE)) return false;
+  writeRawToPane(paneId, "\r");
+  return true;
+}
+
+/**
  * Deliver through the pane's terminal. False means the pane has no live
  * input channel right now, which the owner treats as a retry.
  */

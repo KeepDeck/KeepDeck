@@ -52,6 +52,7 @@ function setup() {
       delivered.push(message);
       return true;
     },
+    wake: () => true,
     now: () => 1_000,
     schedule: () => () => {},
   });
