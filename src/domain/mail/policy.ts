@@ -165,18 +165,25 @@ export function decideDelivery(
       ? { kind: "deliver" }
       : { kind: "hold", reason: "labelled-only" };
   }
-  // Everyone else WAITS for their own channel, whatever the pane happens to
-  // be doing. This used to wait only on a `working` pane, which made the
-  // terminal the normal path rather than the exception: a pane sitting at
-  // its prompt reports `done` (or nothing), so the good channel was skipped
-  // for exactly the messages that had time to use it.
-  if (now - mail.at < limits.hookWaitMs) {
+  // Waiting is only worth anything when a boundary is actually coming. A
+  // RUNNING turn will reach one on its own and the message rides it for
+  // free; nothing else will, because an idle agent fires no hook at all.
+  //
+  // Measured: a lead stopped 11 seconds before its team's three answers
+  // arrived, and every one of them then sat the full wait — 45 seconds of
+  // nothing, ending in the nudge that could have been sent at once.
+  //
+  // This condition was here before and was removed for a real reason: back
+  // then the alternative was pushing the message into the terminal, which
+  // is unlabelled and does not reliably arrive, so waiting was worth it even
+  // when nothing was coming. The alternative is now a nudge that produces a
+  // proper delivery, and the trade reverses with it.
+  if (activity?.state === "working" && now - mail.at < limits.hookWaitMs) {
     return { kind: "hold", reason: "turn-boundary" };
   }
-  // The wait is spent and no turn came — the pane is idle, and an idle agent
-  // fires no hook, so waiting longer only runs the clock out. Nudge it into
-  // a turn and let ITS OWN channel carry the words. The message stays where
-  // it is: the terminal's job here is to wake, never to deliver.
+  // Nudge the pane into a turn and let ITS OWN channel carry the words. The
+  // message stays where it is: the terminal's job here is to wake, never to
+  // deliver.
   return { kind: "wake" };
 }
 

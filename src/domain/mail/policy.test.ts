@@ -64,14 +64,14 @@ describe("decideDelivery", () => {
       kind: "hold",
       reason: "labelled-only",
     });
-    // An agent that HAS one waits for it like everything else, and is then
-    // nudged into the turn that collects it — which is how a recruit that
-    // will never take a turn on its own gets briefed at all.
-    expect(decideDelivery(briefing, done, SENT_AT, MAIL_LIMITS, true)).toEqual({
+    // An agent that HAS one waits while a turn is running, and is nudged
+    // into one otherwise — which is how a recruit that will never take a
+    // turn on its own gets briefed at all.
+    expect(decideDelivery(briefing, working, SENT_AT, MAIL_LIMITS, true)).toEqual({
       kind: "hold",
       reason: "turn-boundary",
     });
-    expect(decideDelivery(briefing, done, late, MAIL_LIMITS, true)).toEqual({
+    expect(decideDelivery(briefing, done, SENT_AT, MAIL_LIMITS, true)).toEqual({
       kind: "wake",
     });
     // Expiry still outranks it — a briefing nobody came for is dropped
@@ -158,18 +158,20 @@ describe("decideDelivery", () => {
     });
   });
 
-  it("waits for the labelled channel whatever the pane is doing", () => {
-    // This used to wait only on a RUNNING pane, which made the terminal the
-    // normal path rather than the exception: an idle pane reports `done`, so
-    // the good channel was skipped for exactly the messages with time to use
-    // it. The terminal is not merely unlabelled, it is unreliable — its
-    // submit is a separate keystroke that a pane can fail to take, leaving
-    // the message in the composer and the deck none the wiser.
-    for (const activity of [working, done, failed, asking, undefined]) {
+  it("waits only while a turn is RUNNING — nothing else brings a boundary", () => {
+    // Waiting buys a free ride on a boundary that is coming anyway. An idle
+    // agent fires no hook, so waiting on one is pure latency: measured at
+    // exactly 45 seconds for a lead's three answers, which arrived 11
+    // seconds after it had stopped.
+    expect(decideDelivery(mail(), working, SENT_AT, MAIL_LIMITS, true)).toEqual({
+      kind: "hold",
+      reason: "turn-boundary",
+    });
+    for (const activity of [done, failed, asking, undefined]) {
       expect(
         decideDelivery(mail(), activity, SENT_AT, MAIL_LIMITS, true),
         String(activity?.state),
-      ).toEqual({ kind: "hold", reason: "turn-boundary" });
+      ).toEqual({ kind: "wake" });
     }
     // ...and a permission prompt outranks it, hook or not.
     expect(decideDelivery(mail(), approving, SENT_AT, MAIL_LIMITS, true)).toEqual({

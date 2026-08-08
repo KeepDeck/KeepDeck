@@ -334,7 +334,19 @@ describe("createMailManager", () => {
     expect(h.manager.inbox(B.paneId)).toHaveLength(1);
   });
 
-  it("nudges the pane when the wait is spent, and hands the message to nobody", () => {
+  it("nudges an idle pane AT ONCE, without waiting out a boundary that is not coming", () => {
+    // The delay the whole feature felt like: measured live, a lead's three
+    // answers each sat the full 45s wait because it had stopped 11 seconds
+    // earlier. Nothing was going to bring a turn boundary, so every second
+    // of that wait bought nothing.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "answer", body: "done" });
+    expect(h.woken).toEqual([B.paneId]);
+    expect(h.delivered).toEqual([]);
+  });
+
+  it("nudges the pane when a RUNNING turn outlasts the wait, and hands the message to nobody", () => {
     // The terminal's whole remaining job for an agent that can receive mail
     // properly. Pushing the message itself is what left a teammate's task
     // sitting unsent in a composer, indistinguishable from a delivery; a
@@ -359,7 +371,8 @@ describe("createMailManager", () => {
     const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, done);
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "careful" });
-    h.advance(MAIL_LIMITS.hookWaitMs);
+    // An idle pane is nudged AT ONCE — nothing was going to bring a turn
+    // boundary, so there was nothing to wait for.
     expect(h.woken).toEqual([B.paneId]);
     h.reports(B.paneId, { state: "working", since: 2 });
     h.reports(B.paneId, done);
