@@ -52,18 +52,19 @@ ask=""
 
 # How long to wait for the deck.
 #
-# The deck answers from state it already holds, and it ALWAYS answers —
-# an empty reply when there is no mail. So this budget is never spent on
-# thinking; it is spent, in full, only when the deck is not there to answer
-# at all. And the deck is not there precisely when the app is closing, which
-# is also when the CLI is shutting down: every extra moment a hook holds a
-# dying agent open is a moment its session file stays locked, and codex
-# refuses to resume a thread that "already has an active writer".
+# This was cut to 600ms on a guess — that a hook holding a shutting-down CLI
+# open was why codex could not resume a thread with "an active writer". The
+# guess was never tested, and the cut broke delivery that WORKED: the host
+# books a message the moment it hands it over, so a hook that gives up first
+# leaves it marked delivered and unread in the inbox. Claude stopped picking
+# up its context, and the message sat there. Two seconds is what worked.
 #
-# So it is short. 600ms is generous for bridge → webview → reply on a
-# machine doing anything at all, and cheap to pay when the answer never
-# comes.
-ASK_TRIES=12
+# The real fix is not a number. The hook removes the reply file once it has
+# read it, so a file still sitting there means nobody took the message — the
+# host can check that and put it back in the queue instead of believing its
+# own hand-over. Until then, do NOT shorten this: a slow round trip is a
+# delayed message, a short window is a lost one.
+ASK_TRIES=40
 ASK_SLEEP=0.05
 
 # The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a path
