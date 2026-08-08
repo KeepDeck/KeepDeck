@@ -648,11 +648,19 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * lifecycle gating → here. */
   const agentBinInstalled = new Map<string, boolean>();
 
+  /** Cache of what each agent bin answers to `--version`, filled by the same
+   * pass. A CLI's wire protocols move between releases — codex replaced its
+   * whole hook-output schema between 0.146 and 0.147 — and a plugin that has
+   * to speak the right one has nothing else to go on. Absent means "could
+   * not tell", which every consumer must read as "assume current". */
+  const agentBinVersion = new Map<string, string>();
+
   /** Detect the given agent bins once and record the statuses. Shared by the
    * bootstrap pass (every declared bin) and the enable gesture's refresh. */
   async function detectAndCacheBins(bins: string[]): Promise<void> {
     for (const status of await detectBins(bins)) {
       agentBinInstalled.set(status.bin, status.installed);
+      if (status.version) agentBinVersion.set(status.bin, status.version);
     }
   }
 
@@ -990,6 +998,11 @@ export function createPluginManager(appDownloads: DownloadManager) {
     bootstrapPlugins,
     rescanPlugins,
     restartPlugin,
+    /** What an agent's binary answers to `--version`, or null when nothing
+     * legible came back. The one caller today is mail rendering, where the
+     * CLI's hook-output schema differs by release. */
+    agentBinVersion: (bin: string): string | null =>
+      agentBinVersion.get(bin) ?? null,
   };
 }
 

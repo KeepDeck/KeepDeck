@@ -116,7 +116,7 @@ describe("useAgents", () => {
   it("assembles the catalog from agent contributions plus detection", async () => {
     register(claude);
     ipc.detectBins.mockResolvedValue([
-      { bin: "claude", installed: false, path: null },
+      { bin: "claude", installed: false, path: null, version: null },
     ]);
     await mount();
     expect(ipc.detectBins).toHaveBeenCalledWith(["claude"]);
@@ -154,7 +154,7 @@ describe("useAgents", () => {
       [{ id: "usage.pane", label: "Pane usage" }],
     );
     ipc.detectBins.mockResolvedValue([
-      { bin: "claude", installed: true, path: "/usr/bin/claude" },
+      { bin: "claude", installed: true, path: "/usr/bin/claude", version: "2.1.226" },
     ]);
     await mount();
     expect(seen.agents[0]?.features).toEqual([
@@ -177,7 +177,7 @@ describe("useAgents", () => {
       ],
     );
     ipc.detectBins.mockResolvedValue([
-      { bin: "codex", installed: true, path: "/usr/bin/codex" },
+      { bin: "codex", installed: true, path: "/usr/bin/codex", version: "0.147.0" },
     ]);
     await mount();
     expect(seen.agents[0]?.features).toEqual([
@@ -192,7 +192,7 @@ describe("useAgents", () => {
   it("a remount seeds from the cached detection instead of flashing installed", async () => {
     register(claude);
     ipc.detectBins.mockResolvedValue([
-      { bin: "claude", installed: false, path: "/usr/local/bin/claude" },
+      { bin: "claude", installed: false, path: "/usr/local/bin/claude", version: null },
     ]);
     await mount();
     act(() => root.unmount());

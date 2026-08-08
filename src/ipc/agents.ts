@@ -6,6 +6,9 @@ export interface BinStatus {
   bin: string;
   installed: boolean;
   path: string | null;
+  /** What it answers to `--version`, when that is legible. Null means "could
+   * not tell", never "old" — see the Rust side for why a plugin needs it. */
+  version: string | null;
 }
 
 /** Detect which of the requested binaries resolve on the spawn PATH — the
@@ -18,6 +21,6 @@ export async function detectBins(bins: string[]): Promise<BinStatus[]> {
     return await invoke<BinStatus[]>("agents_detect", { bins });
   } catch (e) {
     log.warn("web:agents", `agents_detect failed; assuming installed: ${describeError(e)}`);
-    return bins.map((bin) => ({ bin, installed: true, path: null }));
+    return bins.map((bin) => ({ bin, installed: true, path: null, version: null }));
   }
 }

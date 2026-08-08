@@ -152,15 +152,29 @@ export interface MailReplyInput {
   event: Record<string, unknown>;
   /** Never empty: the host does not ask for a rendering of nothing. */
   messages: readonly DeliverableMail[];
+  /** What the CLI's own binary answered to `--version`, or null when nothing
+   * legible came back.
+   *
+   * A hook-output schema belongs to a RELEASE, not to a CLI: codex replaced
+   * `should_block` + continuation fragments with `decision`/`reason` and
+   * `hookSpecificOutput` between 0.146 and 0.147, and an answer in the wrong
+   * one is refused outright — the pane prints "hook returned invalid JSON
+   * output" and the agent learns nothing. A renderer supporting more than
+   * one release branches on this.
+   *
+   * Null must read as "assume the current schema", never as "assume old": a
+   * probe can fail for reasons that have nothing to do with the version, and
+   * defaulting to a retired protocol would break the installs that work. */
+  cliVersion: string | null;
 }
 
 /**
  * What the hook should print, or null when this event cannot carry mail.
  *
  * The string is written to the hook's stdout verbatim, so it is the CLI's
- * own hook-output schema — `decision: "block"` for claude, `should_block`
- * plus continuation fragments for codex. Returning null leaves the hook
- * silent, which every CLI treats as "nothing to add".
+ * own hook-output schema — `decision: "block"` for claude and for codex from
+ * 0.147, older codex releases wanting something else entirely. Returning null
+ * leaves the hook silent, which every CLI treats as "nothing to add".
  */
 export type MailReplyRenderer = (input: MailReplyInput) => string | null;
 

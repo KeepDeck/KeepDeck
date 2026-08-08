@@ -11,7 +11,13 @@ const WORKING: PaneActivity = { state: "working", since: 1 };
 const RENDER: MailReplyRenderer = ({ messages }) =>
   JSON.stringify({ decision: "block", reason: messages.map((m) => m.body).join("|") });
 
-function setup(options: { render?: MailReplyRenderer | undefined; off?: boolean } = {}) {
+function setup(
+  options: {
+    render?: MailReplyRenderer | undefined;
+    off?: boolean;
+    cliVersion?: string;
+  } = {},
+) {
   const pasted: Mail[] = [];
   const manager: MailManager = createMailManager({
     activityOf: () => WORKING,
@@ -29,6 +35,7 @@ function setup(options: { render?: MailReplyRenderer | undefined; off?: boolean 
   const deps = {
     mail: () => (options.off ? null : manager),
     rendererFor: () => ("render" in options ? options.render : RENDER),
+    versionOf: () => options.cliVersion ?? null,
     reply: (id: string, body: string) => replies.push({ id, body }),
   };
   return { manager, replies, pasted, deps };

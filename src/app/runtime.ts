@@ -358,6 +358,16 @@ export function createAppRuntime(
                   .list()
                   .find(({ entry }) => entry.id === agentId)?.entry.status
                   ?.renderMail,
+              // Through the agent's DECLARED bin, which is the same name the
+              // detection pass probed — an agent whose plugin declares none
+              // simply has no version, and its renderer reads that as
+              // "assume the current schema".
+              versionOf: (agentId) => {
+                const bin = plugins.pluginRegistries.agents
+                  .list()
+                  .find(({ entry }) => entry.id === agentId)?.entry.detect?.bin;
+                return bin ? plugins.agentBinVersion(bin) : null;
+              },
               reply: replyToBridgeHook,
             },
             paneId,

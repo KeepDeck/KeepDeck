@@ -25,6 +25,10 @@ export interface HookReplyDeps {
   mail(): MailManager | null;
   /** This agent's mail renderer, when its plugin ships one. */
   rendererFor(agentId: string): MailReplyRenderer | undefined;
+  /** What this agent's own binary answers to `--version`, or null when that
+   * could not be read. A hook-output schema belongs to a RELEASE — codex
+   * changed its whole shape at 0.147 — so the renderer needs it to pick. */
+  versionOf(agentId: string): string | null;
   /** Hand the rendered answer back to the waiting hook. */
   reply(correlation: string, body: string): void;
 }
@@ -97,7 +101,11 @@ export function answerMailAsk(
   }
   const taken = manager.takeAtTurnEnd(paneId);
   if (taken.length === 0) return answer("", "nothing waiting");
-  const rendered = render({ event, messages: taken.map(forAgent) });
+  const rendered = render({
+    event,
+    messages: taken.map(forAgent),
+    cliVersion: deps.versionOf(agent),
+  });
   if (rendered === null) {
     // This event cannot carry mail after all. Give it back rather than drop
     // it — the pane will ask again at an event that can.
