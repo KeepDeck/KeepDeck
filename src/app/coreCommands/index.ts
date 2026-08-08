@@ -19,6 +19,7 @@ import {
   type Pane,
   type Workspace,
 } from "../../domain/deck";
+import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
 import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
 import { mintAgentSeq } from "../ids";
@@ -319,6 +320,14 @@ export function registerCoreCommands(
         current.deck.selectPane(workspace.id, id);
 
         const task = str(args, "task");
+        // The pane's whole starting story on one line: which agent, where,
+        // and — the part that matters for teams — whether anything will
+        // open a turn on it. A recruit spawned with no task never has one,
+        // so nothing it is told can ride a turn boundary.
+        log.info(
+          "web:spawn",
+          `${id}: ${agentType} in ${workspace.id}, task ${task ? "scheduled" : "none"}`,
+        );
         if (task) void deliverTask(id, task);
         return {
           paneId: id,

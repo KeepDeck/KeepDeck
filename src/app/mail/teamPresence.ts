@@ -16,6 +16,7 @@
  * the feature.
  */
 import { teamBriefing } from "../../domain/mail";
+import { log } from "../../ipc/log";
 
 /** Where a pane stands, as the briefing needs it. */
 export interface TeamStanding {
@@ -39,8 +40,15 @@ export interface TeamPresenceDeps {
 }
 
 export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } {
-  const restate = (paneId: string) => {
+  const restate = (why: string) => (paneId: string) => {
     const standing = deps.standingOf(paneId);
+    // Logged either way. "Nothing was re-stated" is the answer half the
+    // time — the pane is on no team — and without the line it is
+    // indistinguishable from a signal that never arrived.
+    log.info(
+      "web:mail",
+      `${paneId} ${why}: ${standing ? `re-stating ${standing.role} on ${standing.team}` : "on no team"}`,
+    );
     if (!standing) return;
     deps.announce(
       paneId,
@@ -49,8 +57,8 @@ export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } 
   };
 
   const unsubscribes = [
-    deps.onSessionBegan(restate),
-    deps.onContextRebuilt(restate),
+    deps.onSessionBegan(restate("began a fresh session")),
+    deps.onContextRebuilt(restate("had its context rebuilt")),
   ];
 
   return {

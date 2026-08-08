@@ -7,7 +7,7 @@
  * these rules be tested without a deck, a PTY or a running agent.
  */
 import type { PaneActivity } from "../status";
-import type { Mail, MailSender } from "./message";
+import type { Mail, MailKind, MailSender } from "./message";
 
 export interface MailLimits {
   /** How long a message stays worth delivering after it was spoken. */
@@ -54,7 +54,37 @@ export type MailHoldReason =
   /** A turn is running and this agent asks the deck for its mail when that
    * turn ends. Waiting buys a labelled envelope instead of a paste that
    * reads like the user typed it. */
-  | "turn-boundary";
+  | "turn-boundary"
+  /** This message may only arrive labelled, and the labelled channel has
+   * not asked yet. See [`WAKES_A_PANE`]. */
+  | "labelled-only";
+
+/**
+ * The message kinds that may be pushed into a pane's TERMINAL.
+ *
+ * The split is what a message is FOR. A task, a question, an answer or a
+ * note is one agent talking to another and carrying an expectation — the
+ * point of it is that the receiver ACTS on it, so waking an idle pane by
+ * typing into it is a crude channel but an honest one. So is a delivery
+ * report: it goes back to a pane that is waiting for an answer, to tell it
+ * to stop waiting, and unblocking someone is a wake by definition.
+ *
+ * A briefing is none of that. It states where a pane STANDS, and it belongs
+ * in the agent's CONTEXT, not in its composer. Pasted, it arrives looking
+ * like something the user typed — the exact wrong reading, since the whole
+ * content of a briefing is "this did not come from your human". Observed
+ * live: a freshly started teammate sat with its briefing in the input box,
+ * unsent, and its first act would have been to guess what the person wanted
+ * with it. Not delivering it is better than that, so a briefing waits for
+ * the labelled channel and expires if that channel never asks.
+ */
+const WAKES_A_PANE: ReadonlySet<MailKind> = new Set<MailKind>([
+  "task",
+  "question",
+  "answer",
+  "note",
+  "undelivered",
+]);
 
 export type MailVerdict =
   | { kind: "deliver" }
@@ -85,6 +115,11 @@ export function decideDelivery(
   // exists to prevent — the correction arrives after the action it was
   // meant to stop.
   if (now - mail.at >= limits.undeliveredMs) return { kind: "expire" };
+  // Before anything about the pane: some messages have no business in a
+  // terminal at all, whatever state the receiver is in ([`WAKES_A_PANE`]).
+  // The hook channel takes them straight out of the queue and never asks
+  // this, so holding here is exactly "the labelled channel or nothing".
+  if (!WAKES_A_PANE.has(mail.kind)) return { kind: "hold", reason: "labelled-only" };
   // No activity is NOT a reason to hold, and treating it as one was the bug
   // that made the whole feature look broken: a status reporter speaks on
   // turn events, so a pane sitting idle at its prompt — never had a turn,

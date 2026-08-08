@@ -362,21 +362,51 @@ describe("createMailManager", () => {
     // The host already speaks for delivery reports; a team briefing is the
     // other thing only the deck knows. It starts no conversation, so it
     // must not cost the pane a hop from its budget.
-    const h = harness();
+    const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, done);
     h.manager.announce(B.paneId, "team", "you are lead on api");
-    expect(h.delivered).toHaveLength(1);
-    expect(h.delivered[0].from).toEqual({ kind: "host" });
-    expect(h.delivered[0].kind).toBe("team");
-    expect(h.delivered[0].hop).toBe(0);
+    const [briefing] = h.manager.takeAtTurnEnd(B.paneId);
+    expect(briefing.from).toEqual({ kind: "host" });
+    expect(briefing.kind).toBe("team");
+    expect(briefing.hop).toBe(0);
   });
 
-  it("holds an announcement at a permission prompt like any other message", () => {
-    // It travels the ordinary route, so the one dangerous state stays
-    // dangerous no matter who is speaking.
+  it("never types a briefing into a pane, however ready that pane is", () => {
+    // A briefing states where a pane STANDS; it is context, not a summons.
+    // Pasted, it lands in the composer looking like the person typed it —
+    // which is the one reading that contradicts its own content. Observed
+    // live: a freshly started teammate sat with its briefing unsent in the
+    // input box. So it waits for the labelled channel however writable the
+    // pane is, and comes out only through the hand-over.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.announce(B.paneId, "team", "you are lead on api");
+    h.advance(PAST_SPACING);
+    expect(h.delivered).toHaveLength(0);
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.kind)).toEqual([
+      "team",
+    ]);
+  });
+
+  it("drops a briefing nobody asked for rather than typing it in late", () => {
+    // The wait is bounded like every other, and the end of it is NOT a
+    // fallback to the terminal — that fallback is exactly what this kind
+    // has no business using. It expires quietly: the deck said it to a pane
+    // that never came asking, and there is no sender owed a report.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.announce(B.paneId, "team", "you are lead on api");
+    h.advance(MAIL_LIMITS.undeliveredMs);
+    expect(h.delivered).toHaveLength(0);
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
+  });
+
+  it("holds a task at a permission prompt, and lands it once that clears", () => {
+    // The one dangerous state stays dangerous for the kinds that DO use the
+    // terminal: keystrokes at a permission prompt pick menu items.
     const h = harness();
     h.reports(B.paneId, approving);
-    h.manager.announce(B.paneId, "team", "you are lead on api");
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "take the parser" });
     expect(h.delivered).toHaveLength(0);
     h.reports(B.paneId, done);
     expect(h.delivered).toHaveLength(1);

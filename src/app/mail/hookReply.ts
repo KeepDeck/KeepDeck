@@ -73,33 +73,39 @@ export function answerMailAsk(
   const correlation = correlationOf(payload);
   if (!correlation) return;
   const manager = deps.mail();
+  const asking =
+    isRecord(payload) && isRecord(payload.event)
+      ? String(payload.event.hook_event_name)
+      : "an unreadable event";
+  // EVERY ask is logged, answered or not. This is the only window onto the
+  // labelled channel: a briefing that never reaches an agent's context and a
+  // hook that never asked look identical from outside, and the difference is
+  // the whole diagnosis.
+  const answer = (body: string, why: string) => {
+    log.info("web:mail", `${paneId} asked on ${asking} → ${why}`);
+    deps.reply(correlation, body);
+  };
   // Always answer, even with nothing: a hook that gets no file waits out its
   // whole timeout, and doing that on every turn end would tax every pane for
   // the sake of the rare one with mail.
-  const answerNothing = () => deps.reply(correlation, "");
-  if (!manager || !isRecord(payload)) return answerNothing();
+  if (!manager || !isRecord(payload)) return answer("", "mail is off");
   const agent = typeof payload.agent === "string" ? payload.agent : "";
   const render = deps.rendererFor(agent);
   const event = isRecord(payload.event) ? payload.event : null;
-  if (!render || !event) return answerNothing();
+  if (!render || !event) {
+    return answer("", render ? "malformed payload" : `${agent} renders no mail`);
+  }
   const taken = manager.takeAtTurnEnd(paneId);
-  if (taken.length === 0) return answerNothing();
+  if (taken.length === 0) return answer("", "nothing waiting");
   const rendered = render({ event, messages: taken.map(forAgent) });
-  // The one place that knows WHICH hook event a message left through. Without
-  // it, a message that reached the pane's inbox and never reached its context
-  // is indistinguishable from one the plugin declined to render: both end
-  // with the queue empty and nothing in the terminal.
-  log.info(
-    "web:mail",
-    `answering ${agent} ${String(event.hook_event_name)} on ${correlation}` +
-      ` with ${taken.length} message(s): ${rendered === null ? "this event carries none" : `${rendered.length} bytes`}`,
-  );
   if (rendered === null) {
     // This event cannot carry mail after all. Give it back rather than drop
-    // it — the pane will ask again at an event that can, and the ordinary
-    // terminal fallback is still waiting behind that.
+    // it — the pane will ask again at an event that can.
     manager.restore(taken);
-    return answerNothing();
+    return answer("", `${agent} cannot carry mail on this event`);
   }
-  deps.reply(correlation, rendered);
+  answer(
+    rendered,
+    `injecting ${taken.length} message(s), ${rendered.length} bytes: ${taken.map((mail) => `${mail.id}/${mail.kind}`).join(" ")}`,
+  );
 }

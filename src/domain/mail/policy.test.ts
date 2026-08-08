@@ -44,6 +44,45 @@ describe("decideDelivery", () => {
     expect(decideDelivery(mail(), failed, SENT_AT)).toEqual({ kind: "deliver" });
   });
 
+  it("holds a briefing whatever the pane is doing — it may only arrive labelled", () => {
+    // A briefing is context, not a summons: pasted into a composer it reads
+    // as something the person typed, which contradicts the only thing it
+    // says. There is no receiver state that makes typing it in acceptable,
+    // so this outranks every rule below — including the ones that would
+    // otherwise deliver.
+    const briefing = mail({ kind: "team" });
+    for (const activity of [working, asking, done, failed, undefined]) {
+      expect(decideDelivery(briefing, activity, SENT_AT)).toEqual({
+        kind: "hold",
+        reason: "labelled-only",
+      });
+    }
+    // ...and having a hook does not change it either: the hook takes mail
+    // out of the queue without consulting this, so "hold" IS "the labelled
+    // channel or nothing".
+    expect(decideDelivery(briefing, done, SENT_AT, MAIL_LIMITS, true)).toEqual({
+      kind: "hold",
+      reason: "labelled-only",
+    });
+    // Expiry still outranks it — a briefing nobody came for is dropped
+    // rather than held forever.
+    expect(
+      decideDelivery(briefing, done, SENT_AT + MAIL_LIMITS.undeliveredMs),
+    ).toEqual({ kind: "expire" });
+  });
+
+  it("still types in what a pane is meant to ACT on", () => {
+    // The counterpart, and the reason the rule above is about kinds rather
+    // than about the deck being the speaker: a task, an answer or a delivery
+    // report exists to move the receiver, and the terminal is the only thing
+    // that wakes an idle CLI.
+    for (const kind of ["task", "question", "answer", "note", "undelivered"] as const) {
+      expect(decideDelivery(mail({ kind }), done, SENT_AT)).toEqual({
+        kind: "deliver",
+      });
+    }
+  });
+
   it("holds at a permission prompt — the one state where text answers a menu", () => {
     expect(decideDelivery(mail(), approving, SENT_AT)).toEqual({
       kind: "hold",
