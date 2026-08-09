@@ -7,6 +7,7 @@ import {
   parseSkillFile,
   renameSkillFile,
 } from "./skillFile";
+import { CARRIED, REFUSED } from "./skills.testSupport";
 
 /**
  * The codec against a REAL YAML reader, which is what every supported CLI reads
@@ -46,60 +47,8 @@ function asRead(file: string): Record<string, unknown> | "invalid" | "none" {
 
 const oneLine = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
 
-/** Every stored shape the reviews turned up, valid YAML in all cases. */
-const STORED: Record<string, string> = {
-  "a plain file KeepDeck itself writes":
-    "---\nname: review\ndescription: Reviews a diff\nlicense: MIT\n---\nBody\n",
-  "a folded block-scalar description":
-    "---\nname: review\ndescription: >\n  Long one,\n  wrapped.\nlicense: MIT\n---\nBody\n",
-  "a block-scalar header carrying a comment":
-    "---\nlicense: MIT\nname: demo\ndescription: >- # short\n  one\n  two\n---\nBody\n",
-  "a block scalar whose indicators are the other way round":
-    "---\nname: demo\ndescription: >2-\n  one\n  two\n---\nBody\n",
-  "a literal block-scalar description":
-    "---\nname: demo\ndescription: |\n  step one\n  step two\n---\nBody\n",
-  "a block-scalar NAME":
-    "---\nname: >\n  old-skill\ndescription: Reviews\n---\nBody\n",
-  "a quoted multi-line description":
-    '---\nlicense: MIT\nname: a\ndescription: "one\n  two"\n---\nbody\n',
-  "a plain multi-line description":
-    "---\nlicense: MIT\nname: a\ndescription: one\n  two\n---\nbody\n",
-  "a quoted key spelling":
-    '---\n"name": review\ndescription: d\n---\nBody\n',
-  "a spaced key spelling":
-    "---\nname : review\ndescription: d\n---\nBody\n",
-  "a description with a trailing comment":
-    "---\nname: demo\ndescription: Reviews a diff # keep short\n---\nB\n",
-  "a description with an escape":
-    '---\nname: demo\ndescription: "caf\\u00e9 au lait"\n---\nB\n',
-  "a name with a trailing comment":
-    "---\nname: old # the id\ndescription: d\n---\nbody\n",
-  "an indented comment among the keys":
-    "---\nname: demo\ndescription: d\n  # a note\n---\nBody\n",
-  "an extra key with its own block scalar":
-    "---\nname: n\ndescription: d\nallowed-tools: >\n  Read\n  Write\n---\nB\n",
-  "a fence with trailing spaces":
-    "---\nname: demo\ndescription: Reviews\n---  \nBody\n",
-  "an entirely indented mapping":
-    "---\n  name: old-skill\n  description: d\n---\nBody\n",
-  "a CRLF file":
-    "---\r\nname: demo\r\ndescription: Reviews\r\n---\r\nBody\r\n",
-  "an anchor shared with another key":
-    "---\nname: &n review\ndescription: Reviews\ntitle: *n\n---\nBody\n",
-  "frontmatter holding only a comment":
-    "---\n# TODO: add name and description\n---\nBody\n",
-  "a standalone comment between keys":
-    "---\nname: demo\ndescription: d\n# why this is pinned\nallowed-tools: Read\n---\nBody\n",
-  "a trailing comment before the fence":
-    "---\nname: demo\ndescription: d\n# last word\n---\nBody\n",
-  "a non-scalar key":
-    "---\nname: demo\ndescription: d\n[a, b]: kept by a reader\n---\nBody\n",
-  "a BOM before the fence":
-    "﻿---\nname: demo\ndescription: Reviews\n---\nBody\n",
-};
-
 describe("what a YAML reader sees after we rewrite a stored skill", () => {
-  for (const [label, stored] of Object.entries(STORED)) {
+  for (const [label, stored] of Object.entries(CARRIED)) {
     it(`preserves name and description through an update: ${label}`, () => {
       const before = asRead(stored);
       expect(before, "the fixture must be valid YAML to be worth testing").not.toBe(
@@ -185,18 +134,23 @@ describe("what a YAML reader sees after we rewrite a stored skill", () => {
     expect(parseSkillFile(stored).description).toBe("second");
   });
 
-  it("refuses rather than rewrites, for every shape it cannot restate", () => {
-    // The two the reviews found: frontmatter that is one indented mapping, and
-    // frontmatter that is not a mapping at all.
-    expect(frontmatterObstacle("---\n  name: a\n  description: d\n---\nB\n")).toContain(
-      "indented",
-    );
-    expect(frontmatterObstacle("---\n- just\n- a list\n---\nB\n")).toContain(
-      "not a list of keys",
-    );
-    expect(frontmatterObstacle("---\nname: [unclosed\n---\nB\n")).toContain("not valid YAML");
-    // And the ordinary shapes stay editable.
-    expect(frontmatterObstacle("---\nname: a\ndescription: d\n---\nB\n")).toBeNull();
+  // THE verdict table: which shapes we refuse to author over, and why. It lives
+  // here and not in `skillFile.test.ts`, which owns the SENTENCE — pinning both in
+  // both files meant rewording one arm broke four sites in three files, one of them
+  // an app-layer regex for a rule the app layer does not own.
+  for (const [label, { content, because }] of Object.entries(REFUSED)) {
+    it(`refuses to author over ${label}, naming why`, () => {
+      expect(frontmatterObstacle(content)).toContain(because);
+      // And a rename refuses too, rather than moving the directory and leaving the
+      // file behind: the two must agree about what is beyond us.
+      expect(renameSkillFile(content, "new-name").kind).toBe("unsupported");
+    });
+  }
+
+  it("leaves the ordinary shapes editable", () => {
+    expect(frontmatterObstacle(CARRIED.plain)).toBeNull();
     expect(frontmatterObstacle("Just a body\n")).toBeNull();
+    expect(frontmatterObstacle("---\n---\nB\n")).toBeNull();
+    expect(frontmatterObstacle("---\n# only a note\n---\nB\n")).toBeNull();
   });
 });

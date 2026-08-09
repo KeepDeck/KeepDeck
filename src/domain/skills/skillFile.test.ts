@@ -6,6 +6,7 @@ import {
   renameSkillFile,
   skillDraftOf,
 } from "./skillFile";
+import { REFUSED } from "./skills.testSupport";
 
 describe("compose/parse round-trip", () => {
   it("round-trips a plain skill", () => {
@@ -222,20 +223,15 @@ describe("a block scalar survives being read and written back", () => {
     expect(composeSkillFile({ ...parsed, name: "n" })).toBe(content);
   });
 
-  it("says WHY a file cannot be re-authored, naming the obstacle", () => {
-    // The reason has to be sayable, because the library puts it in front of the
-    // user in place of a save. Which shapes qualify is pinned against a real YAML
-    // reader in `skillFileYaml.test.ts`; this is about the sentence.
-    expect(frontmatterObstacle("---\n  name: review\n  description: d\n---\nB\n")).toContain(
+  it("names the offending KEY in its reason, not just the shape", () => {
+    // Only the sentence is this suite's: WHICH shapes qualify is the verdict table
+    // in `skillFileYaml.test.ts`, checked there against a real reader. Pinning the
+    // table in both files meant rewording one arm broke four sites in three files.
+    // What has to hold here is that the reason can be shown to a user, which for
+    // the commonest case means naming the line they have to go and fix.
+    expect(frontmatterObstacle(REFUSED.indentedMapping.content)).toContain(
       '"name" is indented',
     );
-    expect(frontmatterObstacle("---\nname: [unclosed\n---\nB\n")).toContain(
-      "not valid YAML",
-    );
-    expect(frontmatterObstacle("---\nname: a\ndescription: d\nlicense: MIT\n---\nB\n")).toBeNull();
-    // No frontmatter at all is not an obstacle: there is nothing to preserve.
-    expect(frontmatterObstacle("Just a body\n")).toBeNull();
-    expect(frontmatterObstacle("---\n---\nB\n")).toBeNull();
   });
 });
 

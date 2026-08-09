@@ -7,7 +7,8 @@ import {
   workspace,
 } from "./testSupport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CommandSource } from "../../domain/commands";
+import type { CommandRegistry, CommandSource } from "../../domain/commands";
+import { handleMcpLine } from "../../domain/mcp";
 import type { LibrarySkill } from "../skillsLibrary";
 
 beforeEach(() => {
@@ -29,6 +30,65 @@ const row = (over: Partial<LibrarySkill> = {}): LibrarySkill => ({
   name: "review",
   content: "---\nname: review\ndescription: Reviews a diff\n---\nRead it.\n",
   ...over,
+});
+
+/** The skills tools as an MCP client sees them, driven through the real
+ * projection over the real registry — `inputSchema` by tool name. */
+async function projectSkillTools(
+  registry: CommandRegistry,
+): Promise<Map<string, unknown>> {
+  const reply = await handleMcpLine(
+    {
+      list: () => registry.list(),
+      execute: (id, args) => registry.execute(id, args, HOST),
+    },
+    () => ({ name: "KeepDeck", version: "test" }),
+    JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  );
+  const parsed = JSON.parse(reply ?? "{}") as {
+    result: { tools: { name: string; inputSchema: unknown }[] };
+  };
+  return new Map(
+    parsed.result.tools
+      .filter((tool) => tool.name.startsWith("skills_"))
+      .map((tool) => [tool.name, tool.inputSchema]),
+  );
+}
+
+describe("the skills set as MCP tools", () => {
+  it("projects every command, with the args an agent has to send", async () => {
+    // The one path nothing else in this branch drives end to end: the suites below
+    // go through the registry, and the projection has its own suite that knows
+    // nothing about skills. A command whose ArgSpecs the projection cannot express
+    // would register fine and be unusable from the door this branch exists to open.
+    const { registry } = setup([workspace({})]);
+    const tools = await projectSkillTools(registry);
+
+    expect([...tools.keys()].sort()).toEqual([
+      "skills_create",
+      "skills_delete",
+      "skills_list",
+      "skills_read",
+      "skills_rename",
+      "skills_update",
+    ]);
+    expect(tools.get("skills_create")).toEqual({
+      type: "object",
+      properties: {
+        scope: { type: "string", description: expect.stringContaining("global") },
+        name: { type: "string", description: expect.any(String) },
+        description: { type: "string", description: expect.any(String) },
+        body: { type: "string", description: expect.any(String) },
+      },
+      required: ["scope", "name", "description", "body"],
+    });
+    // `skills_list` takes only the scope, so an agent cannot be asked for more.
+    expect(tools.get("skills_list")).toEqual({
+      type: "object",
+      properties: { scope: { type: "string", description: expect.stringContaining("global") } },
+      required: ["scope"],
+    });
+  });
 });
 
 describe("skills.list", () => {
@@ -156,9 +216,11 @@ describe("skills.read", () => {
     // words every mutation uses, and this door only carries the sentence out.
     // It used to word its own, and the two had already drifted apart.
     const { registry, skills } = setup(twoWorkspaces());
-    vi.mocked(skills.read).mockRejectedValue(
-      new Error(`No skill "missing" in this workspace's library`),
-    );
+    // An OBVIOUSLY fake sentence, deliberately. Feeding the fake production's real
+    // wording and asserting it back is self-fulfilling: reword `describeScope` and
+    // this suite stays green asserting a sentence production no longer emits. What
+    // it can prove is the pass-through, and that needs no realistic text.
+    vi.mocked(skills.read).mockRejectedValue(new Error("the library said no"));
 
     const result = await registry.execute(
       "skills.read",
@@ -167,9 +229,7 @@ describe("skills.read", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.message).toBe(`No skill "missing" in this workspace's library`);
-    }
+    if (!result.ok) expect(result.error.message).toBe("the library said no");
   });
 });
 
@@ -246,9 +306,8 @@ describe("skills.update", () => {
 
   it("reports the library's refusal for a skill that is not there", async () => {
     const { registry, skills } = setup([workspace({})]);
-    vi.mocked(skills.update).mockRejectedValueOnce(
-      new Error('No skill "ghost" in the global library'),
-    );
+    // Fake wording again: the sentence is the library's and pinned in its suite.
+    vi.mocked(skills.update).mockRejectedValueOnce(new Error("the library said no"));
 
     const result = await registry.execute(
       "skills.update",
@@ -257,7 +316,7 @@ describe("skills.update", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toContain('No skill "ghost"');
+    if (!result.ok) expect(result.error.message).toBe("the library said no");
   });
 });
 

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  composeSkillFile,
   renameSkillFile,
   skillDraftOf,
   type SkillDraft,
   type SkillScope,
 } from "../domain/skills";
+import { CARRIED, REFUSED } from "../domain/skills/skills.testSupport";
 import {
   createSkillsLibrary,
   type LibrarySkill,
@@ -204,13 +206,12 @@ describe("create and update differ only in what they refuse", () => {
     // would move its lines under the keys we author — which no YAML reader
     // accepts. Refusing keeps the file recoverable; rewriting it did not.
     const { library, storage } = libraryOver({
-      fetch: vi.fn(async () => [
-        row(GLOBAL, "review", "---\n  name: review\n  description: d\n---\nBody\n"),
-      ]),
+      fetch: vi.fn(async () => [row(GLOBAL, "review", REFUSED.indentedMapping.content)]),
     });
-    await expect(library.update(GLOBAL, draft())).rejects.toThrow(
-      /cannot be edited here .* is indented/,
-    );
+    // Only that it REFUSES and writes nothing. Which shapes qualify, and in what
+    // words, is the domain's — asserting the sentence here made the app layer a
+    // second pin for a rule it does not own.
+    await expect(library.update(GLOBAL, draft())).rejects.toThrow(/cannot be edited here/);
     expect(storage.save).not.toHaveBeenCalled();
   });
 });
@@ -288,23 +289,27 @@ describe("a rename moves the directory AND fixes the file", () => {
     }
   });
 
-  it("rewrites ONLY that line, leaving frontmatter the composer cannot carry", async () => {
-    // A hand-written block scalar is valid YAML the composer loses: parsing
-    // reads `description: >` as the literal ">" and strands its continuation
-    // lines, which come back BELOW the quoted scalar — frontmatter every CLI's
-    // YAML parser rejects. Re-composing on rename would have corrupted a working
-    // skill; a rename authors nothing, so it splices one line and touches
-    // nothing else, line endings included.
-    const content =
-      "---\nname: review\ndescription: >\r\n  Long one,\r\n  wrapped.\r\nlicense: MIT\n---\nBody\n";
+  it("writes what the SPLICE produced, not what the composer would have", async () => {
+    // The bytes are the domain's contract and are pinned there, byte for byte, over
+    // this same shape. What belongs at this layer is only that a rename routes
+    // through `renameSkillFile` — write the expectation as a literal here and the
+    // case still passes on the day the library stops delegating and composes
+    // instead, which is the one thing it must not do.
+    const content = CARRIED.foldedDescription;
     const { library, storage } = libraryOver({
       fetch: vi.fn(async () => [row(GLOBAL, "review", content)]),
     });
 
     await library.rename(GLOBAL, "review", "deep-review");
 
-    expect(storage.save.mock.calls[0][2]).toBe(
-      "---\nname: deep-review\ndescription: >\r\n  Long one,\r\n  wrapped.\r\nlicense: MIT\n---\nBody\n",
+    const spliced = renameSkillFile(content, "deep-review");
+    expect(spliced.kind).toBe("rewritten");
+    if (spliced.kind === "rewritten") {
+      expect(storage.save.mock.calls[0][2]).toBe(spliced.content);
+    }
+    // And it is NOT what composing would have produced, which is the whole point.
+    expect(storage.save.mock.calls[0][2]).not.toBe(
+      composeSkillFile(skillDraftOf({ name: "deep-review", content })),
     );
   });
 

@@ -501,21 +501,10 @@ describe("SkillsDialog", () => {
     );
   });
 
-  it("⌘S fires by PHYSICAL key — a Cyrillic layout saves too", async () => {
-    await mount();
-    act(() => buttonByTitle("New global skill")!.click());
-    type(input("skill-name"), "deploy");
-    type(input("skill-description"), "Ships it");
-    type(textarea(), "Steps");
-
-    await act(async () => {
-      // ЙЦУКЕН: the S key reports key "ы"; only e.code identifies it.
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ы", code: "KeyS", metaKey: true }),
-      );
-    });
-    expect(lib.save).toHaveBeenCalledTimes(1);
-  });
+  // The layout half of ⌘S — that the S key reporting "ы" still saves — belongs to
+  // `useSaveShortcut` and is pinned in its own suite now. It was a near-copy of the
+  // case above differing only in `key`, and since the hook matches on `e.code`
+  // alone neither could fail without the other.
 
   it("a double ⌘S submits once — rename is not idempotent", async () => {
     lib.skills = [skill("review")];
