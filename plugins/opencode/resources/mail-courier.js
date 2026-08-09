@@ -172,6 +172,17 @@ export default async (input = {}) => {
   });
 
   /**
+   * Whether a client call actually worked.
+   *
+   * The generated client does NOT throw on a failed request — it RESOLVES
+   * with `{error}` — so an await inside a try/catch reports success for a
+   * rejected call. That is not a hypothetical: every delivery this courier
+   * made in its first version was silently dropped that way, because the
+   * arguments were built in the wrong shape and nothing ever said so.
+   */
+  const ok = (result) => !result?.error;
+
+  /**
    * Put an answer into the pane's live session.
    *
    * The two halves land differently because they ARE different:
@@ -187,19 +198,26 @@ export default async (input = {}) => {
    *   this pane should see what arrived and why their agent just moved.
    */
   const viaSession = async (answer) => {
+    let delivered = true;
     if (typeof answer.context === "string" && answer.context) {
-      await client.session.promptAsync({
-        sessionID: activeRoot,
-        noReply: true,
-        parts: [textPart(answer.context, true)],
-      });
+      delivered =
+        ok(
+          await client.session.promptAsync({
+            path: { id: activeRoot },
+            body: { noReply: true, parts: [textPart(answer.context, true)] },
+          }),
+        ) && delivered;
     }
     if (typeof answer.prompt === "string" && answer.prompt) {
-      await client.session.promptAsync({
-        sessionID: activeRoot,
-        parts: [textPart(answer.prompt, false)],
-      });
+      delivered =
+        ok(
+          await client.session.promptAsync({
+            path: { id: activeRoot },
+            body: { parts: [textPart(answer.prompt, false)] },
+          }),
+        ) && delivered;
     }
+    return delivered;
   };
 
   /**
@@ -217,24 +235,32 @@ export default async (input = {}) => {
    * would lose it for good: the deck has already handed it over.
    */
   const viaTui = async (answer) => {
-    if (!client?.tui?.appendPrompt || !client?.tui?.submitPrompt) return;
+    if (!client?.tui?.appendPrompt || !client?.tui?.submitPrompt) return false;
     const text = [answer.context, answer.prompt]
       .filter((half) => typeof half === "string" && half)
       .join("\n\n");
-    if (!text) return;
-    await client.tui.appendPrompt({ text });
-    await client.tui.submitPrompt();
+    if (!text) return false;
+    if (!ok(await client.tui.appendPrompt({ body: { text } }))) return false;
+    return ok(await client.tui.submitPrompt());
   };
 
-  /** Ask, then deliver whatever came back. */
+  /**
+   * Ask, then deliver whatever came back.
+   *
+   * A session delivery that did not work falls through to the TUI rather than
+   * ending here. The deck books a message the moment it hands it over, so
+   * anything dropped at this point is dropped for good — a visible delivery
+   * the user can see is worth more than a tidy failure nobody hears about.
+   */
   const collect = async () => {
     const answer = await ask();
     if (!answer) return;
     try {
-      await (activeRoot ? viaSession(answer) : viaTui(answer));
+      if (activeRoot && (await viaSession(answer))) return;
+      await viaTui(answer);
     } catch {
-      // Nothing to retry with: the deck has already taken these messages out
-      // of its queue, and it books them as delivered when it hands them over.
+      // Best-effort to the end: the user's session must survive anything
+      // this file gets wrong.
     }
   };
 

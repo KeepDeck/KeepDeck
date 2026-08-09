@@ -268,15 +268,27 @@ describe("opencode session reporter", () => {
       tokens: { input: 50, output: 5, cache: {} },
       cost: 0.5,
     }).event.properties.info;
+    // The SHAPE is the contract, and it is measured, not assumed: on opencode
+    // 1.18.15 the plugin's client takes the session id as a PATH parameter
+    // (`{path:{id}}`) and answers `{error: UnknownError}` to the flat
+    // `{sessionID}` form — which it RESOLVES with rather than throwing. This
+    // stub used to accept the flat form, so hydration read as working while
+    // every real call came back empty. It now refuses what the real client
+    // refuses.
+    const forId = (call: { path?: { id?: string } }) => call.path?.id;
     const hydrated = {
       ...client,
       session: {
-        messages: async ({ sessionID }: { sessionID: string }) => ({
-          data: sessionID === "ses_root" ? [{ info: rootOld }] : [{ info: childOld }],
-        }),
-        children: async ({ sessionID }: { sessionID: string }) => ({
-          data: sessionID === "ses_root" ? [{ id: "ses_child" }] : [],
-        }),
+        messages: async (call: { path?: { id?: string } }) => {
+          const id = forId(call);
+          if (!id) return { error: { name: "UnknownError" } };
+          return { data: id === "ses_root" ? [{ info: rootOld }] : [{ info: childOld }] };
+        },
+        children: async (call: { path?: { id?: string } }) => {
+          const id = forId(call);
+          if (!id) return { error: { name: "UnknownError" } };
+          return { data: id === "ses_root" ? [{ id: "ses_child" }] : [] };
+        },
       },
     };
     const { event } = await reporter({ client: hydrated });

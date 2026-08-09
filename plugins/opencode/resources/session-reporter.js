@@ -119,6 +119,22 @@ export default async (input = {}) => {
 
   const responseData = (response) => response?.data ?? response;
 
+  /**
+   * How this client wants a session id: as a PATH parameter.
+   *
+   * Measured on opencode 1.18.15 by loading a probe plugin into a live
+   * server: `session.messages({sessionID})` answers `{error: UnknownError}`
+   * while `session.messages({path:{id}})` answers with the rows. The flat
+   * form is what opencode's OWN code uses — but on its internal SDK wrapper,
+   * not on the generated client a plugin is handed, and the two do not agree.
+   *
+   * The client RESOLVES with `{error}` instead of throwing, so the wrong
+   * shape here cost nothing visible: hydration returned no rows, the catch
+   * below never fired, and the totals quietly became since-start-only on
+   * every resume — with descendant spend missing entirely.
+   */
+  const forSession = (sessionID) => ({ path: { id: sessionID } });
+
   /** Best-effort full-session hydration. It makes resume totals honest and
    * restores descendant spend without reading opencode's private SQLite. */
   const hydrateSession = async (sessionID, rootSessionID, seen) => {
@@ -126,7 +142,7 @@ export default async (input = {}) => {
     seen.add(sessionID);
     if (client?.session?.messages) {
       try {
-        const result = await client.session.messages({ sessionID });
+        const result = await client.session.messages(forSession(sessionID));
         const rows = responseData(result);
         if (Array.isArray(rows)) {
           for (const row of rows) {
@@ -140,7 +156,7 @@ export default async (input = {}) => {
     }
     if (!client?.session?.children) return;
     try {
-      const result = await client.session.children({ sessionID });
+      const result = await client.session.children(forSession(sessionID));
       const children = responseData(result);
       if (!Array.isArray(children)) return;
       for (const child of children) {

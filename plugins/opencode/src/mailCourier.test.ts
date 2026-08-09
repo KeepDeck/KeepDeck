@@ -31,11 +31,37 @@ const busy = (sessionID: string) => ({
   },
 });
 
-interface PromptCall {
-  sessionID?: string;
+interface PromptBody {
   noReply?: boolean;
   parts?: { type: string; text: string; synthetic?: boolean }[];
 }
+interface PromptCall {
+  sessionID?: string;
+  body?: PromptBody;
+}
+
+/**
+ * The one contract this suite exists to hold: the SHAPE opencode's plugin
+ * client accepts, and the way it reports a shape it does not.
+ *
+ * Measured against opencode 1.18.15, by loading a probe plugin into a live
+ * `opencode serve` and calling both forms:
+ *
+ *   session.promptAsync({sessionID, ...})        → {error: UnknownError}
+ *   session.promptAsync({path:{id}, body:{...}}) → {data: {}}
+ *   tui.appendPrompt({text})                     → {error: BadRequest}
+ *   tui.appendPrompt({body:{text}})              → {data: true}
+ *
+ * The failure mode is what makes this worth a fake of its own: the client
+ * RESOLVES with `{error}` instead of throwing. The courier's first version
+ * sent the flat form and awaited it inside a try/catch, so every delivery it
+ * ever made was dropped and every test passed — because the fake accepted
+ * whatever it was handed. A stub that says yes to everything tests nothing.
+ */
+const rejectsFlat = <T,>(call: Record<string, unknown>, accept: () => T) =>
+  call.path === undefined && call.body === undefined
+    ? { error: { name: "UnknownError" } }
+    : accept();
 
 describe("opencode mail courier", () => {
   let dir: string;
@@ -96,12 +122,25 @@ describe("opencode mail courier", () => {
     void runDeck();
     client = {
       session: {
-        promptAsync: async (call: PromptCall) => void prompts.push(call),
+        promptAsync: async (call: Record<string, unknown>) =>
+          rejectsFlat(call, () => {
+            prompts.push({
+              sessionID: (call.path as { id: string } | undefined)?.id,
+              body: call.body as PromptBody,
+            });
+            return { data: {} };
+          }),
       },
       tui: {
-        appendPrompt: async ({ text }: { text: string }) =>
-          void submitted.push(text),
-        submitPrompt: async () => void submitted.push("<submit>"),
+        appendPrompt: async (call: Record<string, unknown>) =>
+          rejectsFlat(call, () => {
+            submitted.push((call.body as { text: string }).text);
+            return { data: true };
+          }),
+        submitPrompt: async () => {
+          submitted.push("<submit>");
+          return { data: true };
+        },
       },
     };
   });
@@ -133,8 +172,10 @@ describe("opencode mail courier", () => {
     expect(prompts).toEqual([
       {
         sessionID: "ses_root",
-        noReply: true,
-        parts: [{ type: "text", text: "you are impl-1", synthetic: true }],
+        body: {
+          noReply: true,
+          parts: [{ type: "text", text: "you are impl-1", synthetic: true }],
+        },
       },
     ]);
   });
@@ -151,9 +192,9 @@ describe("opencode mail courier", () => {
 
     expect(last(prompts)).toEqual({
       sessionID: "ses_root",
-      parts: [{ type: "text", text: "ship it" }],
+      body: { parts: [{ type: "text", text: "ship it" }] },
     });
-    expect(last(prompts)).not.toHaveProperty("noReply");
+    expect(last(prompts)?.body).not.toHaveProperty("noReply");
   });
 
   it("rides the user's own message when there is one, spending nothing", async () => {
@@ -187,7 +228,7 @@ describe("opencode mail courier", () => {
     await until(() => prompts.length > 0);
 
     expect(existsSync(join(dir, "pane-3.wake"))).toBe(false);
-    expect(last(prompts)?.parts?.[0]?.text).toBe("ship it");
+    expect(last(prompts)?.body?.parts?.[0]?.text).toBe("ship it");
   });
 
   it("leaves a doorbell rung mid-turn to the boundary that is already coming", async () => {
@@ -205,7 +246,7 @@ describe("opencode mail courier", () => {
 
     pending.push({ v: 1, prompt: "ship it" });
     await courier.event(idle("ses_root"));
-    expect(last(prompts)?.parts?.[0]?.text).toBe("ship it");
+    expect(last(prompts)?.body?.parts?.[0]?.text).toBe("ship it");
   });
 
   it("submits through opencode's own prompt when no session exists yet", async () => {
@@ -267,6 +308,23 @@ describe("opencode mail courier", () => {
     // No root was ever adopted, so this went the no-session way.
     expect(prompts).toEqual([]);
     expect(submitted[0]).toBe("ship it");
+  });
+
+  it("falls through to the TUI when the session refuses the delivery", async () => {
+    // The client resolves with `{error}` rather than throwing, so a refusal
+    // reads as success unless it is checked. It went unchecked once and every
+    // message this courier carried was dropped in silence. The deck books a
+    // message the moment it hands it over, so there is nothing to retry with
+    // — a visible delivery beats a tidy failure nobody hears about.
+    (client.session as { promptAsync: unknown }).promptAsync = async () => ({
+      error: { name: "UnknownError" },
+    });
+    const courier = await start();
+    await courier.event(created("ses_root"));
+    pending.push({ v: 1, prompt: "ship it" });
+    await courier.event(idle("ses_root"));
+
+    expect(submitted).toEqual(["ship it", "<submit>"]);
   });
 
   it("stays inert outside KeepDeck", async () => {
