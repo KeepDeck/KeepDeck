@@ -7,6 +7,7 @@ import {
 import { useNotifications } from "../../app/useNotifications";
 import { unreadCount, type Notification } from "../../domain/notifications";
 import { formatAge } from "../../domain/usage";
+import { isBehindModalLayer } from "../../ui/inertBackground";
 
 interface NotificationBellProps {
   /** Navigate to the notification's source — the composition root resolves
@@ -38,14 +39,21 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
   }, [open]);
 
   // Light-dismiss: any pointer press outside the bell (or Escape) closes the
-  // panel — the same manners as a native menu.
+  // panel — the same manners as a native menu. But a dialog can open over an
+  // already-open panel without any pointer press (a menu accelerator, an MCP
+  // command), and then the panel is background: these listeners are
+  // capture-phase, so without the check one Escape would dismiss the panel
+  // AND the dialog above it, and a click on the backdrop would close a panel
+  // the user never touched. The panel is still here when the dialog goes.
   useEffect(() => {
     if (!open) return;
     const onPress = (e: PointerEvent) => {
+      if (isBehindModalLayer(rootRef.current)) return;
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape" || isBehindModalLayer(rootRef.current)) return;
+      setOpen(false);
     };
     document.addEventListener("pointerdown", onPress, true);
     document.addEventListener("keydown", onKey, true);

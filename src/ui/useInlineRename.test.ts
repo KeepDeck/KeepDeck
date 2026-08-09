@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useInlineRename, type InlineRename } from "./useInlineRename";
+import { inertBackground } from "./inertBackground";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -13,6 +14,12 @@ let commit: ReturnType<typeof vi.fn>;
 function Probe() {
   api = useInlineRename(commit as (key: string, name: string) => void);
   return null;
+}
+
+/** A stand-in for the rename input, inside the app tree rather than beside
+ * it — which is what decides whether a modal layer covers it. */
+function field(): HTMLElement {
+  return document.getElementById("host")!;
 }
 
 describe("useInlineRename", () => {
@@ -47,7 +54,7 @@ describe("useInlineRename", () => {
     // silently kept the old name. The contract is committed once, in the hook.
     act(() => api.start("ws-1", "old"));
     act(() => api.inputProps.onChange({ target: { value: "   " } }));
-    act(() => api.inputProps.onBlur());
+    act(() => api.inputProps.onBlur({ currentTarget: field() }));
     expect(commit).toHaveBeenCalledWith("ws-1", "");
   });
 
@@ -61,8 +68,26 @@ describe("useInlineRename", () => {
 
   it("blur commits exactly once; a later blur without an edit session is a no-op", () => {
     act(() => api.start("ws-1", "old"));
-    act(() => api.inputProps.onBlur());
-    act(() => api.inputProps.onBlur());
+    act(() => api.inputProps.onBlur({ currentTarget: field() }));
+    act(() => api.inputProps.onBlur({ currentTarget: field() }));
     expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a modal layer taking the keyboard cancels the rename instead of writing it", () => {
+    const input = field();
+    act(() => api.start("ws-1", "old"));
+    act(() => api.inputProps.onChange({ target: { value: "half typed" } }));
+
+    const layer = document.createElement("div");
+    document.body.appendChild(layer);
+    const release = inertBackground(layer);
+    act(() => api.inputProps.onBlur({ currentTarget: input }));
+    release();
+
+    // Opening a dialog blurs the field through `inert`. Reading that as "the
+    // user finished typing" wrote a half-entered name; losing the draft is
+    // recoverable, silently renaming an agent is not.
+    expect(commit).not.toHaveBeenCalled();
+    expect(api.editing).toBeNull();
   });
 });

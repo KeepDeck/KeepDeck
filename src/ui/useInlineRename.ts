@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isBehindModalLayer } from "./inertBackground";
 
 /** What `useInlineRename` hands the widget: the subject under edit (null =
  * not editing), plus the controlled-input wiring. Presentation (className,
@@ -11,11 +12,12 @@ export interface InlineRename {
   /** Enter edit mode on `key`, seeding the draft with the current name. */
   start(key: string, current: string): void;
   /** The editable input's behavior: controlled value, blur/Enter commit,
-   * Escape cancels without committing. */
+   * Escape cancels without committing. Blur needs the node so it can tell a
+   * user leaving the field from a modal layer taking the keyboard. */
   inputProps: {
     value: string;
     onChange(event: { target: { value: string } }): void;
-    onBlur(): void;
+    onBlur(event: { currentTarget: Node }): void;
     onKeyDown(event: { key: string }): void;
   };
 }
@@ -29,6 +31,14 @@ export interface InlineRename {
  * draft — an empty commit means "reset to the auto name", which the receiver
  * implements (both rename domain ops revert to their derived name on "").
  * Escape leaves edit mode without committing anything.
+ *
+ * One blur does NOT commit: the one a modal layer causes. Opening a dialog
+ * makes the app root inert and the engine takes the keyboard away, which used
+ * to read as "the user finished typing" and wrote the half-entered name.
+ * Losing an unfinished draft is recoverable; silently renaming an agent the
+ * user was still naming is not. Only reachable since dialogs began claiming
+ * the keyboard — before that a rename could only be blurred by a click, which
+ * IS the user leaving the field.
  */
 export function useInlineRename(
   commit: (key: string, name: string) => void,
@@ -51,7 +61,13 @@ export function useInlineRename(
     inputProps: {
       value: draft,
       onChange: (event) => setDraft(event.target.value),
-      onBlur: commitDraft,
+      onBlur: (event) => {
+        if (isBehindModalLayer(event.currentTarget)) {
+          setEditing(null);
+          return;
+        }
+        commitDraft();
+      },
       onKeyDown: (event) => {
         if (event.key === "Enter") commitDraft();
         else if (event.key === "Escape") setEditing(null);

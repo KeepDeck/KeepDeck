@@ -23,6 +23,7 @@ import { WindowValue } from "./WindowValue";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
 import { useWallClock } from "../../ui/useWallClock";
+import { isBehindModalLayer } from "../../ui/inertBackground";
 
 /**
  * The top-bar usage cluster: one chip per ACCOUNT-LIMIT-capable agent with a
@@ -151,11 +152,16 @@ export function UsageChips({
   const open = openProvider !== null;
   useEffect(() => {
     if (!open) return;
+    // Yields to a dialog stacked over the panel, for the reason spelled out
+    // in [`NotificationBell`]: these are capture-phase, so one Escape would
+    // otherwise dismiss this panel and the dialog above it.
     const onPress = (e: PointerEvent) => {
+      if (isBehindModalLayer(rootRef.current)) return;
       if (!rootRef.current?.contains(e.target as Node)) setOpenProvider(null);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpenProvider(null);
+      if (e.key !== "Escape" || isBehindModalLayer(rootRef.current)) return;
+      setOpenProvider(null);
     };
     document.addEventListener("pointerdown", onPress, true);
     document.addEventListener("keydown", onKey, true);
