@@ -1,14 +1,14 @@
+import type { SkillDraft } from "../../domain/skills";
 import { DestructiveButton } from "../../ui/DestructiveButton";
 import { Chip } from "../../ui/Chip";
 
-/** The editable fields; `extraFrontmatter` rides along invisibly so saving
- * an edited skill keeps hand-added keys. */
-export interface SkillFormState {
-  name: string;
-  description: string;
-  body: string;
-  extraFrontmatter: string[];
-}
+/** The editable fields — the library's own draft shape, not a second
+ * declaration of it: what the form holds is exactly what a write takes, and
+ * enumerating the fields again meant a field added to `SkillDraft` (a promoted
+ * frontmatter key) reached every other surface and silently missed this one.
+ * `extraFrontmatter` rides along invisibly so saving an edited skill keeps
+ * hand-added keys. */
+export type SkillFormState = SkillDraft;
 
 /** What the dialog decided about the current draft — the editor renders
  * verdicts, it never re-derives them. */

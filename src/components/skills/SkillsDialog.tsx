@@ -104,16 +104,13 @@ export function SkillsDialog({
   }, [skills, activeWs]);
 
   const openSkill = (skill: StoredSkill) => {
-    // The same projection the library's `read` uses, so the editor and every
-    // other surface see one skill, not two readings of one file.
-    const parsed = skillDraftOf(skill);
+    // The same projection the library's `read` uses, WHOLE — so the editor and
+    // every other surface see one skill, not two readings of one file. It
+    // already applies "the directory name wins over the frontmatter's";
+    // re-asserting `name` here was that rule stated a second time, in the one
+    // place that would keep the old answer when it changed.
     setSelection({ mode: "edit", scope: skillScopeOf(skill), name: skill.name });
-    setForm({
-      name: skill.name,
-      description: parsed.description,
-      body: parsed.body,
-      extraFrontmatter: parsed.extraFrontmatter,
-    });
+    setForm(skillDraftOf(skill));
     setDirty(false);
   };
 
@@ -168,7 +165,16 @@ export function SkillsDialog({
     (skills ?? []).some(
       (s) => s.name === form.name && sameSkillScope(skillScopeOf(s), selection.scope),
     );
-  const nameOk = isValidSkillName(form.name);
+  // The name is judged only where it is being AUTHORED — a create, or an edit
+  // that changes it. An INHERITED name is not the editor's to refuse: the
+  // library deliberately skips this rule on an update for the same reason, so a
+  // hand-made `My_Skill` (which the Rust side stores and lists happily) stays
+  // editable. Judging it here too made that skill openable and unsavable, with
+  // a kebab-case complaint under a name the user was not editing — one rule,
+  // two doors, opposite answers.
+  const authoringName =
+    selection !== null && (selection.mode === "create" || selection.name !== form.name);
+  const nameOk = !authoringName || isValidSkillName(form.name);
   // ONE verdict, rendered twice below: the Save gate and the hint under the
   // field. Derived separately they drifted apart the moment the rule grew — a
   // stricter gate with nothing on screen explaining the dead button. The rule
@@ -243,8 +249,14 @@ export function SkillsDialog({
     if (!confirm) void submit();
   });
 
+  // From the GROUPS, which pair each scope with the name it is shown under —
+  // the one place that knows which workspace a scope belongs to. Re-deriving the
+  // label from `activeWs` answered a different question ("what is the active
+  // workspace called") and so stamped its name on any scope but its own: the
+  // editor can outlive the switch that changed it, and the chip is the only
+  // thing on screen saying which library a save lands in.
   const scopeLabel = (scope: SkillScope) =>
-    scope.kind === "global" ? "Global" : (activeWs?.name ?? "Workspace");
+    groups.find((group) => sameSkillScope(group.scope, scope))?.label ?? "Workspace";
 
   return (
     <ModalOverlay>
@@ -313,7 +325,7 @@ export function SkillsDialog({
                 error={error}
                 onField={(key, value) => {
                   // The description is one YAML line by contract (see
-                  // isValidSkillDescription); its textarea wraps for
+                  // skillDescriptionProblem); its textarea wraps for
                   // reading, so a multi-line paste folds to spaces here
                   // instead of tripping validation.
                   const next =

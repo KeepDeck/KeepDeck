@@ -39,49 +39,59 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
   const [error, setError] = useState<string | null>(null);
   const library = useAppRuntime().skills;
 
+  /**
+   * THE read: every path that puts the library on screen comes through here, so
+   * the failure LOG exists once and a path added later cannot lose it. Three
+   * hand-written copies had drifted into three different failure policies, one
+   * of them an empty `catch` that logged nothing on the one path that runs only
+   * when something has already gone wrong.
+   *
+   * `onFailure` is all a caller decides. "notify": the list is UNKNOWN and the
+   * user must see why — an empty list is what the editor can render, but it must
+   * not read as "you have no skills". "keep": an operation already reported its
+   * own outcome, so a stale list beats blanking one right after a write, which
+   * reads as data loss. (The collision guard that matters is the backend's,
+   * which refuses a create over an existing skill whatever this list says.)
+   */
+  const refresh = useCallback(
+    async (
+      onFailure: "notify" | "keep",
+      /** Whether this read still owns the view. The dialog's first load hands
+       * one in so a read from a previous `open` cannot land over a newer one. */
+      live: () => boolean = () => true,
+    ): Promise<boolean> => {
+      try {
+        const all = await library.list();
+        if (!live()) return false;
+        setSkills(all);
+        return true;
+      } catch (e) {
+        log.warn("web:skills", `skills_list failed (${onFailure}): ${describeError(e)}`);
+        if (!live() || onFailure === "keep") return false;
+        setSkills([]);
+        setError(`Could not read the skills library: ${describeError(e)}`);
+        return false;
+      }
+    },
+    [library],
+  );
+
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    // Handling the failure here rather than taking an empty-list fallback: an
-    // empty library and one that could not be read must not arrive as the same
-    // value.
-    void library.list().then(
-      (all) => {
-        if (!alive) return;
-        setSkills(all);
-      },
-      (e: unknown) => {
-        if (!alive) return;
-        log.warn("web:skills", `skills_list failed: ${describeError(e)}`);
-        // An empty list is what the editor can render, but it must not read as
-        // "you have no skills": the error is the difference, and it is the
-        // only thing on screen that says the library is unknown rather than
-        // empty. The name-collision guard that matters lives in the backend,
-        // which refuses a create over an existing skill whatever this list says.
-        setSkills([]);
-        setError(`Could not read the skills library: ${describeError(e)}`);
-      },
-    );
+    void refresh("notify", () => alive);
     return () => {
       alive = false;
     };
-  }, [open, library]);
+  }, [open, refresh]);
 
   const reload = useCallback(async () => {
-    try {
-      setSkills(await library.list());
-      // Cleared only on a read that WORKED. Clearing regardless wiped the
-      // "could not read the library" notice on the first successful save,
-      // putting back the empty-looking library with nothing saying why —
-      // which is the whole thing that notice exists to prevent.
-      setError(null);
-    } catch (e) {
-      // The operation itself succeeded; only the re-read failed. Keep the
-      // stale list — blanking it right after a successful write reads as
-      // data loss (the same rule the failed-save path follows).
-      log.warn("web:skills", `library reload failed; keeping the stale list: ${describeError(e)}`);
-    }
-  }, [library]);
+    // Cleared only on a read that WORKED. Clearing regardless wiped the "could
+    // not read the library" notice on the first successful save, putting back
+    // the empty-looking library with nothing saying why — which is the whole
+    // thing that notice exists to prevent.
+    if (await refresh("keep")) setError(null);
+  }, [refresh]);
 
   const save = useCallback(
     async (scope: SkillScope, draft: SkillDraft, expectNew: boolean) => {
@@ -92,19 +102,14 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
       } catch (e) {
         setError(`Save failed: ${describeError(e)}`);
         // The disk may still have moved under this action (a rename that
-        // preceded the failed save): reload so the list stays truthful,
-        // WITHOUT clearing the error the user is reading. If the reload
-        // itself fails (backend down), keep the stale list — stale beats
-        // an empty library the user would read as data loss.
-        try {
-          setSkills(await library.list());
-        } catch {
-          // keep whatever we last showed
-        }
+        // preceded the failed save): re-read so the list stays truthful,
+        // WITHOUT clearing the error the user is reading — which is why this is
+        // `refresh`, not `reload`.
+        await refresh("keep");
         return false;
       }
     },
-    [library, reload],
+    [library, reload, refresh],
   );
 
   const rename = useCallback(

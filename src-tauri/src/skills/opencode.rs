@@ -23,10 +23,10 @@ pub(super) fn command(name: &str, content: &str, staged_skill: &Path) -> String 
 /// Schema knowledge stays TS-side — this lifts a line the library already
 /// stores as valid YAML and re-emits it VERBATIM (quoting untouched).
 /// COUPLING PIN: this depends on descriptions being single-line, which
-/// only the TS side enforces (`isValidSkillDescription`,
-/// src/domain/skills/skills.ts). If TS ever allows multi-line or block
-/// scalars, this lift breaks — the pin test below and the note on the TS
-/// validator mark the contract on both sides.
+/// only the TS side enforces — the `"multiline"` arm of
+/// `skillDescriptionProblem` in src/domain/skills/skills.ts. If TS ever
+/// allows multi-line or block scalars, this lift breaks — the pin test
+/// below and the note on that verdict mark the contract on both sides.
 fn frontmatter_line(content: &str, key: &str) -> Option<String> {
     // CRLF-tolerant like the TS parser (the coupling pin's other side): a
     // hand-edited Windows-style file must not lose its description here.

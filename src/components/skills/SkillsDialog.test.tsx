@@ -120,6 +120,36 @@ describe("SkillsDialog", () => {
     expect(closed).toBe(0);
   });
 
+  it("lets a hand-made name this build would refuse be edited and saved", async () => {
+    // The library deliberately does not apply the naming rule to an update: the
+    // Rust side stores and lists `My_Skill` happily, and a skill copied in by
+    // hand must stay editable. Judging the name here too made exactly that skill
+    // openable and unsavable, complaining about kebab-case under a name the user
+    // was not editing — one rule, two doors, opposite answers. The rule still
+    // applies to a name being AUTHORED, which the next case covers.
+    lib.skills = [skill("My_Skill")];
+    await mount();
+    act(() => row("My_Skill")!.click());
+    type(textarea(), "edited body");
+
+    expect(document.body.textContent).not.toContain("Lowercase letters");
+    expect(button("Save")!.disabled).toBe(false);
+    await act(async () => button("Save")!.click());
+    expect(lib.save).toHaveBeenCalled();
+    expect(lib.rename).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a name the user is authoring", async () => {
+    lib.skills = [skill("My_Skill")];
+    await mount();
+    act(() => row("My_Skill")!.click());
+    // Touching the name makes it this editor's to judge again.
+    type(input("skill-name"), "My_Skill_2");
+
+    expect(document.body.textContent).toContain("Lowercase letters");
+    expect(button("Save")!.disabled).toBe(true);
+  });
+
   it("groups the library: global plus the ACTIVE workspace only", async () => {
     lib.skills = [
       skill("review"),
