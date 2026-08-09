@@ -84,4 +84,33 @@ describe("ModalOverlay", () => {
     expect(stage.hasAttribute("inert")).toBe(false);
     root = createRoot(stage);
   });
+
+  it("takes the keyboard when the dialog placed it nowhere", () => {
+    // Two of the dialogs autofocus nothing at all, so without this the
+    // keyboard sits on <body> with the whole app inert behind it: nothing to
+    // tab from, and a screen reader landing outside the dialog.
+    act(() =>
+      root.render(createElement(ModalOverlay, null, createElement("p", null, "x"))),
+    );
+
+    expect(document.activeElement).toBe(
+      document.querySelector(".modal-overlay"),
+    );
+  });
+
+  it("leaves a dialog's own autofocus where the dialog put it", () => {
+    act(() =>
+      root.render(
+        createElement(
+          ModalOverlay,
+          null,
+          createElement("button", { autoFocus: true }, "Close"),
+        ),
+      ),
+    );
+
+    // Its choice, not ours: pulling focus back up to the backdrop would put
+    // the reader one Tab away from the control the dialog opened on.
+    expect(document.activeElement).toBe(document.querySelector("button"));
+  });
 });

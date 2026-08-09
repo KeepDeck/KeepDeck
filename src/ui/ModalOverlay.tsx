@@ -29,11 +29,31 @@ export function ModalOverlay({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     const layer = layerRef.current;
     if (!layer) return;
-    return inertBackground(layer);
+    const release = inertBackground(layer);
+    // Making the background inert BLURS whatever it held, which leaves the
+    // keyboard on <body> — the dialog is up and nothing in it can be typed
+    // into or tabbed through. Take it, unless the dialog already placed it:
+    // some autofocus their own control, and stealing it back would undo a
+    // deliberate choice. The same test as [`Peek`]'s.
+    if (!layer.contains(document.activeElement)) {
+      layer.focus({ preventScroll: true });
+    }
+    return release;
+    // Deliberately no restore on the way out: the app already has one owner
+    // of where focus lands when a dialog closes — the pane's own focus
+    // effect, which reacts to `keyboardFocusEnabled` coming back. A second
+    // claimant here would race it.
   }, []);
 
   return createPortal(
-    <div ref={layerRef} className={MODAL_OVERLAY_CLASS} {...dropBlocker()}>
+    // tabIndex so the layer itself can hold the keyboard for a dialog with
+    // nothing focusable of its own yet (a form still loading its options).
+    <div
+      ref={layerRef}
+      className={MODAL_OVERLAY_CLASS}
+      tabIndex={-1}
+      {...dropBlocker()}
+    >
       {children}
     </div>,
     document.body,
