@@ -14,6 +14,14 @@
  */
 import { teamBriefing, teamFarewell, type TeamPlan } from "../../domain/mail";
 
+/**
+ * What applying a plan needs.
+ *
+ * `spawn` and `close` are optional because a plan that asks for neither
+ * needs neither: settling a roster — which is what an agent does through
+ * `team.assign` — creates and ends nothing. A plan that DOES ask reports the
+ * missing port rather than silently skipping the work.
+ */
 export interface TeamSetupDeps {
   /** Put a pane on the team under a role, or take it off with `null`. */
   setPaneTeam(
@@ -26,7 +34,7 @@ export interface TeamSetupDeps {
    * `yolo` is passed through rather than left to the global default: the
    * dialog asked per recruit, and dropping the answer here would silently
    * ignore it. */
-  spawn(
+  spawn?(
     workspaceId: string,
     agentType: string,
     yolo: boolean,
@@ -35,7 +43,7 @@ export interface TeamSetupDeps {
    * the confirmation, because the person already gave it once for the whole
    * team. Worktrees are deliberately NOT part of it: deleting one is its own
    * destructive decision and has no business riding an organisational act. */
-  close(workspaceId: string, paneId: string): Promise<void>;
+  close?(workspaceId: string, paneId: string): Promise<void>;
   /** Tell the person about a recruit that never started. */
   report(title: string, message: string): void;
   /** Tell an AGENT where it now stands. Absent when the mail feature is
@@ -71,6 +79,7 @@ export async function applyTeamPlan(
   for (const recruit of plan.recruits) {
     let paneId: string | null = null;
     try {
+      if (!deps.spawn) throw new Error("this deck cannot start agents here");
       paneId = await deps.spawn(workspaceId, recruit.agentType, recruit.yolo);
     } catch (error) {
       paneId = null;
@@ -125,6 +134,7 @@ export async function applyTeamPlan(
   // performs — they gave that confirmation once, for the team.
   for (const paneId of plan.closing) {
     try {
+      if (!deps.close) throw new Error("this deck cannot end agents here");
       await deps.close(workspaceId, paneId);
     } catch (error) {
       deps.report(

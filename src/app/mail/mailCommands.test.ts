@@ -291,7 +291,59 @@ describe("team.assign", () => {
       lead,
     );
     expect(clash.ok).toBe(false);
-    if (!clash.ok) expect(clash.error.message).toContain("already taken");
+    if (!clash.ok) expect(clash.error.message).toContain("a role is an address");
+  });
+
+  it("briefs the agent it puts on a team, and re-briefs the ones already on it", async () => {
+    // The finding this whole path was rebuilt for. Recording the role alone
+    // built teams whose members never learned they were on one: they held an
+    // address nobody had told them about, and nothing would tell them until a
+    // fresh session happened to restate it.
+    const { registry, mail } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
+    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
+
+    const joiner = mail.takeAtTurnEnd("pane-2");
+    expect(joiner.map((message) => message.kind)).toEqual(["team"]);
+    expect(joiner[0].body).toContain("impl-1");
+    // And the lead hears the roster it now leads — its first brief named
+    // only itself. One message, not two: standing context supersedes itself,
+    // so what waits is always the current roster and never a history of it.
+    const leadBriefs = mail.takeAtTurnEnd("pane-1");
+    expect(leadBriefs).toHaveLength(1);
+    expect(leadBriefs[0].body).toContain("impl-1");
+  });
+
+  it("refuses to leave a team without the member that hands out work", async () => {
+    // The same rule the dialog obeys, on the path an agent drives. Without
+    // it, `team.assign` could build a leaderless team — one where decideSend
+    // then refuses every task with nobody able to explain why.
+    const { registry } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    const headless = await run(
+      registry,
+      "team.assign",
+      { agent: "pane-2", team: "api", role: "impl-1" },
+      lead,
+    );
+    expect(headless.ok).toBe(false);
+    if (!headless.ok) expect(headless.error.message).toContain("lead");
+  });
+
+  it("refuses to take a pane that is already on another team", async () => {
+    const { registry } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
+    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
+    const poach = await run(
+      registry,
+      "team.assign",
+      { agent: "pane-2", team: "web", role: "lead" },
+      lead,
+    );
+    expect(poach.ok).toBe(false);
+    if (!poach.ok) expect(poach.error.message).toContain("api");
   });
 
   it("cannot put a pane from another workspace on a team", async () => {
@@ -306,13 +358,20 @@ describe("team.assign", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("takes an agent off its team when neither field is given", async () => {
-    const { registry, workspaces } = setup();
+  it("takes an agent off its team when neither field is given, and says so", async () => {
+    const { registry, workspaces, mail } = setup();
     const lead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
     await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
     expect(workspaces[0].panes[1].team).toBeDefined();
+    mail.takeAtTurnEnd("pane-2");
+
     await run(registry, "team.assign", { agent: "pane-2" }, lead);
     expect(workspaces[0].panes[1].team).toBeUndefined();
+    // Told once, so it stops addressing roles that no longer reach anyone.
+    const farewell = mail.takeAtTurnEnd("pane-2");
+    expect(farewell.map((message) => message.kind)).toEqual(["team"]);
+    expect(farewell[0].body).toContain("api");
   });
 });
 

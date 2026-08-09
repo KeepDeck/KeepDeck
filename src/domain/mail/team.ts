@@ -8,63 +8,19 @@
  */
 import { resolvePaneRef, type Resolved } from "../commands";
 import type { Pane, Workspace } from "../deck";
-import { parseRoleAddress, teamRoles } from "./roles";
 
 export interface TeamAssignment {
   name: string;
   role: string;
 }
 
-/** Why an assignment was refused. */
-export type TeamRefusal =
-  /** Another pane in this workspace already answers to that role in that
-   * team. Roles are addresses, and an ambiguous address is worse than none. */
-  | "role-taken"
-  /** A name has to be usable in a message. */
-  | "blank";
-
-/**
- * Whether `pane` may take `assignment` in `workspace`.
- *
- * Checked against the workspace rather than the team, because that is where
- * the panes are and where a duplicate could arise; a team is only the set of
- * panes claiming its name.
- */
-export function checkTeamAssignment(
-  workspace: Workspace,
-  paneId: string,
-  assignment: TeamAssignment,
-): Resolved<TeamAssignment> {
-  const name = assignment.name.trim();
-  const role = assignment.role.trim();
-  if (!name || !role) {
-    return { ok: false, message: "a team and a role both need a name" };
-  }
-  // The same catalog the dialog picks from — an agent driving `team.assign`
-  // over MCP must not be able to invent a role the deck cannot describe, or
-  // its holder would be briefed with nothing said about what it is for.
-  if (!parseRoleAddress(role)) {
-    return {
-      ok: false,
-      message: `"${role}" is not a role this deck knows — use one of ${teamRoles()
-        .map((known) => (known.repeatable ? `${known.id}-<n>` : known.id))
-        .join(", ")}`,
-    };
-  }
-  const clash = workspace.panes.find(
-    (pane) =>
-      pane.id !== paneId &&
-      pane.team?.name.toLowerCase() === name.toLowerCase() &&
-      pane.team.role.toLowerCase() === role.toLowerCase(),
-  );
-  if (clash) {
-    return {
-      ok: false,
-      message: `role "${role}" is already taken in team "${name}"`,
-    };
-  }
-  return { ok: true, value: { name, role } };
-}
+// Whether a pane MAY take a role is not answered here, and deliberately not
+// answered twice anywhere: `planTeam` settles a whole roster, and every path
+// that changes one — the dialog, and an agent driving `team.assign` — goes
+// through it. A single-assignment checker lived here once and was the weaker
+// of the two: it knew about blank names and duplicate addresses but not about
+// the lead a team needs, nor about a pane already belonging to another team,
+// so the same change the dialog refused went through over MCP.
 
 /** The panes making up a team, in deck order. */
 export function teamMembers(workspace: Workspace, name: string): Pane[] {

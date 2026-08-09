@@ -19,7 +19,8 @@ import {
 } from "../../domain/commands";
 import { findWorkspaceOfPane, type Pane, type Workspace } from "../../domain/deck";
 import {
-  checkTeamAssignment,
+  planTeam,
+  teamMembers,
   leadRole,
   resolveMailTarget,
   senderOf,
@@ -30,7 +31,9 @@ import {
   type SendRefusal,
 } from "../../domain/mail";
 import type { Deck } from "../useDeck";
+import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
+import { applyTeamPlan, type TeamSetupDeps } from "./teamSetup";
 
 export interface MailCommandDeps {
   mail: MailManager;
@@ -43,6 +46,24 @@ export interface MailCommandDeps {
     paneId: string,
     team: { name: string; role: string } | null,
   ): void;
+}
+
+/**
+ * What applying a roster means, from here.
+ *
+ * The same owner the dialog goes through (`applyTeamPlan`), with the ports an
+ * AGENT-driven settle can honestly supply: it records the roles, briefs the
+ * joiner, re-briefs whoever's roster changed and tells whoever left. It
+ * cannot start or end an agent — a roster settle asks for neither, and a plan
+ * that did would say so rather than skip it silently.
+ */
+function rosterPorts(deps: MailCommandDeps): TeamSetupDeps {
+  return {
+    setPaneTeam: deps.setPaneTeam,
+    // Always live here: these commands exist only while the feature is on.
+    announce: (paneId, kind, body) => deps.mail.announce(paneId, kind, body),
+    report: (title, message) => log.warn("web:mail", `${title}: ${message}`),
+  };
 }
 
 /** The workspace a caller belongs to, refusing anyone who belongs to none.
@@ -225,24 +246,52 @@ export function registerMailCommands(
             .join(", ")}; omit to remove`,
         },
       ],
-      run: (args, source) => {
+      /**
+       * The same settle the dialog performs, from an agent instead.
+       *
+       * It goes through `planTeam` + `applyTeamPlan` rather than writing the
+       * role straight in, because everything ELSE that joining a team means
+       * lives there: the joiner is briefed, the members whose roster just
+       * changed are re-briefed, and anyone taken off is told so. Recording
+       * the role alone built teams whose members never learned they were on
+       * one — they held an address nobody had told them about, and could not
+       * be told until a fresh session happened to restate it.
+       *
+       * The roster it settles is the team AS IT WILL BE: everyone holding
+       * the name, minus this pane, plus what it was asked to become. So the
+       * rules the dialog obeys — one lead, unique addresses, known roles, no
+       * poaching from another team — are obeyed here by construction rather
+       * than by a second, weaker copy.
+       */
+      run: async (args, source) => {
         const caller = requireSender(source);
         const { workspace } = callerWorkspace(deps, caller);
         const target = resolvePaneRef(workspace, deps.agents(), str(args, "agent") ?? "");
         if (!target.ok) throw new Error(target.message);
+        const paneId = target.value.id;
         const name = str(args, "team");
         const role = str(args, "role");
-        if (!name && !role) {
-          deps.setPaneTeam(workspace.id, target.value.id, null);
-          return { paneId: target.value.id, team: null };
-        }
-        const checked = checkTeamAssignment(workspace, target.value.id, {
-          name: name ?? "",
-          role: role ?? "",
-        });
-        if (!checked.ok) throw new Error(checked.message);
-        deps.setPaneTeam(workspace.id, target.value.id, checked.value);
-        return { paneId: target.value.id, team: checked.value };
+        const held = target.value.team;
+        // Which team's roster is being settled: the one named, or — when the
+        // agent is being taken off — the one it is on. A pane on no team
+        // that is asked to leave one has nothing to settle.
+        const team = name ?? held?.name;
+        if (!team) return { paneId, team: null };
+        const members = teamMembers(workspace, team)
+          .filter((pane) => pane.id !== paneId)
+          .map((pane) => ({ paneId: pane.id, role: pane.team!.role }));
+        if (name || role) members.push({ paneId, role: role ?? "" });
+        const planned = planTeam(
+          workspace,
+          { name: team, members, recruits: [] },
+          team,
+        );
+        if (!planned.ok) throw new Error(planned.message);
+        await applyTeamPlan(rosterPorts(deps), workspace.id, planned.value);
+        return {
+          paneId,
+          team: name || role ? { name: planned.value.name, role: role ?? "" } : null,
+        };
       },
     }),
   ];

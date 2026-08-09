@@ -130,6 +130,67 @@ describe("planTeam", () => {
     expect(twoHeads.ok).toBe(false);
   });
 
+  it("refuses to take a pane that already belongs to another team", () => {
+    // One team per pane. Poaching strands the team left behind: its members
+    // stay briefed to address a role that reaches nobody. The dialog declines
+    // to OFFER such a pane, but an agent driving `team.assign` reads no
+    // dialog — so the rule lives here, with the teams.
+    const ws = workspace([
+      pane("pane-1"),
+      pane("pane-2", { name: "web", role: "impl-1" }),
+    ]);
+    const result = planTeam(
+      ws,
+      draft({
+        name: "api",
+        members: [
+          { paneId: "pane-1", role: "lead" },
+          { paneId: "pane-2", role: "impl-1" },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toContain("web");
+  });
+
+  it("lets a team keep its own members, and keep them through a rename", () => {
+    // The other side of the same rule: a member already on THIS team is
+    // staying, not moving — including when the team is being renamed, where
+    // what everyone holds is the OLD name.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+    ]);
+    const members = [
+      { paneId: "pane-1", role: "lead" },
+      { paneId: "pane-2", role: "impl-1" },
+    ];
+    expect(planTeam(ws, draft({ name: "api", members })).ok).toBe(true);
+    expect(planTeam(ws, draft({ name: "platform", members }), "api").ok).toBe(true);
+  });
+
+  it("lets the same role live in a different team", () => {
+    // A role is unique per TEAM, not per deck: `lead@api` and `lead@web` are
+    // two members of two teams. The rule settles ONE roster, so another
+    // team's lead is simply not in it.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2"),
+    ]);
+    expect(
+      planTeam(ws, draft({ name: "web", members: [{ paneId: "pane-2", role: "lead" }] })).ok,
+    ).toBe(true);
+  });
+
+  it("lets a member keep the role it already holds", () => {
+    // Re-stating a roster unchanged — which every edit of an unrelated field
+    // does — must not read as a pane colliding with itself.
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
+    expect(
+      planTeam(ws, draft({ name: "api", members: [{ paneId: "pane-1", role: "lead" }] })).ok,
+    ).toBe(true);
+  });
+
   it("refuses a role the catalog cannot account for", () => {
     // An unknown role has no charter, so its holder would be briefed with
     // nothing said about what it is for — the state roles exist to end.

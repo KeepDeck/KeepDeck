@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Pane, Workspace } from "../deck";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import {
-  checkTeamAssignment,
-  resolveMailTarget,
-  teamMembers,
-  teamOf,
-} from "./team";
+import { resolveMailTarget, teamMembers, teamOf } from "./team";
 
 const AGENTS = [{ id: "claude", label: "Claude" }];
 
@@ -22,43 +17,6 @@ const workspace = (panes: Pane[]): Workspace =>
     worktreeBaseDir: null,
     panes,
   }) as Workspace;
-
-describe("checkTeamAssignment", () => {
-  it("takes a free role and trims what it stores", () => {
-    const ws = workspace([pane("pane-1")]);
-    expect(checkTeamAssignment(ws, "pane-1", { name: "  api  ", role: " lead " })).toEqual({
-      ok: true,
-      value: { name: "api", role: "lead" },
-    });
-  });
-
-  it("refuses a role another pane already answers to", () => {
-    // Roles are ADDRESSES. Two panes answering to "impl-1" makes every
-    // message to it a coin toss, which is worse than having no role.
-    const ws = workspace([pane("pane-1", { name: "api", role: "impl-1" }), pane("pane-2")]);
-    const result = checkTeamAssignment(ws, "pane-2", { name: "api", role: "IMPL-1" });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toContain("already taken");
-  });
-
-  it("lets the same role live in a different team", () => {
-    const ws = workspace([pane("pane-1", { name: "api", role: "lead" }), pane("pane-2")]);
-    expect(checkTeamAssignment(ws, "pane-2", { name: "web", role: "lead" }).ok).toBe(true);
-  });
-
-  it("lets a pane keep its own role when reassigned", () => {
-    // Renaming a team, or re-stating the same assignment, must not collide
-    // with the pane itself.
-    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
-    expect(checkTeamAssignment(ws, "pane-1", { name: "api", role: "lead" }).ok).toBe(true);
-  });
-
-  it("refuses a blank name or role", () => {
-    const ws = workspace([pane("pane-1")]);
-    expect(checkTeamAssignment(ws, "pane-1", { name: "  ", role: "lead" }).ok).toBe(false);
-    expect(checkTeamAssignment(ws, "pane-1", { name: "api", role: "" }).ok).toBe(false);
-  });
-});
 
 describe("teamMembers", () => {
   it("collects a team across the workspace, ignoring case", () => {

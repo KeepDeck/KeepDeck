@@ -212,6 +212,25 @@ export function planTeam(
     };
   }
 
+  // A pane holds ONE team. Taking one that already belongs elsewhere would
+  // strand the team it left: its remaining members stay briefed to address a
+  // role that then reaches nobody, and nothing tells them otherwise.
+  //
+  // Enforced HERE and not only where the offer is drawn. A dialog can decline
+  // to list a pane; an agent driving `team.assign` reads no dialog, and the
+  // invariant is about teams, not about a form. `editing ?? name` is the team
+  // as it stands, so a member already on THIS one is staying, not moving.
+  const staying = (editing ?? name).trim().toLowerCase();
+  for (const member of members) {
+    const held = workspace.panes.find((pane) => pane.id === member.paneId)?.team;
+    if (held && held.name.trim().toLowerCase() !== staying) {
+      return {
+        ok: false,
+        message: `that agent is already ${held.role} on team "${held.name}" — take it off that team first`,
+      };
+    }
+  }
+
   const seen = new Set<string>();
   let leads = 0;
   for (const { role } of [...members, ...recruits]) {
