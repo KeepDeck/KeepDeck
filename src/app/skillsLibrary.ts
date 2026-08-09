@@ -1,7 +1,7 @@
 import {
   composeSkillFile,
+  frontmatterObstacle,
   normalizeSkillDescription,
-  orphanedFrontmatterLine,
   renameSkillFile,
   sameSkillScope,
   skillDescriptionProblem,
@@ -258,18 +258,20 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
       case "multiline":
         throw new Error("A skill description must be a single line");
     }
-    // The last guard before we rewrite somebody's file: composing puts the
-    // extras after the two keys we author, so an extra that is a CONTINUATION of
-    // something above it would land under a finished entry and turn valid YAML
-    // into frontmatter no CLI can read. Refuse instead — a skill that cannot be
-    // edited here is recoverable; one silently rewritten into garbage is not.
-    const orphan = orphanedFrontmatterLine(draft.extraFrontmatter);
-    if (orphan !== null) {
+    return composeSkillFile({ ...draft, description });
+  }
+
+  /** The last guard before we rewrite somebody's file. Asked of the STORED bytes,
+   * not of a parsed draft: only the file itself can say whether re-composing it
+   * would change what a YAML reader sees, and the answer belongs to the codec
+   * that would do the composing. */
+  function requireRewritable(stored: string): void {
+    const obstacle = frontmatterObstacle(stored);
+    if (obstacle !== null) {
       throw new Error(
-        `This skill's frontmatter cannot be edited here — KeepDeck would have to move the line "${orphan.trim()}", which changes what YAML reads. Edit SKILL.md directly.`,
+        `This skill cannot be edited here — ${obstacle}. Edit its SKILL.md directly.`,
       );
     }
-    return composeSkillFile({ ...draft, description });
   }
 
   // Every method is `async` so a refusal reaches the caller the same way a
@@ -288,8 +290,10 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
     },
 
     update: async (scope, draft) => {
-      const stored = skillDraftOf((await library(scope)).existing(draft.name));
+      const row = (await library(scope)).existing(draft.name);
+      requireRewritable(row.content);
       // The stored extras win: they are what is on disk now.
+      const stored = skillDraftOf(row);
       const content = authoredFile({ ...draft, extraFrontmatter: stored.extraFrontmatter });
       await writeThenRestage(() => ports.storage.save(scope, draft.name, content, false));
     },
@@ -303,8 +307,16 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
       // directories claiming one name.
       scoped.requireFree(to);
       // Computed from the bytes we already read, BEFORE anything moves: nothing
-      // between the two writes can then refuse the second one.
+      // between the two writes can then refuse the second one — including the
+      // one refusal that used to arrive too late, a frontmatter whose stated name
+      // we cannot restate. Moving the directory and leaving the file naming the
+      // old skill is the two-identity state this whole operation exists to avoid.
       const renamed = renameSkillFile(stored.content, to);
+      if (renamed.kind === "unsupported") {
+        throw new Error(
+          `Cannot rename "${from}" — ${renamed.reason}. Edit its SKILL.md directly.`,
+        );
+      }
       await writeThenRestage(async () => {
         // The frontmatter FIRST, still under the old directory, because only
         // this order leaves a partial failure repairable by re-running the
@@ -313,7 +325,9 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
         // left to rewrite and just moves it. The other order consumes `from`
         // with the move, so a re-run can no longer find the skill it must
         // finish renaming — and no other operation offers to.
-        if (renamed !== null) await ports.storage.save(scope, from, renamed, false);
+        if (renamed.kind === "rewritten") {
+          await ports.storage.save(scope, from, renamed.content, false);
+        }
         await ports.storage.rename(scope, from, to);
       });
     },

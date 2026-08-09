@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   composeSkillFile,
-  orphanedFrontmatterLine,
+  frontmatterObstacle,
   parseSkillFile,
   renameSkillFile,
   skillDraftOf,
@@ -103,7 +103,10 @@ describe("compose/parse round-trip", () => {
     expect(parsed.name).toBe("deploy");
     expect(parsed.description).toBe("Ships it");
     expect(parsed.extraFrontmatter).toEqual(["allowed-tools: Bash"]);
-    expect(parsed.body).toBe("Body\n");
+    // The body keeps ITS OWN line endings. Normalizing them here meant every
+    // save rewrote every line of a Windows-authored body, for an edit that asked
+    // to change one field.
+    expect(parsed.body).toBe("Body\r\n");
   });
 
   it("keeps the FIRST duplicated key and DROPS the shadowed one", () => {
@@ -213,30 +216,43 @@ describe("a block scalar survives being read and written back", () => {
   it("leaves an extra key's OWN block scalar alone, so a save keeps it", () => {
     const content = "---\nname: n\ndescription: d\nallowed-tools: >\n  Read\n  Write\n---\nB\n";
     const parsed = folded(content);
-    expect(parsed.extraFrontmatter).toEqual(["allowed-tools: >", "  Read", "  Write"]);
+    // ONE chunk per entry, its verbatim source — not a line each. An entry is
+    // what has to stay together to still mean the same thing; splitting it into
+    // lines was how a continuation line ended up somewhere else.
+    expect(parsed.extraFrontmatter).toEqual(["allowed-tools: >\n  Read\n  Write"]);
     // It re-composes in place, still valid: the indented run follows the key it
     // belongs to, which compose emitted just above it.
     expect(composeSkillFile({ ...parsed, name: "n" })).toBe(content);
   });
 
-  it("names an extra that a recompose could NOT carry", () => {
-    // Frontmatter written as an indented mapping: valid YAML, and every line
-    // lands in extras, so composing would put them under the keys we author.
-    expect(orphanedFrontmatterLine(["  name: review", "  description: d"])).toBe(
-      "  name: review",
+  it("says WHY a file cannot be re-authored, naming the obstacle", () => {
+    // The reason has to be sayable, because the library puts it in front of the
+    // user in place of a save. Which shapes qualify is pinned against a real YAML
+    // reader in `skillFileYaml.test.ts`; this is about the sentence.
+    expect(frontmatterObstacle("---\n  name: review\n  description: d\n---\nB\n")).toContain(
+      '"name" is indented',
     );
-    expect(orphanedFrontmatterLine(["- item"])).toBe("- item");
-    // An indented run LATER is a continuation of an extra key above it.
-    expect(orphanedFrontmatterLine(["allowed-tools: >", "  Read"])).toBeNull();
-    expect(orphanedFrontmatterLine(["license: MIT"])).toBeNull();
-    expect(orphanedFrontmatterLine([])).toBeNull();
+    expect(frontmatterObstacle("---\nname: [unclosed\n---\nB\n")).toContain(
+      "not valid YAML",
+    );
+    expect(frontmatterObstacle("---\nname: a\ndescription: d\nlicense: MIT\n---\nB\n")).toBeNull();
+    // No frontmatter at all is not an obstacle: there is nothing to preserve.
+    expect(frontmatterObstacle("Just a body\n")).toBeNull();
+    expect(frontmatterObstacle("---\n---\nB\n")).toBeNull();
   });
 });
+
+/** The rewritten file, for a rename that was expected to produce one. */
+const renamedTo = (content: string, name: string): string => {
+  const result = renameSkillFile(content, name);
+  if (result.kind !== "rewritten") throw new Error(`expected a rewrite, got ${result.kind}`);
+  return result.content;
+};
 
 describe("renaming a stored file", () => {
   it("moves the name onto the new one and touches nothing else", () => {
     expect(
-      renameSkillFile(
+      renamedTo(
         "---\nname: review\ndescription: Reviews a diff\nlicense: MIT\n---\nBody\n",
         "deep-review",
       ),
@@ -248,7 +264,7 @@ describe("renaming a stored file", () => {
     // authors nothing, so the stored bytes must come back untouched.
     const content =
       "---\nname: review\ndescription: >\n  Long one,\n  wrapped.\n---\nBody\n";
-    expect(renameSkillFile(content, "deep-review")).toBe(
+    expect(renamedTo(content, "deep-review")).toBe(
       "---\nname: deep-review\ndescription: >\n  Long one,\n  wrapped.\n---\nBody\n",
     );
     // And composing the same file — which is what an UPDATE does — no longer
@@ -266,7 +282,7 @@ describe("renaming a stored file", () => {
     // A hand-edited Windows file must come back editable, not with every line
     // ending rewritten by an operation that was asked to change one word.
     expect(
-      renameSkillFile("---\r\nname: review\r\ndescription: d\r\n---\r\nBody\r\n", "deep"),
+      renamedTo("---\r\nname: review\r\ndescription: d\r\n---\r\nBody\r\n", "deep"),
     ).toBe("---\r\nname: deep\r\ndescription: d\r\n---\r\nBody\r\n");
   });
 
@@ -274,28 +290,48 @@ describe("renaming a stored file", () => {
     // Through the same scalar rule compose uses — one answer to "how does a
     // value go onto a frontmatter line", or a round trip would read back a
     // different name than the one written.
-    expect(renameSkillFile("---\nname: a\n---\n", "no")).toBe('---\nname: "no"\n---\n');
+    expect(renamedTo("---\nname: a\n---\n", "no")).toBe('---\nname: "no"\n---\n');
   });
 
-  it("answers null when there is nothing to rewrite", () => {
+  it("answers `unchanged` when there is nothing to rewrite", () => {
     // Each of these takes its name from the DIRECTORY, so it cannot disagree
     // with it and the rename is the move alone — the library skips the write.
-    expect(renameSkillFile("Just a body\n", "deep")).toBeNull();
-    expect(renameSkillFile("---\ndescription: d\n---\nBody\n", "deep")).toBeNull();
-    expect(renameSkillFile("---\nname: deep\ndescription: d\n---\n", "deep")).toBeNull();
+    for (const content of [
+      "Just a body\n",
+      "---\ndescription: d\n---\nBody\n",
+      "---\nname: deep\ndescription: d\n---\n",
+    ]) {
+      expect(renameSkillFile(content, "deep"), content).toEqual({ kind: "unchanged" });
+    }
   });
 
-  it("rewrites the first name line, the one the parser reads", () => {
+  it("REFUSES a file whose stated name it cannot restate", () => {
+    // Answering "nothing to rewrite" here moved the directory and left the file
+    // naming the old skill — the two-identity state the rename exists to prevent.
+    const indented = renameSkillFile("---\n  name: old\n  description: d\n---\nB\n", "new");
+    expect(indented.kind).toBe("unsupported");
+    if (indented.kind === "unsupported") expect(indented.reason).toContain("indented");
+  });
+
+  it("re-composes when the name is real but not one line to splice", () => {
+    // A block-scalar name cannot be fixed by rewriting its header — that strands
+    // the old value underneath — but the file is one we can re-emit, so it is
+    // rewritten whole rather than refused.
+    expect(renamedTo("---\nname: >\n  old\ndescription: d\n---\nB\n", "new")).toBe(
+      "---\nname: new\ndescription: d\n---\nB\n",
+    );
+  });
+
+  it("rewrites the first name line, the one the reader takes", () => {
     // A later duplicate is a line `parseSkillFile` already drops; rewriting it
     // instead would move the name the readers ignore.
-    expect(renameSkillFile("---\nname: a\nname: b\n---\n", "c")).toBe(
+    expect(renamedTo("---\nname: a\nname: b\n---\n", "c")).toBe(
       "---\nname: c\nname: b\n---\n",
     );
   });
 
   it("does not mistake a `name:` line in the BODY for the frontmatter's", () => {
-    const content = "---\nname: review\n---\nname: not-frontmatter\n";
-    expect(renameSkillFile(content, "deep")).toBe(
+    expect(renamedTo("---\nname: review\n---\nname: not-frontmatter\n", "deep")).toBe(
       "---\nname: deep\n---\nname: not-frontmatter\n",
     );
   });

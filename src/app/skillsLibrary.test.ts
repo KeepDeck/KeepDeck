@@ -209,7 +209,7 @@ describe("create and update differ only in what they refuse", () => {
       ]),
     });
     await expect(library.update(GLOBAL, draft())).rejects.toThrow(
-      /frontmatter cannot be edited here/,
+      /cannot be edited here .* is indented/,
     );
     expect(storage.save).not.toHaveBeenCalled();
   });
@@ -276,9 +276,11 @@ describe("a rename moves the directory AND fixes the file", () => {
     // Through the domain function this layer is supposed to DELEGATE to, rather
     // than a second copy of its byte contract: what belongs here is "rename
     // routes through the splice, not the composer".
-    expect(storage.save.mock.calls[0][2]).toBe(
-      renameSkillFile(STORED[0].content, "deep-review"),
-    );
+    const expected = renameSkillFile(STORED[0].content, "deep-review");
+    expect(expected.kind).toBe("rewritten");
+    if (expected.kind === "rewritten") {
+      expect(storage.save.mock.calls[0][2]).toBe(expected.content);
+    }
   });
 
   it("rewrites ONLY that line, leaving frontmatter the composer cannot carry", async () => {
