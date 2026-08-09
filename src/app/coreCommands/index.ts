@@ -30,8 +30,10 @@ import type {
   ResumeRequest,
 } from "../agentOrchestrator";
 import { resumeRefusalText } from "../resumeOutcome";
+import type { SkillsLibrary } from "../skillsLibrary";
 import { suspendRefusalText, type SuspendOutcome } from "../suspendOutcome";
 import type { Deck } from "../useDeck";
+import { registerSkillsCommands } from "./skills";
 
 /**
  * The deck's core command set — what any invoker (voice, MCP, hotkeys, a
@@ -66,6 +68,8 @@ export interface CoreCommandDeps {
   /** Open the global usage-statistics surface. Same refusal contract as
    * [`openSettings`]. */
   openUsage(): boolean;
+  /** The shared skills library, for the `skills.*` set (see `./skills`). */
+  skills: SkillsLibrary;
 }
 
 /** The refusal when a command asks for a surface that would stack over one
@@ -549,6 +553,11 @@ export function registerCoreCommands(
         return { opened: true };
       },
     }),
+
+    // The library's own set lives in its own module — this file is already long
+    // enough that another area's worth of registrations belongs beside it, not
+    // in it.
+    ...registerSkillsCommands(registry, { deck: deps.deck, skills: deps.skills }),
   ];
 
   return () => {

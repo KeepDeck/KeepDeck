@@ -61,12 +61,12 @@ export interface SkillsLibraryPorts {
 
 export interface SkillsLibrary {
   /**
-   * Every stored skill, both scopes. THROWS on a backend failure: an empty
-   * library and one that could not be read must never arrive as the same
-   * value — a caller that shows "you have no skills" for an unreachable
-   * backend is lying.
+   * The stored skills — one scope's, or every scope's when none is named (the
+   * editor groups them itself). THROWS on a backend failure: an empty library
+   * and one that could not be read must never arrive as the same value — a
+   * caller that shows "you have no skills" for an unreachable backend is lying.
    */
-  list(): Promise<StoredSkill[]>;
+  list(scope?: SkillScope): Promise<StoredSkill[]>;
   /**
    * One skill as the editable draft, or `null` when that scope holds no skill
    * by that name. The directory name wins over the frontmatter's — the
@@ -134,13 +134,18 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
   // Every method is `async` so a refusal reaches the caller the same way a
   // backend failure does — as a rejection. A validation error thrown
   // synchronously would escape a caller that only awaits or `.catch`es.
+  /** THE scope filter — "which stored rows belong to this library" is asked by
+   * every read, so it is answered once here rather than at each caller. */
+  async function rows(scope?: SkillScope): Promise<StoredSkill[]> {
+    const all = await ports.storage.fetch();
+    return scope ? all.filter((row) => sameSkillScope(skillScopeOf(row), scope)) : all;
+  }
+
   return {
-    list: async () => await ports.storage.fetch(),
+    list: rows,
 
     read: async (scope, name) => {
-      const stored = (await ports.storage.fetch()).find(
-        (skill) => skill.name === name && sameSkillScope(skillScopeOf(skill), scope),
-      );
+      const stored = (await rows(scope)).find((row) => row.name === name);
       return stored ? { ...parseSkillFile(stored.content), name: stored.name } : null;
     },
 

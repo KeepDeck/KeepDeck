@@ -9,6 +9,7 @@ import { createDeckActions } from "./deckActions";
 import { readDeck } from "./deckSurface";
 import type { DeckStore } from "./deckStore";
 import type { createPluginManager } from "./pluginManager";
+import type { SkillsLibrary } from "./skillsLibrary";
 import {
   settingsSectionForNotification,
   shouldRevealPluginDock,
@@ -52,6 +53,7 @@ export function createApplicationController(
   orchestrator: Orchestrator,
   paneInputFocus: PaneInputFocusPort,
   paneView: PaneViewPort,
+  skills: SkillsLibrary,
   registry: CommandRegistry = commands,
 ): ApplicationController {
   const actions = createDeckActions(deck);
@@ -94,6 +96,7 @@ export function createApplicationController(
         openSettings: (sectionId) =>
           ui?.openSettings(sectionId) ?? false,
         openUsage: () => ui?.openUsage(null) ?? false,
+        skills,
       });
     },
 

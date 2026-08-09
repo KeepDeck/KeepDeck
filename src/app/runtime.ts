@@ -184,6 +184,7 @@ export function createAppRuntime(
     orchestrator,
     paneInputFocus,
     paneViewActions,
+    skills,
   );
   const worktreeSweeper = createWorktreeSweeper(
     deckStore,
