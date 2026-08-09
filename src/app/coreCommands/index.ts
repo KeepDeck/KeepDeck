@@ -500,12 +500,7 @@ export function registerCoreCommands(
         // Submit Enter is a separate RAW keystroke after the text — see
         // deliverTask for why a CR cannot ride inside the pasted payload, and
         // why a raw CR is the submit gesture in type mode too.
-        // Reported, not assumed: a pane with a live paste channel but no raw one
-        // takes the text and never gets the Enter, and answering ok there leaves
-        // the caller waiting on an agent that was never prompted.
-        if (args.submit === true && !writeRawToPane(pane.id, "\r")) {
-          throw new Error("the text landed but Enter could not be sent");
-        }
+        if (args.submit === true) writeRawToPane(pane.id, "\r");
         if (args.focusInput === true) deps.activatePane(ws.id, pane.id);
         return { workspaceId: ws.id, paneId: pane.id };
       },
