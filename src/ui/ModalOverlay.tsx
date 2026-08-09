@@ -1,7 +1,7 @@
 import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { MODAL_OVERLAY_CLASS, inertBackground } from "./inertBackground";
+import { inertBackground } from "./inertBackground";
 
 /**
  * Full-window blocking backdrop for dialogs. Portaled to `document.body` so it
@@ -18,7 +18,9 @@ import { MODAL_OVERLAY_CLASS, inertBackground } from "./inertBackground";
  *
  * Nor is it enough to stop the KEYBOARD, which reaches a pane without ever
  * touching the backdrop — see [`inertBackground`], applied here because this
- * is the one shell every dialog is built on.
+ * is the one shell every dialog is built on. This shell does not DECIDE that a
+ * dialog owns the keyboard; the app decided that upstream when it opened one.
+ * It enforces it in the DOM, which is the only place the enforcement can live.
  */
 export function ModalOverlay({ children }: { children: ReactNode }) {
   const layerRef = useRef<HTMLDivElement>(null);
@@ -29,6 +31,17 @@ export function ModalOverlay({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     const layer = layerRef.current;
     if (!layer) return;
+
+    // Where the keyboard was before we took it. A dialog that autofocuses its
+    // own control has already done so by now (React commits `autoFocus`
+    // child-first), so anything inside the layer is OUR doing and not a place
+    // to give focus back to.
+    const previous = document.activeElement;
+    const restoreTo =
+      previous instanceof HTMLElement && !layer.contains(previous)
+        ? previous
+        : null;
+
     const release = inertBackground(layer);
     // Making the background inert BLURS whatever it held, which leaves the
     // keyboard on <body> — the dialog is up and nothing in it can be typed
@@ -38,11 +51,18 @@ export function ModalOverlay({ children }: { children: ReactNode }) {
     if (!layer.contains(document.activeElement)) {
       layer.focus({ preventScroll: true });
     }
-    return release;
-    // Deliberately no restore on the way out: the app already has one owner
-    // of where focus lands when a dialog closes — the pane's own focus
-    // effect, which reacts to `keyboardFocusEnabled` coming back. A second
-    // claimant here would race it.
+
+    return () => {
+      release();
+      // Hand the keyboard back where we found it. Only while WE still hold it:
+      // the pane's own focus effect runs after this cleanup and must win when
+      // it applies, and any other surface that claimed focus in the meantime
+      // outranks a restore. Without this the keyboard is simply dropped — the
+      // pane reclaims it only when one is selected, visible and allowed it,
+      // and on every other close path focus was left on <body>.
+      if (!layer.contains(document.activeElement)) return;
+      if (restoreTo?.isConnected) restoreTo.focus({ preventScroll: true });
+    };
   }, []);
 
   return createPortal(
@@ -50,7 +70,7 @@ export function ModalOverlay({ children }: { children: ReactNode }) {
     // nothing focusable of its own yet (a form still loading its options).
     <div
       ref={layerRef}
-      className={MODAL_OVERLAY_CLASS}
+      className="modal-overlay"
       tabIndex={-1}
       {...dropBlocker()}
     >

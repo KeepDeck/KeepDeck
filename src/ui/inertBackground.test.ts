@@ -1,27 +1,28 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MODAL_OVERLAY_CLASS, inertBackground } from "./inertBackground";
+import { inertBackground } from "./inertBackground";
 
-// happy-dom reflects the `inert` attribute but does NOT implement its
-// semantics — it will not refuse focus or blur what is inside. These tests
-// therefore pin the CONTRACT (which nodes carry the marker, and which are
-// restored); that the engine acts on it is a browser fact, not a jsdom one.
+// happy-dom implements HALF of `inert`: it refuses `.focus()` on anything
+// inside an inert subtree (HTMLElementUtility.focus -> isInert), which is what
+// the focus-refusal test below rests on. It does NOT run the focus-fixup rule,
+// so marking an ancestor inert does not blur an ALREADY-focused descendant —
+// that half is a browser fact these tests cannot reach, and the attribute
+// assertions stand in for it.
 
-// The count is per-document, so it is module state — and every acquire here
-// is released, because an unbalanced one is a caller bug, not a case to
-// tolerate. Tracking them makes an early `expect` failure unable to strand
-// the count for the next test.
+// The stack is per-document, so it is module state — and every push here is
+// popped, because an unbalanced one is a caller bug, not a case to tolerate.
+// Tracking them keeps an early `expect` failure from stranding the stack.
 let releases: (() => void)[] = [];
 
-function acquire(layer: Element): () => void {
+function push(layer: Element): () => void {
   const release = inertBackground(layer);
   releases.push(release);
   return release;
 }
 
-function child(className?: string): HTMLElement {
+function child(className: string): HTMLElement {
   const node = document.createElement("div");
-  if (className) node.className = className;
+  node.className = className;
   document.body.appendChild(node);
   return node;
 }
@@ -38,32 +39,57 @@ describe("inertBackground", () => {
 
   it("makes the layer's siblings inert and leaves the layer itself alive", () => {
     const app = child("app-root");
-    const layer = child(MODAL_OVERLAY_CLASS);
+    const layer = child("modal-overlay");
 
-    acquire(layer);
+    push(layer);
 
     expect(app.hasAttribute("inert")).toBe(true);
     expect(layer.hasAttribute("inert")).toBe(false);
   });
 
-  it("spares a second layer that mounted in the same commit", () => {
+  it("actually refuses the keyboard to the background, not just marks it", () => {
     const app = child("app-root");
-    const under = child(MODAL_OVERLAY_CLASS);
-    const over = child(MODAL_OVERLAY_CLASS);
+    const behind = document.createElement("button");
+    app.appendChild(behind);
 
-    acquire(under);
+    push(child("modal-overlay"));
 
-    // Both are layers, so both stay interactive; only the app behind them
-    // goes inert. Without the class check the dialog UNDER the confirm would
-    // be dead by the time the user got back to it.
-    expect(over.hasAttribute("inert")).toBe(false);
+    behind.focus();
+    // The whole point of using the platform rather than modelling focus: a
+    // pane behind the dialog CANNOT take the keyboard, even if something asks
+    // it to. Marking the attribute would be worthless if this did not hold.
+    expect(document.activeElement).not.toBe(behind);
+  });
+
+  it("makes the dialog UNDER a stacked layer background too", () => {
+    const app = child("app-root");
+    const dialog = child("modal-overlay");
+    push(dialog);
+    const confirm = child("modal-overlay");
+    push(confirm);
+
+    // Without this, Tab past the confirm's last control wraps around, skips
+    // the inert app root, and lands in the form the confirm is covering.
+    expect(dialog.hasAttribute("inert")).toBe(true);
+    expect(confirm.hasAttribute("inert")).toBe(false);
     expect(app.hasAttribute("inert")).toBe(true);
+  });
+
+  it("gives the covered dialog back when the layer above it goes", () => {
+    child("app-root");
+    const dialog = child("modal-overlay");
+    push(dialog);
+    const releaseConfirm = push(child("modal-overlay"));
+
+    releaseConfirm();
+
+    expect(dialog.hasAttribute("inert")).toBe(false);
   });
 
   it("holds the background inert until the LAST layer leaves", () => {
     const app = child("app-root");
-    const releaseDialog = acquire(child(MODAL_OVERLAY_CLASS));
-    const releaseConfirm = acquire(child(MODAL_OVERLAY_CLASS));
+    const releaseDialog = push(child("modal-overlay"));
+    const releaseConfirm = push(child("modal-overlay"));
 
     releaseConfirm();
     // The dialog is still up — lifting here would hand the keyboard back to
@@ -74,29 +100,32 @@ describe("inertBackground", () => {
     expect(app.hasAttribute("inert")).toBe(false);
   });
 
-  it("restores exactly what it took, never a node that came in inert", () => {
+  it("survives layers released out of order", () => {
     const app = child("app-root");
-    const alreadyInert = child("hidden-thing");
-    alreadyInert.setAttribute("inert", "");
+    const dialog = child("modal-overlay");
+    const releaseDialog = push(dialog);
+    const confirm = child("modal-overlay");
+    const releaseConfirm = push(confirm);
 
-    acquire(child(MODAL_OVERLAY_CLASS))();
+    // The owner leaving first is the order a refcount could not survive: it
+    // would have decremented to 1 and left the background derived from a
+    // layer that no longer exists.
+    releaseDialog();
+    expect(app.hasAttribute("inert")).toBe(true);
+    expect(confirm.hasAttribute("inert")).toBe(false);
 
+    releaseConfirm();
     expect(app.hasAttribute("inert")).toBe(false);
-    // Not ours to give back: something else is holding this one inert for a
-    // reason of its own.
-    expect(alreadyInert.hasAttribute("inert")).toBe(true);
   });
 
-  it("survives a release called twice without unbalancing the count", () => {
+  it("survives a release called twice", () => {
     const app = child("app-root");
-    const releaseDialog = acquire(child(MODAL_OVERLAY_CLASS));
-    const releaseConfirm = acquire(child(MODAL_OVERLAY_CLASS));
+    const releaseDialog = push(child("modal-overlay"));
+    const releaseConfirm = push(child("modal-overlay"));
 
     releaseConfirm();
     releaseConfirm();
 
-    // A double teardown (StrictMode, a remount race) must not decrement past
-    // the dialog that is still standing.
     expect(app.hasAttribute("inert")).toBe(true);
     releaseDialog();
     expect(app.hasAttribute("inert")).toBe(false);

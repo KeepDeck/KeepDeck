@@ -113,4 +113,50 @@ describe("ModalOverlay", () => {
     // the reader one Tab away from the control the dialog opened on.
     expect(document.activeElement).toBe(document.querySelector("button"));
   });
+
+  it("hands the keyboard back where it found it", () => {
+    // Outside the React container on purpose: unmounting a root clears its
+    // container, which would take the invoker with it and leave the test
+    // measuring React's cleanup instead of ours. The real invoker is a top-bar
+    // button, i.e. a sibling branch of the app root.
+    const chrome = document.createElement("div");
+    document.body.appendChild(chrome);
+    const invoker = document.createElement("button");
+    chrome.appendChild(invoker);
+    invoker.focus();
+
+    act(() =>
+      root.render(createElement(ModalOverlay, null, createElement("p", null, "x"))),
+    );
+    expect(document.activeElement).not.toBe(invoker);
+
+    act(() => root.unmount());
+
+    // Otherwise the keyboard is simply dropped: the pane reclaims it only when
+    // one is selected, visible and allowed it, so on every other close path
+    // focus was left on <body> with nothing to Tab from.
+    expect(document.activeElement).toBe(invoker);
+    root = createRoot(stage);
+  });
+
+  it("does not claw focus back from whoever took it while the dialog was up", () => {
+    const invoker = document.createElement("button");
+    stage.appendChild(invoker);
+    invoker.focus();
+    act(() =>
+      root.render(createElement(ModalOverlay, null, createElement("p", null, "x"))),
+    );
+
+    // A surface outside the layer claims the keyboard before the dialog goes;
+    // the pane's own focus effect is the real case, and it runs AFTER this
+    // cleanup, so a restore that ignored the current holder would fight it.
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    other.focus();
+
+    act(() => root.unmount());
+
+    expect(document.activeElement).toBe(other);
+    root = createRoot(stage);
+  });
 });

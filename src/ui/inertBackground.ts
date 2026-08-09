@@ -1,5 +1,5 @@
 /**
- * While a modal layer is up, everything behind it is `inert`.
+ * While modal layers are up, everything behind the TOP one is `inert`.
  *
  * This is the one home of that rule. The app already HAS a notion of who owns
  * keyboard interaction — `keyboardFocusEnabled`, threaded down to every
@@ -10,64 +10,69 @@
  *
  * `inert` is the platform's own way to say it, which is why nothing here
  * mirrors focus in app state: the engine makes the subtree unfocusable and
- * untabbable, drops its hit-testing, and BLURS whatever inside it was
+ * untabbable, drops its hit-testing, and blurs whatever inside it was
  * focused. The pane cannot hold the keyboard while a dialog is open, rather
  * than being asked not to.
  *
- * The background is defined by position, not by name: a modal layer is
- * portaled to `<body>`, so the background is its siblings there. Two rules
- * keep that honest —
+ * A STACK, not a count. Layers nest — a confirm paints over a dialog — and
+ * the dialog underneath is background too: with only a refcount it stayed
+ * interactive, so Tab past the confirm's last control wrapped around, skipped
+ * the inert app root, and landed in the form the confirm was covering, where
+ * typing edited it and Enter could fire its Save. Every push and pop
+ * therefore re-derives from scratch: undo exactly what we set, then make
+ * everything but the current top inert. That also makes the order of pops
+ * irrelevant, which a count could not survive.
  *
- * - a sibling that was ALREADY inert is left alone and never restored; we
- *   undo exactly what we did;
- * - layers nest (a confirm paints over a dialog), so this is refcounted, and
- *   only the last one out lifts it. A count rather than a re-scan on every
- *   acquire: by then the outer layer's own node is a body sibling too, and a
- *   re-scan would make the dialog underneath inert.
+ * The background is defined by position: a layer is portaled to `<body>`, so
+ * the background is its siblings. No marker class is needed — the stack knows
+ * which nodes are layers, including two that mount in the same commit.
  *
- * KNOWN LIMIT: a node appended to `<body>` while a layer is already up does
- * not become inert. Nothing does that today — the surfaces that portal to
- * `<body>` (popovers, the minimized tray) are opened by a click the backdrop
- * eats — and watching for it would cost a MutationObserver for a case that
- * cannot currently happen.
+ * KNOWN LIMIT, and it cuts both ways: nodes appended to `<body>` while a layer
+ * is already up are NOT inert. Today that is what we want — a tooltip opened
+ * from inside a dialog portals to `<body>` too (`Tooltip`, `WindowBurn`), and
+ * it belongs to the layer, not to the background. The cost is the other
+ * direction: if a further layer pushes while such a tooltip is open, the
+ * re-derive treats it as background and freezes it. Rare enough to name rather
+ * than to chase with a MutationObserver.
+ *
+ * PLATFORM FLOOR: `inert` needs WebKit 15.5+, and the app's
+ * `minimumSystemVersion` is lower. Where the attribute is not implemented
+ * setting it is silently inert itself; the keyboard hand-over then rests on
+ * `useEscape` cancelling the press and on the pane's own release, which is
+ * weaker but not nothing. No feature test, because there is no third
+ * behaviour to branch to.
  */
 
-/** Marks a modal layer in the DOM. Lives here because this rule is the thing
- * that has to tell a layer from the background it stands on. */
-export const MODAL_OVERLAY_CLASS = "modal-overlay";
-
-/** How many layers are up. */
-let held = 0;
-/** Exactly the nodes this module made inert, to restore exactly those. */
+/** Live layers, oldest first. The last one is the only interactive surface. */
+const layers: Element[] = [];
+/** Exactly the nodes this module made inert, so it restores exactly those. */
 let inerted: Element[] = [];
 
+/** Re-derive the whole background from the current stack. */
+function apply(): void {
+  for (const node of inerted) node.removeAttribute("inert");
+  inerted = [];
+  const top = layers[layers.length - 1];
+  if (!top) return;
+  for (const node of Array.from(document.body.children)) {
+    if (node === top) continue;
+    node.setAttribute("inert", "");
+    inerted.push(node);
+  }
+}
+
 /**
- * Make the background behind `layer` inert until the returned release is
- * called. The release is idempotent, so a double-invoked effect teardown
- * cannot unbalance the count.
+ * Push `layer` as the interactive surface; everything else in `<body>` becomes
+ * inert until the returned release is called. Releasing a layer that is no
+ * longer on the stack does nothing, so a double teardown is harmless.
  */
 export function inertBackground(layer: Element): () => void {
-  if (held === 0) {
-    for (const node of Array.from(document.body.children)) {
-      // `layer` is already mounted when this runs; so is any sibling layer
-      // that appeared in the same commit.
-      if (node === layer || node.classList.contains(MODAL_OVERLAY_CLASS)) {
-        continue;
-      }
-      if (node.hasAttribute("inert")) continue;
-      node.setAttribute("inert", "");
-      inerted.push(node);
-    }
-  }
-  held += 1;
-
-  let released = false;
+  layers.push(layer);
+  apply();
   return () => {
-    if (released) return;
-    released = true;
-    held -= 1;
-    if (held > 0) return;
-    for (const node of inerted) node.removeAttribute("inert");
-    inerted = [];
+    const at = layers.indexOf(layer);
+    if (at === -1) return;
+    layers.splice(at, 1);
+    apply();
   };
 }
