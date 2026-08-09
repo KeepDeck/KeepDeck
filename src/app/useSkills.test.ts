@@ -3,30 +3,41 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoredSkill } from "../ipc/skills";
-import { useSkillsLibrary, type SkillsLibrary } from "./useSkills";
+import { useSkillsLibrary, type SkillsLibraryView } from "./useSkills";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const wire = vi.hoisted(() => ({
-  fetchSkills: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
-  saveSkill: vi.fn(async () => {}),
-  deleteSkill: vi.fn(async () => {}),
-  renameSkill: vi.fn(async () => {}),
+/**
+ * Driven over a FAKE library: what the hook owns is view state — loaded vs
+ * in-flight, the error in words, and when a stale list beats a blank one.
+ * Composing a SKILL.md, refusing a bad draft and invalidating the staged views
+ * belong to `skillsLibrary` and are covered by its own suite; asserting them
+ * again through React would be the same rule pinned twice.
+ */
+const library = vi.hoisted(() => ({
+  list: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
+  create: vi.fn(async () => {}),
+  update: vi.fn(async () => {}),
+  rename: vi.fn(async () => {}),
+  remove: vi.fn(async () => {}),
 }));
-vi.mock("../ipc/skills", () => wire);
-
-/** The staged views belong to the worktree manager; the hook reaches it through
- * the runtime to say the library moved under them. */
-const libraryChanged = vi.fn();
 vi.mock("./runtimeContext", () => ({
-  useAppRuntime: () => ({ worktrees: { invalidateSkills: libraryChanged } }),
+  useAppRuntime: () => ({ skills: library }),
 }));
 
-let lib: SkillsLibrary;
+const STORED: StoredSkill = {
+  scope: "global",
+  wsId: null,
+  name: "review",
+  content: "x",
+};
+const DRAFT = { name: "deploy", description: "Ships it", body: "", extraFrontmatter: [] };
+
+let view: SkillsLibraryView;
 function Probe() {
-  lib = useSkillsLibrary(true);
+  view = useSkillsLibrary(true);
   return null;
 }
 
@@ -34,12 +45,8 @@ describe("the skills library hook", () => {
   let root: Root;
 
   beforeEach(() => {
-    wire.fetchSkills.mockClear();
-    wire.fetchSkills.mockResolvedValue([]);
-    wire.saveSkill.mockClear();
-    wire.deleteSkill.mockClear();
-    wire.renameSkill.mockClear();
-    libraryChanged.mockClear();
+    for (const fn of Object.values(library)) fn.mockClear();
+    library.list.mockResolvedValue([]);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -51,151 +58,136 @@ describe("the skills library hook", () => {
   const mount = () => act(async () => root.render(createElement(Probe)));
 
   it("loads the library when opened", async () => {
-    wire.fetchSkills.mockResolvedValue([
-      { scope: "global", wsId: null, name: "review", content: "x" },
-    ]);
+    library.list.mockResolvedValue([STORED]);
     await mount();
-    expect(lib.skills).toEqual([
-      { scope: "global", wsId: null, name: "review", content: "x" },
-    ]);
+    expect(view.skills).toEqual([STORED]);
+    expect(view.error).toBeNull();
   });
 
-  it("save composes the SKILL.md, invalidates staging, reloads", async () => {
+  it("reports an unreadable library instead of showing it empty", async () => {
+    library.list.mockRejectedValueOnce(new Error("backend down"));
     await mount();
-    let ok = false;
+    // The empty list is what the editor can render; the error is the only
+    // thing on screen saying the library is unknown rather than empty.
+    expect(view.skills).toEqual([]);
+    expect(view.error).toContain("backend down");
+  });
+
+  it("routes a create and an update to the right library call", async () => {
+    // The only decision this binding makes: the dialog's create/edit mode.
+    await mount();
     await act(async () => {
-      ok = await lib.save(
-        { kind: "global" },
-        {
-          name: "deploy",
-          description: "Ships it",
-          body: "Steps\n",
-          extraFrontmatter: ["license: MIT"],
-        },
-        false,
-      );
+      await view.save({ kind: "global" }, DRAFT, true);
     });
+    expect(library.create).toHaveBeenCalledWith({ kind: "global" }, DRAFT);
+    expect(library.update).not.toHaveBeenCalled();
 
-    expect(ok).toBe(true);
-    expect(wire.saveSkill).toHaveBeenCalledWith(
-      { kind: "global" },
-      "deploy",
-      "---\nname: deploy\ndescription: Ships it\nlicense: MIT\n---\nSteps\n",
-      false,
-    );
-    // The spawn side re-stages on the next spawn, and the list is fresh —
-    // via the STRICT read, so a transient error keeps the stale list
-    // instead of blanking a library the user just successfully wrote to.
-    expect(libraryChanged).toHaveBeenCalledTimes(1);
-    // The initial load and the post-save reload — both through the strict
-    // read, so a transient error keeps the stale list instead of blanking a
-    // library the user just successfully wrote to.
-    expect(wire.fetchSkills).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await view.save({ kind: "global" }, DRAFT, false);
+    });
+    expect(library.update).toHaveBeenCalledWith({ kind: "global" }, DRAFT);
   });
 
-  it("a successful save whose reload fails keeps the stale list too", async () => {
-    wire.fetchSkills.mockResolvedValue([
-      { scope: "global", wsId: null, name: "review", content: "x" },
-    ]);
+  it("reloads after a successful save", async () => {
     await mount();
-    expect(lib.skills).toHaveLength(1);
+    await act(async () => {
+      await view.save({ kind: "global" }, DRAFT, false);
+    });
+    // The dialog's initial load, then the post-save reload.
+    expect(library.list).toHaveBeenCalledTimes(2);
+  });
 
-    wire.fetchSkills.mockRejectedValueOnce(new Error("transient"));
+  it("a successful save whose reload fails keeps the stale list", async () => {
+    library.list.mockResolvedValue([STORED]);
+    await mount();
+    library.list.mockRejectedValueOnce(new Error("transient"));
+
     let ok = false;
     await act(async () => {
-      ok = await lib.save(
-        { kind: "global" },
-        { name: "x", description: "d", body: "", extraFrontmatter: [] },
-        false,
-      );
+      ok = await view.save({ kind: "global" }, DRAFT, false);
     });
 
     expect(ok).toBe(true); // the write itself landed
-    expect(lib.skills).toHaveLength(1); // stale beats blank
-    expect(lib.error).toBeNull();
+    expect(view.skills).toHaveLength(1); // stale beats blank
+    expect(view.error).toBeNull();
   });
 
-  it("a failed save surfaces the error and does NOT invalidate staging", async () => {
-    wire.saveSkill.mockRejectedValueOnce(new Error("disk full"));
+  it("a failed save surfaces the error and keeps the list truthful", async () => {
+    library.list.mockResolvedValue([STORED]);
+    library.create.mockRejectedValueOnce(new Error("disk full"));
     await mount();
+
     let ok = true;
     await act(async () => {
-      ok = await lib.save(
-        { kind: "global" },
-        { name: "x", description: "", body: "", extraFrontmatter: [] },
-        false,
-      );
+      ok = await view.save({ kind: "global" }, DRAFT, true);
     });
 
     expect(ok).toBe(false);
-    expect(lib.error).toContain("disk full");
-    expect(libraryChanged).not.toHaveBeenCalled();
+    expect(view.error).toContain("disk full");
+    // Re-read even on failure: a rename may have moved the disk under this
+    // action. The error the user is reading must survive it.
+    expect(view.skills).toHaveLength(1);
   });
 
-  it("rename invalidates staging but leaves the reload to the save that follows", async () => {
+  it("a failed save whose re-read also fails keeps the stale list", async () => {
+    library.list.mockResolvedValue([STORED]);
+    await mount();
+    library.create.mockRejectedValueOnce(new Error("down"));
+    library.list.mockRejectedValueOnce(new Error("still down"));
+
+    await act(async () => {
+      await view.save({ kind: "global" }, DRAFT, true);
+    });
+
+    expect(view.skills).toHaveLength(1);
+    expect(view.error).toContain("down");
+  });
+
+  it("rename leaves the reload to the save that follows", async () => {
     await mount();
     let ok = false;
     await act(async () => {
-      ok = await lib.rename({ kind: "global" }, "review", "deep-review");
+      ok = await view.rename({ kind: "global" }, "review", "deep-review");
     });
 
     expect(ok).toBe(true);
-    expect(wire.renameSkill).toHaveBeenCalledWith(
-      { kind: "global" },
-      "review",
-      "deep-review",
-    );
-    expect(libraryChanged).toHaveBeenCalledTimes(1);
-    // One user action, one reload: rename itself must not re-read the list,
-    // so only the dialog's initial load has happened.
-    expect(wire.fetchSkills).toHaveBeenCalledTimes(1);
+    expect(library.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review");
+    // One user action, one reload: only the dialog's initial load has happened.
+    expect(library.list).toHaveBeenCalledTimes(1);
   });
 
-  it("a failed rename surfaces the error and leaves staging alone", async () => {
-    wire.renameSkill.mockRejectedValueOnce(new Error("already exists"));
+  it("a failed rename surfaces the error", async () => {
+    library.rename.mockRejectedValueOnce(new Error("already exists"));
     await mount();
     let ok = true;
     await act(async () => {
-      ok = await lib.rename({ kind: "global" }, "a", "b");
+      ok = await view.rename({ kind: "global" }, "a", "b");
     });
 
     expect(ok).toBe(false);
-    expect(lib.error).toContain("already exists");
-    expect(libraryChanged).not.toHaveBeenCalled();
+    expect(view.error).toContain("already exists");
   });
 
-  it("a failed save whose reload also fails keeps the stale list", async () => {
-    wire.fetchSkills.mockResolvedValue([
-      { scope: "global", wsId: null, name: "review", content: "x" },
-    ]);
+  it("remove reloads, and a failure keeps the list", async () => {
     await mount();
-    expect(lib.skills).toHaveLength(1);
-
-    wire.saveSkill.mockRejectedValueOnce(new Error("down"));
-    wire.fetchSkills.mockRejectedValueOnce(new Error("still down"));
     await act(async () => {
-      await lib.save(
-        { kind: "global" },
-        { name: "x", description: "d", body: "", extraFrontmatter: [] },
-        false,
-      );
+      await view.remove({ kind: "workspace", wsId: "ws-2" }, "review");
     });
+    expect(library.remove).toHaveBeenCalledWith({ kind: "workspace", wsId: "ws-2" }, "review");
+    expect(library.list).toHaveBeenCalledTimes(2);
 
-    // Stale beats an empty lie: the library must NOT blank out.
-    expect(lib.skills).toHaveLength(1);
-    expect(lib.error).toContain("down");
+    library.remove.mockRejectedValueOnce(new Error("busy"));
+    await act(async () => {
+      await view.remove({ kind: "global" }, "review");
+    });
+    expect(view.error).toContain("busy");
   });
 
-  it("remove deletes, invalidates staging, reloads", async () => {
+  it("clearError drops the notice when the user navigates away", async () => {
+    library.list.mockRejectedValueOnce(new Error("backend down"));
     await mount();
-    await act(async () => {
-      await lib.remove({ kind: "workspace", wsId: "ws-2" }, "review");
-    });
-
-    expect(wire.deleteSkill).toHaveBeenCalledWith(
-      { kind: "workspace", wsId: "ws-2" },
-      "review",
-    );
-    expect(libraryChanged).toHaveBeenCalledTimes(1);
+    expect(view.error).not.toBeNull();
+    act(() => view.clearError());
+    expect(view.error).toBeNull();
   });
 });

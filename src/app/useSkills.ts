@@ -1,30 +1,23 @@
 /**
- * The skills library as UI state: the stored list plus save/remove that keep
- * the spawn side honest — every successful write reports the library as changed,
- * so the staged views it invalidates are re-staged at the next pane spawn.
- * Loading happens when the dialog opens (`open` flips true), not at boot: the
- * library is cold data until the user looks at it.
+ * The skills library as UI STATE: the stored list, the last failure in words,
+ * and a reload after each write. The library itself — validating a draft,
+ * composing its SKILL.md, persisting it, and reporting the staged views stale —
+ * belongs to `skillsLibrary`, reached through the runtime like every other
+ * service this layer's hooks use.
  *
- * The staged views belong to the worktree manager, which owns them together with
- * the directories they are armed into, so this reaches it through the runtime —
- * the seam every other hook in `app/` uses. It was briefly a prop threaded down
- * through the dialog, which put staged-view cache invalidation on a view's
- * public surface and made the library API rebuild on every render that passed an
- * inline arrow.
+ * What stays here is exactly what a view needs and a command does not: an
+ * in-flight/loaded distinction, human-readable error text, and the decision to
+ * keep a stale list rather than blank it. Loading happens when the dialog opens
+ * (`open` flips true), not at boot: the library is cold data until the user
+ * looks at it.
  */
 import { useCallback, useEffect, useState } from "react";
-import { composeSkillFile, type SkillDraft, type SkillScope } from "../domain/skills";
-import {
-  deleteSkill,
-  fetchSkills,
-  renameSkill,
-  saveSkill,
-  type StoredSkill,
-} from "../ipc/skills";
+import type { SkillDraft, SkillScope } from "../domain/skills";
+import type { StoredSkill } from "../ipc/skills";
 import { describeError, log } from "../ipc/log";
 import { useAppRuntime } from "./runtimeContext";
 
-export interface SkillsLibrary {
+export interface SkillsLibraryView {
   /** The stored skills; `null` while the first load is in flight. */
   skills: StoredSkill[] | null;
   /** The last failed operation, human-readable; cleared by the next success
@@ -41,20 +34,18 @@ export interface SkillsLibrary {
   remove(scope: SkillScope, name: string): Promise<boolean>;
 }
 
-export function useSkillsLibrary(open: boolean): SkillsLibrary {
+export function useSkillsLibrary(open: boolean): SkillsLibraryView {
   const [skills, setSkills] = useState<StoredSkill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // The manager's memo has to drop the staged views a write just made stale, or
-  // the next pane spawn injects yesterday's library.
-  const { invalidateSkills } = useAppRuntime().worktrees;
+  const library = useAppRuntime().skills;
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    // Reading the raw form and handling the failure here, rather than taking
-    // a wrapper's empty-list fallback: an empty library and one that could not
-    // be read must not arrive as the same value.
-    void fetchSkills().then(
+    // Handling the failure here rather than taking an empty-list fallback: an
+    // empty library and one that could not be read must not arrive as the same
+    // value.
+    void library.list().then(
       (all) => {
         if (!alive) return;
         setSkills(all);
@@ -74,12 +65,11 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     return () => {
       alive = false;
     };
-  }, [open]);
+  }, [open, library]);
 
-  const refresh = useCallback(async () => {
-    invalidateSkills();
+  const reload = useCallback(async () => {
     try {
-      setSkills(await fetchSkills());
+      setSkills(await library.list());
       // Cleared only on a read that WORKED. Clearing regardless wiped the
       // "could not read the library" notice on the first successful save,
       // putting back the empty-looking library with nothing saying why —
@@ -91,13 +81,13 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
       // data loss (the same rule the failed-save path follows).
       log.warn("web:skills", `library reload failed; keeping the stale list: ${describeError(e)}`);
     }
-  }, [invalidateSkills]);
+  }, [library]);
 
   const save = useCallback(
     async (scope: SkillScope, draft: SkillDraft, expectNew: boolean) => {
       try {
-        await saveSkill(scope, draft.name, composeSkillFile(draft), expectNew);
-        await refresh();
+        await (expectNew ? library.create(scope, draft) : library.update(scope, draft));
+        await reload();
         return true;
       } catch (e) {
         setError(`Save failed: ${describeError(e)}`);
@@ -107,44 +97,44 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
         // itself fails (backend down), keep the stale list — stale beats
         // an empty library the user would read as data loss.
         try {
-          setSkills(await fetchSkills());
+          setSkills(await library.list());
         } catch {
           // keep whatever we last showed
         }
         return false;
       }
     },
-    [refresh],
+    [library, reload],
   );
 
-  const rename = useCallback(async (scope: SkillScope, from: string, to: string) => {
-    try {
-      await renameSkill(scope, from, to);
-      // The directory moved — staged views are stale NOW, even though the
-      // list reload waits for the save that follows.
-      invalidateSkills();
-      setError(null);
-      return true;
-    } catch (e) {
-      setError(`Rename failed: ${describeError(e)}`);
-      return false;
-    }
-  }, [invalidateSkills]);
+  const rename = useCallback(
+    async (scope: SkillScope, from: string, to: string) => {
+      try {
+        await library.rename(scope, from, to);
+        setError(null);
+        return true;
+      } catch (e) {
+        setError(`Rename failed: ${describeError(e)}`);
+        return false;
+      }
+    },
+    [library],
+  );
 
   const clearError = useCallback(() => setError(null), []);
 
   const remove = useCallback(
     async (scope: SkillScope, name: string) => {
       try {
-        await deleteSkill(scope, name);
-        await refresh();
+        await library.remove(scope, name);
+        await reload();
         return true;
       } catch (e) {
         setError(`Delete failed: ${describeError(e)}`);
         return false;
       }
     },
-    [refresh],
+    [library, reload],
   );
 
   return { skills, error, clearError, save, rename, remove };
