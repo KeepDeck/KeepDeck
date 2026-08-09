@@ -97,6 +97,10 @@ export function TeamDialog({
    * "the team needs a name" is scolding you for not having typed — the
    * complaint is only true, and only useful, once something was attempted. */
   const [touched, setTouched] = useState(false);
+  /** Whether disbanding should also end the agents. Off every time the
+   * dialog opens: the destructive reading of a control has to be chosen
+   * again each time, never inherited from the last team somebody ended. */
+  const [closeOnDisband, setCloseOnDisband] = useState(false);
   // Escape closes it, like every other dialog here. Nothing has happened
   // yet when it does: the whole point of settling a team as one plan is
   // that leaving mid-edit changes nothing.
@@ -451,20 +455,49 @@ export function TeamDialog({
             // list, which is not a thing anyone would think to try. Ending
             // a team is a deliberate act and deserves to be sayable.
             //
-            // It takes the roles away and NOTHING else: the agents keep
-            // running, keep their panes and keep their work. A control that
-            // also closed them would be a destructive action wearing an
-            // organisational label.
-            <button
-              type="button"
-              className="team__disband"
-              title={`Take every agent off “${editing}” — they keep running`}
-              onClick={() =>
-                onConfirm({ name: editing, members: [], released: current, recruits: [] })
-              }
-            >
-              Disband
-            </button>
+            // By default it takes the roles away and NOTHING else: the
+            // agents keep running, keep their panes and keep their work.
+            // Ending them is the other thing people actually want here —
+            // the team is over, so are its agents — and closing four panes
+            // by hand afterwards is busywork. So it is offered, but it is
+            // ASKED FOR: the tick arms it, and the button then says what it
+            // will do, because a destructive act must never be reachable by
+            // the same click as an organisational one.
+            <>
+              <label
+                className={`team__disband-close${
+                  closeOnDisband ? " team__disband-close--on" : ""
+                }`}
+                title="End the agents too, keeping their worktrees — deleting one of those is its own decision"
+              >
+                <input
+                  type="checkbox"
+                  checked={closeOnDisband}
+                  onChange={(e) => setCloseOnDisband(e.target.checked)}
+                />
+                close the agents too
+              </label>
+              <button
+                type="button"
+                className="team__disband"
+                title={
+                  closeOnDisband
+                    ? `Take every agent off “${editing}” and close it`
+                    : `Take every agent off “${editing}” — they keep running`
+                }
+                onClick={() =>
+                  onConfirm({
+                    name: editing,
+                    members: [],
+                    released: current,
+                    closing: closeOnDisband ? current : [],
+                    recruits: [],
+                  })
+                }
+              >
+                {closeOnDisband ? "Disband & close" : "Disband"}
+              </button>
+            </>
           )}
           <button type="button" className="form__cancel" onClick={onCancel}>
             Cancel

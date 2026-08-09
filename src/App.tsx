@@ -431,6 +431,21 @@ function App() {
                       if (!result.ok) throw new Error(result.error.message);
                       return (result.value as { paneId?: string }).paneId ?? null;
                     },
+                    // The orchestrator's own close — the one the confirm
+                    // dialog performs once the person says yes. They said
+                    // it here instead, for the whole team at once. No
+                    // worktree teardown: ending an agent and deleting its
+                    // branch checkout are separate decisions, and only the
+                    // first was asked for.
+                    close: async (workspaceId, paneId) => {
+                      await orchestrator.close({
+                        kind: "agent",
+                        wsId: workspaceId,
+                        paneId,
+                        deleteWorktrees: false,
+                        worktrees: [],
+                      });
+                    },
                     report: pushAlert,
                     // Only while the feature is on: with it off the roles
                     // are still recorded, there is simply nothing running

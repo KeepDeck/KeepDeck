@@ -226,6 +226,31 @@
    it at the far left of the action row, so it can never be hit on the way to
    "Save team". Quiet until hovered — it is not a hazard (the agents keep
    running and keep their work) but it is not an ordinary edit either. */
+/* Beside Disband, not inside it: the tick is what turns an organisational
+   act into a destructive one, so it has to be its own deliberate gesture and
+   has to be READ before the button is pressed. Same compact shape as the
+   per-recruit YOLO answer, for the same reason — the meaning is in the
+   label, and it goes red when armed because that is what it now does. */
+.team__disband-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.team__disband-close input {
+  accent-color: #b3423d;
+  cursor: pointer;
+}
+
+.team__disband-close--on {
+  color: #e5736f;
+}
+
 .team__disband {
   margin-right: auto;
   padding: 8px 14px;

@@ -46,6 +46,7 @@ describe("planTeam", () => {
           { paneId: "pane-2", role: "impl-1" },
         ],
         released: [],
+        closing: [],
         recruits: [],
       },
     });

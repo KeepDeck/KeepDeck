@@ -50,6 +50,20 @@ export interface TeamPlan {
   /** Panes leaving the team — everyone holding its name that the draft
    * dropped. */
   released: string[];
+  /**
+   * Panes to CLOSE, not merely release.
+   *
+   * A separate list from `released` rather than a flag on it, because the
+   * two are different acts: taking an agent off a team is organisational
+   * and reversible, ending it is neither. Naming the panes means an
+   * ordinary edit — dropping one member from the roster — cannot become a
+   * close by accident, which a boolean sitting beside `released` eventually
+   * would.
+   *
+   * Empty for every edit. Only the disband gesture fills it, and only when
+   * the person asked for it in the same breath.
+   */
+  closing: string[];
   recruits: TeamRecruitDraft[];
 }
 
@@ -144,6 +158,7 @@ export function teamPlanIsEmpty(plan: TeamPlan): boolean {
   return (
     plan.members.length === 0 &&
     plan.released.length === 0 &&
+    plan.closing.length === 0 &&
     plan.recruits.length === 0
   );
 }
@@ -231,5 +246,7 @@ export function planTeam(
     )
     .map((pane) => pane.id);
 
-  return { ok: true, value: { name, members, released, recruits } };
+  // Never any: settling a roster is an edit. Ending an agent is asked for
+  // separately, by the one gesture that means it.
+  return { ok: true, value: { name, members, released, closing: [], recruits } };
 }

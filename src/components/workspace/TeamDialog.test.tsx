@@ -200,6 +200,7 @@ describe("TeamDialog", () => {
         name: "api",
         members: [{ paneId: "pane-1", role: "lead" }],
         released: ["pane-2"],
+        closing: [],
         recruits: [],
       },
     ]);
@@ -217,10 +218,51 @@ describe("TeamDialog", () => {
     open(ws, "api");
     act(() => document.querySelector<HTMLButtonElement>(".team__disband")!.click());
     expect(confirmed).toEqual([
-      { name: "api", members: [], released: ["pane-1", "pane-2"], recruits: [] },
+      {
+        name: "api",
+        members: [],
+        released: ["pane-1", "pane-2"],
+        // Roles away, agents untouched: they keep running, keep their panes
+        // and keep their work. Ending them is the other button's meaning.
+        closing: [],
+        recruits: [],
+      },
     ]);
     // Another team in the same workspace is none of this one's business.
     expect(confirmed[0].released).not.toContain("pane-3");
+  });
+
+  it("ends the agents too when that is asked for, and says so on the button", () => {
+    // The thing people actually want when a team is over: the four panes go
+    // with it, instead of being closed one at a time afterwards. Asked for
+    // explicitly, because a destructive act must not be reachable by the
+    // same click as an organisational one — and the button says which it is
+    // about to do.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+    ]);
+    open(ws, "api");
+    const disband = () => document.querySelector<HTMLButtonElement>(".team__disband")!;
+    expect(disband().textContent).toBe("Disband");
+    const tick = document.querySelector<HTMLInputElement>(
+      ".team__disband-close input",
+    )!;
+    // Off when the dialog opens: the destructive reading is chosen again
+    // each time, never inherited from the last team somebody ended.
+    expect(tick.checked).toBe(false);
+    act(() => tick.click());
+    expect(disband().textContent).toBe("Disband & close");
+    act(() => disband().click());
+    expect(confirmed).toEqual([
+      {
+        name: "api",
+        members: [],
+        released: ["pane-1", "pane-2"],
+        closing: ["pane-1", "pane-2"],
+        recruits: [],
+      },
+    ]);
   });
 
   it("releases everyone still on the team, not just who the draft kept", () => {

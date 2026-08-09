@@ -31,6 +31,11 @@ export interface TeamSetupDeps {
     agentType: string,
     yolo: boolean,
   ): Promise<string | null>;
+  /** End an agent — the same close the confirmation surface performs, minus
+   * the confirmation, because the person already gave it once for the whole
+   * team. Worktrees are deliberately NOT part of it: deleting one is its own
+   * destructive decision and has no business riding an organisational act. */
+  close(workspaceId: string, paneId: string): Promise<void>;
   /** Tell the person about a recruit that never started. */
   report(title: string, message: string): void;
   /** Tell an AGENT where it now stands. Absent when the mail feature is
@@ -100,8 +105,32 @@ export async function applyTeamPlan(
     );
   }
   // And whoever left hears once, so it stops addressing roles that no
-  // longer reach anyone.
+  // longer reach anyone — except the ones being closed, who have nothing
+  // left to say it to.
+  const closing = new Set(plan.closing);
   for (const paneId of plan.released) {
+    if (closing.has(paneId)) continue;
     deps.announce?.(paneId, "team", teamFarewell(plan.name));
+  }
+
+  // Closing comes LAST, after every pane has been taken off the team. A
+  // close that fails then leaves an agent that is merely off the team,
+  // which is the disband the person asked for either way; doing it first
+  // would leave a failed close holding a role on a team that no longer
+  // exists.
+  //
+  // One at a time, and a failure is reported rather than thrown: the person
+  // asked to end four agents, and the three that ended should not be undone
+  // by the fourth. Each close is the same one the confirmation surface
+  // performs — they gave that confirmation once, for the team.
+  for (const paneId of plan.closing) {
+    try {
+      await deps.close(workspaceId, paneId);
+    } catch (error) {
+      deps.report(
+        "Could not close an agent",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 }

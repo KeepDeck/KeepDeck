@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { TeamPlan } from "../../domain/mail";
 import { applyTeamPlan } from "./teamSetup";
 
-function setup(spawn?: TeamSetupSpawn) {
+function setup(
+  spawn?: TeamSetupSpawn,
+  close?: (workspaceId: string, paneId: string) => Promise<void>,
+) {
   const calls: string[] = [];
   const reports: string[] = [];
   const told: { paneId: string; body: string }[] = [];
@@ -15,6 +18,11 @@ function setup(spawn?: TeamSetupSpawn) {
       team: { name: string; role: string } | null,
     ) => calls.push(team ? `${paneId}=${team.role}@${team.name}` : `${paneId}=off`),
     spawn: spawn ?? (async () => "pane-new"),
+    close:
+      close ??
+      (async (_ws: string, paneId: string) => {
+        calls.push(`${paneId}=closed`);
+      }),
     report: (title: string) => reports.push(title),
   };
   return { deps, calls, reports, told };
@@ -30,6 +38,7 @@ const plan = (over: Partial<TeamPlan> = {}): TeamPlan => ({
   name: "api",
   members: [],
   released: [],
+  closing: [],
   recruits: [],
   ...over,
 });
@@ -200,5 +209,62 @@ describe("applyTeamPlan", () => {
     );
     expect(h.calls).toEqual(["pane-9=impl-2@api"]);
     expect(h.reports).toHaveLength(1);
+  });
+
+  it("closes LAST, after every pane is off the team", async () => {
+    // A close that fails then leaves an agent that is merely off the team,
+    // which is the disband the person asked for either way. Closing first
+    // would leave a failed close holding a role on a team that no longer
+    // exists.
+    const h = setup();
+    await applyTeamPlan(
+      h.deps,
+      "ws-1",
+      plan({ released: ["pane-1", "pane-2"], closing: ["pane-1", "pane-2"] }),
+    );
+    expect(h.calls).toEqual([
+      "pane-1=off",
+      "pane-2=off",
+      "pane-1=closed",
+      "pane-2=closed",
+    ]);
+  });
+
+  it("says no goodbye to an agent it is about to close", async () => {
+    // A farewell exists so a member stops writing to roles that no longer
+    // reach anyone. One being closed has nothing left to stop doing, and
+    // the message would cost it a turn it does not have.
+    const h = setup();
+    await applyTeamPlan(
+      h.deps,
+      "ws-1",
+      plan({ released: ["pane-1", "pane-2"], closing: ["pane-2"] }),
+    );
+    expect(h.told.map((t) => t.paneId)).toEqual(["pane-1"]);
+  });
+
+  it("keeps closing after one refuses, and reports the one that did", async () => {
+    // The person asked to end three agents. The two that ended must not be
+    // undone by the third, and the failure must not be silent either.
+    const h = setup(undefined, async (_ws, paneId) => {
+      if (paneId === "pane-2") throw new Error("busy");
+      h.calls.push(`${paneId}=closed`);
+    });
+    await applyTeamPlan(
+      h.deps,
+      "ws-1",
+      plan({ closing: ["pane-1", "pane-2", "pane-3"] }),
+    );
+    expect(h.calls).toEqual(["pane-1=closed", "pane-3=closed"]);
+    expect(h.reports).toEqual(["Could not close an agent"]);
+  });
+
+  it("closes nobody for an ordinary edit", async () => {
+    // Dropping one member from the roster is organisational and reversible.
+    // Naming the panes to close, rather than flagging the released ones, is
+    // what keeps it that way.
+    const h = setup();
+    await applyTeamPlan(h.deps, "ws-1", plan({ released: ["pane-1"] }));
+    expect(h.calls).toEqual(["pane-1=off"]);
   });
 });
