@@ -159,7 +159,61 @@ describe("what the library refuses", () => {
   });
 });
 
-describe("reading", () => {
+describe("reading one skill", () => {
+  const rows: StoredSkill[] = [
+    {
+      scope: "global",
+      wsId: null,
+      name: "review",
+      content: "---\nname: review\ndescription: Global one\nlicense: MIT\n---\nGlobal body\n",
+    },
+    {
+      scope: "workspace",
+      wsId: "ws-1",
+      name: "review",
+      content: "---\nname: review\ndescription: Workspace one\n---\nWs body\n",
+    },
+  ];
+
+  it("returns the draft, keeping hand-added frontmatter", async () => {
+    const { library } = libraryOver({ fetch: vi.fn(async () => rows) });
+    expect(await library.read(GLOBAL, "review")).toEqual({
+      name: "review",
+      description: "Global one",
+      body: "Global body\n",
+      extraFrontmatter: ["license: MIT"],
+    });
+  });
+
+  it("does not confuse one scope's skill with another's of the same name", async () => {
+    const { library } = libraryOver({ fetch: vi.fn(async () => rows) });
+    expect((await library.read(WS, "review"))?.description).toBe("Workspace one");
+  });
+
+  it("answers null for a skill that scope does not hold", async () => {
+    const { library } = libraryOver({ fetch: vi.fn(async () => rows) });
+    expect(await library.read(GLOBAL, "deploy")).toBeNull();
+    expect(await library.read({ kind: "workspace", wsId: "ws-9" }, "review")).toBeNull();
+  });
+
+  it("prefers the directory name over a disagreeing frontmatter name", async () => {
+    // Every CLI keys on the directory; a hand edit can leave the two apart,
+    // and an update must write back to the directory that exists.
+    const { library } = libraryOver({
+      fetch: vi.fn(async () => [
+        {
+          scope: "global" as const,
+          wsId: null,
+          name: "on-disk",
+          content: "---\nname: stale-in-file\ndescription: d\n---\n",
+        },
+      ]),
+    });
+    expect((await library.read(GLOBAL, "on-disk"))?.name).toBe("on-disk");
+  });
+});
+
+describe("reading the library", () => {
   it("passes the stored list through", async () => {
     const stored: StoredSkill[] = [
       { scope: "global", wsId: null, name: "a", content: "---\nname: a\n---\n" },

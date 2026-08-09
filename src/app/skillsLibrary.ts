@@ -3,6 +3,9 @@ import {
   isValidSkillDescription,
   isValidSkillName,
   normalizeSkillDescription,
+  parseSkillFile,
+  sameSkillScope,
+  skillScopeOf,
   type SkillDraft,
   type SkillScope,
 } from "../domain/skills";
@@ -64,6 +67,12 @@ export interface SkillsLibrary {
    * backend is lying.
    */
   list(): Promise<StoredSkill[]>;
+  /**
+   * One skill as the editable draft, or `null` when that scope holds no skill
+   * by that name. The directory name wins over the frontmatter's — the
+   * directory is what every CLI keys on, and a hand-edited file can disagree.
+   */
+  read(scope: SkillScope, name: string): Promise<SkillDraft | null>;
   /** Write a new skill. Refused if the name is already taken in that scope —
    * the backend decides, so the guard holds even when the library could not
    * be listed. */
@@ -127,6 +136,13 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
   // synchronously would escape a caller that only awaits or `.catch`es.
   return {
     list: async () => await ports.storage.fetch(),
+
+    read: async (scope, name) => {
+      const stored = (await ports.storage.fetch()).find(
+        (skill) => skill.name === name && sameSkillScope(skillScopeOf(skill), scope),
+      );
+      return stored ? { ...parseSkillFile(stored.content), name: stored.name } : null;
+    },
 
     create: async (scope, draft) =>
       await persist(() => ports.storage.save(scope, draft.name, fileFor(draft), true)),
