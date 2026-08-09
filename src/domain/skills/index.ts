@@ -7,4 +7,15 @@
  * `skillFile.ts` holds the codec that reads and writes the file.
  */
 export * from "./skills";
-export * from "./skillFile";
+export {
+  composeSkillFile,
+  frontmatterObstacle,
+  frontmatterTextOf,
+  renameSkillFile,
+  skillDraftOf,
+  type SkillFileRename,
+} from "./skillFile";
+// `parseSkillFile` is deliberately NOT re-exported: `skillDraftOf` is the reading
+// every surface wants, because it applies "the directory name wins over the
+// frontmatter's". The raw parse, with its nullable name, is the codec's own
+// business and its suite's.

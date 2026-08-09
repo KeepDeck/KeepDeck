@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   normalizeSkillDescription,
+  sameSkillRef,
   sameSkillScope,
   skillDescriptionProblem,
   skillDraftOf,
@@ -57,8 +58,16 @@ export function SkillsDialog({
   onClose,
   canClose = true,
 }: SkillsDialogProps) {
-  const { skills, error, listUnknown, listTrusted, clearError, save, rename, remove } =
-    useSkillsLibrary(true);
+  const {
+    skills,
+    error,
+    listUnknown,
+    listTrusted,
+    clearError,
+    save,
+    rename,
+    remove,
+  } = useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<SkillDraft>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
@@ -116,16 +125,19 @@ export function SkillsDialog({
       });
     }
     return built;
-  }, [skills, activeWs]);
+    // On the FIELDS, not the object: `activeWs` is built as a fresh literal by the
+    // caller on every App render — and App re-renders on agent output, git head
+    // polls and usage ticks — so depending on its identity rebuilt these groups
+    // constantly, and with them the nav's parse-once memo downstream.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skills, activeWs?.id, activeWs?.name]);
 
   /** The listed skill at (scope, name) — "which row IS this one" asked once,
    * where three sites had each spelled out the compound comparison. The library
    * asks the same question of the disk; if identity ever grows (case-insensitive
    * names, trimming), these are the two places that must move together. */
   const skillAt = (scope: SkillScope, name: string): LibrarySkill | undefined =>
-    (skills ?? []).find(
-      (s) => s.name === name && sameSkillScope(s.scope, scope),
-    );
+    (skills ?? []).find((s) => sameSkillRef(s, { scope, name }));
 
   /** The open skill is gone from the library — an agent deleted or renamed it
    * under us. The list reconciles itself through the subscription; the SELECTION
@@ -177,8 +189,7 @@ export function SkillsDialog({
       !closing &&
       next?.mode === "edit" &&
       selection?.mode === "edit" &&
-      selection.name === next.name &&
-      sameSkillScope(selection.scope, next.scope)
+      sameSkillRef(selection, next)
     ) {
       if (!dirty) apply(next);
       return;
@@ -188,6 +199,25 @@ export function SkillsDialog({
       return;
     }
     apply(next, closing);
+  };
+
+  /**
+   * Run an async step of the current user action and say whether its outcome is
+   * still THEIRS to see.
+   *
+   * The rule — "an outcome that arrives after the user moved on belongs to the
+   * skill it happened to, not to whatever is on screen now" — was written out at
+   * each async step, and the delete path held the opposite answer: it checked the
+   * epoch to skip its own `apply`, and left the error to render under a different
+   * skill. One owner, so the fourth step cannot get it wrong either.
+   */
+  const stillOurs = async (step: () => Promise<boolean>): Promise<boolean | "stale"> => {
+    const nav = navEpoch.current;
+    const ok = await step();
+    if (navEpoch.current === nav) return ok;
+    // The write itself still ran, which is right — only its REPORT is stale.
+    if (!ok) clearError();
+    return "stale";
   };
 
   const apply = (next: Selection | null, closing?: boolean) => {
@@ -289,38 +319,27 @@ export function SkillsDialog({
 
   const performSubmit = async (selection: Selection) => {
     const scope = selection.scope;
-    // Staleness anchors: `nav` catches navigation during the awaits (the
-    // completion must not yank the user back), `draftSource` catches typing
-    // (newer keystrokes were NOT saved and must stay dirty).
-    const nav = navEpoch.current;
+    // `draftSource` catches typing during the awaits (newer keystrokes were NOT
+    // saved and must stay dirty); `stillOurs` catches navigation.
     const draftSource = form;
     // An edited name moves the directory first (assets travel), then the
     // ordinary save lands the content under the new name.
     if (selection.mode === "edit" && form.name !== selection.name) {
-      if (!(await rename(scope, selection.name, form.name))) {
-        // A refusal that arrives after the user moved on belongs to the skill it
-        // happened to, not to whatever is on screen now.
-        if (navEpoch.current !== nav) clearError();
-        return;
-      }
-      // From here the skill IS form.name on disk — the selection must say
-      // so even if the content save below fails, or `nameTaken` would
-      // treat our own new name as a collision and dead-end the editor.
-      // (Skipped only if the user navigated away — the list reload after
-      // the save carries the disk truth instead.)
-      if (navEpoch.current === nav) {
-        setSelection({ mode: "edit", scope, name: form.name });
-      }
+      const renamed = await stillOurs(() => rename(scope, selection.name, form.name));
+      if (renamed !== true) return;
+      // From here the skill IS form.name on disk — the selection must say so even
+      // if the content save below fails, or `nameTaken` would treat our own new
+      // name as a collision and dead-end the editor.
+      setSelection({ mode: "edit", scope, name: form.name });
     }
     // A rename above has already moved the directory, so what lands now is an
-    // overwrite of a skill that exists — only an untouched create is new.
-    const expectNew = selection.mode === "create";
-    const saved = await save(scope, draftSource, expectNew);
-    if (navEpoch.current !== nav) {
-      // Same as above: the outcome belongs to a skill the user has left.
-      if (!saved) clearError();
-      return;
-    }
+    // overwrite of a skill that exists — only an untouched create is new. Named,
+    // not a boolean: `true` said nothing about which of the two verbs' three
+    // differences the caller was asking for.
+    const saved = await stillOurs(() =>
+      save(scope, draftSource, selection.mode === "create" ? "create" : "update"),
+    );
+    if (saved === "stale") return;
     if (saved) {
       setSelection({ mode: "edit", scope, name: draftSource.name });
       // Keystrokes typed DURING the save are on screen but not on disk —
@@ -370,9 +389,7 @@ export function SkillsDialog({
             emptyMeans={skills === null ? "loading" : listUnknown ? "unknown" : "empty"}
             busy={deletingNow}
             isActive={(skill) =>
-              selection?.mode === "edit" &&
-              selection.name === skill.name &&
-              sameSkillScope(selection.scope, skill.scope)
+              selection?.mode === "edit" && sameSkillRef(selection, skill)
             }
             onOpen={(skill) =>
               navigate({ mode: "edit", scope: skill.scope, name: skill.name })
@@ -464,18 +481,16 @@ export function SkillsDialog({
           cancelLabel="Cancel"
           destructive
           onConfirm={() => {
-            // Against the SAME epoch every other completion checks. Without it a
-            // delete resolving after the user opened another skill ran apply(),
-            // which clears the form — discarding that skill's unsaved edits with
-            // no discard confirm, the one thing navigate() exists to prevent.
-            const nav = navEpoch.current;
+            // Through the SAME owner every other async step uses, so this path
+            // stops being the one that checked the epoch for its own `apply` and
+            // left the error to render under a different skill.
             const target = confirm;
             deleting.current = true;
             setBusy(true);
             setDeletingNow(true);
-            void remove(target.scope, target.name)
+            void stillOurs(() => remove(target.scope, target.name))
               .then((ok) => {
-                if (ok && navEpoch.current === nav) apply(null);
+                if (ok === true) apply(null);
               })
               .finally(() => {
                 deleting.current = false;

@@ -12,7 +12,7 @@
  * looks at it.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { sameSkillScope, type SkillDraft, type SkillScope } from "../domain/skills";
+import { sameSkillRef, type SkillDraft, type SkillScope } from "../domain/skills";
 import type { LibrarySkill } from "./skillsLibrary";
 import { describeError, log } from "../ipc/log";
 import { useAppRuntime } from "./runtimeContext";
@@ -32,17 +32,16 @@ export interface SkillsEditorState {
   listTrusted: boolean;
   clearError(): void;
   /**
-   * `expectNew` picks between the library's two write verbs, which differ in
-   * THREE ways, not one — say all of them, because a caller reading only the
-   * collision half will be surprised by the other two:
-   *   - a create refuses a name already taken (the guard that survives an
-   *     unreadable library); an update refuses a name that is NOT there;
-   *   - a create applies this build's naming rule; an update deliberately does
-   *     not, so a hand-made `My_Skill` stays editable;
-   *   - an update carries the stored file's other frontmatter over; a create
-   *     writes exactly name, description and body.
+   * `mode` NAMES the library verb rather than encoding it as a boolean the reader
+   * has to decode. The two verbs differ in three ways, not one, and `true` said
+   * none of them: a create refuses a name already taken (the storage's guard,
+   * which survives a library we could not read) while an update refuses a name
+   * that is NOT there; a create applies this build's naming rule while an update
+   * deliberately does not, so a hand-made `My_Skill` stays editable; and an update
+   * carries the stored file's other frontmatter over while a create writes exactly
+   * name, description and body.
    */
-  save(scope: SkillScope, draft: SkillDraft, expectNew: boolean): Promise<boolean>;
+  save(scope: SkillScope, draft: SkillDraft, mode: "create" | "update"): Promise<boolean>;
   /** Move the skill's directory. Deliberately does NOT reload the list —
    * a rename is always followed by a save (whose refresh covers both), so
    * one user action costs one reload, not two. */
@@ -196,9 +195,9 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
   );
 
   const save = useCallback(
-    (scope: SkillScope, draft: SkillDraft, expectNew: boolean) =>
+    (scope: SkillScope, draft: SkillDraft, mode: "create" | "update") =>
       mutate(
-        () => (expectNew ? library.create(scope, draft) : library.update(scope, draft)),
+        () => (mode === "create" ? library.create(scope, draft) : library.update(scope, draft)),
         (e) => `Save failed: ${describeError(e)}`,
       ),
     [library, mutate],
@@ -233,7 +232,7 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
           setSkills((rows) =>
             rows === null
               ? rows
-              : rows.filter((row) => !(row.name === name && sameSkillScope(row.scope, scope))),
+              : rows.filter((row) => !sameSkillRef(row, { scope, name })),
           );
         },
         (e) => `Delete failed: ${describeError(e)}`,

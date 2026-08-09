@@ -23,7 +23,7 @@ const tauri = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 
 import { sameSkillScope, skillScopeOf } from "../domain/skills";
-import { ipcSkillsStorage } from "../app/skillsLibrary";
+import { ipcSkillsStorage } from "./skillsStorage";
 import {
   deleteSkill,
   disarmSkills,

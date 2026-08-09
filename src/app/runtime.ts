@@ -52,7 +52,8 @@ import {
 } from "./usageHistoryManager";
 import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
 import { createAppWindowReportJournal } from "./windowReportJournal";
-import { createSkillsLibrary, ipcSkillsStorage } from "./skillsLibrary";
+import { createSkillsLibrary } from "./skillsLibrary";
+import { ipcSkillsStorage } from "../ipc/skillsStorage";
 import { createWorktreeManager, deckViewOf } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";

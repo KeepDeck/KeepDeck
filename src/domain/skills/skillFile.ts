@@ -64,6 +64,11 @@ export function composeSkillFile(draft: SkillDraft): string {
 /**
  * Parse a stored SKILL.md into a draft.
  *
+ * Exported for this module's OWN suite and for [`skillDraftOf`], which is what
+ * every surface actually calls — the nullable `name` here is the raw reading, and
+ * the directory-wins rule that makes it usable lives there. Nothing outside this
+ * folder should reach past that rule.
+ *
  * A file without readable frontmatter is still a skill — the name comes from its
  * directory: empty description, the whole content as body.
  *
@@ -76,7 +81,9 @@ export function composeSkillFile(draft: SkillDraft): string {
  * entries keep the FIRST, dropping the shadowed one rather than re-emitting a
  * value the editor just replaced.
  */
-export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { name: string | null } {
+export function parseSkillFile(
+  content: string,
+): Omit<SkillDraft, "name"> & { name: string | null } {
   const fm = frontmatter(content);
   if (!fm) return { name: null, description: "", body: content, extraFrontmatter: [] };
   let name: string | null = null;

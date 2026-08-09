@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   composeSkillFile,
-  sameSkillScope,
+  sameSkillRef,
   type SkillDraft,
   type SkillScope,
 } from "../../domain/skills";
@@ -21,6 +21,13 @@ import { SkillsDialog } from "./SkillsDialog";
 // as `undefined` in every case in this file. Hoisted because a `vi.mock`
 // factory's double has to exist before imports are initialized, and handed over
 // WHOLE so the field list is written once.
+/** A row as the library would hold it after the write landed. */
+const landed = (scope: SkillScope, draft: SkillDraft): LibrarySkill => ({
+  scope,
+  name: draft.name,
+  content: composeSkillFile(draft),
+});
+
 const lib = vi.hoisted(
   () =>
     ({
@@ -35,27 +42,23 @@ const lib = vi.hoisted(
       // alone was a state production cannot produce, and the dialog — which now
       // notices a selection that is missing from the library — read it as the
       // skill having been deleted under it.
-      save: vi.fn(async (scope: SkillScope, draft: SkillDraft) => {
-        const at = (lib.skills ?? []).findIndex(
-          (s) => s.name === draft.name && sameSkillScope(s.scope, scope),
-        );
-        const row = { scope, name: draft.name, content: composeSkillFile(draft) };
+      save: vi.fn(async (scope: SkillScope, draft: SkillDraft, mode: "create" | "update") => {
         lib.skills =
-          at === -1
-            ? [...(lib.skills ?? []), row]
-            : (lib.skills ?? []).map((s, i) => (i === at ? row : s));
+          mode === "create"
+            ? [...(lib.skills ?? []), landed(scope, draft)]
+            : (lib.skills ?? []).map((s) =>
+                sameSkillRef(s, { scope, name: draft.name }) ? landed(scope, draft) : s,
+              );
         return true;
       }),
       rename: vi.fn(async (scope: SkillScope, from: string, to: string) => {
         lib.skills = (lib.skills ?? []).map((s) =>
-          s.name === from && sameSkillScope(s.scope, scope) ? { ...s, name: to } : s,
+          sameSkillRef(s, { scope, name: from }) ? { ...s, name: to } : s,
         );
         return true;
       }),
       remove: vi.fn(async (scope: SkillScope, name: string) => {
-        lib.skills = (lib.skills ?? []).filter(
-          (s) => !(s.name === name && sameSkillScope(s.scope, scope)),
-        );
+        lib.skills = (lib.skills ?? []).filter((s) => !sameSkillRef(s, { scope, name }));
         return true;
       }),
     }) satisfies SkillsEditorState,
@@ -358,7 +361,7 @@ describe("SkillsDialog", () => {
       expect.objectContaining({ name: "deep-review" }),
       // Not a create: the rename above already moved the directory, so what
       // lands is an overwrite of a skill that exists.
-      false,
+      "update",
     );
   });
 
@@ -381,7 +384,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenLastCalledWith(
       { kind: "global" },
       expect.objectContaining({ name: "deep-review" }),
-      false,
+      "update",
     );
   });
 
@@ -494,7 +497,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ description: "reviews diffs with subagents read-only" }),
-      false,
+      "update",
     );
   });
 
@@ -561,7 +564,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ description: "first edit" }),
-      false,
+      "update",
     );
   });
 
@@ -626,7 +629,7 @@ describe("SkillsDialog", () => {
       // A create says so, so the backend refuses a name already on disk even
       // if the dialog's own collision check was working from a library it
       // could not read.
-      true,
+      "create",
     );
   });
 
@@ -653,7 +656,7 @@ describe("SkillsDialog", () => {
       expect.objectContaining({ name: "review" }),
       // Marked a create, so the backend can refuse the name this empty list
       // could not tell us was taken.
-      true,
+      "create",
     );
   });
 

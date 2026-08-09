@@ -40,6 +40,22 @@ export function skillScopeOf(stored: {
     : { kind: "workspace", wsId: stored.wsId ?? "" };
 }
 
+/** Which skill a caller means: a library, and a name within it. */
+export interface SkillRef {
+  scope: SkillScope;
+  name: string;
+}
+
+/** Whether two references name the SAME skill.
+ *
+ * Here rather than at a call site because four places asked it by hand — the
+ * editor's row lookup, its active-row highlight, its same-row click guard, and
+ * the library's existence check — and identity is exactly the kind of rule that
+ * grows: the day names become case-insensitive, three of those four would keep
+ * the old answer and the nav would stop highlighting the row the editor has open. */
+export const sameSkillRef = (a: SkillRef, b: SkillRef): boolean =>
+  a.name === b.name && sameSkillScope(a.scope, b.scope);
+
 /** A scope as a stable string — for a React key, a map key, a log line. Here
  * rather than at a call site because it was computed twice in one component, and
  * "how do you flatten a scope" is the kind of question that must not have two

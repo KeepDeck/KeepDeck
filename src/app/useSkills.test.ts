@@ -100,13 +100,13 @@ describe("the skills library hook", () => {
     // The only decision this binding makes: the dialog's create/edit mode.
     await mount();
     await act(async () => {
-      await view.save({ kind: "global" }, DRAFT, true);
+      await view.save({ kind: "global" }, DRAFT, "create");
     });
     expect(library.create).toHaveBeenCalledWith({ kind: "global" }, DRAFT);
     expect(library.update).not.toHaveBeenCalled();
 
     await act(async () => {
-      await view.save({ kind: "global" }, DRAFT, false);
+      await view.save({ kind: "global" }, DRAFT, "update");
     });
     expect(library.update).toHaveBeenCalledWith({ kind: "global" }, DRAFT);
   });
@@ -114,7 +114,7 @@ describe("the skills library hook", () => {
   it("reloads after a successful save", async () => {
     await mount();
     await act(async () => {
-      await view.save({ kind: "global" }, DRAFT, false);
+      await view.save({ kind: "global" }, DRAFT, "update");
     });
     // The dialog's initial load, then the post-save reload.
     expect(library.list).toHaveBeenCalledTimes(2);
@@ -127,7 +127,7 @@ describe("the skills library hook", () => {
 
     let ok = false;
     await act(async () => {
-      ok = await view.save({ kind: "global" }, DRAFT, false);
+      ok = await view.save({ kind: "global" }, DRAFT, "update");
     });
 
     expect(ok).toBe(true); // the write itself landed
@@ -146,7 +146,7 @@ describe("the skills library hook", () => {
 
     let ok = true;
     await act(async () => {
-      ok = await view.save({ kind: "global" }, DRAFT, true);
+      ok = await view.save({ kind: "global" }, DRAFT, "create");
     });
 
     expect(ok).toBe(false);
@@ -163,7 +163,7 @@ describe("the skills library hook", () => {
     library.list.mockRejectedValueOnce(new Error("still down"));
 
     await act(async () => {
-      await view.save({ kind: "global" }, DRAFT, true);
+      await view.save({ kind: "global" }, DRAFT, "create");
     });
 
     expect(view.skills).toHaveLength(1);
@@ -238,7 +238,7 @@ describe("the skills library hook", () => {
 
     library.list.mockResolvedValue([STORED]);
     await act(async () => {
-      await view.save({ kind: "global" }, DRAFT, true);
+      await view.save({ kind: "global" }, DRAFT, "create");
     });
     expect(view.skills).toEqual([STORED]);
 
@@ -290,7 +290,7 @@ describe("the skills library hook", () => {
 
     library.update.mockRejectedValueOnce(new Error("disk full"));
     await act(async () => {
-      await view.save({ kind: "global" }, DRAFT, false);
+      await view.save({ kind: "global" }, DRAFT, "update");
     });
     expect(view.error).toContain("disk full");
 
@@ -312,7 +312,7 @@ describe("the skills library hook", () => {
     expect(library.list).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      await view.save({ kind: "global" }, DRAFT, false);
+      await view.save({ kind: "global" }, DRAFT, "update");
     });
 
     expect(library.list).toHaveBeenCalledTimes(2);

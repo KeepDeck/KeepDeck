@@ -7,12 +7,10 @@ import {
   skillDescriptionProblem,
   skillDraftOf,
   skillNameProblem,
-  skillScopeOf,
   SKILL_NAME_RULE,
   type SkillDraft,
   type SkillScope,
 } from "../domain/skills";
-import { deleteSkill, fetchSkills, renameSkill, saveSkill } from "../ipc/skills";
 import type { SkillsInvalidation } from "./worktrees";
 
 /**
@@ -146,21 +144,6 @@ export interface SkillsLibrary {
    */
   subscribe(listener: () => void): () => void;
 }
-
-/** The adapter over the Tauri commands — the only place their names appear, and
- * the only place the wire's shape does: `fetch` reads the DTO's scope columns
- * into a `SkillScope` here, so no layer above has to. */
-export const ipcSkillsStorage: SkillsStorage = {
-  fetch: async () =>
-    (await fetchSkills()).map((row) => ({
-      scope: skillScopeOf(row),
-      name: row.name,
-      content: row.content,
-    })),
-  save: saveSkill,
-  rename: renameSkill,
-  remove: deleteSkill,
-};
 
 /** How a scope reads inside a refusal. Deliberately WITHOUT the workspace id:
  * no surface in the app shows one, so naming it would identify the library to
