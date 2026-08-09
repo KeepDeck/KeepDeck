@@ -61,7 +61,6 @@ export function SkillsDialog({
   const {
     skills,
     error,
-    listUnknown,
     listTrusted,
     clearError,
     save,
@@ -211,13 +210,18 @@ export function SkillsDialog({
    * epoch to skip its own `apply`, and left the error to render under a different
    * skill. One owner, so the fourth step cannot get it wrong either.
    */
-  const stillOurs = async (step: () => Promise<boolean>): Promise<boolean | "stale"> => {
+  const stillOurs = async (
+    step: () => Promise<boolean>,
+  ): Promise<{ ok: boolean; stale: boolean }> => {
     const nav = navEpoch.current;
     const ok = await step();
-    if (navEpoch.current === nav) return ok;
-    // The write itself still ran, which is right — only its REPORT is stale.
-    if (!ok) clearError();
-    return "stale";
+    const stale = navEpoch.current !== nav;
+    // Only the REPORT is stale — the write itself ran, and the two facts have to
+    // stay separate. Collapsing them into one verdict made a stale RENAME abort
+    // the submit, so the directory moved, the content half of the same action was
+    // dropped, and nothing re-read the library afterwards.
+    if (stale && !ok) clearError();
+    return { ok, stale };
   };
 
   const apply = (next: Selection | null, closing?: boolean) => {
@@ -227,6 +231,11 @@ export function SkillsDialog({
     }
     // The user moved: any in-flight submit's terminal writes are stale now.
     navEpoch.current += 1;
+    // And any confirmation still up was about where they were. It outlived the
+    // skill it named when an agent deleted the open one: the editor was replaced by
+    // the placeholder while `Delete "review"?` stayed on screen, and answering it
+    // fired a write that could only fail.
+    setConfirm(null);
     // A stale error belongs to the skill it happened on, not to wherever
     // the user navigates next.
     clearError();
@@ -272,12 +281,12 @@ export function SkillsDialog({
   // while the message stayed hidden, because "empty" counted as invalid at the
   // gate and as "nothing typed yet" at the message.
   const nameProblem = authoringName ? skillNameProblem(form.name) : null;
-  // The GATE uses the verdict from the first render; the MESSAGE waits until the
-  // field has been touched, so a freshly opened create form does not greet the
-  // user with a red "A skill needs a name" for text they have not had a chance to
-  // type. Two renderings of ONE verdict, differing only in when they are shown —
-  // never in what they say, which is what drifted when they were derived apart.
-  const shownNameProblem = nameTouched || form.name !== "" ? nameProblem : null;
+  // The GATE uses the verdict from the first render; the MESSAGE waits — but only
+  // until the user has STARTED, not until they touch this particular field. Waiting
+  // for the field itself meant filling the description first (the natural order on
+  // a create form) left Create disabled with nothing at all on screen, which is the
+  // failure the verdict exists to prevent. A pristine form still says nothing.
+  const shownNameProblem = nameTouched || dirty || form.name !== "" ? nameProblem : null;
   // ONE verdict, rendered twice below: the Save gate and the hint under the
   // field. Derived separately they drifted apart the moment the rule grew — a
   // stricter gate with nothing on screen explaining the dead button. The rule
@@ -326,21 +335,29 @@ export function SkillsDialog({
     // ordinary save lands the content under the new name.
     if (selection.mode === "edit" && form.name !== selection.name) {
       const renamed = await stillOurs(() => rename(scope, selection.name, form.name));
-      if (renamed !== true) return;
-      // From here the skill IS form.name on disk — the selection must say so even
-      // if the content save below fails, or `nameTaken` would treat our own new
-      // name as a collision and dead-end the editor.
-      setSelection({ mode: "edit", scope, name: form.name });
+      if (!renamed.ok) return;
+      // The save below runs whether or not the user moved on. The directory is
+      // already renamed; abandoning the content write here left the edit unwritten
+      // AND the library unread, because a rename deliberately does not re-read —
+      // the save that follows owns that.
+      if (!renamed.stale) {
+        // From here the skill IS form.name on disk, so the selection must say so
+        // even if the content save fails, or `nameTaken` would treat our own new
+        // name as a collision and dead-end the editor.
+        setSelection({ mode: "edit", scope, name: form.name });
+      }
     }
     // A rename above has already moved the directory, so what lands now is an
     // overwrite of a skill that exists — only an untouched create is new. Named,
     // not a boolean: `true` said nothing about which of the two verbs' three
     // differences the caller was asking for.
-    const saved = await stillOurs(() =>
-      save(scope, draftSource, selection.mode === "create" ? "create" : "update"),
-    );
-    if (saved === "stale") return;
-    if (saved) {
+    // `vanished` means the skill is not on disk any more, so what lands is a
+    // create — which also gives the user a way out: retitle the draft and the text
+    // is saved as a new skill instead of being stranded behind a dead Save.
+    const mode = selection.mode === "create" || vanished ? "create" : "update";
+    const saved = await stillOurs(() => save(scope, draftSource, mode));
+    if (saved.stale) return;
+    if (saved.ok) {
       setSelection({ mode: "edit", scope, name: draftSource.name });
       // Keystrokes typed DURING the save are on screen but not on disk —
       // marking them clean would silently drop them at the next
@@ -386,7 +403,12 @@ export function SkillsDialog({
             // Until the first read lands, an empty group must not claim the
             // library is empty — that is the reading `skills === null` exists to
             // keep off the screen, and the nav is what the user looks at.
-            emptyMeans={skills === null ? "loading" : listUnknown ? "unknown" : "empty"}
+            // "unknown" for ANY read that did not land, not only the first: with a
+            // stale list in hand a scope with no rows would otherwise assert
+            // "Nothing here yet" beside a notice saying the list may be out of date.
+            emptyMeans={
+              skills === null ? "loading" : listTrusted ? "empty" : "unknown"
+            }
             busy={deletingNow}
             isActive={(skill) =>
               selection?.mode === "edit" && sameSkillRef(selection, skill)
@@ -489,8 +511,8 @@ export function SkillsDialog({
             setBusy(true);
             setDeletingNow(true);
             void stillOurs(() => remove(target.scope, target.name))
-              .then((ok) => {
-                if (ok === true) apply(null);
+              .then(({ ok, stale }) => {
+                if (ok && !stale) apply(null);
               })
               .finally(() => {
                 deleting.current = false;

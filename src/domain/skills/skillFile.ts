@@ -26,6 +26,7 @@
  * that authors over an existing file has to ask it first.
  */
 import {
+  isAlias,
   isMap,
   isScalar,
   parseDocument,
@@ -40,6 +41,9 @@ import { normalizeSkillDescription, type SkillDraft } from "./skills";
  * anything to rewrite — two spellings would make that check answer "yes" on
  * every rename. */
 const nameLine = (name: string): string => `name: ${scalar(name)}`;
+
+/** The two keys this codec AUTHORS, as opposed to carries. */
+const OWNED = new Set(["name", "description"]);
 
 /** Compose the stored SKILL.md for a draft.
  *
@@ -75,11 +79,14 @@ export function composeSkillFile(draft: SkillDraft): string {
  * `name` and `description` are read as the values a YAML reader sees, then folded
  * onto the one line this schema says they are (see [`skillDescriptionProblem`]);
  * that covers every scalar style, both block-scalar forms with any indicator, and
- * the escapes and comments a quoted scalar can carry. Every OTHER entry is kept
- * as its verbatim source text so a save round-trips hand-added keys — comments,
- * block scalars and nested values included — and duplicated `name`/`description`
- * entries keep the FIRST, dropping the shadowed one rather than re-emitting a
- * value the editor just replaced.
+ * the escapes and comments a quoted scalar can carry. Every OTHER entry is kept as
+ * its verbatim source text so a save round-trips hand-added keys — comments, block
+ * scalars and nested values included.
+ *
+ * A duplicated `name`/`description` reads as the LAST one, because that is what
+ * the reader this codec is configured as resolves; such a file is refused for
+ * WRITING (see [`frontmatterObstacle`]), so the reading only decides what is shown,
+ * and what is shown should be what the agents get.
  */
 export function parseSkillFile(
   content: string,
@@ -94,9 +101,20 @@ export function parseSkillFile(
     // configured as resolves. (Such a file is refused for writing — see
     // [`frontmatterObstacle`] — so this only decides what is displayed, and what
     // is displayed should be what the agents read.)
-    if (entry.key === "name") name = entry.value;
-    else if (entry.key === "description") description = entry.value;
-    else extraFrontmatter.push(entry.source);
+    if (entry.key === "name" || entry.key === "description") {
+      if (entry.key === "name") name = entry.value;
+      else description = entry.value;
+      // We re-author the KEY LINE, not the comments around it. An entry's source
+      // spans from the end of the previous one, so a comment standing above `name`
+      // — or indented under `description`, which YAML counts as part of that
+      // value's range — travelled inside OUR entry and was thrown away with it.
+      // Keeping the annotation costs it its exact place (it re-appears after the
+      // two keys we write) and that is the right way round: a comment moved is a
+      // comment the author can move back, a comment deleted is gone.
+      for (const line of entry.comments) extraFrontmatter.push(line);
+    } else {
+      extraFrontmatter.push(entry.source);
+    }
   }
   const tail = fm.tail.trim() === "" ? null : fm.tail.replace(/^\n+|\s+$/g, "");
   if (tail !== null) extraFrontmatter.push(tail);
@@ -210,8 +228,12 @@ interface FrontmatterEntry {
    * instead of being dropped. */
   source: string;
   /** What this entry consumed of the frontmatter text, so the next one's slice
-   * begins where this stopped. Differs from `source` by the leading newline. */
+   * begins where this stopped. Differs from `source` by one trailing newline. */
   span: string;
+  /** The comment lines inside the span that annotate the key rather than being
+   * part of its value — kept when the entry is one of the two we re-author, whose
+   * `source` is discarded. */
+  comments: string[];
   /** The `key: value` span, comment excluded: what a splice replaces. Keeping the
    * comment out of it is why `name: old # the id` keeps its note through a
    * rename. */
@@ -237,9 +259,6 @@ function frontmatter(content: string): Frontmatter | null {
   if (!span) return null;
   const text = content.slice(span.start, span.end);
   const body = content.slice(span.bodyAt);
-  // Duplicates tolerated rather than rejected: this parser keeps the first and
-  // drops the shadowed one, which repairs the file on the next save instead of
-  // refusing to open it.
   // Duplicates are TOLERATED by the parser and REFUSED by the obstacle check
   // below: with `uniqueKeys` on, a shadowed key makes the whole document
   // unreadable and the skill unopenable; off, we can still show it. What we must
@@ -273,20 +292,45 @@ function obstacleIn(doc: Document, text: string): string | null {
   }
   if (doc.contents === null) return null;
   if (!isMap(doc.contents)) return "its frontmatter is not a list of keys";
+  // A tag on the mapping itself types the whole block for a reader, and composing
+  // emits an untagged one — the file would mean something else afterwards.
+  if (doc.contents.tag !== undefined) {
+    return `its frontmatter is tagged "${doc.contents.tag}", which re-writing would drop`;
+  }
   // An anchor is defined in one entry and used in another, so re-emitting the two
   // keys we own drops a `&name` something else still refers to — and the file
   // stops parsing entirely with "unresolved alias". An alias as one of OUR values
   // is the same problem from the other side: we would write the resolved text and
   // silently break whoever shared it.
+  // Only sharing that touches OUR two keys, whose lines we re-author. An anchor
+  // defined and used entirely among the extras is re-emitted verbatim with them, so
+  // refusing it was a false refusal that made an ordinary skill uneditable.
+  const ours = new Set(
+    doc.contents.items
+      .filter((pair) => isScalar(pair.key) && OWNED.has(String(pair.key.value)))
+      .map((pair) => (pair.value as { anchor?: string } | null)?.anchor)
+      .filter((anchor): anchor is string => anchor !== undefined),
+  );
   let shared: string | null = null;
   visit(doc, {
     Node(_key, node) {
-      if (node.anchor !== undefined && shared === null) shared = `&${node.anchor}`;
+      // An anchor ON one of our values: re-writing that line drops the `&name`
+      // something else refers to, and the file stops parsing entirely.
+      if (node.anchor !== undefined && ours.has(node.anchor) && shared === null) {
+        shared = `&${node.anchor}`;
+      }
     },
     Alias(_key, node) {
-      if (shared === null) shared = `*${node.source}`;
+      // An alias TO one of our values, and an alias standing as one of our values —
+      // writing the resolved text would silently break whoever shared it.
+      if (ours.has(node.source) && shared === null) shared = `*${node.source}`;
     },
   });
+  for (const pair of doc.contents.items) {
+    if (isScalar(pair.key) && OWNED.has(String(pair.key.value)) && isAlias(pair.value)) {
+      shared = `*${pair.value.source}`;
+    }
+  }
   if (shared !== null) {
     return `its frontmatter shares a value with "${shared as string}", which cannot survive being re-written`;
   }
@@ -324,11 +368,25 @@ function entryOf(pair: Pair, text: string, cursor: number): FrontmatterEntry | n
   // entry keeps the comment, the splice does not.
   const withComment = valueRange ? valueRange[2] : pair.key.range[2];
   const withoutComment = valueRange ? valueRange[1] : pair.key.range[1];
-  // Two lengths, on purpose. `span` is what this entry CONSUMES, so the next
-  // one's slice starts exactly where this stopped; `source` is what gets
-  // re-emitted, with the previous line's own newline stripped off the front.
-  const span = text.slice(cursor, withComment).replace(/\s+$/, "");
+  // RAW, so the partition is exact: the next entry's slice begins where this one
+  // stopped, and no byte belongs to two entries or to none. It used to be trimmed
+  // of trailing whitespace, which is fine for `license: MIT` and wrong for a block
+  // scalar — a keep-chomped `|+` ends in blank lines that ARE its value, and a
+  // literal block can end a line in spaces that are too. Trimming them changed the
+  // value on every save, in both directions, so repeated saves never settled.
+  const span = text.slice(cursor, withComment);
   const spliceText = text.slice(pair.key.range[0], withoutComment);
+  // Everything in the span that is NOT the key and its value: the comment lines
+  // above it, and whatever yaml counted past the value's end (a same-line comment,
+  // an indented note on the next line). By offsets rather than by line shape,
+  // because a block scalar's continuation lines look like comments' neighbours and
+  // are in fact the value — already captured, and not to be re-emitted.
+  const comments = [
+    ...text.slice(cursor, pair.key.range[0]).split("\n"),
+    ...text.slice(withoutComment, withComment).split("\n"),
+  ]
+    .map((line) => line.replace(/\r$/, ""))
+    .filter((line) => line.trim() !== "");
   const raw = value === undefined || value === null ? null : value.value;
   return {
     key: String(pair.key.value),
@@ -336,9 +394,20 @@ function entryOf(pair: Pair, text: string, cursor: number): FrontmatterEntry | n
     // Folded onto one line: these two keys are single-line by contract, so what
     // has to survive a round trip is the MEANING of the value, not its layout.
     value: raw === null ? "" : normalizeSkillDescription(String(raw)).trim(),
-    source: span.replace(/^[\r\n]+/, ""),
+    // Exactly ONE trailing line break comes off, because `compose` joins the
+    // frontmatter with one. Everything else — trailing spaces inside a literal
+    // block, the blank lines a `|+` keeps — is the value and stays.
+    source: span.replace(/\r?\n$/, ""),
+    comments,
+    // A key that states NO VALUE is not spliceable: `name: # note` ends the null
+    // value flush against the `#`, so replacing that range glued them and a reader
+    // saw `new-name# note` — neither the old name nor the new one. Judged on the
+    // text, because yaml represents an absent value as a node whose value is null
+    // rather than as no node at all. Such a file re-composes instead.
     splice:
-      atLineStart(text, pair.key.range[0]) && !spliceText.includes("\n")
+      spliceText.slice(spliceText.indexOf(":") + 1).trim() !== "" &&
+      atLineStart(text, pair.key.range[0]) &&
+      !spliceText.includes("\n")
         ? { at: pair.key.range[0], text: spliceText }
         : null,
   };

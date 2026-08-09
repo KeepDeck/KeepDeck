@@ -23,12 +23,14 @@ export interface SkillsEditorState {
   /** The last failed operation, human-readable; cleared by the next success
    * or by `clearError` (navigation away from the failed skill). */
   error: string | null;
-  /** The list is `[]` because a read FAILED, not because the library is empty —
-   * so a surface must not word it as "nothing here". */
-  listUnknown: boolean;
-  /** The last read LANDED, so absence from the list is a real answer. Anything
-   * concluding "this skill is gone" has to check it: over a stale list that
-   * conclusion is wrong, and acting on it discards the user's work. */
+  /**
+   * The last read LANDED, so what the list says is a real answer.
+   *
+   * ONE fact, serving both readers: a surface must not word an empty list as
+   * "nothing here" when nobody managed to read the library, and nothing may
+   * conclude "this skill is gone" from a list whose last read failed — over a stale
+   * list that conclusion is wrong, and acting on it discards the user's work.
+   */
   listTrusted: boolean;
   clearError(): void;
   /**
@@ -65,6 +67,17 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
   /** Whether a read has ever landed: "keep the stale list" has nothing to keep
    * before the first one. */
   const hasList = useRef(false);
+  /**
+   * Whether the LAST read failed — as state, and deliberately NOT derived from the
+   * error.
+   *
+   * It used to be read off the error's tag, and the view is allowed to clear that
+   * error: one navigation therefore re-asserted "the library is empty" over a
+   * library whose read had failed, and declared the list trusted at the same
+   * moment. Whether a read landed is a fact about the read; the notice about it is
+   * a separate thing with its own lifetime.
+   */
+  const [readFailed, setReadFailed] = useState(false);
   /** One of OUR writes is in flight, so its own notify is not worth a read. */
   const mutating = useRef(false);
   /** The read generation current when a notify arrived while we held `mutating`;
@@ -103,6 +116,7 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
         if (seq !== reads.current) return false;
         setSkills(all);
         hasList.current = true;
+        setReadFailed(false);
         // A working read answers the question a READ failure asked, so its notice
         // goes; an operation's failure is not this read's to clear — the user is
         // still reading why their save did not land.
@@ -111,6 +125,7 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
       } catch (e) {
         log.warn("web:skills", `skills_list failed (${onFailure}): ${describeError(e)}`);
         if (seq !== reads.current) return false;
+        setReadFailed(true);
         // A stale list is kept rather than blanked — but never SILENTLY. Saying
         // nothing let a delete whose reload failed leave the deleted skill listed
         // with three signals disagreeing; the list is stale either way, and the
@@ -119,7 +134,12 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
           ? `The skills list may be out of date: ${describeError(e)}`
           : `Could not read the skills library: ${describeError(e)}`;
         if (!hasList.current) setSkills([]);
-        setError({ from: "read", text });
+        // YIELDING to an operation's notice, which is newer and more specific: this
+        // read is one `mutate` starts itself after a write failed, and overwriting
+        // "Save failed: disk full" with "the list may be out of date" told the user
+        // about the list and never about their save. `readFailed` above still drives
+        // the affordances, so the staleness is not lost, only out-ranked.
+        setError((prev) => (prev?.from === "operation" ? prev : { from: "read", text }));
         return false;
       }
     },
@@ -218,7 +238,14 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
     [library, mutate],
   );
 
-  const clearError = useCallback(() => setError(null), []);
+  /** Drop the notice for the OPERATION the user has navigated away from. A read
+   * notice describes the list, not a skill, so it outlives navigation and is
+   * answered only by a read that lands — clearing it here put "you have no skills"
+   * back on screen over a library nobody had managed to read. */
+  const clearError = useCallback(
+    () => setError((prev) => (prev?.from === "operation" ? null : prev)),
+    [],
+  );
 
   const remove = useCallback(
     (scope: SkillScope, name: string) =>
@@ -243,13 +270,9 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
   return {
     skills,
     error: error?.text ?? null,
-    // The tag stays private — no view branches on where an error came from — but
-    // TWO facts derived from it are a view's business, and only this hook can
-    // answer them. An empty list from a failed read must not be rendered as
-    // "nothing here"; and a list whose last read did not land must not be used to
-    // conclude that a skill was deleted elsewhere.
-    listUnknown: error?.from === "read" && !hasList.current,
-    listTrusted: error?.from !== "read",
+    // From `readFailed`, NOT from the error — the view may clear a notice, and it
+    // must not be able to clear a FACT by doing so.
+    listTrusted: !readFailed,
     clearError,
     save,
     rename,

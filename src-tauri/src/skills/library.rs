@@ -86,11 +86,16 @@ pub(super) fn list(root: &Path) -> io::Result<Vec<SkillDto>> {
 /// Directories without a `SKILL.md` are not skills and are skipped.
 ///
 /// A name no WRITE could accept is still LISTED, deliberately. Filtering it here
-/// was tried and reverted: [`collect_sources`] in `staging` walks the same
-/// directories without the filter, so a hidden `my.skill` kept reaching every
-/// agent while the app denied it existed — and `remove` is gated on the listing,
-/// so it could not even be deleted. A loud `unsafe skill name` on a write the
-/// user can see and act on beats an invisible skill they cannot.
+/// was tried and reverted: `collect_sources` in `staging` walks the same
+/// directories WITHOUT the filter, so a hidden `my.skill` kept reaching every
+/// agent while the app denied it existed.
+///
+/// Listing it does not make it manageable — [`save`], [`delete`] and [`rename`]
+/// all open with [`require_safe`], so every operation on it refuses. The trade is
+/// only between a skill the user can SEE and get a refusal for, and one that is
+/// invisible while still being handed to their agents. The first is the lesser
+/// evil; making such a directory editable would mean relaxing `require_safe`,
+/// which is a path-safety rule and not up for it.
 fn scope_skills(dir: &Path) -> io::Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for skill in sorted_dirs(dir)? {

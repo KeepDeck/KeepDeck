@@ -223,6 +223,54 @@ describe("a block scalar survives being read and written back", () => {
     expect(composeSkillFile({ ...parsed, name: "n" })).toBe(content);
   });
 
+  it("keeps a comment that annotates one of the keys WE re-author", () => {
+    // Our two entries' source is discarded — we write those lines ourselves — and a
+    // comment above `name`, or indented under `description`, travels inside that
+    // span. It used to go with it. Kept now, at the cost of its exact place: it
+    // re-appears after the two keys, which is a note the author can move back
+    // rather than a note that is gone.
+    for (const stored of [
+      "---\n# top note\nname: a\ndescription: b\n---\nbody\n",
+      "---\nkeep: 1\n# the id\nname: a\ndescription: b\n---\nbody\n",
+      "---\nname: demo\ndescription: d\n  # a note\n---\nBody\n",
+    ]) {
+      const saved = composeSkillFile({
+        ...parseSkillFile(stored),
+        name: "a",
+      });
+      const comment = /#[^\n]*/.exec(stored)![0];
+      expect(saved, stored).toContain(comment.trim());
+    }
+  });
+
+  it("keeps whitespace a block scalar counts as its value", () => {
+    // A keep-chomped `|+` ends in blank lines that ARE the value, and a literal
+    // block can end a line in spaces. Trimming the entry's span removed both, so the
+    // value changed on every save — and drifted in both directions, so repeated
+    // saves never settled.
+    for (const stored of [
+      "---\nname: a\ndescription: b\nnotes: |+\n  x\n\n\n---\nbody\n",
+      "---\nname: a\ndescription: b\nnotes: |\n  x  \n---\nbody\n",
+    ]) {
+      const once = composeSkillFile({ ...parseSkillFile(stored), name: "a" });
+      expect(once, stored).toBe(stored);
+      // A fixed point, so the drift cannot accumulate.
+      expect(composeSkillFile({ ...parseSkillFile(once), name: "a" })).toBe(once);
+    }
+  });
+
+  it("does not splice a name that states no value, comment or not", () => {
+    // `name: # note` ends the null value flush against the `#`, so replacing that
+    // range glued them: a reader saw `new-name# note`, which is neither name.
+    const glued = renameSkillFile("---\nname: # note\ndescription: b\n---\nbody\n", "new");
+    expect(glued.kind).toBe("rewritten");
+    if (glued.kind === "rewritten") {
+      expect(glued.content).not.toContain("new# note");
+      expect(glued.content).toContain("name: new");
+      expect(glued.content).toContain("# note");
+    }
+  });
+
   it("names the offending KEY in its reason, not just the shape", () => {
     // Only the sentence is this suite's: WHICH shapes qualify is the verdict table
     // in `skillFileYaml.test.ts`, checked there against a real reader. Pinning the

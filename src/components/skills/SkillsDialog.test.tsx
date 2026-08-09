@@ -33,8 +33,8 @@ const lib = vi.hoisted(
     ({
       skills: [] as LibrarySkill[] | null,
       error: null as string | null,
-      listUnknown: false,
-      listTrusted: true,
+      // Widened so a case can flip it: the literal would narrow to `true`.
+      listTrusted: true as boolean,
       clearError: vi.fn(),
       // The writes LAND IN THE LIST, the way the real hook's re-read makes them:
       // it awaits a refresh before it resolves, so by the time the dialog sees
@@ -110,7 +110,6 @@ describe("SkillsDialog", () => {
   beforeEach(() => {
     lib.skills = [];
     lib.error = null;
-    lib.listUnknown = false;
     lib.listTrusted = true;
     // `mockClear` only — NOT `mockResolvedValue`, which would replace the
     // implementations above with ones that leave the list untouched, i.e. put the
@@ -310,6 +309,78 @@ describe("SkillsDialog", () => {
     // hook's job and pinned in its own suite; this stub resolves without touching
     // the list, which is why `review` is still here.)
     expect(row("deploy")!.disabled).toBe(false);
+  });
+
+  it("a rename whose save the user navigated away from still WRITES the content", async () => {
+    // The staleness rule governs the REPORT, not the operation. Collapsing the two
+    // made a stale rename return early: the directory moved, the content half of the
+    // same action was dropped, and since a rename deliberately does not re-read, the
+    // nav kept the old row with nothing to correct it.
+    lib.skills = [skill("review"), skill("other")];
+    let finishRename!: (ok: boolean) => void;
+    lib.rename.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finishRename = resolve)),
+    );
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-name"), "deep-review");
+    type(input("skill-description"), "the edit that must still land");
+
+    act(() => button("Save")!.click());
+    // Navigating mid-save is allowed — that is what navEpoch is for.
+    act(() => row("other")!.click());
+    await act(async () => finishRename(true));
+
+    expect(lib.save).toHaveBeenCalledWith(
+      { kind: "global" },
+      expect.objectContaining({ description: "the edit that must still land" }),
+      "update",
+    );
+  });
+
+  it("says why Save is dead on a create form when the name is still empty", async () => {
+    // The message waits until the user has STARTED, not until they touch the name:
+    // filling the description first is the natural order, and holding the message for
+    // the field itself left Create disabled with nothing at all on screen.
+    await mount();
+    act(() => buttonByTitle("New global skill")!.click());
+    expect(document.querySelectorAll(".form__error")).toHaveLength(0);
+
+    type(input("skill-description"), "Ships it");
+
+    expect(button("Create")!.disabled).toBe(true);
+    expect(document.body.textContent).toContain("A skill needs a name");
+  });
+
+  it("refuses to save a skill deleted elsewhere, and drops a clean editor", async () => {
+    lib.skills = [skill("review"), skill("other")];
+    await mount();
+    act(() => row("review")!.click());
+    type(textarea(), "unsaved work");
+
+    // The other door removed it; the subscription's refresh is what the real hook
+    // would do, and here the double's list is the same state.
+    await act(async () => {
+      lib.skills = [skill("other")];
+      root.render(
+        createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
+      );
+    });
+
+    expect(document.body.textContent).toContain("removed or renamed elsewhere");
+    expect(textarea().value).toBe("unsaved work");
+    expect(button("Save")!.disabled).toBe(true);
+  });
+
+  it("does not judge a skill gone from a list whose last read failed", async () => {
+    lib.skills = [skill("other")];
+    lib.listTrusted = false;
+    await mount();
+    // A selection the list does not hold, over an untrustworthy list: absence proves
+    // nothing, so no refusal and no message.
+    act(() => row("other")!.click());
+
+    expect(document.body.textContent).not.toContain("removed or renamed elsewhere");
   });
 
   it("groups the library: global plus the ACTIVE workspace only", async () => {

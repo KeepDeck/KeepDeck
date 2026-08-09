@@ -37,6 +37,10 @@ fn frontmatter_line(content: &str, key: &str) -> Option<String> {
     // not lose its description here.
     let normalized = content.replace("\r\n", "\n");
     let rest = fenced(&normalized)?;
+    // LAST match wins, matching the TS side and a lenient YAML reader: a file that
+    // states the key twice is refused for WRITING, so it stays on disk, and the app
+    // and this lift must not disagree about what it says.
+    let mut found: Option<String> = None;
     let mut lines = rest.lines();
     while let Some(line) = lines.next() {
         let Some(value) = line.strip_prefix(key).and_then(|r| r.strip_prefix(':')) else {
@@ -45,38 +49,57 @@ fn frontmatter_line(content: &str, key: &str) -> Option<String> {
         let value = value.trim();
         // A block scalar's value is the INDENTED lines under its header, folded
         // onto the one line this schema says a value is — the same fold TS does.
+        //
+        // QUOTED, unlike the single-line arm. That arm re-emits the stored scalar
+        // verbatim, so its quoting is already whatever the author wrote; this one
+        // SYNTHESIZES a plain scalar, and a folded description containing `": "`
+        // then made the generated command's own frontmatter unparseable, while one
+        // containing `" #"` was silently truncated at the comment.
         if value.starts_with('>') || value.starts_with('|') {
             let folded: Vec<String> = lines
+                .by_ref()
                 .take_while(|l| l.trim().is_empty() || l.starts_with([' ', '\t']))
                 .map(|l| l.trim().to_string())
                 .filter(|l| !l.is_empty())
                 .collect();
-            return Some(folded.join(" "));
+            found = Some(double_quoted(&folded.join(" ")));
+            continue;
         }
-        return Some(value.to_string());
+        found = Some(value.to_string());
     }
-    None
+    found
+}
+
+/// A YAML double-quoted scalar. Only the two characters that can end it early
+/// need escaping for a value we folded onto one line.
+fn double_quoted(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 /// The frontmatter's own lines, or `None` when the file has no fenced block.
 /// Tolerates trailing spaces on either fence and a closing fence at end of
 /// file, matching what the TS side accepts.
 fn fenced(normalized: &str) -> Option<&str> {
-    let open = normalized.strip_prefix("---")?;
+    // A leading BOM is part of the fence, as it is on the TS side: without this the
+    // lift saw no frontmatter in a BOM'd file that TS reads and preserves happily,
+    // and the generated command got an empty description.
+    let open = normalized
+        .strip_prefix('\u{feff}')
+        .unwrap_or(normalized)
+        .strip_prefix("---")?;
     let rest = open.strip_prefix('\n').or_else(|| {
         let trimmed = open.trim_start_matches([' ', '\t']);
         trimmed.strip_prefix('\n')
     })?;
     let mut at = 0;
+    // `split_inclusive` yields the trailing unterminated line too, so a closing
+    // fence at end of file is handled here and needs no separate branch after the
+    // loop — one was written and was dead.
     for line in rest.split_inclusive('\n') {
         if line.trim_end() == "---" {
             return Some(&rest[..at]);
         }
         at += line.len();
-    }
-    // A closing fence at end of file, with no newline after it.
-    if rest[at..].trim_end() == "---" {
-        return Some(&rest[..at]);
     }
     None
 }
@@ -104,7 +127,10 @@ mod tests {
                 "{label}",
             );
         }
-        // A block scalar folds onto its one line, the same fold TS performs.
+        // A block scalar folds onto its one line, the same fold TS performs — and is
+        // QUOTED, because unlike the single-line arm this value is synthesized. A
+        // plain `description: Use when: risky` made the generated command's own
+        // frontmatter unparseable, and `Use #1 tool` truncated it at the comment.
         for (label, content) in [
             ("folded", "---\ndescription: >\n  Reviews a\n  diff\n---\nB\n"),
             ("literal chomped", "---\ndescription: |-\n  Reviews a\n  diff\n---\nB\n"),
@@ -112,10 +138,36 @@ mod tests {
         ] {
             assert_eq!(
                 frontmatter_line(content, "description").as_deref(),
-                Some("Reviews a diff"),
+                Some("\"Reviews a diff\""),
                 "{label}",
             );
         }
+        for (label, content) in [
+            ("colon", "---\ndescription: |\n  Use when: risky\n---\nB\n"),
+            ("hash", "---\ndescription: >\n  Use #1 tool\n---\nB\n"),
+            ("quote", "---\ndescription: |\n  Say \"go\"\n---\nB\n"),
+        ] {
+            let lifted = frontmatter_line(content, "description").expect(label);
+            let generated = command("x", content, Path::new("/staged/SKILL.md"));
+            assert!(generated.contains(&format!("description: {lifted}")), "{label}");
+            // The generated frontmatter is a mapping a reader can still parse: the
+            // value is quoted, so neither `: ` nor ` #` can end it early.
+            assert!(lifted.starts_with('"') && lifted.ends_with('"'), "{label}");
+        }
+        // A BOM is part of the fence here as it is in TS, or the command would be
+        // generated with no description at all.
+        assert_eq!(
+            frontmatter_line("\u{feff}---\nname: x\ndescription: R\n---\nB\n", "description")
+                .as_deref(),
+            Some("R"),
+        );
+        // LAST wins, like the TS reader: such a file is refused for writing, so it
+        // stays on disk and the two must not disagree about what it says.
+        assert_eq!(
+            frontmatter_line("---\ndescription: first\ndescription: second\n---\nB\n", "description")
+                .as_deref(),
+            Some("second"),
+        );
         // And a block scalar ends at the next top-level key, not at the fence.
         assert_eq!(
             frontmatter_line("---\ndescription: >\n  folded\nname: x\n---\nB\n", "name")

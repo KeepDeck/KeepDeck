@@ -36,6 +36,12 @@ export const CARRIED: Record<string, string> = {
   commentBeforeFence: "---\nname: demo\ndescription: d\n# last word\n---\nBody\n",
   crlf: "---\r\nname: demo\r\ndescription: Reviews\r\n---\r\nBody\r\n",
   bom: "﻿---\nname: demo\ndescription: Reviews\n---\nBody\n",
+  // An anchor shared only among keys we CARRY: re-emitted verbatim with them, so
+  // refusing it was a false refusal.
+  anchorAmongExtras: "---\nname: a\ndescription: d\nbase: &b 1\nalso: *b\n---\nBody\n",
+  // Trailing blank lines a keep-chomped block counts as its value.
+  keptBlankLines: "---\nname: a\ndescription: d\nnotes: |+\n  x\n\n\n---\nbody\n",
+  commentAboveOurKey: "---\n# top note\nname: a\ndescription: b\n---\nbody\n",
 };
 
 /** Shapes a real reader accepts and our composer would change the meaning of, so
@@ -51,6 +57,10 @@ export const REFUSED: Record<string, { content: string; because: string }> = {
   sharedAnchor: {
     content: "---\nname: &n review\ndescription: Reviews\ntitle: *n\n---\nBody\n",
     because: "shares a value",
+  },
+  taggedMapping: {
+    content: "---\n!mytag\nname: a\ndescription: d\n---\nBody\n",
+    because: "is tagged",
   },
   duplicatedKey: {
     content: "---\nname: demo\ndescription: first\ndescription: second\n---\nBody\n",

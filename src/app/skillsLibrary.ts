@@ -339,7 +339,10 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
         // A failure HERE leaves the directory moved and its frontmatter naming the
         // old skill. Mild by comparison and self-announcing: the directory wins
         // wherever a skill is read, so the skill is listed and editable under its
-        // new name, and the next save writes the frontmatter to match.
+        // new name. The repair is the next save — or, for the one file a save
+        // cannot touch (a stored description this build refuses to author, which is
+        // any empty one), renaming it once more, which splices the frontmatter with
+        // no authoring gate in the way.
         if (renamed.kind === "rewritten") {
           await ports.storage.save(scope, to, renamed.content, false);
         }

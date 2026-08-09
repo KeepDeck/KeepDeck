@@ -136,7 +136,9 @@ describe("the skills library hook", () => {
     // deleted skill listed with three signals disagreeing, and the notice names
     // the list rather than the write — the write is what just worked.
     expect(view.error).toContain("may be out of date");
-    expect(view.listUnknown).toBe(false);
+    // And the list is no longer trusted, so nothing may conclude a skill was
+    // deleted elsewhere from it.
+    expect(view.listTrusted).toBe(false);
   });
 
   it("a failed save surfaces the error and keeps the list truthful", async () => {
@@ -264,7 +266,7 @@ describe("the skills library hook", () => {
     });
 
     expect(view.error).toContain("backend down");
-    expect(view.listUnknown).toBe(true);
+    expect(view.listTrusted).toBe(false);
 
     // AND the superseded read must not undo that when it finally lands. Stopping
     // here left the staleness guard untested from this direction: remove it and the
@@ -318,11 +320,31 @@ describe("the skills library hook", () => {
     expect(library.list).toHaveBeenCalledTimes(2);
   });
 
-  it("clearError drops the notice when the user navigates away", async () => {
-    library.list.mockRejectedValueOnce(new Error("backend down"));
+  it("clearError drops an OPERATION notice — that one belongs to a skill", async () => {
+    library.list.mockResolvedValue([STORED]);
+    library.update.mockRejectedValueOnce(new Error("disk full"));
     await mount();
-    expect(view.error).not.toBeNull();
+    await act(async () => {
+      await view.save({ kind: "global" }, DRAFT, "update");
+    });
+    expect(view.error).toContain("disk full");
+
     act(() => view.clearError());
     expect(view.error).toBeNull();
+  });
+
+  it("clearError leaves a LIBRARY notice standing, and the fact under it", async () => {
+    // It describes the list, not the skill the user navigated away from. Clearing
+    // it put "you have no skills" back on screen over a library nobody had managed
+    // to read — and `listTrusted` was derived from the same error, so one
+    // navigation also declared the list trustworthy.
+    library.list.mockRejectedValueOnce(new Error("backend down"));
+    await mount();
+    expect(view.error).toContain("backend down");
+
+    act(() => view.clearError());
+
+    expect(view.error).toContain("backend down");
+    expect(view.listTrusted).toBe(false);
   });
 });
