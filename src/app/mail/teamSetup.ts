@@ -63,6 +63,16 @@ export async function applyTeamPlan(
   deps: TeamSetupDeps,
   workspaceId: string,
   plan: TeamPlan,
+  /**
+   * Panes to END as well as release, named by the caller and never by the
+   * plan.
+   *
+   * Ending an agent is not part of settling a roster — it is a second thing
+   * the person asked for in the same breath, and only one gesture offers it.
+   * Keeping it out of `TeamPlan` is what stops an ordinary edit from ever
+   * carrying one: a plan has no field to put it in.
+   */
+  closing: readonly string[] = [],
 ): Promise<void> {
   /** Who ends up on the team, in roster order — the briefing's content. */
   const landed: { paneId: string; role: string }[] = [];
@@ -116,9 +126,9 @@ export async function applyTeamPlan(
   // And whoever left hears once, so it stops addressing roles that no
   // longer reach anyone — except the ones being closed, who have nothing
   // left to say it to.
-  const closing = new Set(plan.closing);
+  const ending = new Set(closing);
   for (const paneId of plan.released) {
-    if (closing.has(paneId)) continue;
+    if (ending.has(paneId)) continue;
     deps.announce?.(paneId, "team", teamFarewell(plan.name));
   }
 
@@ -132,7 +142,7 @@ export async function applyTeamPlan(
   // asked to end four agents, and the three that ended should not be undone
   // by the fourth. Each close is the same one the confirmation surface
   // performs — they gave that confirmation once, for the team.
-  for (const paneId of plan.closing) {
+  for (const paneId of closing) {
     try {
       if (!deps.close) throw new Error("this deck cannot end agents here");
       await deps.close(workspaceId, paneId);

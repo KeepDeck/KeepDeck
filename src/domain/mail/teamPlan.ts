@@ -18,6 +18,7 @@ import type { AgentType } from "../agents";
 import type { Resolved } from "../commands";
 import type { Workspace } from "../deck";
 import { leadRole, parseRoleAddress } from "./roles";
+import { teamMembers } from "./team";
 
 /** An existing pane taking a role. */
 export interface TeamMemberDraft {
@@ -43,27 +44,18 @@ export interface TeamDraft {
   recruits: TeamRecruitDraft[];
 }
 
-/** A settled team, in the order it has to be applied. */
+/**
+ * A settled team: who is on it, who is leaving it, and who is yet to exist.
+ *
+ * Not an order — the order of applying it belongs to the caller that applies
+ * it, and is stated there.
+ */
 export interface TeamPlan {
   name: string;
   members: { paneId: string; role: string }[];
   /** Panes leaving the team — everyone holding its name that the draft
    * dropped. */
   released: string[];
-  /**
-   * Panes to CLOSE, not merely release.
-   *
-   * A separate list from `released` rather than a flag on it, because the
-   * two are different acts: taking an agent off a team is organisational
-   * and reversible, ending it is neither. Naming the panes means an
-   * ordinary edit — dropping one member from the roster — cannot become a
-   * close by accident, which a boolean sitting beside `released` eventually
-   * would.
-   *
-   * Empty for every edit. Only the disband gesture fills it, and only when
-   * the person asked for it in the same breath.
-   */
-  closing: string[];
   recruits: TeamRecruitDraft[];
 }
 
@@ -167,7 +159,6 @@ export function teamPlanIsEmpty(plan: TeamPlan): boolean {
   return (
     plan.members.length === 0 &&
     plan.released.length === 0 &&
-    plan.closing.length === 0 &&
     plan.recruits.length === 0
   );
 }
@@ -287,5 +278,38 @@ export function planTeam(
 
   // Never any: settling a roster is an edit. Ending an agent is asked for
   // separately, by the one gesture that means it.
-  return { ok: true, value: { name, members, released, closing: [], recruits } };
+  return { ok: true, value: { name, members, released, recruits } };
+}
+
+/**
+ * Taking a team apart: everyone holding its name is released, and nobody is
+ * left on it.
+ *
+ * A rule about teams, not about a dialog, which is why it is here and not in
+ * the button that offers it. It was in the button once — the destructive
+ * gesture was the ONE path that built a plan by hand and so the one path that
+ * passed no check at all, while every ordinary edit went through `planTeam`.
+ *
+ * Refuses a name nobody holds rather than answering with an empty plan: a
+ * disband that quietly does nothing is indistinguishable from one that worked
+ * to whoever asked for it.
+ */
+export function planDisband(
+  workspace: Workspace,
+  team: string,
+): Resolved<TeamPlan> {
+  const name = team.trim();
+  const members = teamMembers(workspace, name);
+  if (!name || members.length === 0) {
+    return { ok: false, message: `no team called "${team}" is running here` };
+  }
+  return {
+    ok: true,
+    value: {
+      name,
+      members: [],
+      released: members.map((pane) => pane.id),
+      recruits: [],
+    },
+  };
 }

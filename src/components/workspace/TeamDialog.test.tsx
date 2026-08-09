@@ -47,11 +47,14 @@ const setValue = Object.getOwnPropertyDescriptor(
 describe("TeamDialog", () => {
   let root: Root;
   let confirmed: TeamPlan[];
+  /** What each confirm asked to END, beside the roster it settled. */
+  let ending: (readonly string[])[];
 
   beforeEach(() => {
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     confirmed = [];
+    ending = [];
   });
 
   afterEach(() => {
@@ -66,7 +69,10 @@ describe("TeamDialog", () => {
           agents: AGENTS,
           editing,
           defaultYolo: false,
-          onConfirm: (plan: TeamPlan) => confirmed.push(plan),
+          onConfirm: (plan: TeamPlan, closing: readonly string[] = []) => {
+            confirmed.push(plan);
+            ending.push(closing);
+          },
           onCancel: () => {},
         }),
       ),
@@ -200,10 +206,12 @@ describe("TeamDialog", () => {
         name: "api",
         members: [{ paneId: "pane-1", role: "lead" }],
         released: ["pane-2"],
-        closing: [],
         recruits: [],
       },
     ]);
+    // An ordinary edit ends nobody, and has no field it could say otherwise
+    // in — the plan carries no closing list at all.
+    expect(ending).toEqual([[]]);
   });
 
   it("can end a team outright, releasing everyone and starting nobody", () => {
@@ -222,12 +230,12 @@ describe("TeamDialog", () => {
         name: "api",
         members: [],
         released: ["pane-1", "pane-2"],
-        // Roles away, agents untouched: they keep running, keep their panes
-        // and keep their work. Ending them is the other button's meaning.
-        closing: [],
         recruits: [],
       },
     ]);
+    // Roles away, agents untouched: they keep running, keep their panes and
+    // keep their work. Ending them is the other button's meaning.
+    expect(ending).toEqual([[]]);
     // Another team in the same workspace is none of this one's business.
     expect(confirmed[0].released).not.toContain("pane-3");
   });
@@ -259,10 +267,10 @@ describe("TeamDialog", () => {
         name: "api",
         members: [],
         released: ["pane-1", "pane-2"],
-        closing: ["pane-1", "pane-2"],
         recruits: [],
       },
     ]);
+    expect(ending).toEqual([["pane-1", "pane-2"]]);
   });
 
   it("releases everyone still on the team, not just who the draft kept", () => {
@@ -288,7 +296,10 @@ describe("TeamDialog", () => {
           agents: AGENTS,
           editing: null,
           defaultYolo: false,
-          onConfirm: (plan: TeamPlan) => confirmed.push(plan),
+          onConfirm: (plan: TeamPlan, closing: readonly string[] = []) => {
+            confirmed.push(plan);
+            ending.push(closing);
+          },
           onCancel: () => (cancelled += 1),
         }),
       ),
@@ -415,7 +426,10 @@ describe("TeamDialog", () => {
           agents: AGENTS,
           editing: null,
           defaultYolo: true,
-          onConfirm: (plan: TeamPlan) => confirmed.push(plan),
+          onConfirm: (plan: TeamPlan, closing: readonly string[] = []) => {
+            confirmed.push(plan);
+            ending.push(closing);
+          },
           onCancel: () => {},
         }),
       ),

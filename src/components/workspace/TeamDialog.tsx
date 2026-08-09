@@ -11,6 +11,7 @@ import {
   defaultRoleFor,
   mintRoleAddress,
   parseRoleAddress,
+  planDisband,
   planTeam,
   roleById,
   teamPlanIsEmpty,
@@ -33,7 +34,11 @@ interface TeamDialogProps {
   /** The YOLO toggle's starting position for a new recruit — the global
    * preference, the same seed the "+ Agent" and fork dialogs use. */
   defaultYolo: boolean;
-  onConfirm(plan: TeamPlan): void;
+  /** Apply a settled roster. `closing` names the panes to END as well as
+   * release — only the disband gesture asks for that, and only when the
+   * person ticked it in the same breath, which is why it travels beside the
+   * plan instead of inside it. */
+  onConfirm(plan: TeamPlan, closing?: readonly string[]): void;
   onCancel(): void;
 }
 
@@ -228,15 +233,6 @@ export function TeamDialog({
         setRecruits((current) => current.filter((_, i) => i !== index)),
     })),
   ];
-
-  /** Everyone holding the edited team's name RIGHT NOW — what disbanding
-   * has to release, read from the deck rather than from the draft, because
-   * the draft may already have dropped some of them. */
-  const current = editing
-    ? workspace.panes
-        .filter((pane) => pane.team?.name.toLowerCase() === editing.toLowerCase())
-        .map((pane) => pane.id)
-    : [];
 
   /** Everyone in the workspace who is NOT on the team. */
   const available = workspace.panes
@@ -513,15 +509,17 @@ export function TeamDialog({
                     ? `Take every agent off “${editing}” and close it`
                     : `Take every agent off “${editing}” — they keep running`
                 }
-                onClick={() =>
-                  onConfirm({
-                    name: editing,
-                    members: [],
-                    released: current,
-                    closing: closeOnDisband ? current : [],
-                    recruits: [],
-                  })
-                }
+                onClick={() => {
+                  // Through the domain, like every other change to a team.
+                  // This gesture used to build its plan by hand, which made
+                  // the destructive path the one path that passed no check.
+                  const disbanding = planDisband(workspace, editing);
+                  if (!disbanding.ok) return;
+                  onConfirm(
+                    disbanding.value,
+                    closeOnDisband ? disbanding.value.released : [],
+                  );
+                }}
               >
                 {closeOnDisband ? "Disband & close" : "Disband"}
               </button>

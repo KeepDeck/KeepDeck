@@ -38,7 +38,6 @@ const plan = (over: Partial<TeamPlan> = {}): TeamPlan => ({
   name: "api",
   members: [],
   released: [],
-  closing: [],
   recruits: [],
   ...over,
 });
@@ -220,7 +219,8 @@ describe("applyTeamPlan", () => {
     await applyTeamPlan(
       h.deps,
       "ws-1",
-      plan({ released: ["pane-1", "pane-2"], closing: ["pane-1", "pane-2"] }),
+      plan({ released: ["pane-1", "pane-2"] }),
+      ["pane-1", "pane-2"],
     );
     expect(h.calls).toEqual([
       "pane-1=off",
@@ -238,7 +238,8 @@ describe("applyTeamPlan", () => {
     await applyTeamPlan(
       h.deps,
       "ws-1",
-      plan({ released: ["pane-1", "pane-2"], closing: ["pane-2"] }),
+      plan({ released: ["pane-1", "pane-2"] }),
+      ["pane-2"],
     );
     expect(h.told.map((t) => t.paneId)).toEqual(["pane-1"]);
   });
@@ -253,7 +254,8 @@ describe("applyTeamPlan", () => {
     await applyTeamPlan(
       h.deps,
       "ws-1",
-      plan({ closing: ["pane-1", "pane-2", "pane-3"] }),
+      plan(),
+      ["pane-1", "pane-2", "pane-3"],
     );
     expect(h.calls).toEqual(["pane-1=closed", "pane-3=closed"]);
     expect(h.reports).toEqual(["Could not close an agent"]);
