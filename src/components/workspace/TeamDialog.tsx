@@ -389,27 +389,46 @@ export function TeamDialog({
           <>
             <span className="form__label">Also running here</span>
             <ul className="team__pool">
-              {available.map(({ pane, label }) => (
-                <li key={pane.id} className="team__row">
-                  <AgentGlyph icon={iconOf(pane)} />
-                  <span className="team__row-who">{label}</span>
-                  <span className="team__row-where">{whereOf(pane)}</span>
-                  {pane.team &&
-                    pane.team.name.toLowerCase() !== name.trim().toLowerCase() && (
-                      <span className="team__row-note">on “{pane.team.name}”</span>
+              {available.map(({ pane, label }) => {
+                // A pane holds ONE team, so taking one that already has a
+                // team would not add it — it would silently pull it out of
+                // the other, whose remaining members are still briefed to
+                // address a role that then reaches nobody, and who are told
+                // nothing because "who left" is asked only of the team being
+                // edited. Shown with where it is and no way to take it: the
+                // agent has not vanished, it is simply spoken for.
+                const spokenFor =
+                  pane.team &&
+                  pane.team.name.toLowerCase() !== name.trim().toLowerCase()
+                    ? pane.team.name
+                    : null;
+                return (
+                  <li key={pane.id} className="team__row">
+                    <AgentGlyph icon={iconOf(pane)} />
+                    <span className="team__row-who">{label}</span>
+                    <span className="team__row-where">{whereOf(pane)}</span>
+                    {spokenFor ? (
+                      <span
+                        className="team__row-note"
+                        title={`Already on “${spokenFor}” — open that team from this agent's badge to take it off first`}
+                      >
+                        on “{spokenFor}”
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="team__row-take"
+                        onClick={() => {
+                          setTouched(true);
+                          take(pane);
+                        }}
+                      >
+                        Add
+                      </button>
                     )}
-                  <button
-                    type="button"
-                    className="team__row-take"
-                    onClick={() => {
-                      setTouched(true);
-                      take(pane);
-                    }}
-                  >
-                    Add
-                  </button>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           </>
         )}

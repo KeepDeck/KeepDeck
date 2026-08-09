@@ -436,14 +436,27 @@ describe("TeamDialog", () => {
     expect(submit().disabled).toBe(true);
   });
 
-  it("says when a pooled pane already answers to another team", () => {
+  it("will not take a pooled pane that already answers to another team", () => {
+    // A pane holds ONE team, so "adding" one that has a team would not add
+    // it — it would pull it out of the other, whose remaining members are
+    // still briefed to address a role that then reaches nobody, and who are
+    // told nothing, because who left is asked only of the team being edited.
     const ws = workspace([pane("pane-1", { name: "web", role: "lead" })]);
     open(ws);
     type(nameField(), "api");
+    // Listed, and where it is said out loud: the agent has not vanished, it
+    // is spoken for. Hiding it would send somebody looking for it.
     expect(document.querySelector(".team__row-note")!.textContent).toContain("web");
-    // Once taken, the plan already moves it — the note would describe a
-    // state the person just changed.
-    act(() => adds()[0].click());
+    expect(adds()).toHaveLength(0);
+    expect(roles()).toHaveLength(0);
+  });
+
+  it("offers a free agent normally, and stops saying where it is once taken", () => {
+    const ws = workspace([pane("pane-1")]);
+    open(ws);
+    type(nameField(), "api");
     expect(document.querySelector(".team__row-note")).toBeNull();
+    act(() => adds()[0].click());
+    expect(roles()).toEqual(["lead"]);
   });
 });
