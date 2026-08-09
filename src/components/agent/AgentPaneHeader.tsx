@@ -33,6 +33,10 @@ export interface AgentPaneHeaderProps {
   /** The pane's place on a team, when it is on one. Shown as the role,
    * because the role is the address teammates use. */
   team?: { name: string; role: string } | null;
+  /** Whether the badge must also name the team — true where this deck runs
+   * more than one, which is the only case where a role alone is not an
+   * identity. A settled fact about the WHOLE deck: a header sees one pane. */
+  showTeamName?: boolean;
   gitBadge?: GitBadge | null;
   /** False while a modal or covering dock owns keyboard interaction — an
    * inline rename must not be left in flight underneath one. */
@@ -67,6 +71,7 @@ export function AgentPaneHeader({
   paneLive,
   yolo,
   team,
+  showTeamName,
   gitBadge,
   keyboardFocusEnabled,
   onSelect,
@@ -174,6 +179,7 @@ export function AgentPaneHeader({
               className="pane__team"
               team={team.name}
               role={team.role}
+              showTeamName={showTeamName}
               decorative
             />
           </button>

@@ -21,6 +21,7 @@ import {
   paneBody,
 } from "../domain/deck";
 import type { MinimizeStyle, DeckLayout } from "../domain/settings";
+import { teamNamesIn } from "../domain/mail/teamPlan";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedItem } from "./deck/MinimizedItem";
@@ -415,6 +416,12 @@ export function DeckStage({
               ? "Suspended"
               : "Minimized";
 
+        // Asked once for the deck, not once per pane: a role is only an
+        // identity while ONE team holds it, and with a second team running
+        // every badge needs to say which one it belongs to. The pane itself
+        // cannot see that — from where it stands, `lead` looks unique.
+        const teamsHere = teamNamesIn(ws).length;
+
         // Resolve one pane into a full AgentPane. The catalog / spec / cwd /
         // badge resolution lives in ONE place; `layout` carries positioning.
         const renderPane = (pane: Pane) => {
@@ -462,6 +469,7 @@ export function DeckStage({
               gitBadge={badge}
               yolo={pane.yolo}
               team={pane.team ?? null}
+              showTeamName={teamsHere > 1}
               onOpenTeam={onOpenTeam}
               visible={layout.visible}
               focused={layout.focused}

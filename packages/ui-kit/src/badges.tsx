@@ -97,6 +97,9 @@ export interface TeamBadgeProps {
   team: string;
   /** How teammates address this pane. */
   role: string;
+  /** Name the team beside the role. Pass it where the deck runs MORE than
+   * one: the caller knows that, the badge cannot. */
+  showTeamName?: boolean;
   /** md in the pane header (default), sm in the minimized stand-in. */
   size?: "md" | "sm";
   /** Site class hook (max-width, container queries). */
@@ -108,15 +111,24 @@ export interface TeamBadgeProps {
 /**
  * The pane's place on a team, as the bordered chip.
  *
- * It shows the ROLE, not the team, because the role is what a person needs
- * to read a conversation: it is the address teammates use, and a deck rarely
- * holds two teams at once while it always holds several roles. The team name
- * is in the tooltip, where it settles the ambiguity on the rare occasion
- * there is one.
+ * The ROLE leads, because the role is the address: it is what teammates
+ * write on a message and what a person needs to read a conversation. On a
+ * deck running one team that is the whole identity, and the team name would
+ * be the same word under every pane — a label that repeats itself carries
+ * nothing, and this header sheds chips at breakpoints rather than spend
+ * width on nothing.
+ *
+ * Running several, the role stops being an identity — two teams have a
+ * `lead` each and the deck shows no way to tell them apart. So the caller
+ * asks for the team, and it follows the role, dimmed: a qualifier on the
+ * address, not a second address. In that order on purpose — cut short by a
+ * narrow header, a clipped team ("ap…" vs "we…") still tells the teams
+ * apart, while a clipped role would not tell impl-1 from impl-2.
  */
 export function TeamBadge({
   team,
   role,
+  showTeamName,
   size,
   className,
   decorative,
@@ -126,7 +138,16 @@ export function TeamBadge({
       size={size}
       className={className}
       icon={<UsersIcon />}
-      label={role}
+      label={
+        showTeamName ? (
+          <>
+            {role}
+            <span className="team-badge__team"> · {team}</span>
+          </>
+        ) : (
+          role
+        )
+      }
       title={teamBadgeTitle(team, role)}
       aria-hidden={decorative || undefined}
     />

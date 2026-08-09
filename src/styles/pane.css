@@ -213,7 +213,11 @@
 
 .pane__team {
   overflow: hidden;
-  max-width: min(120px, 30vw);
+  /* Room for the qualified form ("reviewer-1 · platform") the badge wears on
+     a deck running several teams. A cap costs nothing when unreached — the
+     chip is sized by its content — so the bare role still takes the width of
+     a bare role. */
+  max-width: min(160px, 34vw);
   font-size: 12px;
 }
 

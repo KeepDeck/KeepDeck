@@ -58,6 +58,10 @@ export interface AgentPaneProps {
    * commands (a lead assigns its members), so this is how the person
    * watching learns what the agents arranged among themselves. */
   team?: { name: string; role: string } | null;
+  /** Whether the team badge must name the team too — true where the deck
+   * runs more than one. Settled by the deck, which is the only level that
+   * can see the other teams. */
+  showTeamName?: boolean;
   /** Open the team this pane is on — the way in to an existing team, since
    * the bar's button always starts a new one. */
   onOpenTeam?(name: string): void;
@@ -158,6 +162,7 @@ export function AgentPane({
   gitBadge,
   yolo,
   team,
+  showTeamName,
   onOpenTeam,
   visible,
   focused,
@@ -330,6 +335,7 @@ export function AgentPane({
         paneLive={paneLive}
         yolo={yolo}
         team={team}
+        showTeamName={showTeamName}
         onOpenTeam={onOpenTeam}
         gitBadge={gitBadge}
         onSelect={onSelect}
