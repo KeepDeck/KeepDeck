@@ -32,7 +32,11 @@ export type {
   StatusNormalizer,
   StatusWaitReason,
 } from "./status.ts";
-export { statusSourceInstant, turnFailedEvent } from "./status.ts";
+export {
+  frameTeammateMail,
+  statusSourceInstant,
+  turnFailedEvent,
+} from "./status.ts";
 export type {
   AccountUsage,
   AgentUsage,
