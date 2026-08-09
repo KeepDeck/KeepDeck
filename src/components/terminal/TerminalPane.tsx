@@ -113,12 +113,23 @@ export function TerminalPane({
   const fitRef = useRef<FitAddon | null>(null);
   const [inputVersion, setInputVersion] = useState(0);
   const focusInput = useCallback(() => termRef.current?.focus(), []);
+  // Only what is OURS to hand back. A modal that covers the deck is why this
+  // is asked for at all, and by the time it runs the dialog may already have
+  // taken the keyboard — blurring then would take it from the surface the
+  // user is looking at.
+  const releaseInput = useCallback(() => {
+    const term = termRef.current;
+    if (term?.textarea && document.activeElement === term.textarea) {
+      term.blur();
+    }
+  }, []);
   usePaneInputFocus(
     paneInputFocus,
     paneId,
     inputVersion > 0 && visible && selected === true && keyboardFocusEnabled,
     inputVersion,
     focusInput,
+    releaseInput,
   );
   // Transient in-pane notice ([F16]) — "File not found" after a Cmd+click on a
   // stale path (or a failed open). Self-clears; anchored to the click point.

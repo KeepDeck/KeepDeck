@@ -22,6 +22,7 @@ interface ProbeProps {
   active: boolean;
   inputVersion: number;
   focusInput: () => void;
+  releaseInput?: () => void;
 }
 
 function Probe(props: ProbeProps) {
@@ -31,9 +32,12 @@ function Probe(props: ProbeProps) {
     props.active,
     props.inputVersion,
     props.focusInput,
+    props.releaseInput ?? noop,
   );
   return null;
 }
+
+function noop() {}
 
 function render(props: ProbeProps) {
   root ??= createRoot(document.createElement("div"));
@@ -107,5 +111,49 @@ describe("usePaneInputFocus", () => {
 
     render({ ...props, active: true });
     expect(focusInput).toHaveBeenCalledOnce();
+  });
+
+  it("releases the keyboard when the pane stops being allowed it", () => {
+    const controller = createPaneInputFocusController();
+    const focusInput = vi.fn();
+    const releaseInput = vi.fn();
+    const props = {
+      controller,
+      paneId: "pane-1",
+      inputVersion: 1,
+      focusInput,
+      releaseInput,
+    };
+
+    render({ ...props, active: true });
+    expect(releaseInput).not.toHaveBeenCalled();
+
+    // A dialog opened over the deck. Taking focus was never the whole
+    // contract: a pane that already had it went on answering every key.
+    render({ ...props, active: false });
+    expect(releaseInput).toHaveBeenCalledOnce();
+
+    render({ ...props, active: true });
+    expect(releaseInput).toHaveBeenCalledOnce();
+    expect(focusInput).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases only on the edge, not on every render while inactive", () => {
+    const controller = createPaneInputFocusController();
+    const releaseInput = vi.fn();
+    const props = {
+      controller,
+      paneId: "pane-1",
+      inputVersion: 1,
+      focusInput: vi.fn(),
+      releaseInput,
+    };
+
+    // A pane that never held the keyboard has nothing to give back, and a
+    // repeat would fight whichever surface legitimately took it.
+    render({ ...props, active: false });
+    render({ ...props, active: false });
+
+    expect(releaseInput).not.toHaveBeenCalled();
   });
 });
