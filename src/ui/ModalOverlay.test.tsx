@@ -67,4 +67,90 @@ describe("ModalOverlay", () => {
     // re-create so afterEach's unmount is a no-op rather than a double-unmount.
     root = createRoot(stage);
   });
+
+  it("makes the app behind it inert, and gives it back on unmount", () => {
+    act(() =>
+      root.render(createElement(ModalOverlay, null, createElement("p", null, "x"))),
+    );
+
+    // Eating clicks never stopped the keyboard: the pane behind kept its
+    // focus and every key over the dialog still reached the agent.
+    expect(stage.hasAttribute("inert")).toBe(true);
+    expect(
+      document.querySelector(".modal-overlay")!.hasAttribute("inert"),
+    ).toBe(false);
+
+    act(() => root.unmount());
+    expect(stage.hasAttribute("inert")).toBe(false);
+    root = createRoot(stage);
+  });
+
+  it("takes the keyboard when the dialog placed it nowhere", () => {
+    // Two of the dialogs autofocus nothing at all, so without this the
+    // keyboard sits on <body> with the whole app inert behind it: nothing to
+    // tab from, and a screen reader landing outside the dialog.
+    act(() =>
+      root.render(createElement(ModalOverlay, null, createElement("p", null, "x"))),
+    );
+
+    expect(document.activeElement).toBe(
+      document.querySelector(".modal-overlay"),
+    );
+  });
+
+  it("leaves a dialog's own autofocus where the dialog put it", () => {
+    act(() =>
+      root.render(
+        createElement(
+          ModalOverlay,
+          null,
+          createElement("button", { autoFocus: true }, "Close"),
+        ),
+      ),
+    );
+
+    // Its choice, not ours: pulling focus back up to the backdrop would put
+    // the reader one Tab away from the control the dialog opened on.
+    expect(document.activeElement).toBe(document.querySelector("button"));
+  });
+
+  it("stacks: the confirm covers the dialog, which comes back when it goes", () => {
+    // The real shape — a ConfirmDialog renders its own ModalOverlay from
+    // inside an already-open one (SkillsDialog's delete, WorkspaceForm's
+    // nudge). Only exercised at the module level until now, and the module
+    // cannot see React's mount order or its portals.
+    function Stack({ confirm }: { confirm: boolean }) {
+      return createElement(
+        ModalOverlay,
+        null,
+        createElement("p", null, "dialog"),
+        confirm
+          ? createElement(
+              ModalOverlay,
+              { key: "c", children: createElement("p", null, "confirm") },
+            )
+          : null,
+      );
+    }
+
+    act(() => root.render(createElement(Stack, { confirm: false })));
+    const dialog = document.querySelector(".modal-overlay")!;
+
+    act(() => root.render(createElement(Stack, { confirm: true })));
+    const layers = document.querySelectorAll(".modal-overlay");
+    expect(layers).toHaveLength(2);
+    const confirm = layers[1];
+    // Tab past the confirm's last control must not walk into the form it is
+    // covering — the app root being inert is not enough on its own.
+    expect(dialog.hasAttribute("inert")).toBe(true);
+    expect(confirm.hasAttribute("inert")).toBe(false);
+    expect(document.activeElement).toBe(confirm);
+
+    act(() => root.render(createElement(Stack, { confirm: false })));
+    expect(dialog.hasAttribute("inert")).toBe(false);
+    // And the dialog underneath gets the keyboard back: the engine blurred it
+    // when it went inert, so lifting the attribute alone would leave it
+    // interactive with focus on <body> and its own Tab order dead.
+    expect(document.activeElement).toBe(dialog);
+  });
 });

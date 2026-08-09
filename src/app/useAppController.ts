@@ -194,7 +194,14 @@ export function useAppController() {
   const dockCovers = dockMode === "floating" && dockTabs.length > 0 && !!active;
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
-  const modalOpen = showForm || dialogOpen || modal.anyDialogOpen;
+  // `showForm` has two shapes and only one of them is a modal layer: the
+  // CREATE variant rides a ModalOverlay portaled over the whole window, while
+  // the zero-workspace variant renders in the deck overlay at z 10 and covers
+  // neither the top bar nor the rail. Counting the latter made this flag
+  // claim a modal the user could tab straight past — the same distinction
+  // `statsCovered` below already draws, for the same reason.
+  const formIsModalLayer = showForm && deck.workspaces.length > 0;
+  const modalOpen = formIsModalLayer || dialogOpen || modal.anyDialogOpen;
   const canAddAgent = !!active && !atCap && !modalOpen;
   const visibilityRef = useRef({
     activeId: deck.activeId,
@@ -378,6 +385,7 @@ export function useAppController() {
     setForkDialog,
     setFrozenAck,
     setRailCollapsed,
+    canCloseDialog: modal.canCloseDialog,
     openSettings: modal.openSettings,
     closeSettings: modal.closeSettings,
     openSkills: modal.openSkills,

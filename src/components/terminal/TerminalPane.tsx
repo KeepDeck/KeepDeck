@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -31,7 +31,10 @@ import {
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
 import { useAppRuntime } from "../../app/runtimeContext";
-import { usePaneInputFocus } from "../../presentation/usePaneInputFocus";
+import {
+  usePaneInputFocus,
+  type PaneKeyboard,
+} from "../../presentation/usePaneInputFocus";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */
@@ -112,13 +115,19 @@ export function TerminalPane({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [inputVersion, setInputVersion] = useState(0);
-  const focusInput = useCallback(() => termRef.current?.focus(), []);
+  // The hook latches these, so a fresh object each render costs nothing.
+  // `blur()` on a terminal that no longer holds the keyboard is a no-op, so
+  // the release needs no guard of its own.
+  const keyboard: PaneKeyboard = {
+    take: () => termRef.current?.focus(),
+    release: () => termRef.current?.blur(),
+  };
   usePaneInputFocus(
     paneInputFocus,
     paneId,
     inputVersion > 0 && visible && selected === true && keyboardFocusEnabled,
     inputVersion,
-    focusInput,
+    keyboard,
   );
   // Transient in-pane notice ([F16]) — "File not found" after a Cmd+click on a
   // stale path (or a failed open). Self-clears; anchored to the click point.

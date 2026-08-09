@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 import type { GitBadge } from "../../ui/gitBadge";
 import type { AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { MinimizedItem, MinimizedItemContent } from "./MinimizedItem";
+import { isBehindModalLayer } from "../../ui/inertBackground";
 
 export const MINIMIZED_TRAY_ITEM_MAX_WIDTH = 272;
 export const MINIMIZED_TRAY_GAP = 8;
@@ -200,7 +201,14 @@ function MinimizedOverflow({
   }, []);
 
   useEffect(() => {
+    // Both paths yield to a dialog stacked over the popover. They are
+    // capture-phase, so without the check Escape dismissed the popover first
+    // and then handed focus to an anchor the layer had already made
+    // unfocusable — silently dropping the keyboard — and a click on the
+    // backdrop closed a popover the user never touched. We are still here
+    // when the dialog goes.
     const onPointerDown = (event: PointerEvent) => {
+      if (isBehindModalLayer(popoverRef.current)) return;
       const target = event.target as Node;
       if (
         anchor.contains(target) ||
@@ -212,6 +220,7 @@ function MinimizedOverflow({
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (isBehindModalLayer(popoverRef.current)) return;
       onClose();
       anchor.focus();
     };

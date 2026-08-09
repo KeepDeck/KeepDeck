@@ -68,6 +68,7 @@ function renderHeader(): void {
       createElement(AgentPaneHeader, {
         paneId: "pane-1",
         title: "A deliberately long agent title that has to yield",
+        keyboardFocusEnabled: true,
         folded: false,
         focused: false,
         solo: false,

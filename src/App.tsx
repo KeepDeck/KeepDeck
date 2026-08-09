@@ -51,6 +51,7 @@ function App() {
     atCap,
     canAddAgent,
     canOpenDialog,
+    canCloseDialog,
     closeFlow,
     deck,
     deckLayout,
@@ -418,6 +419,7 @@ function App() {
             <SettingsDialog
               initialSectionId={settingsSection}
               onClose={closeSettings}
+              canClose={canCloseDialog}
             />
           )}
           {statsOpen && (
@@ -425,12 +427,14 @@ function App() {
               tab={statsTab}
               onSelectTab={selectStatsTab}
               onClose={closeStats}
+              canClose={canCloseDialog}
             />
           )}
           {skillsOpen && (
             <SkillsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}
               onClose={closeSkills}
+              canClose={canCloseDialog}
             />
           )}
           {closeFlow.closing && (

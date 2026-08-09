@@ -213,6 +213,33 @@ describe("SkillsDialog", () => {
     expect(lib.rename).not.toHaveBeenCalled();
   });
 
+  it("Escape closes the dialog, but belongs to a confirm stacked over it", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+
+    act(() => row("review")!.click());
+    act(() => button("Delete")!.click());
+    expect(document.querySelector(".confirm")).not.toBeNull();
+
+    const covered = new KeyboardEvent("keydown", {
+      key: "Escape",
+      cancelable: true,
+    });
+    await act(async () => {
+      window.dispatchEvent(covered);
+    });
+    // The confirm's own handler dismisses it; this dialog must not have
+    // claimed the same press, or one Escape would close both.
+    expect(document.querySelector(".skills")).not.toBeNull();
+
+    const own = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    await act(async () => {
+      window.dispatchEvent(own);
+    });
+    expect(closed).toBe(1);
+    expect(own.defaultPrevented).toBe(true);
+  });
+
   it("a stale operation error clears when navigating to another skill", async () => {
     lib.skills = [skill("review"), skill("deploy")];
     lib.error = "Save failed: disk full";

@@ -134,9 +134,7 @@ export function WorkspaceForm({
 
   // Esc closes the form when there's a workspace to return to — but not while
   // the nudge is open (its own Esc handles that, so the form stays put).
-  useEscape(() => {
-    if (onCancel && !nudge) onCancel();
-  });
+  useEscape(() => onCancel?.(), Boolean(onCancel) && !nudge);
 
   const chooseDirectory = async () => {
     const selected = await pickFolder("Choose working directory");

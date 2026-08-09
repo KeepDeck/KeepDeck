@@ -31,6 +31,9 @@ export interface AgentPaneHeaderProps {
   paneLive: boolean;
   yolo?: boolean;
   gitBadge?: GitBadge | null;
+  /** False while a modal or covering dock owns keyboard interaction — an
+   * inline rename must not be left in flight underneath one. */
+  keyboardFocusEnabled: boolean;
   onSelect(): void;
   onRename(name: string): void;
   onMinimize?(): void;
@@ -58,6 +61,7 @@ export function AgentPaneHeader({
   paneLive,
   yolo,
   gitBadge,
+  keyboardFocusEnabled,
   onSelect,
   onRename,
   onMinimize,
@@ -65,7 +69,10 @@ export function AgentPaneHeader({
   onClose,
 }: AgentPaneHeaderProps) {
   // Inline rename of the header title ([F11]); empty commit = back to auto.
-  const rename = useInlineRename((_key, name) => onRename(name));
+  const rename = useInlineRename(
+    (_key, name) => onRename(name),
+    keyboardFocusEnabled,
+  );
   return (
     <header className="pane__bar" onClick={folded ? onSelect : undefined}>
       {folded && (

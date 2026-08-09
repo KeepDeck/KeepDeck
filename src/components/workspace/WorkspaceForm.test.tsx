@@ -109,6 +109,53 @@ describe("WorkspaceForm worktree directory", () => {
     await act(async () => {}); // flush the inspectDir probe
   };
 
+  /** One Escape at the window, as `useEscape` hears it. */
+  const escape = (): KeyboardEvent => {
+    const event = new KeyboardEvent("keydown", {
+      key: "Escape",
+      cancelable: true,
+    });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    return event;
+  };
+
+  it("Escape cancels when there is a workspace to return to", async () => {
+    const onCancel = vi.fn();
+    await seedDefaultAgent("claude");
+    await act(async () =>
+      root.render(
+        createElement(WorkspaceForm, {
+          onCreate: (c: SpawnConfig) => created.push(c),
+          onCancel,
+          pickFolder: async () => "/repo",
+          inspectDir: async () => ({ isRepo: false, branch: null }),
+        }),
+      ),
+    );
+
+    expect(escape().defaultPrevented).toBe(true);
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("Escape is left alone on the first-run form, which has nothing to cancel", async () => {
+    await seedDefaultAgent("claude");
+    await act(async () =>
+      root.render(
+        createElement(WorkspaceForm, {
+          onCreate: (c: SpawnConfig) => created.push(c),
+          pickFolder: async () => "/repo",
+          inspectDir: async () => ({ isRepo: false, branch: null }),
+        }),
+      ),
+    );
+
+    // No `onCancel` at all on the zero-workspace screen. Claiming the press
+    // there swallowed Escape window-wide and dismissed nothing.
+    expect(escape().defaultPrevented).toBe(false);
+  });
+
   it("submits worktreeBaseDir: null while the field is empty", async () => {
     await mount(false);
     submit();

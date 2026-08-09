@@ -13,6 +13,9 @@ import { SETTINGS_SECTIONS } from "./sections";
 
 interface SettingsDialogProps {
   onClose(): void;
+  /** False while a transaction (a confirm, an alert) is stacked over this
+   * dialog: `onClose` refuses then, so Escape must not be claimed either. */
+  canClose?: boolean;
   /** Open on this section instead of the first one — the bar's update chip
    * jumps to Updates, a plugin's `settings.open` command to its own
    * `plugin:<id>` page. Unknown ids fall back to the first section. */
@@ -31,10 +34,11 @@ interface SettingsDialogProps {
  */
 export function SettingsDialog({
   onClose,
+  canClose = true,
   initialSectionId,
 }: SettingsDialogProps) {
   const { pluginHost, pluginRegistries } = useAppRuntime().plugins;
-  useEscape(onClose);
+  useEscape(onClose, canClose);
   const installed = useInstalledPlugins(pluginHost);
   const contributed = useContributions(pluginRegistries.settingsSections);
   const featureCatalog = buildAgentFeatureCatalog(installed);

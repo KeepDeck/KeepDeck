@@ -26,6 +26,11 @@
   background-color: rgba(7, 9, 13, 0.66);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
+  /* The backdrop is tabindex=-1 and takes the keyboard itself when the dialog
+     autofocuses nothing, so without this a focus ring can be drawn around the
+     whole viewport. Same kill as .peek__body, which is where that focus
+     handling was borrowed from. */
+  outline: none;
 }
 
 /* An external plugin's resident overlay: the plugin's own document over the

@@ -78,6 +78,11 @@ export function useModalRouter({
   return {
     anyDialogOpen,
     canOpenDialog,
+    /** Whether a dialog may close itself right now. Every close verb below
+     * already refuses while a transaction is up; a dialog that owns an Escape
+     * listener has to know BEFORE it cancels the press, or it swallows one it
+     * will not act on. */
+    canCloseDialog: !transactionOpen,
     settingsOpen,
     settingsSection,
     openSettings,
