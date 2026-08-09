@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Mail } from "../../domain/mail";
 import { registerPaneInput } from "../paneInput";
-import { deliverMailThroughPty, renderMail } from "./ptyDelivery";
+import {
+  deliverMailThroughPty,
+  renderMail,
+  wakePaneForMail,
+} from "./ptyDelivery";
 
 const cleanups: (() => void)[] = [];
 
@@ -137,6 +141,49 @@ describe("deliverMailThroughPty", () => {
     // and send an empty line into the agent's composer.
     const calls = pane("pane-2", { paste: false });
     expect(deliverMailThroughPty(mail(), SETTLED)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("wakePaneForMail", () => {
+  it("submits the nudge as its own gesture, paste before the CR", () => {
+    // The primary wake for every agent whose mail rides a hook, and it had
+    // no test at all. The ordering is the whole mechanism: xterm wraps a
+    // paste in bracketed-paste markers, so a CR concatenated onto the text
+    // arrives as pasted CONTENT and the line sits in the composer unsent —
+    // which is indistinguishable from a delivery to everything upstream.
+    const calls = pane("pane-2");
+    expect(wakePaneForMail("pane-2", SETTLED)).toBe(true);
+    expect(calls.map((call) => call.channel)).toEqual(["paste", "write"]);
+    expect(calls[1].text).toBe("\r");
+  });
+
+  it("says whose line it is, and carries no message", () => {
+    // It exists to make a pane take a turn; the words then arrive through
+    // the agent's own channel, labelled. Anything typed at a terminal
+    // otherwise reads as the person speaking.
+    const calls = pane("pane-2");
+    wakePaneForMail("pane-2", SETTLED);
+    expect(calls[0].text).toContain("[keepdeck]");
+    expect(calls[0].text).toContain("not from your user");
+    expect(calls[0].text).toContain("mail.inbox");
+  });
+
+  it("waits for a pane that has only just become writable", () => {
+    // A writer existing is not the CLI reading it. Nudging then leaves the
+    // line in a composer that never submits — observed live, and the reason
+    // the settle window exists at all.
+    pane("pane-2");
+    expect(wakePaneForMail("pane-2", Date.now())).toBe(false);
+  });
+
+  it("reports a pane with no live session as a retry, writing nothing", () => {
+    expect(wakePaneForMail("pane-nobody", SETTLED)).toBe(false);
+  });
+
+  it("refuses a type-only pane rather than sending a bare CR", () => {
+    const calls = pane("pane-2", { paste: false });
+    expect(wakePaneForMail("pane-2", SETTLED)).toBe(false);
     expect(calls).toEqual([]);
   });
 });

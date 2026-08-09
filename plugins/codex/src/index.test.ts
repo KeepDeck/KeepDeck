@@ -5,13 +5,24 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
+import { renderCodexMail } from "./status";
 
-/** Activate against a minimal fake ctx; returns the registered agent. */
+/** Activate against a minimal fake ctx; returns the registered agent.
+ *
+ * `scriptPath` stands for the resources DIRECTORY and every name resolves
+ * inside it. It used to answer ONE path for every name, which made the two
+ * reporters indistinguishable: swapping which script armed the turn events,
+ * or misspelling a resource name, left every test green while production
+ * lost all status and all mail. Null means nothing resolves, as on a broken
+ * install. */
 function activate(scriptPath: string | null): AgentContribution {
   let agent: AgentContribution | undefined;
   plugin.activate({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
-    resources: { path: async () => scriptPath },
+    resources: {
+      path: async (name: string) =>
+        scriptPath === null ? null : scriptPath.replace(/[^/]+$/, name),
+    },
   } as unknown as PluginContext);
   if (!agent) throw new Error("plugin registered no agent");
   return agent;
@@ -80,9 +91,17 @@ describe("codex plugin hooks", () => {
     // table ×2, + 2 paste-burst override args.
     expect(out.args).toHaveLength(14);
     expect(out.args[0]).toBe("-c");
+    // The IDENTITY hook on SessionStart, by name. The two reporters answer
+    // different questions and only one of them may sit here; a stub that
+    // could not tell them apart let the wrong one be armed unnoticed.
     expect(out.args[1]).toContain(
       `command="/bin/sh '/App/resources/kd-session-hook.sh' codex"`,
     );
+    // And the STATUS hook on every turn event, never the identity one.
+    for (const arg of out.args.filter((a) => /^hooks\.(UserPromptSubmit|Stop)=/.test(a))) {
+      expect(arg).toContain("kd-status-hook.sh");
+      expect(arg).not.toContain("kd-session-hook.sh");
+    }
     for (const event of [
       "UserPromptSubmit",
       "Stop",
@@ -303,5 +322,14 @@ describe("codex plugin identity", () => {
     const agent = activate(null);
     expect(agent.usage?.tail).toBe("codex");
     expect(agent.usage?.limits?.poll).toBe("codex-app-server");
+  });
+
+  it("contributes its mail renderer, which is what puts it on the labelled channel", () => {
+    // By identity: the deck looks for exactly this field to decide whether a
+    // pane is worth holding mail for, so a plugin that renders mail perfectly
+    // and forgets to contribute it has its messages typed into a terminal
+    // instead — with every renderer test still green.
+    const agent = activate("/App/resources/kd-session-hook.sh");
+    expect(agent.status?.renderMail).toBe(renderCodexMail);
   });
 });

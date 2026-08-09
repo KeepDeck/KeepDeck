@@ -5,6 +5,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
+import { renderClaudeMail } from "./status";
 
 /** Activate against a minimal fake ctx; returns the registered agent.
  * `resources` maps script name → resolved path (missing name = null), so a
@@ -425,5 +426,15 @@ describe("claude fork.plan", () => {
       ),
     ).rejects.toThrow("shorter path");
     expect(copies).toEqual([]); // zero writes on refusal
+  });
+
+  it("contributes its mail renderer, which is what puts it on the labelled channel", () => {
+    // Asserted by IDENTITY, not by "something is defined": the deck decides
+    // whether a pane is worth holding mail for by looking for exactly this
+    // field, so a plugin that renders mail perfectly and forgets to
+    // contribute it falls back to having its messages typed into a terminal
+    // — with every renderer test still green.
+    const agent = activate({ ...SESSION_HOOK, ...STATUS_HOOK });
+    expect(agent.status?.renderMail).toBe(renderClaudeMail);
   });
 });
