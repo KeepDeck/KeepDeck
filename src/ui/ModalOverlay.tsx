@@ -17,10 +17,15 @@ import { inertBackground } from "./inertBackground";
  * pane behind the backdrop.
  *
  * Nor is it enough to stop the KEYBOARD, which reaches a pane without ever
- * touching the backdrop — see [`inertBackground`], applied here because this
- * is the one shell every dialog is built on. This shell does not DECIDE that a
- * dialog owns the keyboard; the app decided that upstream when it opened one.
- * It enforces it in the DOM, which is the only place the enforcement can live.
+ * touching the backdrop — see [`inertBackground`], which this shell pushes
+ * itself onto. It is the shell all of the app's OWN dialogs are built on, but
+ * not every modal surface in the tree: ui-kit's `Peek` is a full-window
+ * `aria-modal` panel that deliberately renders in place instead of portaling,
+ * and pushes no layer.
+ *
+ * This shell decides nothing. The app decided a dialog owns the keyboard when
+ * it opened one; the layer stack owns where that keyboard actually sits, in
+ * both directions, because only it knows whether another layer is underneath.
  */
 export function ModalOverlay({ children }: { children: ReactNode }) {
   const layerRef = useRef<HTMLDivElement>(null);
@@ -31,43 +36,12 @@ export function ModalOverlay({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     const layer = layerRef.current;
     if (!layer) return;
-
-    // Where the keyboard was before we took it. A dialog that autofocuses its
-    // own control has already done so by now (React commits `autoFocus`
-    // child-first), so anything inside the layer is OUR doing and not a place
-    // to give focus back to.
-    const previous = document.activeElement;
-    const restoreTo =
-      previous instanceof HTMLElement && !layer.contains(previous)
-        ? previous
-        : null;
-
-    const release = inertBackground(layer);
-    // Making the background inert BLURS whatever it held, which leaves the
-    // keyboard on <body> — the dialog is up and nothing in it can be typed
-    // into or tabbed through. Take it, unless the dialog already placed it:
-    // some autofocus their own control, and stealing it back would undo a
-    // deliberate choice. The same test as [`Peek`]'s.
-    if (!layer.contains(document.activeElement)) {
-      layer.focus({ preventScroll: true });
-    }
-
-    return () => {
-      release();
-      // Hand the keyboard back where we found it. Only while WE still hold it:
-      // the pane's own focus effect runs after this cleanup and must win when
-      // it applies, and any other surface that claimed focus in the meantime
-      // outranks a restore. Without this the keyboard is simply dropped — the
-      // pane reclaims it only when one is selected, visible and allowed it,
-      // and on every other close path focus was left on <body>.
-      if (!layer.contains(document.activeElement)) return;
-      if (restoreTo?.isConnected) restoreTo.focus({ preventScroll: true });
-    };
+    return inertBackground(layer);
   }, []);
 
   return createPortal(
-    // tabIndex so the layer itself can hold the keyboard for a dialog with
-    // nothing focusable of its own yet (a form still loading its options).
+    // tabIndex so the layer can hold the keyboard for a dialog that focuses
+    // nothing of its own — three of them do not.
     <div
       ref={layerRef}
       className="modal-overlay"

@@ -11,7 +11,11 @@ import type { PaneInputFocusSource } from "./paneInputFocusController";
 export interface PaneKeyboard {
   /** Put the keyboard in this pane's input surface. */
   take(): void;
-  /** Give it back, if this pane is still the one holding it. */
+  /**
+   * Give it back. Blurring an element that is not focused is already a no-op,
+   * so this needs no "is it still mine" guard — and must not grow one, since
+   * on most edges the engine or a covering layer got there first.
+   */
   release(): void;
 }
 
@@ -43,6 +47,11 @@ export function usePaneInputFocus(
   );
   const previous = useRef({ active: false, inputVersion });
   const handledRequestVersion = useRef(0);
+  // Latched rather than a dependency, the way this codebase's other
+  // event-bound hooks do it: the verbs are read at edge time, so a caller
+  // passing a fresh object each render must not be made to memoise one.
+  const verbs = useRef(keyboard);
+  verbs.current = keyboard;
 
   useLayoutEffect(() => {
     const becameActive = active && !previous.current.active;
@@ -58,8 +67,8 @@ export function usePaneInputFocus(
     if (explicitlyRequested) {
       handledRequestVersion.current = request.version;
     }
-    if (becameActive || inputChanged || explicitlyRequested) keyboard.take();
+    if (becameActive || inputChanged || explicitlyRequested) verbs.current.take();
     // Never both: every take requires `active`, and this is its edge away.
-    if (becameInactive) keyboard.release();
-  }, [active, inputVersion, keyboard, paneId, request]);
+    if (becameInactive) verbs.current.release();
+  }, [active, inputVersion, paneId, request]);
 }

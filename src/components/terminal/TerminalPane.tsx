@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -35,7 +35,6 @@ import {
   usePaneInputFocus,
   type PaneKeyboard,
 } from "../../presentation/usePaneInputFocus";
-import { releaseKeyboard } from "../../presentation/releaseKeyboard";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */
@@ -116,15 +115,13 @@ export function TerminalPane({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [inputVersion, setInputVersion] = useState(0);
-  // Stable for the pane's life: both verbs reach the terminal through the ref,
-  // so nothing here re-runs the focus effect.
-  const keyboard = useMemo<PaneKeyboard>(
-    () => ({
-      take: () => termRef.current?.focus(),
-      release: () => releaseKeyboard(termRef.current?.textarea),
-    }),
-    [],
-  );
+  // The hook latches these, so a fresh object each render costs nothing.
+  // `blur()` on a terminal that no longer holds the keyboard is a no-op, so
+  // the release needs no guard of its own.
+  const keyboard: PaneKeyboard = {
+    take: () => termRef.current?.focus(),
+    release: () => termRef.current?.blur(),
+  };
   usePaneInputFocus(
     paneInputFocus,
     paneId,
