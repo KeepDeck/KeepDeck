@@ -99,12 +99,57 @@ export type AgentFeatureParameter =
   | null
   | readonly (string | number | boolean | null)[];
 
-/** The binaries a plugin's declared agents need — the host's pre-activation
- * input to one shared detection pass and its activation gate. */
+/**
+ * The binaries a plugin's declared agents need — the host's pre-activation
+ * input to one shared detection pass and its activation gate.
+ *
+ * Only the ones an `exec` capability covers. Detection RUNS these now (a
+ * `--version` probe, so a renderer can speak the hook schema its release
+ * accepts), and running a program is precisely what that capability governs.
+ * The activation gate applies the same rule to `detect.bin`, but activation
+ * happens after detection — so a manifest field alone could name any
+ * path-resolvable program and have it executed at boot, for a plugin the
+ * user had installed and never enabled.
+ */
 export function declaredAgentBins(manifest: PluginManifest): string[] {
   return (manifest.contributes.agents ?? [])
     .map((agent) => agent.bin)
-    .filter((bin): bin is string => typeof bin === "string" && bin !== "");
+    .filter((bin): bin is string => typeof bin === "string" && bin !== "")
+    .filter((bin) => execCovers(manifest.capabilities, bin));
+}
+
+/**
+ * Whether a declared `exec` capability covers `subject` — the program a
+ * session is about to spawn, a bin about to be probed, or the literal
+ * `"$SHELL"` for the user's shell.
+ *
+ * An entry covers `subject` two ways: an exact string match, or a basename
+ * match — declaring `"git"` covers a spawn of `/usr/bin/git`, because a
+ * manifest author cannot be expected to guess the host's install path.
+ *
+ * There is no wildcard. `readManifest` rejects a bare `"*"` outright, so an
+ * entry meaning "any program" cannot reach this function from a manifest —
+ * and honouring one here anyway would only re-open the hole by a second
+ * route.
+ *
+ * It lives beside the manifest reader because it is a rule ABOUT manifests,
+ * and every asker needs the same answer: the spawn gate, the activation
+ * gate, the consent UI previewing what a declaration will let through, and
+ * `declaredAgentBins` above.
+ */
+export function execCovers(
+  capabilities: readonly Capability[],
+  subject: string,
+): boolean {
+  const cut = Math.max(subject.lastIndexOf("/"), subject.lastIndexOf("\\"));
+  const base = cut < 0 ? subject : subject.slice(cut + 1);
+  return capabilities.some(
+    (capability) =>
+      capability.kind === "exec" &&
+      capability.commands.some(
+        (command) => command === subject || command === base,
+      ),
+  );
 }
 
 /** Plugin categories. `cli` teaches KeepDeck a coding agent — it may

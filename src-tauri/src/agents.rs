@@ -49,6 +49,13 @@ fn detect_bins(bins: Vec<String>, path: &std::ffi::OsStr) -> Vec<BinStatusDto> {
         .collect()
 }
 
+/// How long a `--version` probe may take before it is killed, and how often
+/// it is checked. Two seconds is generous for a program that answers by
+/// printing one line; the poll is short enough that a normal probe adds
+/// nothing measurable to boot.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
 /// Ask a resolved binary what version it is, best-effort.
 ///
 /// `--version` is the one flag every agent CLI here answers, and it is the
@@ -60,11 +67,35 @@ fn detect_bins(bins: Vec<String>, path: &std::ffi::OsStr) -> Vec<BinStatusDto> {
 /// It runs on the augmented spawn PATH, like the resolution above, so a CLI
 /// that shells out to a sibling tool finds it.
 fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<String> {
-    let out = std::process::Command::new(program)
+    let mut child = std::process::Command::new(program)
         .arg("--version")
         .env("PATH", path)
-        .output()
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .ok()?;
+    // Bounded, because detection runs at boot and one program that never
+    // exits would hold every agent's availability behind it — the pass is
+    // sequential and the deck waits on all of it. A version banner is
+    // printed immediately or not at all; anything slower is not answering.
+    let deadline = std::time::Instant::now() + PROBE_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(PROBE_POLL);
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                log::warn!("agents: {} did not answer --version", program.display());
+                return None;
+            }
+            Err(_) => return None,
+        }
+    }
+    let out = child.wait_with_output().ok()?;
     // stdout by convention, stderr because some CLIs answer there instead.
     let said = String::from_utf8_lossy(&out.stdout).into_owned()
         + &String::from_utf8_lossy(&out.stderr);

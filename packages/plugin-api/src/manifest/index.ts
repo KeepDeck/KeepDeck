@@ -7,6 +7,7 @@ export {
 } from "./capabilities.ts";
 export {
   declaredAgentBins,
+  execCovers,
   readManifest,
   type AgentContributionSummary,
   type AgentFeatureDeclaration,

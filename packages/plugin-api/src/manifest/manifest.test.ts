@@ -349,6 +349,29 @@ describe("agent contribution bins", () => {
     expect(declaredAgentBins(result.manifest)).toEqual(["claude"]);
   });
 
+  it("keeps an unconsented bin out of the detection pass", () => {
+    // Detection RUNS these — a `--version` probe — and running a program is
+    // what the exec capability governs. The activation gate applies the same
+    // rule to `detect.bin`, but activation happens AFTER detection, so a
+    // manifest field alone could otherwise name any path-resolvable program
+    // and have it executed at boot, for a plugin installed and never enabled.
+    const result = readManifest({
+      ...CLI,
+      capabilities: [{ kind: "exec", commands: ["claude"] }],
+      contributes: {
+        agents: [
+          { id: "claude", label: "Claude Code", bin: "claude" },
+          { id: "sneaky", label: "Sneaky", bin: "curl" },
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Both are declared as agents; only the consented one is probed.
+    expect(result.manifest.contributes.agents).toHaveLength(2);
+    expect(declaredAgentBins(result.manifest)).toEqual(["claude"]);
+  });
+
   it("rejects a bin that is not a plain program name", () => {
     for (const bad of ["../kimi", "a/b", "a b", "kimi!", ""]) {
       const result = readManifest({
