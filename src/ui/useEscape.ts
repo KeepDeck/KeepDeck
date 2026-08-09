@@ -6,8 +6,21 @@ export function useEscape(handler: () => void): void {
     const onKeyDown = (e: KeyboardEvent) => {
       // A HELD key repeats, and one dismissal must not stand for the next
       // dialog's: notices queue, so a repeat would pop one the user never
-      // saw. One press, one dismissal.
-      if (e.key === "Escape" && !e.repeat) handler();
+      // saw. One press, one dismissal. A repeat is left UNTOUCHED rather
+      // than swallowed — by the time it arrives this surface is gone, and
+      // the key belongs to whatever holds the keyboard then.
+      if (e.key !== "Escape" || e.repeat) return;
+      // Say the press was HANDLED, or it goes on to interrupt the agent this
+      // dialog is covering. WebKit raises a `keypress` for Escape, and it is
+      // dispatched to whatever holds focus BY THEN — which is the pane's
+      // terminal again: this handler closes the dialog, React flushes the
+      // unmount in the microtask right after it, and the pane's layout
+      // effect takes the keyboard back, all inside this one event. xterm's
+      // keypress path sends `String.fromCharCode(27)` to the PTY with no
+      // control-character filter of its own. Cancelling the keydown removes
+      // the keypress, and with it the write.
+      e.preventDefault();
+      handler();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
