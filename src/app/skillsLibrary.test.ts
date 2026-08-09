@@ -10,17 +10,36 @@ import type { StoredSkill } from "../ipc/skills";
 const GLOBAL: SkillScope = { kind: "global" };
 const WS: SkillScope = { kind: "workspace", wsId: "ws-1" };
 
+// Named for a skill the fake library actually holds, so a mutation's existence
+// precondition is satisfied unless a case deliberately breaks it.
 const draft = (over: Partial<SkillDraft> = {}): SkillDraft => ({
-  name: "review-diff",
+  name: "review",
   description: "Use when reviewing a diff",
   body: "Read the diff first.\n",
   extraFrontmatter: [],
   ...over,
 });
 
+/** The library as the backend sees it: one global and one workspace skill, both
+ * named `review`, so a scope mix-up cannot pass unnoticed. */
+const STORED: StoredSkill[] = [
+  {
+    scope: "global",
+    wsId: null,
+    name: "review",
+    content: "---\nname: review\ndescription: Global one\nlicense: MIT\n---\nGlobal body\n",
+  },
+  {
+    scope: "workspace",
+    wsId: "ws-1",
+    name: "review",
+    content: "---\nname: review\ndescription: Workspace one\n---\nWs body\n",
+  },
+];
+
 function libraryOver(over: Partial<SkillStorageFakes> = {}) {
   const storage = {
-    fetch: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
+    fetch: vi.fn<() => Promise<StoredSkill[]>>(async () => STORED),
     save: vi.fn<SkillsStorage["save"]>(async () => {}),
     rename: vi.fn<SkillsStorage["rename"]>(async () => {}),
     remove: vi.fn<SkillsStorage["remove"]>(async () => {}),
@@ -56,8 +75,12 @@ describe("a write reports the library as changed", () => {
   it("invalidates after an update, a rename and a remove", async () => {
     const { library, invalidateSkills } = libraryOver();
     await library.update(WS, draft());
-    await library.rename(WS, "review-diff", "review-patch");
-    await library.remove(WS, "review-patch");
+    expect(invalidateSkills).toHaveBeenCalledTimes(1);
+    await library.rename(WS, "review", "review");
+    // ONE invalidation for a rename, even though it writes twice (move, then
+    // rewrite the frontmatter name) — a rename is one mutation.
+    expect(invalidateSkills).toHaveBeenCalledTimes(2);
+    await library.remove(WS, "review");
     expect(invalidateSkills).toHaveBeenCalledTimes(3);
   });
 
@@ -85,7 +108,7 @@ describe("create and update differ only in what they refuse", () => {
     await library.create(GLOBAL, draft());
     expect(storage.save).toHaveBeenCalledWith(
       GLOBAL,
-      "review-diff",
+      "review",
       expect.any(String),
       true,
     );
@@ -94,17 +117,99 @@ describe("create and update differ only in what they refuse", () => {
   it("update overwrites in place", async () => {
     const { library, storage } = libraryOver();
     await library.update(WS, draft());
-    expect(storage.save).toHaveBeenCalledWith(WS, "review-diff", expect.any(String), false);
+    expect(storage.save).toHaveBeenCalledWith(WS, "review", expect.any(String), false);
   });
 
   it("composes the stored file through the domain, keeping hand-added keys", async () => {
     const { library, storage } = libraryOver();
     await library.create(GLOBAL, draft({ extraFrontmatter: ["allowed-tools: Read"] }));
     const back = written(storage.save);
-    expect(back.name).toBe("review-diff");
+    expect(back.name).toBe("review");
     expect(back.description).toBe("Use when reviewing a diff");
     expect(back.body).toBe("Read the diff first.\n");
     expect(back.extraFrontmatter).toEqual(["allowed-tools: Read"]);
+  });
+});
+
+describe("the library owns every precondition, not the door", () => {
+  // The storage underneath cannot enforce these: `save` writes whether or not
+  // the skill exists, and `delete` calls a missing directory a success. With the
+  // guards at one door, the editor resurrected skills an agent had deleted.
+  it("refuses an update of a skill that is not there, instead of creating it", async () => {
+    const { library, storage } = libraryOver();
+    await expect(library.update(GLOBAL, draft({ name: "ghost" }))).rejects.toThrow(
+      /No skill "ghost" in the global library/,
+    );
+    expect(storage.save).not.toHaveBeenCalled();
+  });
+
+  it("refuses a remove of a skill that is not there, instead of answering done", async () => {
+    const { library, storage } = libraryOver();
+    await expect(library.remove(GLOBAL, "ghost")).rejects.toThrow(/No skill "ghost"/);
+    expect(storage.remove).not.toHaveBeenCalled();
+  });
+
+  it("refuses a rename of a skill that is not there", async () => {
+    const { library, storage } = libraryOver();
+    await expect(library.rename(GLOBAL, "ghost", "shade")).rejects.toThrow(/No skill "ghost"/);
+    expect(storage.rename).not.toHaveBeenCalled();
+  });
+
+  it("checks existence in the scope asked for, not any scope", async () => {
+    // Both scopes hold a `review`; a workspace-scoped update must not be
+    // satisfied by the global one.
+    const { library } = libraryOver();
+    await expect(
+      library.update({ kind: "workspace", wsId: "ws-9" }, draft()),
+    ).rejects.toThrow(/No skill "review" in this workspace's library/);
+  });
+
+  it("names the scope without an opaque id — no surface shows one", async () => {
+    const { library } = libraryOver();
+    await expect(library.remove(WS, "ghost")).rejects.toThrow(
+      "No skill \"ghost\" in this workspace's library",
+    );
+  });
+});
+
+describe("a rename moves the directory AND fixes the file", () => {
+  it("rewrites the frontmatter name, so the two identities agree", async () => {
+    // The CLIs read `name:` from the file — that is why compose emits it. A move
+    // alone leaves a directory saying one name over a file saying another.
+    const { library, storage } = libraryOver({
+      fetch: vi
+        .fn<() => Promise<StoredSkill[]>>()
+        // The pre-move library, then the post-move one the recompose reads.
+        .mockResolvedValueOnce(STORED)
+        .mockResolvedValue([
+          {
+            scope: "global",
+            wsId: null,
+            name: "deep-review",
+            content: "---\nname: review\ndescription: Global one\nlicense: MIT\n---\nGlobal body\n",
+          },
+        ]),
+    });
+
+    await library.rename(GLOBAL, "review", "deep-review");
+
+    expect(storage.rename).toHaveBeenCalledWith(GLOBAL, "review", "deep-review");
+    const [, name, content] = storage.save.mock.calls[0];
+    expect(name).toBe("deep-review");
+    const back = parseSkillFile(content);
+    expect(back.name).toBe("deep-review");
+    // And nothing else about the skill changed.
+    expect(back.description).toBe("Global one");
+    expect(back.body).toBe("Global body\n");
+    expect(back.extraFrontmatter).toEqual(["license: MIT"]);
+  });
+
+  it("does not move at all when the new name is invalid", async () => {
+    const { library, storage } = libraryOver();
+    await expect(library.rename(GLOBAL, "review", "Review Diff")).rejects.toThrow(
+      /not a valid skill name/,
+    );
+    expect(storage.rename).not.toHaveBeenCalled();
   });
 });
 
@@ -140,7 +245,7 @@ describe("what the library refuses", () => {
 
   it("rejects renaming TO an invalid name, and moves nothing", async () => {
     const { library, storage } = libraryOver();
-    await expect(library.rename(GLOBAL, "review-diff", "Review Diff")).rejects.toThrow(
+    await expect(library.rename(GLOBAL, "review", "Review Diff")).rejects.toThrow(
       /not a valid skill name/,
     );
     expect(storage.rename).not.toHaveBeenCalled();

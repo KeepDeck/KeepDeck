@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   composeSkillFile,
-  isValidSkillDescription,
   isValidSkillName,
   normalizeSkillDescription,
   parseSkillFile,
   sameSkillScope,
+  skillDescriptionProblem,
+  skillDraftOf,
   skillScopeOf,
 } from "./skills";
 
@@ -19,9 +20,16 @@ describe("skill names", () => {
     }
   });
 
-  it("keeps descriptions single-line", () => {
-    expect(isValidSkillDescription("one line")).toBe(true);
-    expect(isValidSkillDescription("two\nlines")).toBe(false);
+  it("names what is wrong with a description, in one verdict", () => {
+    expect(skillDescriptionProblem("one line")).toBeNull();
+    expect(skillDescriptionProblem("two\nlines")).toBe("multiline");
+    // Empty is a problem, not merely unhelpful: agents select on the
+    // description, and some drop a skill that has none.
+    expect(skillDescriptionProblem("")).toBe("empty");
+    expect(skillDescriptionProblem("   ")).toBe("empty");
+    // Empty is reported BEFORE multiline, so a blank-but-multiline paste reads
+    // as the thing the author has to fix.
+    expect(skillDescriptionProblem(" \n ")).toBe("empty");
   });
 
   it("folds pasted newlines onto the one-line contract", () => {
@@ -32,8 +40,8 @@ describe("skill names", () => {
     expect(normalizeSkillDescription("first\nsecond")).toBe("first second");
     expect(normalizeSkillDescription("first  \r\n   second")).toBe("first second");
     expect(normalizeSkillDescription("first\n\n\nsecond")).toBe("first second");
-    // The result always satisfies the validator it exists to serve.
-    expect(isValidSkillDescription(normalizeSkillDescription("a\nb\r\nc"))).toBe(true);
+    // The result always satisfies the verdict it exists to serve.
+    expect(skillDescriptionProblem(normalizeSkillDescription("a\nb\r\nc"))).toBeNull();
   });
 });
 
@@ -136,20 +144,43 @@ describe("compose/parse round-trip", () => {
     expect(parsed.body).toBe("Body\n");
   });
 
-  it("keeps the FIRST duplicated key and preserves the rest verbatim", () => {
+  it("keeps the FIRST duplicated key and DROPS the shadowed one", () => {
+    // Keeping the duplicate used to look like "nothing is ever lost", but
+    // compose emits the extras AFTER the authoritative lines, so a save put the
+    // stale value last — and a real YAML parser (which is what every CLI uses
+    // here) takes the last duplicate or refuses the mapping. One save therefore
+    // promoted the value the author had just replaced.
     const stored = "---\nname: x\ndescription: first\ndescription: second\n---\nB\n";
     const parsed = parseSkillFile(stored);
     expect(parsed.description).toBe("first");
-    expect(parsed.extraFrontmatter).toEqual(["description: second"]);
-    // A form save re-emits the duplicate — hand-added lines are never lost.
-    const saved = composeSkillFile({
-      name: "x",
-      description: parsed.description,
-      body: parsed.body,
-      extraFrontmatter: parsed.extraFrontmatter,
-    });
+    expect(parsed.extraFrontmatter).toEqual([]);
+
+    const saved = composeSkillFile({ ...parsed, name: "x" });
     expect(saved).toContain("description: first");
-    expect(saved).toContain("description: second");
+    expect(saved).not.toContain("description: second");
+    // And the result is now a fixed point for a last-wins parser too.
+    expect(parseSkillFile(saved).description).toBe("first");
+  });
+
+  it("still keeps frontmatter keys it does not own", () => {
+    const parsed = parseSkillFile(
+      "---\nname: x\ndescription: d\nallowed-tools: Read\nlicense: MIT\n---\nB\n",
+    );
+    expect(parsed.extraFrontmatter).toEqual(["allowed-tools: Read", "license: MIT"]);
+  });
+
+  it("skillDraftOf lets the directory name win over the file's", () => {
+    // Every CLI keys on the directory, and a hand edit can leave the two apart.
+    const draft = skillDraftOf({
+      name: "on-disk",
+      content: "---\nname: stale-in-file\ndescription: d\n---\nB\n",
+    });
+    expect(draft).toEqual({
+      name: "on-disk",
+      description: "d",
+      body: "B\n",
+      extraFrontmatter: [],
+    });
   });
 
   it("treats a file without frontmatter as body-only", () => {

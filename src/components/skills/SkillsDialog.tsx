@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  isValidSkillDescription,
   isValidSkillName,
   normalizeSkillDescription,
-  parseSkillFile,
   sameSkillScope,
+  skillDescriptionProblem,
+  skillDraftOf,
   skillScopeOf,
   type SkillDraft,
   type SkillScope,
@@ -87,21 +87,27 @@ export function SkillsDialog({
       {
         label: "Global",
         scope: { kind: "global" },
-        items: all.filter((s) => s.scope === "global"),
+        // Through the domain predicate, like every other membership test in
+        // this file: a raw field comparison here would silently stop agreeing
+        // with them the moment a scope means anything new.
+        items: all.filter((s) => sameSkillScope(skillScopeOf(s), { kind: "global" })),
       },
     ];
     if (activeWs) {
+      const scope: SkillScope = { kind: "workspace", wsId: activeWs.id };
       built.push({
         label: activeWs.name,
-        scope: { kind: "workspace", wsId: activeWs.id },
-        items: all.filter((s) => s.scope === "workspace" && s.wsId === activeWs.id),
+        scope,
+        items: all.filter((s) => sameSkillScope(skillScopeOf(s), scope)),
       });
     }
     return built;
   }, [skills, activeWs]);
 
   const openSkill = (skill: StoredSkill) => {
-    const parsed = parseSkillFile(skill.content);
+    // The same projection the library's `read` uses, so the editor and every
+    // other surface see one skill, not two readings of one file.
+    const parsed = skillDraftOf(skill);
     setSelection({ mode: "edit", scope: skillScopeOf(skill), name: skill.name });
     setForm({
       name: skill.name,
@@ -164,11 +170,13 @@ export function SkillsDialog({
       (s) => s.name === form.name && sameSkillScope(skillScopeOf(s), selection.scope),
     );
   const nameOk = isValidSkillName(form.name);
-  // The spec makes description REQUIRED, and it's not pedantry: kimi
-  // silently drops a skill whose description is empty (field-verified 0.27),
-  // so saving one would "work" and then never reach the agent.
-  const descriptionOk =
-    form.description.trim() !== "" && isValidSkillDescription(form.description);
+  // ONE verdict, rendered twice below: the Save gate and the hint under the
+  // field. Derived separately they drifted apart the moment the rule grew — a
+  // stricter gate with nothing on screen explaining the dead button. The rule
+  // itself is the domain's, including why empty is refused (kimi silently drops
+  // a skill whose description is empty, field-verified 0.27, so saving one would
+  // "work" and never reach the agent).
+  const descriptionProblem = skillDescriptionProblem(form.description);
   // `nameTaken` is a courtesy — it catches the collision before the round
   // trip and can name the skill. It is NOT the guard: it is derived from the
   // listed library, which is empty whenever the read failed, and the backend
@@ -176,7 +184,7 @@ export function SkillsDialog({
   // library we could not read would trade a silent overwrite for a silently
   // dead button.
   const canSave =
-    selection !== null && dirty && nameOk && !nameTaken && descriptionOk;
+    selection !== null && dirty && nameOk && !nameTaken && descriptionProblem === null;
 
   const submit = async () => {
     // The rename half is not idempotent: a double ⌘S entering twice would
@@ -300,7 +308,7 @@ export function SkillsDialog({
                 validation={{
                   nameInvalid: form.name !== "" && !nameOk,
                   nameTaken,
-                  descriptionMissing: form.description.trim() === "",
+                  descriptionMissing: descriptionProblem === "empty",
                 }}
                 canSave={canSave}
                 error={error}

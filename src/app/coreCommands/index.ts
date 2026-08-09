@@ -6,7 +6,6 @@ import {
 import {
   resolvePaneRef,
   resolveWorkspaceRef,
-  type CommandArgs,
   type CommandRegistry,
 } from "../../domain/commands";
 import {
@@ -33,6 +32,7 @@ import { resumeRefusalText } from "../resumeOutcome";
 import type { SkillsLibrary } from "../skillsLibrary";
 import { suspendRefusalText, type SuspendOutcome } from "../suspendOutcome";
 import type { Deck } from "../useDeck";
+import { str } from "./args";
 import { registerSkillsCommands } from "./skills";
 
 /**
@@ -114,10 +114,6 @@ export async function deliverTask(
   return true;
 }
 
-function str(args: CommandArgs, name: string): string | undefined {
-  const value = args[name];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
 
 /** The workspace a command acts on: the named one, else the active one. */
 function targetWorkspace(deck: Deck, ref: string | undefined): Workspace {

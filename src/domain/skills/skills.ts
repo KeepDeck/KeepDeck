@@ -27,8 +27,10 @@ export function sameSkillScope(a: SkillScope, b: SkillScope): boolean {
 
 /** The scope a stored skill lives in. Takes the stored row's shape structurally
  * — the domain must not reach for the IPC type that mirrors it. A workspace row
- * with no id is malformed rather than global, and an empty id matches nothing,
- * which is what keeps it out of a real workspace's list. */
+ * with no id is malformed rather than global: it keeps an empty id, which
+ * matches no REAL workspace and so stays out of every live library. (Two such
+ * rows do match each other — the id is compared, not vetted — so a caller must
+ * not manufacture an empty id and expect it to match nothing.) */
 export function skillScopeOf(stored: {
   scope: "global" | "workspace";
   wsId: string | null;
@@ -55,13 +57,28 @@ export function isValidSkillName(name: string): boolean {
   return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name);
 }
 
-/** One-line descriptions only — the frontmatter scalar stays simple.
- * COUPLING PIN: the Rust side (`frontmatter_line` in
- * src-tauri/src/skills.rs) lifts the description as one verbatim line when
- * generating opencode command files; relaxing this to multi-line or block
+/** What is wrong with a description, or `null` when nothing is.
+ *
+ * ONE verdict rather than two predicates, because both conditions always apply
+ * together and in order: "non-empty" is the one that rejects real input, and it
+ * used to be an extra `&&` each caller had to remember — written twice in the
+ * editor and again in the library, while the predicate that LOOKED shared
+ * (`multiline`) cannot fail once the text has been normalized. Callers render
+ * the reason in their own words; the rule itself lives here.
+ *
+ * Empty is refused rather than merely discouraged: agents pick skills by
+ * description, and some drop a skill that has none, so such a skill would save
+ * and never take effect.
+ *
+ * COUPLING PIN on the multiline arm: the Rust side (`frontmatter_line` in
+ * src-tauri/src/skills/opencode.rs) lifts the description as one verbatim line
+ * when generating opencode command files; relaxing this to multi-line or block
  * scalars breaks that lift — change both sides together. */
-export function isValidSkillDescription(description: string): boolean {
-  return !description.includes("\n");
+export function skillDescriptionProblem(
+  description: string,
+): "empty" | "multiline" | null {
+  if (description.trim() === "") return "empty";
+  return description.includes("\n") ? "multiline" : null;
 }
 
 /** Fold edited description text onto that one line: newline runs (and the
@@ -102,9 +119,30 @@ export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { na
     const match = /^(name|description):\s?(.*)$/.exec(line);
     if (match?.[1] === "name" && name === null) name = unscalar(match[2]);
     else if (match?.[1] === "description" && description === null) description = unscalar(match[2]);
+    // A LATER duplicate of name/description is dropped, not kept: `compose`
+    // emits the extras after the authoritative lines, so keeping it would put
+    // the stale value last — and a real YAML parser (which is what every CLI
+    // uses on this frontmatter) either takes the last duplicate or refuses the
+    // mapping outright. One save would then promote the value the editor just
+    // replaced. Nothing meaningful is lost: the kept value is the one this
+    // parser, and a last-wins parser after a round trip, already read.
+    else if (match) continue;
     else extraFrontmatter.push(line);
   }
   return { name, description: description ?? "", body: fm.body, extraFrontmatter };
+}
+
+/** A stored skill as the editable draft. The DIRECTORY name wins over the
+ * frontmatter's — the directory is what every CLI keys on, and a hand-edited
+ * file can disagree. Takes the stored row structurally, like
+ * [`skillScopeOf`], so the domain does not reach for the IPC type mirroring it.
+ *
+ * Here rather than at a call site because four surfaces need it — the library's
+ * `read`, the editor when a skill is opened, the nav's description column, and
+ * the `skills.list` command — and a change like "fall back to the first body
+ * line when the frontmatter has no description" must reach all four. */
+export function skillDraftOf(stored: { name: string; content: string }): SkillDraft {
+  return { ...parseSkillFile(stored.content), name: stored.name };
 }
 
 function frontmatterBlock(content: string): { lines: string[]; body: string } | null {

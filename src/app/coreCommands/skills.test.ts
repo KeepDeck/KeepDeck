@@ -94,6 +94,31 @@ describe("skills.list", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("invalid-args");
   });
+
+  it("refuses a host caller's workspace scope when no workspace is open", async () => {
+    // `activeId` is a plain string whose "none" is `""`, so a null check was
+    // dead code and the scope silently became `{wsId: ""}` — a library that
+    // exists nowhere, answered with a cheerful empty list.
+    const { registry, skills } = setup([]);
+
+    const result = await registry.execute("skills.list", { scope: "workspace" }, HOST);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('scope "global"');
+    expect(skills.list).not.toHaveBeenCalled();
+  });
+
+  it("refuses a host caller's workspace scope when the active id names nothing", async () => {
+    // The id can also outlive the workspace it names, which an id-only check
+    // would still let through.
+    const { registry, deck, skills } = setup([workspace({ id: "ws-1" })]);
+    deck.activeId = "ws-gone";
+
+    const result = await registry.execute("skills.list", { scope: "workspace" }, HOST);
+
+    expect(result.ok).toBe(false);
+    expect(skills.list).not.toHaveBeenCalled();
+  });
 });
 
 describe("skills.read", () => {
@@ -124,7 +149,9 @@ describe("skills.read", () => {
     }
   });
 
-  it("refuses a skill that scope does not hold, naming the scope", async () => {
+  it("refuses a skill that scope does not hold", async () => {
+    // The one handler that still decides on absence, because here the read IS
+    // the operation. Every mutation's precondition is the library's.
     const { registry, skills } = setup(twoWorkspaces());
     vi.mocked(skills.read).mockResolvedValue(null);
 
@@ -135,10 +162,7 @@ describe("skills.read", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.message).toContain('"missing"');
-      expect(result.error.message).toContain("ws-2");
-    }
+    if (!result.ok) expect(result.error.message).toContain('"missing"');
   });
 });
 
@@ -188,16 +212,11 @@ describe("skills.create", () => {
 });
 
 describe("skills.update", () => {
-  it("keeps the stored file's hand-added frontmatter", async () => {
-    // A caller sends a name, a description and a body — it has no way to send
-    // `allowed-tools` back, so dropping it would eat the user's own edit.
+  it("hands the caller's fields to the library and nothing else", async () => {
+    // It does NOT read first: the library refuses an update of a skill that is
+    // not there, and carries the stored file's other frontmatter over itself —
+    // so both doors behave the same and neither can forget the step.
     const { registry, skills } = setup([workspace({})]);
-    vi.mocked(skills.read).mockResolvedValue({
-      name: "review",
-      description: "Old",
-      body: "Old body\n",
-      extraFrontmatter: ["allowed-tools: Read"],
-    });
 
     const result = await registry.execute(
       "skills.update",
@@ -206,22 +225,23 @@ describe("skills.update", () => {
     );
 
     expect(result.ok).toBe(true);
+    expect(skills.read).not.toHaveBeenCalled();
     expect(skills.update).toHaveBeenCalledWith(
       { kind: "global" },
       {
         name: "review",
         description: "New",
         body: "New body\n",
-        extraFrontmatter: ["allowed-tools: Read"],
+        extraFrontmatter: [],
       },
     );
   });
 
-  it("refuses a skill that does not exist instead of creating one", async () => {
-    // The write underneath is a write: without the read first, an update would
-    // quietly add a skill nobody asked to create.
+  it("reports the library's refusal for a skill that is not there", async () => {
     const { registry, skills } = setup([workspace({})]);
-    vi.mocked(skills.read).mockResolvedValue(null);
+    vi.mocked(skills.update).mockRejectedValueOnce(
+      new Error('No skill "ghost" in the global library'),
+    );
 
     const result = await registry.execute(
       "skills.update",
@@ -230,22 +250,13 @@ describe("skills.update", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toContain("skills.create");
-    expect(skills.update).not.toHaveBeenCalled();
+    if (!result.ok) expect(result.error.message).toContain('No skill "ghost"');
   });
 });
 
 describe("skills.rename and skills.delete", () => {
-  const found = {
-    name: "review",
-    description: "d",
-    body: "",
-    extraFrontmatter: [],
-  };
-
-  it("renames an existing skill", async () => {
+  it("renames through the library, reporting the new name", async () => {
     const { registry, skills } = setup([workspace({})]);
-    vi.mocked(skills.read).mockResolvedValue(found);
 
     const result = await registry.execute(
       "skills.rename",
@@ -256,25 +267,11 @@ describe("skills.rename and skills.delete", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toEqual({ name: "deep-review" });
     expect(skills.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review");
+    expect(skills.read).not.toHaveBeenCalled();
   });
 
-  it("refuses to rename what is not there", async () => {
+  it("deletes through the library", async () => {
     const { registry, skills } = setup([workspace({})]);
-    vi.mocked(skills.read).mockResolvedValue(null);
-
-    const result = await registry.execute(
-      "skills.rename",
-      { scope: "global", from: "ghost", to: "deep-review" },
-      HOST,
-    );
-
-    expect(result.ok).toBe(false);
-    expect(skills.rename).not.toHaveBeenCalled();
-  });
-
-  it("deletes an existing skill", async () => {
-    const { registry, skills } = setup([workspace({})]);
-    vi.mocked(skills.read).mockResolvedValue(found);
 
     const result = await registry.execute(
       "skills.delete",
@@ -284,16 +281,59 @@ describe("skills.rename and skills.delete", () => {
 
     expect(result.ok).toBe(true);
     expect(skills.remove).toHaveBeenCalledWith({ kind: "global" }, "review");
+    expect(skills.read).not.toHaveBeenCalled();
   });
 
-  it("refuses to delete what is not there", async () => {
-    // Otherwise a typo answers "done" and the caller believes a skill is gone.
+  it("reports a refusal from either, rather than answering done", async () => {
+    // The library owns "it has to be there"; these only must not swallow it.
     const { registry, skills } = setup([workspace({})]);
-    vi.mocked(skills.read).mockResolvedValue(null);
+    vi.mocked(skills.rename).mockRejectedValueOnce(new Error('No skill "ghost"'));
+    vi.mocked(skills.remove).mockRejectedValueOnce(new Error('No skill "ghost"'));
+
+    const renamed = await registry.execute(
+      "skills.rename",
+      { scope: "global", from: "ghost", to: "shade" },
+      HOST,
+    );
+    const deleted = await registry.execute(
+      "skills.delete",
+      { scope: "global", name: "ghost" },
+      HOST,
+    );
+
+    expect(renamed.ok).toBe(false);
+    expect(deleted.ok).toBe(false);
+  });
+});
+
+describe("arguments are read the same way as everywhere else in the set", () => {
+  it("trims, like every other core command's string argument", async () => {
+    // `workspace.switch {workspace: "web "}` has always trimmed; this set began
+    // with a bare String(), so one MCP surface trimmed some arguments and not
+    // others.
+    const { registry, skills } = setup([workspace({})]);
+
+    const result = await registry.execute(
+      "skills.create",
+      { scope: " global ", name: " deploy ", description: " Ships it ", body: " Run it\n" },
+      HOST,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(skills.create).toHaveBeenCalledWith(
+      { kind: "global" },
+      // The body is the exception, kept verbatim: it is content, and trimming
+      // it would edit what the caller wrote.
+      { name: "deploy", description: "Ships it", body: " Run it\n", extraFrontmatter: [] },
+    );
+  });
+
+  it("refuses a blank required argument instead of passing it down", async () => {
+    const { registry, skills } = setup([workspace({})]);
 
     const result = await registry.execute(
       "skills.delete",
-      { scope: "global", name: "ghost" },
+      { scope: "global", name: "   " },
       HOST,
     );
 
