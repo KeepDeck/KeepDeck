@@ -116,14 +116,29 @@ if [ "$bytes" -gt 261120 ]; then
   payload=$(printf '{"hook_event_name":"%s"}' "$name")
 fi
 
-# The correlation the deck answers on. mktemp mints it AND reserves it, and
-# its pattern is alphanumeric on purpose: the deck refuses a correlation that
-# could not safely become a filename, and a rejected one would just time out
-# below for no reason. The reservation file itself is never read — it carries
-# no `.json`, so the inbox watcher ignores it — and the trap reaps it.
+# The correlation the deck answers on: 64 random bits, minted WITHOUT
+# touching the filesystem.
+#
+# It used to be an `mktemp` in the inbox, which minted the name and reserved
+# it in one step. The reservation was the problem: it announced, for the whole
+# two seconds this hook then waits, the exact filename the deck was about to
+# write and this script would `cat` verbatim into the CLI. Anything else on
+# the machine could read that name and put its own text there first. Panes run
+# as one OS user, so nothing stops a process reading this directory — but a
+# name it cannot learn until the answer already exists is a far narrower
+# window than a name posted in advance.
+#
+# Alphanumeric on purpose: the deck refuses a correlation that could not
+# safely become a filename, and a rejected one would just time out below for
+# no reason. Collision needs no reservation at 64 bits.
 correlation=""
 if [ -n "$ask" ]; then
-  reserved=$(mktemp "$dir/askXXXXXXXX" 2>/dev/null) && correlation=${reserved##*/}
+  correlation=ask$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+  # No usable randomness (no /dev/urandom, no od): fall back to the reserved
+  # name. Announced, and better than an agent that stops receiving mail.
+  if [ "$correlation" = "ask" ]; then
+    reserved=$(mktemp "$dir/askXXXXXXXX" 2>/dev/null) && correlation=${reserved##*/}
+  fi
 fi
 
 # mktemp = the unique name AND the tmp stage; the rename to .json publishes.

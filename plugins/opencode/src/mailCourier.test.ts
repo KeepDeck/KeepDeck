@@ -70,6 +70,8 @@ describe("opencode mail courier", () => {
   let client: Record<string, unknown>;
   /** Answers the fake deck will hand out, in order. Anything asked past the
    * end gets "" — which is what the real deck answers most of the time. */
+  /** sessionId → parent, as the client would answer. Absent = a root. */
+  let parents: Record<string, string | undefined>;
   let pending: unknown[];
   /** Every question the courier asked, in order. */
   let asked: { paneId: string; payload: Record<string, string> }[];
@@ -120,8 +122,16 @@ describe("opencode mail courier", () => {
     asked = [];
     deckRunning = true;
     void runDeck();
+    parents = {};
     client = {
       session: {
+        // How the courier asks whether a session is somebody's child before
+        // adopting it as the pane's own conversation.
+        get: async (call: Record<string, unknown>) =>
+          rejectsFlat(call, () => {
+            const id = (call.path as { id: string }).id;
+            return { data: { id, parentID: parents[id] } };
+          }),
         promptAsync: async (call: Record<string, unknown>) =>
           rejectsFlat(call, () => {
             prompts.push({
@@ -325,6 +335,41 @@ describe("opencode mail courier", () => {
     await courier.event(idle("ses_root"));
 
     expect(submitted).toEqual(["ship it", "<submit>"]);
+  });
+
+  it("finds its session on a RESUMED pane, which fires no session.created", async () => {
+    // `opencode -s <id>` is how every pane comes back after a restart, and it
+    // starts no session — so a courier that only learned its root from
+    // `session.created` never had one. Everything downstream then failed
+    // quietly: the turn boundary collected nothing and every doorbell fell
+    // through to the TUI.
+    const courier = await start();
+    pending.push({ v: 1, prompt: "ship it" });
+    await courier.event(idle("ses_resumed"));
+
+    expect(last(prompts)).toEqual({
+      sessionID: "ses_resumed",
+      body: { parts: [{ type: "text", text: "ship it" }] },
+    });
+    expect(submitted).toEqual([]);
+  });
+
+  it("asks whether a session is a child before taking it as the pane's", async () => {
+    // The task tool creates children in this same process, and on a resumed
+    // pane a child's event can be the first one seen. Adopting it would bind
+    // the pane to a leaf that ends, so the courier asks.
+    parents.ses_child = "ses_root";
+    const courier = await start();
+    pending.push({ v: 1, prompt: "ship it" });
+    await courier.event(idle("ses_child"));
+    // Not adopted: nothing was collected, and the child's idle is not the
+    // pane's turn ending.
+    expect(prompts).toEqual([]);
+    expect(asked).toEqual([]);
+
+    // The root's own idle is, and it still gets adopted afterwards.
+    await courier.event(idle("ses_root"));
+    expect(last(prompts)?.sessionID).toBe("ses_root");
   });
 
   it("stays inert outside KeepDeck", async () => {

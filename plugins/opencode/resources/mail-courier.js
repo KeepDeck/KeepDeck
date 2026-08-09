@@ -272,6 +272,42 @@ export default async (input = {}) => {
     return work;
   };
 
+  /**
+   * Take `sessionID` as this pane's conversation, if it is one.
+   *
+   * `session.created` is not enough on its own. A RESUMED pane (`-s <id>`,
+   * which is how every pane comes back after a restart) never fires a root
+   * one — the session reporter beside this file learned that the hard way and
+   * binds on the first completed message instead. Without this, activeRoot
+   * stayed empty for the life of such a pane: `session.idle` returned early,
+   * so nothing was ever collected at a turn boundary, and every doorbell fell
+   * through to the TUI submit.
+   *
+   * The parent check is what keeps it honest. The task tool creates child
+   * sessions in this same process, and a child's events can be the first this
+   * courier sees; adopting one would bind the pane to a leaf that ends. Asked
+   * rather than guessed — and when the client cannot answer, adopting is
+   * still better than never binding at all, because the doorbell is the only
+   * other way in.
+   */
+  const adoptRoot = async (sessionID) => {
+    if (!sessionID || activeRoot || children.has(sessionID)) return;
+    if (client?.session?.get) {
+      try {
+        const found = await client.session.get({ path: { id: sessionID } });
+        const info = found?.data;
+        if (info?.parentID) {
+          children.add(sessionID);
+          return;
+        }
+      } catch {
+        // Fall through and adopt: an unanswerable question is not a reason
+        // to leave the pane unreachable.
+      }
+    }
+    activeRoot = sessionID;
+  };
+
   const onEvent = async (event) => {
     const props = event?.properties ?? {};
     switch (event?.type) {
@@ -293,10 +329,13 @@ export default async (input = {}) => {
       case "session.status": {
         const status =
           typeof props.status === "object" ? props.status?.type : props.status;
-        if (status === "busy" && props.sessionID === activeRoot) busy = true;
+        if (status !== "busy") return;
+        await adoptRoot(props.sessionID);
+        if (props.sessionID === activeRoot) busy = true;
         return;
       }
       case "session.idle": {
+        await adoptRoot(props.sessionID);
         if (props.sessionID !== activeRoot) return;
         busy = false;
         // The boundary the deck holds messages for: anything that arrived
@@ -356,11 +395,8 @@ export default async (input = {}) => {
     "chat.message": async (info, output) => {
       const sessionID = info?.sessionID;
       // First contact with a lazily-minted session: this fires for the very
-      // message that creates it. Children are excluded — a subagent's prompt
-      // is not the pane's conversation.
-      if (sessionID && !activeRoot && !children.has(sessionID)) {
-        activeRoot = sessionID;
-      }
+      // message that creates it.
+      await adoptRoot(sessionID);
       if (sessionID !== activeRoot) return;
       // Behind whatever is already collecting. This hook is not IN the queue
       // — it has to await its own answer to put the parts in place before the
