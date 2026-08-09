@@ -5,6 +5,8 @@ import {
   isValidSkillName,
   normalizeSkillDescription,
   parseSkillFile,
+  sameSkillScope,
+  skillScopeOf,
 } from "./skills";
 
 describe("skill names", () => {
@@ -171,5 +173,38 @@ describe("compose/parse round-trip", () => {
       extraFrontmatter: [],
     });
     expect(file.endsWith("no newline\n")).toBe(true);
+  });
+});
+
+describe("skill scopes", () => {
+  it("tells the global library from a workspace's", () => {
+    expect(sameSkillScope({ kind: "global" }, { kind: "global" })).toBe(true);
+    expect(sameSkillScope({ kind: "global" }, { kind: "workspace", wsId: "ws-1" })).toBe(
+      false,
+    );
+  });
+
+  it("separates two workspaces", () => {
+    const first = { kind: "workspace", wsId: "ws-1" } as const;
+    expect(sameSkillScope(first, { kind: "workspace", wsId: "ws-1" })).toBe(true);
+    expect(sameSkillScope(first, { kind: "workspace", wsId: "ws-2" })).toBe(false);
+  });
+
+  it("reads a stored row's scope", () => {
+    expect(skillScopeOf({ scope: "global", wsId: null })).toEqual({ kind: "global" });
+    expect(skillScopeOf({ scope: "workspace", wsId: "ws-3" })).toEqual({
+      kind: "workspace",
+      wsId: "ws-3",
+    });
+  });
+
+  it("keeps a malformed workspace row out of every real workspace", () => {
+    // A row that claims a workspace but names none is broken, not global:
+    // reading it as global would show it in the global library, and the empty
+    // id matches no live workspace, which is where it belongs until fixed.
+    const orphan = skillScopeOf({ scope: "workspace", wsId: null });
+    expect(orphan).toEqual({ kind: "workspace", wsId: "" });
+    expect(sameSkillScope(orphan, { kind: "global" })).toBe(false);
+    expect(sameSkillScope(orphan, { kind: "workspace", wsId: "ws-1" })).toBe(false);
   });
 });

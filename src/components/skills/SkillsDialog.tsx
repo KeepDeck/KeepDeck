@@ -4,6 +4,8 @@ import {
   isValidSkillName,
   normalizeSkillDescription,
   parseSkillFile,
+  sameSkillScope,
+  skillScopeOf,
   type SkillDraft,
   type SkillScope,
 } from "../../domain/skills";
@@ -40,13 +42,6 @@ const EMPTY_FORM: SkillFormState = {
   extraFrontmatter: [],
 };
 
-const sameScope = (a: SkillScope, b: SkillScope) =>
-  a.kind === b.kind && (a.kind !== "workspace" || b.kind !== "workspace" || a.wsId === b.wsId);
-
-const scopeOf = (skill: StoredSkill): SkillScope =>
-  skill.scope === "global"
-    ? { kind: "global" }
-    : { kind: "workspace", wsId: skill.wsId ?? "" };
 
 /**
  * The shared-skills manager — a full-screen editor over the library ([skills]):
@@ -107,7 +102,7 @@ export function SkillsDialog({
 
   const openSkill = (skill: StoredSkill) => {
     const parsed = parseSkillFile(skill.content);
-    setSelection({ mode: "edit", scope: scopeOf(skill), name: skill.name });
+    setSelection({ mode: "edit", scope: skillScopeOf(skill), name: skill.name });
     setForm({
       name: skill.name,
       description: parsed.description,
@@ -139,7 +134,7 @@ export function SkillsDialog({
     if (next?.mode === "edit") {
       const target = next;
       const skill = (skills ?? []).find(
-        (s) => s.name === target.name && sameScope(scopeOf(s), target.scope),
+        (s) => s.name === target.name && sameSkillScope(skillScopeOf(s), target.scope),
       );
       if (skill) {
         openSkill(skill);
@@ -166,7 +161,7 @@ export function SkillsDialog({
     selection !== null &&
     !(selection.mode === "edit" && selection.name === form.name) &&
     (skills ?? []).some(
-      (s) => s.name === form.name && sameScope(scopeOf(s), selection.scope),
+      (s) => s.name === form.name && sameSkillScope(skillScopeOf(s), selection.scope),
     );
   const nameOk = isValidSkillName(form.name);
   // The spec makes description REQUIRED, and it's not pedantry: kimi
@@ -258,10 +253,10 @@ export function SkillsDialog({
             isActive={(skill) =>
               selection?.mode === "edit" &&
               selection.name === skill.name &&
-              sameScope(selection.scope, scopeOf(skill))
+              sameSkillScope(selection.scope, skillScopeOf(skill))
             }
             onOpen={(skill) =>
-              navigate({ mode: "edit", scope: scopeOf(skill), name: skill.name })
+              navigate({ mode: "edit", scope: skillScopeOf(skill), name: skill.name })
             }
             onCreate={(scope) => navigate({ mode: "create", scope })}
           />

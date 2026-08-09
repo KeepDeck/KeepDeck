@@ -16,6 +16,28 @@
 /** Where a skill lives — its distribution boundary. */
 export type SkillScope = { kind: "global" } | { kind: "workspace"; wsId: string };
 
+/** Whether two scopes name the SAME library. Here rather than at a call site
+ * because every surface that groups, filters or looks a skill up asks it, and
+ * two copies of the workspace-id comparison would drift. */
+export function sameSkillScope(a: SkillScope, b: SkillScope): boolean {
+  return a.kind === "global"
+    ? b.kind === "global"
+    : b.kind === "workspace" && a.wsId === b.wsId;
+}
+
+/** The scope a stored skill lives in. Takes the stored row's shape structurally
+ * — the domain must not reach for the IPC type that mirrors it. A workspace row
+ * with no id is malformed rather than global, and an empty id matches nothing,
+ * which is what keeps it out of a real workspace's list. */
+export function skillScopeOf(stored: {
+  scope: "global" | "workspace";
+  wsId: string | null;
+}): SkillScope {
+  return stored.scope === "global"
+    ? { kind: "global" }
+    : { kind: "workspace", wsId: stored.wsId ?? "" };
+}
+
 /** A skill split into what the editor form works with. */
 export interface SkillDraft {
   name: string;
