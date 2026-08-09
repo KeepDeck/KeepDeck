@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { skillDraftOf, type SkillScope } from "../../domain/skills";
+import { skillDraftOf, skillScopeKey, type SkillScope } from "../../domain/skills";
 import type { LibrarySkill } from "../../app/skillsLibrary";
 
 export interface SkillsNavGroup {
@@ -10,9 +10,16 @@ export interface SkillsNavGroup {
 
 interface SkillsNavProps {
   groups: SkillsNavGroup[];
-  /** The library has not been read yet, so an empty group means "not known",
-   * not "nothing here". */
-  loading: boolean;
+  /** What an EMPTY group means right now. "unknown" covers both the first read
+   * and a read that FAILED — with only a loading flag, a failed read let the nav
+   * assert "Nothing here yet" beside a placeholder saying the library could not be
+   * read, and a user who believed the nav created a skill that already existed. */
+  emptyMeans: "loading" | "unknown" | "empty";
+  /** A write is in flight. Rows go quiet with the editor's buttons: navigating
+   * mid-delete bumped the epoch that the delete's own completion checks, so the
+   * editor was left on a skill that no longer existed with no row to correct it
+   * with. */
+  busy: boolean;
   isActive(skill: LibrarySkill): boolean;
   onOpen(skill: LibrarySkill): void;
   onCreate(scope: SkillScope): void;
@@ -22,7 +29,8 @@ interface SkillsNavProps {
  * does this one do" with its description right under the name. */
 export function SkillsNav({
   groups,
-  loading,
+  emptyMeans,
+  busy,
   isActive,
   onOpen,
   onCreate,
@@ -41,13 +49,17 @@ export function SkillsNav({
   return (
     <nav className="skills__nav" aria-label="Skills library">
       {groups.map(({ label, scope, items }) => (
-        <div className="skills__group" key={scope.kind === "global" ? "global" : scope.wsId}>
+        <div className="skills__group" key={skillScopeKey(scope)}>
           <div className="skills__group-head">
             <span className="skills__group-label">{label}</span>
             <button
               type="button"
               className="skills__new"
               onClick={() => onCreate(scope)}
+              disabled={busy}
+              // The KIND of library, not which one — a different question from the
+              // group's own label, which names it. Kept deliberately generic:
+              // "New site skill" reads worse than "New workspace skill".
               title={`New ${scope.kind === "global" ? "global" : "workspace"} skill`}
             >
               + New
@@ -57,10 +69,11 @@ export function SkillsNav({
             const description = described.get(skill);
             return (
               <button
-                key={`${scope.kind === "global" ? "global" : scope.wsId}:${skill.name}`}
+                key={`${skillScopeKey(scope)}:${skill.name}`}
                 type="button"
                 className={`skills__item${isActive(skill) ? " skills__item--active" : ""}`}
                 aria-current={isActive(skill) || undefined}
+                disabled={busy}
                 onClick={() => onOpen(skill)}
               >
                 <span className="skills__item-name">{skill.name}</span>
@@ -70,11 +83,13 @@ export function SkillsNav({
           })}
           {items.length === 0 && (
             <div className="skills__empty-group">
-              {loading
+              {emptyMeans === "loading"
                 ? "Loading…"
-                : scope.kind === "global"
-                  ? "Nothing here yet — a global skill reaches every workspace"
-                  : "Nothing here yet — these stay with this workspace"}
+                : emptyMeans === "unknown"
+                  ? "Not known — see the message above"
+                  : scope.kind === "global"
+                    ? "Nothing here yet — a global skill reaches every workspace"
+                    : "Nothing here yet — these stay with this workspace"}
             </div>
           )}
         </div>

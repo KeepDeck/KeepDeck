@@ -85,22 +85,19 @@ pub(super) fn list(root: &Path) -> io::Result<Vec<SkillDto>> {
 /// `(name, SKILL.md content)` per skill directory, names alphabetical.
 /// Directories without a `SKILL.md` are not skills and are skipped.
 ///
-/// So are directories whose name no WRITE could accept: every mutation here
-/// starts with [`require_safe`], so listing `my.skill` offered the editor a
-/// skill it could open and then fail to save, delete or rename, each time with a
-/// raw `unsafe skill name` from this layer. What cannot be edited must not be
-/// presented as editable — such a directory is still on disk and still staged
-/// for the agents, it is just not addressable through the app.
+/// A name no WRITE could accept is still LISTED, deliberately. Filtering it here
+/// was tried and reverted: [`collect_sources`] in `staging` walks the same
+/// directories without the filter, so a hidden `my.skill` kept reaching every
+/// agent while the app denied it existed — and `remove` is gated on the listing,
+/// so it could not even be deleted. A loud `unsafe skill name` on a write the
+/// user can see and act on beats an invisible skill they cannot.
 fn scope_skills(dir: &Path) -> io::Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for skill in sorted_dirs(dir)? {
-        let name = skill.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        if require_safe(&name, "skill name").is_err() {
-            continue;
-        }
         let Ok(content) = fs::read_to_string(skill.join(SKILL_FILE)) else {
             continue;
         };
+        let name = skill.file_name().unwrap_or_default().to_string_lossy().into_owned();
         out.push((name, content));
     }
     Ok(out)
@@ -174,10 +171,11 @@ mod tests {
     use crate::skills::test_support::{global, root, ws};
 
     #[test]
-    fn list_skips_a_directory_no_write_could_touch() {
-        // Every mutation starts with `require_safe`, so listing such a directory
-        // offered the editor a skill it could open and then fail to save, delete
-        // or rename, each time with a raw "unsafe skill name" from this layer.
+    fn list_shows_a_directory_no_write_could_touch() {
+        // Hiding it was tried and reverted: staging does NOT filter, so a hidden
+        // directory kept reaching every agent while the app denied it existed, and
+        // `remove` — gated on the listing — could not delete it either. Listed, the
+        // user sees it and every write says loudly why it refuses.
         let (_tmp, root) = root();
         let scope = global(&root);
         save(&scope, "review", "fine").unwrap();
@@ -188,7 +186,9 @@ mod tests {
 
         let names: Vec<String> = list(&root).unwrap().into_iter().map(|s| s.name).collect();
 
-        assert_eq!(names, vec!["review".to_string()]);
+        assert_eq!(names, vec!["my.skill".to_string(), "review".to_string()]);
+        // And a write against it refuses in words the user can act on.
+        assert!(save(&scope, "my.skill", "x").unwrap_err().to_string().contains("unsafe"));
     }
 
     #[test]

@@ -2,6 +2,12 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  composeSkillFile,
+  sameSkillScope,
+  type SkillDraft,
+  type SkillScope,
+} from "../../domain/skills";
 import type { LibrarySkill } from "../../app/skillsLibrary";
 import type { SkillsEditorState } from "../../app/useSkills";
 import { SkillsDialog } from "./SkillsDialog";
@@ -20,10 +26,38 @@ const lib = vi.hoisted(
     ({
       skills: [] as LibrarySkill[] | null,
       error: null as string | null,
+      listUnknown: false,
+      listTrusted: true,
       clearError: vi.fn(),
-      save: vi.fn(async () => true),
-      rename: vi.fn(async () => true),
-      remove: vi.fn(async () => true),
+      // The writes LAND IN THE LIST, the way the real hook's re-read makes them:
+      // it awaits a refresh before it resolves, so by the time the dialog sees
+      // `true` the row is there. A double that resolved true and left the list
+      // alone was a state production cannot produce, and the dialog — which now
+      // notices a selection that is missing from the library — read it as the
+      // skill having been deleted under it.
+      save: vi.fn(async (scope: SkillScope, draft: SkillDraft) => {
+        const at = (lib.skills ?? []).findIndex(
+          (s) => s.name === draft.name && sameSkillScope(s.scope, scope),
+        );
+        const row = { scope, name: draft.name, content: composeSkillFile(draft) };
+        lib.skills =
+          at === -1
+            ? [...(lib.skills ?? []), row]
+            : (lib.skills ?? []).map((s, i) => (i === at ? row : s));
+        return true;
+      }),
+      rename: vi.fn(async (scope: SkillScope, from: string, to: string) => {
+        lib.skills = (lib.skills ?? []).map((s) =>
+          s.name === from && sameSkillScope(s.scope, scope) ? { ...s, name: to } : s,
+        );
+        return true;
+      }),
+      remove: vi.fn(async (scope: SkillScope, name: string) => {
+        lib.skills = (lib.skills ?? []).filter(
+          (s) => !(s.name === name && sameSkillScope(s.scope, scope)),
+        );
+        return true;
+      }),
     }) satisfies SkillsEditorState,
 );
 vi.mock("../../app/useSkills", () => ({ useSkillsLibrary: () => lib }));
@@ -73,11 +107,15 @@ describe("SkillsDialog", () => {
   beforeEach(() => {
     lib.skills = [];
     lib.error = null;
+    lib.listUnknown = false;
+    lib.listTrusted = true;
+    // `mockClear` only — NOT `mockResolvedValue`, which would replace the
+    // implementations above with ones that leave the list untouched, i.e. put the
+    // double back in a state the real hook cannot be in. A case that wants a
+    // failure says so with `mockResolvedValueOnce`.
     lib.clearError.mockClear();
     lib.save.mockClear();
-    lib.save.mockResolvedValue(true);
     lib.rename.mockClear();
-    lib.rename.mockResolvedValue(true);
     lib.remove.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -239,10 +277,12 @@ describe("SkillsDialog", () => {
     expect(textarea().value).toBe("edited");
   });
 
-  it("a delete that lands after the user moved on leaves the new skill alone", async () => {
-    // apply(null) clears the form, so without the epoch check every other
-    // completion makes, a slow delete discarded another skill's unsaved edits
-    // with no confirm at all.
+  it("freezes the nav while a delete is in flight, so it cannot strand the editor", async () => {
+    // Navigating mid-delete bumps the epoch the delete's own completion checks, so
+    // its `apply(null)` was skipped and the editor was left titled with a skill the
+    // reload then removed — a live Delete button and no row to correct it with.
+    // A SAVE deliberately does NOT freeze the nav: moving on during one is exactly
+    // what `navEpoch` makes safe, and the next case pins that.
     lib.skills = [skill("review"), skill("deploy")];
     let finishRemove!: (ok: boolean) => void;
     lib.remove.mockImplementationOnce(
@@ -258,12 +298,15 @@ describe("SkillsDialog", () => {
     ).find((b) => b.textContent === "Delete" && b !== button("Delete"))!;
     act(() => confirmDelete.click()); // the IPC is now in flight
 
-    act(() => row("deploy")!.click());
-    type(textarea(), "typed into the other skill");
+    expect(row("deploy")!.disabled).toBe(true);
+    expect(buttonByTitle("New global skill")!.disabled).toBe(true);
+
     await act(async () => finishRemove(true));
 
-    expect(textarea().value).toBe("typed into the other skill");
-    expect(document.body.textContent).toContain("deploy");
+    // And once it lands the nav is live again. (Dropping the deleted row is the
+    // hook's job and pinned in its own suite; this stub resolves without touching
+    // the list, which is why `review` is still here.)
+    expect(row("deploy")!.disabled).toBe(false);
   });
 
   it("groups the library: global plus the ACTIVE workspace only", async () => {

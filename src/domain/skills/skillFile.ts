@@ -25,7 +25,14 @@
  * bridge: it answers "could we re-emit this file at all", and the only writer
  * that authors over an existing file has to ask it first.
  */
-import { isMap, isScalar, parseDocument, type Document, type Pair } from "yaml";
+import {
+  isMap,
+  isScalar,
+  parseDocument,
+  visit,
+  type Document,
+  type Pair,
+} from "yaml";
 import { normalizeSkillDescription, type SkillDraft } from "./skills";
 
 /** How the `name:` key is written. Shared with [`renameSkillFile`]'s splice,
@@ -34,8 +41,13 @@ import { normalizeSkillDescription, type SkillDraft } from "./skills";
  * every rename. */
 const nameLine = (name: string): string => `name: ${scalar(name)}`;
 
-/** Compose the stored SKILL.md for a draft. */
+/** Compose the stored SKILL.md for a draft.
+ *
+ * The frontmatter takes the BODY's line ending, so a Windows-authored file does
+ * not come back with CRLF below the fence and LF above it — an edit to one field
+ * has no business changing how the rest of the file is written. */
 export function composeSkillFile(draft: SkillDraft): string {
+  const eol = /\r\n/.test(draft.body) && !/[^\r]\n/.test(draft.body) ? "\r\n" : "\n";
   const lines = [
     "---",
     nameLine(draft.name),
@@ -43,8 +55,10 @@ export function composeSkillFile(draft: SkillDraft): string {
     ...draft.extraFrontmatter,
     "---",
   ];
-  const body = draft.body.endsWith("\n") || draft.body === "" ? draft.body : `${draft.body}\n`;
-  return `${lines.join("\n")}\n${body}`;
+  const body = draft.body.endsWith("\n") || draft.body === "" ? draft.body : `${draft.body}${eol}`;
+  // Normalize FIRST, then apply: a hand-added entry carried over from a CRLF file
+  // already holds `\r\n`, and substituting into that would double the CR.
+  return `${lines.join("\n").replace(/\r?\n/g, eol)}${eol}${body}`;
 }
 
 /**
@@ -69,15 +83,30 @@ export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { na
   let description: string | null = null;
   const extraFrontmatter: string[] = [];
   for (const entry of fm.entries) {
-    if (entry.key === "name") {
-      if (name === null) name = entry.value;
-    } else if (entry.key === "description") {
-      if (description === null) description = entry.value;
-    } else {
-      extraFrontmatter.push(entry.source);
-    }
+    // LAST wins for our two keys, because that is what the reader this codec is
+    // configured as resolves. (Such a file is refused for writing — see
+    // [`frontmatterObstacle`] — so this only decides what is displayed, and what
+    // is displayed should be what the agents read.)
+    if (entry.key === "name") name = entry.value;
+    else if (entry.key === "description") description = entry.value;
+    else extraFrontmatter.push(entry.source);
   }
+  const tail = fm.tail.trim() === "" ? null : fm.tail.replace(/^\n+|\s+$/g, "");
+  if (tail !== null) extraFrontmatter.push(tail);
   return { name, description: description ?? "", body: fm.body, extraFrontmatter };
+}
+
+/** The frontmatter's own text, exactly as this codec locates it — `null` when the
+ * file has none.
+ *
+ * Exported for the suite that checks this codec against a real YAML reader: that
+ * suite had a fence-finder of its OWN, which is a third hand-rolled reader in the
+ * one file written because hand-rolled readers kept being nearly right, and the
+ * two already disagreed on an empty fenced block. The oracle that has to stay
+ * independent there is the PARSE, not the fence scan. */
+export function frontmatterTextOf(content: string): string | null {
+  const span = frontmatterSpan(content);
+  return span ? content.slice(span.start, span.end) : null;
 }
 
 /**
@@ -133,13 +162,14 @@ export function renameSkillFile(content: string, name: string): SkillFileRename 
   if (fm.obstacle) return { kind: "unsupported", reason: fm.obstacle };
   const stated = fm.entries.find((entry) => entry.key === "name");
   if (!stated) return { kind: "unchanged" };
-  if (stated.spliceable) {
+  if (stated.splice) {
     const rewritten = nameLine(name);
-    if (stated.source === rewritten) return { kind: "unchanged" };
-    const at = fm.start + stated.at;
+    if (stated.splice.text === rewritten) return { kind: "unchanged" };
+    const at = fm.start + stated.splice.at;
     return {
       kind: "rewritten",
-      content: content.slice(0, at) + rewritten + content.slice(at + stated.source.length),
+      content:
+        content.slice(0, at) + rewritten + content.slice(at + stated.splice.text.length),
     };
   }
   // A name we cannot splice — a block scalar, say — but a file we CAN re-emit, so
@@ -167,13 +197,18 @@ interface FrontmatterEntry {
   /** The value a YAML reader sees, folded onto one line for the two keys this
    * schema owns. */
   value: string;
-  /** The entry's verbatim source, re-emitted as-is when it is not ours. */
+  /** The entry's verbatim source, re-emitted as-is when it is not ours. It runs
+   * from the END OF THE PREVIOUS ENTRY, so a comment line standing above this key
+   * — which belongs to no entry's own range — travels with the key it annotates
+   * instead of being dropped. */
   source: string;
-  /** Offset of `source` within the frontmatter text. */
-  at: number;
-  /** Whether this entry is one line at column 0, so its value can be replaced by
-   * rewriting that line alone. */
-  spliceable: boolean;
+  /** What this entry consumed of the frontmatter text, so the next one's slice
+   * begins where this stopped. Differs from `source` by the leading newline. */
+  span: string;
+  /** The `key: value` span, comment excluded: what a splice replaces. Keeping the
+   * comment out of it is why `name: old # the id` keeps its note through a
+   * rename. */
+  splice: { at: number; text: string } | null;
 }
 
 interface Frontmatter {
@@ -182,6 +217,9 @@ interface Frontmatter {
   /** Offset of the frontmatter text within the whole file. */
   start: number;
   obstacle: string | null;
+  /** Whatever follows the last entry — a comment before the closing fence, which
+   * belongs to no entry's range and would otherwise be dropped. */
+  tail: string;
 }
 
 /** The fenced frontmatter, read with a real YAML parser, plus everything the
@@ -195,52 +233,107 @@ function frontmatter(content: string): Frontmatter | null {
   // Duplicates tolerated rather than rejected: this parser keeps the first and
   // drops the shadowed one, which repairs the file on the next save instead of
   // refusing to open it.
+  // Duplicates are TOLERATED by the parser and REFUSED by the obstacle check
+  // below: with `uniqueKeys` on, a shadowed key makes the whole document
+  // unreadable and the skill unopenable; off, we can still show it. What we must
+  // not do is author over it, because a strict reader refuses the file outright
+  // and a lenient one resolves LAST-wins, so any value we picked would be a
+  // value some reader disagrees with.
   const doc = parseDocument(text, { uniqueKeys: false });
-  const unreadable = obstacleIn(doc, text);
-  if (unreadable) return { entries: [], body, start: span.start, obstacle: unreadable };
-  // An EMPTY fenced block is readable and has no entries — `contents` is null
-  // there, which is not an obstacle, just nothing to carry.
+  const obstacle = obstacleIn(doc, text);
+  // An EMPTY fenced block — or one holding only comments — is readable and has no
+  // entries: `contents` is null there, which is nothing to carry, not an obstacle.
   const items = isMap(doc.contents) ? (doc.contents.items as Pair[]) : [];
-  const entries = items.flatMap((pair) => entryOf(pair, text) ?? []);
-  return { entries, body, start: span.start, obstacle: null };
+  const entries: FrontmatterEntry[] = [];
+  let cursor = 0;
+  for (const pair of items) {
+    const entry = entryOf(pair, text, cursor);
+    if (!entry) continue;
+    entries.push(entry);
+    cursor = cursor + entry.span.length;
+  }
+  return { entries, body, start: span.start, obstacle, tail: text.slice(cursor) };
 }
 
-/** Why `doc` cannot be re-emitted entry-by-entry at column 0, or `null`. */
+/** Why `doc` cannot be re-emitted entry-by-entry at column 0, or `null`.
+ *
+ * Every arm is a shape a real reader accepts and our composer would change the
+ * meaning of. The rule this enforces is "either refuse, or preserve" — never
+ * rewrite into something a CLI reads differently. */
 function obstacleIn(doc: Document, text: string): string | null {
   if (doc.errors.length > 0) {
     return `its frontmatter is not valid YAML (${doc.errors[0].message})`;
   }
-  if (text.trim() === "") return null;
+  if (doc.contents === null) return null;
   if (!isMap(doc.contents)) return "its frontmatter is not a list of keys";
+  // An anchor is defined in one entry and used in another, so re-emitting the two
+  // keys we own drops a `&name` something else still refers to — and the file
+  // stops parsing entirely with "unresolved alias". An alias as one of OUR values
+  // is the same problem from the other side: we would write the resolved text and
+  // silently break whoever shared it.
+  let shared: string | null = null;
+  visit(doc, {
+    Node(_key, node) {
+      if (node.anchor !== undefined && shared === null) shared = `&${node.anchor}`;
+    },
+    Alias(_key, node) {
+      if (shared === null) shared = `*${node.source}`;
+    },
+  });
+  if (shared !== null) {
+    return `its frontmatter shares a value with "${shared as string}", which cannot survive being re-written`;
+  }
+  const seen = new Set<string>();
   for (const pair of doc.contents.items) {
-    const range = (pair.key as { range?: [number, number, number] }).range;
+    if (!isScalar(pair.key)) {
+      return "one of its keys is not a plain name";
+    }
+    const range = pair.key.range;
     if (!range) return "one of its keys cannot be located in the file";
     if (!atLineStart(text, range[0])) {
       return `the key "${text.slice(range[0], range[1]).trim()}" is indented, and re-writing the file would have to move it`;
     }
+    const key = String(pair.key.value);
+    if (seen.has(key)) {
+      // Only OUR two keys matter: for anything else the duplicate rides along in
+      // the extras exactly as written, so the file reads the same afterwards.
+      if (key === "name" || key === "description") {
+        return `it states "${key}" more than once, and readers disagree about which one wins`;
+      }
+    }
+    seen.add(key);
   }
   return null;
 }
 
-function entryOf(pair: Pair, text: string): FrontmatterEntry | null {
-  const keyNode = pair.key as { range?: [number, number, number] };
-  const valueNode = pair.value as { range?: [number, number, number] } | null;
-  if (!isScalar(pair.key) || !keyNode.range) return null;
-  const key = String(pair.key.value);
-  const from = keyNode.range[0];
-  // The entry runs to the end of its value, or to the end of the key when it has
-  // none (`allowed-tools:` with nothing after it is still an entry).
-  const to = valueNode?.range ? valueNode.range[1] : keyNode.range[1];
-  const source = text.slice(from, to).replace(/\s+$/, "");
-  const raw = pair.value !== null && isScalar(pair.value) ? pair.value.value : null;
+/** One entry, spanning from `cursor` — the end of the previous one — so nothing
+ * between two keys is lost. `null` for a key we cannot name, which
+ * [`obstacleIn`] has already refused. */
+function entryOf(pair: Pair, text: string, cursor: number): FrontmatterEntry | null {
+  if (!isScalar(pair.key) || !pair.key.range) return null;
+  const value = isScalar(pair.value) || pair.value === null ? pair.value : undefined;
+  const valueRange = (pair.value as { range?: [number, number, number] } | null)?.range;
+  // `range[2]` runs past a trailing comment; `range[1]` stops at the value. The
+  // entry keeps the comment, the splice does not.
+  const withComment = valueRange ? valueRange[2] : pair.key.range[2];
+  const withoutComment = valueRange ? valueRange[1] : pair.key.range[1];
+  // Two lengths, on purpose. `span` is what this entry CONSUMES, so the next
+  // one's slice starts exactly where this stopped; `source` is what gets
+  // re-emitted, with the previous line's own newline stripped off the front.
+  const span = text.slice(cursor, withComment).replace(/\s+$/, "");
+  const spliceText = text.slice(pair.key.range[0], withoutComment);
+  const raw = value === undefined || value === null ? null : value.value;
   return {
-    key,
+    key: String(pair.key.value),
+    span,
     // Folded onto one line: these two keys are single-line by contract, so what
     // has to survive a round trip is the MEANING of the value, not its layout.
     value: raw === null ? "" : normalizeSkillDescription(String(raw)).trim(),
-    source,
-    at: from,
-    spliceable: atLineStart(text, from) && !source.includes("\n"),
+    source: span.replace(/^[\r\n]+/, ""),
+    splice:
+      atLineStart(text, pair.key.range[0]) && !spliceText.includes("\n")
+        ? { at: pair.key.range[0], text: spliceText }
+        : null,
   };
 }
 
@@ -259,7 +352,11 @@ const atLineStart = (text: string, at: number): boolean =>
 function frontmatterSpan(
   content: string,
 ): { start: number; end: number; bodyAt: number } | null {
-  const open = /^---[ \t]*\r?\n/.exec(content);
+  // A leading BOM counts as part of the opening fence: readers that strip it — the
+  // common JS ones — see the frontmatter, so answering "this file states no name"
+  // moved the directory and left the file naming the old skill. (A re-compose
+  // drops the BOM, which is a byte the format does not need.)
+  const open = /^﻿?---[ \t]*\r?\n/.exec(content);
   if (!open) return null;
   const start = open[0].length;
   const close = /(?:^|(\n))---[ \t]*(?:\r?\n|$)/.exec(content.slice(start));

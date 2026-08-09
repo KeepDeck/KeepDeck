@@ -25,12 +25,18 @@ import type { SkillsInvalidation } from "./worktrees";
  * last step is the one nobody remembers, and forgetting it means a skill that
  * saves fine and then never reaches an agent.
  *
- * **Every precondition lives here, not at a door.** The storage underneath
- * cannot enforce them: `save` writes whether or not the skill exists (so an
- * update would silently CREATE), and `delete` treats a missing directory as
- * success. With the guards at one door, the other door — the editor — resurrects
- * skills an agent deleted and duplicates ones it renamed. Two doors reach this
- * library today and more will; the rules are its own.
+ * **Every precondition lives here, not at a door** — with ONE stated exception.
+ * The storage underneath cannot enforce most of them: `save` writes whether or
+ * not the skill exists (so an update would silently CREATE), and `delete` treats
+ * a missing directory as success. With the guards at one door, the other door —
+ * the editor — resurrects skills an agent deleted and duplicates ones it renamed.
+ * Two doors reach this library today and more will; the rules are its own.
+ *
+ * The exception is a name COLLISION, which only the storage can answer, because
+ * only it sees the disk: a directory with no readable SKILL.md is not in any list
+ * we could check against, and yet it blocks a move. So `create` delegates that
+ * refusal entirely, and `rename` orders its writes so the storage refuses first.
+ * Checking it here as well is a courtesy for the message, never the guard.
  *
  * Validation is the DOMAIN's rules, applied here rather than only in the editor:
  * the editor's checks light up its form, these cannot be bypassed.
@@ -88,7 +94,13 @@ export interface SkillsLibrary {
    * they already disagreed on it. */
   read(scope: SkillScope, name: string): Promise<SkillDraft>;
   /**
-   * Write a new skill. Refused if the name is already taken in that scope.
+   * Write a new skill.
+   *
+   * Refused if the name is taken — by the STORAGE, deliberately, which is the one
+   * precondition this library does not answer itself: the check has to hold when
+   * the library could not be read at all, and a check of our own would refuse
+   * every create in that state instead of the colliding one. So the refusal is
+   * worded by the layer below, and it is the only one that is.
    *
    * A caller's `extraFrontmatter` is ignored — hand-added keys are not authored
    * through this library, they are only ever PRESERVED from what is already on
@@ -156,8 +168,20 @@ export const ipcSkillsStorage: SkillsStorage = {
 const describeScope = (scope: SkillScope): string =>
   scope.kind === "global" ? "the global library" : "this workspace's library";
 
+/** One wording for a collision, so the courtesy check and anything that re-words
+ * the storage's own refusal say the same thing. */
+const takenMessage = (name: string, scope: SkillScope): string =>
+  `"${name}" is already taken in ${describeScope(scope)}`;
+
+/** One wording for "this file is beyond what we can rewrite", with the advice
+ * that follows it — the advice is the part that must not drift, because it is
+ * what the user does next. */
+const beyondUs = (what: string, obstacle: string): string =>
+  `${what} — ${obstacle}. Edit its SKILL.md directly.`;
+
 export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
   const listeners = new Set<() => void>();
+  let notifying = false;
 
   /** THE scope filter — "which stored rows belong to this library" is asked by
    * every read, so it is answered once here rather than at each caller. */
@@ -179,14 +203,16 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
         if (!stored) throw new Error(`No skill "${name}" in ${describeScope(scope)}`);
         return stored;
       },
-      /** Refused BEFORE anything is written. The storage refuses a taken target
-       * too, but only after the first half of a rename has already landed — and
-       * that state is unrepairable, because a re-run finds the frontmatter
-       * already correct and retries only the move, forever. */
+      /**
+       * A COURTESY refusal, not the guard. It answers from the listed rows, and
+       * the storage answers from the directory — a strictly wider condition, so a
+       * leftover directory with no readable SKILL.md passes here and is refused
+       * there. The guard has to be the storage's, because only it sees the disk;
+       * this one exists to name the collision in the library's own words while it
+       * can.
+       */
       requireFree(name: string): void {
-        if (all.some((row) => row.name === name)) {
-          throw new Error(`"${name}" is already taken in ${describeScope(scope)}`);
-        }
+        if (all.some((row) => row.name === name)) throw new Error(takenMessage(name, scope));
       },
     };
   }
@@ -220,12 +246,20 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
         // Staging's own problem; the write still happened.
       }
       // Same reasoning, same moment, for the readers that are on SCREEN rather
-      // than staged.
-      for (const listener of [...listeners]) {
+      // than staged. Not re-entrant: a listener that writes would be notified by
+      // its own write, and nothing would bound the chain.
+      if (!notifying) {
+        notifying = true;
         try {
-          listener();
-        } catch {
-          // A view's refresh is not this write's problem.
+          for (const listener of [...listeners]) {
+            try {
+              listener();
+            } catch {
+              // A view's refresh is not this write's problem.
+            }
+          }
+        } finally {
+          notifying = false;
         }
       }
     }
@@ -268,9 +302,7 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
   function requireRewritable(stored: string): void {
     const obstacle = frontmatterObstacle(stored);
     if (obstacle !== null) {
-      throw new Error(
-        `This skill cannot be edited here — ${obstacle}. Edit its SKILL.md directly.`,
-      );
+      throw new Error(beyondUs("This skill cannot be edited here", obstacle));
     }
   }
 
@@ -302,33 +334,32 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
       requireValidName(to);
       const scoped = await library(scope);
       const stored = scoped.existing(from);
-      // Both preconditions off ONE read, and both before any write — the
-      // collision especially, because refusing it late is what leaves two
-      // directories claiming one name.
+      // A courtesy, so a collision we CAN see is named in our own words.
       scoped.requireFree(to);
-      // Computed from the bytes we already read, BEFORE anything moves: nothing
-      // between the two writes can then refuse the second one — including the
-      // one refusal that used to arrive too late, a frontmatter whose stated name
-      // we cannot restate. Moving the directory and leaving the file naming the
-      // old skill is the two-identity state this whole operation exists to avoid.
+      // Computed before anything moves, so the one refusal that used to arrive too
+      // late — a frontmatter whose stated name we cannot restate — arrives now.
       const renamed = renameSkillFile(stored.content, to);
       if (renamed.kind === "unsupported") {
-        throw new Error(
-          `Cannot rename "${from}" — ${renamed.reason}. Edit its SKILL.md directly.`,
-        );
+        throw new Error(beyondUs(`Cannot rename "${from}"`, renamed.reason));
       }
       await writeThenRestage(async () => {
-        // The frontmatter FIRST, still under the old directory, because only
-        // this order leaves a partial failure repairable by re-running the
-        // rename: the file says `to` while the directory still says `from`, the
-        // directory wins wherever a skill is read, and a re-run finds nothing
-        // left to rewrite and just moves it. The other order consumes `from`
-        // with the move, so a re-run can no longer find the skill it must
-        // finish renaming — and no other operation offers to.
-        if (renamed.kind === "rewritten") {
-          await ports.storage.save(scope, from, renamed.content, false);
-        }
+        // The MOVE FIRST, and this order is load-bearing. "Is this name taken" is
+        // answered here from the listed rows and there from the directory — wider,
+        // because a directory with no readable SKILL.md is not listed. Writing the
+        // content first meant such a target passed our check, the frontmatter
+        // rewrite landed, the move was refused, and the source file was left
+        // declaring the OTHER skill's name with nothing able to repair it: a re-run
+        // finds the frontmatter already correct and retries only the move, forever.
+        // Move first and the storage — the only layer that sees the disk — refuses
+        // before a single byte is written.
         await ports.storage.rename(scope, from, to);
+        // A failure HERE leaves the directory moved and its frontmatter naming the
+        // old skill. Mild by comparison and self-announcing: the directory wins
+        // wherever a skill is read, so the skill is listed and editable under its
+        // new name, and the next save writes the frontmatter to match.
+        if (renamed.kind === "rewritten") {
+          await ports.storage.save(scope, to, renamed.content, false);
+        }
       });
     },
 

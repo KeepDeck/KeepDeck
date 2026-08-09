@@ -109,22 +109,18 @@ describe("compose/parse round-trip", () => {
     expect(parsed.body).toBe("Body\r\n");
   });
 
-  it("keeps the FIRST duplicated key and DROPS the shadowed one", () => {
-    // Keeping the duplicate used to look like "nothing is ever lost", but
-    // compose emits the extras AFTER the authoritative lines, so a save put the
-    // stale value last — and a real YAML parser (which is what every CLI uses
-    // here) takes the last duplicate or refuses the mapping. One save therefore
-    // promoted the value the author had just replaced.
+  it("reads a duplicated key the way its reader resolves it — LAST wins", () => {
+    // Not "first", which is what a hand-rolled reader used to take: `yaml` with
+    // `uniqueKeys` off — this codec's own configuration — resolves last-wins, and a
+    // STRICT reader refuses the mapping outright. Showing the first value meant
+    // displaying something no reader uses.
     const stored = "---\nname: x\ndescription: first\ndescription: second\n---\nB\n";
     const parsed = parseSkillFile(stored);
-    expect(parsed.description).toBe("first");
+    expect(parsed.description).toBe("second");
     expect(parsed.extraFrontmatter).toEqual([]);
-
-    const saved = composeSkillFile({ ...parsed, name: "x" });
-    expect(saved).toContain("description: first");
-    expect(saved).not.toContain("description: second");
-    // And the result is now a fixed point for a last-wins parser too.
-    expect(parseSkillFile(saved).description).toBe("first");
+    // And it is refused for WRITING, because there is no value every reader
+    // agrees on: picking either would change the file for somebody.
+    expect(frontmatterObstacle(stored)).toContain("more than once");
   });
 
   it("still keeps frontmatter keys it does not own", () => {
@@ -203,13 +199,14 @@ describe("a block scalar survives being read and written back", () => {
     expect(parsed.extraFrontmatter).toEqual(["allowed-tools: Read"]);
   });
 
-  it("swallows a LATER duplicate's continuation lines too", () => {
-    // The kept value is the first one; the shadowed block must not be left
-    // behind as extras, or it comes back below the composed keys.
+  it("swallows a duplicate's continuation lines rather than stranding them", () => {
+    // The value is the LAST one, matching the reader; what matters here is that the
+    // shadowed block's indented lines do not survive as extras, where compose
+    // would re-emit them below a finished entry.
     const parsed = folded(
       "---\ndescription: first\ndescription: >\n  shadowed\n  lines\n---\nB\n",
     );
-    expect(parsed.description).toBe("first");
+    expect(parsed.description).toBe("shadowed lines");
     expect(parsed.extraFrontmatter).toEqual([]);
   });
 
@@ -322,12 +319,13 @@ describe("renaming a stored file", () => {
     );
   });
 
-  it("rewrites the first name line, the one the reader takes", () => {
-    // A later duplicate is a line `parseSkillFile` already drops; rewriting it
-    // instead would move the name the readers ignore.
-    expect(renamedTo("---\nname: a\nname: b\n---\n", "c")).toBe(
-      "---\nname: c\nname: b\n---\n",
-    );
+  it("REFUSES a file that states its name twice", () => {
+    // It used to splice the first line and report success while the file still said
+    // `name: b` to a last-wins reader — the two-identity state a rename exists to
+    // remove, created by the rename itself.
+    const twice = renameSkillFile("---\nname: a\nname: b\n---\n", "c");
+    expect(twice.kind).toBe("unsupported");
+    if (twice.kind === "unsupported") expect(twice.reason).toContain("more than once");
   });
 
   it("does not mistake a `name:` line in the BODY for the frontmatter's", () => {

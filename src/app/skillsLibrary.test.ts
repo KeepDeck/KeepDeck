@@ -254,23 +254,28 @@ describe("the library owns every precondition, not the door", () => {
 });
 
 describe("a rename moves the directory AND fixes the file", () => {
-  it("rewrites the frontmatter name BEFORE the move", async () => {
-    // The CLIs read `name:` from the file, so a move alone leaves a directory
-    // saying one name over a file saying another. ORDER is the point: only
-    // content-then-move leaves a failure in between repairable by re-running the
-    // rename — the file says the new name, the directory still says the old, the
-    // directory wins wherever a skill is read, and the re-run finds nothing left
-    // to rewrite and just moves it. Move-then-content consumes the old name, so
-    // a re-run can no longer find the skill it must finish, and no other
-    // operation offers to.
+  it("MOVES before it rewrites the frontmatter name", async () => {
+    // ORDER is the point, and it is the storage's collision check that decides it.
+    // "Is this name taken" is answered here from the listed rows and there from the
+    // DIRECTORY — wider, because a directory with no readable SKILL.md is listed
+    // nowhere. Writing the content first let such a target pass our check, land the
+    // frontmatter rewrite, and then be refused by the move, leaving the source file
+    // declaring the other skill's name with nothing able to repair it: a re-run
+    // finds the frontmatter already right and retries only the move, forever.
     const { library, storage } = libraryOver();
 
     await library.rename(GLOBAL, "review", "deep-review");
 
-    expect(storage.save).toHaveBeenCalledWith(GLOBAL, "review", expect.any(String), false);
     expect(storage.rename).toHaveBeenCalledWith(GLOBAL, "review", "deep-review");
-    expect(storage.save.mock.invocationCallOrder[0]).toBeLessThan(
-      storage.rename.mock.invocationCallOrder[0],
+    // Under the NEW name, since the directory has already moved.
+    expect(storage.save).toHaveBeenCalledWith(
+      GLOBAL,
+      "deep-review",
+      expect.any(String),
+      false,
+    );
+    expect(storage.rename.mock.invocationCallOrder[0]).toBeLessThan(
+      storage.save.mock.invocationCallOrder[0],
     );
 
     // Through the domain function this layer is supposed to DELEGATE to, rather
@@ -320,7 +325,7 @@ describe("a rename moves the directory AND fixes the file", () => {
 
     expect(storage.save).toHaveBeenCalledWith(
       GLOBAL,
-      "review",
+      "deep-review",
       "---\nname: deep-review\n---\nJust a body\n",
       false,
     );

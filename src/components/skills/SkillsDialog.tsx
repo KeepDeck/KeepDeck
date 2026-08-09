@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   normalizeSkillDescription,
   sameSkillScope,
@@ -57,11 +57,13 @@ export function SkillsDialog({
   onClose,
   canClose = true,
 }: SkillsDialogProps) {
-  const { skills, error, clearError, save, rename, remove } =
+  const { skills, error, listUnknown, listTrusted, clearError, save, rename, remove } =
     useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<SkillDraft>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
+  /** Whether the user has typed in the Name field — see `shownNameProblem`. */
+  const [nameTouched, setNameTouched] = useState(false);
   const submitting = useRef(false);
   /** A delete whose confirm has closed but whose IPC is still in flight — see
    * `submit`. */
@@ -71,6 +73,12 @@ export function SkillsDialog({
    * pressing a button that does nothing. The refs stay for the synchronous
    * re-entry guard — state lands a render too late for that. */
   const [busy, setBusy] = useState(false);
+  /** A DELETE in flight, specifically. The nav freezes for this and not for a
+   * save: navigating mid-delete bumps the epoch the delete's own completion
+   * checks, so the editor is left on a skill that no longer exists with no row to
+   * correct it with — whereas navigating mid-SAVE is exactly what `navEpoch`
+   * exists to make safe, and blocking it would take that away. */
+  const [deletingNow, setDeletingNow] = useState(false);
   // Navigation generation: bumped by every apply(). An in-flight submit
   // compares against it so its completion never clobbers a selection the
   // user moved somewhere else during the awaits.
@@ -119,6 +127,31 @@ export function SkillsDialog({
       (s) => s.name === name && sameSkillScope(s.scope, scope),
     );
 
+  /** The open skill is gone from the library — an agent deleted or renamed it
+   * under us. The list reconciles itself through the subscription; the SELECTION
+   * did not, so the editor kept a title, a body and a live Save that could only
+   * ever answer "No skill …". Clean, we drop to the placeholder; dirty, the user's
+   * text stays on screen and Save is refused with a reason, because throwing away
+   * what they typed is the one thing worse than a stale editor. */
+  const vanished =
+    selection?.mode === "edit" &&
+    skills !== null &&
+    // NOT while one of our own writes is in flight: a rename re-anchors the
+    // selection to a name the list does not hold yet — by design, since the save
+    // that follows owns the re-read — so judging it mid-submit calls every rename
+    // a disappearance and disables the save that would complete it. And not over a
+    // list whose last read failed, where absence proves nothing at all.
+    !busy &&
+    listTrusted &&
+    skillAt(selection.scope, selection.name) === undefined;
+
+  useEffect(() => {
+    if (vanished && !dirty) apply(null);
+    // `apply` and `dirty` are read fresh on each run; re-running on every render
+    // would fight the user's own navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vanished, dirty]);
+
   const openSkill = (skill: LibrarySkill) => {
     // The same projection the library's `read` uses, WHOLE — so the editor and
     // every other surface see one skill, not two readings of one file. It
@@ -128,6 +161,7 @@ export function SkillsDialog({
     setSelection({ mode: "edit", scope: skill.scope, name: skill.name });
     setForm(skillDraftOf(skill));
     setDirty(false);
+    setNameTouched(false);
   };
 
   /** Move the editor elsewhere, guarding unsaved edits behind a confirm. */
@@ -180,6 +214,7 @@ export function SkillsDialog({
     setSelection(next);
     setForm(EMPTY_FORM);
     setDirty(false);
+    setNameTouched(false);
   };
 
   // While a confirm is up, Escape belongs to IT (useEscape handlers stack);
@@ -207,6 +242,12 @@ export function SkillsDialog({
   // while the message stayed hidden, because "empty" counted as invalid at the
   // gate and as "nothing typed yet" at the message.
   const nameProblem = authoringName ? skillNameProblem(form.name) : null;
+  // The GATE uses the verdict from the first render; the MESSAGE waits until the
+  // field has been touched, so a freshly opened create form does not greet the
+  // user with a red "A skill needs a name" for text they have not had a chance to
+  // type. Two renderings of ONE verdict, differing only in when they are shown —
+  // never in what they say, which is what drifted when they were derived apart.
+  const shownNameProblem = nameTouched || form.name !== "" ? nameProblem : null;
   // ONE verdict, rendered twice below: the Save gate and the hint under the
   // field. Derived separately they drifted apart the moment the rule grew — a
   // stricter gate with nothing on screen explaining the dead button. The rule
@@ -223,6 +264,7 @@ export function SkillsDialog({
   const canSave =
     selection !== null &&
     dirty &&
+    !vanished &&
     nameProblem === null &&
     !nameTaken &&
     descriptionProblem === null;
@@ -295,7 +337,11 @@ export function SkillsDialog({
   // confirm is up: saving underneath a delete/discard confirmation would
   // change the very state the user is deciding about.
   useSaveShortcut(() => {
-    if (!confirm) void submit();
+    // Gated on `canClose` as well as our own confirm: while a transaction is
+    // stacked over this dialog the surface is inert, so a write started here would
+    // land — and report — where the user can neither see nor answer it. Escape
+    // declines for the same reason one line up; ⌘S was checking only half of it.
+    if (canClose && !confirm) void submit();
   });
 
   // From the GROUPS, which pair each scope with the name it is shown under —
@@ -321,7 +367,8 @@ export function SkillsDialog({
             // Until the first read lands, an empty group must not claim the
             // library is empty — that is the reading `skills === null` exists to
             // keep off the screen, and the nav is what the user looks at.
-            loading={skills === null}
+            emptyMeans={skills === null ? "loading" : listUnknown ? "unknown" : "empty"}
+            busy={deletingNow}
             isActive={(skill) =>
               selection?.mode === "edit" &&
               selection.name === skill.name &&
@@ -374,7 +421,12 @@ export function SkillsDialog({
                 scopeLabel={scopeLabel(selection.scope)}
                 form={form}
                 dirty={dirty}
-                validation={{ nameProblem, nameTaken, descriptionProblem }}
+                validation={{
+                  nameProblem: shownNameProblem,
+                  nameTaken,
+                  descriptionProblem,
+                  vanished,
+                }}
                 canSave={canSave}
                 error={error}
                 onField={(key, value) => {
@@ -384,6 +436,7 @@ export function SkillsDialog({
                   // instead of tripping validation.
                   const next =
                     key === "description" ? normalizeSkillDescription(value) : value;
+                  if (key === "name") setNameTouched(true);
                   setForm((f) => ({ ...f, [key]: next }));
                   setDirty(true);
                 }}
@@ -419,6 +472,7 @@ export function SkillsDialog({
             const target = confirm;
             deleting.current = true;
             setBusy(true);
+            setDeletingNow(true);
             void remove(target.scope, target.name)
               .then((ok) => {
                 if (ok && navEpoch.current === nav) apply(null);
@@ -426,6 +480,7 @@ export function SkillsDialog({
               .finally(() => {
                 deleting.current = false;
                 setBusy(false);
+                setDeletingNow(false);
               });
             setConfirm(null);
           }}

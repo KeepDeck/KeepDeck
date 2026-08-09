@@ -12,7 +12,7 @@
  * looks at it.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SkillDraft, SkillScope } from "../domain/skills";
+import { sameSkillScope, type SkillDraft, type SkillScope } from "../domain/skills";
 import type { LibrarySkill } from "./skillsLibrary";
 import { describeError, log } from "../ipc/log";
 import { useAppRuntime } from "./runtimeContext";
@@ -23,6 +23,13 @@ export interface SkillsEditorState {
   /** The last failed operation, human-readable; cleared by the next success
    * or by `clearError` (navigation away from the failed skill). */
   error: string | null;
+  /** The list is `[]` because a read FAILED, not because the library is empty —
+   * so a surface must not word it as "nothing here". */
+  listUnknown: boolean;
+  /** The last read LANDED, so absence from the list is a real answer. Anything
+   * concluding "this skill is gone" has to check it: over a stale list that
+   * conclusion is wrong, and acting on it discards the user's work. */
+  listTrusted: boolean;
   clearError(): void;
   /**
    * `expectNew` picks between the library's two write verbs, which differ in
@@ -61,6 +68,10 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
   const hasList = useRef(false);
   /** One of OUR writes is in flight, so its own notify is not worth a read. */
   const mutating = useRef(false);
+  /** The read generation current when a notify arrived while we held `mutating`;
+   * `-1` for none. Compared against the generation afterwards to tell a notify our
+   * own reload already covered from one it could not have. */
+  const notifiedAtRead = useRef(-1);
 
   /**
    * THE read: every path that puts the library on screen comes through here, so
@@ -101,9 +112,15 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
       } catch (e) {
         log.warn("web:skills", `skills_list failed (${onFailure}): ${describeError(e)}`);
         if (seq !== reads.current) return false;
-        if (onFailure === "keep" && hasList.current) return false;
-        setSkills([]);
-        setError({ from: "read", text: `Could not read the skills library: ${describeError(e)}` });
+        // A stale list is kept rather than blanked — but never SILENTLY. Saying
+        // nothing let a delete whose reload failed leave the deleted skill listed
+        // with three signals disagreeing; the list is stale either way, and the
+        // user is the one who has to know it.
+        const text = hasList.current
+          ? `The skills list may be out of date: ${describeError(e)}`
+          : `Could not read the skills library: ${describeError(e)}`;
+        if (!hasList.current) setSkills([]);
+        setError({ from: "read", text });
         return false;
       }
     },
@@ -125,32 +142,54 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
       // Not while one of OUR OWN writes is in flight: that operation re-reads
       // when it settles, and answering its notify too would start a second full
       // library read per write, which is what "one user action, one reload"
-      // above promises it does not do.
-      if (!mutating.current) void refresh("keep");
+      // above promises it does not do. But REMEMBER it — the notify may be another
+      // door's, and its change can land after our own read was already served, so
+      // dropping it outright lost it for good.
+      // Remember WHEN it arrived, not merely that it did. A notify that lands
+      // before our own reload starts is covered by that reload — it reads the disk
+      // after the other door's write already resolved. Only one that lands after
+      // our read was issued can have been missed, and that is the one to replay.
+      if (mutating.current) notifiedAtRead.current = reads.current;
+      else void refresh("keep");
     });
   }, [open, library, refresh]);
 
   /** Run a write, then re-read — and hold the subscription off while it runs, so
    * the write's own notify does not race its reload. */
   const mutate = useCallback(
-    async (write: () => Promise<void>, failed: (e: unknown) => string) => {
+    async (
+      write: () => Promise<void>,
+      failed: (e: unknown) => string,
+      /** A rename's re-read belongs to the save that follows it, so one user
+       * action still costs one reload. Its FAILURE re-read is not optional. */
+      { rereadOnSuccess = true }: { rereadOnSuccess?: boolean } = {},
+    ) => {
       mutating.current = true;
+      notifiedAtRead.current = -1;
       try {
         await write();
-        // Cleared on a read that WORKED, after a write that worked: this is the
-        // one place both are true, so it is the one place that clears an
-        // operation's notice too.
-        if (await refresh("keep")) setError(null);
+        // The WRITE landing is the fact this owns, so this is where an operation's
+        // notice ends. Tying it to the following read meant a save that worked and
+        // a re-read that did not left "Save failed" standing over a saved skill.
+        setError((prev) => (prev?.from === "operation" ? null : prev));
+        if (rereadOnSuccess) await refresh("keep");
         return true;
       } catch (e) {
         setError({ from: "operation", text: failed(e) });
-        // The disk may still have moved under this action (a rename that
-        // preceded the failed save): re-read so the list stays truthful, WITHOUT
+        // The disk may still have moved under this action — a rename whose move
+        // landed before its content write failed — so re-read either way, WITHOUT
         // clearing the error the user is reading.
         await refresh("keep");
         return false;
       } finally {
         mutating.current = false;
+        // Replay only a notify our own read cannot have covered: one that arrived
+        // at or after the generation of the newest read. A rename reads nothing on
+        // purpose, so its notify is left to the save that follows — whose read
+        // starts later and therefore sees it.
+        const missed = notifiedAtRead.current === reads.current;
+        notifiedAtRead.current = -1;
+        if (missed && rereadOnSuccess) void refresh("keep");
       }
     },
     [refresh],
@@ -166,22 +205,18 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
   );
 
   const rename = useCallback(
-    async (scope: SkillScope, from: string, to: string) => {
-      // NOT through `mutate`: a rename is half of one user action and the save
-      // that follows owns the re-read, so one action still costs one reload. It
-      // does hold the subscription off for the same reason `mutate` does.
-      mutating.current = true;
-      try {
-        await library.rename(scope, from, to);
-        return true;
-      } catch (e) {
-        setError({ from: "operation", text: `Rename failed: ${describeError(e)}` });
-        return false;
-      } finally {
-        mutating.current = false;
-      }
-    },
-    [library],
+    (scope: SkillScope, from: string, to: string) =>
+      // Through `mutate` like every other write. It used to be a hand-written
+      // copy of four of `mutate`'s steps, and the one it skipped was the FAILURE
+      // re-read — on the operation whose failure is likeliest to have moved the
+      // disk already, so the nav and the open form kept pre-rename bytes and the
+      // next save wrote from them.
+      mutate(
+        () => library.rename(scope, from, to),
+        (e) => `Rename failed: ${describeError(e)}`,
+        { rereadOnSuccess: false },
+      ),
+    [library, mutate],
   );
 
   const clearError = useCallback(() => setError(null), []);
@@ -189,11 +224,36 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
   const remove = useCallback(
     (scope: SkillScope, name: string) =>
       mutate(
-        () => library.remove(scope, name),
+        async () => {
+          await library.remove(scope, name);
+          // Dropped from the list HERE, not left to the re-read. "Keep the stale
+          // list" is a create/update argument — for a delete it shows the user the
+          // thing they just removed, and if the re-read then fails they are looking
+          // at a row whose editor answers "No skill …". This one fact we know.
+          setSkills((rows) =>
+            rows === null
+              ? rows
+              : rows.filter((row) => !(row.name === name && sameSkillScope(row.scope, scope))),
+          );
+        },
         (e) => `Delete failed: ${describeError(e)}`,
       ),
     [library, mutate],
   );
 
-  return { skills, error: error?.text ?? null, clearError, save, rename, remove };
+  return {
+    skills,
+    error: error?.text ?? null,
+    // The tag stays private — no view branches on where an error came from — but
+    // TWO facts derived from it are a view's business, and only this hook can
+    // answer them. An empty list from a failed read must not be rendered as
+    // "nothing here"; and a list whose last read did not land must not be used to
+    // conclude that a skill was deleted elsewhere.
+    listUnknown: error?.from === "read" && !hasList.current,
+    listTrusted: error?.from !== "read",
+    clearError,
+    save,
+    rename,
+    remove,
+  };
 }

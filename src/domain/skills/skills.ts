@@ -40,6 +40,13 @@ export function skillScopeOf(stored: {
     : { kind: "workspace", wsId: stored.wsId ?? "" };
 }
 
+/** A scope as a stable string — for a React key, a map key, a log line. Here
+ * rather than at a call site because it was computed twice in one component, and
+ * "how do you flatten a scope" is the kind of question that must not have two
+ * answers the day a scope gains a third kind. */
+export const skillScopeKey = (scope: SkillScope): string =>
+  scope.kind === "global" ? "global" : `ws:${scope.wsId}`;
+
 /** A skill split into what the editor form works with. */
 export interface SkillDraft {
   name: string;

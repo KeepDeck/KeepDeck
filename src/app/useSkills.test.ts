@@ -120,7 +120,7 @@ describe("the skills library hook", () => {
     expect(library.list).toHaveBeenCalledTimes(2);
   });
 
-  it("a successful save whose reload fails keeps the stale list", async () => {
+  it("a successful save whose reload fails keeps the stale list, and SAYS it is stale", async () => {
     library.list.mockResolvedValue([STORED]);
     await mount();
     library.list.mockRejectedValueOnce(new Error("transient"));
@@ -132,7 +132,11 @@ describe("the skills library hook", () => {
 
     expect(ok).toBe(true); // the write itself landed
     expect(view.skills).toHaveLength(1); // stale beats blank
-    expect(view.error).toBeNull();
+    // But not silently. Saying nothing let a delete whose reload failed leave the
+    // deleted skill listed with three signals disagreeing, and the notice names
+    // the list rather than the write — the write is what just worked.
+    expect(view.error).toContain("may be out of date");
+    expect(view.listUnknown).toBe(false);
   });
 
   it("a failed save surfaces the error and keeps the list truthful", async () => {
@@ -260,7 +264,15 @@ describe("the skills library hook", () => {
     });
 
     expect(view.error).toContain("backend down");
+    expect(view.listUnknown).toBe(true);
+
+    // AND the superseded read must not undo that when it finally lands. Stopping
+    // here left the staleness guard untested from this direction: remove it and the
+    // older read would quietly overwrite the reported failure with its own rows,
+    // and this case would still have passed.
     await act(async () => finishFirst([STORED]));
+    expect(view.error).toContain("backend down");
+    expect(view.skills).toEqual([]);
   });
 
   it("a background read clears a READ error but not the save error under it", async () => {

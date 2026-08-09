@@ -3,6 +3,7 @@ import { parse } from "yaml";
 import {
   composeSkillFile,
   frontmatterObstacle,
+  frontmatterTextOf,
   parseSkillFile,
   renameSkillFile,
 } from "./skillFile";
@@ -23,15 +24,15 @@ import {
  * YAML reader still reads the same `name` and `description` afterwards.
  */
 
-/** The frontmatter text, read the way the codec locates it. */
-function frontmatterText(file: string): string | null {
-  const match = /^---[ \t]*\r?\n([\s\S]*?)(?:^|\n)---[ \t]*(?:\r?\n|$)/.exec(file);
-  return match ? match[1] : null;
-}
-
-/** What a real YAML reader makes of a stored file's frontmatter. */
+/** What a real YAML reader makes of a stored file's frontmatter.
+ *
+ * The fence is located by the CODEC (`frontmatterTextOf`), deliberately — a
+ * regex of our own here was a third hand-rolled reader in the very file written
+ * because hand-rolled readers kept being nearly right, and it already disagreed
+ * with production on an empty fenced block, which made those cases pass
+ * vacuously. What must stay independent is the PARSE below. */
 function asRead(file: string): Record<string, unknown> | "invalid" | "none" {
-  const text = frontmatterText(file);
+  const text = frontmatterTextOf(file);
   if (text === null) return "none";
   try {
     const value: unknown = parse(text);
@@ -83,6 +84,18 @@ const STORED: Record<string, string> = {
     "---\n  name: old-skill\n  description: d\n---\nBody\n",
   "a CRLF file":
     "---\r\nname: demo\r\ndescription: Reviews\r\n---\r\nBody\r\n",
+  "an anchor shared with another key":
+    "---\nname: &n review\ndescription: Reviews\ntitle: *n\n---\nBody\n",
+  "frontmatter holding only a comment":
+    "---\n# TODO: add name and description\n---\nBody\n",
+  "a standalone comment between keys":
+    "---\nname: demo\ndescription: d\n# why this is pinned\nallowed-tools: Read\n---\nBody\n",
+  "a trailing comment before the fence":
+    "---\nname: demo\ndescription: d\n# last word\n---\nBody\n",
+  "a non-scalar key":
+    "---\nname: demo\ndescription: d\n[a, b]: kept by a reader\n---\nBody\n",
+  "a BOM before the fence":
+    "﻿---\nname: demo\ndescription: Reviews\n---\nBody\n",
 };
 
 describe("what a YAML reader sees after we rewrite a stored skill", () => {
@@ -118,6 +131,13 @@ describe("what a YAML reader sees after we rewrite a stored skill", () => {
       if (before.name !== undefined) {
         expect(oneLine(after.name), "name").toBe(oneLine(draft.name ?? ""));
       }
+      // And EVERY OTHER KEY, which is the half this suite used to leave to the
+      // rename cases — where 17 of 18 fixtures take the byte-preserving splice and
+      // never reach the composer at all. A mangled extras splice would have shipped.
+      for (const key of Object.keys(before)) {
+        if (key === "name" || key === "description") continue;
+        expect(oneLine(after[key]), key).toBe(oneLine(before[key]));
+      }
     });
 
     it(`renames without changing what else the file says: ${label}`, () => {
@@ -152,6 +172,18 @@ describe("what a YAML reader sees after we rewrite a stored skill", () => {
       }
     });
   }
+
+  it("refuses a duplicated key that a STRICT reader refuses outright", () => {
+    // Not in the table above, because the table's premise is "valid YAML" and this
+    // is the one shape where readers disagree about that: `yaml`'s default refuses
+    // the mapping, and with `uniqueKeys` off it resolves LAST-wins. There is no
+    // value we could write that is right for both, so we write nothing — and we
+    // show the one a lenient reader uses, since that is what the agents get.
+    const stored = "---\nname: demo\ndescription: first\ndescription: second\n---\nBody\n";
+    expect(asRead(stored), "a strict reader").toBe("invalid");
+    expect(frontmatterObstacle(stored)).toContain("more than once");
+    expect(parseSkillFile(stored).description).toBe("second");
+  });
 
   it("refuses rather than rewrites, for every shape it cannot restate", () => {
     // The two the reviews found: frontmatter that is one indented mapping, and

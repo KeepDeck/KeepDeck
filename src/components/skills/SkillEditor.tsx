@@ -13,6 +13,8 @@ export interface SkillValidation {
   /** The domain's description verdict, rendered by both arms — the gate refuses
    * either, so a message for only one leaves a dead button unexplained. */
   descriptionProblem: "empty" | "multiline" | null;
+  /** The skill was removed or renamed elsewhere while it was open. */
+  vanished: boolean;
 }
 
 interface SkillEditorProps {
@@ -152,6 +154,12 @@ export function SkillEditor({
         spellCheck={false}
       />
 
+      {validation.vanished && (
+        <div className="form__error">
+          This skill was removed or renamed elsewhere. Copy anything you want to
+          keep — saving it here would recreate a skill someone deleted.
+        </div>
+      )}
       {/* Backend text, not authored copy — selectable so it can be copied into
           a bug report, unlike the fixed guidance in the fields above. */}
       {error && <div className="form__error kd-selectable">{error}</div>}
