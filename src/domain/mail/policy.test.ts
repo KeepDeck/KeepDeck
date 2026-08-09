@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { PaneActivity } from "../status";
 import type { Mail, MailSender } from "./message";
-import { MAIL_LIMITS, decideDelivery, decideSend, expiryNotice } from "./policy";
+import {
+  MAIL_LIMITS,
+  decideDelivery,
+  decideHandover,
+  decideSend,
+  expiryNotice,
+} from "./policy";
 
 const sender: MailSender = {
   paneId: "pane-1",
@@ -213,6 +219,40 @@ describe("decideDelivery", () => {
     const limits = { undeliveredMs: 10, maxHops: 1, hookWaitMs: 5 };
     expect(decideDelivery(mail(), working, SENT_AT + 10, limits)).toEqual({ kind: "expire" });
     expect(decideDelivery(mail(), working, SENT_AT + 9, limits)).toEqual({ kind: "deliver" });
+  });
+});
+
+describe("decideHandover", () => {
+  it("shares its clauses with the terminal's verdict rather than copying them", () => {
+    // The point of the function: one answer to "is this still worth landing"
+    // and one to "is this pane safe to push at", used by both channels. They
+    // were copied into the application owner once, and a fifth reason to
+    // hold would then have been honoured on the terminal path and ignored on
+    // the labelled one — the path a briefing exclusively uses.
+    const stale = mail({ at: 0 });
+    const now = MAIL_LIMITS.undeliveredMs;
+    expect(decideHandover(stale, undefined, now)).toBe("expire");
+    expect(decideDelivery(stale, undefined, now)).toEqual({ kind: "expire" });
+
+    const fresh = mail({ at: now });
+    expect(decideHandover(fresh, approving, now)).toBe("hold");
+    expect(decideDelivery(fresh, approving, now)).toEqual({
+      kind: "hold",
+      reason: "permission",
+    });
+  });
+
+  it("hands over the standing context the other channel refuses to touch", () => {
+    // The one place the two verdicts MUST differ: a briefing is held from the
+    // terminal forever and delivered here, because this is the moment it was
+    // waiting for.
+    const briefing = mail({ kind: "team", at: 0 });
+    const now = MAIL_LIMITS.undeliveredMs * 10;
+    expect(decideHandover(briefing, done, now)).toBe("hand");
+    expect(decideDelivery(briefing, done, now)).toEqual({
+      kind: "hold",
+      reason: "labelled-only",
+    });
   });
 });
 

@@ -59,9 +59,6 @@ export const MAIL_LIMITS: MailLimits = {
 export type MailHoldReason =
   /** The pane is parked on a permission prompt. */
   | "permission"
-  /** The pane has no live input channel — it is starting, or stopped. The
-   * delivery channel says so; nothing else can. */
-  | "no-channel"
   /** This agent asks the deck for its mail at a turn boundary. Waiting buys
    * a labelled envelope instead of a paste that reads like the user typed
    * it — and that a TUI may not even submit. */
@@ -124,6 +121,61 @@ export type MailVerdict =
   | { kind: "expire" };
 
 /**
+ * Whether `mail` may be handed over at a turn boundary, when the agent has
+ * come asking for it.
+ *
+ * The two clauses it shares with [`decideDelivery`] are shared on purpose —
+ * they were copied into the application owner once, and a fifth reason to
+ * hold would then have been honoured on the terminal path and ignored on the
+ * labelled one, which is the path a briefing exclusively uses.
+ *
+ * What it does NOT share is the rest: everything below the permission clause
+ * in `decideDelivery` decides between the two channels, and this IS the
+ * labelled channel. Standing context is the clearest case — held there,
+ * delivered here, because this is the moment it was waiting for.
+ */
+export function decideHandover(
+  mail: Mail,
+  activity: PaneActivity | undefined,
+  now: number,
+  limits: MailLimits = MAIL_LIMITS,
+): "hand" | "expire" | "hold" {
+  if (hasGoneStale(mail, now, limits)) return "expire";
+  return parkedOnAPrompt(activity) ? "hold" : "hand";
+}
+
+/**
+ * Too old to be worth landing.
+ *
+ * Standing context keeps no clock at all ([`isStandingContext`]): it cannot
+ * go stale, and an agent that takes no turn for an hour is exactly the one
+ * that would otherwise lose its briefing and then be handed a teammate's
+ * task with no idea who is asking.
+ */
+function hasGoneStale(mail: Mail, now: number, limits: MailLimits): boolean {
+  return !isStandingContext(mail.kind) && now - mail.at >= limits.undeliveredMs;
+}
+
+/**
+ * The one genuinely dangerous state, and it outranks everything below it.
+ *
+ * A permission prompt answers keystrokes by CHOOSING A MENU ITEM, so text
+ * pushed there is not read as text at all — its characters answer the
+ * prompt, and the tracker cannot see that happen, because a write like this
+ * deliberately never enters the keystroke channel (`src/app/paneKeys.ts`).
+ * Holding is the only safe answer, and it is why messages need a clock at
+ * all. Arriving through a hook does not make answering one safe either: the
+ * pane is still parked where keystrokes pick menu items.
+ *
+ * No activity at all is NOT this state, and treating it as any kind of hold
+ * was once a bug of its own: a status reporter speaks on turn events, so a
+ * pane sitting idle at its prompt reports nothing whatsoever.
+ */
+function parkedOnAPrompt(activity: PaneActivity | undefined): boolean {
+  return activity?.state === "waiting" && activity.reason === "permission";
+}
+
+/**
  * What to do with `mail` RIGHT NOW, given what the receiver is doing.
  *
  * Called on every wake-up — a new message, a status change, a timer tick —
@@ -145,30 +197,10 @@ export function decideDelivery(
   // exists to prevent — the correction arrives after the action it was
   // meant to stop.
   //
-  // Standing context keeps no clock at all ([`isStandingContext`]): it
-  // cannot go stale, and an agent that takes no turn for an hour is exactly
-  // the one that would otherwise lose its briefing and then be handed a
-  // teammate's task with no idea who is asking.
-  if (
-    !isStandingContext(mail.kind) &&
-    now - mail.at >= limits.undeliveredMs
-  ) {
-    return { kind: "expire" };
-  }
-  // The one genuinely dangerous state, and it outranks everything below. A
-  // permission prompt answers keystrokes by CHOOSING A MENU ITEM, so text
-  // pushed there is not read as text at all — its characters answer the
-  // prompt, and the tracker cannot see that happen, because a write like
-  // this deliberately never enters the keystroke channel
-  // (`src/app/paneKeys.ts`). Holding is the only safe answer, and it is why
-  // messages need a clock at all.
-  //
-  // No activity at all is NOT this state, and treating it as any kind of
-  // hold was once a bug of its own: a status reporter speaks on turn events,
-  // so a pane sitting idle at its prompt reports nothing whatsoever.
-  if (activity?.state === "waiting" && activity.reason === "permission") {
-    return { kind: "hold", reason: "permission" };
-  }
+  // See [`hasGoneStale`] for why standing context is exempt.
+  if (hasGoneStale(mail, now, limits)) return { kind: "expire" };
+  // See [`parkedOnAPrompt`] for why this outranks everything below it.
+  if (parkedOnAPrompt(activity)) return { kind: "hold", reason: "permission" };
   // A message that may only arrive labelled never touches the terminal —
   // not as content, and not as a nudge either. A briefing is pure context:
   // spending a keystroke to make an agent take a turn and come asking for

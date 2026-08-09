@@ -20,6 +20,7 @@
 import {
   MAIL_LIMITS,
   decideDelivery,
+  decideHandover,
   decideSend,
   expiryNotice,
   isStandingContext,
@@ -428,25 +429,21 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       const taken: Mail[] = [];
       while (queue.length > 0) {
         const head = queue[0];
-        // The clock still rules whatever it rules elsewhere: a message too
-        // old to paste is too old to hand over politely, and its sender is
-        // owed the same report. Standing context keeps no clock in either
-        // place — this is the very moment it was waiting for, and it is the
-        // agent's FIRST turn that most needs it.
-        if (
-          !isStandingContext(head.kind) &&
-          at - head.at >= limits.undeliveredMs
-        ) {
+        // The same two clauses the other channel obeys, asked rather than
+        // repeated: a message too old to paste is too old to hand over
+        // politely and its sender is owed the same report, and a pane parked
+        // on a permission prompt is unsafe to push at through either door.
+        // Copied here once, they made a fifth reason to hold something the
+        // terminal would honour and this — the path a briefing exclusively
+        // uses — would silently ignore.
+        const verdict = decideHandover(head, deps.activityOf(paneId), at, limits);
+        if (verdict === "expire") {
           queue.shift();
           const notice = expiryNotice(head, mintId(), at);
           if (notice) enqueue(notice);
           continue;
         }
-        // A permission prompt is about the TERMINAL, and arriving through a
-        // hook does not make answering one safe — the pane is still parked
-        // where keystrokes pick menu items. Held, exactly as before.
-        const activity = deps.activityOf(paneId);
-        if (activity?.state === "waiting" && activity.reason === "permission") break;
+        if (verdict === "hold") break;
         queue.shift();
         chainHop.set(paneId, head.hop);
         remember(paneId, head);
