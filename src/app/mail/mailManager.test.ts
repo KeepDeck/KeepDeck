@@ -78,6 +78,10 @@ function harness(options: { asksAtTurnEnd?: boolean } = {}) {
       deliverable = true;
       for (const listener of [...channelWatchers]) listener();
     },
+    /** How long the armed timer still has, or null when the last pass armed
+     * none. A pass that schedules nothing is a real answer: some holds wait
+     * on a subscription and have no later moment to wake for. */
+    pending: () => (timer ? timer.at - clock : null),
     advance(ms: number) {
       clock += ms;
       // Fire whatever came due, letting each firing re-arm.
@@ -433,6 +437,30 @@ describe("createMailManager", () => {
     h.manager.announce(B.paneId, "team", "you are lead on api");
     h.advance(PAST_SPACING);
     expect(h.delivered).toHaveLength(0);
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.kind)).toEqual([
+      "team",
+    ]);
+  });
+
+  it("arms no timer for a briefing held at a permission prompt", () => {
+    // Found by review, and it was a live spin. A briefing never expires, so
+    // "the moment it stops being worth delivering" — the deadline every other
+    // hold schedules — is permanently in the past once `undeliveredMs` has
+    // elapsed. A past deadline re-arms at the scheduler's 1ms floor, and the
+    // next pass computes the same one: a 1ms loop for as long as the person
+    // leaves the prompt unanswered.
+    //
+    // A permission prompt resolves through the activity subscription, and a
+    // briefing has no clock of its own, so the honest answer is to schedule
+    // nothing at all.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, approving);
+    h.manager.announce(B.paneId, "team", "you are impl-1 on api");
+    h.advance(MAIL_LIMITS.undeliveredMs + 1);
+    expect(h.pending()).toBeNull();
+    // And it is still there, waiting for the prompt to clear.
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toHaveLength(0);
+    h.reports(B.paneId, done);
     expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.kind)).toEqual([
       "team",
     ]);

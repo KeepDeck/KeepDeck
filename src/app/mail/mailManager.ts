@@ -291,9 +291,18 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // Held on a permission prompt, which resolves through the activity
       // subscription — so the only thing left to schedule is the moment this
       // message stops being worth delivering.
+      //
+      // Standing context has no such moment: it never expires, so its
+      // "stops being worth delivering" instant is permanently in the past
+      // once `undeliveredMs` elapses, and a deadline in the past re-arms the
+      // timer at its 1ms floor — forever, for as long as the prompt is up. It
+      // waits on the activity subscription like the rest, and schedules
+      // nothing, exactly as the labelled-only branch above does.
       if (verdict.kind === "hold") {
         log.debug("web:mail", `held on ${verdict.reason}: ${trace(head)}`);
-        return earlier(skipped, head.at + limits.undeliveredMs);
+        return isStandingContext(head.kind)
+          ? skipped
+          : earlier(skipped, head.at + limits.undeliveredMs);
       }
       // A nudge, not a delivery: the message stays exactly where it is, and
       // what it buys is a TURN — whose hook then carries the words properly.
