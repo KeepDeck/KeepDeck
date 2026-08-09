@@ -74,10 +74,16 @@ describe("decideDelivery", () => {
         String(activity?.state),
       ).toEqual({ kind: "hold", reason: "labelled-only" });
     }
-    // Expiry still outranks it — a briefing nobody came for is dropped
-    // rather than held forever.
+    // And it keeps NO clock. A briefing cannot go stale — it is as true an
+    // hour later — while an agent that takes no turn for an hour is exactly
+    // the one that would lose it and then be handed a teammate's task with
+    // no idea who is asking.
     expect(
-      decideDelivery(briefing, done, SENT_AT + MAIL_LIMITS.undeliveredMs),
+      decideDelivery(briefing, done, SENT_AT + MAIL_LIMITS.undeliveredMs * 12),
+    ).toEqual({ kind: "hold", reason: "labelled-only" });
+    // Traffic still keeps it: acting late can be worse than not acting.
+    expect(
+      decideDelivery(mail(), done, SENT_AT + MAIL_LIMITS.undeliveredMs),
     ).toEqual({ kind: "expire" });
   });
 

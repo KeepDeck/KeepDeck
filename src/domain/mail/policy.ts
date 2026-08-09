@@ -67,36 +67,38 @@ export type MailHoldReason =
    * it — and that a TUI may not even submit. */
   | "turn-boundary"
   /** This message may only arrive labelled, and the labelled channel has
-   * not asked yet. See [`WAKES_A_PANE`]. */
+   * not asked yet. See [`isStandingContext`]. */
   | "labelled-only";
 
 /**
- * The message kinds that may be pushed into a pane's TERMINAL.
+ * Whether this kind is standing CONTEXT rather than traffic between agents.
  *
- * The split is what a message is FOR. A task, a question, an answer or a
- * note is one agent talking to another and carrying an expectation — the
- * point of it is that the receiver ACTS on it, so waking an idle pane by
- * typing into it is a crude channel but an honest one. So is a delivery
- * report: it goes back to a pane that is waiting for an answer, to tell it
- * to stop waiting, and unblocking someone is a wake by definition.
+ * One split, and both of the rules that matter fall out of it.
  *
- * A briefing is none of that. It states where a pane STANDS, and it belongs
- * in the agent's CONTEXT, not in its composer. Pasted, it arrives looking
- * like something the user typed — the exact wrong reading, since the whole
- * content of a briefing is "this did not come from your human". Observed
- * live: a freshly started teammate sat with its briefing in the input box,
- * unsent, and its first act would have been to guess what the person wanted
- * with it. Not delivering it is better than that, so a briefing waits for
- * the labelled channel and expires if that channel never asks.
+ * TRAFFIC — a task, a question, an answer, a note, a delivery report — is one
+ * agent talking to another and carrying an expectation: the point is that the
+ * receiver ACTS. So waking an idle pane by typing into it is crude but
+ * honest, and so is a clock, because acting late can be worse than not
+ * acting at all. "Stop, don't do that" arriving after it was done is the
+ * failure the delivery window exists to prevent.
+ *
+ * CONTEXT — a briefing — is neither. It states where a pane STANDS.
+ *
+ * It is never typed in. Pasted, it reads as something the person wrote,
+ * which is the exact opposite of the only thing it says; and a nudge to make
+ * the agent come asking for it is the same intrusion in a thinner disguise.
+ * Both were observed leaving KeepDeck's own words in somebody's composer.
+ *
+ * And it never expires, because it cannot go stale. A briefing is as true an
+ * hour later as it was when the team formed — and an agent that takes no
+ * turn of its own for an hour is exactly the one that would lose it. Then the
+ * first message from a teammate wakes it and arrives WITHOUT the standing it
+ * needs to make sense of who is asking. Traffic keeps the clock; context
+ * waits as long as it takes.
  */
-const WAKES_A_PANE: ReadonlySet<MailKind> = new Set<MailKind>([
-  "task",
-  "question",
-  "answer",
-  "note",
-  "undelivered",
-]);
-
+export function isStandingContext(kind: MailKind): boolean {
+  return kind === "team";
+}
 export type MailVerdict =
   /** Push the message itself into the pane's terminal. Only for an agent
    * with no labelled channel at all — for everyone else, see `wake`. */
@@ -142,7 +144,17 @@ export function decideDelivery(
   // became reachable. Delivering it then is exactly the failure the clock
   // exists to prevent — the correction arrives after the action it was
   // meant to stop.
-  if (now - mail.at >= limits.undeliveredMs) return { kind: "expire" };
+  //
+  // Standing context keeps no clock at all ([`isStandingContext`]): it
+  // cannot go stale, and an agent that takes no turn for an hour is exactly
+  // the one that would otherwise lose its briefing and then be handed a
+  // teammate's task with no idea who is asking.
+  if (
+    !isStandingContext(mail.kind) &&
+    now - mail.at >= limits.undeliveredMs
+  ) {
+    return { kind: "expire" };
+  }
   // The one genuinely dangerous state, and it outranks everything below. A
   // permission prompt answers keystrokes by CHOOSING A MENU ITEM, so text
   // pushed there is not read as text at all — its characters answer the
@@ -165,10 +177,13 @@ export function decideDelivery(
   // composer. Observed on two panes at once, which is how this rule got its
   // teeth.
   //
-  // What makes that safe rather than a hole is `SessionStart`: a starting
-  // agent asks the deck during its own boot, so the briefing it could never
-  // have been nudged into arrives before its first turn, unprompted.
-  if (!WAKES_A_PANE.has(mail.kind)) {
+  // What makes that safe rather than a hole is that it WAITS, without a
+  // clock. claude collects it during its own boot, from `SessionStart`. An
+  // agent that has no session until somebody speaks to it — kimi — collects
+  // it on the turn that first message opens, which is the moment it becomes
+  // useful anyway: standing arrives together with the first thing that
+  // needs it.
+  if (isStandingContext(mail.kind)) {
     return { kind: "hold", reason: "labelled-only" };
   }
   // An agent with NO labelled channel has the terminal or nothing.

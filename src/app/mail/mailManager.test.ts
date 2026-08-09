@@ -463,30 +463,62 @@ describe("createMailManager", () => {
     ]);
   });
 
-  it("still expires a briefing it stepped over, on that briefing's own clock", () => {
-    // Stepping over a message must not cost it its timer: the walk can end
-    // with nothing deliverable behind it, and the only thing left to
-    // schedule is the moment the skipped one stops being worth holding.
+  it("leaves a briefing it stepped over exactly where it was", () => {
+    // Stepping over one must neither deliver it nor lose it. It keeps no
+    // clock, so the walk schedules nothing for it — and it is still there
+    // for whatever turn eventually happens, however long that takes.
     const h = harness();
     h.reports(B.paneId, done);
     h.manager.announce(B.paneId, "team", "you are impl-1 on api");
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "take it" });
-    expect(h.delivered).toHaveLength(1);
-    h.advance(MAIL_LIMITS.undeliveredMs);
-    expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
+    expect(h.delivered.map((mail) => mail.kind)).toEqual(["task"]);
+    h.advance(MAIL_LIMITS.undeliveredMs * 12);
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.kind)).toEqual([
+      "team",
+    ]);
   });
 
-  it("drops a briefing nobody asked for rather than typing it in late", () => {
-    // The wait is bounded like every other, and the end of it is NOT a
-    // fallback to the terminal — that fallback is exactly what this kind
-    // has no business using. It expires quietly: the deck said it to a pane
-    // that never came asking, and there is no sender owed a report.
+  it("keeps a briefing waiting however long the pane takes to speak", () => {
+    // An agent with no session until somebody writes to it — kimi — takes no
+    // turn of its own at all. On a clock its briefing would be gone by the
+    // time a teammate's first task woke it, and it would be handed work with
+    // no idea who was asking. A briefing cannot go stale, so it does not
+    // keep a clock: it is still there for whatever turn finally happens.
     const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, done);
     h.manager.announce(B.paneId, "team", "you are lead on api");
-    h.advance(MAIL_LIMITS.undeliveredMs);
+    h.advance(MAIL_LIMITS.undeliveredMs * 12);
     expect(h.delivered).toHaveLength(0);
-    expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.kind)).toEqual([
+      "team",
+    ]);
+  });
+
+  it("replaces a waiting briefing instead of stacking another on top", () => {
+    // The deck re-states one on every fresh session and every rebuilt
+    // context, and a briefing now waits indefinitely. Left to accumulate, a
+    // pane that sat quiet through three restarts would be handed three at
+    // once, two of them describing a team it has already been told about.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.announce(B.paneId, "team", "you are lead on api");
+    h.manager.announce(B.paneId, "team", "you are impl-1 on api");
+    const taken = h.manager.takeAtTurnEnd(B.paneId);
+    expect(taken.map((mail) => mail.body)).toEqual(["you are impl-1 on api"]);
+  });
+
+  it("does not let a briefing displace a teammate's message", () => {
+    // Superseding is about a kind replacing ITSELF. A task waiting beside it
+    // is somebody's actual work and belongs to a different conversation.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "take it" });
+    h.manager.announce(B.paneId, "team", "you are impl-1 on api");
+    h.manager.announce(B.paneId, "team", "you are impl-2 on api");
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
+      "take it",
+      "you are impl-2 on api",
+    ]);
   });
 
   it("holds a task at a permission prompt, and lands it once that clears", () => {

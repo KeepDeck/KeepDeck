@@ -22,6 +22,7 @@ import {
   decideDelivery,
   decideSend,
   expiryNotice,
+  isStandingContext,
   type Mail,
   type MailKind,
   type MailLimits,
@@ -202,8 +203,22 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   function enqueue(mail: Mail): void {
     log.info("web:mail", `queued: ${trace(mail)}`);
     const queue = queues.get(mail.toPaneId);
-    if (queue) queue.push(mail);
-    else queues.set(mail.toPaneId, [mail]);
+    if (!queue) {
+      queues.set(mail.toPaneId, [mail]);
+      return;
+    }
+    // Standing context SUPERSEDES itself. It keeps no clock, so an
+    // undelivered briefing waits for as long as the pane takes — and the
+    // deck re-states one on every fresh session and every rebuilt context.
+    // Left to accumulate, a pane that sat quiet through three restarts
+    // would be handed three briefings at once, two of them describing a
+    // team it has already been told about. Only the newest is true.
+    if (isStandingContext(mail.kind)) {
+      for (let i = queue.length - 1; i >= 0; i -= 1) {
+        if (queue[i].kind === mail.kind) queue.splice(i, 1);
+      }
+    }
+    queue.push(mail);
   }
 
   function remember(paneId: string, mail: Mail): void {
@@ -256,10 +271,12 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         continue;
       }
       // The message's own restriction, not the pane's: step over it and keep
-      // looking. It leaves through `takeAtTurnEnd` or not at all.
+      // looking. It leaves through `takeAtTurnEnd` or not at all — and it
+      // schedules NOTHING, because standing context keeps no clock. There is
+      // no later moment at which this pass would decide differently about
+      // it, so waking a timer for one would be waking it to do nothing.
       if (verdict.kind === "hold" && verdict.reason === "labelled-only") {
         log.debug("web:mail", `waiting for the labelled channel: ${trace(head)}`);
-        skipped = earlier(skipped, head.at + limits.undeliveredMs);
         index += 1;
         continue;
       }
@@ -402,9 +419,15 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       const taken: Mail[] = [];
       while (queue.length > 0) {
         const head = queue[0];
-        // The clock still rules: a message too old to paste is too old to
-        // hand over politely, and its sender is owed the same report.
-        if (at - head.at >= limits.undeliveredMs) {
+        // The clock still rules whatever it rules elsewhere: a message too
+        // old to paste is too old to hand over politely, and its sender is
+        // owed the same report. Standing context keeps no clock in either
+        // place — this is the very moment it was waiting for, and it is the
+        // agent's FIRST turn that most needs it.
+        if (
+          !isStandingContext(head.kind) &&
+          at - head.at >= limits.undeliveredMs
+        ) {
           queue.shift();
           const notice = expiryNotice(head, mintId(), at);
           if (notice) enqueue(notice);
