@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import { skillDraftOf, type SkillScope } from "../../domain/skills";
-import type { StoredSkill } from "../../ipc/skills";
+import type { LibrarySkill } from "../../app/skillsLibrary";
 
 export interface SkillsNavGroup {
   label: string;
   scope: SkillScope;
-  items: StoredSkill[];
+  items: LibrarySkill[];
 }
 
 interface SkillsNavProps {
@@ -13,8 +13,8 @@ interface SkillsNavProps {
   /** The library has not been read yet, so an empty group means "not known",
    * not "nothing here". */
   loading: boolean;
-  isActive(skill: StoredSkill): boolean;
-  onOpen(skill: StoredSkill): void;
+  isActive(skill: LibrarySkill): boolean;
+  onOpen(skill: LibrarySkill): void;
   onCreate(scope: SkillScope): void;
 }
 
@@ -31,7 +31,7 @@ export function SkillsNav({
   // whole SKILL.md — CRLF normalize, frontmatter scan, unscalar, body slice —
   // and every keystroke in the editor beside this nav re-rendered it.
   const described = useMemo(() => {
-    const byRow = new Map<StoredSkill, string>();
+    const byRow = new Map<LibrarySkill, string>();
     for (const group of groups) {
       for (const skill of group.items) byRow.set(skill, skillDraftOf(skill).description);
     }
@@ -57,7 +57,7 @@ export function SkillsNav({
             const description = described.get(skill);
             return (
               <button
-                key={`${skill.scope}:${skill.wsId ?? ""}:${skill.name}`}
+                key={`${scope.kind === "global" ? "global" : scope.wsId}:${skill.name}`}
                 type="button"
                 className={`skills__item${isActive(skill) ? " skills__item--active" : ""}`}
                 aria-current={isActive(skill) || undefined}

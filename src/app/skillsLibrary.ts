@@ -12,13 +12,7 @@ import {
   type SkillDraft,
   type SkillScope,
 } from "../domain/skills";
-import {
-  deleteSkill,
-  fetchSkills,
-  renameSkill,
-  saveSkill,
-  type StoredSkill,
-} from "../ipc/skills";
+import { deleteSkill, fetchSkills, renameSkill, saveSkill } from "../ipc/skills";
 import type { SkillsInvalidation } from "./worktrees";
 
 /**
@@ -42,10 +36,27 @@ import type { SkillsInvalidation } from "./worktrees";
  * the editor's checks light up its form, these cannot be bypassed.
  */
 
+/**
+ * One stored skill as THIS layer speaks of it: a scope, a name, its bytes.
+ *
+ * Not the wire DTO. `StoredSkill` mirrors the Rust struct field for field
+ * (`scope: "global" | "workspace"` beside a nullable `wsId`), and letting it
+ * through made it the currency of the library's public `list`, the editor's view
+ * state, both views and a React key — four layers a backend field rename would
+ * reach. The domain already refuses to touch it for exactly this reason
+ * (`skillScopeOf` takes the row structurally); above the adapter a scope is a
+ * `SkillScope`, so nothing upstream re-derives one.
+ */
+export interface LibrarySkill {
+  scope: SkillScope;
+  name: string;
+  content: string;
+}
+
 /** The stored library itself. Injected so the owner can be driven without IPC,
  * and so the one adapter that knows the Rust command names stays below. */
 export interface SkillsStorage {
-  fetch(): Promise<StoredSkill[]>;
+  fetch(): Promise<LibrarySkill[]>;
   save(
     scope: SkillScope,
     name: string,
@@ -70,7 +81,7 @@ export interface SkillsLibrary {
    * and one that could not be read must never arrive as the same value — a
    * caller that shows "you have no skills" for an unreachable backend is lying.
    */
-  list(scope?: SkillScope): Promise<StoredSkill[]>;
+  list(scope?: SkillScope): Promise<LibrarySkill[]>;
   /** One skill as the editable draft. REFUSES a name that scope does not hold,
    * with the same sentence every other operation gives for an absent skill —
    * a nullable read would leave each door to word that refusal itself, and
@@ -124,9 +135,16 @@ export interface SkillsLibrary {
   subscribe(listener: () => void): () => void;
 }
 
-/** The adapter over the Tauri commands — the only place their names appear. */
+/** The adapter over the Tauri commands — the only place their names appear, and
+ * the only place the wire's shape does: `fetch` reads the DTO's scope columns
+ * into a `SkillScope` here, so no layer above has to. */
 export const ipcSkillsStorage: SkillsStorage = {
-  fetch: fetchSkills,
+  fetch: async () =>
+    (await fetchSkills()).map((row) => ({
+      scope: skillScopeOf(row),
+      name: row.name,
+      content: row.content,
+    })),
   save: saveSkill,
   rename: renameSkill,
   remove: deleteSkill,
@@ -143,9 +161,9 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
 
   /** THE scope filter — "which stored rows belong to this library" is asked by
    * every read, so it is answered once here rather than at each caller. */
-  async function rows(scope?: SkillScope): Promise<StoredSkill[]> {
+  async function rows(scope?: SkillScope): Promise<LibrarySkill[]> {
     const all = await ports.storage.fetch();
-    return scope ? all.filter((row) => sameSkillScope(skillScopeOf(row), scope)) : all;
+    return scope ? all.filter((row) => sameSkillScope(row.scope, scope)) : all;
   }
 
   /** One scope's library, read ONCE, answering the two questions every mutation
@@ -156,7 +174,7 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
   async function library(scope: SkillScope) {
     const all = await rows(scope);
     return {
-      existing(name: string): StoredSkill {
+      existing(name: string): LibrarySkill {
         const stored = all.find((row) => row.name === name);
         if (!stored) throw new Error(`No skill "${name}" in ${describeScope(scope)}`);
         return stored;

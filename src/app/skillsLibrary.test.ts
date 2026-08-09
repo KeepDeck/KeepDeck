@@ -7,13 +7,21 @@ import {
 } from "../domain/skills";
 import {
   createSkillsLibrary,
+  type LibrarySkill,
   type SkillsLibrary,
   type SkillsStorage,
 } from "./skillsLibrary";
-import type { StoredSkill } from "../ipc/skills";
 
 const GLOBAL: SkillScope = { kind: "global" };
 const WS: SkillScope = { kind: "workspace", wsId: "ws-1" };
+
+/** One stored row, as the library's own port hands it over — a scope, not the
+ * wire's scope-plus-nullable-id columns. */
+const row = (scope: SkillScope, name: string, content: string): LibrarySkill => ({
+  scope,
+  name,
+  content,
+});
 
 // Named for a skill the fake library actually holds, so a mutation's existence
 // precondition is satisfied unless a case deliberately breaks it.
@@ -27,24 +35,18 @@ const draft = (over: Partial<SkillDraft> = {}): SkillDraft => ({
 
 /** The library as the backend sees it: one global and one workspace skill, both
  * named `review`, so a scope mix-up cannot pass unnoticed. */
-const STORED: StoredSkill[] = [
-  {
-    scope: "global",
-    wsId: null,
-    name: "review",
-    content: "---\nname: review\ndescription: Global one\nlicense: MIT\n---\nGlobal body\n",
-  },
-  {
-    scope: "workspace",
-    wsId: "ws-1",
-    name: "review",
-    content: "---\nname: review\ndescription: Workspace one\n---\nWs body\n",
-  },
+const STORED: LibrarySkill[] = [
+  row(
+    GLOBAL,
+    "review",
+    "---\nname: review\ndescription: Global one\nlicense: MIT\n---\nGlobal body\n",
+  ),
+  row(WS, "review", "---\nname: review\ndescription: Workspace one\n---\nWs body\n"),
 ];
 
 function libraryOver(over: Partial<SkillStorageFakes> = {}) {
   const storage = {
-    fetch: vi.fn<() => Promise<StoredSkill[]>>(async () => STORED),
+    fetch: vi.fn<() => Promise<LibrarySkill[]>>(async () => STORED),
     save: vi.fn<SkillsStorage["save"]>(async () => {}),
     rename: vi.fn<SkillsStorage["rename"]>(async () => {}),
     remove: vi.fn<SkillsStorage["remove"]>(async () => {}),
@@ -203,12 +205,7 @@ describe("create and update differ only in what they refuse", () => {
     // accepts. Refusing keeps the file recoverable; rewriting it did not.
     const { library, storage } = libraryOver({
       fetch: vi.fn(async () => [
-        {
-          scope: "global" as const,
-          wsId: null,
-          name: "review",
-          content: "---\n  name: review\n  description: d\n---\nBody\n",
-        },
+        row(GLOBAL, "review", "---\n  name: review\n  description: d\n---\nBody\n"),
       ]),
     });
     await expect(library.update(GLOBAL, draft())).rejects.toThrow(
@@ -294,9 +291,7 @@ describe("a rename moves the directory AND fixes the file", () => {
     const content =
       "---\nname: review\ndescription: >\r\n  Long one,\r\n  wrapped.\r\nlicense: MIT\n---\nBody\n";
     const { library, storage } = libraryOver({
-      fetch: vi.fn(async () => [
-        { scope: "global" as const, wsId: null, name: "review", content },
-      ]),
+      fetch: vi.fn(async () => [row(GLOBAL, "review", content)]),
     });
 
     await library.rename(GLOBAL, "review", "deep-review");
@@ -315,12 +310,7 @@ describe("a rename moves the directory AND fixes the file", () => {
     // and the case would pass without ever entering the branch it is about.
     const { library, storage } = libraryOver({
       fetch: vi.fn(async () => [
-        {
-          scope: "global" as const,
-          wsId: null,
-          name: "review",
-          content: "---\nname: review\n---\nJust a body\n",
-        },
+        row(GLOBAL, "review", "---\nname: review\n---\nJust a body\n"),
       ]),
     });
 
@@ -339,9 +329,7 @@ describe("a rename moves the directory AND fixes the file", () => {
     // With no frontmatter the name comes from the directory and cannot
     // contradict it, so the move IS the whole rename.
     const { library, storage } = libraryOver({
-      fetch: vi.fn(async () => [
-        { scope: "global" as const, wsId: null, name: "review", content: "Just a body\n" },
-      ]),
+      fetch: vi.fn(async () => [row(GLOBAL, "review", "Just a body\n")]),
     });
 
     await library.rename(GLOBAL, "review", "deep-review");
@@ -381,8 +369,8 @@ describe("a rename moves the directory AND fixes the file", () => {
     // the frontmatter already correct, so it retries only the move, forever.
     const { library, storage, invalidateSkills } = libraryOver({
       fetch: vi.fn(async () => [
-        { scope: "global" as const, wsId: null, name: "review", content: "---\nname: review\ndescription: d\n---\n" },
-        { scope: "global" as const, wsId: null, name: "deploy", content: "---\nname: deploy\ndescription: d\n---\n" },
+        row(GLOBAL, "review", "---\nname: review\ndescription: d\n---\n"),
+        row(GLOBAL, "deploy", "---\nname: deploy\ndescription: d\n---\n"),
       ]),
     });
 
@@ -489,9 +477,7 @@ describe("reading one skill", () => {
 
 describe("reading the library", () => {
   it("passes the stored list through", async () => {
-    const stored: StoredSkill[] = [
-      { scope: "global", wsId: null, name: "a", content: "---\nname: a\n---\n" },
-    ];
+    const stored = [row(GLOBAL, "a", "---\nname: a\n---\n")];
     const { library } = libraryOver({ fetch: vi.fn(async () => stored) });
     expect(await library.list()).toEqual(stored);
   });

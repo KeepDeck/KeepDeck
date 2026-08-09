@@ -8,7 +8,7 @@ import {
 } from "./testSupport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandSource } from "../../domain/commands";
-import type { StoredSkill } from "../../ipc/skills";
+import type { LibrarySkill } from "../skillsLibrary";
 
 beforeEach(() => {
   resetCoreCommandTestState();
@@ -24,9 +24,8 @@ const paneIn = (wsId: string): CommandSource => ({
 /** A client the user wired up by hand: no pane, so no workspace. */
 const ANONYMOUS: CommandSource = { kind: "external", client: "some-editor" };
 
-const row = (over: Partial<StoredSkill> = {}): StoredSkill => ({
-  scope: "global",
-  wsId: null,
+const row = (over: Partial<LibrarySkill> = {}): LibrarySkill => ({
+  scope: { kind: "global" },
   name: "review",
   content: "---\nname: review\ndescription: Reviews a diff\n---\nRead it.\n",
   ...over,

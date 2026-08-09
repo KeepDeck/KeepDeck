@@ -153,9 +153,24 @@ describe("the skills invoke-key contract", () => {
     // Nothing else pins this: the library's suite injects a fake storage, so a
     // swapped field (`rename: deleteSkill`) has the same signature, compiles,
     // and shows up only against the real backend.
-    expect(ipcSkillsStorage.fetch).toBe(fetchSkills);
     expect(ipcSkillsStorage.save).toBe(saveSkill);
     expect(ipcSkillsStorage.rename).toBe(renameSkill);
     expect(ipcSkillsStorage.remove).toBe(deleteSkill);
+  });
+
+  it("the adapter reads the wire's scope columns into a scope, both kinds", async () => {
+    // `fetch` is the one verb that is not a bare re-export: the DTO's
+    // `scope`/`wsId` pair stops HERE, so nothing above the adapter carries the
+    // wire's shape. This is the forward half of the round trip pinned above.
+    tauri.invoke.mockResolvedValueOnce([
+      { scope: "global", wsId: null, name: "review", content: "a" },
+      { scope: "workspace", wsId: "ws-1", name: "review", content: "b" },
+    ]);
+
+    expect(await ipcSkillsStorage.fetch()).toEqual([
+      { scope: { kind: "global" }, name: "review", content: "a" },
+      { scope: { kind: "workspace", wsId: "ws-1" }, name: "review", content: "b" },
+    ]);
+    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_list");
   });
 });

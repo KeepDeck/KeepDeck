@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { StoredSkill } from "../../ipc/skills";
+import type { LibrarySkill } from "../../app/skillsLibrary";
 import type { SkillsEditorState } from "../../app/useSkills";
 import { SkillsDialog } from "./SkillsDialog";
 
@@ -18,7 +18,7 @@ import { SkillsDialog } from "./SkillsDialog";
 const lib = vi.hoisted(
   () =>
     ({
-      skills: [] as StoredSkill[] | null,
+      skills: [] as LibrarySkill[] | null,
       error: null as string | null,
       clearError: vi.fn(),
       save: vi.fn(async () => true),
@@ -31,10 +31,9 @@ vi.mock("../../app/useSkills", () => ({ useSkillsLibrary: () => lib }));
 const skill = (
   name: string,
   scope: "global" | "workspace" = "global",
-  wsId: string | null = null,
-): StoredSkill => ({
-  scope,
-  wsId,
+  wsId = "",
+): LibrarySkill => ({
+  scope: scope === "global" ? { kind: "global" } : { kind: "workspace", wsId },
   name,
   content: `---\nname: ${name}\ndescription: About ${name}\n---\nBody of ${name}\n`,
 });

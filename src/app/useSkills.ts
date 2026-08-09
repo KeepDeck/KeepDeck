@@ -13,13 +13,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SkillDraft, SkillScope } from "../domain/skills";
-import type { StoredSkill } from "../ipc/skills";
+import type { LibrarySkill } from "./skillsLibrary";
 import { describeError, log } from "../ipc/log";
 import { useAppRuntime } from "./runtimeContext";
 
 export interface SkillsEditorState {
   /** The stored skills; `null` while the first load is in flight. */
-  skills: StoredSkill[] | null;
+  skills: LibrarySkill[] | null;
   /** The last failed operation, human-readable; cleared by the next success
    * or by `clearError` (navigation away from the failed skill). */
   error: string | null;
@@ -44,7 +44,7 @@ export interface SkillsEditorState {
 }
 
 export function useSkillsLibrary(open: boolean): SkillsEditorState {
-  const [skills, setSkills] = useState<StoredSkill[] | null>(null);
+  const [skills, setSkills] = useState<LibrarySkill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const library = useAppRuntime().skills;
   /** Which library read owns the view — see `refresh`. */

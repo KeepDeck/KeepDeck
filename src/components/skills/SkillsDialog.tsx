@@ -5,11 +5,10 @@ import {
   skillDescriptionProblem,
   skillDraftOf,
   skillNameProblem,
-  skillScopeOf,
   type SkillDraft,
   type SkillScope,
 } from "../../domain/skills";
-import type { StoredSkill } from "../../ipc/skills";
+import type { LibrarySkill } from "../../app/skillsLibrary";
 import { useSkillsLibrary } from "../../app/useSkills";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { CloseButton } from "../../ui/CloseButton";
@@ -92,7 +91,7 @@ export function SkillsDialog({
         // Through the domain predicate, like every other membership test in
         // this file: a raw field comparison here would silently stop agreeing
         // with them the moment a scope means anything new.
-        items: all.filter((s) => sameSkillScope(skillScopeOf(s), { kind: "global" })),
+        items: all.filter((s) => sameSkillScope(s.scope, { kind: "global" })),
       },
     ];
     if (activeWs) {
@@ -100,7 +99,7 @@ export function SkillsDialog({
       built.push({
         label: activeWs.name,
         scope,
-        items: all.filter((s) => sameSkillScope(skillScopeOf(s), scope)),
+        items: all.filter((s) => sameSkillScope(s.scope, scope)),
       });
     }
     return built;
@@ -110,18 +109,18 @@ export function SkillsDialog({
    * where three sites had each spelled out the compound comparison. The library
    * asks the same question of the disk; if identity ever grows (case-insensitive
    * names, trimming), these are the two places that must move together. */
-  const skillAt = (scope: SkillScope, name: string): StoredSkill | undefined =>
+  const skillAt = (scope: SkillScope, name: string): LibrarySkill | undefined =>
     (skills ?? []).find(
-      (s) => s.name === name && sameSkillScope(skillScopeOf(s), scope),
+      (s) => s.name === name && sameSkillScope(s.scope, scope),
     );
 
-  const openSkill = (skill: StoredSkill) => {
+  const openSkill = (skill: LibrarySkill) => {
     // The same projection the library's `read` uses, WHOLE — so the editor and
     // every other surface see one skill, not two readings of one file. It
     // already applies "the directory name wins over the frontmatter's";
     // re-asserting `name` here was that rule stated a second time, in the one
     // place that would keep the old answer when it changed.
-    setSelection({ mode: "edit", scope: skillScopeOf(skill), name: skill.name });
+    setSelection({ mode: "edit", scope: skill.scope, name: skill.name });
     setForm(skillDraftOf(skill));
     setDirty(false);
   };
@@ -314,10 +313,10 @@ export function SkillsDialog({
             isActive={(skill) =>
               selection?.mode === "edit" &&
               selection.name === skill.name &&
-              sameSkillScope(selection.scope, skillScopeOf(skill))
+              sameSkillScope(selection.scope, skill.scope)
             }
             onOpen={(skill) =>
-              navigate({ mode: "edit", scope: skillScopeOf(skill), name: skill.name })
+              navigate({ mode: "edit", scope: skill.scope, name: skill.name })
             }
             onCreate={(scope) => navigate({ mode: "create", scope })}
           />

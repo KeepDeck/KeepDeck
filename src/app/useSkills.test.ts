@@ -2,9 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { StoredSkill } from "../ipc/skills";
 import { useSkillsLibrary, type SkillsEditorState } from "./useSkills";
-import type { SkillsLibrary } from "./skillsLibrary";
+import type { LibrarySkill, SkillsLibrary } from "./skillsLibrary";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -25,7 +24,7 @@ import type { SkillsLibrary } from "./skillsLibrary";
 const library = vi.hoisted(
   () =>
     ({
-      list: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
+      list: vi.fn<() => Promise<LibrarySkill[]>>(async () => []),
       // Inline rather than the DRAFT const below: a hoisted factory runs before
       // this module's own bindings exist.
       read: vi.fn(async () => ({
@@ -52,9 +51,8 @@ vi.mock("./runtimeContext", () => ({
   useAppRuntime: () => ({ skills: library }),
 }));
 
-const STORED: StoredSkill = {
-  scope: "global",
-  wsId: null,
+const STORED: LibrarySkill = {
+  scope: { kind: "global" },
   name: "review",
   content: "x",
 };
@@ -228,9 +226,9 @@ describe("the skills library hook", () => {
     // Reachable on a slow backend: the dialog's first read is still in flight
     // while a create's re-read lands, and the older answer used to overwrite it —
     // putting the pre-create library back and hiding a skill that exists.
-    let finishFirst!: (rows: StoredSkill[]) => void;
+    let finishFirst!: (rows: LibrarySkill[]) => void;
     library.list.mockImplementationOnce(
-      () => new Promise<StoredSkill[]>((resolve) => (finishFirst = resolve)),
+      () => new Promise<LibrarySkill[]>((resolve) => (finishFirst = resolve)),
     );
     await mount();
 
