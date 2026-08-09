@@ -174,6 +174,15 @@ export function teamPlanIsEmpty(plan: TeamPlan): boolean {
 export function planTeam(
   workspace: Workspace,
   draft: TeamDraft,
+  /** The team this draft is EDITING, when it edits one.
+   *
+   * Who has left is a question about the team as it stands, not about what
+   * it is being renamed to. Answered against the draft's new name, a rename
+   * makes the dropped member invisible: nobody holds the new name yet, so
+   * the released list comes back empty and the member keeps a badge for a
+   * team it is no longer on. Reproduced before this argument existed.
+   */
+  editing: string | null = null,
 ): Resolved<TeamPlan> {
   const name = draft.name.trim();
   if (!name) return { ok: false, message: "the team needs a name" };
@@ -234,10 +243,12 @@ export function planTeam(
     };
   }
 
-  // Everyone currently holding this team's name that the draft dropped.
-  // Compared case-insensitively for the same reason the roles are: the
-  // person typing "API" means the team they called "api".
-  const needle = name.toLowerCase();
+  // Everyone currently holding the team's name that the draft dropped —
+  // the name it has NOW, which is `editing` whenever one is being edited and
+  // only otherwise the draft's own. Compared case-insensitively for the same
+  // reason the roles are: the person typing "API" means the team they called
+  // "api".
+  const needle = (editing ?? name).trim().toLowerCase();
   const keeping = new Set(members.map((member) => member.paneId));
   const released = workspace.panes
     .filter(

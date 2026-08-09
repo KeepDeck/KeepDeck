@@ -141,6 +141,25 @@ describe("planTeam", () => {
     if (!result.ok) expect(result.message).toContain("architect");
   });
 
+  it("still names who left when the team is renamed in the same breath", () => {
+    // Who has LEFT is a question about the team as it stands, not about what
+    // it is being renamed to. Answered against the new name, nobody holds it
+    // yet, the released list comes back empty, and the dropped member keeps
+    // a badge for a team it is no longer on. Reproduced live.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+    ]);
+    const result = planTeam(
+      ws,
+      draft({ name: "platform", members: [{ paneId: "pane-1", role: "lead" }] }),
+      "api",
+    );
+    expect(result.ok && result.value.released).toEqual(["pane-2"]);
+    // And the one that stayed moves to the new name.
+    expect(result.ok && result.value.name).toBe("platform");
+  });
+
   it("disbands without demanding a lead for the empty roster it leaves", () => {
     // An empty roster is not a team missing its head — it is a team being
     // taken apart, and demanding a lead there would make that impossible.

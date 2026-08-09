@@ -127,7 +127,10 @@ export function TeamDialog({
     members: [...roles].map(([paneId, role]) => ({ paneId, role })),
     recruits,
   };
-  const planned = planTeam(workspace, draft);
+  // `editing` matters beyond seeding the form: who has LEFT is a question
+  // about the team as it stands, so a rename must not make the members it
+  // dropped invisible.
+  const planned = planTeam(workspace, draft, editing);
   // Nothing to do is not an error, but it is not a confirmable form either:
   // a dialog that dispatches a no-op teaches people it did something.
   const valid = planned.ok && !teamPlanIsEmpty(planned.value);
