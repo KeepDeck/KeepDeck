@@ -67,4 +67,21 @@ describe("ModalOverlay", () => {
     // re-create so afterEach's unmount is a no-op rather than a double-unmount.
     root = createRoot(stage);
   });
+
+  it("makes the app behind it inert, and gives it back on unmount", () => {
+    act(() =>
+      root.render(createElement(ModalOverlay, null, createElement("p", null, "x"))),
+    );
+
+    // Eating clicks never stopped the keyboard: the pane behind kept its
+    // focus and every key over the dialog still reached the agent.
+    expect(stage.hasAttribute("inert")).toBe(true);
+    expect(
+      document.querySelector(".modal-overlay")!.hasAttribute("inert"),
+    ).toBe(false);
+
+    act(() => root.unmount());
+    expect(stage.hasAttribute("inert")).toBe(false);
+    root = createRoot(stage);
+  });
 });
