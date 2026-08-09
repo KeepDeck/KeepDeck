@@ -135,21 +135,30 @@ export function teamFarewell(team: string): string {
 }
 
 /**
- * The team this workspace is running, or null.
+ * Every team running in this workspace, in the order its panes appear.
  *
- * The SURFACE assumes one team per workspace — a workspace is a piece of
- * work, and the people setting it up think of "the team on it". The data
- * model does not enforce that: `Pane.team` is per pane, so an agent driving
- * `team.assign` over MCP can make two. When that happens this names the
- * first one found rather than inventing a summary, and the dialog edits
- * that one; the other stays exactly as it was, reachable the same way it
- * was made.
+ * A workspace holds as many as it is given. `Pane.team` is per pane and
+ * nothing in the model ever said otherwise — the SURFACE used to assume one,
+ * naming the first it found, and that assumption was mine rather than
+ * anybody's requirement. Roles are unique per team, not per workspace, so
+ * `lead@api` and `lead@web` are two members of two teams and always were.
+ *
+ * Names are compared case-insensitively for the same reason roles are — the
+ * person who typed "API" means the team they called "api" — but each is
+ * returned as it was first written, because that is what they will read.
  */
-export function teamNameIn(workspace: Workspace): string | null {
+export function teamNamesIn(workspace: Workspace): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
   for (const pane of workspace.panes) {
-    if (pane.team) return pane.team.name;
+    const name = pane.team?.name;
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
   }
-  return null;
+  return names;
 }
 
 /** Whether the plan asks for anything at all. A dialog confirmed without a

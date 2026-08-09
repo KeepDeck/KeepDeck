@@ -93,6 +93,9 @@ interface DeckStageProps {
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
+  /** Open an existing team by name. Absent while the teams experiment is
+   * off, which is also when no pane wears a badge to click. */
+  onOpenTeam?(name: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
   /** Idle panes blocked from waking: paneId → the missing directory
@@ -178,6 +181,7 @@ export function DeckStage({
   onRestoreSuspendedPane,
   onCloseAgent,
   onRenamePane,
+  onOpenTeam,
   onPaneTitle,
   idleBlocked,
   wakeFailed,
@@ -458,6 +462,7 @@ export function DeckStage({
               gitBadge={badge}
               yolo={pane.yolo}
               team={pane.team ?? null}
+              onOpenTeam={onOpenTeam}
               visible={layout.visible}
               focused={layout.focused}
               hidden={layout.hidden}

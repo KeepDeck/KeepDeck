@@ -58,6 +58,9 @@ export interface AgentPaneProps {
    * commands (a lead assigns its members), so this is how the person
    * watching learns what the agents arranged among themselves. */
   team?: { name: string; role: string } | null;
+  /** Open the team this pane is on — the way in to an existing team, since
+   * the bar's button always starts a new one. */
+  onOpenTeam?(name: string): void;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -155,6 +158,7 @@ export function AgentPane({
   gitBadge,
   yolo,
   team,
+  onOpenTeam,
   visible,
   focused,
   hidden,
@@ -326,6 +330,7 @@ export function AgentPane({
         paneLive={paneLive}
         yolo={yolo}
         team={team}
+        onOpenTeam={onOpenTeam}
         gitBadge={gitBadge}
         onSelect={onSelect}
         onRename={onRename}

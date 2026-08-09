@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { Pane, Workspace } from "../deck";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { roleById } from "./roles";
-import { planTeam, teamBriefing, teamPlanIsEmpty, type TeamDraft } from "./teamPlan";
+import {
+  planTeam,
+  teamBriefing,
+  teamNamesIn,
+  teamPlanIsEmpty,
+  type TeamDraft,
+} from "./teamPlan";
 
 const pane = (id: string, team?: { name: string; role: string }): Pane =>
   ({ id, agentType: "claude", ...(team ? { team } : {}) }) as Pane;
@@ -175,6 +181,35 @@ describe("planTeam", () => {
     expect(result.ok && teamPlanIsEmpty(result.value)).toBe(true);
     const withOne = planTeam(ws, draft({ members: [{ paneId: "pane-1", role: "lead" }] }));
     expect(withOne.ok && teamPlanIsEmpty(withOne.value)).toBe(false);
+  });
+});
+
+describe("teamNamesIn", () => {
+  it("names every team the workspace runs, in pane order", () => {
+    // A workspace holds as many as it is given. Nothing in the model ever
+    // said one — roles are unique per TEAM, so `lead@api` and `lead@web` are
+    // two members of two teams and always were.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "web", role: "lead" }),
+      pane("pane-3", { name: "api", role: "impl-1" }),
+      pane("pane-4"),
+    ]);
+    expect(teamNamesIn(ws)).toEqual(["api", "web"]);
+  });
+
+  it("counts a name once however it was cased, keeping the first spelling", () => {
+    // The same comparison the roles use — somebody typing "API" means the
+    // team they called "api" — and what comes back is what they will read.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "API", role: "impl-1" }),
+    ]);
+    expect(teamNamesIn(ws)).toEqual(["api"]);
+  });
+
+  it("answers with nothing for a workspace running none", () => {
+    expect(teamNamesIn(workspace([pane("pane-1")]))).toEqual([]);
   });
 });
 

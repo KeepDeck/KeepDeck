@@ -39,6 +39,9 @@ export interface AgentPaneHeaderProps {
   keyboardFocusEnabled: boolean;
   onSelect(): void;
   onRename(name: string): void;
+  /** Open the team this pane is on. Absent while the feature is off, which
+   * is also when no badge is rendered — the two travel together. */
+  onOpenTeam?(name: string): void;
   onMinimize?(): void;
   onToggleFocus(): void;
   onClose(): void;
@@ -68,6 +71,7 @@ export function AgentPaneHeader({
   keyboardFocusEnabled,
   onSelect,
   onRename,
+  onOpenTeam,
   onMinimize,
   onToggleFocus,
   onClose,
@@ -145,15 +149,34 @@ export function AgentPaneHeader({
         )}
         {yolo && <YoloBadge className="pane__yolo" />}
         {team && (
-          // Indicator only. Membership is settled in the team dialog, where
-          // the whole roster is visible — a header can show WHICH teammate
-          // this is, but it cannot answer "are these roles unique", which is
-          // the question that decides whether a team works at all.
+          // The way IN to this pane's team, and the only one that scales: a
+          // workspace may run several, so the bar's button always makes a
+          // new one and each existing team is opened from a member wearing
+          // it — which is where somebody thinking about a team is already
+          // looking.
+          //
+          // It still settles nothing itself. A header can say WHICH teammate
+          // this is; it cannot answer "are these roles unique", which is the
+          // question that decides whether a team works, and that question
+          // needs the whole roster.
           //
           // Before the branch chip: which teammate this is outranks which
           // branch it sits on when reading a deck mid-conversation, and the
           // narrow-header cascade drops from the right.
-          <TeamBadge className="pane__team" team={team.name} role={team.role} />
+          <button
+            type="button"
+            className="pane__team-open"
+            onClick={() => onOpenTeam?.(team.name)}
+            title={`Open team “${team.name}” — who is on it and what each is called`}
+            aria-label={`Open team ${team.name}`}
+          >
+            <TeamBadge
+              className="pane__team"
+              team={team.name}
+              role={team.role}
+              decorative
+            />
+          </button>
         )}
         {gitBadge && (
           <BranchBadge

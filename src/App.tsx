@@ -1,6 +1,5 @@
 import { askForPaneBack } from "./app/resumeOutcome";
 import { applyTeamPlan } from "./app/mail";
-import { teamNameIn } from "./domain/mail";
 import { commands } from "./app/commandRegistry";
 import { TeamDialog } from "./components/workspace/TeamDialog";
 import { isFoundUpdate, restartToUpdate } from "./app/updateManager";
@@ -183,19 +182,20 @@ function App() {
             // up who is working here — and because a team is a property of
             // this workspace, which is what this bar is about. Shown only
             // while the experiment is on, so nobody else pays a button for
-            // it. The label follows the workspace: there is a team here, or
-            // there is not.
+            // it.
+            //
+            // ALWAYS a new one, the way "+ Agent" beside it always adds an
+            // agent. An existing team is opened from the badge on any pane
+            // that is on it, which is where somebody looking at a team is
+            // already looking — and it is the gesture that scales, since a
+            // workspace may run several.
             <button
               type="button"
               className="bar__action"
-              onClick={() => setTeamDialog({ editing: teamNameIn(active) })}
-              title={
-                teamNameIn(active)
-                  ? `Edit team “${teamNameIn(active)}” — who is on it and what each is called`
-                  : "Group these agents into a team so they can write to each other"
-              }
+              onClick={() => setTeamDialog({ editing: null })}
+              title="Group agents into a team so they can write to each other by role"
             >
-              {teamNameIn(active) ? `Team: ${teamNameIn(active)}` : "+ Team"}
+              + Team
             </button>
           )}
           <span className="deck__status">
@@ -298,6 +298,12 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
+            // Only while the experiment is on — the same gate the bar's
+            // button answers to, and without it no pane wears a badge to
+            // click anyway.
+            {...(settings.agentTeams
+              ? { onOpenTeam: (name: string) => setTeamDialog({ editing: name }) }
+              : {})}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}

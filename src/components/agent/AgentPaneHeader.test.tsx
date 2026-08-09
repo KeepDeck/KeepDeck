@@ -170,4 +170,24 @@ describe("AgentPaneHeader", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onSelect).not.toHaveBeenCalled();
   });
+  it("opens its own team from the badge, and is a real button doing it", () => {
+    // The way IN to an existing team: the bar's control always starts a new
+    // one, because a workspace may run several and a single button cannot
+    // mean both. A span with a click on it would leave that gesture off the
+    // keyboard entirely.
+    const onOpenTeam = vi.fn();
+    render({ team: { name: "api", role: "impl-1" }, onOpenTeam });
+    const open = host.querySelector<HTMLButtonElement>(".pane__team-open")!;
+    expect(open.tagName).toBe("BUTTON");
+    // The role is what it shows — that is the address teammates use — while
+    // the team it belongs to is what the click is about.
+    expect(open.textContent).toContain("impl-1");
+    act(() => open.click());
+    expect(onOpenTeam).toHaveBeenCalledWith("api");
+  });
+
+  it("shows no team control for a pane on no team", () => {
+    render({ team: null });
+    expect(host.querySelector(".pane__team-open")).toBeNull();
+  });
 });
