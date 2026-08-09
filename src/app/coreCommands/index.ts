@@ -6,10 +6,10 @@ import {
 import {
   resolvePaneRef,
   resolveWorkspaceRef,
-  type CommandArgs,
   type CommandRegistry,
 } from "../../domain/commands";
 import {
+  findWorkspace,
   findWorkspaceByRef,
   paneAgentType,
   paneDisplayTitle,
@@ -30,8 +30,12 @@ import type {
   ResumeRequest,
 } from "../agentOrchestrator";
 import { resumeRefusalText } from "../resumeOutcome";
+import type { SkillsLibrary } from "../skillsLibrary";
 import { suspendRefusalText, type SuspendOutcome } from "../suspendOutcome";
 import type { Deck } from "../useDeck";
+import { requiredStr, str, text } from "./args";
+import { deliverTask } from "./deliverTask";
+import { registerSkillsCommands } from "./skills";
 
 /**
  * The deck's core command set — what any invoker (voice, MCP, hotkeys, a
@@ -66,6 +70,8 @@ export interface CoreCommandDeps {
   /** Open the global usage-statistics surface. Same refusal contract as
    * [`openSettings`]. */
   openUsage(): boolean;
+  /** The shared skills library, for the `skills.*` set (see `./skills`). */
+  skills: SkillsLibrary;
 }
 
 /** The refusal when a command asks for a surface that would stack over one
@@ -74,46 +80,6 @@ export interface CoreCommandDeps {
 const DIALOG_BUSY_MESSAGE =
   "Another dialog is open — close it before opening this one";
 
-/** How long task delivery waits for the pane's PTY writer to appear (a
- * worktree create + CLI start can take a while), then for the CLI to start
- * accepting input. Readiness = "the input writer exists" is an MVP heuristic
- * — replaced by a real CLI-ready signal when one exists. */
-const TASK_POLL_MS = 200;
-const TASK_POLL_TRIES = 300;
-const TASK_SETTLE_MS = 1500;
-
-/** Deliver a spawn's initial task into the pane once its session is live.
- * Fire-and-forget from the spawn handler: the spawn's outcome is the pane,
- * not the task. Returns whether the text was written. */
-export async function deliverTask(
-  paneIdToWrite: string,
-  text: string,
-  wait: (ms: number) => Promise<void> = (ms) =>
-    new Promise((resolve) => setTimeout(resolve, ms)),
-): Promise<boolean> {
-  for (let i = 0; i < TASK_POLL_TRIES && !paneInputReady(paneIdToWrite); i++) {
-    await wait(TASK_POLL_MS);
-  }
-  if (!paneInputReady(paneIdToWrite)) return false;
-  await wait(TASK_SETTLE_MS);
-  // Deliver the task via the PASTE channel (bracketed framing) — the
-  // established auto-submit path. The raw TYPE channel (pane.write
-  // mode:"type") inserts printables + LF inline for editable input; it needs
-  // LF normalisation, which deliverTask has no reason to take on here.
-  if (!pasteToPane(paneIdToWrite, text)) return false;
-  // Send the submit Enter as a RAW keystroke AFTER the paste. xterm wraps the
-  // WHOLE argument of term.paste in the bracketed-paste markers, so a "\r"
-  // concatenated onto the pasted text would arrive as pasted content, not as
-  // Enter — the task would sit unsent. A raw CR outside the paste is a real
-  // keystroke that submits regardless of the TUI's paste mode.
-  writeRawToPane(paneIdToWrite, "\r");
-  return true;
-}
-
-function str(args: CommandArgs, name: string): string | undefined {
-  const value = args[name];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
 
 /** The workspace a command acts on: the named one, else the active one. */
 function targetWorkspace(deck: Deck, ref: string | undefined): Workspace {
@@ -122,7 +88,9 @@ function targetWorkspace(deck: Deck, ref: string | undefined): Workspace {
     if (!resolved.ok) throw new Error(resolved.message);
     return resolved.value;
   }
-  const active = deck.workspaces.find((w) => w.id === deck.activeId);
+  // Through the domain's by-id selector, whose own doc says it exists so callers
+  // stop re-implementing this `find` — two of them had.
+  const active = findWorkspace(deck.workspaces, deck.activeId);
   if (!active) throw new Error("no active workspace");
   return active;
 }
@@ -198,7 +166,12 @@ export function registerCoreCommands(
       ],
       run: (args) => {
         const deck = deps.deck();
-        const ws = targetWorkspace(deck, str(args, "workspace"));
+        // requiredStr, not str: `workspace` is declared required, and the
+        // optional reader turns a blank one into "omitted" — which
+        // targetWorkspace answers with the ACTIVE workspace, so a caller that
+        // sent nothing usable got a report of a successful switch to where it
+        // already was.
+        const ws = targetWorkspace(deck, requiredStr(args, "workspace"));
         deck.selectWorkspace(ws.id);
         return { workspaceId: ws.id };
       },
@@ -229,7 +202,9 @@ export function registerCoreCommands(
       run: async (args) => {
         const deck = deps.deck();
         const agents = deps.agents();
-        const ws = targetWorkspace(deck, str(args, "workspace"));
+        // Declared required — read as required, so a blank one is refused
+        // instead of quietly meaning "the active workspace".
+        const ws = targetWorkspace(deck, requiredStr(args, "workspace"));
         const workspace = { id: ws.id, instance: ws.instance };
         const currentTarget = (): { deck: Deck; workspace: Workspace } => {
           const currentDeck = deps.deck();
@@ -349,7 +324,10 @@ export function registerCoreCommands(
       run: (args) => {
         const deck = deps.deck();
         const ws = targetWorkspace(deck, str(args, "workspace"));
-        const pane = targetPane(deck, deps.agents(), ws, str(args, "agent"));
+        // `agent` is required here (unlike every other command in this set,
+        // where the selected pane is the default), so a blank one must be
+        // refused rather than resolve to the pane already focused.
+        const pane = targetPane(deck, deps.agents(), ws, requiredStr(args, "agent"));
         deps.activatePane(ws.id, pane.id);
         return { workspaceId: ws.id, paneId: pane.id };
       },
@@ -495,7 +473,10 @@ export function registerCoreCommands(
         const deck = deps.deck();
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, deps.agents(), ws, str(args, "agent"));
-        const text = args.text as string;
+        // Through the shared reader, VERBATIM: a lone space is legitimate text
+        // to send a terminal, so this is the one argument kind that must not be
+        // trimmed or refused for being blank.
+        const payload = text(args, "text");
         if (!paneInputReady(pane.id)) {
           throw new Error("the pane has no live session");
         }
@@ -505,14 +486,14 @@ export function registerCoreCommands(
           // non-editable [Pasted …] placeholder. LF (0x0A, Ctrl+J) inserts a
           // soft newline in every supported agent; a raw CR (0x0D) submits
           // mid-text, so normalise EVERY line ending to LF first.
-          const typed = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          const typed = payload.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
           if (!writeRawToPane(pane.id, typed)) {
             throw new Error("the pane has no input channel");
           }
         } else {
           // A live but TYPE-only pane (no paste channel) cannot accept a
           // pasted payload — name that distinctly from "no session".
-          if (!pasteToPane(pane.id, text)) {
+          if (!pasteToPane(pane.id, payload)) {
             throw new Error("the pane has no paste channel");
           }
         }
@@ -549,6 +530,11 @@ export function registerCoreCommands(
         return { opened: true };
       },
     }),
+
+    // The library's own set lives in its own module — this file is already long
+    // enough that another area's worth of registrations belongs beside it, not
+    // in it.
+    ...registerSkillsCommands(registry, { deck: deps.deck, skills: deps.skills }),
   ];
 
   return () => {

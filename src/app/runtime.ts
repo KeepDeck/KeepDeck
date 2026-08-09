@@ -52,6 +52,8 @@ import {
 } from "./usageHistoryManager";
 import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
 import { createAppWindowReportJournal } from "./windowReportJournal";
+import { createSkillsLibrary } from "./skillsLibrary";
+import { ipcSkillsStorage } from "../ipc/skillsStorage";
 import { createWorktreeManager, deckViewOf } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
@@ -146,6 +148,12 @@ export function createAppRuntime(
   const worktrees = createWorktreeManager(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
   );
+  // The library takes only the staleness half of the worktree manager: a write
+  // has to drop the staged views the next pane spawn would inject.
+  const skills = createSkillsLibrary({
+    storage: ipcSkillsStorage,
+    staging: worktrees,
+  });
   const orchestrator = createAgentOrchestrator({
     deck: deckStore,
     spawnContext,
@@ -171,13 +179,14 @@ export function createAppRuntime(
     mcpAccess: (target) => mcp.access(target),
     lifecycle,
   });
-  const application = createApplicationController(
-    deckStore,
+  const application = createApplicationController({
+    deck: deckStore,
     plugins,
     orchestrator,
     paneInputFocus,
-    paneViewActions,
-  );
+    paneView: paneViewActions,
+    skills,
+  });
   const worktreeSweeper = createWorktreeSweeper(
     deckStore,
     deckPersistence,
@@ -200,6 +209,7 @@ export function createAppRuntime(
     deckPersistence,
     spawnContext,
     worktrees,
+    skills,
     application,
     paneInputFocus,
     paneViewActions,

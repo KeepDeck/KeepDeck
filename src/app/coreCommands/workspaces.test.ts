@@ -1,5 +1,11 @@
 // FIRST, before anything that reaches the mocked IPC — see testSupport.
-import { HOST, resetCoreCommandTestState, setup, workspace } from "./testSupport";
+import {
+  HOST,
+  resetCoreCommandTestState,
+  setup,
+  twoWorkspaces,
+  workspace,
+} from "./testSupport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeEach(() => {
@@ -84,5 +90,20 @@ describe("workspace commands", () => {
     const bad = await registry.execute("workspace.switch", { workspace: "nope" }, HOST);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error.message).toBe('no workspace "nope"');
+  });
+
+  it("refuses a blank workspace instead of reporting a switch that never happened", async () => {
+    // The registry accepts "" for a required string — it validates presence and
+    // type, and blankness depends on what the argument IS. Read with the
+    // OPTIONAL reader, a blank one became "omitted", which resolves to the
+    // ACTIVE workspace: the caller got ok and a workspaceId for the workspace it
+    // was already in, and nothing said its argument was junk.
+    const { registry, deck } = setup(twoWorkspaces());
+
+    const blank = await registry.execute("workspace.switch", { workspace: "  " }, HOST);
+
+    expect(blank.ok).toBe(false);
+    if (!blank.ok) expect(blank.error.message).toBe('argument "workspace" must not be blank');
+    expect(deck.selectWorkspace).not.toHaveBeenCalled();
   });
 });

@@ -2,39 +2,75 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { StoredSkill } from "../../ipc/skills";
+import {
+  composeSkillFile,
+  sameSkillRef,
+  type SkillDraft,
+  type SkillScope,
+} from "../../domain/skills";
+import type { LibrarySkill } from "../../app/skillsLibrary";
+import type { SkillsEditorState } from "../../app/useSkills";
 import { SkillsDialog } from "./SkillsDialog";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const lib = vi.hoisted(() => ({
-  skills: [] as StoredSkill[] | null,
-  error: null as string | null,
-  clearError: vi.fn(),
-  save: vi.fn(async () => true),
-  rename: vi.fn(async () => true),
-  remove: vi.fn(async () => true),
-}));
-vi.mock("../../app/useSkills", () => ({
-  useSkillsLibrary: () => ({
-    skills: lib.skills,
-    error: lib.error,
-    clearError: lib.clearError,
-    save: lib.save,
-    rename: lib.rename,
-    remove: lib.remove,
-  }),
-}));
+// ANNOTATED, like the sibling double in useSkills.test.ts: an added field on
+// `SkillsEditorState` must fail to compile HERE rather than reach the component
+// as `undefined` in every case in this file. Hoisted because a `vi.mock`
+// factory's double has to exist before imports are initialized, and handed over
+// WHOLE so the field list is written once.
+/** A row as the library would hold it after the write landed. */
+const landed = (scope: SkillScope, draft: SkillDraft): LibrarySkill => ({
+  scope,
+  name: draft.name,
+  content: composeSkillFile(draft),
+});
+
+const lib = vi.hoisted(
+  () =>
+    ({
+      skills: [] as LibrarySkill[] | null,
+      error: null as string | null,
+      // Widened so a case can flip it: the literal would narrow to `true`.
+      listTrusted: true as boolean,
+      clearError: vi.fn(),
+      // The writes LAND IN THE LIST, the way the real hook's re-read makes them:
+      // it awaits a refresh before it resolves, so by the time the dialog sees
+      // `true` the row is there. A double that resolved true and left the list
+      // alone was a state production cannot produce, and the dialog — which now
+      // notices a selection that is missing from the library — read it as the
+      // skill having been deleted under it.
+      save: vi.fn(async (scope: SkillScope, draft: SkillDraft, mode: "create" | "update") => {
+        lib.skills =
+          mode === "create"
+            ? [...(lib.skills ?? []), landed(scope, draft)]
+            : (lib.skills ?? []).map((s) =>
+                sameSkillRef(s, { scope, name: draft.name }) ? landed(scope, draft) : s,
+              );
+        return true;
+      }),
+      rename: vi.fn(async (scope: SkillScope, from: string, to: string) => {
+        lib.skills = (lib.skills ?? []).map((s) =>
+          sameSkillRef(s, { scope, name: from }) ? { ...s, name: to } : s,
+        );
+        return true;
+      }),
+      remove: vi.fn(async (scope: SkillScope, name: string) => {
+        lib.skills = (lib.skills ?? []).filter((s) => !sameSkillRef(s, { scope, name }));
+        return true;
+      }),
+    }) satisfies SkillsEditorState,
+);
+vi.mock("../../app/useSkills", () => ({ useSkillsLibrary: () => lib }));
 
 const skill = (
   name: string,
   scope: "global" | "workspace" = "global",
-  wsId: string | null = null,
-): StoredSkill => ({
-  scope,
-  wsId,
+  wsId = "",
+): LibrarySkill => ({
+  scope: scope === "global" ? { kind: "global" } : { kind: "workspace", wsId },
   name,
   content: `---\nname: ${name}\ndescription: About ${name}\n---\nBody of ${name}\n`,
 });
@@ -74,11 +110,14 @@ describe("SkillsDialog", () => {
   beforeEach(() => {
     lib.skills = [];
     lib.error = null;
+    lib.listTrusted = true;
+    // `mockClear` only — NOT `mockResolvedValue`, which would replace the
+    // implementations above with ones that leave the list untouched, i.e. put the
+    // double back in a state the real hook cannot be in. A case that wants a
+    // failure says so with `mockResolvedValueOnce`.
     lib.clearError.mockClear();
     lib.save.mockClear();
-    lib.save.mockResolvedValue(true);
     lib.rename.mockClear();
-    lib.rename.mockResolvedValue(true);
     lib.remove.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -118,6 +157,230 @@ describe("SkillsDialog", () => {
     expect(input("skill-name").value).toBe("");
     expect(input("skill-description").value).toBe("");
     expect(closed).toBe(0);
+  });
+
+  it("lets a hand-made name this build would refuse be edited and saved", async () => {
+    // The library deliberately does not apply the naming rule to an update: the
+    // Rust side stores and lists `My_Skill` happily, and a skill copied in by
+    // hand must stay editable. Judging the name here too made exactly that skill
+    // openable and unsavable, complaining about kebab-case under a name the user
+    // was not editing — one rule, two doors, opposite answers. The rule still
+    // applies to a name being AUTHORED, which the next case covers.
+    lib.skills = [skill("My_Skill")];
+    await mount();
+    act(() => row("My_Skill")!.click());
+    type(textarea(), "edited body");
+
+    expect(document.body.textContent).not.toContain("Lowercase letters");
+    expect(button("Save")!.disabled).toBe(false);
+    await act(async () => button("Save")!.click());
+    expect(lib.save).toHaveBeenCalled();
+    expect(lib.rename).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a name the user is authoring, and says the whole rule", async () => {
+    lib.skills = [skill("My_Skill")];
+    await mount();
+    act(() => row("My_Skill")!.click());
+    // Touching the name makes it this editor's to judge again.
+    type(input("skill-name"), "My_Skill_2");
+
+    expect(button("Save")!.disabled).toBe(true);
+    // The full rule, from the domain — three surfaces used to describe it from
+    // memory and all three described a subset, so `my-skill-` was told it may
+    // contain "lowercase letters, digits and hyphens only" and refused anyway.
+    expect(document.body.textContent).toContain("not starting or ending with a hyphen");
+  });
+
+  it("says why Save is dead when the name is EMPTY, not just that it is", async () => {
+    // With a boolean predicate the gate counted "" as invalid and the message
+    // counted it as "nothing typed yet", so clearing the field disabled Save
+    // with nothing on screen.
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-name"), "");
+
+    expect(button("Save")!.disabled).toBe(true);
+    expect(document.body.textContent).toContain("A skill needs a name");
+  });
+
+  it("names the scope from its GROUP, not from whichever workspace is active", async () => {
+    // The chip is the only thing on screen saying which library a save lands in,
+    // and it used to answer a different question — "what is the active workspace
+    // called" — so it stamped that name over any other scope's skill.
+    lib.skills = [skill("mine", "workspace", "ws-1"), skill("shared")];
+    await mount({ id: "ws-1", name: "My project" });
+
+    act(() => row("mine")!.click());
+    expect(document.querySelector(".skills__scope")!.textContent).toBe("My project");
+
+    act(() => row("shared")!.click());
+    expect(document.querySelector(".skills__scope")!.textContent).toBe("Global");
+  });
+
+  it("keeps the editor's own DOM across a save that re-anchors the selection", async () => {
+    // The editor must not be remounted per selection: performSubmit changes the
+    // selection mid-submit (create→edit, and again on a rename), and a remount
+    // there tears down the field the user is typing into, dropping focus and
+    // caret with no autoFocus to catch them.
+    lib.skills = [];
+    await mount();
+    act(() => buttonByTitle("New global skill")!.click());
+    type(input("skill-name"), "deploy");
+    type(input("skill-description"), "Ships it");
+    const beforeSave = textarea();
+
+    await act(async () => button("Create")!.click());
+
+    expect(textarea()).toBe(beforeSave);
+  });
+
+  it("focuses the name field when the create form appears, not only on mount", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+
+    act(() => buttonByTitle("New global skill")!.click());
+
+    expect(document.activeElement).toBe(input("skill-name"));
+  });
+
+  it("blocks Delete while a save is in flight, visibly", async () => {
+    // Otherwise the two writes race and, if the delete's IPC lands first, the
+    // save re-creates the skill the user just confirmed deleting.
+    lib.skills = [skill("review")];
+    let finishSave!: (ok: boolean) => void;
+    lib.save.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finishSave = resolve)),
+    );
+    await mount();
+    act(() => row("review")!.click());
+    type(textarea(), "edited");
+
+    act(() => button("Save")!.click());
+
+    expect(button("Delete")!.disabled).toBe(true);
+    await act(async () => finishSave(true));
+    expect(button("Delete")!.disabled).toBe(false);
+  });
+
+  it("does not raise a discard confirm for a click on the skill already open", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+    type(textarea(), "edited");
+
+    act(() => row("review")!.click());
+
+    // That click asked for nothing; the confirm's Discard would have thrown the
+    // edits away, and the row is the highlighted one so a stray click is easy.
+    expect(document.body.textContent).not.toContain("unsaved changes");
+    expect(textarea().value).toBe("edited");
+  });
+
+  it("freezes the nav while a delete is in flight, so it cannot strand the editor", async () => {
+    // Navigating mid-delete bumps the epoch the delete's own completion checks, so
+    // its `apply(null)` was skipped and the editor was left titled with a skill the
+    // reload then removed — a live Delete button and no row to correct it with.
+    // A SAVE deliberately does NOT freeze the nav: moving on during one is exactly
+    // what `navEpoch` makes safe, and the next case pins that.
+    lib.skills = [skill("review"), skill("deploy")];
+    let finishRemove!: (ok: boolean) => void;
+    lib.remove.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finishRemove = resolve)),
+    );
+    await mount();
+
+    act(() => row("review")!.click());
+    act(() => button("Delete")!.click());
+    // The confirm's own Delete, not the editor's — both carry that label.
+    const confirmDelete = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".confirm button, [role=dialog] button"),
+    ).find((b) => b.textContent === "Delete" && b !== button("Delete"))!;
+    act(() => confirmDelete.click()); // the IPC is now in flight
+
+    expect(row("deploy")!.disabled).toBe(true);
+    expect(buttonByTitle("New global skill")!.disabled).toBe(true);
+
+    await act(async () => finishRemove(true));
+
+    // And once it lands the nav is live again. (Dropping the deleted row is the
+    // hook's job and pinned in its own suite; this stub resolves without touching
+    // the list, which is why `review` is still here.)
+    expect(row("deploy")!.disabled).toBe(false);
+  });
+
+  it("a rename whose save the user navigated away from still WRITES the content", async () => {
+    // The staleness rule governs the REPORT, not the operation. Collapsing the two
+    // made a stale rename return early: the directory moved, the content half of the
+    // same action was dropped, and since a rename deliberately does not re-read, the
+    // nav kept the old row with nothing to correct it.
+    lib.skills = [skill("review"), skill("other")];
+    let finishRename!: (ok: boolean) => void;
+    lib.rename.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finishRename = resolve)),
+    );
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-name"), "deep-review");
+    type(input("skill-description"), "the edit that must still land");
+
+    act(() => button("Save")!.click());
+    // Navigating mid-save is allowed — that is what navEpoch is for.
+    act(() => row("other")!.click());
+    await act(async () => finishRename(true));
+
+    expect(lib.save).toHaveBeenCalledWith(
+      { kind: "global" },
+      expect.objectContaining({ description: "the edit that must still land" }),
+      "update",
+    );
+  });
+
+  it("says why Save is dead on a create form when the name is still empty", async () => {
+    // The message waits until the user has STARTED, not until they touch the name:
+    // filling the description first is the natural order, and holding the message for
+    // the field itself left Create disabled with nothing at all on screen.
+    await mount();
+    act(() => buttonByTitle("New global skill")!.click());
+    expect(document.querySelectorAll(".form__error")).toHaveLength(0);
+
+    type(input("skill-description"), "Ships it");
+
+    expect(button("Create")!.disabled).toBe(true);
+    expect(document.body.textContent).toContain("A skill needs a name");
+  });
+
+  it("refuses to save a skill deleted elsewhere, and drops a clean editor", async () => {
+    lib.skills = [skill("review"), skill("other")];
+    await mount();
+    act(() => row("review")!.click());
+    type(textarea(), "unsaved work");
+
+    // The other door removed it; the subscription's refresh is what the real hook
+    // would do, and here the double's list is the same state.
+    await act(async () => {
+      lib.skills = [skill("other")];
+      root.render(
+        createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
+      );
+    });
+
+    expect(document.body.textContent).toContain("removed or renamed elsewhere");
+    expect(textarea().value).toBe("unsaved work");
+    expect(button("Save")!.disabled).toBe(true);
+  });
+
+  it("does not judge a skill gone from a list whose last read failed", async () => {
+    lib.skills = [skill("other")];
+    lib.listTrusted = false;
+    await mount();
+    // A selection the list does not hold, over an untrustworthy list: absence proves
+    // nothing, so no refusal and no message.
+    act(() => row("other")!.click());
+
+    expect(document.body.textContent).not.toContain("removed or renamed elsewhere");
   });
 
   it("groups the library: global plus the ACTIVE workspace only", async () => {
@@ -169,7 +432,7 @@ describe("SkillsDialog", () => {
       expect.objectContaining({ name: "deep-review" }),
       // Not a create: the rename above already moved the directory, so what
       // lands is an overwrite of a skill that exists.
-      false,
+      "update",
     );
   });
 
@@ -192,7 +455,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenLastCalledWith(
       { kind: "global" },
       expect.objectContaining({ name: "deep-review" }),
-      false,
+      "update",
     );
   });
 
@@ -305,25 +568,14 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ description: "reviews diffs with subagents read-only" }),
-      false,
+      "update",
     );
   });
 
-  it("⌘S fires by PHYSICAL key — a Cyrillic layout saves too", async () => {
-    await mount();
-    act(() => buttonByTitle("New global skill")!.click());
-    type(input("skill-name"), "deploy");
-    type(input("skill-description"), "Ships it");
-    type(textarea(), "Steps");
-
-    await act(async () => {
-      // ЙЦУКЕН: the S key reports key "ы"; only e.code identifies it.
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ы", code: "KeyS", metaKey: true }),
-      );
-    });
-    expect(lib.save).toHaveBeenCalledTimes(1);
-  });
+  // The layout half of ⌘S — that the S key reporting "ы" still saves — belongs to
+  // `useSaveShortcut` and is pinned in its own suite now. It was a near-copy of the
+  // case above differing only in `key`, and since the hook matches on `e.code`
+  // alone neither could fail without the other.
 
   it("a double ⌘S submits once — rename is not idempotent", async () => {
     lib.skills = [skill("review")];
@@ -372,7 +624,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ description: "first edit" }),
-      false,
+      "update",
     );
   });
 
@@ -437,7 +689,7 @@ describe("SkillsDialog", () => {
       // A create says so, so the backend refuses a name already on disk even
       // if the dialog's own collision check was working from a library it
       // could not read.
-      true,
+      "create",
     );
   });
 
@@ -464,7 +716,7 @@ describe("SkillsDialog", () => {
       expect.objectContaining({ name: "review" }),
       // Marked a create, so the backend can refuse the name this empty list
       // could not tell us was taken.
-      true,
+      "create",
     );
   });
 

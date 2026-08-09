@@ -84,6 +84,18 @@ pub(super) fn list(root: &Path) -> io::Result<Vec<SkillDto>> {
 
 /// `(name, SKILL.md content)` per skill directory, names alphabetical.
 /// Directories without a `SKILL.md` are not skills and are skipped.
+///
+/// A name no WRITE could accept is still LISTED, deliberately. Filtering it here
+/// was tried and reverted: `collect_sources` in `staging` walks the same
+/// directories WITHOUT the filter, so a hidden `my.skill` kept reaching every
+/// agent while the app denied it existed.
+///
+/// Listing it does not make it manageable — [`save`], [`delete`] and [`rename`]
+/// all open with [`require_safe`], so every operation on it refuses. The trade is
+/// only between a skill the user can SEE and get a refusal for, and one that is
+/// invisible while still being handed to their agents. The first is the lesser
+/// evil; making such a directory editable would mean relaxing `require_safe`,
+/// which is a path-safety rule and not up for it.
 fn scope_skills(dir: &Path) -> io::Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for skill in sorted_dirs(dir)? {
@@ -162,6 +174,27 @@ pub(super) fn rename(scope_dir: &Path, from: &str, to: &str) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::skills::test_support::{global, root, ws};
+
+    #[test]
+    fn list_shows_a_directory_no_write_could_touch() {
+        // Hiding it was tried and reverted: staging does NOT filter, so a hidden
+        // directory kept reaching every agent while the app denied it existed, and
+        // `remove` — gated on the listing — could not delete it either. Listed, the
+        // user sees it and every write says loudly why it refuses.
+        let (_tmp, root) = root();
+        let scope = global(&root);
+        save(&scope, "review", "fine").unwrap();
+        // Written past `save`, the way a hand edit or another tool would.
+        let hostile = scope.join("my.skill");
+        fs::create_dir_all(&hostile).unwrap();
+        fs::write(hostile.join(SKILL_FILE), "hand made").unwrap();
+
+        let names: Vec<String> = list(&root).unwrap().into_iter().map(|s| s.name).collect();
+
+        assert_eq!(names, vec!["my.skill".to_string(), "review".to_string()]);
+        // And a write against it refuses in words the user can act on.
+        assert!(save(&scope, "my.skill", "x").unwrap_err().to_string().contains("unsafe"));
+    }
 
     #[test]
     fn save_list_roundtrip_orders_global_before_workspaces() {

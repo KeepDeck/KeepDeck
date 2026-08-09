@@ -13,9 +13,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * session.test.ts + session.rs. Copy the matching pattern when adding a
  * command.
  */
-const tauri = vi.hoisted(() => ({ invoke: vi.fn(async (): Promise<unknown> => null) }));
+const tauri = vi.hoisted(() => ({
+  // Signature declared so `mock.lastCall` is typed — the round-trip case below
+  // reads the argument object back off it.
+  invoke: vi.fn(
+    async (_command: string, _args?: Record<string, unknown>): Promise<unknown> => null,
+  ),
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 
+import { sameSkillScope, skillScopeOf } from "../domain/skills";
+import { ipcSkillsStorage } from "./skillsStorage";
 import {
   deleteSkill,
   disarmSkills,
@@ -117,5 +125,52 @@ describe("the skills invoke-key contract", () => {
   it("an empty disarm list never crosses the wire", async () => {
     await disarmSkills([]);
     expect(tauri.invoke).not.toHaveBeenCalled();
+  });
+
+  it("a scope survives the round trip through the wire, both kinds", async () => {
+    // `wire` here and `skillScopeOf` in the domain are exact inverses living in
+    // different modules; only the reverse half had a test, so a change to the
+    // wire values could have met itself again only inside Rust.
+    for (const scope of [
+      { kind: "global" },
+      { kind: "workspace", wsId: "ws-1" },
+    ] as const) {
+      await deleteSkill(scope, "review");
+      const sent = tauri.invoke.mock.lastCall?.[1] as {
+        scope: "global" | "workspace";
+        wsId: string | null;
+      };
+      expect(sameSkillScope(skillScopeOf(sent), scope), scope.kind).toBe(true);
+    }
+    // And the global arm sends null, never "" — an empty id is the domain's
+    // marker for a MALFORMED row, so sending one would manufacture exactly the
+    // thing `skillScopeOf` exists to keep out of every live library.
+    await deleteSkill({ kind: "global" }, "review");
+    expect(tauri.invoke.mock.lastCall?.[1]).toMatchObject({ wsId: null });
+  });
+
+  it("the storage adapter points each verb at the command its name promises", async () => {
+    // Nothing else pins this: the library's suite injects a fake storage, so a
+    // swapped field (`rename: deleteSkill`) has the same signature, compiles,
+    // and shows up only against the real backend.
+    expect(ipcSkillsStorage.save).toBe(saveSkill);
+    expect(ipcSkillsStorage.rename).toBe(renameSkill);
+    expect(ipcSkillsStorage.remove).toBe(deleteSkill);
+  });
+
+  it("the adapter reads the wire's scope columns into a scope, both kinds", async () => {
+    // `fetch` is the one verb that is not a bare re-export: the DTO's
+    // `scope`/`wsId` pair stops HERE, so nothing above the adapter carries the
+    // wire's shape. This is the forward half of the round trip pinned above.
+    tauri.invoke.mockResolvedValueOnce([
+      { scope: "global", wsId: null, name: "review", content: "a" },
+      { scope: "workspace", wsId: "ws-1", name: "review", content: "b" },
+    ]);
+
+    expect(await ipcSkillsStorage.fetch()).toEqual([
+      { scope: { kind: "global" }, name: "review", content: "a" },
+      { scope: { kind: "workspace", wsId: "ws-1" }, name: "review", content: "b" },
+    ]);
+    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_list");
   });
 });

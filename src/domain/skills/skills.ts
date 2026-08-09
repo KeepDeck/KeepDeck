@@ -5,16 +5,63 @@
  * whose YAML frontmatter carries `name` + `description`; every supported CLI
  * reads the format and ignores frontmatter keys it doesn't know, so ONE file
  * serves all agents. The library lives under KeepDeck's home (the Rust
- * `skills` adapter moves the bytes); this module owns the schema side:
- * naming rules and frontmatter compose/parse.
+ * `skills` adapter moves the bytes); this module owns the RULES — where a skill
+ * lives, what a draft is, and what makes a name or a description acceptable.
  *
- * Parsing is deliberately tolerant and round-trip-safe: the user may hand
- * edit a stored SKILL.md (extra frontmatter like `allowed-tools`, assets in
- * the directory), and a later save from the form must not eat those lines.
+ * Reading and writing the file itself is `skillFile.ts` next door: a format
+ * change and a vocabulary change are different reasons to change, and only one
+ * of them is pinned to the Rust side.
  */
 
 /** Where a skill lives — its distribution boundary. */
 export type SkillScope = { kind: "global" } | { kind: "workspace"; wsId: string };
+
+/** Whether two scopes name the SAME library. Here rather than at a call site
+ * because every surface that groups, filters or looks a skill up asks it, and
+ * two copies of the workspace-id comparison would drift. */
+export function sameSkillScope(a: SkillScope, b: SkillScope): boolean {
+  return a.kind === "global"
+    ? b.kind === "global"
+    : b.kind === "workspace" && a.wsId === b.wsId;
+}
+
+/** The scope a stored skill lives in. Takes the stored row's shape structurally
+ * — the domain must not reach for the IPC type that mirrors it. A workspace row
+ * with no id is malformed rather than global: it keeps an empty id, which
+ * matches no REAL workspace and so stays out of every live library. (Two such
+ * rows do match each other — the id is compared, not vetted — so a caller must
+ * not manufacture an empty id and expect it to match nothing.) */
+export function skillScopeOf(stored: {
+  scope: "global" | "workspace";
+  wsId: string | null;
+}): SkillScope {
+  return stored.scope === "global"
+    ? { kind: "global" }
+    : { kind: "workspace", wsId: stored.wsId ?? "" };
+}
+
+/** Which skill a caller means: a library, and a name within it. */
+export interface SkillRef {
+  scope: SkillScope;
+  name: string;
+}
+
+/** Whether two references name the SAME skill.
+ *
+ * Here rather than at a call site because four places asked it by hand — the
+ * editor's row lookup, its active-row highlight, its same-row click guard, and
+ * the library's existence check — and identity is exactly the kind of rule that
+ * grows: the day names become case-insensitive, three of those four would keep
+ * the old answer and the nav would stop highlighting the row the editor has open. */
+export const sameSkillRef = (a: SkillRef, b: SkillRef): boolean =>
+  a.name === b.name && sameSkillScope(a.scope, b.scope);
+
+/** A scope as a stable string — for a React key, a map key, a log line. Here
+ * rather than at a call site because it was computed twice in one component, and
+ * "how do you flatten a scope" is the kind of question that must not have two
+ * answers the day a scope gains a third kind. */
+export const skillScopeKey = (scope: SkillScope): string =>
+  scope.kind === "global" ? "global" : `ws:${scope.wsId}`;
 
 /** A skill split into what the editor form works with. */
 export interface SkillDraft {
@@ -27,19 +74,49 @@ export interface SkillDraft {
   extraFrontmatter: string[];
 }
 
-/** Skill names are standard-format kebab-case directory names. The Rust side
- * re-checks path safety; this is the friendlier authoring rule. */
-export function isValidSkillName(name: string): boolean {
-  return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name);
+/** The naming rule in words, for whoever has to explain a refusal. Here beside
+ * the regex because three surfaces were each describing it from memory and all
+ * three described a SUBSET: `my-skill-` is "lowercase letters, digits and
+ * hyphens only", and was still refused. */
+export const SKILL_NAME_RULE =
+  "lowercase letters, digits and hyphens, not starting or ending with a hyphen, 64 characters at most";
+
+/** What is wrong with a skill name, or `null` when nothing is.
+ *
+ * A VERDICT rather than a predicate, for the reason [`skillDescriptionProblem`]
+ * is one: a caller needs the same answer for its gate and for what it puts on
+ * screen, and with only a boolean the editor derived the two separately and they
+ * drifted — an emptied Name field disabled Save with nothing explaining it,
+ * because "empty" was folded into "invalid" at the gate and excluded from the
+ * message. Skill names are standard-format kebab-case directory names; the Rust
+ * side re-checks path safety, this is the friendlier authoring rule. */
+export function skillNameProblem(name: string): "empty" | "invalid" | null {
+  if (name.trim() === "") return "empty";
+  return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name) ? null : "invalid";
 }
 
-/** One-line descriptions only — the frontmatter scalar stays simple.
- * COUPLING PIN: the Rust side (`frontmatter_line` in
- * src-tauri/src/skills.rs) lifts the description as one verbatim line when
- * generating opencode command files; relaxing this to multi-line or block
+/** What is wrong with a description, or `null` when nothing is.
+ *
+ * ONE verdict rather than two predicates, because both conditions always apply
+ * together and in order: "non-empty" is the one that rejects real input, and it
+ * used to be an extra `&&` each caller had to remember — written twice in the
+ * editor and again in the library, while the predicate that LOOKED shared
+ * (`multiline`) cannot fail once the text has been normalized. Callers render
+ * the reason in their own words; the rule itself lives here.
+ *
+ * Empty is refused rather than merely discouraged: agents pick skills by
+ * description, and some drop a skill that has none, so such a skill would save
+ * and never take effect.
+ *
+ * COUPLING PIN on the multiline arm: the Rust side (`frontmatter_line` in
+ * src-tauri/src/skills/opencode.rs) lifts the description as one verbatim line
+ * when generating opencode command files; relaxing this to multi-line or block
  * scalars breaks that lift — change both sides together. */
-export function isValidSkillDescription(description: string): boolean {
-  return !description.includes("\n");
+export function skillDescriptionProblem(
+  description: string,
+): "empty" | "multiline" | null {
+  if (description.trim() === "") return "empty";
+  return description.includes("\n") ? "multiline" : null;
 }
 
 /** Fold edited description text onto that one line: newline runs (and the
@@ -47,82 +124,4 @@ export function isValidSkillDescription(description: string): boolean {
  * lands as a valid scalar instead of tripping validation. */
 export function normalizeSkillDescription(description: string): string {
   return description.replace(/[^\S\r\n]*[\r\n]+\s*/g, " ");
-}
-
-/** Compose the stored SKILL.md for a draft. */
-export function composeSkillFile(draft: SkillDraft): string {
-  const lines = [
-    "---",
-    `name: ${scalar(draft.name)}`,
-    `description: ${scalar(draft.description)}`,
-    ...draft.extraFrontmatter,
-    "---",
-  ];
-  const body = draft.body.endsWith("\n") || draft.body === "" ? draft.body : `${draft.body}\n`;
-  return `${lines.join("\n")}\n${body}`;
-}
-
-/** Parse a stored SKILL.md back into a draft. A file without frontmatter is
- * still a skill (name comes from its directory): empty description, the
- * whole content as body. CRLF files are normalized to LF first — a
- * hand-edited Windows-style file must parse (and round-trip), not read as
- * body-only and get its frontmatter demoted into the body on save. A
- * duplicated name/description line keeps the FIRST value; later duplicates
- * go to `extraFrontmatter` verbatim, so nothing is silently lost. */
-export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { name: string | null } {
-  const normalized = content.replace(/\r\n/g, "\n");
-  const fm = frontmatterBlock(normalized);
-  if (!fm) return { name: null, description: "", body: normalized, extraFrontmatter: [] };
-  let name: string | null = null;
-  let description: string | null = null;
-  const extraFrontmatter: string[] = [];
-  for (const line of fm.lines) {
-    const match = /^(name|description):\s?(.*)$/.exec(line);
-    if (match?.[1] === "name" && name === null) name = unscalar(match[2]);
-    else if (match?.[1] === "description" && description === null) description = unscalar(match[2]);
-    else extraFrontmatter.push(line);
-  }
-  return { name, description: description ?? "", body: fm.body, extraFrontmatter };
-}
-
-function frontmatterBlock(content: string): { lines: string[]; body: string } | null {
-  if (!content.startsWith("---\n")) return null;
-  const close = content.indexOf("\n---\n", 3);
-  if (close === -1) return null;
-  return {
-    lines: content.slice(4, close).split("\n"),
-    body: content.slice(close + 5),
-  };
-}
-
-/** Quote a value only when YAML would misread it plain. Beyond the risky
- * characters, YAML's core schema turns bare `true`/`null`/`123`-style
- * scalars into booleans/numbers — real CLIs parse this frontmatter with
- * real YAML parsers, so those must be quoted to stay strings (our own
- * regex round-trip would never notice). */
-function scalar(value: string): string {
-  const reserved = /^(?:true|false|null|yes|no|on|off|~)$/i.test(value);
-  const numeric = /^[+-]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value);
-  // YAML 1.2 core also reads hex/octal ints and the special float tokens as
-  // numbers (0x1F → 31, .inf → Infinity) — quoted, they stay strings.
-  const special = /^[+-]?(?:0[xX][0-9a-fA-F_]+|0[oO][0-7_]+|\.(?:inf|nan))$/i.test(value);
-  const risky =
-    value === "" ||
-    reserved ||
-    numeric ||
-    special ||
-    /[:#"'\\{}[\],&*?|<>=!%@`]/.test(value) ||
-    /^\s|\s$|^-/.test(value);
-  return risky ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value;
-}
-
-function unscalar(raw: string): string {
-  const value = raw.trim();
-  if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
-    return value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-  }
-  if (value.startsWith("'") && value.endsWith("'") && value.length >= 2) {
-    return value.slice(1, -1).replace(/''/g, "'");
-  }
-  return value;
 }

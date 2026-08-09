@@ -12,6 +12,7 @@ import type { createPluginManager } from "./pluginManager";
 import type { createAgentOrchestrator } from "./agentOrchestrator";
 import type { PaneInputFocusPort } from "./paneInputFocusPort";
 import type { PaneViewPort } from "./paneViewPort";
+import { fakeSkillsLibrary } from "./skillsLibrary.fake";
 import { createPaneViewActions } from "../presentation/paneViewActions";
 
 const workspace = (): Workspace => ({
@@ -56,19 +57,24 @@ function paneView(): PaneViewPort {
   return { revealPane: vi.fn() };
 }
 
+/** These cases are about registration and lifetime, not about skills — the
+ * library is a conduit here, and the `skills.*` set has its own suite. */
+const noSkills = fakeSkillsLibrary;
+
 describe("application controller", () => {
   it("owns command registration and plugin bootstrap for its lifetime", async () => {
     const deck = createDeckStore();
     const registry = createCommandRegistry();
     const { plugins, orchestrator } = dependencies();
-    const controller = createApplicationController(
+    const controller = createApplicationController({
       deck,
       plugins,
       orchestrator,
-      paneInputFocus(),
-      paneView(),
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
       registry,
-    );
+    });
     const view = ui();
     controller.bindUi(view);
 
@@ -101,14 +107,15 @@ describe("application controller", () => {
     const { plugins, orchestrator } = dependencies();
     const focus = paneInputFocus();
     const paneView = createPaneViewActions(deck, focus);
-    const controller = createApplicationController(
+    const controller = createApplicationController({
       deck,
       plugins,
       orchestrator,
-      focus,
+      paneInputFocus: focus,
       paneView,
+      skills: noSkills(),
       registry,
-    );
+    });
     controller.bindUi(ui());
     controller.start();
 
@@ -147,14 +154,15 @@ describe("application controller", () => {
     const focus = paneInputFocus();
     const paneView = createPaneViewActions(deck, focus);
     const revealPane = vi.spyOn(paneView, "revealPane");
-    const controller = createApplicationController(
+    const controller = createApplicationController({
       deck,
       plugins,
       orchestrator,
-      focus,
+      paneInputFocus: focus,
       paneView,
-      createCommandRegistry(),
-    );
+      skills: noSkills(),
+      registry: createCommandRegistry(),
+    });
     const view = ui();
     controller.bindUi(view);
     const notification = {
@@ -182,14 +190,15 @@ describe("application controller", () => {
       ok: false,
       reason: "sequence-exhausted",
     });
-    const controller = createApplicationController(
+    const controller = createApplicationController({
       deck,
       plugins,
       orchestrator,
-      paneInputFocus(),
-      paneView(),
-      createCommandRegistry(),
-    );
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      registry: createCommandRegistry(),
+    });
     const view = ui();
     controller.bindUi(view);
 

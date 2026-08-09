@@ -24,7 +24,11 @@ export interface SkillsStagingViews {
   skillsDir: string;
 }
 
-const wire = (scope: SkillScope) =>
+/** A scope in the shape the wire carries. Typed as the stored row's own two
+ * fields, not an inferred literal, so this and the domain's `skillScopeOf` —
+ * which is exactly its inverse — cannot drift apart silently; the round trip is
+ * pinned in this module's suite. */
+const wire = (scope: SkillScope): Pick<StoredSkill, "scope" | "wsId"> =>
   scope.kind === "global"
     ? { scope: "global", wsId: null }
     : { scope: "workspace", wsId: scope.wsId };

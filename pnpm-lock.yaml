@@ -70,6 +70,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2
@@ -95,9 +98,6 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.6(@types/debug@4.1.13)(@types/node@26.0.1)(happy-dom@20.10.6)(yaml@2.9.0)
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
 
   packages/code-kit:
     dependencies:

@@ -17,6 +17,7 @@ import type {
   CreatePaneRequest,
   ResumeRequest,
 } from "../agentOrchestrator";
+import { fakeSkillsLibrary } from "../skillsLibrary.fake";
 import { registerCoreCommands } from ".";
 import type { SuspendOutcome } from "../suspendOutcome";
 import type { Deck } from "../useDeck";
@@ -98,6 +99,14 @@ export const workspace = (over: Partial<Workspace>): Workspace => ({
   ...over,
 });
 
+/** Two workspaces, ws-1 active and ws-2 not — what every case about addressing
+ * one workspace rather than another needs. Beside `workspace` because three
+ * suites had each arranged it inline. */
+export const twoWorkspaces = (): Workspace[] => [
+  workspace({}),
+  workspace({ id: "ws-2", name: "site" }),
+];
+
 /** A deck stub: the live workspaces array + recording actions. */
 function fakeDeck(workspaces: Workspace[]): Deck {
   return {
@@ -136,6 +145,11 @@ export function setup(workspaces: Workspace[]) {
   );
   const openSettings = vi.fn(() => true);
   const openUsage = vi.fn(() => true);
+  // A fake library, not the real one over a mocked IPC: the library's own rules
+  // (validation, preconditions, composing a SKILL.md, invalidating the staged
+  // views) are pinned in its suite, and what the commands owe is the calls they
+  // make.
+  const skills = fakeSkillsLibrary();
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
@@ -146,10 +160,12 @@ export function setup(workspaces: Workspace[]) {
     createPane,
     openSettings,
     openUsage,
+    skills,
   });
   return {
     registry,
     deck,
+    skills,
     activatePane,
     requestCloseAgent,
     suspendAgent,

@@ -1,21 +1,20 @@
+import { useEffect, useRef } from "react";
+import { SKILL_NAME_RULE, type SkillDraft } from "../../domain/skills";
 import { DestructiveButton } from "../../ui/DestructiveButton";
 import { Chip } from "../../ui/Chip";
-
-/** The editable fields; `extraFrontmatter` rides along invisibly so saving
- * an edited skill keeps hand-added keys. */
-export interface SkillFormState {
-  name: string;
-  description: string;
-  body: string;
-  extraFrontmatter: string[];
-}
 
 /** What the dialog decided about the current draft — the editor renders
  * verdicts, it never re-derives them. */
 export interface SkillValidation {
-  nameInvalid: boolean;
+  /** The domain's name verdict, or `null` when the name is not this editor's to
+   * judge (an inherited one). */
+  nameProblem: "empty" | "invalid" | null;
   nameTaken: boolean;
-  descriptionMissing: boolean;
+  /** The domain's description verdict, rendered by both arms — the gate refuses
+   * either, so a message for only one leaves a dead button unexplained. */
+  descriptionProblem: "empty" | "multiline" | null;
+  /** The skill was removed or renamed elsewhere while it was open. */
+  vanished: boolean;
 }
 
 interface SkillEditorProps {
@@ -25,10 +24,18 @@ interface SkillEditorProps {
   /** The saved name an edit is anchored to (the header title). */
   savedName: string | null;
   scopeLabel: string;
-  form: SkillFormState;
+  /** The library's own draft shape, not a second declaration of it: what the
+   * form holds is exactly what a write takes. `extraFrontmatter` rides along
+   * unread — the library preserves whatever the stored file has, so nothing here
+   * can author it. */
+  form: SkillDraft;
   dirty: boolean;
   validation: SkillValidation;
   canSave: boolean;
+  /** A write is in flight. Both buttons go quiet — a delete racing a save can
+   * re-create the skill the user just confirmed deleting, and the guard has to
+   * be visible rather than silently swallowing the click. */
+  busy: boolean;
   error: string | null;
   onField(key: "name" | "description" | "body", value: string): void;
   onSubmit(): void;
@@ -46,11 +53,21 @@ export function SkillEditor({
   dirty,
   validation,
   canSave,
+  busy,
   error,
   onField,
   onSubmit,
   onDelete,
 }: SkillEditorProps) {
+  const nameField = useRef<HTMLInputElement>(null);
+  // Focus on ENTERING create mode, rather than `autoFocus`, which only fires at
+  // mount: this component is deliberately not remounted per selection (a remount
+  // mid-submit threw away the caret), so mount is no longer when the create form
+  // appears.
+  useEffect(() => {
+    if (creating) nameField.current?.focus();
+  }, [creating]);
+
   return (
     <>
       <div className="skills__editor-head">
@@ -74,14 +91,19 @@ export function SkillEditor({
         <input
           id="skill-name"
           className="form__input"
+          ref={nameField}
           value={form.name}
           onChange={(e) => onField("name", e.target.value)}
           placeholder="kebab-case-name"
           spellCheck={false}
-          autoFocus={creating}
         />
-        {validation.nameInvalid && (
-          <div className="form__error">Lowercase letters, digits and hyphens only</div>
+        {/* Both arms of the verdict say something. "empty" used to say nothing,
+            so clearing the field left a dead Save button unexplained. */}
+        {validation.nameProblem === "empty" && (
+          <div className="form__error">A skill needs a name</div>
+        )}
+        {validation.nameProblem === "invalid" && (
+          <div className="form__error">{`Use ${SKILL_NAME_RULE}`}</div>
         )}
         {validation.nameTaken && (
           <div className="form__error">
@@ -107,11 +129,16 @@ export function SkillEditor({
           placeholder="When should an agent reach for this skill"
           spellCheck={false}
         />
-        {validation.descriptionMissing && (
+        {validation.descriptionProblem === "empty" && (
           <div className="skills__hint">
             Required — agents pick skills by description, and some silently
             drop a skill without one
           </div>
+        )}
+        {/* Both arms again: the gate refuses "multiline" too, and with only the
+            empty arm rendered that would be a dead Save with nothing said. */}
+        {validation.descriptionProblem === "multiline" && (
+          <div className="form__error">A description has to fit on one line</div>
         )}
       </div>
 
@@ -127,17 +154,27 @@ export function SkillEditor({
         spellCheck={false}
       />
 
+      {validation.vanished && (
+        <div className="form__error">
+          This skill was removed or renamed elsewhere. Copy anything you want to
+          keep — saving it here would recreate a skill someone deleted.
+        </div>
+      )}
       {/* Backend text, not authored copy — selectable so it can be copied into
           a bug report, unlike the fixed guidance in the fields above. */}
       {error && <div className="form__error kd-selectable">{error}</div>}
       <div className="skills__actions">
-        {!creating && <DestructiveButton onClick={onDelete}>Delete</DestructiveButton>}
+        {!creating && (
+          <DestructiveButton onClick={onDelete} disabled={busy}>
+            Delete
+          </DestructiveButton>
+        )}
         <span className="skills__actions-gap" />
         <button
           type="button"
           className="form__create"
           onClick={onSubmit}
-          disabled={!canSave}
+          disabled={!canSave || busy}
         >
           {creating ? "Create" : "Save"}
         </button>

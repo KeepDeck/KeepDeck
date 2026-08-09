@@ -150,7 +150,9 @@ export interface WorktreeHousekeeping {
   sweep(deckHydrated: boolean): Promise<void>;
 }
 
-/** What the skills editor needs: a way to say the library moved. */
+/** What the skills LIBRARY needs from this manager: a way to say the library
+ * moved. Held by `skillsLibrary`, which reports it after every successful write
+ * — the editor reaches it only through that owner. */
 export interface SkillsInvalidation {
   /** The library changed (any scope): every workspace re-stages on its next
    * spawn. Editing is rare and staging is cheap — no finer bookkeeping. */
