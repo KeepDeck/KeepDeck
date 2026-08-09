@@ -48,6 +48,34 @@ describe("built-in plugin manifests", () => {
     }
   });
 
+  it("declares a floor high enough for the contract it actually uses", () => {
+    // The floor is a DECLARATION, and `satisfiesApiFloor` checks only that —
+    // never what the code reaches for. Three plugins consumed the API-37 mail
+    // surface while declaring 31, 32 and 36; on a host at those revisions
+    // they would have loaded and silently lost the labelled channel, which is
+    // the exact class of quiet degradation the mail work exists to remove.
+    //
+    // Checked by SYMBOL rather than by a hand-kept list: a plugin that starts
+    // using one of these fails here until its floor moves.
+    const MAIL_SURFACE = /\b(renderMail|frameTeammateMail|cliVersion|\.standing\b|wake:)/;
+    const MAIL_API = 37;
+    for (const path of MANIFESTS) {
+      const { id, minApiVersion } = JSON.parse(readFileSync(path, "utf8"));
+      const src = join(dirname(path), "src");
+      const uses = readdirSync(src, { withFileTypes: true, recursive: true })
+        .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
+        .filter((entry) => !entry.name.includes(".test."))
+        .some((entry) =>
+          MAIL_SURFACE.test(readFileSync(join(entry.parentPath, entry.name), "utf8")),
+        );
+      if (!uses) continue;
+      expect(
+        minApiVersion,
+        `${path} (${id}) uses the mail contract but declares minApiVersion ${minApiVersion}`,
+      ).toBeGreaterThanOrEqual(MAIL_API);
+    }
+  });
+
   it("carries a parseable own version", () => {
     // The plugin's DISPLAY version, which stays semver — distinct from the
     // integer API floor above, and bumped whenever the plugin's src or
