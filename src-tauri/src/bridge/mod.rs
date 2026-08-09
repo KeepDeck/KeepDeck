@@ -86,8 +86,10 @@ pub fn start(app: &AppHandle) -> Result<Bridge, String> {
         }
     })
     .map_err(|e| e.to_string())?;
+    // RECURSIVE: every pane owns a subdirectory of this one ([`spool::pane_dir`]),
+    // so the envelopes arrive one level down.
     watcher
-        .watch(&run_dir, RecursiveMode::NonRecursive)
+        .watch(&run_dir, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
 
     Ok(Bridge {
@@ -105,8 +107,14 @@ pub fn start(app: &AppHandle) -> Result<Bridge, String> {
 /// sees its file times out and behaves as if there were nothing for it,
 /// which is the recoverable direction.
 #[tauri::command]
-pub fn bridge_reply(bridge: tauri::State<Bridge>, id: String, body: String) {
-    if let Err(e) = reply::write(&bridge.run_dir, &id, &body) {
+pub fn bridge_reply(
+    app: AppHandle,
+    bridge: tauri::State<Bridge>,
+    pane: String,
+    id: String,
+    body: String,
+) {
+    if let Err(e) = reply::write(&bridge.run_dir, &pane, &id, &body) {
         log::warn!("bridge: {e}");
         return;
     }
@@ -120,13 +128,41 @@ pub fn bridge_reply(bridge: tauri::State<Bridge>, id: String, body: String) {
     let run_dir = bridge.run_dir.clone();
     std::thread::spawn(move || {
         std::thread::sleep(reply::HOOK_WAIT);
-        if reply::was_collected(&run_dir, &id) {
+        if reply::was_collected(&run_dir, &pane, &id) {
             log::info!("bridge: reply {id} collected");
-        } else {
-            log::warn!("bridge: reply {id} was never collected — the hook did not read it");
-            reply::discard(&run_dir, &id);
+            return;
         }
+        log::warn!("bridge: reply {id} was never collected — the hook did not read it");
+        reply::discard(&run_dir, &pane, &id);
+        // Observing it is not enough: those messages left the deck's queue to
+        // be written here, so unless the deck puts them back they are gone
+        // with nobody told — the one failure mode this whole channel is
+        // supposed to make impossible. The decision to retry belongs upstairs,
+        // so this reports the fact and nothing more.
+        let _ = app.emit(REPLY_UNCOLLECTED_EVENT, ReplyUncollected { pane, id });
     });
+}
+
+/// A reply nobody came for. The deck restores the messages it names.
+pub const REPLY_UNCOLLECTED_EVENT: &str = "deck://bridge/reply-uncollected";
+
+#[derive(Clone, serde::Serialize)]
+struct ReplyUncollected {
+    pane: String,
+    id: String,
+}
+
+/// The inbox one pane's reporters write to and read answers from, created
+/// here so it exists before the agent does.
+///
+/// Handed out at spawn and put in that pane's `KEEPDECK_BRIDGE`, so a
+/// reporter needs no knowledge of the layout — it writes where it was told.
+/// Errors are surfaced: a spawn whose reporters have nowhere to write should
+/// be armed without a bridge rather than armed with a path that does not
+/// exist, and only the caller can make that choice.
+#[tauri::command]
+pub fn bridge_pane_dir(bridge: tauri::State<Bridge>, pane: String) -> Result<String, String> {
+    spool::pane_dir(&bridge.run_dir, &pane).map(|dir| dir.to_string_lossy().into_owned())
 }
 
 /// Tell a pane's own in-process reporter that mail is waiting for it.

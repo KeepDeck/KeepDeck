@@ -319,7 +319,9 @@ export default async (input = {}) => {
    * turn collects anyway, moments later.
    */
   const takeDoorbell = () => {
-    const path = join(dir, `${pane}.wake`);
+    // `dir` is this pane's OWN inbox, so the doorbell needs no name of its
+    // own — there is only ever one pane's worth of traffic in here.
+    const path = join(dir, "mail.wake");
     try {
       if (!existsSync(path)) return;
       rmSync(path, { force: true });

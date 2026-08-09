@@ -31,23 +31,31 @@ use std::time::Duration;
 /// long only delays the verdict, so it errs long.
 pub const HOOK_WAIT: Duration = Duration::from_millis(2_500);
 
-/// Where a reply for `id` lands inside `run_dir`.
+/// Where a reply for `id` lands: inside the directory of the pane being
+/// ANSWERED, never one named by the asker.
+///
+/// That is the whole point of taking `pane` here. The correlation arrives in
+/// an envelope, and an envelope can name any correlation its sender likes —
+/// including one another pane is waiting on. The deck knows whose queue it
+/// just emptied, so it, not the envelope, decides where the answer goes; a
+/// correlation aimed at somebody else now simply reaches nobody.
 ///
 /// The `.reply` extension keeps it out of the watcher's way: the inbox only
 /// looks at `*.json`, so an answer on its way out is never mistaken for an
 /// envelope coming in.
-fn reply_path(run_dir: &Path, id: &str) -> PathBuf {
-    run_dir.join(format!("{id}.reply"))
+fn reply_path(run_dir: &Path, pane_id: &str, id: &str) -> PathBuf {
+    run_dir.join(pane_id).join(format!("{id}.reply"))
 }
 
 /// Write one reply, atomically. `Err` is a message for the log — a hook that
 /// never sees its file simply times out and behaves as if the deck had
 /// nothing to say, which is the safe direction.
-pub fn write(run_dir: &Path, id: &str, body: &str) -> Result<(), String> {
+pub fn write(run_dir: &Path, pane_id: &str, id: &str, body: &str) -> Result<(), String> {
     if !spool::is_usable_name(id) {
         return Err(format!("refusing a reply id that cannot be a filename: {id:?}"));
     }
-    spool::publish(run_dir, &format!("{id}.reply"), body)
+    let dir = spool::pane_dir(run_dir, pane_id)?;
+    spool::publish(&dir, &format!("{id}.reply"), body)
 }
 
 /// Whether the hook collected the answer written for `id`.
@@ -59,16 +67,16 @@ pub fn write(run_dir: &Path, id: &str, body: &str) -> Result<(), String> {
 ///
 /// Only meaningful once [`HOOK_WAIT`] has passed; asked earlier it reports
 /// every answer as uncollected, because the hook is still polling for it.
-pub fn was_collected(run_dir: &Path, id: &str) -> bool {
-    !reply_path(run_dir, id).exists()
+pub fn was_collected(run_dir: &Path, pane_id: &str, id: &str) -> bool {
+    !reply_path(run_dir, pane_id, id).exists()
 }
 
 /// Drop an answer nobody came for. Named apart from the check because the two
 /// happen at different moments in the caller and only one of them is a
 /// question: a stale reply that stays would outlive its run directory's
 /// usefulness and, worse, could be read by a later hook that reused the name.
-pub fn discard(run_dir: &Path, id: &str) {
-    let _ = fs::remove_file(reply_path(run_dir, id));
+pub fn discard(run_dir: &Path, pane_id: &str, id: &str) {
+    let _ = fs::remove_file(reply_path(run_dir, pane_id, id));
 }
 
 #[cfg(test)]
@@ -80,37 +88,52 @@ mod tests {
         // The hook's `cat` + `rm` is the entire protocol: nothing else tells
         // the deck whether its answer was read.
         let dir = tempfile::tempdir().unwrap();
-        write(dir.path(), "id-1", "mail").unwrap();
-        assert!(!was_collected(dir.path(), "id-1"));
-        fs::remove_file(dir.path().join("id-1.reply")).unwrap();
-        assert!(was_collected(dir.path(), "id-1"));
+        write(dir.path(), "pane-1", "id-1", "mail").unwrap();
+        assert!(!was_collected(dir.path(), "pane-1", "id-1"));
+        fs::remove_file(dir.path().join("pane-1").join("id-1.reply")).unwrap();
+        assert!(was_collected(dir.path(), "pane-1", "id-1"));
         // An id nobody ever answered has nothing outstanding either.
-        assert!(was_collected(dir.path(), "never-written"));
+        assert!(was_collected(dir.path(), "pane-1", "never-written"));
+    }
+
+    #[test]
+    fn an_answer_lands_in_the_pane_it_is_for_not_the_one_that_named_it() {
+        // The correlation comes out of an envelope, and an envelope can name
+        // any correlation its sender likes — including one another pane is
+        // waiting on. The deck decides whose directory the answer goes in, so
+        // a correlation aimed elsewhere reaches nobody.
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "pane-1", "borrowed-id", "mail for one").unwrap();
+        assert!(dir.path().join("pane-1").join("borrowed-id.reply").exists());
+        // pane-2 is waiting on that same id and hears nothing.
+        assert!(!dir.path().join("pane-2").join("borrowed-id.reply").exists());
+        assert!(!was_collected(dir.path(), "pane-1", "borrowed-id"));
+        assert!(was_collected(dir.path(), "pane-2", "borrowed-id"));
     }
 
     #[test]
     fn discarding_removes_an_uncollected_answer_and_tolerates_a_collected_one() {
         let dir = tempfile::tempdir().unwrap();
-        write(dir.path(), "id-2", "mail").unwrap();
-        discard(dir.path(), "id-2");
+        write(dir.path(), "pane-1", "id-2", "mail").unwrap();
+        discard(dir.path(), "pane-1", "id-2");
         // The file itself, not `was_collected` — one broken function must not
         // be able to make the other's test pass.
-        assert!(!dir.path().join("id-2.reply").exists());
+        assert!(!dir.path().join("pane-1").join("id-2.reply").exists());
         // Idempotent: the common case is a hook that already took the file.
-        discard(dir.path(), "id-2");
+        discard(dir.path(), "pane-1", "id-2");
     }
 
     #[test]
     fn a_reply_lands_whole_and_out_of_the_watcher_s_way() {
         let dir = tempfile::tempdir().unwrap();
-        write(dir.path(), "abc-123", "{\"block\":false}").unwrap();
-        let path = dir.path().join("abc-123.reply");
+        write(dir.path(), "pane-1", "abc-123", "{\"block\":false}").unwrap();
+        let path = dir.path().join("pane-1").join("abc-123.reply");
         assert_eq!(fs::read_to_string(&path).unwrap(), "{\"block\":false}");
         // The inbox watcher only consumes `*.json`; a reply must not look
         // like an envelope arriving.
         assert_ne!(path.extension().unwrap(), "json");
         // And no staging file survives a successful publish.
-        assert!(!dir.path().join("abc-123.reply.tmp").exists());
+        assert!(!dir.path().join("pane-1").join("abc-123.reply.tmp").exists());
     }
 
     #[test]
@@ -119,9 +142,15 @@ mod tests {
         let run = root.path().join("run-1");
         fs::create_dir(&run).unwrap();
         for hostile in ["../escaped", "..", "a/b", "", "with space", "nul\0byte"] {
+            // Both halves of the path are checked: the correlation the asker
+            // chose, and the pane id the deck resolved.
             assert!(
-                write(&run, hostile, "x").is_err(),
-                "must refuse {hostile:?}"
+                write(&run, "pane-1", hostile, "x").is_err(),
+                "must refuse correlation {hostile:?}"
+            );
+            assert!(
+                write(&run, hostile, "id-1", "x").is_err(),
+                "must refuse pane {hostile:?}"
             );
         }
         // Nothing was created anywhere, least of all outside the run dir.
@@ -133,7 +162,7 @@ mod tests {
     fn an_overlong_id_is_refused_before_it_reaches_the_filesystem() {
         let dir = tempfile::tempdir().unwrap();
         let long = "a".repeat(spool::MAX_NAME_LEN + 1);
-        assert!(write(dir.path(), &long, "x").is_err());
+        assert!(write(dir.path(), "pane-1", &long, "x").is_err());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
@@ -143,10 +172,10 @@ mod tests {
         // hook read. Rename is atomic, so the reader sees one or the other
         // and never a mixture.
         let dir = tempfile::tempdir().unwrap();
-        write(dir.path(), "id-1", "first").unwrap();
-        write(dir.path(), "id-1", "second").unwrap();
+        write(dir.path(), "pane-1", "id-1", "first").unwrap();
+        write(dir.path(), "pane-1", "id-1", "second").unwrap();
         assert_eq!(
-            fs::read_to_string(dir.path().join("id-1.reply")).unwrap(),
+            fs::read_to_string(dir.path().join("pane-1").join("id-1.reply")).unwrap(),
             "second"
         );
     }

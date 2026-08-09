@@ -213,20 +213,27 @@ export async function buildPlan(
   const token = ctx.bridgeDir
     ? (peekPaneSpawnSpec(paneId)?.token ?? mintBridgeToken())
     : null;
-  const env: [string, string][] = token
-    ? [
-        ...output.env,
-        [
-          "KEEPDECK_BRIDGE",
-          JSON.stringify({
-            v: BRIDGE_PROTOCOL_VERSION,
-            dir: ctx.bridgeDir,
-            pane: paneId,
-            token,
-          }),
-        ],
-      ]
-    : output.env;
+  // The pane's OWN inbox under this run's, created before the agent is, so a
+  // reporter writes where it was told and never has to know the layout. A
+  // failure here disarms the bridge for this spawn rather than arming it with
+  // a path nothing can write to — an agent that cannot report is recoverable,
+  // one reporting into nowhere looks alive and is not.
+  const paneDir = token ? await ctx.paneBridgeDir(paneId).catch(() => null) : null;
+  const env: [string, string][] =
+    token && paneDir
+      ? [
+          ...output.env,
+          [
+            "KEEPDECK_BRIDGE",
+            JSON.stringify({
+              v: BRIDGE_PROTOCOL_VERSION,
+              dir: paneDir,
+              pane: paneId,
+              token,
+            }),
+          ],
+        ]
+      : output.env;
   return {
     plan: {
       command: output.command,

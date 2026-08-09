@@ -3,7 +3,7 @@ import {
   type SpawnPlanContext,
 } from "./spawnSpecs";
 import { describeError, log } from "../ipc/log";
-import { spawnContext } from "../ipc/sessions";
+import { paneBridgeDir, spawnContext } from "../ipc/sessions";
 
 /**
  * The per-install spawn-plan context ([F7]/[F8] v2), loaded once at boot and
@@ -23,11 +23,15 @@ export interface SpawnContextSource {
 }
 
 export function createSpawnContextSource(
-  load: () => Promise<SpawnPlanContext> = spawnContext,
+  // The DTO half only — the per-pane inbox is a CALL, not a constant, so it
+  // is composed here rather than carried across the IPC boundary.
+  load: () => Promise<{ bridgeDir: string }> = spawnContext,
+  perPaneDir: (paneId: string) => Promise<string> = paneBridgeDir,
 ): SpawnContextSource {
   let ctx: SpawnPlanContext | null = null;
   const listeners = new Set<() => void>();
   void load()
+    .then((dto) => ({ ...dto, paneBridgeDir: perPaneDir }))
     .catch((e) => {
       // Identity mechanisms silently off is exactly the state that burned an
       // hour once — make the degradation visible.

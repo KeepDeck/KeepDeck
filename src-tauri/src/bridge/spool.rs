@@ -10,7 +10,7 @@
 //! and how a file is published so nobody reads half of it.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// The longest name worth accepting. Correlations are minted per hook
 /// invocation and pane ids per pane; neither has to be unique beyond one run
@@ -31,6 +31,31 @@ pub fn is_usable_name(name: &str) -> bool {
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// The directory belonging to ONE pane, created if it is not there yet.
+///
+/// Every file this run exchanges with a pane's agent lives here rather than
+/// in the run directory itself. What that buys is NOT secrecy — panes run as
+/// the same OS user, so one agent's shell can read any other's files no
+/// matter how they are arranged, and no filesystem layout changes that.
+/// Saying otherwise would be the dangerous kind of comment.
+///
+/// What it buys is that an answer is addressed by the PANE it is for. The
+/// asker names a correlation and the deck decides whose directory it lands
+/// in, so a pane naming somebody else's correlation reaches nobody. It also
+/// keeps one pane's stray `$dir/*` glob out of another's traffic, which is
+/// the failure a confused agent produces long before a hostile one does.
+pub fn pane_dir(run_dir: &Path, pane_id: &str) -> Result<PathBuf, String> {
+    if !is_usable_name(pane_id) {
+        return Err(format!(
+            "refusing a pane id that cannot be a directory name: {pane_id:?}"
+        ));
+    }
+    let dir = run_dir.join(pane_id);
+    fs::create_dir_all(&dir).map_err(|e| format!("creating {pane_id}'s inbox failed: {e}"))?;
+    super::inbox::restrict(&dir);
+    Ok(dir)
 }
 
 /// Publish one file into `run_dir`, whole.
@@ -78,6 +103,20 @@ mod tests {
             "body"
         );
         assert!(!dir.path().join("thing.reply.tmp").exists());
+    }
+
+    #[test]
+    fn a_pane_gets_its_own_directory_and_a_hostile_id_gets_none() {
+        let run = tempfile::tempdir().unwrap();
+        let dir = pane_dir(run.path(), "pane-3").unwrap();
+        assert!(dir.is_dir());
+        assert_eq!(dir, run.path().join("pane-3"));
+        // Idempotent: every reply and every wake asks for it again.
+        assert_eq!(pane_dir(run.path(), "pane-3").unwrap(), dir);
+        for hostile in ["../escaped", "..", "a/b", ""] {
+            assert!(pane_dir(run.path(), hostile).is_err(), "must refuse {hostile:?}");
+        }
+        assert_eq!(fs::read_dir(run.path()).unwrap().count(), 1);
     }
 
     #[test]

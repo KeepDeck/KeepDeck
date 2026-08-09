@@ -25,14 +25,17 @@
 use super::spool;
 use std::path::Path;
 
-/// Ring one pane's doorbell.
+/// The file a ringing doorbell is. One per pane, because it lands in the
+/// pane's own directory — a second ring before the first was answered
+/// replaces it rather than piling up, and one pane cannot be more woken than
+/// woken (one ask returns everything waiting anyway).
 ///
-/// The file is `<pane>.wake`. The extension keeps it out of the inbox
-/// watcher's way, exactly as `.reply` does: the watcher only consumes
-/// `*.json`, so a signal going out is never mistaken for an envelope coming
-/// in. The name is the PANE and nothing else, so a second ring before the
-/// first was answered replaces it rather than piling up — one pane cannot be
-/// more woken than woken, and one ask returns everything waiting anyway.
+/// The extension keeps it out of the inbox watcher's way, exactly as `.reply`
+/// does: the watcher only consumes `*.json`, so a signal going out is never
+/// mistaken for an envelope coming in.
+const WAKE_FILE: &str = "mail.wake";
+
+/// Ring one pane's doorbell.
 ///
 /// Nobody takes the file down but the reporter that consumes it. A ring left
 /// behind by a pane that died is inert: run directories are minted per launch
@@ -44,12 +47,8 @@ use std::path::Path;
 /// turn or expires and is reported back to its sender. Both are recoverable;
 /// raising here would not make either happen sooner.
 pub fn ring(run_dir: &Path, pane_id: &str) -> Result<(), String> {
-    if !spool::is_usable_name(pane_id) {
-        return Err(format!(
-            "refusing a wake for a pane id that cannot be a filename: {pane_id:?}"
-        ));
-    }
-    spool::publish(run_dir, &format!("{pane_id}.wake"), "")
+    let dir = spool::pane_dir(run_dir, pane_id)?;
+    spool::publish(&dir, WAKE_FILE, "")
 }
 
 #[cfg(test)]
@@ -61,7 +60,7 @@ mod tests {
     fn a_ring_lands_whole_and_out_of_the_watcher_s_way() {
         let dir = tempfile::tempdir().unwrap();
         ring(dir.path(), "pane-1").unwrap();
-        let path = dir.path().join("pane-1.wake");
+        let path = dir.path().join("pane-1").join(WAKE_FILE);
         assert!(path.exists());
         // The inbox watcher only consumes `*.json` — a doorbell must not read
         // as an envelope arriving, or it would be parsed and logged as junk.
@@ -70,7 +69,7 @@ mod tests {
         // reporter gets by asking, and content here would be a second
         // delivery path that skipped the delivery rules.
         assert_eq!(fs::read_to_string(&path).unwrap(), "");
-        assert!(!dir.path().join("pane-1.wake.tmp").exists());
+        assert!(!dir.path().join("pane-1").join("mail.wake.tmp").exists());
     }
 
     #[test]
@@ -80,10 +79,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         ring(dir.path(), "pane-1").unwrap();
         ring(dir.path(), "pane-1").unwrap();
-        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
-        // And a ring for somebody else is its own file — one doorbell per
-        // pane, never a shared one somebody else's reporter could answer.
+        assert_eq!(fs::read_dir(dir.path().join("pane-1")).unwrap().count(), 1);
+        // And a ring for somebody else lands in that pane's own directory —
+        // never a shared file another pane's reporter could answer.
         ring(dir.path(), "pane-2").unwrap();
+        assert!(dir.path().join("pane-2").join(WAKE_FILE).exists());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 

@@ -224,10 +224,10 @@ describe("opencode mail courier", () => {
     await courier.event(created("ses_root"));
     prompts.length = 0;
     pending.push({ v: 1, prompt: "ship it" });
-    writeFileSync(join(dir, "pane-3.wake"), "");
+    writeFileSync(join(dir, "mail.wake"), "");
     await until(() => prompts.length > 0);
 
-    expect(existsSync(join(dir, "pane-3.wake"))).toBe(false);
+    expect(existsSync(join(dir, "mail.wake"))).toBe(false);
     expect(last(prompts)?.body?.parts?.[0]?.text).toBe("ship it");
   });
 
@@ -240,7 +240,7 @@ describe("opencode mail courier", () => {
     await courier.event(busy("ses_root"));
     prompts.length = 0;
     asked.length = 0;
-    writeFileSync(join(dir, "pane-3.wake"), "");
+    writeFileSync(join(dir, "mail.wake"), "");
     await sleep(60);
     expect(asked).toEqual([]);
 
@@ -256,7 +256,7 @@ describe("opencode mail courier", () => {
     // land in the same first turn and the deck has already handed them over.
     await start();
     pending.push({ v: 1, context: "brief", prompt: "ship it" });
-    writeFileSync(join(dir, "pane-3.wake"), "");
+    writeFileSync(join(dir, "mail.wake"), "");
     await until(() => submitted.length > 1);
 
     expect(submitted).toEqual(["brief\n\nship it", "<submit>"]);
@@ -303,7 +303,7 @@ describe("opencode mail courier", () => {
     const courier = await start();
     await courier.event(created("ses_child", "ses_root"));
     pending.push({ v: 1, prompt: "ship it" });
-    writeFileSync(join(dir, "pane-3.wake"), "");
+    writeFileSync(join(dir, "mail.wake"), "");
     await until(() => submitted.length > 0);
     // No root was ever adopted, so this went the no-session way.
     expect(prompts).toEqual([]);

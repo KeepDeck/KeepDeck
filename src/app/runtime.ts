@@ -27,7 +27,7 @@ import { createJournalPersistence } from "./journalPersistence";
 import { commands } from "./commandRegistry";
 import { readDeck } from "./deckSurface";
 import {
-  answerMailAsk,
+  createHookReplies,
   createMailService,
   createMailWake,
   createTeamPresence,
@@ -51,7 +51,11 @@ import {
 } from "./ptyManager";
 import { subscribePaneKeys } from "./paneKeys";
 import { subscribePaneInput } from "./paneInput";
-import { nudgeBridgePane, replyToBridgeHook } from "../ipc/status";
+import {
+  nudgeBridgePane,
+  onBridgeReplyUncollected,
+  replyToBridgeHook,
+} from "../ipc/status";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
@@ -186,6 +190,27 @@ export function createAppRuntime(
    * how it wants to be woken. Read PER CALL, never cached: a plugin can be
    * enabled or disabled while the deck is up, and a pane can be restarted
    * onto another agent, and both answers must follow. */
+  /** The labelled channel's own owner: it answers asks and remembers what
+   * each answer carried until the transport confirms or denies the read. */
+  const hookReplies = createHookReplies({
+    mail: () => mail.current(),
+    rendererFor: (agentId: string) =>
+      plugins.pluginRegistries.agents
+        .list()
+        .find(({ entry }) => entry.id === agentId)?.entry.status?.renderMail,
+    // Through the agent's DECLARED bin, which is the same name the detection
+    // pass probed — an agent whose plugin declares none simply has no
+    // version, and its renderer reads that as "assume the current schema".
+    versionOf: (agentId: string) => {
+      const bin = plugins.pluginRegistries.agents
+        .list()
+        .find(({ entry }) => entry.id === agentId)?.entry.detect?.bin;
+      return bin ? plugins.agentBinVersion(bin) : null;
+    },
+    reply: replyToBridgeHook,
+  });
+  /** Stops the uncollected-reply listener; resolved inside `start()`. */
+  let stopUncollected: (() => void) | undefined;
   const mailStatusOf = (paneId: string) => {
     const agentType = paneAgentTypeOf(deckStore, paneId);
     if (!agentType) return undefined;
@@ -357,31 +382,16 @@ export function createAppRuntime(
         { subscribe: subscribeSessions, state: paneSessionState },
         attribution,
         { subscribe: subscribePaneKeys },
-        (paneId, payload) =>
-          answerMailAsk(
-            {
-              mail: () => mail.current(),
-              rendererFor: (agentId) =>
-                plugins.pluginRegistries.agents
-                  .list()
-                  .find(({ entry }) => entry.id === agentId)?.entry.status
-                  ?.renderMail,
-              // Through the agent's DECLARED bin, which is the same name the
-              // detection pass probed — an agent whose plugin declares none
-              // simply has no version, and its renderer reads that as
-              // "assume the current schema".
-              versionOf: (agentId) => {
-                const bin = plugins.pluginRegistries.agents
-                  .list()
-                  .find(({ entry }) => entry.id === agentId)?.entry.detect?.bin;
-                return bin ? plugins.agentBinVersion(bin) : null;
-              },
-              reply: replyToBridgeHook,
-            },
-            paneId,
-            payload,
-          ),
+        (paneId, payload) => hookReplies.answer(paneId, payload),
       );
+      // An answer nobody read means those messages left the queue and were
+      // written into a file that was never opened. Only the transport can see
+      // that; only the deck can do anything about it.
+      void onBridgeReplyUncollected(({ pane, id }) =>
+        hookReplies.uncollected(pane, id),
+      ).then((stop) => {
+        stopUncollected = stop;
+      });
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,
         saveNotified: saveNotifiedAchievements,
@@ -418,6 +428,7 @@ export function createAppRuntime(
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       minimizePolicy.dispose();
+      stopUncollected?.();
       teamPresence.dispose();
       mail.dispose();
       mcp.dispose();

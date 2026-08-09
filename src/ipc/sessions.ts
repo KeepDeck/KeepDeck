@@ -50,3 +50,16 @@ export function onSessionBound(
 export function spawnContext(): Promise<{ bridgeDir: string }> {
   return invoke("session_spawn_context");
 }
+
+/**
+ * The inbox this pane's reporters own, created before the agent starts.
+ *
+ * One directory per pane rather than one per run. It buys no secrecy — panes
+ * run as the same user and can read each other's files whatever the layout —
+ * but it makes an ANSWER addressed by pane: the deck decides whose directory
+ * a reply lands in, so an envelope naming somebody else's correlation
+ * reaches nobody. It also keeps one agent's stray glob out of another's mail.
+ */
+export function paneBridgeDir(paneId: string): Promise<string> {
+  return invoke("bridge_pane_dir", { pane: paneId });
+}

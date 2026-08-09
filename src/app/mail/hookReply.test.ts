@@ -2,14 +2,34 @@ import { describe, expect, it } from "vitest";
 import type { MailReplyRenderer } from "@keepdeck/plugin-api";
 import type { Mail, MailSender } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
-import { answerMailAsk } from "./hookReply";
+import { createHookReplies } from "./hookReply";
 import { createMailManager, type MailManager } from "./mailManager";
 
 const A: MailSender = { paneId: "pane-1", workspaceId: "ws-1", label: "Agent 1" };
 const WORKING: PaneActivity = { state: "working", since: 1 };
 
+/**
+ * A renderer that puts the WHOLE `DeliverableMail` in its output, not just
+ * the body.
+ *
+ * Deliberate: this fake stands in for every CLI plugin, and the host→plugin
+ * mapping (`standing`, `from` as the role rather than the pane's title,
+ * `replyTo`) is exactly the kind of field a body-only fake leaves unasserted
+ * — which is how a delivery that silently dropped every message once passed
+ * a full green suite.
+ */
 const RENDER: MailReplyRenderer = ({ messages }) =>
-  JSON.stringify({ decision: "block", reason: messages.map((m) => m.body).join("|") });
+  JSON.stringify({
+    decision: "block",
+    reason: messages
+      .map(
+        (m) =>
+          `${m.id}/${m.kind}/${m.from}/${m.standing ? "standing" : "traffic"}${
+            m.replyTo ? `/re:${m.replyTo}` : ""
+          }: ${m.body}`,
+      )
+      .join("|"),
+  });
 
 function setup(
   options: {
@@ -32,14 +52,19 @@ function setup(
     now: () => 1_000,
     schedule: () => () => {},
   });
-  const replies: { id: string; body: string }[] = [];
+  const replies: { paneId: string; id: string; body: string }[] = [];
   const deps = {
     mail: () => (options.off ? null : manager),
     rendererFor: () => ("render" in options ? options.render : RENDER),
     versionOf: () => options.cliVersion ?? null,
-    reply: (id: string, body: string) => replies.push({ id, body }),
+    reply: (paneId: string, id: string, body: string) =>
+      replies.push({ paneId, id, body }),
+    // No clock: the hand-over memory ages out on a timer these tests never
+    // need to run, and a real setTimeout would keep the suite awake.
+    schedule: () => () => {},
   };
-  return { manager, replies, pasted, deps };
+  const channel = createHookReplies(deps);
+  return { manager, replies, pasted, deps, channel };
 }
 
 function asking(extra: Record<string, unknown> = {}) {
@@ -58,9 +83,19 @@ describe("answerMailAsk", () => {
     // Held rather than pasted: a running turn is worth waiting out.
     expect(h.pasted).toHaveLength(0);
 
-    answerMailAsk(h.deps, "pane-2", asking());
+    h.channel.answer("pane-2", asking());
+    // The whole mapping, not just the body: the sender arrives as a name the
+    // receiver can reply TO, and a message is marked standing or traffic by
+    // the host so no plugin re-derives it from `kind`.
     expect(h.replies).toEqual([
-      { id: "askABC", body: JSON.stringify({ decision: "block", reason: "take the parser" }) },
+      {
+        paneId: "pane-2",
+        id: "askABC",
+        body: JSON.stringify({
+          decision: "block",
+          reason: "mail-1/task/Agent 1/traffic: take the parser",
+        }),
+      },
     ]);
     // Booked, so the terminal cannot deliver it a second time.
     expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
@@ -71,13 +106,15 @@ describe("answerMailAsk", () => {
     // timeout, and paying that on every turn end would tax every pane for
     // the sake of the rare one with mail.
     const h = setup();
-    answerMailAsk(h.deps, "pane-2", asking());
-    expect(h.replies).toEqual([{ id: "askABC", body: "" }]);
+    h.channel.answer("pane-2",asking());
+    expect(h.replies).toEqual([
+      { paneId: "pane-2", id: "askABC", body: "" },
+    ]);
   });
 
   it("says nothing at all to a report that asked nothing", () => {
     const h = setup();
-    answerMailAsk(h.deps, "pane-2", { agent: "claude", event: { hook_event_name: "Stop" } });
+    h.channel.answer("pane-2",{ agent: "claude", event: { hook_event_name: "Stop" } });
     expect(h.replies).toEqual([]);
   });
 
@@ -87,8 +124,10 @@ describe("answerMailAsk", () => {
     // that.
     const h = setup({ render: () => null });
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "note", body: "careful" });
-    answerMailAsk(h.deps, "pane-2", asking());
-    expect(h.replies).toEqual([{ id: "askABC", body: "" }]);
+    h.channel.answer("pane-2",asking());
+    expect(h.replies).toEqual([
+      { paneId: "pane-2", id: "askABC", body: "" },
+    ]);
     const back = h.manager.takeAtTurnEnd("pane-2");
     expect(back.map((mail) => mail.body)).toEqual(["careful"]);
   });
@@ -98,7 +137,7 @@ describe("answerMailAsk", () => {
     // handed.
     const h = setup({ render: () => null });
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "note", body: "careful" });
-    answerMailAsk(h.deps, "pane-2", asking());
+    h.channel.answer("pane-2",asking());
     expect(h.manager.inbox("pane-2")).toEqual([]);
   });
 
@@ -106,16 +145,71 @@ describe("answerMailAsk", () => {
     // The toggle can flip between two hook invocations, and a hook already
     // waiting still deserves an answer.
     const h = setup({ off: true });
-    answerMailAsk(h.deps, "pane-2", asking());
-    expect(h.replies).toEqual([{ id: "askABC", body: "" }]);
+    h.channel.answer("pane-2",asking());
+    expect(h.replies).toEqual([
+      { paneId: "pane-2", id: "askABC", body: "" },
+    ]);
   });
 
   it("answers nothing when the agent's plugin renders no mail", () => {
     const h = setup({ render: undefined });
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "note", body: "careful" });
-    answerMailAsk(h.deps, "pane-2", asking());
-    expect(h.replies).toEqual([{ id: "askABC", body: "" }]);
+    h.channel.answer("pane-2",asking());
+    expect(h.replies).toEqual([
+      { paneId: "pane-2", id: "askABC", body: "" },
+    ]);
     // And the message is untouched, still waiting for the terminal.
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
+  });
+
+  it("puts the messages back when nobody read the answer", () => {
+    // The messages left the queue to be written into a file. If that file is
+    // never opened — the hook timed out, the process died, something removed
+    // it — they are gone and nobody is told. This is the only path that can
+    // undo that, and the transport is the only thing that can see it happen.
+    const h = setup();
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    h.channel.answer("pane-2", asking());
+    expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
+
+    h.channel.uncollected("pane-2", "askABC");
+    const back = h.manager.takeAtTurnEnd("pane-2");
+    expect(back.map((mail) => mail.body)).toEqual(["take the parser"]);
+  });
+
+  it("will not let one pane reclaim another's hand-over", () => {
+    // The correlation comes out of an envelope, so it is the sender's word.
+    // Remembering the PAIR is what stops a pane naming somebody else's
+    // correlation and pulling their messages back into its own queue.
+    const h = setup();
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    h.channel.answer("pane-2", asking());
+
+    h.channel.uncollected("pane-3", "askABC");
+    expect(h.manager.takeAtTurnEnd("pane-3")).toEqual([]);
+    expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
+    // And the rightful owner can still get them back afterwards.
+    h.channel.uncollected("pane-2", "askABC");
+    expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
+  });
+
+  it("forgets a hand-over nobody reported, so the map cannot grow forever", () => {
+    // Success is never confirmed — the transport reports only failure — so
+    // the memory has to age out on its own.
+    let expire: (() => void) | null = null;
+    const h = setup();
+    const channel = createHookReplies({
+      ...h.deps,
+      schedule: (fn) => {
+        expire = fn;
+        return () => {};
+      },
+    });
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    channel.answer("pane-2", asking());
+    expire!();
+
+    channel.uncollected("pane-2", "askABC");
+    expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 });

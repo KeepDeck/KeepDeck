@@ -41,8 +41,29 @@ export function onAgentStatus(
  * the recoverable direction, and the same one the bridge chooses everywhere
  * else.
  */
-export function replyToBridgeHook(id: string, body: string): void {
-  void invoke("bridge_reply", { id, body }).catch(() => {});
+export function replyToBridgeHook(
+  paneId: string,
+  id: string,
+  body: string,
+): void {
+  void invoke("bridge_reply", { pane: paneId, id, body }).catch(() => {});
+}
+
+/**
+ * A reply nobody came for: the messages it carried left the deck's queue and
+ * are gone unless they are put back.
+ *
+ * The observation belongs to the transport — only it can see whether the file
+ * was consumed — and the decision belongs here, which is why it arrives as an
+ * event rather than being handled where it is noticed.
+ */
+export function onBridgeReplyUncollected(
+  handler: (reply: { pane: string; id: string }) => void,
+): Promise<() => void> {
+  return listen<{ pane: string; id: string }>(
+    "deck://bridge/reply-uncollected",
+    (event) => handler(event.payload),
+  );
 }
 
 /**
