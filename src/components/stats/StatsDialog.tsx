@@ -28,12 +28,16 @@ export function StatsDialog({
   tab,
   onSelectTab,
   onClose,
+  canClose = true,
 }: {
   tab: StatsTab;
   onSelectTab(tab: StatsTab): void;
   onClose(): void;
+  /** False while a transaction is stacked over this dialog: `onClose` refuses
+   * then, so Escape must not be claimed either. */
+  canClose?: boolean;
 }) {
-  useEscape(onClose);
+  useEscape(onClose, canClose);
   return (
     <ModalOverlay>
       <div

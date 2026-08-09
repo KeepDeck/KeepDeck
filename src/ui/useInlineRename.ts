@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { isBehindModalLayer } from "./inertBackground";
 
 /** What `useInlineRename` hands the widget: the subject under edit (null =
@@ -42,9 +42,19 @@ export interface InlineRename {
  */
 export function useInlineRename(
   commit: (key: string, name: string) => void,
+  allowed = true,
 ): InlineRename {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+
+  // A surface that may no longer hold the keyboard must not be left with an
+  // edit in flight. A modal layer blurs the field itself, but a covering dock
+  // does not — it paints over the pane header with no layer and no `inert`,
+  // so the field stayed focused underneath and typing renamed the agent out
+  // of sight. Same reading as the blur: drop the draft, do not write it.
+  useEffect(() => {
+    if (!allowed) setEditing(null);
+  }, [allowed]);
 
   const commitDraft = () => {
     if (editing === null) return;

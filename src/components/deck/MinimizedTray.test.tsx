@@ -11,6 +11,7 @@ import {
   visibleTrayItemCount,
 } from "./MinimizedTray";
 import { MinimizedItem } from "./MinimizedItem";
+import { inertBackground } from "../../ui/inertBackground";
 
 /** The runtime slice the stand-ins read (their activity selector). No test
  * here reports activity, so one instance across the file is inert. */
@@ -164,6 +165,18 @@ describe("MinimizedTray", () => {
     expect(popover.textContent).toContain("Agent 3");
     expect(popover.textContent).toContain("Agent 4");
     expect(overflow.getAttribute("aria-expanded")).toBe("true");
+
+    // A dialog stacked over the popover owns Escape. This listener is
+    // capture-phase, so without the yield it dismissed the popover first and
+    // then handed focus to an anchor the layer had made unfocusable.
+    const layer = document.body.appendChild(document.createElement("div"));
+    const releaseLayer = inertBackground(layer);
+    act(() =>
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
+    );
+    expect(document.querySelector("[role='dialog']")).not.toBeNull();
+    releaseLayer();
+    layer.remove();
 
     act(() =>
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),

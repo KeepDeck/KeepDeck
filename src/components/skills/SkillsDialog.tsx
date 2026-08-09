@@ -22,6 +22,10 @@ interface SkillsDialogProps {
    * workspace yet) leaves only the global scope. */
   activeWs: { id: string; name: string } | null;
   onClose(): void;
+  /** False while a transaction is stacked over this dialog: `onClose` refuses
+   * then, so Escape must not be claimed either. Distinct from this dialog's
+   * OWN confirm, which it tracks itself. */
+  canClose?: boolean;
 }
 
 /** Which stored skill the editor shows, or the create form for a scope. */
@@ -55,7 +59,11 @@ const scopeOf = (skill: StoredSkill): SkillScope =>
  * transition. Destructive steps confirm in-app, per the no-system-dialogs
  * rule.
  */
-export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
+export function SkillsDialog({
+  activeWs,
+  onClose,
+  canClose = true,
+}: SkillsDialogProps) {
   const { skills, error, clearError, save, rename, remove } =
     useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -149,7 +157,7 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
 
   // While a confirm is up, Escape belongs to IT (useEscape handlers stack);
   // the dialog's own close must not race a re-confirm underneath.
-  useEscape(() => navigate(null, true), !confirm);
+  useEscape(() => navigate(null, true), canClose && !confirm);
 
   const creating = selection?.mode === "create";
   // Taken = another skill in this scope holds the name. Keeping your OWN

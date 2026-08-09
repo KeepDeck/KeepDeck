@@ -70,6 +70,7 @@ describe("icon-only chip", () => {
         createElement(AgentPaneHeader, {
           paneId: "pane-1",
           title: "Claude 1",
+          keyboardFocusEnabled: true,
           folded: false,
           focused: false,
           solo: false,

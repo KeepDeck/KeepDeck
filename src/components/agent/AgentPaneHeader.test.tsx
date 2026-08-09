@@ -17,6 +17,7 @@ const NOW = 1_754_000_000_000;
 const baseProps: AgentPaneHeaderProps = {
   paneId: "pane-1",
   title: "Claude 1",
+  keyboardFocusEnabled: true,
   folded: false,
   focused: false,
   solo: false,

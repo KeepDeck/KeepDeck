@@ -17,26 +17,19 @@ export function useEscape(handler: () => void, enabled = true): void {
     const onKeyDown = (e: KeyboardEvent) => {
       // A HELD key repeats, and one dismissal must not stand for the next
       // dialog's: notices queue, so a repeat would pop one the user never
-      // saw. One press, one dismissal.
-      //
-      // A repeat is left UNTOUCHED rather than swallowed, and this hook could
-      // not swallow it anyway: the first press unmounts the surface, so the
-      // repeats that follow arrive with no handler listening. They reach the
-      // pane, whose terminal now legitimately holds the keyboard, and the
-      // agent reads them as an interrupt. That residual is accepted — the
-      // dialog is gone and the deck is what the user is holding Escape at.
-      // Suppressing it would mean a timed "recently closed" window, which is
-      // machinery for a gesture nobody makes on purpose.
+      // saw. One press, one dismissal. The repeats that follow are left
+      // untouched, and could not be caught here anyway — the first press
+      // unmounts this surface, so they arrive with no handler listening and
+      // do reach the pane. Accepted: the dialog is gone by then.
       if (e.key !== "Escape" || e.repeat) return;
       // Say the press was HANDLED, or it goes on to interrupt the agent this
-      // dialog is covering. WebKit raises a `keypress` for Escape, and it is
-      // dispatched to whatever holds focus BY THEN — which is the pane's
-      // terminal again: this handler closes the dialog, React flushes the
-      // unmount in the microtask right after it, and the pane's layout
-      // effect takes the keyboard back, all inside this one event. xterm's
-      // keypress path sends `String.fromCharCode(27)` to the PTY with no
-      // control-character filter of its own. Cancelling the keydown removes
-      // the keypress, and with it the write.
+      // dialog is covering. WebKit raises a `keypress` for Escape, dispatched
+      // to whatever holds focus by then — which is the pane's terminal again,
+      // because closing the dialog hands the keyboard back inside this same
+      // event. xterm's keypress path forwards `String.fromCharCode(27)` to
+      // the PTY, and the agent reads a bare ESC as an interrupt (worse, the
+      // status channel reads one as the user ANSWERING an approval prompt).
+      // Cancelling the keydown removes the keypress, and with it the write.
       e.preventDefault();
       handler();
     };

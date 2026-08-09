@@ -315,6 +315,7 @@ export function AgentPane({
         solo={solo}
         activityView={activityView}
         now={now}
+        keyboardFocusEnabled={keyboardFocusEnabled}
         ctxPct={ctxPct}
         paneLive={paneLive}
         yolo={yolo}
