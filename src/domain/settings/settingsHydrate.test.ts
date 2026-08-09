@@ -65,9 +65,10 @@ describe("hydrateSettings", () => {
       remoteAgents: false,
       parkAgentsOnLaunch: true,
       mcpServer: true,
+      agentTeams: false,
     });
-    // Everything the file said is a decision; `remoteAgents`, which it did not
-    // mention, is not.
+    // Everything the file said is a decision; `remoteAgents` and `agentTeams`,
+    // which it did not mention, are not.
     expect(Object.keys(doc.chosen).sort()).toEqual(
       Object.keys(stored)
         .filter((key) => key !== "version")

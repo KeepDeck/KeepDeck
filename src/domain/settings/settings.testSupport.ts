@@ -52,6 +52,7 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   remoteAgents: true,
   parkAgentsOnLaunch: true,
   mcpServer: true,
+  agentTeams: true,
 };
 
 export const SETTINGS_KEYS = Object.keys(DEFAULT_SETTINGS) as SettingsKey[];
