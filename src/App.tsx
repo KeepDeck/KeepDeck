@@ -1,6 +1,4 @@
 import { askForPaneBack } from "./app/resumeOutcome";
-import { applyTeamPlan } from "./app/mail";
-import { commands } from "./app/commandRegistry";
 import { TeamDialog } from "./components/workspace/TeamDialog";
 import { isFoundUpdate, restartToUpdate } from "./app/updateManager";
 import { useAppController } from "./app/useAppController";
@@ -86,7 +84,7 @@ function App() {
     setForkDialog,
     teamDialog,
     setTeamDialog,
-    mail,
+    teamFlow,
     setFrozenAck,
     setRailCollapsed,
     openSettings,
@@ -421,47 +419,9 @@ function App() {
               agents={agents}
               editing={teamDialog.editing}
               defaultYolo={settings.defaultYolo}
-              onConfirm={(plan) => {
+              onConfirm={(plan, closing) => {
                 setTeamDialog(null);
-                void applyTeamPlan(
-                  {
-                    setPaneTeam: deck.setPaneTeam,
-                    // Through the command, so worktree defaults, YOLO and
-                    // the full-workspace refusal stay decided in one place.
-                    spawn: async (workspaceId, agentType, yolo) => {
-                      const result = await commands.execute(
-                        "agent.spawn",
-                        { workspace: workspaceId, agentType, yolo },
-                        { kind: "host" },
-                      );
-                      if (!result.ok) throw new Error(result.error.message);
-                      return (result.value as { paneId?: string }).paneId ?? null;
-                    },
-                    // The orchestrator's own close — the one the confirm
-                    // dialog performs once the person says yes. They said
-                    // it here instead, for the whole team at once. No
-                    // worktree teardown: ending an agent and deleting its
-                    // branch checkout are separate decisions, and only the
-                    // first was asked for.
-                    close: async (workspaceId, paneId) => {
-                      await orchestrator.close({
-                        kind: "agent",
-                        wsId: workspaceId,
-                        paneId,
-                        deleteWorktrees: false,
-                        worktrees: [],
-                      });
-                    },
-                    report: pushAlert,
-                    // Only while the feature is on: with it off the roles
-                    // are still recorded, there is simply nothing running
-                    // to be told about them.
-                    announce: (paneId, kind, body) =>
-                      mail.current()?.announce(paneId, kind, body),
-                  },
-                  active.id,
-                  plan,
-                );
+                void teamFlow.apply(active.id, plan, closing);
               }}
               onCancel={() => setTeamDialog(null)}
             />
