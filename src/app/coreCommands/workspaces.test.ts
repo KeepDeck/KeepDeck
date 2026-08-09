@@ -1,5 +1,11 @@
 // FIRST, before anything that reaches the mocked IPC — see testSupport.
-import { HOST, resetCoreCommandTestState, setup, workspace } from "./testSupport";
+import {
+  HOST,
+  resetCoreCommandTestState,
+  setup,
+  twoWorkspaces,
+  workspace,
+} from "./testSupport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeEach(() => {
@@ -92,10 +98,7 @@ describe("workspace commands", () => {
     // OPTIONAL reader, a blank one became "omitted", which resolves to the
     // ACTIVE workspace: the caller got ok and a workspaceId for the workspace it
     // was already in, and nothing said its argument was junk.
-    const { registry, deck } = setup([
-      workspace({}),
-      workspace({ id: "ws-2", name: "site" }),
-    ]);
+    const { registry, deck } = setup(twoWorkspaces());
 
     const blank = await registry.execute("workspace.switch", { workspace: "  " }, HOST);
 

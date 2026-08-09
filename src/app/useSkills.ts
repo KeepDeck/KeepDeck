@@ -11,7 +11,7 @@
  * (`open` flips true), not at boot: the library is cold data until the user
  * looks at it.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SkillDraft, SkillScope } from "../domain/skills";
 import type { StoredSkill } from "../ipc/skills";
 import { describeError, log } from "../ipc/log";
@@ -38,6 +38,8 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
   const [skills, setSkills] = useState<StoredSkill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const library = useAppRuntime().skills;
+  /** Which library read owns the view — see `refresh`. */
+  const reads = useRef(0);
 
   /**
    * THE read: every path that puts the library on screen comes through here, so
@@ -54,20 +56,20 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
    * which refuses a create over an existing skill whatever this list says.)
    */
   const refresh = useCallback(
-    async (
-      onFailure: "notify" | "keep",
-      /** Whether this read still owns the view. The dialog's first load hands
-       * one in so a read from a previous `open` cannot land over a newer one. */
-      live: () => boolean = () => true,
-    ): Promise<boolean> => {
+    async (onFailure: "notify" | "keep"): Promise<boolean> => {
+      // Reads are not ordered by the backend, and this hook now starts them from
+      // three places plus a subscription, so a SUPERSEDED read must not land:
+      // the dialog's slow first read completing after a create's re-read put the
+      // pre-create library back on screen, hiding a skill that exists.
+      const seq = ++reads.current;
       try {
         const all = await library.list();
-        if (!live()) return false;
+        if (seq !== reads.current) return false;
         setSkills(all);
         return true;
       } catch (e) {
         log.warn("web:skills", `skills_list failed (${onFailure}): ${describeError(e)}`);
-        if (!live() || onFailure === "keep") return false;
+        if (seq !== reads.current || onFailure === "keep") return false;
         setSkills([]);
         setError(`Could not read the skills library: ${describeError(e)}`);
         return false;
@@ -78,12 +80,17 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
 
   useEffect(() => {
     if (!open) return;
-    let alive = true;
-    void refresh("notify", () => alive);
-    return () => {
-      alive = false;
-    };
+    void refresh("notify");
   }, [open, refresh]);
+
+  // A write through the OTHER door — an agent's skills.create/delete/rename —
+  // changes the library under an open editor. Without this the nav kept listing
+  // a skill that was gone and every save against it failed. "keep" because a
+  // read that fails here belongs to no operation the user started.
+  useEffect(() => {
+    if (!open) return;
+    return library.subscribe(() => void refresh("keep"));
+  }, [open, library, refresh]);
 
   const reload = useCallback(async () => {
     // Cleared only on a read that WORKED. Clearing regardless wiped the "could
@@ -116,7 +123,10 @@ export function useSkillsLibrary(open: boolean): SkillsEditorState {
     async (scope: SkillScope, from: string, to: string) => {
       try {
         await library.rename(scope, from, to);
-        setError(null);
+        // Deliberately does NOT clear the error: "cleared only on a read that
+        // WORKED" is `reload`'s rule, and a rename does no read. Clearing on a
+        // write meant a rename could wipe the notice from a save that had just
+        // failed, before the save that follows had produced any outcome at all.
         return true;
       } catch (e) {
         setError(`Rename failed: ${describeError(e)}`);

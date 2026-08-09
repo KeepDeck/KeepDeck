@@ -1,5 +1,11 @@
 // FIRST, before anything that reaches the mocked IPC — see testSupport.
-import { HOST, resetCoreCommandTestState, setup, workspace } from "./testSupport";
+import {
+  HOST,
+  resetCoreCommandTestState,
+  setup,
+  twoWorkspaces,
+  workspace,
+} from "./testSupport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandSource } from "../../domain/commands";
 import type { StoredSkill } from "../../ipc/skills";
@@ -25,9 +31,6 @@ const row = (over: Partial<StoredSkill> = {}): StoredSkill => ({
   content: "---\nname: review\ndescription: Reviews a diff\n---\nRead it.\n",
   ...over,
 });
-
-/** The two workspaces every scope case needs: ws-1 active, ws-2 not. */
-const twoWorkspaces = () => [workspace({}), workspace({ id: "ws-2", name: "site" })];
 
 describe("skills.list", () => {
   it("names each skill and what it is for, in the scope asked for", async () => {

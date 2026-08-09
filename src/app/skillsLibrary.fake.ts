@@ -16,13 +16,16 @@ export function fakeSkillsLibrary(): SkillsLibrary {
   return {
     list: vi.fn(async () => []),
     // `read` REFUSES an absent skill, so an empty library's read rejects — a
-    // suite that wants a draft back stubs it.
-    read: vi.fn(async (_scope, name: string) => {
-      throw new Error(`No skill "${name}" in that library`);
+    // suite that wants a draft back stubs it. The message deliberately is NOT a
+    // near-copy of the real refusal: a double that invents production prose
+    // invites a suite to pin a sentence production never emits.
+    read: vi.fn(async () => {
+      throw new Error("fake skills library: no skill");
     }),
     create: vi.fn(async () => {}),
     update: vi.fn(async () => {}),
     rename: vi.fn(async () => {}),
     remove: vi.fn(async () => {}),
+    subscribe: vi.fn(() => () => {}),
   };
 }

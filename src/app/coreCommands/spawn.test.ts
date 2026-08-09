@@ -100,6 +100,21 @@ describe("agent.spawn", () => {
     expect("yolo" in deck.workspaces[0].panes[1]).toBe(false);
   });
 
+  it("refuses a blank workspace instead of spawning into the active one", async () => {
+    // The third site of the same fix, and the one that went in without a test:
+    // `workspace` is declared required, so reading it with the OPTIONAL reader
+    // turned a blank one into "omitted", which resolves to the ACTIVE workspace
+    // — a pane spawned somewhere the caller never named, reported as success.
+    const { registry, deck, createPane } = setup([workspace({})]);
+
+    const blank = await registry.execute("agent.spawn", { workspace: "  " }, HOST);
+
+    expect(blank.ok).toBe(false);
+    if (!blank.ok) expect(blank.error.message).toBe('argument "workspace" must not be blank');
+    expect(createPane).not.toHaveBeenCalled();
+    expect(deck.selectWorkspace).not.toHaveBeenCalled();
+  });
+
   it("refuses an unknown agent type", async () => {
     const { registry } = setup([workspace({})]);
     const result = await registry.execute(

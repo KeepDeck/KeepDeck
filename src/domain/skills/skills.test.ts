@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   composeSkillFile,
-  isValidSkillName,
+  skillNameProblem,
   normalizeSkillDescription,
+  orphanedFrontmatterLine,
   parseSkillFile,
   renameSkillFile,
   sameSkillScope,
@@ -14,11 +15,20 @@ import {
 describe("skill names", () => {
   it("accepts kebab-case and rejects everything path-like or shouty", () => {
     for (const good of ["review", "deep-review", "a", "x2", "a-1-b"]) {
-      expect(isValidSkillName(good), good).toBe(true);
+      expect(skillNameProblem(good), good).toBeNull();
     }
-    for (const bad of ["", "Review", "a b", "a/b", "../up", "-lead", "trail-", "a".repeat(65)]) {
-      expect(isValidSkillName(bad), bad).toBe(false);
+    for (const bad of ["Review", "a b", "a/b", "../up", "-lead", "trail-", "a".repeat(65)]) {
+      expect(skillNameProblem(bad), bad).toBe("invalid");
     }
+  });
+
+  it("separates a name that is EMPTY from one that is wrong", () => {
+    // The distinction the editor could not make with a boolean: an emptied field
+    // disabled Save while the charset message stayed hidden, because "nothing
+    // typed yet" and "typed something illegal" were one value.
+    expect(skillNameProblem("")).toBe("empty");
+    expect(skillNameProblem("   ")).toBe("empty");
+    expect(skillNameProblem("My_Skill")).toBe("invalid");
   });
 
   it("names what is wrong with a description, in one verdict", () => {
@@ -208,6 +218,70 @@ describe("compose/parse round-trip", () => {
   });
 });
 
+describe("a block scalar survives being read and written back", () => {
+  // The corruption these exist to keep out: reading only the `>` header left the
+  // indented lines in extraFrontmatter, and compose re-emitted them BELOW a
+  // finished `description: ">"` entry. That is orphaned indentation — every
+  // CLI reads this frontmatter with a real YAML parser, which refuses the whole
+  // mapping, so an ordinary "edit the body and save" silently killed the skill.
+  const folded = (content: string) => parseSkillFile(content);
+
+  it("reads a folded block scalar as the one line it means", () => {
+    const parsed = folded("---\nname: n\ndescription: >\n  Long one,\n  wrapped.\n---\nB\n");
+    expect(parsed.description).toBe("Long one, wrapped.");
+    // Nothing stranded — this is the whole point.
+    expect(parsed.extraFrontmatter).toEqual([]);
+  });
+
+  it("reads a literal block scalar, and the chomping and indent indicators", () => {
+    for (const header of [">", ">-", "|", "|+", ">2"]) {
+      const parsed = folded(`---\ndescription: ${header}\n  a\n  b\n---\n`);
+      expect(parsed.description, header).toBe("a b");
+      expect(parsed.extraFrontmatter, header).toEqual([]);
+    }
+  });
+
+  it("ends the block at the next top-level key, keeping it as an extra", () => {
+    const parsed = folded(
+      "---\nname: n\ndescription: >\n  folded\nallowed-tools: Read\n---\nB\n",
+    );
+    expect(parsed.description).toBe("folded");
+    expect(parsed.extraFrontmatter).toEqual(["allowed-tools: Read"]);
+  });
+
+  it("swallows a LATER duplicate's continuation lines too", () => {
+    // The kept value is the first one; the shadowed block must not be left
+    // behind as extras, or it comes back below the composed keys.
+    const parsed = folded(
+      "---\ndescription: first\ndescription: >\n  shadowed\n  lines\n---\nB\n",
+    );
+    expect(parsed.description).toBe("first");
+    expect(parsed.extraFrontmatter).toEqual([]);
+  });
+
+  it("leaves an extra key's OWN block scalar alone, so a save keeps it", () => {
+    const content = "---\nname: n\ndescription: d\nallowed-tools: >\n  Read\n  Write\n---\nB\n";
+    const parsed = folded(content);
+    expect(parsed.extraFrontmatter).toEqual(["allowed-tools: >", "  Read", "  Write"]);
+    // It re-composes in place, still valid: the indented run follows the key it
+    // belongs to, which compose emitted just above it.
+    expect(composeSkillFile({ ...parsed, name: "n" })).toBe(content);
+  });
+
+  it("names an extra that a recompose could NOT carry", () => {
+    // Frontmatter written as an indented mapping: valid YAML, and every line
+    // lands in extras, so composing would put them under the keys we author.
+    expect(orphanedFrontmatterLine(["  name: review", "  description: d"])).toBe(
+      "  name: review",
+    );
+    expect(orphanedFrontmatterLine(["- item"])).toBe("- item");
+    // An indented run LATER is a continuation of an extra key above it.
+    expect(orphanedFrontmatterLine(["allowed-tools: >", "  Read"])).toBeNull();
+    expect(orphanedFrontmatterLine(["license: MIT"])).toBeNull();
+    expect(orphanedFrontmatterLine([])).toBeNull();
+  });
+});
+
 describe("renaming a stored file", () => {
   it("moves the name onto the new one and touches nothing else", () => {
     expect(
@@ -218,20 +292,22 @@ describe("renaming a stored file", () => {
     ).toBe("---\nname: deep-review\ndescription: Reviews a diff\nlicense: MIT\n---\nBody\n");
   });
 
-  it("carries frontmatter the composer cannot, byte for byte", () => {
-    // THE case this exists for. A block scalar is valid YAML that the
-    // parse/compose round trip loses: `description: >` reads back as the literal
-    // ">" and its continuation lines return below the quoted scalar, which is
-    // frontmatter no YAML parser accepts — and a YAML parser is what every CLI
-    // reads this file with. Renaming must not be able to break a working skill.
+  it("carries a block scalar byte for byte, where composing only keeps its meaning", () => {
+    // THE case this exists for. A block scalar is valid YAML, and a rename
+    // authors nothing, so the stored bytes must come back untouched.
     const content =
       "---\nname: review\ndescription: >\n  Long one,\n  wrapped.\n---\nBody\n";
     expect(renameSkillFile(content, "deep-review")).toBe(
       "---\nname: deep-review\ndescription: >\n  Long one,\n  wrapped.\n---\nBody\n",
     );
-    // Proof the round trip is not an option here, not just a worse one.
-    expect(composeSkillFile(skillDraftOf({ name: "deep-review", content }))).toContain(
-      'description: ">"',
+    // And composing the same file — which is what an UPDATE does — no longer
+    // destroys it: the value survives folded onto its one line, with nothing
+    // stranded below a finished entry. It used to come back as the literal ">"
+    // followed by orphaned indentation, which no YAML reader accepts.
+    // (Quoted because the folded value contains a comma — `scalar`'s ordinary
+    // job, and it reads back as the same string.)
+    expect(composeSkillFile(skillDraftOf({ name: "deep-review", content }))).toBe(
+      '---\nname: deep-review\ndescription: "Long one, wrapped."\n---\nBody\n',
     );
   });
 

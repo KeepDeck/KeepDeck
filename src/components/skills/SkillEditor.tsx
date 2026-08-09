@@ -1,19 +1,13 @@
-import type { SkillDraft } from "../../domain/skills";
+import { SKILL_NAME_RULE, type SkillDraft } from "../../domain/skills";
 import { DestructiveButton } from "../../ui/DestructiveButton";
 import { Chip } from "../../ui/Chip";
-
-/** The editable fields — the library's own draft shape, not a second
- * declaration of it: what the form holds is exactly what a write takes, and
- * enumerating the fields again meant a field added to `SkillDraft` (a promoted
- * frontmatter key) reached every other surface and silently missed this one.
- * `extraFrontmatter` rides along invisibly so saving an edited skill keeps
- * hand-added keys. */
-export type SkillFormState = SkillDraft;
 
 /** What the dialog decided about the current draft — the editor renders
  * verdicts, it never re-derives them. */
 export interface SkillValidation {
-  nameInvalid: boolean;
+  /** The domain's name verdict, or `null` when the name is not this editor's to
+   * judge (an inherited one). */
+  nameProblem: "empty" | "invalid" | null;
   nameTaken: boolean;
   descriptionMissing: boolean;
 }
@@ -25,7 +19,11 @@ interface SkillEditorProps {
   /** The saved name an edit is anchored to (the header title). */
   savedName: string | null;
   scopeLabel: string;
-  form: SkillFormState;
+  /** The library's own draft shape, not a second declaration of it: what the
+   * form holds is exactly what a write takes. `extraFrontmatter` rides along
+   * unread — the library preserves whatever the stored file has, so nothing here
+   * can author it. */
+  form: SkillDraft;
   dirty: boolean;
   validation: SkillValidation;
   canSave: boolean;
@@ -80,8 +78,13 @@ export function SkillEditor({
           spellCheck={false}
           autoFocus={creating}
         />
-        {validation.nameInvalid && (
-          <div className="form__error">Lowercase letters, digits and hyphens only</div>
+        {/* Both arms of the verdict say something. "empty" used to say nothing,
+            so clearing the field left a dead Save button unexplained. */}
+        {validation.nameProblem === "empty" && (
+          <div className="form__error">A skill needs a name</div>
+        )}
+        {validation.nameProblem === "invalid" && (
+          <div className="form__error">{`Use ${SKILL_NAME_RULE}`}</div>
         )}
         {validation.nameTaken && (
           <div className="form__error">

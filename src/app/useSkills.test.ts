@@ -38,8 +38,16 @@ const library = vi.hoisted(
       update: vi.fn(async () => {}),
       rename: vi.fn(async () => {}),
       remove: vi.fn(async () => {}),
+      // Kept as a real registry, not a no-op: the hook subscribes so a write
+      // through the OTHER door refreshes the list, and a stub that never calls
+      // back would leave that untested.
+      subscribe: vi.fn((listener: () => void) => {
+        subscribers.add(listener);
+        return () => subscribers.delete(listener);
+      }),
     }) satisfies SkillsLibrary,
 );
+const subscribers = vi.hoisted(() => new Set<() => void>());
 vi.mock("./runtimeContext", () => ({
   useAppRuntime: () => ({ skills: library }),
 }));
@@ -198,6 +206,43 @@ describe("the skills library hook", () => {
       await view.remove({ kind: "global" }, "review");
     });
     expect(view.error).toContain("busy");
+  });
+
+  it("re-reads when the library changes through the OTHER door", async () => {
+    // An agent's skills.delete does not go through this hook, so without the
+    // subscription the nav kept listing a skill that was gone and every save
+    // against it failed with nowhere for the typed text to land.
+    library.list.mockResolvedValue([STORED]);
+    await mount();
+    expect(library.list).toHaveBeenCalledTimes(1);
+
+    library.list.mockResolvedValue([]);
+    await act(async () => {
+      for (const notify of subscribers) notify();
+    });
+
+    expect(view.skills).toEqual([]);
+  });
+
+  it("a superseded read does not land over a newer one", async () => {
+    // Reachable on a slow backend: the dialog's first read is still in flight
+    // while a create's re-read lands, and the older answer used to overwrite it —
+    // putting the pre-create library back and hiding a skill that exists.
+    let finishFirst!: (rows: StoredSkill[]) => void;
+    library.list.mockImplementationOnce(
+      () => new Promise<StoredSkill[]>((resolve) => (finishFirst = resolve)),
+    );
+    await mount();
+
+    library.list.mockResolvedValue([STORED]);
+    await act(async () => {
+      await view.save({ kind: "global" }, DRAFT, true);
+    });
+    expect(view.skills).toEqual([STORED]);
+
+    // The first read finally answers, with the library as it was BEFORE the save.
+    await act(async () => finishFirst([]));
+    expect(view.skills).toEqual([STORED]);
   });
 
   it("clearError drops the notice when the user navigates away", async () => {

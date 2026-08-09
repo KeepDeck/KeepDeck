@@ -99,6 +99,14 @@ export const workspace = (over: Partial<Workspace>): Workspace => ({
   ...over,
 });
 
+/** Two workspaces, ws-1 active and ws-2 not — what every case about addressing
+ * one workspace rather than another needs. Beside `workspace` because three
+ * suites had each arranged it inline. */
+export const twoWorkspaces = (): Workspace[] => [
+  workspace({}),
+  workspace({ id: "ws-2", name: "site" }),
+];
+
 /** A deck stub: the live workspaces array + recording actions. */
 function fakeDeck(workspaces: Workspace[]): Deck {
   return {

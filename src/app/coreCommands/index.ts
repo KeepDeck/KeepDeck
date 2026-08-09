@@ -9,6 +9,7 @@ import {
   type CommandRegistry,
 } from "../../domain/commands";
 import {
+  findWorkspace,
   findWorkspaceByRef,
   paneAgentType,
   paneDisplayTitle,
@@ -87,7 +88,9 @@ function targetWorkspace(deck: Deck, ref: string | undefined): Workspace {
     if (!resolved.ok) throw new Error(resolved.message);
     return resolved.value;
   }
-  const active = deck.workspaces.find((w) => w.id === deck.activeId);
+  // Through the domain's by-id selector, whose own doc says it exists so callers
+  // stop re-implementing this `find` — two of them had.
+  const active = findWorkspace(deck.workspaces, deck.activeId);
   if (!active) throw new Error("no active workspace");
   return active;
 }
@@ -497,7 +500,12 @@ export function registerCoreCommands(
         // Submit Enter is a separate RAW keystroke after the text — see
         // deliverTask for why a CR cannot ride inside the pasted payload, and
         // why a raw CR is the submit gesture in type mode too.
-        if (args.submit === true) writeRawToPane(pane.id, "\r");
+        // Reported, not assumed: a pane with a live paste channel but no raw one
+        // takes the text and never gets the Enter, and answering ok there leaves
+        // the caller waiting on an agent that was never prompted.
+        if (args.submit === true && !writeRawToPane(pane.id, "\r")) {
+          throw new Error("the text landed but Enter could not be sent");
+        }
         if (args.focusInput === true) deps.activatePane(ws.id, pane.id);
         return { workspaceId: ws.id, paneId: pane.id };
       },

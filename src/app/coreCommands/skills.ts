@@ -1,4 +1,5 @@
 import type { ArgSpec, CommandArgs, CommandRegistry, CommandSource } from "../../domain/commands";
+import { findWorkspace } from "../../domain/deck";
 import { skillDraftOf, type SkillScope } from "../../domain/skills";
 import type { SkillsLibrary } from "../skillsLibrary";
 import type { Deck } from "../useDeck";
@@ -82,13 +83,14 @@ function scopeOf(args: CommandArgs, source: CommandSource, deck: () => Deck): Sk
     }
     return { kind: "workspace", wsId: source.pane.workspaceId };
   }
-  // Resolve the workspace, not just its id — the same way `targetWorkspace`
-  // does for every other command in this set. `activeId` is a plain string whose
+  // Resolve the workspace, not just its id, through the DOMAIN's by-id selector
+  // — the same one `targetWorkspace` uses for every other command in this set,
+  // rather than a second copy of its `find`. `activeId` is a plain string whose
   // "none" is `""`, and it can also outlive the workspace it names, so a null
   // check would be dead code and an id check would still let a stale id build a
   // scope pointing at a library that is gone.
   const current = deck();
-  const active = current.workspaces.find((ws) => ws.id === current.activeId);
+  const active = findWorkspace(current.workspaces, current.activeId);
   if (!active) {
     throw new Error('no workspace is open, so there is no workspace library — use scope "global"');
   }

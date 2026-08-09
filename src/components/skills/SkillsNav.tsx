@@ -9,6 +9,9 @@ export interface SkillsNavGroup {
 
 interface SkillsNavProps {
   groups: SkillsNavGroup[];
+  /** The library has not been read yet, so an empty group means "not known",
+   * not "nothing here". */
+  loading: boolean;
   isActive(skill: StoredSkill): boolean;
   onOpen(skill: StoredSkill): void;
   onCreate(scope: SkillScope): void;
@@ -16,7 +19,13 @@ interface SkillsNavProps {
 
 /** The library nav: scope groups of skill rows, each row answering "what
  * does this one do" with its description right under the name. */
-export function SkillsNav({ groups, isActive, onOpen, onCreate }: SkillsNavProps) {
+export function SkillsNav({
+  groups,
+  loading,
+  isActive,
+  onOpen,
+  onCreate,
+}: SkillsNavProps) {
   return (
     <nav className="skills__nav" aria-label="Skills library">
       {groups.map(({ label, scope, items }) => (
@@ -49,9 +58,11 @@ export function SkillsNav({ groups, isActive, onOpen, onCreate }: SkillsNavProps
           })}
           {items.length === 0 && (
             <div className="skills__empty-group">
-              {scope.kind === "global"
-                ? "Nothing here yet — a global skill reaches every workspace"
-                : "Nothing here yet — these stay with this workspace"}
+              {loading
+                ? "Loading…"
+                : scope.kind === "global"
+                  ? "Nothing here yet — a global skill reaches every workspace"
+                  : "Nothing here yet — these stay with this workspace"}
             </div>
           )}
         </div>

@@ -1,12 +1,14 @@
 import {
   composeSkillFile,
-  isValidSkillName,
   normalizeSkillDescription,
+  orphanedFrontmatterLine,
   renameSkillFile,
   sameSkillScope,
   skillDescriptionProblem,
   skillDraftOf,
+  skillNameProblem,
   skillScopeOf,
+  SKILL_NAME_RULE,
   type SkillDraft,
   type SkillScope,
 } from "../domain/skills";
@@ -74,7 +76,13 @@ export interface SkillsLibrary {
    * a nullable read would leave each door to word that refusal itself, and
    * they already disagreed on it. */
   read(scope: SkillScope, name: string): Promise<SkillDraft>;
-  /** Write a new skill. Refused if the name is already taken in that scope. */
+  /**
+   * Write a new skill. Refused if the name is already taken in that scope.
+   *
+   * A caller's `extraFrontmatter` is ignored — hand-added keys are not authored
+   * through this library, they are only ever PRESERVED from what is already on
+   * disk (see `update`), so a create writes exactly name, description and body.
+   */
   create(scope: SkillScope, draft: SkillDraft): Promise<void>;
   /**
    * Overwrite an existing skill — refused if there is none by that name, so an
@@ -93,12 +101,27 @@ export interface SkillsLibrary {
    * identities. That one line is ALL it rewrites: a rename authors nothing, so
    * it neither re-composes the file nor applies the rules a draft written here
    * must pass.
+   *
+   * Refused if `to` is already taken, before anything is written — the storage
+   * refuses it too, but only after the frontmatter rewrite has landed, and that
+   * leaves two directories declaring one skill with no way back.
    */
   rename(scope: SkillScope, from: string, to: string): Promise<void>;
   /** Remove a skill, assets included. Refused if there is none by that name:
    * the storage underneath calls a missing directory a success, which would
    * answer "done" to a caller that named the wrong skill. */
   remove(scope: SkillScope, name: string): Promise<void>;
+  /**
+   * Be told when the library changed, and unsubscribe with the returned
+   * function.
+   *
+   * Needed since the library got a SECOND door: a view could refresh after its
+   * own writes, but an agent's `skills.delete` through the command registry left
+   * the open editor listing a skill that is gone — and every save against it
+   * failed, with the typed text having nowhere to land. Any mutation through this
+   * library notifies, whoever made it.
+   */
+  subscribe(listener: () => void): () => void;
 }
 
 /** The adapter over the Tauri commands — the only place their names appear. */
@@ -116,6 +139,8 @@ const describeScope = (scope: SkillScope): string =>
   scope.kind === "global" ? "the global library" : "this workspace's library";
 
 export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
+  const listeners = new Set<() => void>();
+
   /** THE scope filter — "which stored rows belong to this library" is asked by
    * every read, so it is answered once here rather than at each caller. */
   async function rows(scope?: SkillScope): Promise<StoredSkill[]> {
@@ -123,36 +148,59 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
     return scope ? all.filter((row) => sameSkillScope(skillScopeOf(row), scope)) : all;
   }
 
-  /** The STORED row, or the one refusal every operation that needs an existing
-   * skill gives — so the sentence has one home and no door can forget the
-   * check. The row rather than the draft: a rename needs the bytes as they are
-   * on disk, and everything else derives its draft from the same read. */
-  async function existing(scope: SkillScope, name: string): Promise<StoredSkill> {
-    const stored = (await rows(scope)).find((row) => row.name === name);
-    if (!stored) throw new Error(`No skill "${name}" in ${describeScope(scope)}`);
-    return stored;
+  /** One scope's library, read ONCE, answering the two questions every mutation
+   * asks of it. Both refusals have their single home here, so no door can forget
+   * a check and none can word it differently. The stored ROW rather than a
+   * draft: a rename needs the bytes as they are on disk, and everything else
+   * derives its draft from the same read. */
+  async function library(scope: SkillScope) {
+    const all = await rows(scope);
+    return {
+      existing(name: string): StoredSkill {
+        const stored = all.find((row) => row.name === name);
+        if (!stored) throw new Error(`No skill "${name}" in ${describeScope(scope)}`);
+        return stored;
+      },
+      /** Refused BEFORE anything is written. The storage refuses a taken target
+       * too, but only after the first half of a rename has already landed — and
+       * that state is unrepairable, because a re-run finds the frontmatter
+       * already correct and retries only the move, forever. */
+      requireFree(name: string): void {
+        if (all.some((row) => row.name === name)) {
+          throw new Error(`"${name}" is already taken in ${describeScope(scope)}`);
+        }
+      },
+    };
   }
 
   /**
    * Every mutation goes through here, so "a write makes the staged views stale"
-   * is stated once — including when a COMPOUND mutation fails partway. `changed`
-   * marks the point after which the library on disk differs from what is
-   * staged; a failure past it still invalidates, because the staged views ARE
-   * stale by then. A write that failed before changing anything does not:
-   * dropping the memo would re-stage the whole library on the next spawn for
-   * nothing.
+   * is stated once — and states it for a FAILED write too. Once a call has
+   * reached the storage the library may have changed whatever it answers: a
+   * compound rename's first step lands before its second can fail, and a delete
+   * removes children one at a time. Re-staging a library that turns out not to
+   * have changed costs one cleared memo, and staging is cheap; keeping a memo
+   * that is silently stale costs every agent the skill it should have had.
+   *
+   * Nothing that could refuse gets this far — composing and every precondition
+   * run before the call — so there is no "it never touched the disk" case left
+   * for a flag to be careful about.
    */
-  async function writeThenRestage(
-    write: (changed: () => void) => Promise<void>,
-  ): Promise<void> {
-    let dirty = false;
+  async function writeThenRestage(write: () => Promise<void>): Promise<void> {
     try {
-      await write(() => {
-        dirty = true;
-      });
-      dirty = true;
+      await write();
     } finally {
-      if (dirty) ports.staging.invalidateSkills();
+      ports.staging.invalidateSkills();
+      // Same reasoning, same moment, for the readers that are on SCREEN rather
+      // than staged. A listener that throws must not turn a landed write into a
+      // failed one, nor stop the listeners after it.
+      for (const listener of [...listeners]) {
+        try {
+          listener();
+        } catch {
+          // A view's refresh is not this write's problem.
+        }
+      }
     }
   }
 
@@ -161,10 +209,8 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
    * caller found on disk, and a directory this build's authoring rule would
    * reject (a hand-made `My_Skill`) must still be editable. */
   function requireValidName(name: string): void {
-    if (isValidSkillName(name)) return;
-    throw new Error(
-      `"${name}" is not a valid skill name — lowercase letters, digits and hyphens only`,
-    );
+    if (skillNameProblem(name) === null) return;
+    throw new Error(`"${name}" is not a valid skill name — ${SKILL_NAME_RULE}`);
   }
 
   /** The stored form of a draft someone AUTHORED here: fold the description
@@ -185,6 +231,17 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
       case "multiline":
         throw new Error("A skill description must be a single line");
     }
+    // The last guard before we rewrite somebody's file: composing puts the
+    // extras after the two keys we author, so an extra that is a CONTINUATION of
+    // something above it would land under a finished entry and turn valid YAML
+    // into frontmatter no CLI can read. Refuse instead — a skill that cannot be
+    // edited here is recoverable; one silently rewritten into garbage is not.
+    const orphan = orphanedFrontmatterLine(draft.extraFrontmatter);
+    if (orphan !== null) {
+      throw new Error(
+        `This skill's frontmatter cannot be edited here — KeepDeck would have to move the line "${orphan.trim()}", which changes what YAML reads. Edit SKILL.md directly.`,
+      );
+    }
     return composeSkillFile({ ...draft, description });
   }
 
@@ -193,35 +250,35 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
   // would escape a caller that only awaits or `.catch`es.
   return {
     list: rows,
-    read: async (scope, name) => skillDraftOf(await existing(scope, name)),
+    read: async (scope, name) => skillDraftOf((await library(scope)).existing(name)),
 
     create: async (scope, draft) => {
       requireValidName(draft.name);
-      await writeThenRestage(() =>
-        ports.storage.save(scope, draft.name, authoredFile(draft), true),
-      );
+      // Composed BEFORE the wrapper, like every other refusal: a draft the
+      // format cannot carry has changed nothing, and must not clear the memo.
+      const content = authoredFile({ ...draft, extraFrontmatter: [] });
+      await writeThenRestage(() => ports.storage.save(scope, draft.name, content, true));
     },
 
     update: async (scope, draft) => {
-      const stored = skillDraftOf(await existing(scope, draft.name));
-      await writeThenRestage(() =>
-        ports.storage.save(
-          scope,
-          draft.name,
-          // The stored extras win: they are what is on disk now.
-          authoredFile({ ...draft, extraFrontmatter: stored.extraFrontmatter }),
-          false,
-        ),
-      );
+      const stored = skillDraftOf((await library(scope)).existing(draft.name));
+      // The stored extras win: they are what is on disk now.
+      const content = authoredFile({ ...draft, extraFrontmatter: stored.extraFrontmatter });
+      await writeThenRestage(() => ports.storage.save(scope, draft.name, content, false));
     },
 
     rename: async (scope, from, to) => {
       requireValidName(to);
-      const stored = await existing(scope, from);
+      const scoped = await library(scope);
+      const stored = scoped.existing(from);
+      // Both preconditions off ONE read, and both before any write — the
+      // collision especially, because refusing it late is what leaves two
+      // directories claiming one name.
+      scoped.requireFree(to);
       // Computed from the bytes we already read, BEFORE anything moves: nothing
       // between the two writes can then refuse the second one.
       const renamed = renameSkillFile(stored.content, to);
-      await writeThenRestage(async (changed) => {
+      await writeThenRestage(async () => {
         // The frontmatter FIRST, still under the old directory, because only
         // this order leaves a partial failure repairable by re-running the
         // rename: the file says `to` while the directory still says `from`, the
@@ -229,17 +286,19 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
         // left to rewrite and just moves it. The other order consumes `from`
         // with the move, so a re-run can no longer find the skill it must
         // finish renaming — and no other operation offers to.
-        if (renamed !== null) {
-          await ports.storage.save(scope, from, renamed, false);
-          changed();
-        }
+        if (renamed !== null) await ports.storage.save(scope, from, renamed, false);
         await ports.storage.rename(scope, from, to);
       });
     },
 
     remove: async (scope, name) => {
-      await existing(scope, name);
+      (await library(scope)).existing(name);
       await writeThenRestage(() => ports.storage.remove(scope, name));
+    },
+
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
   };
 }

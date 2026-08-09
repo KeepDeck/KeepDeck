@@ -51,10 +51,25 @@ export interface SkillDraft {
   extraFrontmatter: string[];
 }
 
-/** Skill names are standard-format kebab-case directory names. The Rust side
- * re-checks path safety; this is the friendlier authoring rule. */
-export function isValidSkillName(name: string): boolean {
-  return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name);
+/** The naming rule in words, for whoever has to explain a refusal. Here beside
+ * the regex because three surfaces were each describing it from memory and all
+ * three described a SUBSET: `my-skill-` is "lowercase letters, digits and
+ * hyphens only", and was still refused. */
+export const SKILL_NAME_RULE =
+  "lowercase letters, digits and hyphens, not starting or ending with a hyphen, 64 characters at most";
+
+/** What is wrong with a skill name, or `null` when nothing is.
+ *
+ * A VERDICT rather than a predicate, for the reason [`skillDescriptionProblem`]
+ * is one: a caller needs the same answer for its gate and for what it puts on
+ * screen, and with only a boolean the editor derived the two separately and they
+ * drifted — an emptied Name field disabled Save with nothing explaining it,
+ * because "empty" was folded into "invalid" at the gate and excluded from the
+ * message. Skill names are standard-format kebab-case directory names; the Rust
+ * side re-checks path safety, this is the friendlier authoring rule. */
+export function skillNameProblem(name: string): "empty" | "invalid" | null {
+  if (name.trim() === "") return "empty";
+  return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name) ? null : "invalid";
 }
 
 /** What is wrong with a description, or `null` when nothing is.
@@ -88,11 +103,17 @@ export function normalizeSkillDescription(description: string): string {
   return description.replace(/[^\S\r\n]*[\r\n]+\s*/g, " ");
 }
 
+/** How the `name:` key is written. Shared with [`renameSkillFile`]'s splice,
+ * which both emits this line and compares against it to tell whether there is
+ * anything to rewrite — two spellings would make that check answer "yes" on
+ * every rename. */
+const nameLine = (name: string): string => `name: ${scalar(name)}`;
+
 /** Compose the stored SKILL.md for a draft. */
 export function composeSkillFile(draft: SkillDraft): string {
   const lines = [
     "---",
-    `name: ${scalar(draft.name)}`,
+    nameLine(draft.name),
     `description: ${scalar(draft.description)}`,
     ...draft.extraFrontmatter,
     "---",
@@ -107,7 +128,15 @@ export function composeSkillFile(draft: SkillDraft): string {
  * hand-edited Windows-style file must parse (and round-trip), not read as
  * body-only and get its frontmatter demoted into the body on save. A
  * duplicated name/description line keeps the FIRST value; later duplicates
- * go to `extraFrontmatter` verbatim, so nothing is silently lost. */
+ * go to `extraFrontmatter` verbatim, so nothing is silently lost.
+ *
+ * A `name`/`description` written as a BLOCK SCALAR (`>` or `|`) is read
+ * WHOLE — header plus its indented lines, folded onto the one line this schema
+ * says a value is. Reading only the header left the continuation lines in
+ * `extraFrontmatter`, where `compose` re-emitted them below a finished
+ * `description: ">"` entry; that is orphaned indentation, which every CLI's YAML
+ * reader refuses outright. A hand-written block scalar is valid YAML, so it must
+ * survive being opened and saved. */
 export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { name: string | null } {
   const normalized = content.replace(/\r\n/g, "\n");
   const fm = frontmatterBlock(normalized);
@@ -115,10 +144,19 @@ export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { na
   let name: string | null = null;
   let description: string | null = null;
   const extraFrontmatter: string[] = [];
-  for (const line of fm.lines) {
-    const match = /^(name|description):\s?(.*)$/.exec(line);
-    if (match?.[1] === "name" && name === null) name = unscalar(match[2]);
-    else if (match?.[1] === "description" && description === null) description = unscalar(match[2]);
+  for (let i = 0; i < fm.lines.length; i++) {
+    const match = /^(name|description):\s?(.*)$/.exec(fm.lines[i]);
+    if (!match) {
+      extraFrontmatter.push(fm.lines[i]);
+      continue;
+    }
+    const block = blockScalar(fm.lines, i, match[2]);
+    // Consumed whether or not the value is kept: a later duplicate's
+    // continuation lines must not be left behind either.
+    if (block) i = block.through;
+    const value = block ? block.value : unscalar(match[2]);
+    if (match[1] === "name" && name === null) name = value;
+    else if (match[1] === "description" && description === null) description = value;
     // A LATER duplicate of name/description is dropped, not kept: `compose`
     // emits the extras after the authoritative lines, so keeping it would put
     // the stale value last — and a real YAML parser (which is what every CLI
@@ -126,10 +164,50 @@ export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { na
     // mapping outright. One save would then promote the value the editor just
     // replaced. Nothing meaningful is lost: the kept value is the one this
     // parser, and a last-wins parser after a round trip, already read.
-    else if (match) continue;
-    else extraFrontmatter.push(line);
   }
   return { name, description: description ?? "", body: fm.body, extraFrontmatter };
+}
+
+/** A block scalar header (`>`, `|`, with any chomping/indentation indicator)
+ * and the indented lines under it, folded onto one line — or `null` when the
+ * value is an ordinary scalar. `through` is the last line index it consumed.
+ *
+ * Folding rather than preserving the breaks, for both forms: this schema's two
+ * keys are single-line by contract (see [`skillDescriptionProblem`]), so the
+ * meaning of the value is what has to survive the round trip, not its layout. */
+function blockScalar(
+  lines: string[],
+  at: number,
+  header: string,
+): { value: string; through: number } | null {
+  if (!/^[|>][+-]?\d*$/.test(header.trim())) return null;
+  const parts: string[] = [];
+  let through = at;
+  for (let i = at + 1; i < lines.length; i++) {
+    // The block runs to the first line that is not indented; a blank line
+    // inside it belongs to it.
+    if (lines[i].trim() !== "" && !/^[ \t]/.test(lines[i])) break;
+    parts.push(lines[i].trim());
+    through = i;
+  }
+  return { value: parts.filter((part) => part !== "").join(" "), through };
+}
+
+/** The first extra frontmatter line that a re-composed file could NOT carry, or
+ * `null` when every extra can be re-emitted safely.
+ *
+ * `compose` writes `name:` and `description:` first and the extras after them,
+ * so an extras block whose first line is a CONTINUATION — indented, or a
+ * sequence dash — lands under a finished mapping entry and turns valid YAML into
+ * frontmatter no reader accepts. That is unrepresentable rather than merely
+ * reformatted, so the caller that would author over it has to refuse instead.
+ *
+ * An indented run LATER in the extras is fine: it continues an extra key that
+ * was itself re-emitted just above it, which is how a hand-added
+ * `allowed-tools: >` block survives a save. */
+export function orphanedFrontmatterLine(extraFrontmatter: string[]): string | null {
+  const first = extraFrontmatter.find((line) => line.trim() !== "");
+  return first !== undefined && /^[\s-]/.test(first) ? first : null;
 }
 
 /** The stored SKILL.md with its frontmatter `name:` moved onto `name`, and
@@ -150,13 +228,16 @@ export function renameSkillFile(content: string, name: string): string | null {
   const span = frontmatterSpan(content);
   if (!span) return null;
   // The FIRST `name:` line, matching the parser's first-wins reading — a later
-  // duplicate is a line the parser already drops.
-  const line = /^name:[^\r\n]*/m.exec(content.slice(span.start, span.end));
+  // duplicate is a line the parser already drops. Anchored on an explicit `\n`
+  // for the same reason as `frontmatterSpan`: a multiline `^` also matches after
+  // a lone CR, and splicing there would rewrite the tail of somebody's value.
+  const line = /(?:^|(\n))name:[^\r\n]*/.exec(content.slice(span.start, span.end));
   if (!line) return null;
-  const rewritten = `name: ${scalar(name)}`;
-  if (line[0] === rewritten) return null;
-  const at = span.start + line.index;
-  return content.slice(0, at) + rewritten + content.slice(at + line[0].length);
+  const current = line[1] ? line[0].slice(1) : line[0];
+  const rewritten = nameLine(name);
+  if (current === rewritten) return null;
+  const at = span.start + line.index + (line[1] ? 1 : 0);
+  return content.slice(0, at) + rewritten + content.slice(at + current.length);
 }
 
 /** A stored skill as the editable draft. The DIRECTORY name wins over the
@@ -188,13 +269,16 @@ function frontmatterSpan(
   const open = /^---\r?\n/.exec(content);
   if (!open) return null;
   const start = open[0].length;
-  const close = /^---\r?\n/m.exec(content.slice(start));
+  // Anchored on an explicit `\n`, NOT the `m` flag: in JS a multiline `^` also
+  // matches after a lone CR, so `m` found a fence inside a classic-Mac file the
+  // parser reads as one long line — and then its keys came back as EXTRAS, which
+  // compose re-emitted as a duplicate `name:`. Only a real line break opens a
+  // frontmatter line.
+  const close = /(?:^|(\n))---\r?\n/.exec(content.slice(start));
   if (!close) return null;
-  return {
-    start,
-    end: start + close.index,
-    bodyAt: start + close.index + close[0].length,
-  };
+  const fenceAt = close.index + (close[1] ? 1 : 0);
+  const fence = close[1] ? close[0].slice(1) : close[0];
+  return { start, end: start + fenceAt, bodyAt: start + fenceAt + fence.length };
 }
 
 function frontmatterBlock(content: string): { lines: string[]; body: string } | null {

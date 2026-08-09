@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  isValidSkillName,
   normalizeSkillDescription,
   sameSkillScope,
   skillDescriptionProblem,
   skillDraftOf,
+  skillNameProblem,
   skillScopeOf,
   type SkillDraft,
   type SkillScope,
@@ -16,7 +16,7 @@ import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useSaveShortcut } from "../../ui/useSaveShortcut";
-import { SkillEditor, type SkillFormState } from "./SkillEditor";
+import { SkillEditor } from "./SkillEditor";
 import { SkillsNav, type SkillsNavGroup } from "./SkillsNav";
 
 interface SkillsDialogProps {
@@ -35,7 +35,7 @@ type Selection =
   | { mode: "edit"; scope: SkillScope; name: string }
   | { mode: "create"; scope: SkillScope };
 
-const EMPTY_FORM: SkillFormState = {
+const EMPTY_FORM: SkillDraft = {
   name: "",
   description: "",
   body: "",
@@ -61,9 +61,12 @@ export function SkillsDialog({
   const { skills, error, clearError, save, rename, remove } =
     useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [form, setForm] = useState<SkillFormState>(EMPTY_FORM);
+  const [form, setForm] = useState<SkillDraft>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
   const submitting = useRef(false);
+  /** A delete whose confirm has closed but whose IPC is still in flight — see
+   * `submit`. */
+  const deleting = useRef(false);
   // Navigation generation: bumped by every apply(). An in-flight submit
   // compares against it so its completion never clobbers a selection the
   // user moved somewhere else during the awaits.
@@ -116,6 +119,18 @@ export function SkillsDialog({
 
   /** Move the editor elsewhere, guarding unsaved edits behind a confirm. */
   const navigate = (next: Selection | null, closing?: boolean) => {
+    // Clicking the row you are already editing asks for nothing, and it is an
+    // easy stray click because that row is the highlighted one — it must not
+    // raise a discard confirm whose Discard throws the edits away.
+    if (
+      !closing &&
+      next?.mode === "edit" &&
+      selection?.mode === "edit" &&
+      selection.name === next.name &&
+      sameSkillScope(selection.scope, next.scope)
+    ) {
+      return;
+    }
     if (dirty) {
       setConfirm({ kind: "discard", next, closing });
       return;
@@ -174,7 +189,11 @@ export function SkillsDialog({
   // two doors, opposite answers.
   const authoringName =
     selection !== null && (selection.mode === "create" || selection.name !== form.name);
-  const nameOk = !authoringName || isValidSkillName(form.name);
+  // ONE verdict, like the description's, rendered by the gate AND the hint
+  // below. Derived separately they drifted: an emptied Name field disabled Save
+  // while the message stayed hidden, because "empty" counted as invalid at the
+  // gate and as "nothing typed yet" at the message.
+  const nameProblem = authoringName ? skillNameProblem(form.name) : null;
   // ONE verdict, rendered twice below: the Save gate and the hint under the
   // field. Derived separately they drifted apart the moment the rule grew — a
   // stricter gate with nothing on screen explaining the dead button. The rule
@@ -189,13 +208,20 @@ export function SkillsDialog({
   // library we could not read would trade a silent overwrite for a silently
   // dead button.
   const canSave =
-    selection !== null && dirty && nameOk && !nameTaken && descriptionProblem === null;
+    selection !== null &&
+    dirty &&
+    nameProblem === null &&
+    !nameTaken &&
+    descriptionProblem === null;
 
   const submit = async () => {
     // The rename half is not idempotent: a double ⌘S entering twice would
     // replay rename(old→new) after the first one consumed "old" and paint
-    // a spurious "Rename failed" over a rename that worked.
-    if (submitting.current || !selection || !canSave) return;
+    // a spurious "Rename failed" over a rename that worked. `deleting` is the
+    // same guard for the other in-flight destructive step: once its confirm has
+    // closed, nothing else stopped a save racing the delete and reporting
+    // "No skill …" for an operation the user did not get wrong.
+    if (submitting.current || deleting.current || !selection || !canSave) return;
     submitting.current = true;
     try {
       await performSubmit(selection);
@@ -214,7 +240,12 @@ export function SkillsDialog({
     // An edited name moves the directory first (assets travel), then the
     // ordinary save lands the content under the new name.
     if (selection.mode === "edit" && form.name !== selection.name) {
-      if (!(await rename(scope, selection.name, form.name))) return;
+      if (!(await rename(scope, selection.name, form.name))) {
+        // A refusal that arrives after the user moved on belongs to the skill it
+        // happened to, not to whatever is on screen now.
+        if (navEpoch.current !== nav) clearError();
+        return;
+      }
       // From here the skill IS form.name on disk — the selection must say
       // so even if the content save below fails, or `nameTaken` would
       // treat our own new name as a collision and dead-end the editor.
@@ -224,19 +255,22 @@ export function SkillsDialog({
         setSelection({ mode: "edit", scope, name: form.name });
       }
     }
-    const draft: SkillDraft = { ...form };
     // A rename above has already moved the directory, so what lands now is an
     // overwrite of a skill that exists — only an untouched create is new.
     const expectNew = selection.mode === "create";
-    if (await save(scope, draft, expectNew)) {
-      if (navEpoch.current === nav) {
-        setSelection({ mode: "edit", scope, name: draft.name });
-        // Keystrokes typed DURING the save are on screen but not on disk —
-        // marking them clean would silently drop them at the next
-        // navigation. Identity check: any setForm produced a new object.
-        if (formRef.current === draftSource) {
-          setDirty(false);
-        }
+    const saved = await save(scope, draftSource, expectNew);
+    if (navEpoch.current !== nav) {
+      // Same as above: the outcome belongs to a skill the user has left.
+      if (!saved) clearError();
+      return;
+    }
+    if (saved) {
+      setSelection({ mode: "edit", scope, name: draftSource.name });
+      // Keystrokes typed DURING the save are on screen but not on disk —
+      // marking them clean would silently drop them at the next
+      // navigation. Identity check: any setForm produced a new object.
+      if (formRef.current === draftSource) {
+        setDirty(false);
       }
     }
   };
@@ -269,6 +303,10 @@ export function SkillsDialog({
         <div className="skills__body">
           <SkillsNav
             groups={groups}
+            // Until the first read lands, an empty group must not claim the
+            // library is empty — that is the reading `skills === null` exists to
+            // keep off the screen, and the nav is what the user looks at.
+            loading={skills === null}
             isActive={(skill) =>
               selection?.mode === "edit" &&
               selection.name === skill.name &&
@@ -311,16 +349,16 @@ export function SkillsDialog({
               </div>
             ) : (
               <SkillEditor
+                // Remounted per selection: `autoFocus` on the name field only
+                // fires at mount, so switching from an open skill to the create
+                // form used to leave focus on the button that opened it.
+                key={selection.mode === "create" ? "create" : `edit:${selection.name}`}
                 creating={creating}
                 savedName={selection.mode === "edit" ? selection.name : null}
                 scopeLabel={scopeLabel(selection.scope)}
                 form={form}
                 dirty={dirty}
-                validation={{
-                  nameInvalid: form.name !== "" && !nameOk,
-                  nameTaken,
-                  descriptionMissing: descriptionProblem === "empty",
-                }}
+                validation={{ nameProblem, nameTaken, descriptionMissing: descriptionProblem === "empty" }}
                 canSave={canSave}
                 error={error}
                 onField={(key, value) => {
@@ -356,9 +394,20 @@ export function SkillsDialog({
           cancelLabel="Cancel"
           destructive
           onConfirm={() => {
-            void remove(confirm.scope, confirm.name).then((ok) => {
-              if (ok) apply(null);
-            });
+            // Against the SAME epoch every other completion checks. Without it a
+            // delete resolving after the user opened another skill ran apply(),
+            // which clears the form — discarding that skill's unsaved edits with
+            // no discard confirm, the one thing navigate() exists to prevent.
+            const nav = navEpoch.current;
+            const target = confirm;
+            deleting.current = true;
+            void remove(target.scope, target.name)
+              .then((ok) => {
+                if (ok && navEpoch.current === nav) apply(null);
+              })
+              .finally(() => {
+                deleting.current = false;
+              });
             setConfirm(null);
           }}
           onCancel={() => setConfirm(null)}

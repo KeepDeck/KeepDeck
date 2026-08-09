@@ -3,30 +3,30 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoredSkill } from "../../ipc/skills";
+import type { SkillsEditorState } from "../../app/useSkills";
 import { SkillsDialog } from "./SkillsDialog";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const lib = vi.hoisted(() => ({
-  skills: [] as StoredSkill[] | null,
-  error: null as string | null,
-  clearError: vi.fn(),
-  save: vi.fn(async () => true),
-  rename: vi.fn(async () => true),
-  remove: vi.fn(async () => true),
-}));
-vi.mock("../../app/useSkills", () => ({
-  useSkillsLibrary: () => ({
-    skills: lib.skills,
-    error: lib.error,
-    clearError: lib.clearError,
-    save: lib.save,
-    rename: lib.rename,
-    remove: lib.remove,
-  }),
-}));
+// ANNOTATED, like the sibling double in useSkills.test.ts: an added field on
+// `SkillsEditorState` must fail to compile HERE rather than reach the component
+// as `undefined` in every case in this file. Hoisted because a `vi.mock`
+// factory's double has to exist before imports are initialized, and handed over
+// WHOLE so the field list is written once.
+const lib = vi.hoisted(
+  () =>
+    ({
+      skills: [] as StoredSkill[] | null,
+      error: null as string | null,
+      clearError: vi.fn(),
+      save: vi.fn(async () => true),
+      rename: vi.fn(async () => true),
+      remove: vi.fn(async () => true),
+    }) satisfies SkillsEditorState,
+);
+vi.mock("../../app/useSkills", () => ({ useSkillsLibrary: () => lib }));
 
 const skill = (
   name: string,
@@ -139,15 +139,86 @@ describe("SkillsDialog", () => {
     expect(lib.rename).not.toHaveBeenCalled();
   });
 
-  it("still refuses a name the user is authoring", async () => {
+  it("still refuses a name the user is authoring, and says the whole rule", async () => {
     lib.skills = [skill("My_Skill")];
     await mount();
     act(() => row("My_Skill")!.click());
     // Touching the name makes it this editor's to judge again.
     type(input("skill-name"), "My_Skill_2");
 
-    expect(document.body.textContent).toContain("Lowercase letters");
     expect(button("Save")!.disabled).toBe(true);
+    // The full rule, from the domain — three surfaces used to describe it from
+    // memory and all three described a subset, so `my-skill-` was told it may
+    // contain "lowercase letters, digits and hyphens only" and refused anyway.
+    expect(document.body.textContent).toContain("not starting or ending with a hyphen");
+  });
+
+  it("says why Save is dead when the name is EMPTY, not just that it is", async () => {
+    // With a boolean predicate the gate counted "" as invalid and the message
+    // counted it as "nothing typed yet", so clearing the field disabled Save
+    // with nothing on screen.
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-name"), "");
+
+    expect(button("Save")!.disabled).toBe(true);
+    expect(document.body.textContent).toContain("A skill needs a name");
+  });
+
+  it("names the scope from its GROUP, not from whichever workspace is active", async () => {
+    // The chip is the only thing on screen saying which library a save lands in,
+    // and it used to answer a different question — "what is the active workspace
+    // called" — so it stamped that name over any other scope's skill.
+    lib.skills = [skill("mine", "workspace", "ws-1"), skill("shared")];
+    await mount({ id: "ws-1", name: "My project" });
+
+    act(() => row("mine")!.click());
+    expect(document.querySelector(".skills__scope")!.textContent).toBe("My project");
+
+    act(() => row("shared")!.click());
+    expect(document.querySelector(".skills__scope")!.textContent).toBe("Global");
+  });
+
+  it("does not raise a discard confirm for a click on the skill already open", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+    type(textarea(), "edited");
+
+    act(() => row("review")!.click());
+
+    // That click asked for nothing; the confirm's Discard would have thrown the
+    // edits away, and the row is the highlighted one so a stray click is easy.
+    expect(document.body.textContent).not.toContain("unsaved changes");
+    expect(textarea().value).toBe("edited");
+  });
+
+  it("a delete that lands after the user moved on leaves the new skill alone", async () => {
+    // apply(null) clears the form, so without the epoch check every other
+    // completion makes, a slow delete discarded another skill's unsaved edits
+    // with no confirm at all.
+    lib.skills = [skill("review"), skill("deploy")];
+    let finishRemove!: (ok: boolean) => void;
+    lib.remove.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finishRemove = resolve)),
+    );
+    await mount();
+
+    act(() => row("review")!.click());
+    act(() => button("Delete")!.click());
+    // The confirm's own Delete, not the editor's — both carry that label.
+    const confirmDelete = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".confirm button, [role=dialog] button"),
+    ).find((b) => b.textContent === "Delete" && b !== button("Delete"))!;
+    act(() => confirmDelete.click()); // the IPC is now in flight
+
+    act(() => row("deploy")!.click());
+    type(textarea(), "typed into the other skill");
+    await act(async () => finishRemove(true));
+
+    expect(textarea().value).toBe("typed into the other skill");
+    expect(document.body.textContent).toContain("deploy");
   });
 
   it("groups the library: global plus the ACTIVE workspace only", async () => {

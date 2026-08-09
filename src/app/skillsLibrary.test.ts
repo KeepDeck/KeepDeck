@@ -84,15 +84,55 @@ describe("a write reports the library as changed", () => {
     expect(invalidateSkills).toHaveBeenCalledTimes(3);
   });
 
-  it("does NOT invalidate when the write failed", async () => {
-    // Nothing changed on disk, so re-staging the library would be pure waste.
+  it("invalidates even when the write FAILED, because the disk state is unknown", async () => {
+    // Once a call has reached the storage nothing here knows what landed: a
+    // compound rename's first step succeeds before its second can fail, and a
+    // delete removes children one at a time. A cleared memo costs one re-stage;
+    // a memo kept over a library that did change costs every agent the skill.
     const { library, invalidateSkills } = libraryOver({
       save: vi.fn(async () => {
         throw new Error("read-only fs");
       }),
     });
     await expect(library.create(GLOBAL, draft())).rejects.toThrow("read-only fs");
+    expect(invalidateSkills).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT invalidate for a draft it refused, which never reached the disk", async () => {
+    // The other half of the rule: composing and every precondition run BEFORE
+    // the write, so a refusal is the one case that provably changed nothing.
+    const { library, invalidateSkills, storage } = libraryOver();
+    await expect(library.create(GLOBAL, draft({ description: " " }))).rejects.toThrow(
+      /needs a description/,
+    );
+    expect(storage.save).not.toHaveBeenCalled();
     expect(invalidateSkills).not.toHaveBeenCalled();
+  });
+
+  it("tells its subscribers, so the OTHER door's reader is not left stale", async () => {
+    // A view could refresh after its own writes; it could not know about an
+    // agent's skills.delete through the command registry.
+    const { library } = libraryOver();
+    const seen: number[] = [];
+    const off = library.subscribe(() => seen.push(1));
+    await library.remove(WS, "review");
+    expect(seen).toHaveLength(1);
+    off();
+    await library.remove(WS, "review");
+    expect(seen).toHaveLength(1);
+  });
+
+  it("survives a subscriber that throws, and still reaches the next one", async () => {
+    const { library } = libraryOver();
+    let reached = false;
+    library.subscribe(() => {
+      throw new Error("a view blew up");
+    });
+    library.subscribe(() => {
+      reached = true;
+    });
+    await library.remove(WS, "review");
+    expect(reached).toBe(true);
   });
 
   it("does not invalidate on a read", async () => {
@@ -120,14 +160,50 @@ describe("create and update differ only in what they refuse", () => {
     expect(storage.save).toHaveBeenCalledWith(WS, "review", expect.any(String), false);
   });
 
-  it("composes the stored file through the domain, keeping hand-added keys", async () => {
+  it("composes the stored file through the domain", async () => {
     const { library, storage } = libraryOver();
-    await library.create(GLOBAL, draft({ extraFrontmatter: ["allowed-tools: Read"] }));
+    await library.create(GLOBAL, draft());
     const back = written(storage.save);
     expect(back.name).toBe("review");
     expect(back.description).toBe("Use when reviewing a diff");
     expect(back.body).toBe("Read the diff first.\n");
-    expect(back.extraFrontmatter).toEqual(["allowed-tools: Read"]);
+  });
+
+  it("keeps hand-added keys on an UPDATE, and refuses to author them on a create", async () => {
+    // Hand-added frontmatter is never authored here, only preserved: `update`
+    // re-reads it from disk (STORED's global `review` carries `license: MIT`), so
+    // a caller that cannot send those keys back does not eat them and one that
+    // captured them earlier cannot write a stale copy over a later hand edit.
+    const { library, storage } = libraryOver();
+    await library.update(GLOBAL, draft({ extraFrontmatter: ["allowed-tools: Stale"] }));
+    expect(written(storage.save).extraFrontmatter).toEqual(["license: MIT"]);
+
+    const fresh = libraryOver();
+    await fresh.library.create(GLOBAL, draft({
+      name: "deploy",
+      extraFrontmatter: ["allowed-tools: Read"],
+    }));
+    expect(written(fresh.storage.save).extraFrontmatter).toEqual([]);
+  });
+
+  it("refuses to re-author frontmatter a recompose could not carry", async () => {
+    // An indented mapping is valid YAML that every CLI reads, and composing it
+    // would move its lines under the keys we author — which no YAML reader
+    // accepts. Refusing keeps the file recoverable; rewriting it did not.
+    const { library, storage } = libraryOver({
+      fetch: vi.fn(async () => [
+        {
+          scope: "global" as const,
+          wsId: null,
+          name: "review",
+          content: "---\n  name: review\n  description: d\n---\nBody\n",
+        },
+      ]),
+    });
+    await expect(library.update(GLOBAL, draft())).rejects.toThrow(
+      /frontmatter cannot be edited here/,
+    );
+    expect(storage.save).not.toHaveBeenCalled();
   });
 });
 
@@ -262,6 +338,38 @@ describe("a rename moves the directory AND fixes the file", () => {
       /not a valid skill name/,
     );
     expect(storage.rename).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
+  });
+
+  it("refuses a name already taken BEFORE it writes anything", async () => {
+    // The storage refuses a taken target too — but only after the frontmatter
+    // rewrite has landed in the SOURCE file, which leaves two directories whose
+    // SKILL.md both declare the same skill. Nothing repairs that: a re-run finds
+    // the frontmatter already correct, so it retries only the move, forever.
+    const { library, storage, invalidateSkills } = libraryOver({
+      fetch: vi.fn(async () => [
+        { scope: "global" as const, wsId: null, name: "review", content: "---\nname: review\ndescription: d\n---\n" },
+        { scope: "global" as const, wsId: null, name: "deploy", content: "---\nname: deploy\ndescription: d\n---\n" },
+      ]),
+    });
+
+    await expect(library.rename(GLOBAL, "review", "deploy")).rejects.toThrow(
+      '"deploy" is already taken in the global library',
+    );
+
+    expect(storage.save).not.toHaveBeenCalled();
+    expect(storage.rename).not.toHaveBeenCalled();
+    // And no memo cleared for an operation that never happened.
+    expect(invalidateSkills).not.toHaveBeenCalled();
+  });
+
+  it("refuses renaming a skill to the name it already has", async () => {
+    // Reachable from MCP as a re-issued rename. Left to the storage it wrote the
+    // frontmatter, then failed on the move — an edit reported as a failure.
+    const { library, storage } = libraryOver();
+    await expect(library.rename(GLOBAL, "review", "review")).rejects.toThrow(
+      /already taken/,
+    );
     expect(storage.save).not.toHaveBeenCalled();
   });
 });
