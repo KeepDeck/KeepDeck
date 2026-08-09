@@ -80,8 +80,11 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
     // is really an ending, which is the only way to read a teammate.
     // SessionStart is the compaction signal: a manual `/compact` runs
     // through no turn, so it is the ONLY event that reports the rebuild
-    // that retires an oversize-request failure — the normalizer keeps just
-    // that source and drops the rest.
+    // that retires a recorded failure — the normalizer keeps just that
+    // source and drops the rest. A READABLE oversize request no longer
+    // cards at all, which leaves this the backstop for the one arriving too
+    // damaged to recognise, and for any other failure the user answers by
+    // rebuilding the context.
     for (const event of [
       "UserPromptSubmit",
       "Stop",

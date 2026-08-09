@@ -292,11 +292,13 @@ export const normalizeClaudeStatus: StatusNormalizer = (
     case "SessionStart":
       // `source` is a CLOSED enum — `startup`, `resume`, `clear`, `compact`,
       // `fork` (read out of 2.1.222's own hook schema) — and only one of
-      // them is a turn-lifecycle fact. A compaction rebuilds the context an
-      // oversize-request failure was about, which retires that failure;
-      // the other four announce a session that is sitting at its prompt
-      // with nothing running, and minting anything for them would card
-      // every pane the moment it boots.
+      // them is a turn-lifecycle fact. A compaction rebuilds the context a
+      // recorded failure was about, which retires it — the readable oversize
+      // request that motivated this edge no longer cards at all, so what it
+      // now retires is the one too damaged to recognise, and any other
+      // failure the user answers by compacting. The other four announce a
+      // session sitting at its prompt with nothing running, and minting
+      // anything for them would card every pane the moment it boots.
       //
       // This event is the ONLY report a manual `/compact` produces. It is a
       // local command, so it runs through no turn: no `UserPromptSubmit`
