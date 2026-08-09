@@ -61,6 +61,11 @@ export type AgentStatusEvent =
    * closing edge arrives too damaged to name its agent — a payload reduced
    * past the bridge's size limit keeps its event name and nothing else.
    *
+   * Also the RELEASE on its own, for a report that may have ended the turn
+   * but is deliberately not carded as one (claude's context overflow): the
+   * brackets under a main thread that may be dead can no longer be trusted,
+   * and this is the only edge that drops them without claiming an ending.
+   *
    * Deliberately its own kind rather than an `agent-turn-end` with the id
    * left off: forgetting a field would otherwise mean "discard everything",
    * and a destructive reading has to be written out loud. It errs toward

@@ -127,7 +127,8 @@ const CONTEXT_OVERFLOW =
  * 1000080 tokens in, 18023 out, the session working straight on afterwards)
  * while KeepDeck was carding the pane red and announcing "Invalid request".
  * Neither the red nor the notification survives that: the turn did not end,
- * so no edge is the honest report.
+ * so nothing about the turn may be reported. What the edge still owes the
+ * host is the bracket release — see the case site.
  *
  * NARROW ON PURPOSE, in both directions:
  *
@@ -140,10 +141,9 @@ const CONTEXT_OVERFLOW =
  *
  * THE COST, stated plainly: claude does give up when compaction is
  * impossible or its rapid-refill breaker trips, and there the turn really
- * does end here — dropping the edge leaves the pane on "Working" until the
- * user's next prompt. Accepted. Both mistakes last exactly until that
- * prompt, and this one is silent while the other tells the user something
- * broke that did not.
+ * does end here — reporting no ending leaves the pane on "Working" until the
+ * user's next prompt. Accepted: that mistake is silent, where the one it
+ * replaces told the user something had broken that had not.
  */
 function contextOverflowed(event: Record<string, unknown>): boolean {
   return (
@@ -271,7 +271,23 @@ export const normalizeClaudeStatus: StatusNormalizer = (
     case "StopFailure":
       // The session outgrew its window: claude compacts and retries the same
       // request, so the turn is still running — see [`contextOverflowed`].
-      if (contextOverflowed(event)) return null;
+      //
+      // Reporting NOTHING would be wrong all the same, because `turn-failed`
+      // carried a second fact this edge still owes: it released the host's
+      // open agent-turn brackets. In the terminal case an agent turn opened
+      // under a main thread that then died has nothing left that could ever
+      // close it, and one open bracket holds back EVERY later ending — so the
+      // pane would sit on "Working" with no bound at all, which is the one
+      // unrecoverable failure the host's bracket set exists to prevent.
+      // `agent-turns-cleared` is that half alone: it releases the brackets and
+      // ends nothing, and at a pane holding none it folds to an identity, so
+      // the ordinary overflow still reports nothing at all.
+      //
+      // The reverse cost is small and covered twice over: on the recovery
+      // path a released bracket belonged to an agent that IS still running,
+      // but claude lists it on the turn's own `Stop`, which [`outlivesTurn`]
+      // then reads as parked rather than an ending.
+      if (contextOverflowed(event)) return { kind: "agent-turns-cleared", at };
       return turnFailedEvent(at, event.error, event.error_details);
     case "SessionStart":
       // `source` is a CLOSED enum — `startup`, `resume`, `clear`, `compact`,

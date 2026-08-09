@@ -280,13 +280,15 @@ function reduceOpenTurns(
       return next;
     }
     case "agent-turns-cleared":
-    // The turn died. Whatever was running under it is no longer evidence
-    // about THIS pane's next turn, and a bracket kept past the death of the
-    // thing that opened it can only strand the pane on "working" — there is
-    // no edge left that would ever close it. Both edges already end the turn
-    // regardless of background work (the user is needed NOW), so releasing
-    // the brackets with them changes nothing visible and removes the only
-    // unrecoverable failure this set can produce.
+    // The turn died, or may have. Whatever was running under it is no longer
+    // evidence about THIS pane's next turn, and a bracket kept past the death
+    // of the thing that opened it can only strand the pane on "working" —
+    // there is no edge left that would ever close it. The two ending edges
+    // below close the turn regardless of background work (the user is needed
+    // NOW), so releasing the brackets with them changes nothing visible;
+    // `agent-turns-cleared` also arrives as that release ALONE, for a report
+    // its plugin declines to card as an ending. Either way this removes the
+    // only unrecoverable failure this set can produce.
     case "interrupted":
     case "turn-failed":
       return open.size === 0 ? open : NO_TURNS;

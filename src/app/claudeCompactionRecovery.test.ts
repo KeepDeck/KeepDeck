@@ -18,6 +18,10 @@ import { activityBadge } from "../domain/status/format";
  */
 const report = (event: Record<string, unknown>) => ({ agent: "claude", event });
 
+/** The oversize 400 exactly as a live pane reported it, on 2.1.226. */
+const OVERSIZE_400 =
+  '400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1001633 tokens > 1000000 maximum"}}';
+
 const SESSION = {
   session_id: "6b1641cc-7907-4835-aaf5-b5362886a6d3",
   transcript_path: "/Users/x/.claude/projects/-repo/6b1641cc.jsonl",
@@ -53,8 +57,7 @@ describe("a session that outgrew its context window", () => {
         ...SESSION,
         hook_event_name: "StopFailure",
         error: "invalid_request",
-        error_details:
-          '400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1001633 tokens > 1000000 maximum"}}',
+        error_details: OVERSIZE_400,
       },
       200,
     );
@@ -78,6 +81,52 @@ describe("a session that outgrew its context window", () => {
       activityBadge(
         receive(compacted, { ...SESSION, hook_event_name: "Stop" }, 500)!
           .activity,
+      ),
+    ).toMatchObject({ tone: "done", label: "Done" });
+  });
+
+  it("frees the agent bracket a dead turn would have stranded", () => {
+    // The terminal shape, the one the swallow accepts: claude cannot compact,
+    // so nothing more arrives for this turn — and the background agent it
+    // opened never reports either. `turn-failed` used to release that
+    // bracket; reporting nothing at all would leave it open forever, and one
+    // open bracket holds back EVERY later ending, which is unbounded rather
+    // than "until the next prompt".
+    const prompted = receive(
+      null,
+      { ...SESSION, hook_event_name: "UserPromptSubmit", prompt_id: "p1" },
+      100,
+    );
+    const spawned = receive(
+      prompted,
+      { ...SESSION, hook_event_name: "SubagentStart", agent_id: "a1" },
+      110,
+    );
+    expect(spawned?.openAgentTurns).toEqual(new Set(["a1"]));
+
+    const overflowed = receive(
+      spawned,
+      {
+        ...SESSION,
+        hook_event_name: "StopFailure",
+        error: "invalid_request",
+        error_details: OVERSIZE_400,
+      },
+      200,
+    );
+    // Released, and still not an ending: the turn may well be running.
+    expect(overflowed?.openAgentTurns.size).toBe(0);
+    expect(overflowed?.activity).toEqual({ state: "working", since: 100 });
+
+    // So the next turn can finish as itself.
+    const next = receive(
+      overflowed,
+      { ...SESSION, hook_event_name: "UserPromptSubmit", prompt_id: "p2" },
+      300,
+    );
+    expect(
+      activityBadge(
+        receive(next, { ...SESSION, hook_event_name: "Stop" }, 400)!.activity,
       ),
     ).toMatchObject({ tone: "done", label: "Done" });
   });

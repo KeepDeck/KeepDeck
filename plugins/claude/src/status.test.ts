@@ -50,7 +50,9 @@ describe("normalizeClaudeStatus", () => {
 
   it("reports no failure when the session merely outgrew its window", () => {
     // The real 400, verbatim from the pane that reported this (2.1.226):
-    // claude compacted and carried on, so nothing about the turn ended.
+    // claude compacted and carried on, so nothing about the turn ended. What
+    // is still reported is the bracket release `turn-failed` used to carry —
+    // it ends nothing, and folds to an identity at a pane holding none.
     for (const details of [
       '400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1001633 tokens > 1000000 maximum"}}',
       "400 input is too long for requested model",
@@ -64,7 +66,7 @@ describe("normalizeClaudeStatus", () => {
           }),
           300,
         ),
-      ).toBeNull();
+      ).toEqual({ kind: "agent-turns-cleared", at: 300 });
     }
   });
 
