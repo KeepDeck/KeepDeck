@@ -17,7 +17,7 @@ import type {
   CreatePaneRequest,
   ResumeRequest,
 } from "../agentOrchestrator";
-import type { SkillsLibrary } from "../skillsLibrary";
+import { fakeSkillsLibrary } from "../skillsLibrary.fake";
 import { registerCoreCommands } from ".";
 import type { SuspendOutcome } from "../suspendOutcome";
 import type { Deck } from "../useDeck";
@@ -138,16 +138,10 @@ export function setup(workspaces: Workspace[]) {
   const openSettings = vi.fn(() => true);
   const openUsage = vi.fn(() => true);
   // A fake library, not the real one over a mocked IPC: the library's own rules
-  // (validation, composing a SKILL.md, invalidating the staged views) are pinned
-  // in its suite, and what the commands owe is the calls they make.
-  const skills: SkillsLibrary = {
-    list: vi.fn(async () => []),
-    read: vi.fn(async () => null),
-    create: vi.fn(async () => {}),
-    update: vi.fn(async () => {}),
-    rename: vi.fn(async () => {}),
-    remove: vi.fn(async () => {}),
-  };
+  // (validation, preconditions, composing a SKILL.md, invalidating the staged
+  // views) are pinned in its suite, and what the commands owe is the calls they
+  // make.
+  const skills = fakeSkillsLibrary();
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,

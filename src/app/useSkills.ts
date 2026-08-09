@@ -17,7 +17,7 @@ import type { StoredSkill } from "../ipc/skills";
 import { describeError, log } from "../ipc/log";
 import { useAppRuntime } from "./runtimeContext";
 
-export interface SkillsLibraryView {
+export interface SkillsEditorState {
   /** The stored skills; `null` while the first load is in flight. */
   skills: StoredSkill[] | null;
   /** The last failed operation, human-readable; cleared by the next success
@@ -34,7 +34,7 @@ export interface SkillsLibraryView {
   remove(scope: SkillScope, name: string): Promise<boolean>;
 }
 
-export function useSkillsLibrary(open: boolean): SkillsLibraryView {
+export function useSkillsLibrary(open: boolean): SkillsEditorState {
   const [skills, setSkills] = useState<StoredSkill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const library = useAppRuntime().skills;

@@ -3,7 +3,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StoredSkill } from "../ipc/skills";
-import { useSkillsLibrary, type SkillsLibraryView } from "./useSkills";
+import { useSkillsLibrary, type SkillsEditorState } from "./useSkills";
+import type { SkillsLibrary } from "./skillsLibrary";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -16,13 +17,22 @@ import { useSkillsLibrary, type SkillsLibraryView } from "./useSkills";
  * belong to `skillsLibrary` and are covered by its own suite; asserting them
  * again through React would be the same rule pinned twice.
  */
-const library = vi.hoisted(() => ({
-  list: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
-  create: vi.fn(async () => {}),
-  update: vi.fn(async () => {}),
-  rename: vi.fn(async () => {}),
-  remove: vi.fn(async () => {}),
-}));
+// ANNOTATED, and hoisted rather than taken from the shared factory: a
+// `vi.mock` factory's double has to exist before imports are initialized. The
+// annotation is what makes the compiler guard this copy — without it the fake
+// silently omitted `read`, and a hook change reaching for it would have failed
+// only at runtime, in whichever case happened to touch that path.
+const library = vi.hoisted(
+  () =>
+    ({
+      list: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
+      read: vi.fn(async () => null),
+      create: vi.fn(async () => {}),
+      update: vi.fn(async () => {}),
+      rename: vi.fn(async () => {}),
+      remove: vi.fn(async () => {}),
+    }) satisfies SkillsLibrary,
+);
 vi.mock("./runtimeContext", () => ({
   useAppRuntime: () => ({ skills: library }),
 }));
@@ -35,7 +45,7 @@ const STORED: StoredSkill = {
 };
 const DRAFT = { name: "deploy", description: "Ships it", body: "", extraFrontmatter: [] };
 
-let view: SkillsLibraryView;
+let view: SkillsEditorState;
 function Probe() {
   view = useSkillsLibrary(true);
   return null;

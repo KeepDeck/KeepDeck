@@ -1,4 +1,4 @@
-import { parseSkillFile, type SkillScope } from "../../domain/skills";
+import { skillDraftOf, type SkillScope } from "../../domain/skills";
 import type { StoredSkill } from "../../ipc/skills";
 
 export interface SkillsNavGroup {
@@ -33,7 +33,7 @@ export function SkillsNav({ groups, isActive, onOpen, onCreate }: SkillsNavProps
             </button>
           </div>
           {items.map((skill) => {
-            const description = parseSkillFile(skill.content).description;
+            const description = skillDraftOf(skill).description;
             return (
               <button
                 key={`${skill.scope}:${skill.wsId ?? ""}:${skill.name}`}

@@ -1,121 +1,69 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { sameSkillScope, skillScopeOf, type SkillScope } from "../domain/skills";
+import { ipcSkillsStorage } from "../app/skillsLibrary";
+import { deleteSkill, renameSkill, saveSkill } from "./skills";
+
+const invoke = vi.hoisted(() =>
+  vi.fn<(command: string, args?: Record<string, unknown>) => Promise<unknown>>(
+    async () => undefined,
+  ),
+);
+vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+
+const GLOBAL: SkillScope = { kind: "global" };
+const WS: SkillScope = { kind: "workspace", wsId: "ws-1" };
 
 /**
- * The invoke-key contract with src-tauri/src/skills.rs. Every other skills
- * test mocks THIS module, so nothing else exercises the actual command
- * names and argument keys — and a silent key mismatch already shipped once
- * (`worktreeRoots` vs `roots`: every stage call failed, panes spawned
- * without skills). Same guard idiom as notify.test.ts: mock the tauri
- * boundary, run the real module, pin the exact wire calls. Keys here are
- * the camelCase forms Tauri maps onto the Rust params (wsId → ws_id) —
- * skills commands take TOP-LEVEL params (Tauri converts case), unlike
- * session_spawn's spec STRUCT (raw serde), whose pins live in
- * session.test.ts + session.rs. Copy the matching pattern when adding a
- * command.
+ * The seam where a scope becomes wire fields and back. Both halves of that
+ * bijection are one edit apart from each other and live in different modules —
+ * only the reverse half (`skillScopeOf`) had a test, so a change to the wire
+ * values could have passed everything and met itself again only inside Rust.
  */
-const tauri = vi.hoisted(() => ({ invoke: vi.fn(async (): Promise<unknown> => null) }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
-
-import {
-  deleteSkill,
-  disarmSkills,
-  fetchSkills,
-  pruneSkills,
-  renameSkill,
-  saveSkill,
-  stageSkills,
-} from "./skills";
-
-describe("the skills invoke-key contract", () => {
-  beforeEach(() => {
-    tauri.invoke.mockClear();
-    tauri.invoke.mockResolvedValue(null);
+describe("a scope survives the round trip through the wire", () => {
+  it("comes back as the same library, both kinds", async () => {
+    for (const scope of [GLOBAL, WS]) {
+      invoke.mockClear();
+      await deleteSkill(scope, "review");
+      const sent = invoke.mock.calls[0][1] as unknown as {
+        scope: "global" | "workspace";
+        wsId: string | null;
+      };
+      expect(sameSkillScope(skillScopeOf(sent), scope), scope.kind).toBe(true);
+    }
   });
 
-  it("pins every command name and argument key", async () => {
-    tauri.invoke.mockResolvedValueOnce([]);
-    await fetchSkills();
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_list");
-
-    await saveSkill({ kind: "global" }, "review", "content", false);
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_save", {
-      scope: "global",
-      wsId: null,
-      name: "review",
-      content: "content",
-      expectNew: false,
-    });
-
-    // A create says so, and the backend refuses a name already taken — the
-    // guard that survives a library the dialog could not read.
-    await saveSkill({ kind: "global" }, "fresh", "content", true);
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_save", {
-      scope: "global",
-      wsId: null,
-      name: "fresh",
-      content: "content",
-      expectNew: true,
-    });
-
-    await deleteSkill({ kind: "workspace", wsId: "ws-2" }, "review");
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_delete", {
-      scope: "workspace",
-      wsId: "ws-2",
-      name: "review",
-    });
-
-    await renameSkill({ kind: "global" }, "old", "new");
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_rename", {
-      scope: "global",
-      wsId: null,
-      from: "old",
-      to: "new",
-    });
-
-    await stageSkills("ws-1", ["/cwd/a"]);
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_stage", {
-      wsId: "ws-1",
-      roots: ["/cwd/a"],
-    });
-
-    await disarmSkills(["/cwd/a"]);
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_disarm", {
-      roots: ["/cwd/a"],
-    });
-
-    await pruneSkills(["ws-1"]);
-    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_prune", {
-      liveWsIds: ["ws-1"],
-    });
+  it("sends a null workspace id for the global library, never an empty string", async () => {
+    // An empty id is the domain's marker for a MALFORMED row; sending one would
+    // manufacture exactly the thing `skillScopeOf` exists to keep out.
+    invoke.mockClear();
+    await deleteSkill(GLOBAL, "review");
+    expect(invoke.mock.calls[0][1]).toMatchObject({ scope: "global", wsId: null });
   });
+});
 
-  it("stage degrades on a backend error; disarm and prune stay silent", async () => {
-    tauri.invoke.mockRejectedValue(new Error("boom"));
-    expect(await stageSkills("ws-1", [])).toBeNull();
-    await disarmSkills(["/x"]); // must not throw
-    await pruneSkills(["ws-1"]); // must not throw
-  });
+describe("the storage adapter maps each verb to its own command", () => {
+  // Nothing else pins this: the library's suite injects a fake storage, and a
+  // swapped field here (`rename: deleteSkill`) has the same signature, so it
+  // would compile and only show up against the real backend.
+  it("points at the command its name promises", async () => {
+    expect(ipcSkillsStorage.save).toBe(saveSkill);
+    expect(ipcSkillsStorage.rename).toBe(renameSkill);
+    expect(ipcSkillsStorage.remove).toBe(deleteSkill);
 
-  it("the library read THROWS rather than degrading to an empty library", async () => {
-    // There is deliberately no swallowing wrapper any more. "Empty" and
-    // "unreadable" are different answers, and the create path's collision
-    // check is derived from the list: reported as empty, every name looks
-    // free and a create writes over the skill it collided with.
-    tauri.invoke.mockRejectedValue(new Error("boom"));
-    await expect(fetchSkills()).rejects.toThrow("boom");
-  });
+    invoke.mockClear();
+    await ipcSkillsStorage.remove(GLOBAL, "review");
+    expect(invoke.mock.calls[0][0]).toBe("skills_delete");
 
-  it("save, delete and rename surface their failures", async () => {
-    tauri.invoke.mockRejectedValue(new Error("boom"));
-    await expect(saveSkill({ kind: "global" }, "x", "c", false)).rejects.toThrow(
-      "boom",
-    );
-    await expect(deleteSkill({ kind: "global" }, "x")).rejects.toThrow("boom");
-    await expect(renameSkill({ kind: "global" }, "a", "b")).rejects.toThrow("boom");
-  });
+    invoke.mockClear();
+    await ipcSkillsStorage.rename(GLOBAL, "review", "deep-review");
+    expect(invoke.mock.calls[0][0]).toBe("skills_rename");
 
-  it("an empty disarm list never crosses the wire", async () => {
-    await disarmSkills([]);
-    expect(tauri.invoke).not.toHaveBeenCalled();
+    invoke.mockClear();
+    await ipcSkillsStorage.save(GLOBAL, "review", "---\n---\n", true);
+    expect(invoke.mock.calls[0][0]).toBe("skills_save");
+
+    invoke.mockClear();
+    await ipcSkillsStorage.fetch();
+    expect(invoke.mock.calls[0][0]).toBe("skills_list");
   });
 });

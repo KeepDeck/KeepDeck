@@ -12,7 +12,7 @@ import type { createPluginManager } from "./pluginManager";
 import type { createAgentOrchestrator } from "./agentOrchestrator";
 import type { PaneInputFocusPort } from "./paneInputFocusPort";
 import type { PaneViewPort } from "./paneViewPort";
-import type { SkillsLibrary } from "./skillsLibrary";
+import { fakeSkillsLibrary } from "./skillsLibrary.fake";
 import { createPaneViewActions } from "../presentation/paneViewActions";
 
 const workspace = (): Workspace => ({
@@ -59,16 +59,7 @@ function paneView(): PaneViewPort {
 
 /** These cases are about registration and lifetime, not about skills — the
  * library is a conduit here, and the `skills.*` set has its own suite. */
-function noSkills(): SkillsLibrary {
-  return {
-    list: vi.fn(async () => []),
-    read: vi.fn(async () => null),
-    create: vi.fn(async () => {}),
-    update: vi.fn(async () => {}),
-    rename: vi.fn(async () => {}),
-    remove: vi.fn(async () => {}),
-  };
-}
+const noSkills = fakeSkillsLibrary;
 
 describe("application controller", () => {
   it("owns command registration and plugin bootstrap for its lifetime", async () => {

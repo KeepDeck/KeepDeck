@@ -42,7 +42,6 @@ const EMPTY_FORM: SkillFormState = {
   extraFrontmatter: [],
 };
 
-
 /**
  * The shared-skills manager — a full-screen editor over the library ([skills]):
  * one SKILL.md authored here reaches every CLI at its next spawn. This
