@@ -2,7 +2,7 @@ import type { ArgSpec, CommandArgs, CommandRegistry, CommandSource } from "../..
 import { skillDraftOf, type SkillScope } from "../../domain/skills";
 import type { SkillsLibrary } from "../skillsLibrary";
 import type { Deck } from "../useDeck";
-import { requiredStr, str, text } from "./args";
+import { requiredStr, text } from "./args";
 
 /**
  * The skills library as commands — the CRUD half of the deck's control surface
@@ -66,10 +66,13 @@ const BODY: ArgSpec = {
  * screen is the only thing "this workspace" can mean.
  */
 function scopeOf(args: CommandArgs, source: CommandSource, deck: () => Deck): SkillScope {
-  const scope = str(args, "scope");
+  // Read ONCE, through the shared reader — and report the value that was
+  // judged. Quoting `args.scope` here instead described an input this handler
+  // never looked at: the raw wire value, whitespace and all.
+  const scope = requiredStr(args, "scope");
   if (scope === "global") return { kind: "global" };
   if (scope !== "workspace") {
-    throw new Error(`scope must be "global" or "workspace", not "${String(args.scope)}"`);
+    throw new Error(`scope must be "global" or "workspace", not "${scope}"`);
   }
   if (source.kind === "external") {
     if (!source.pane) {
@@ -122,13 +125,11 @@ export function registerSkillsCommands(
       title: "Read a skill",
       args: [SCOPE, NAME],
       run: async (args, source) => {
-        const where = scope(args, source);
-        const name = requiredStr(args, "name");
-        const draft = await library.read(where, name);
-        // The one place a handler still decides on absence, because here the
-        // read IS the operation. Every mutation's precondition belongs to the
-        // library, which is the only thing both doors pass through.
-        if (!draft) throw new Error(`No skill "${name}" in that library`);
+        // No absence check here: the library refuses a name its scope does not
+        // hold, in the same words it uses for an update or a delete. A handler
+        // that decided this itself was a second answer to one question, and the
+        // two sentences had already drifted apart.
+        const draft = await library.read(scope(args, source), requiredStr(args, "name"));
         // Hand-added frontmatter is deliberately absent: a caller cannot set it
         // through these commands, and an update preserves whatever is there.
         return { name: draft.name, description: draft.description, body: draft.body };

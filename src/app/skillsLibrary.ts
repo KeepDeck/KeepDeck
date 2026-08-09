@@ -2,6 +2,7 @@ import {
   composeSkillFile,
   isValidSkillName,
   normalizeSkillDescription,
+  renameSkillFile,
   sameSkillScope,
   skillDescriptionProblem,
   skillDraftOf,
@@ -68,9 +69,11 @@ export interface SkillsLibrary {
    * caller that shows "you have no skills" for an unreachable backend is lying.
    */
   list(scope?: SkillScope): Promise<StoredSkill[]>;
-  /** One skill as the editable draft, or `null` when that scope holds no skill
-   * by that name. */
-  read(scope: SkillScope, name: string): Promise<SkillDraft | null>;
+  /** One skill as the editable draft. REFUSES a name that scope does not hold,
+   * with the same sentence every other operation gives for an absent skill —
+   * a nullable read would leave each door to word that refusal itself, and
+   * they already disagreed on it. */
+  read(scope: SkillScope, name: string): Promise<SkillDraft>;
   /** Write a new skill. Refused if the name is already taken in that scope. */
   create(scope: SkillScope, draft: SkillDraft): Promise<void>;
   /**
@@ -87,7 +90,9 @@ export interface SkillsLibrary {
    * Rename a skill: move its directory — assets travel along — and rewrite the
    * frontmatter `name:` to match, because the CLIs read that field and a
    * directory saying one name over a file saying another is a skill with two
-   * identities.
+   * identities. That one line is ALL it rewrites: a rename authors nothing, so
+   * it neither re-composes the file nor applies the rules a draft written here
+   * must pass.
    */
   rename(scope: SkillScope, from: string, to: string): Promise<void>;
   /** Remove a skill, assets included. Refused if there is none by that name:
@@ -118,28 +123,37 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
     return scope ? all.filter((row) => sameSkillScope(skillScopeOf(row), scope)) : all;
   }
 
-  async function read(scope: SkillScope, name: string): Promise<SkillDraft | null> {
+  /** The STORED row, or the one refusal every operation that needs an existing
+   * skill gives — so the sentence has one home and no door can forget the
+   * check. The row rather than the draft: a rename needs the bytes as they are
+   * on disk, and everything else derives its draft from the same read. */
+  async function existing(scope: SkillScope, name: string): Promise<StoredSkill> {
     const stored = (await rows(scope)).find((row) => row.name === name);
-    return stored ? skillDraftOf(stored) : null;
-  }
-
-  /** The skill, or the one refusal every operation that needs an existing skill
-   * gives — so the sentence has one home and no door can forget the check. */
-  async function existing(scope: SkillScope, name: string): Promise<SkillDraft> {
-    const draft = await read(scope, name);
-    if (!draft) throw new Error(`No skill "${name}" in ${describeScope(scope)}`);
-    return draft;
+    if (!stored) throw new Error(`No skill "${name}" in ${describeScope(scope)}`);
+    return stored;
   }
 
   /**
    * Every mutation goes through here, so "a write makes the staged views stale"
-   * is stated once. Only a write that SUCCEEDED invalidates: a failed one
-   * changed nothing, and dropping the memo anyway would re-stage the library on
-   * the next spawn for no reason.
+   * is stated once — including when a COMPOUND mutation fails partway. `changed`
+   * marks the point after which the library on disk differs from what is
+   * staged; a failure past it still invalidates, because the staged views ARE
+   * stale by then. A write that failed before changing anything does not:
+   * dropping the memo would re-stage the whole library on the next spawn for
+   * nothing.
    */
-  async function writeThenRestage(write: () => Promise<void>): Promise<void> {
-    await write();
-    ports.staging.invalidateSkills();
+  async function writeThenRestage(
+    write: (changed: () => void) => Promise<void>,
+  ): Promise<void> {
+    let dirty = false;
+    try {
+      await write(() => {
+        dirty = true;
+      });
+      dirty = true;
+    } finally {
+      if (dirty) ports.staging.invalidateSkills();
+    }
   }
 
   /** One home for the naming refusal — a create and a rename both name the same
@@ -153,11 +167,17 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
     );
   }
 
-  /** The stored form of a draft: fold the description onto its one frontmatter
-   * line, then refuse what the format cannot carry. Normalizing before
-   * validating means a pasted or agent-written multi-line description lands as a
-   * valid scalar instead of being rejected. */
-  function fileFor(draft: SkillDraft): string {
+  /** The stored form of a draft someone AUTHORED here: fold the description
+   * onto its one frontmatter line, then refuse what the format cannot carry.
+   * Normalizing before validating means a pasted or agent-written multi-line
+   * description lands as a valid scalar instead of being rejected.
+   *
+   * Only `create` and `update` compose — the two operations whose input is a
+   * caller's draft. Nothing that merely edits a file already on disk comes
+   * through here: applying an authoring rule to content nobody sent refuses
+   * work over a rule its author never had a chance to satisfy, and every rule
+   * added here would silently acquire that second jurisdiction. */
+  function authoredFile(draft: SkillDraft): string {
     const description = normalizeSkillDescription(draft.description).trim();
     switch (skillDescriptionProblem(description)) {
       case "empty":
@@ -173,23 +193,23 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
   // would escape a caller that only awaits or `.catch`es.
   return {
     list: rows,
-    read,
+    read: async (scope, name) => skillDraftOf(await existing(scope, name)),
 
     create: async (scope, draft) => {
       requireValidName(draft.name);
       await writeThenRestage(() =>
-        ports.storage.save(scope, draft.name, fileFor(draft), true),
+        ports.storage.save(scope, draft.name, authoredFile(draft), true),
       );
     },
 
     update: async (scope, draft) => {
-      const stored = await existing(scope, draft.name);
+      const stored = skillDraftOf(await existing(scope, draft.name));
       await writeThenRestage(() =>
         ports.storage.save(
           scope,
           draft.name,
           // The stored extras win: they are what is on disk now.
-          fileFor({ ...draft, extraFrontmatter: stored.extraFrontmatter }),
+          authoredFile({ ...draft, extraFrontmatter: stored.extraFrontmatter }),
           false,
         ),
       );
@@ -197,16 +217,23 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
 
     rename: async (scope, from, to) => {
       requireValidName(to);
-      await existing(scope, from);
-      await writeThenRestage(async () => {
+      const stored = await existing(scope, from);
+      // Computed from the bytes we already read, BEFORE anything moves: nothing
+      // between the two writes can then refuse the second one.
+      const renamed = renameSkillFile(stored.content, to);
+      await writeThenRestage(async (changed) => {
+        // The frontmatter FIRST, still under the old directory, because only
+        // this order leaves a partial failure repairable by re-running the
+        // rename: the file says `to` while the directory still says `from`, the
+        // directory wins wherever a skill is read, and a re-run finds nothing
+        // left to rewrite and just moves it. The other order consumes `from`
+        // with the move, so a re-run can no longer find the skill it must
+        // finish renaming — and no other operation offers to.
+        if (renamed !== null) {
+          await ports.storage.save(scope, from, renamed, false);
+          changed();
+        }
         await ports.storage.rename(scope, from, to);
-        // The move left the file's own `name:` behind. Re-read under the new
-        // directory — which is authoritative, so the draft already carries the
-        // new name — and write it back, inside the SAME mutation so one rename
-        // invalidates once. A failure here leaves the directory renamed and the
-        // frontmatter stale, which is exactly what a re-run repairs.
-        const moved = await existing(scope, to);
-        await ports.storage.save(scope, to, fileFor(moved), false);
       });
     },
 

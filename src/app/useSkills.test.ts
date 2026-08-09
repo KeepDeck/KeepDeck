@@ -26,7 +26,14 @@ const library = vi.hoisted(
   () =>
     ({
       list: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
-      read: vi.fn(async () => null),
+      // Inline rather than the DRAFT const below: a hoisted factory runs before
+      // this module's own bindings exist.
+      read: vi.fn(async () => ({
+        name: "review",
+        description: "Reads it",
+        body: "",
+        extraFrontmatter: [],
+      })),
       create: vi.fn(async () => {}),
       update: vi.fn(async () => {}),
       rename: vi.fn(async () => {}),

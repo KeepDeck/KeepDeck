@@ -76,9 +76,9 @@ describe("a write reports the library as changed", () => {
     const { library, invalidateSkills } = libraryOver();
     await library.update(WS, draft());
     expect(invalidateSkills).toHaveBeenCalledTimes(1);
-    await library.rename(WS, "review", "review");
-    // ONE invalidation for a rename, even though it writes twice (move, then
-    // rewrite the frontmatter name) — a rename is one mutation.
+    await library.rename(WS, "review", "deep-review");
+    // ONE invalidation for a rename, even though it writes twice (rewrite the
+    // frontmatter name, then move) — a rename is one mutation.
     expect(invalidateSkills).toHaveBeenCalledTimes(2);
     await library.remove(WS, "review");
     expect(invalidateSkills).toHaveBeenCalledTimes(3);
@@ -173,35 +173,87 @@ describe("the library owns every precondition, not the door", () => {
 });
 
 describe("a rename moves the directory AND fixes the file", () => {
-  it("rewrites the frontmatter name, so the two identities agree", async () => {
-    // The CLIs read `name:` from the file — that is why compose emits it. A move
-    // alone leaves a directory saying one name over a file saying another.
-    const { library, storage } = libraryOver({
-      fetch: vi
-        .fn<() => Promise<StoredSkill[]>>()
-        // The pre-move library, then the post-move one the recompose reads.
-        .mockResolvedValueOnce(STORED)
-        .mockResolvedValue([
-          {
-            scope: "global",
-            wsId: null,
-            name: "deep-review",
-            content: "---\nname: review\ndescription: Global one\nlicense: MIT\n---\nGlobal body\n",
-          },
-        ]),
-    });
+  it("rewrites the frontmatter name BEFORE the move", async () => {
+    // The CLIs read `name:` from the file, so a move alone leaves a directory
+    // saying one name over a file saying another. ORDER is the point: only
+    // content-then-move leaves a failure in between repairable by re-running the
+    // rename — the file says the new name, the directory still says the old, the
+    // directory wins wherever a skill is read, and the re-run finds nothing left
+    // to rewrite and just moves it. Move-then-content consumes the old name, so
+    // a re-run can no longer find the skill it must finish, and no other
+    // operation offers to.
+    const { library, storage } = libraryOver();
 
     await library.rename(GLOBAL, "review", "deep-review");
 
+    expect(storage.save).toHaveBeenCalledWith(GLOBAL, "review", expect.any(String), false);
     expect(storage.rename).toHaveBeenCalledWith(GLOBAL, "review", "deep-review");
-    const [, name, content] = storage.save.mock.calls[0];
-    expect(name).toBe("deep-review");
-    const back = parseSkillFile(content);
+    expect(storage.save.mock.invocationCallOrder[0]).toBeLessThan(
+      storage.rename.mock.invocationCallOrder[0],
+    );
+
+    const back = parseSkillFile(storage.save.mock.calls[0][2]);
     expect(back.name).toBe("deep-review");
     // And nothing else about the skill changed.
     expect(back.description).toBe("Global one");
     expect(back.body).toBe("Global body\n");
     expect(back.extraFrontmatter).toEqual(["license: MIT"]);
+  });
+
+  it("rewrites ONLY that line, leaving frontmatter the composer cannot carry", async () => {
+    // A hand-written block scalar is valid YAML the composer loses: parsing
+    // reads `description: >` as the literal ">" and strands its continuation
+    // lines, which come back BELOW the quoted scalar — frontmatter every CLI's
+    // YAML parser rejects. Re-composing on rename would have corrupted a working
+    // skill; a rename authors nothing, so it splices one line and touches
+    // nothing else, line endings included.
+    const content =
+      "---\nname: review\ndescription: >\r\n  Long one,\r\n  wrapped.\r\nlicense: MIT\n---\nBody\n";
+    const { library, storage } = libraryOver({
+      fetch: vi.fn(async () => [
+        { scope: "global" as const, wsId: null, name: "review", content },
+      ]),
+    });
+
+    await library.rename(GLOBAL, "review", "deep-review");
+
+    expect(storage.save.mock.calls[0][2]).toBe(
+      "---\nname: deep-review\ndescription: >\r\n  Long one,\r\n  wrapped.\r\nlicense: MIT\n---\nBody\n",
+    );
+  });
+
+  it("renames a skill this build's authoring rules would refuse", async () => {
+    // A stored skill with no description is legal — a file without frontmatter
+    // is still a skill, and nothing outside this editor requires one. Composing
+    // it through the authoring gate refused the write AFTER the directory had
+    // moved, leaving a two-identity skill no re-run could repair.
+    const { library, storage } = libraryOver({
+      fetch: vi.fn(async () => [
+        { scope: "global" as const, wsId: null, name: "review", content: "Just a body\n" },
+      ]),
+    });
+
+    await library.rename(GLOBAL, "review", "deep-review");
+
+    expect(storage.rename).toHaveBeenCalledWith(GLOBAL, "review", "deep-review");
+    // Nothing to fix: with no frontmatter the name comes from the directory, so
+    // the move IS the whole rename.
+    expect(storage.save).not.toHaveBeenCalled();
+  });
+
+  it("reports the library changed when the move fails after the rewrite", async () => {
+    // The content write landed, so the staged views are stale whatever happens
+    // next. Invalidating only on a fully successful mutation kept yesterday's
+    // file for the next spawn.
+    const { library, invalidateSkills } = libraryOver({
+      rename: vi.fn(async () => {
+        throw new Error("cross-device link");
+      }),
+    });
+    await expect(library.rename(GLOBAL, "review", "deep-review")).rejects.toThrow(
+      "cross-device link",
+    );
+    expect(invalidateSkills).toHaveBeenCalledTimes(1);
   });
 
   it("does not move at all when the new name is invalid", async () => {
@@ -210,6 +262,7 @@ describe("a rename moves the directory AND fixes the file", () => {
       /not a valid skill name/,
     );
     expect(storage.rename).not.toHaveBeenCalled();
+    expect(storage.save).not.toHaveBeenCalled();
   });
 });
 
@@ -243,14 +296,6 @@ describe("what the library refuses", () => {
     expect(written(storage.save).description).toBe("Use when reviewing a diff carefully");
   });
 
-  it("rejects renaming TO an invalid name, and moves nothing", async () => {
-    const { library, storage } = libraryOver();
-    await expect(library.rename(GLOBAL, "review", "Review Diff")).rejects.toThrow(
-      /not a valid skill name/,
-    );
-    expect(storage.rename).not.toHaveBeenCalled();
-  });
-
   it("reports a refusal as a rejection, never a synchronous throw", async () => {
     // A caller that only `.catch`es — every command handler — would otherwise
     // see a validation error escape past it.
@@ -265,23 +310,11 @@ describe("what the library refuses", () => {
 });
 
 describe("reading one skill", () => {
-  const rows: StoredSkill[] = [
-    {
-      scope: "global",
-      wsId: null,
-      name: "review",
-      content: "---\nname: review\ndescription: Global one\nlicense: MIT\n---\nGlobal body\n",
-    },
-    {
-      scope: "workspace",
-      wsId: "ws-1",
-      name: "review",
-      content: "---\nname: review\ndescription: Workspace one\n---\nWs body\n",
-    },
-  ];
-
+  // Over the shared STORED library — its two same-named skills in different
+  // scopes are exactly what these cases need, and a second copy of those rows
+  // would stop widening with it.
   it("returns the draft, keeping hand-added frontmatter", async () => {
-    const { library } = libraryOver({ fetch: vi.fn(async () => rows) });
+    const { library } = libraryOver();
     expect(await library.read(GLOBAL, "review")).toEqual({
       name: "review",
       description: "Global one",
@@ -291,14 +324,20 @@ describe("reading one skill", () => {
   });
 
   it("does not confuse one scope's skill with another's of the same name", async () => {
-    const { library } = libraryOver({ fetch: vi.fn(async () => rows) });
-    expect((await library.read(WS, "review"))?.description).toBe("Workspace one");
+    const { library } = libraryOver();
+    expect((await library.read(WS, "review")).description).toBe("Workspace one");
   });
 
-  it("answers null for a skill that scope does not hold", async () => {
-    const { library } = libraryOver({ fetch: vi.fn(async () => rows) });
-    expect(await library.read(GLOBAL, "deploy")).toBeNull();
-    expect(await library.read({ kind: "workspace", wsId: "ws-9" }, "review")).toBeNull();
+  it("refuses a skill that scope does not hold, in the words every operation uses", async () => {
+    // NOT a null. A nullable read left the one door that needs a refusal to word
+    // its own, and the two sentences had already drifted apart.
+    const { library } = libraryOver();
+    await expect(library.read(GLOBAL, "deploy")).rejects.toThrow(
+      'No skill "deploy" in the global library',
+    );
+    await expect(
+      library.read({ kind: "workspace", wsId: "ws-9" }, "review"),
+    ).rejects.toThrow("No skill \"review\" in this workspace's library");
   });
 
   it("prefers the directory name over a disagreeing frontmatter name", async () => {
@@ -314,7 +353,7 @@ describe("reading one skill", () => {
         },
       ]),
     });
-    expect((await library.read(GLOBAL, "on-disk"))?.name).toBe("on-disk");
+    expect((await library.read(GLOBAL, "on-disk")).name).toBe("on-disk");
   });
 });
 

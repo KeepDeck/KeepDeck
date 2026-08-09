@@ -149,11 +149,14 @@ describe("skills.read", () => {
     }
   });
 
-  it("refuses a skill that scope does not hold", async () => {
-    // The one handler that still decides on absence, because here the read IS
-    // the operation. Every mutation's precondition is the library's.
+  it("passes the library's own absence refusal through", async () => {
+    // The handler decides NOTHING about absence: `read` refuses, in the same
+    // words every mutation uses, and this door only carries the sentence out.
+    // It used to word its own, and the two had already drifted apart.
     const { registry, skills } = setup(twoWorkspaces());
-    vi.mocked(skills.read).mockResolvedValue(null);
+    vi.mocked(skills.read).mockRejectedValue(
+      new Error(`No skill "missing" in this workspace's library`),
+    );
 
     const result = await registry.execute(
       "skills.read",
@@ -162,7 +165,9 @@ describe("skills.read", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toContain('"missing"');
+    if (!result.ok) {
+      expect(result.error.message).toBe(`No skill "missing" in this workspace's library`);
+    }
   });
 });
 

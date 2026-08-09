@@ -4,6 +4,7 @@ import {
   isValidSkillName,
   normalizeSkillDescription,
   parseSkillFile,
+  renameSkillFile,
   sameSkillScope,
   skillDescriptionProblem,
   skillDraftOf,
@@ -204,6 +205,72 @@ describe("compose/parse round-trip", () => {
       extraFrontmatter: [],
     });
     expect(file.endsWith("no newline\n")).toBe(true);
+  });
+});
+
+describe("renaming a stored file", () => {
+  it("moves the name onto the new one and touches nothing else", () => {
+    expect(
+      renameSkillFile(
+        "---\nname: review\ndescription: Reviews a diff\nlicense: MIT\n---\nBody\n",
+        "deep-review",
+      ),
+    ).toBe("---\nname: deep-review\ndescription: Reviews a diff\nlicense: MIT\n---\nBody\n");
+  });
+
+  it("carries frontmatter the composer cannot, byte for byte", () => {
+    // THE case this exists for. A block scalar is valid YAML that the
+    // parse/compose round trip loses: `description: >` reads back as the literal
+    // ">" and its continuation lines return below the quoted scalar, which is
+    // frontmatter no YAML parser accepts — and a YAML parser is what every CLI
+    // reads this file with. Renaming must not be able to break a working skill.
+    const content =
+      "---\nname: review\ndescription: >\n  Long one,\n  wrapped.\n---\nBody\n";
+    expect(renameSkillFile(content, "deep-review")).toBe(
+      "---\nname: deep-review\ndescription: >\n  Long one,\n  wrapped.\n---\nBody\n",
+    );
+    // Proof the round trip is not an option here, not just a worse one.
+    expect(composeSkillFile(skillDraftOf({ name: "deep-review", content }))).toContain(
+      'description: ">"',
+    );
+  });
+
+  it("keeps CRLF line endings as they were", () => {
+    // A hand-edited Windows file must come back editable, not with every line
+    // ending rewritten by an operation that was asked to change one word.
+    expect(
+      renameSkillFile("---\r\nname: review\r\ndescription: d\r\n---\r\nBody\r\n", "deep"),
+    ).toBe("---\r\nname: deep\r\ndescription: d\r\n---\r\nBody\r\n");
+  });
+
+  it("quotes the new name only when YAML would misread it plain", () => {
+    // Through the same scalar rule compose uses — one answer to "how does a
+    // value go onto a frontmatter line", or a round trip would read back a
+    // different name than the one written.
+    expect(renameSkillFile("---\nname: a\n---\n", "no")).toBe('---\nname: "no"\n---\n');
+  });
+
+  it("answers null when there is nothing to rewrite", () => {
+    // Each of these takes its name from the DIRECTORY, so it cannot disagree
+    // with it and the rename is the move alone — the library skips the write.
+    expect(renameSkillFile("Just a body\n", "deep")).toBeNull();
+    expect(renameSkillFile("---\ndescription: d\n---\nBody\n", "deep")).toBeNull();
+    expect(renameSkillFile("---\nname: deep\ndescription: d\n---\n", "deep")).toBeNull();
+  });
+
+  it("rewrites the first name line, the one the parser reads", () => {
+    // A later duplicate is a line `parseSkillFile` already drops; rewriting it
+    // instead would move the name the readers ignore.
+    expect(renameSkillFile("---\nname: a\nname: b\n---\n", "c")).toBe(
+      "---\nname: c\nname: b\n---\n",
+    );
+  });
+
+  it("does not mistake a `name:` line in the BODY for the frontmatter's", () => {
+    const content = "---\nname: review\n---\nname: not-frontmatter\n";
+    expect(renameSkillFile(content, "deep")).toBe(
+      "---\nname: deep\n---\nname: not-frontmatter\n",
+    );
   });
 });
 

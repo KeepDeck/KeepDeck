@@ -132,6 +132,33 @@ export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { na
   return { name, description: description ?? "", body: fm.body, extraFrontmatter };
 }
 
+/** The stored SKILL.md with its frontmatter `name:` moved onto `name`, and
+ * every other byte — line endings, hand-added keys, block scalars, the body —
+ * left exactly as it was. `null` when there is nothing to rewrite: no
+ * frontmatter, no `name:` line in it, or one that already says `name`. Such a
+ * file takes its name from the directory and so cannot contradict it, which
+ * means renaming it is the directory move alone.
+ *
+ * A SPLICE rather than parse-then-compose, because a rename authors nothing.
+ * Round-tripping a hand-written file through the composer rewrites lines the
+ * user owns and cannot always carry them: `description: >` comes back as the
+ * literal string ">" with its continuation lines stranded below the quoted
+ * scalar — frontmatter no YAML parser accepts, which is every CLI's reader.
+ * The composer's job is a draft someone authored HERE; this one's is a file
+ * that already exists. */
+export function renameSkillFile(content: string, name: string): string | null {
+  const span = frontmatterSpan(content);
+  if (!span) return null;
+  // The FIRST `name:` line, matching the parser's first-wins reading — a later
+  // duplicate is a line the parser already drops.
+  const line = /^name:[^\r\n]*/m.exec(content.slice(span.start, span.end));
+  if (!line) return null;
+  const rewritten = `name: ${scalar(name)}`;
+  if (line[0] === rewritten) return null;
+  const at = span.start + line.index;
+  return content.slice(0, at) + rewritten + content.slice(at + line[0].length);
+}
+
 /** A stored skill as the editable draft. The DIRECTORY name wins over the
  * frontmatter's — the directory is what every CLI keys on, and a hand-edited
  * file can disagree. Takes the stored row structurally, like
@@ -145,13 +172,39 @@ export function skillDraftOf(stored: { name: string; content: string }): SkillDr
   return { ...parseSkillFile(stored.content), name: stored.name };
 }
 
-function frontmatterBlock(content: string): { lines: string[]; body: string } | null {
-  if (!content.startsWith("---\n")) return null;
-  const close = content.indexOf("\n---\n", 3);
-  if (close === -1) return null;
+/** Where the frontmatter sits inside the content: the fenced region's own
+ * lines as `[start, end)` — `end` includes the last line's terminator — plus
+ * where the body begins after the closing fence.
+ *
+ * ONE home for "where does the frontmatter begin and end", because two things
+ * ask it and must agree: the parser, which reads the block, and
+ * [`renameSkillFile`], which splices a single line back into it. CRLF-tolerant
+ * for the splice's sake — the parser normalizes before it gets here, but the
+ * splice works on the stored bytes and must not go looking for LF in a
+ * hand-edited Windows file. */
+function frontmatterSpan(
+  content: string,
+): { start: number; end: number; bodyAt: number } | null {
+  const open = /^---\r?\n/.exec(content);
+  if (!open) return null;
+  const start = open[0].length;
+  const close = /^---\r?\n/m.exec(content.slice(start));
+  if (!close) return null;
   return {
-    lines: content.slice(4, close).split("\n"),
-    body: content.slice(close + 5),
+    start,
+    end: start + close.index,
+    bodyAt: start + close.index + close[0].length,
+  };
+}
+
+function frontmatterBlock(content: string): { lines: string[]; body: string } | null {
+  const span = frontmatterSpan(content);
+  if (!span) return null;
+  return {
+    // The last frontmatter line's own newline is a terminator, not an empty
+    // line after it.
+    lines: content.slice(span.start, span.end).replace(/\n$/, "").split("\n"),
+    body: content.slice(span.bodyAt),
   };
 }
 

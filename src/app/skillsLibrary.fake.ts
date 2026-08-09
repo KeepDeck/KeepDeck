@@ -15,7 +15,11 @@ import type { SkillsLibrary } from "./skillsLibrary";
 export function fakeSkillsLibrary(): SkillsLibrary {
   return {
     list: vi.fn(async () => []),
-    read: vi.fn(async () => null),
+    // `read` REFUSES an absent skill, so an empty library's read rejects — a
+    // suite that wants a draft back stubs it.
+    read: vi.fn(async (_scope, name: string) => {
+      throw new Error(`No skill "${name}" in that library`);
+    }),
     create: vi.fn(async () => {}),
     update: vi.fn(async () => {}),
     rename: vi.fn(async () => {}),
