@@ -66,6 +66,11 @@ export function SkillsDialog({
   /** A delete whose confirm has closed but whose IPC is still in flight — see
    * `submit`. */
   const deleting = useRef(false);
+  /** The same two facts as STATE, because the buttons have to show it: a write
+   * in flight must not just swallow the other write's click, or the user is left
+   * pressing a button that does nothing. The refs stay for the synchronous
+   * re-entry guard — state lands a render too late for that. */
+  const [busy, setBusy] = useState(false);
   // Navigation generation: bumped by every apply(). An in-flight submit
   // compares against it so its completion never clobbers a selection the
   // user moved somewhere else during the awaits.
@@ -127,9 +132,13 @@ export function SkillsDialog({
 
   /** Move the editor elsewhere, guarding unsaved edits behind a confirm. */
   const navigate = (next: Selection | null, closing?: boolean) => {
-    // Clicking the row you are already editing asks for nothing, and it is an
-    // easy stray click because that row is the highlighted one — it must not
-    // raise a discard confirm whose Discard throws the edits away.
+    // Clicking the row you are already editing must not raise a discard confirm
+    // whose Discard throws the edits away — it is an easy stray click, because
+    // that row is the highlighted one. With unsaved edits it does nothing at all;
+    // clean, it is the natural "reload this row from disk" gesture, so it still
+    // re-opens from the list and drops a stale error. (Returning outright skipped
+    // both, and after an agent rewrites the open skill that click is the only
+    // obvious way to pick the new bytes up.)
     if (
       !closing &&
       next?.mode === "edit" &&
@@ -137,6 +146,7 @@ export function SkillsDialog({
       selection.name === next.name &&
       sameSkillScope(selection.scope, next.scope)
     ) {
+      if (!dirty) apply(next);
       return;
     }
     if (dirty) {
@@ -226,10 +236,12 @@ export function SkillsDialog({
     // "No skill …" for an operation the user did not get wrong.
     if (submitting.current || deleting.current || !selection || !canSave) return;
     submitting.current = true;
+    setBusy(true);
     try {
       await performSubmit(selection);
     } finally {
       submitting.current = false;
+      setBusy(false);
     }
   };
 
@@ -352,10 +364,11 @@ export function SkillsDialog({
               </div>
             ) : (
               <SkillEditor
-                // Remounted per selection: `autoFocus` on the name field only
-                // fires at mount, so switching from an open skill to the create
-                // form used to leave focus on the button that opened it.
-                key={selection.mode === "create" ? "create" : `edit:${selection.name}`}
+                // NOT keyed per selection. That remounted the editor whenever
+                // `selection` changed — which `performSubmit` does mid-submit, on
+                // create→edit and again on a rename — tearing down the fields the
+                // user was typing into and dropping focus, caret and scroll. The
+                // create form's focus is the editor's own business now.
                 creating={creating}
                 savedName={selection.mode === "edit" ? selection.name : null}
                 scopeLabel={scopeLabel(selection.scope)}
@@ -375,6 +388,7 @@ export function SkillsDialog({
                   setDirty(true);
                 }}
                 onSubmit={() => void submit()}
+                busy={busy}
                 onDelete={() =>
                   selection.mode === "edit" &&
                   setConfirm({
@@ -404,12 +418,14 @@ export function SkillsDialog({
             const nav = navEpoch.current;
             const target = confirm;
             deleting.current = true;
+            setBusy(true);
             void remove(target.scope, target.name)
               .then((ok) => {
                 if (ok && navEpoch.current === nav) apply(null);
               })
               .finally(() => {
                 deleting.current = false;
+                setBusy(false);
               });
             setConfirm(null);
           }}

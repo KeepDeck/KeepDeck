@@ -243,6 +243,69 @@ describe("the skills library hook", () => {
     expect(view.skills).toEqual([STORED]);
   });
 
+  it("reports a failed read that supersedes the first one, instead of loading forever", async () => {
+    // "keep the stale list" has nothing to keep before the first read lands. A
+    // background re-read (an agent's write) that overtakes the dialog's first
+    // read and then fails used to leave skills=null AND error=null — the editor
+    // sat on "Loading…" with nothing saying why.
+    let finishFirst!: (rows: LibrarySkill[]) => void;
+    library.list.mockImplementationOnce(
+      () => new Promise<LibrarySkill[]>((resolve) => (finishFirst = resolve)),
+    );
+    await mount();
+
+    library.list.mockRejectedValueOnce(new Error("backend down"));
+    await act(async () => {
+      for (const notify of subscribers) notify();
+    });
+
+    expect(view.error).toContain("backend down");
+    await act(async () => finishFirst([STORED]));
+  });
+
+  it("a background read clears a READ error but not the save error under it", async () => {
+    // Two kinds of notice with two lifetimes: a working read answers "could not
+    // read the library"; it does not answer "your save did not land".
+    library.list.mockRejectedValueOnce(new Error("backend down"));
+    await mount();
+    expect(view.error).toContain("Could not read");
+
+    library.list.mockResolvedValue([STORED]);
+    await act(async () => {
+      for (const notify of subscribers) notify();
+    });
+    expect(view.error).toBeNull();
+
+    library.update.mockRejectedValueOnce(new Error("disk full"));
+    await act(async () => {
+      await view.save({ kind: "global" }, DRAFT, false);
+    });
+    expect(view.error).toContain("disk full");
+
+    await act(async () => {
+      for (const notify of subscribers) notify();
+    });
+    // Still there: the user has not acted on it yet.
+    expect(view.error).toContain("disk full");
+  });
+
+  it("does not answer its OWN write's notification with a second read", async () => {
+    // Every mutation notifies, this hook is a subscriber, and it also reloads
+    // when its own write settles — answering both would double the reads per
+    // user action, against the one-action-one-reload rule above.
+    library.update.mockImplementationOnce(async () => {
+      for (const notify of subscribers) notify();
+    });
+    await mount();
+    expect(library.list).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await view.save({ kind: "global" }, DRAFT, false);
+    });
+
+    expect(library.list).toHaveBeenCalledTimes(2);
+  });
+
   it("clearError drops the notice when the user navigates away", async () => {
     library.list.mockRejectedValueOnce(new Error("backend down"));
     await mount();

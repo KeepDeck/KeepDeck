@@ -200,18 +200,27 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
    * have changed costs one cleared memo, and staging is cheap; keeping a memo
    * that is silently stale costs every agent the skill it should have had.
    *
-   * Nothing that could refuse gets this far — composing and every precondition
-   * run before the call — so there is no "it never touched the disk" case left
-   * for a flag to be careful about.
+   * No refusal of OURS gets this far — composing and every precondition run
+   * before the call. The storage still has two of its own, and they cost a
+   * needless re-stage: it refuses a create whose name is taken and a rename onto
+   * a taken target without touching the disk. That is the price of `expectNew`
+   * being the guard that survives a library we could not read, and a dropped memo
+   * is cheap; do not read this `finally` as "the disk definitely changed".
    */
   async function writeThenRestage(write: () => Promise<void>): Promise<void> {
     try {
       await write();
     } finally {
-      ports.staging.invalidateSkills();
+      // Neither of these may turn a landed write into a failed one, nor stop the
+      // other from running: a stale staged view and an unrefreshed pane are bad,
+      // reporting a successful save as failed is worse.
+      try {
+        ports.staging.invalidateSkills();
+      } catch {
+        // Staging's own problem; the write still happened.
+      }
       // Same reasoning, same moment, for the readers that are on SCREEN rather
-      // than staged. A listener that throws must not turn a landed write into a
-      // failed one, nor stop the listeners after it.
+      // than staged.
       for (const listener of [...listeners]) {
         try {
           listener();

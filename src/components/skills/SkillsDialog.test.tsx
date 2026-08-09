@@ -179,6 +179,52 @@ describe("SkillsDialog", () => {
     expect(document.querySelector(".skills__scope")!.textContent).toBe("Global");
   });
 
+  it("keeps the editor's own DOM across a save that re-anchors the selection", async () => {
+    // The editor must not be remounted per selection: performSubmit changes the
+    // selection mid-submit (create→edit, and again on a rename), and a remount
+    // there tears down the field the user is typing into, dropping focus and
+    // caret with no autoFocus to catch them.
+    lib.skills = [];
+    await mount();
+    act(() => buttonByTitle("New global skill")!.click());
+    type(input("skill-name"), "deploy");
+    type(input("skill-description"), "Ships it");
+    const beforeSave = textarea();
+
+    await act(async () => button("Create")!.click());
+
+    expect(textarea()).toBe(beforeSave);
+  });
+
+  it("focuses the name field when the create form appears, not only on mount", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+
+    act(() => buttonByTitle("New global skill")!.click());
+
+    expect(document.activeElement).toBe(input("skill-name"));
+  });
+
+  it("blocks Delete while a save is in flight, visibly", async () => {
+    // Otherwise the two writes race and, if the delete's IPC lands first, the
+    // save re-creates the skill the user just confirmed deleting.
+    lib.skills = [skill("review")];
+    let finishSave!: (ok: boolean) => void;
+    lib.save.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (finishSave = resolve)),
+    );
+    await mount();
+    act(() => row("review")!.click());
+    type(textarea(), "edited");
+
+    act(() => button("Save")!.click());
+
+    expect(button("Delete")!.disabled).toBe(true);
+    await act(async () => finishSave(true));
+    expect(button("Delete")!.disabled).toBe(false);
+  });
+
   it("does not raise a discard confirm for a click on the skill already open", async () => {
     lib.skills = [skill("review")];
     await mount();

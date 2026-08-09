@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { SKILL_NAME_RULE, type SkillDraft } from "../../domain/skills";
 import { DestructiveButton } from "../../ui/DestructiveButton";
 import { Chip } from "../../ui/Chip";
@@ -29,6 +30,10 @@ interface SkillEditorProps {
   dirty: boolean;
   validation: SkillValidation;
   canSave: boolean;
+  /** A write is in flight. Both buttons go quiet — a delete racing a save can
+   * re-create the skill the user just confirmed deleting, and the guard has to
+   * be visible rather than silently swallowing the click. */
+  busy: boolean;
   error: string | null;
   onField(key: "name" | "description" | "body", value: string): void;
   onSubmit(): void;
@@ -46,11 +51,21 @@ export function SkillEditor({
   dirty,
   validation,
   canSave,
+  busy,
   error,
   onField,
   onSubmit,
   onDelete,
 }: SkillEditorProps) {
+  const nameField = useRef<HTMLInputElement>(null);
+  // Focus on ENTERING create mode, rather than `autoFocus`, which only fires at
+  // mount: this component is deliberately not remounted per selection (a remount
+  // mid-submit threw away the caret), so mount is no longer when the create form
+  // appears.
+  useEffect(() => {
+    if (creating) nameField.current?.focus();
+  }, [creating]);
+
   return (
     <>
       <div className="skills__editor-head">
@@ -74,11 +89,11 @@ export function SkillEditor({
         <input
           id="skill-name"
           className="form__input"
+          ref={nameField}
           value={form.name}
           onChange={(e) => onField("name", e.target.value)}
           placeholder="kebab-case-name"
           spellCheck={false}
-          autoFocus={creating}
         />
         {/* Both arms of the verdict say something. "empty" used to say nothing,
             so clearing the field left a dead Save button unexplained. */}
@@ -141,13 +156,17 @@ export function SkillEditor({
           a bug report, unlike the fixed guidance in the fields above. */}
       {error && <div className="form__error kd-selectable">{error}</div>}
       <div className="skills__actions">
-        {!creating && <DestructiveButton onClick={onDelete}>Delete</DestructiveButton>}
+        {!creating && (
+          <DestructiveButton onClick={onDelete} disabled={busy}>
+            Delete
+          </DestructiveButton>
+        )}
         <span className="skills__actions-gap" />
         <button
           type="button"
           className="form__create"
           onClick={onSubmit}
-          disabled={!canSave}
+          disabled={!canSave || busy}
         >
           {creating ? "Create" : "Save"}
         </button>
