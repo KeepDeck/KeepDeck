@@ -151,9 +151,19 @@ export interface AgentStatus {
 /** One message, as the CLI's own dialect will have to phrase it. */
 export interface DeliverableMail {
   id: string;
-  /** `task`, `question`, `answer`, `note`, or `undelivered` for a report
-   * from the deck itself. */
+  /** `task`, `question`, `answer`, `note`, `undelivered` for a report from
+   * the deck itself, or `team` for the standing brief that puts a pane on
+   * one — see `standing` below. */
   kind: string;
+  /** Whether this is STANDING CONTEXT rather than traffic: something the
+   * pane must simply know from now on (where it stands, who its teammates
+   * are), as opposed to something somebody said to it.
+   *
+   * The host answers it, because the rule belongs to the deck's own model
+   * and a plugin re-deriving it from `kind` would be a second copy that can
+   * disagree. A plugin only needs it where the two are delivered
+   * differently — context that must not start a turn, traffic that should. */
+  standing?: boolean;
   body: string;
   /** How the sending agent reads, or null when the deck is speaking. */
   from: string | null;

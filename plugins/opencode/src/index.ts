@@ -15,23 +15,38 @@ import { icon } from "./icon";
 import { mcpConfigFragment } from "./mcp";
 import { opencodeHistory } from "./history";
 import { relocatingForkId } from "./fork";
+import { renderOpencodeMail } from "./mail";
 import { normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
 
-/** The per-invocation config injecting the reporter; `[]` when the reporter
- * file is missing (identity off, the spawn itself still fine). */
+/**
+ * The per-invocation config injecting KeepDeck's own opencode plugins.
+ *
+ * TWO of them, and they stay two. The reporter talks about this pane —
+ * identity, usage, turn lifecycle — and asks for nothing; the courier
+ * carries mail INTO the session and is the only one that asks. One file
+ * doing both would tie a change in how a message is delivered to the code
+ * that reports whether the pane is busy, and those change for different
+ * reasons. Either can be missing (a broken install) without taking the
+ * other, or the spawn, down with it.
+ */
 async function sessionConfigEnv(
   resources: PluginResources,
   mcp: SpawnPlanInput["mcp"],
 ): Promise<[string, string][]> {
-  const reporter = await resources.path("session-reporter.js");
+  const ours = (
+    await Promise.all([
+      resources.path("session-reporter.js"),
+      resources.path("mail-courier.js"),
+    ])
+  ).filter((path): path is string => Boolean(path));
   const servers = mcpConfigFragment(mcp);
   // ONE variable carries both: opencode reads `OPENCODE_CONFIG_CONTENT`
   // once, so a second assignment would silently drop the first.
   const config = {
     // The array form is additive (plugin origins concatenate) — nothing in
     // the user's own config is replaced.
-    ...(reporter ? { plugin: [reporter] } : {}),
+    ...(ours.length > 0 ? { plugin: ours } : {}),
     ...(servers ?? {}),
   };
   return Object.keys(config).length > 0
@@ -92,7 +107,20 @@ const plugin: KeepDeckPlugin = {
       // session.idle fires on interrupt too (no transcript recovery
       // needed), and permission.replied is the approval-resolution edge
       // claude and codex lack.
-      status: { normalize: normalizeOpencodeStatus },
+      //
+      // Mail is the courier's half: it asks, and what it gets back it puts
+      // straight into the session — with a turn for somebody's words,
+      // without one for standing context. Which is also why this pane is
+      // never woken by typing at it: `wake: "bridge"` sends the deck's nudge
+      // to the courier, which is already inside the process and can start a
+      // turn properly. Declared statically, so an install missing
+      // mail-courier.js leaves mail to expire rather than fall back to the
+      // terminal — a broken install should look broken, not different.
+      status: {
+        normalize: normalizeOpencodeStatus,
+        renderMail: renderOpencodeMail,
+        wake: "bridge",
+      },
       hooks: {
         "spawn.plan": async (input, output) => {
           output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));

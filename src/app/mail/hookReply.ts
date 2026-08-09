@@ -15,7 +15,7 @@
  */
 import { isRecord } from "../../domain/json";
 import type { DeliverableMail, MailReplyRenderer } from "@keepdeck/plugin-api";
-import type { Mail } from "../../domain/mail";
+import { isStandingContext, type Mail } from "../../domain/mail";
 import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
 
@@ -46,6 +46,10 @@ function forAgent(mail: Mail): DeliverableMail {
   return {
     id: mail.id,
     kind: mail.kind,
+    // Answered HERE, from the deck's own rule, so a plugin that delivers
+    // context and traffic differently never has to guess which kinds are
+    // which — a second copy of that list is a second thing to keep in step.
+    standing: isStandingContext(mail.kind),
     body: mail.body,
     // The ROLE, because the receiver answers to whatever it is shown — and
     // only a role is an address. A pane title is not one: shown a title, an
