@@ -87,9 +87,9 @@ describe("claude plugin hooks", () => {
     // SubagentStart/SubagentStop bracket one agent turn, and an unpaired
     // bracket either holds a finished turn open or lets a busy teammate
     // read as done. SessionStart is the only report a manual `/compact`
-    // produces — it runs through no turn — so without it a pane that failed
-    // on an oversize request can never stop being red. Losing any one is a
-    // silent hole in the lane.
+    // produces — it runs through no turn — so without it a pane that
+    // recorded a failure can never stop being red when the user rebuilds
+    // its context. Losing any one is a silent hole in the lane.
     const armed = [
       "UserPromptSubmit",
       "Stop",

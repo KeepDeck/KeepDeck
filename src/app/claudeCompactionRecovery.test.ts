@@ -13,9 +13,14 @@ import { activityBadge } from "../domain/status/format";
  * `transcript_path`, `cwd`, `model` and `prompt_id` alongside the two
  * fields the normalizer reads. Every payload below is verbatim from a live
  * claude 2.1.222 (an isolated probe run with `KEEPDECK_BRIDGE` unset, so it
- * could not reach the deck), with only the paths and ids shortened.
+ * could not reach the deck), with only the paths and ids shortened — except
+ * the oversize 400, which is the one a user's pane reported on 2.1.226.
  */
 const report = (event: Record<string, unknown>) => ({ agent: "claude", event });
+
+/** The oversize 400 exactly as a live pane reported it, on 2.1.226. */
+const OVERSIZE_400 =
+  '400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1001633 tokens > 1000000 maximum"}}';
 
 const SESSION = {
   session_id: "6b1641cc-7907-4835-aaf5-b5362886a6d3",
@@ -33,8 +38,8 @@ const receive = (
   return edge === null ? state : reduceStatus(state, edge);
 };
 
-describe("a pane that failed on an oversize request", () => {
-  it("goes red on the failure and idle once the user compacts", () => {
+describe("a session that outgrew its context window", () => {
+  it("keeps working through the overflow and the rebuild behind it", () => {
     const prompted = receive(
       null,
       { ...SESSION, hook_event_name: "UserPromptSubmit", prompt_id: "p1" },
@@ -42,24 +47,104 @@ describe("a pane that failed on an oversize request", () => {
     );
     expect(prompted?.activity).toEqual({ state: "working", since: 100 });
 
-    // claude gave up: it fires StopFailure INSTEAD of Stop, carrying its
-    // typed reason and the raw 400. A compaction that RESCUES the turn
-    // fires no StopFailure at all, so reaching this state means the turn
-    // really did end.
-    const failed = receive(
+    // The 400 exactly as a live pane reported it. claude answers an
+    // overflow by compacting and retrying the SAME request, so nothing
+    // about the turn ended here: the pane must stay working, which also
+    // keeps the failure out of the notification center.
+    const overflowed = receive(
       prompted,
       {
         ...SESSION,
         hook_event_name: "StopFailure",
         error: "invalid_request",
-        error_details:
-          '400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1000908 tokens > 1000000 maximum"}}',
+        error_details: OVERSIZE_400,
       },
       200,
     );
+    expect(overflowed).toBe(prompted);
+
+    // The rebuild it triggers changes nothing either — the turn it belongs
+    // to is still the one running.
+    const compacted = receive(
+      overflowed,
+      { ...SESSION, hook_event_name: "SessionStart", source: "compact" },
+      300,
+    );
+    expect(compacted).toBe(prompted);
+
+    // The work resumes where it left off, and the turn ends as a turn.
+    expect(
+      receive(compacted, { ...SESSION, hook_event_name: "PostToolUse" }, 400)
+        ?.activity,
+    ).toEqual({ state: "working", since: 100 });
+    expect(
+      activityBadge(
+        receive(compacted, { ...SESSION, hook_event_name: "Stop" }, 500)!
+          .activity,
+      ),
+    ).toMatchObject({ tone: "done", label: "Done" });
+  });
+
+  it("frees the agent bracket a dead turn would have stranded", () => {
+    // The terminal shape, the one the swallow accepts: claude cannot compact,
+    // so nothing more arrives for this turn — and the background agent it
+    // opened never reports either. `turn-failed` used to release that
+    // bracket; reporting nothing at all would leave it open forever, and one
+    // open bracket holds back EVERY later ending, which is unbounded rather
+    // than "until the next prompt".
+    const prompted = receive(
+      null,
+      { ...SESSION, hook_event_name: "UserPromptSubmit", prompt_id: "p1" },
+      100,
+    );
+    const spawned = receive(
+      prompted,
+      { ...SESSION, hook_event_name: "SubagentStart", agent_id: "a1" },
+      110,
+    );
+    expect(spawned?.openAgentTurns).toEqual(new Set(["a1"]));
+
+    const overflowed = receive(
+      spawned,
+      {
+        ...SESSION,
+        hook_event_name: "StopFailure",
+        error: "invalid_request",
+        error_details: OVERSIZE_400,
+      },
+      200,
+    );
+    // Released, and still not an ending: the turn may well be running.
+    expect(overflowed?.openAgentTurns.size).toBe(0);
+    expect(overflowed?.activity).toEqual({ state: "working", since: 100 });
+
+    // So the next turn can finish as itself.
+    const next = receive(
+      overflowed,
+      { ...SESSION, hook_event_name: "UserPromptSubmit", prompt_id: "p2" },
+      300,
+    );
+    expect(
+      activityBadge(
+        receive(next, { ...SESSION, hook_event_name: "Stop" }, 400)!.activity,
+      ),
+    ).toMatchObject({ tone: "done", label: "Done" });
+  });
+
+  it("still clears a pane whose failure arrived unreadable", () => {
+    // Past the reporter's size cap a payload reaches us as its event name
+    // alone, so an overflow can still card a pane — the normalizer refuses
+    // to read an overflow into a failure it cannot see. That is what keeps
+    // the compaction edge earning its place: it is the backstop for the
+    // failures this lane could not identify.
+    const failed = receive(
+      null,
+      { ...SESSION, hook_event_name: "StopFailure" },
+      100,
+    );
     expect(activityBadge(failed!.activity)).toMatchObject({
       tone: "failed",
-      label: "Invalid request",
+      label: "Turn failed",
     });
 
     // The user runs `/compact`. It is a local command, so this is the ONLY
@@ -68,7 +153,7 @@ describe("a pane that failed on an oversize request", () => {
     const compacted = receive(
       failed,
       { ...SESSION, hook_event_name: "SessionStart", source: "compact" },
-      300,
+      200,
     );
     expect(activityBadge(compacted!.activity)).toMatchObject({
       tone: "done",
@@ -80,9 +165,9 @@ describe("a pane that failed on an oversize request", () => {
       receive(
         compacted,
         { ...SESSION, hook_event_name: "UserPromptSubmit", prompt_id: "p2" },
-        400,
+        300,
       )?.activity,
-    ).toEqual({ state: "working", since: 400 });
+    ).toEqual({ state: "working", since: 300 });
   });
 
   it("is untouched by the automatic compaction inside a live turn", () => {
@@ -118,12 +203,7 @@ describe("a pane that failed on an oversize request", () => {
     // edge moves, which makes the assertion discriminating.
     const failed = receive(
       null,
-      {
-        ...SESSION,
-        hook_event_name: "StopFailure",
-        error: "invalid_request",
-        error_details: "prompt is too long",
-      },
+      { ...SESSION, hook_event_name: "StopFailure", error: "server_error" },
       100,
     );
     for (const source of ["startup", "resume", "clear", "fork"]) {
