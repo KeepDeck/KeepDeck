@@ -212,6 +212,13 @@ function MinimizedOverflow({
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // A dialog opened over this popover makes it inert — painted, behind the
+      // backdrop, and out of the interaction order. Escape then belongs to the
+      // dialog, not to us: this listener is capture-phase, so without the
+      // check it dismissed the popover first and then tried to hand focus to
+      // an anchor the engine had already made unfocusable, silently dropping
+      // the keyboard. We are still here when the dialog goes.
+      if (popoverRef.current?.closest("[inert]")) return;
       onClose();
       anchor.focus();
     };
