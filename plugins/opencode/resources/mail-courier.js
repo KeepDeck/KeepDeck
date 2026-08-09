@@ -334,6 +334,13 @@ export default async (input = {}) => {
         activeRoot = sessionID;
       }
       if (sessionID !== activeRoot) return;
+      // Behind whatever is already collecting. This hook is not IN the queue
+      // — it has to await its own answer to put the parts in place before the
+      // request is built — so without this a session.created still in flight
+      // could hand its brief over after this message took the task that
+      // assumed it. Waiting costs at most what an ask costs, which is what
+      // this hook was going to spend anyway.
+      await work;
       const answer = await ask();
       if (!answer || !Array.isArray(output?.parts)) return;
       if (typeof answer.context === "string" && answer.context) {

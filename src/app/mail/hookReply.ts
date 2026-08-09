@@ -81,10 +81,16 @@ export function answerMailAsk(
   const correlation = correlationOf(payload);
   if (!correlation) return;
   const manager = deps.mail();
+  // Named by whichever field this reporter's CLI uses. The hook CLIs send
+  // `hook_event_name`; an in-process reporter has no hook and names its own
+  // question under `type`. Getting this wrong costs the only window there is
+  // onto the labelled channel — "asked on undefined" tells nobody anything.
+  const named = (value: unknown) =>
+    typeof value === "string" && value ? value : null;
   const asking =
-    isRecord(payload) && isRecord(payload.event)
-      ? String(payload.event.hook_event_name)
-      : "an unreadable event";
+    (isRecord(payload) && isRecord(payload.event)
+      ? (named(payload.event.hook_event_name) ?? named(payload.event.type))
+      : null) ?? "an unreadable event";
   // EVERY ask is logged, answered or not. This is the only window onto the
   // labelled channel: a briefing that never reaches an agent's context and a
   // hook that never asked look identical from outside, and the difference is
