@@ -157,14 +157,22 @@ export function decideDelivery(
   if (activity?.state === "waiting" && activity.reason === "permission") {
     return { kind: "hold", reason: "permission" };
   }
-  // An agent with NO labelled channel has the terminal or nothing, and what
-  // may be pushed at it is decided by what the message is FOR
-  // ([`WAKES_A_PANE`]).
-  if (!asksAtTurnEnd) {
-    return WAKES_A_PANE.has(mail.kind)
-      ? { kind: "deliver" }
-      : { kind: "hold", reason: "labelled-only" };
+  // A message that may only arrive labelled never touches the terminal —
+  // not as content, and not as a nudge either. A briefing is pure context:
+  // spending a keystroke to make an agent take a turn and come asking for
+  // it is the same intrusion in a thinner disguise, and when the keystroke
+  // does not land it leaves KeepDeck's own words sitting in somebody's
+  // composer. Observed on two panes at once, which is how this rule got its
+  // teeth.
+  //
+  // What makes that safe rather than a hole is `SessionStart`: a starting
+  // agent asks the deck during its own boot, so the briefing it could never
+  // have been nudged into arrives before its first turn, unprompted.
+  if (!WAKES_A_PANE.has(mail.kind)) {
+    return { kind: "hold", reason: "labelled-only" };
   }
+  // An agent with NO labelled channel has the terminal or nothing.
+  if (!asksAtTurnEnd) return { kind: "deliver" };
   // Waiting is only worth anything when a boundary is actually coming. A
   // RUNNING turn will reach one on its own and the message rides it for
   // free; nothing else will, because an idle agent fires no hook at all.

@@ -64,16 +64,16 @@ describe("decideDelivery", () => {
       kind: "hold",
       reason: "labelled-only",
     });
-    // An agent that HAS one waits while a turn is running, and is nudged
-    // into one otherwise — which is how a recruit that will never take a
-    // turn on its own gets briefed at all.
-    expect(decideDelivery(briefing, working, SENT_AT, MAIL_LIMITS, true)).toEqual({
-      kind: "hold",
-      reason: "turn-boundary",
-    });
-    expect(decideDelivery(briefing, done, SENT_AT, MAIL_LIMITS, true)).toEqual({
-      kind: "wake",
-    });
+    // And having a labelled channel does not change it: a nudge is a
+    // keystroke too, and spending one to make an agent come asking for pure
+    // context is the same intrusion in a thinner disguise. A starting agent
+    // gets its briefing from its own SessionStart instead.
+    for (const activity of [working, done, undefined]) {
+      expect(
+        decideDelivery(briefing, activity, late, MAIL_LIMITS, true),
+        String(activity?.state),
+      ).toEqual({ kind: "hold", reason: "labelled-only" });
+    }
     // Expiry still outranks it — a briefing nobody came for is dropped
     // rather than held forever.
     expect(

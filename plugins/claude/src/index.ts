@@ -80,14 +80,21 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       ],
     });
   };
-  /** The two events that can carry mail BACK, and the only ones armed to
+  /** The three events that can carry mail BACK, and the only ones armed to
    * ask. `Stop` matters most: blocking it hands a teammate's words over and
    * keeps the turn alive to read them, so nothing pays for a fresh wake.
    * `UserPromptSubmit` appends to a turn the user just opened, which is
-   * where mail that arrived while the pane sat idle belongs. Asking on the
+   * where mail that arrived while the pane sat idle belongs. `SessionStart`
+   * is what spares a STARTING pane the terminal: a freshly spawned agent
+   * has no turn and reports nothing, so its briefing otherwise waits for a
+   * nudge typed into a CLI that has not finished booting. Asking on the
    * rest would be a round trip per tool call for an answer none of them can
-   * act on. */
-  const ASKS_FOR_MAIL = new Set(["Stop", "UserPromptSubmit"]);
+   * act on.
+   *
+   * Only the STATUS reporter asks. SessionStart carries the identity
+   * reporter too, and that one answers a different question and takes no
+   * reply — arming it to ask would make it wait for a file nobody writes. */
+  const ASKS_FOR_MAIL = new Set(["Stop", "UserPromptSubmit", "SessionStart"]);
   if (session) {
     // The agent id is the argument, same as the status reporter's: the
     // payload does not name its CLI, and the deck refuses a binding whose

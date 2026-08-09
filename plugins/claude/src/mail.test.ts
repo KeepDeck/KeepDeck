@@ -52,7 +52,7 @@ describe("renderClaudeMail", () => {
     // These report a fact and read nothing back. Rendering for them would
     // print into a transcript for no effect — and, on codex, a hook that
     // prints leaves a visible history cell.
-    for (const name of ["PostToolUse", "Notification", "SubagentStop", "SessionStart"]) {
+    for (const name of ["PostToolUse", "Notification", "SubagentStop"]) {
       expect(render(name), name).toBeNull();
     }
   });

@@ -87,7 +87,10 @@ describe("claude plugin hooks", () => {
     // anywhere else would buy a round trip per tool call for an answer that
     // event cannot use.
     const asking = `${command} --ask`;
-    const asks = new Set(["Stop", "UserPromptSubmit"]);
+    // SessionStart asks too, on the STATUS reporter: a freshly spawned
+    // agent has no turn and reports nothing, so this is the only moment its
+    // briefing can reach it without a keystroke typed into a booting CLI.
+    const asks = new Set(["Stop", "UserPromptSubmit", "SessionStart"]);
     // Each of these closes a hole the others cannot. StopFailure fires
     // INSTEAD of Stop on an API error; PostToolUseFailure fires INSTEAD of
     // PostToolUse when an approved tool then fails — both are the failure
@@ -148,8 +151,13 @@ describe("claude plugin hooks", () => {
         (entry: { hooks: { command: string }[] }) => entry.hooks[0].command,
       ),
     ).toEqual([
+      // Identity first, and it never asks: it answers a different question
+      // and takes no reply, so arming it to ask would make it wait out its
+      // whole window for a file nobody writes.
       "/bin/sh '/App/resources/kd-session-hook.sh' claude",
-      "/bin/sh '/App/resources/kd-status-hook.sh' claude",
+      // Status asks here, and this is the only event where a STARTING pane
+      // can be told anything at all.
+      "/bin/sh '/App/resources/kd-status-hook.sh' claude --ask",
     ]);
     // The status reporter's other events are untouched by the sharing.
     expect(settings.hooks.Stop).toHaveLength(1);

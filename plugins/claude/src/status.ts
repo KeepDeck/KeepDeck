@@ -297,6 +297,19 @@ export const renderClaudeMail: MailReplyRenderer = ({ event, messages }) => {
           additionalContext: text,
         },
       });
+    case "SessionStart":
+      // The one that spares a starting pane the terminal entirely. A
+      // freshly spawned agent has no turn of its own and reports nothing,
+      // so its briefing used to wait for a nudge typed into a CLI that had
+      // not finished booting — observed twice, the nudge left sitting in
+      // the composer while the pane looked broken. This fires during
+      // startup, before the first turn, and needs no keystroke at all.
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext: text,
+        },
+      });
     default:
       // Every other armed event (PostToolUse, Notification, the subagent
       // brackets) reports a fact and can carry nothing back.

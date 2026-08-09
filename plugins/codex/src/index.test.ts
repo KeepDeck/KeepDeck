@@ -96,10 +96,12 @@ describe("codex plugin hooks", () => {
     // WHICH events ask the deck back, pinned because nothing else would
     // notice it changing: the reporter is silent on failure, so a stale or
     // missing `--ask` stops mail reaching this CLI with no error anywhere.
-    // Only the two turn boundaries can act on an answer — Stop is
-    // blockable with continuation fragments, UserPromptSubmit spills extra
-    // context — and asking on a per-tool-call event would buy a round trip
-    // for an answer it cannot use.
+    // Only the two turn boundaries can act on an answer — Stop blocks and
+    // continues, UserPromptSubmit spills into the turn just opened — and
+    // asking on a per-tool-call event would buy a round trip for an answer
+    // it cannot use. SessionStart is NOT here: codex can inject there, but
+    // the identity reporter holds that event and `-c` REPLACES rather than
+    // merges, so a second arming would drop session binding.
     for (const [event, asks] of [
       ["Stop", true],
       ["UserPromptSubmit", true],

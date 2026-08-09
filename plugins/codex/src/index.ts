@@ -44,6 +44,21 @@ import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
  *   {"session_id":…,"transcript_path":…,"cwd":…,
  *    "hook_event_name":"SessionStart","model":…,
  *    "permission_mode":…,"source":"startup"} */
+/** The events whose answer this CLI can act on. Named once, because the
+ * arming loop and the renderer have to agree and a drift between them is
+ * silent: a hook that asks where nothing is rendered waits out its window
+ * every time, and one that renders where nothing asks is never called.
+ *
+ * `SessionStart` is deliberately ABSENT, though codex can inject there and
+ * a starting agent has no other way to be told anything. The identity
+ * reporter already holds that event, and codex's `-c hooks.<Event>=`
+ * REPLACES rather than merges — a second arming would silently drop session
+ * binding. Sharing it needs both commands inside one handler GROUP, which
+ * moves the trust fingerprint to a two-handler shape this port has never
+ * measured; getting that wrong refuses every hook in silence. Worth doing,
+ * not worth guessing. */
+const ASKS_FOR_MAIL = new Set(["UserPromptSubmit", "Stop"]);
+
 async function hookArgs(resources: PluginResources): Promise<string[]> {
   const session = await resources.path("kd-session-hook.sh");
   const status = await resources.path("kd-status-hook.sh");
@@ -61,13 +76,13 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
           (event) => ({
             event,
             // `--ask` makes the reporter WAIT for the deck and print its
-            // answer. Only the two turn boundaries can act on one: Stop is
-            // blockable with continuation fragments, and UserPromptSubmit
-            // spills extra context into the session. PermissionRequest and
-            // PostToolUse read nothing back, and asking there would cost a
-            // round trip per tool call.
+            // answer. Only the two turn boundaries can act on one: Stop
+            // blocks and continues, UserPromptSubmit spills extra context
+            // into the turn just opened. PermissionRequest and PostToolUse
+            // read nothing back, and asking there would cost a round trip
+            // per tool call.
             command: `/bin/sh ${shellQuote(status)} codex${
-              event === "Stop" || event === "UserPromptSubmit" ? " --ask" : ""
+              ASKS_FOR_MAIL.has(event) ? " --ask" : ""
             }`,
           }),
         )
