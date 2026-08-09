@@ -27,6 +27,20 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(activatePane).toHaveBeenCalledWith("ws-1", "p2");
   });
 
+  it("refuses a blank agent instead of focusing whatever was selected", async () => {
+    // `agent` is required here, unlike every other command in this set where the
+    // selected pane is the default. Read with the OPTIONAL reader, a blank one
+    // meant "omitted" and resolved to the pane already focused — so the caller
+    // was told its focus request succeeded, naming a pane it never asked for.
+    const { registry, activatePane } = setup([twoPanes()]);
+
+    const blank = await registry.execute("agent.focus", { agent: "" }, HOST);
+
+    expect(blank.ok).toBe(false);
+    if (!blank.ok) expect(blank.error.message).toBe('argument "agent" must not be blank');
+    expect(activatePane).not.toHaveBeenCalled();
+  });
+
   it("close opens the confirm dialog with the header's label", async () => {
     const { registry, requestCloseAgent } = setup([twoPanes()]);
     const result = await registry.execute("agent.close", { agent: "claude 1" }, HOST);
@@ -107,6 +121,28 @@ describe("agent.focus / agent.close / pane.write", () => {
     // Enter rides outside the paste — see deliverTask for why a "\r" inside the
     // pasted payload would be content, not a submit.
     expect(written).toEqual(["\r"]);
+  });
+
+  it("sends whitespace-only text through untouched", async () => {
+    // The counterpart to the blank refusals above, and why blankness cannot be
+    // one rule at the registry: `text` is CONTENT, so a lone space is exactly
+    // what the caller meant and must arrive as sent — indentation in a heredoc,
+    // a space to dismiss a prompt. Trimming it or refusing it as blank would
+    // silently edit what an agent wrote.
+    const { registry } = setup([twoPanes()]);
+    const pasted: string[] = [];
+    const off = registerPaneInput("p2", {
+      write: () => true,
+      paste: (t) => pasted.push(t),
+    });
+    const result = await registry.execute(
+      "pane.write",
+      { agent: "reviewer", text: "  " },
+      HOST,
+    );
+    off();
+    expect(result.ok).toBe(true);
+    expect(pasted).toEqual(["  "]);
   });
 
   it("mode:'type' writes raw keystrokes with LF newlines — no paste, so no collapse", async () => {

@@ -32,7 +32,7 @@ import { resumeRefusalText } from "../resumeOutcome";
 import type { SkillsLibrary } from "../skillsLibrary";
 import { suspendRefusalText, type SuspendOutcome } from "../suspendOutcome";
 import type { Deck } from "../useDeck";
-import { str } from "./args";
+import { requiredStr, str, text } from "./args";
 import { deliverTask } from "./deliverTask";
 import { registerSkillsCommands } from "./skills";
 
@@ -163,7 +163,12 @@ export function registerCoreCommands(
       ],
       run: (args) => {
         const deck = deps.deck();
-        const ws = targetWorkspace(deck, str(args, "workspace"));
+        // requiredStr, not str: `workspace` is declared required, and the
+        // optional reader turns a blank one into "omitted" — which
+        // targetWorkspace answers with the ACTIVE workspace, so a caller that
+        // sent nothing usable got a report of a successful switch to where it
+        // already was.
+        const ws = targetWorkspace(deck, requiredStr(args, "workspace"));
         deck.selectWorkspace(ws.id);
         return { workspaceId: ws.id };
       },
@@ -194,7 +199,9 @@ export function registerCoreCommands(
       run: async (args) => {
         const deck = deps.deck();
         const agents = deps.agents();
-        const ws = targetWorkspace(deck, str(args, "workspace"));
+        // Declared required — read as required, so a blank one is refused
+        // instead of quietly meaning "the active workspace".
+        const ws = targetWorkspace(deck, requiredStr(args, "workspace"));
         const workspace = { id: ws.id, instance: ws.instance };
         const currentTarget = (): { deck: Deck; workspace: Workspace } => {
           const currentDeck = deps.deck();
@@ -314,7 +321,10 @@ export function registerCoreCommands(
       run: (args) => {
         const deck = deps.deck();
         const ws = targetWorkspace(deck, str(args, "workspace"));
-        const pane = targetPane(deck, deps.agents(), ws, str(args, "agent"));
+        // `agent` is required here (unlike every other command in this set,
+        // where the selected pane is the default), so a blank one must be
+        // refused rather than resolve to the pane already focused.
+        const pane = targetPane(deck, deps.agents(), ws, requiredStr(args, "agent"));
         deps.activatePane(ws.id, pane.id);
         return { workspaceId: ws.id, paneId: pane.id };
       },
@@ -460,7 +470,10 @@ export function registerCoreCommands(
         const deck = deps.deck();
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, deps.agents(), ws, str(args, "agent"));
-        const text = args.text as string;
+        // Through the shared reader, VERBATIM: a lone space is legitimate text
+        // to send a terminal, so this is the one argument kind that must not be
+        // trimmed or refused for being blank.
+        const payload = text(args, "text");
         if (!paneInputReady(pane.id)) {
           throw new Error("the pane has no live session");
         }
@@ -470,14 +483,14 @@ export function registerCoreCommands(
           // non-editable [Pasted …] placeholder. LF (0x0A, Ctrl+J) inserts a
           // soft newline in every supported agent; a raw CR (0x0D) submits
           // mid-text, so normalise EVERY line ending to LF first.
-          const typed = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          const typed = payload.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
           if (!writeRawToPane(pane.id, typed)) {
             throw new Error("the pane has no input channel");
           }
         } else {
           // A live but TYPE-only pane (no paste channel) cannot accept a
           // pasted payload — name that distinctly from "no session".
-          if (!pasteToPane(pane.id, text)) {
+          if (!pasteToPane(pane.id, payload)) {
             throw new Error("the pane has no paste channel");
           }
         }

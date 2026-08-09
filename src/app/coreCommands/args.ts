@@ -12,6 +12,16 @@ import type { CommandArgs } from "../../domain/commands";
  *
  * The registry has already validated types and the presence of required
  * arguments before a handler runs (`validateArgs`), so these only normalize.
+ *
+ * BLANKNESS is deliberately theirs and not the registry's: `""` passes
+ * `required` there, and it must, because whether whitespace is a value depends
+ * on what the argument IS. A blank identifier is nothing (`requiredStr` refuses
+ * it); a blank line of text is something (a lone space sent to a terminal is
+ * exactly what the caller meant). One rule at the registry would have to pick
+ * one of those and be wrong about the other, so the reader a handler chooses is
+ * what says which kind of argument it is reading — and an argument declared
+ * required must be read with a required reader, or the declaration is not
+ * enforced anywhere.
  */
 
 /** An OPTIONAL string argument: trimmed, and blank counts as absent — a caller
