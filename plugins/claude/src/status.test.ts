@@ -48,6 +48,52 @@ describe("normalizeClaudeStatus", () => {
     ).toEqual({ kind: "turn-failed", at: 300, error: "unknown" });
   });
 
+  it("reports no failure when the session merely outgrew its window", () => {
+    // The real 400, verbatim from the pane that reported this (2.1.226):
+    // claude compacted and carried on, so nothing about the turn ended.
+    for (const details of [
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1001633 tokens > 1000000 maximum"}}',
+      "400 input is too long for requested model",
+    ]) {
+      expect(
+        normalizeClaudeStatus(
+          wrap({
+            hook_event_name: "StopFailure",
+            error: "invalid_request",
+            error_details: details,
+          }),
+          300,
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("still fails an invalid request it cannot read as an overflow", () => {
+    // The reason alone must not swallow a failure: a genuinely malformed
+    // request carries the same `invalid_request`, and a payload the reporter
+    // truncated past its size cap arrives with no prose at all. Reading
+    // neither as "the context filled up" is the whole point of the narrow
+    // signature — an unread failure has to reach the user.
+    for (const event of [
+      {
+        hook_event_name: "StopFailure",
+        error: "invalid_request",
+        error_details: "400 tools.0.custom.name: string too long",
+      },
+      { hook_event_name: "StopFailure", error: "invalid_request" },
+      {
+        hook_event_name: "StopFailure",
+        error: "invalid_request",
+        error_details: { message: "prompt is too long" },
+      },
+    ]) {
+      expect(normalizeClaudeStatus(wrap(event), 300)).toMatchObject({
+        kind: "turn-failed",
+        error: "invalid_request",
+      });
+    }
+  });
+
   it("reads a compaction off SessionStart, and only a compaction", () => {
     // `source` is a closed enum in claude's own hook schema (2.1.222):
     // startup / resume / clear / compact / fork. Only the rebuild is a

@@ -111,6 +111,48 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
   return tasks.some((task) => isJsonRecord(task) && wakes(task));
 }
 
+/** The two 400s claude raises when the request no longer FITS — the wording
+ * of its own detector, verbatim (decompiled from 2.1.222, where the same
+ * pair triggers the reactive compaction). */
+const CONTEXT_OVERFLOW =
+  /prompt is too long|input is too long for requested model/;
+
+/**
+ * Whether a turn-failure payload reports a context OVERFLOW — the session
+ * outgrowing its window, which is not a failure at all.
+ *
+ * Running out of context is ordinary operation of a long session, and
+ * claude's own answer to it is to compact and retry the SAME request:
+ * measured live on 2.1.226 (transcript `compact_boundary`, `trigger: "auto"`,
+ * 1000080 tokens in, 18023 out, the session working straight on afterwards)
+ * while KeepDeck was carding the pane red and announcing "Invalid request".
+ * Neither the red nor the notification survives that: the turn did not end,
+ * so no edge is the honest report.
+ *
+ * NARROW ON PURPOSE, in both directions:
+ *
+ * - `invalid_request` also covers a genuinely malformed request, which is a
+ *   real failure and must still card, so the reason alone cannot decide it.
+ * - a payload whose `error_details` is absent or not a string is NOT
+ *   recognised and fails the turn as before — the reporter reduces an
+ *   oversize payload to its event name, and swallowing a failure we could
+ *   not READ would hide the very errors this lane exists to surface.
+ *
+ * THE COST, stated plainly: claude does give up when compaction is
+ * impossible or its rapid-refill breaker trips, and there the turn really
+ * does end here — dropping the edge leaves the pane on "Working" until the
+ * user's next prompt. Accepted. Both mistakes last exactly until that
+ * prompt, and this one is silent while the other tells the user something
+ * broke that did not.
+ */
+function contextOverflowed(event: Record<string, unknown>): boolean {
+  return (
+    event.error === "invalid_request" &&
+    typeof event.error_details === "string" &&
+    CONTEXT_OVERFLOW.test(event.error_details)
+  );
+}
+
 /**
  * claude's turn-lifecycle payloads → status edges. The reporter wraps each
  * hook payload verbatim under `event`; the fields here are pinned by the
@@ -123,7 +165,9 @@ function outlivesTurn(event: Record<string, unknown>): boolean {
  *   typed reason (`rate_limit`, `authentication_failed`, …), verified to
  *   ride in the payload — no per-matcher fan-out needed. Background work is
  *   deliberately NOT consulted here: a turn that died needs the user now,
- *   and surviving background tasks do not make it un-failed.
+ *   and surviving background tasks do not make it un-failed. The ONE
+ *   exception is a context overflow, which is not a death at all —
+ *   [`contextOverflowed`].
  * - `Notification` → waiting, but only the two types that mean "parked on
  *   the user": `permission_prompt` and `agent_needs_input`. Binary-verified
  *   caveat (2.1.220): these are 6-second IDLE NUDGES, not dialog-open
@@ -225,6 +269,9 @@ export const normalizeClaudeStatus: StatusNormalizer = (
       // its raiser, which needs data claude does not yet give us.
       return { kind: "resumed", at };
     case "StopFailure":
+      // The session outgrew its window: claude compacts and retries the same
+      // request, so the turn is still running — see [`contextOverflowed`].
+      if (contextOverflowed(event)) return null;
       return turnFailedEvent(at, event.error, event.error_details);
     case "SessionStart":
       // `source` is a CLOSED enum — `startup`, `resume`, `clear`, `compact`,

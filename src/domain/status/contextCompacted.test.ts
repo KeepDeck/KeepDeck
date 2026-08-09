@@ -27,15 +27,18 @@ const fold = (...events: AgentStatusEvent[]): PaneStatus | null =>
 
 describe("a context rebuild", () => {
   it("clears a recorded failure, and the next prompt runs normally", () => {
-    // The bug this edge exists for: claude gives up on an oversize request
-    // (`StopFailure` → failed), the user compacts, and nothing in the
-    // status lane could ever un-redden the pane — a manual compaction runs
-    // through no turn, so neither a start nor an ending follows it.
+    // The bug this edge exists for: a pane records a failure, the user
+    // compacts, and nothing in the status lane could ever un-redden it — a
+    // manual compaction runs through no turn, so neither a start nor an
+    // ending follows it. The error is deliberately NOT an oversize request:
+    // that one no longer reaches the domain at all (the claude plugin reads
+    // it as the turn continuing), which leaves this edge as the backstop
+    // for the failures a vendor lane could not identify.
     const failed = status({
       state: "failed",
       at: 100,
-      error: "invalid_request",
-      detail: "prompt is too long: 1000908 tokens > 1000000 maximum",
+      error: "unknown",
+      detail: "400 the payload never arrived whole",
     });
 
     const settled = reduceStatus(failed, compacted(200));
