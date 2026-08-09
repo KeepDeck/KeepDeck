@@ -29,6 +29,7 @@ import { readDeck } from "./deckSurface";
 import {
   answerMailAsk,
   createMailService,
+  createMailWake,
   createTeamPresence,
   deliverMailThroughPty,
   wakePaneForMail,
@@ -50,7 +51,7 @@ import {
 } from "./ptyManager";
 import { subscribePaneKeys } from "./paneKeys";
 import { subscribePaneInput } from "./paneInput";
-import { replyToBridgeHook } from "../ipc/status";
+import { nudgeBridgePane, replyToBridgeHook } from "../ipc/status";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
@@ -181,6 +182,17 @@ export function createAppRuntime(
    * last. A plain fan-out rather than a store: nothing needs the history,
    * only the moment. */
   const sessionsBegun = new Set<(paneId: string) => void>();
+  /** What a pane's agent plugin says about mail — whether it renders any, and
+   * how it wants to be woken. Read PER CALL, never cached: a plugin can be
+   * enabled or disabled while the deck is up, and a pane can be restarted
+   * onto another agent, and both answers must follow. */
+  const mailStatusOf = (paneId: string) => {
+    const agentType = paneAgentTypeOf(deckStore, paneId);
+    if (!agentType) return undefined;
+    return plugins.pluginRegistries.agents
+      .list()
+      .find(({ entry }) => entry.id === agentType)?.entry.status;
+  };
   const mail = createMailService(
     {
       agentTeams: () => getSettings()?.agentTeams ?? null,
@@ -192,21 +204,15 @@ export function createAppRuntime(
       subscribeActivity: statusTracker.subscribe,
       subscribeChannels: subscribePaneInput,
       deliver: deliverMailThroughPty,
-      wake: wakePaneForMail,
+      wake: createMailWake({
+        channelOf: (paneId) => mailStatusOf(paneId)?.wake,
+        throughTerminal: wakePaneForMail,
+        throughBridge: nudgeBridgePane,
+      }),
       // A pane whose CLI plugin renders mail will come asking at its turn
       // boundary, so a running turn is worth waiting out for the labelled
-      // channel. Read per call: a plugin can be enabled or disabled while
-      // the deck is up, and the answer must follow.
-      asksAtTurnEnd: (paneId: string) => {
-        const agentType = paneAgentTypeOf(deckStore, paneId);
-        if (!agentType) return false;
-        return Boolean(
-          plugins.pluginRegistries.agents
-            .list()
-            .find(({ entry }) => entry.id === agentType)?.entry.status
-            ?.renderMail,
-        );
-      },
+      // channel.
+      asksAtTurnEnd: (paneId: string) => Boolean(mailStatusOf(paneId)?.renderMail),
       livePaneIds: () =>
         new Set(
           deckStore

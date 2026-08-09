@@ -131,6 +131,21 @@ export interface AgentStatus {
    * waiting, and one round trip serves both. Absent = this agent has no
    * labelled channel, and its mail arrives through the terminal instead. */
   renderMail?: MailReplyRenderer;
+  /** How the deck nudges this pane into taking a turn when mail is waiting
+   * and no turn boundary is coming on its own.
+   *
+   * `"terminal"` (the default) types one line into the pane. It is the floor
+   * every CLI can meet — a hook only runs when its CLI runs it — and it is
+   * the one place where KeepDeck puts words in front of a model that the
+   * user did not write.
+   *
+   * `"bridge"` drops a signal into the run directory this agent's OWN
+   * in-process reporter is already watching, and that reporter starts the
+   * turn from the inside. Declare it only where the reporter really watches:
+   * what the deck stops doing is typing, and nothing takes that over on its
+   * own — mail would sit out its life in the queue and be reported back to
+   * its sender undelivered. */
+  wake?: "terminal" | "bridge";
 }
 
 /** One message, as the CLI's own dialect will have to phrase it. */

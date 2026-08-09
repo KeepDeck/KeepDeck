@@ -44,3 +44,19 @@ export function onAgentStatus(
 export function replyToBridgeHook(id: string, body: string): void {
   void invoke("bridge_reply", { id, body }).catch(() => {});
 }
+
+/**
+ * Tell a pane's own in-process reporter that mail is waiting for it.
+ *
+ * The alternative is typing a line into the pane to make it take a turn.
+ * This says the same thing to an agent whose reporter is INSIDE the process
+ * — it is already running and already watching the run directory — and says
+ * it where no model can mistake it for its user speaking.
+ *
+ * Fire and forget, and it carries nothing: the reporter answers by ASKING,
+ * through the same labelled channel every other agent uses, and that answer
+ * is where the messages actually travel.
+ */
+export function nudgeBridgePane(paneId: string): void {
+  void invoke("bridge_nudge", { pane: paneId }).catch(() => {});
+}
