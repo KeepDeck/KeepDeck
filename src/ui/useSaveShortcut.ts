@@ -6,9 +6,12 @@ import { useEffect } from "react";
  * key yields "ы" and a `key` match would never fire; borrowed from
  * `isCopyChord` (domain/terminal/clipboard.ts), physical-code half only:
  * extra modifiers (⇧/⌥) are deliberately NOT excluded here, a decorated
- * save chord just saves. Same shape as `useEscape`: the handler is
- * re-registered per render, so it never closes over stale state — do not
- * "optimize" the deps to `[]`. */
+ * save chord just saves.
+ *
+ * The handler is re-registered per render so it never closes over stale state
+ * — do not "optimize" the deps to `[]` without moving the handler behind a ref
+ * first. (`useEscape` looks different for that exact reason: it needs `[]` to
+ * keep its stack in mount order, so it reads the handler through a ref.) */
 export function useSaveShortcut(handler: () => void): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
