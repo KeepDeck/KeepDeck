@@ -26,14 +26,12 @@ interface ProbeProps {
 }
 
 function Probe(props: ProbeProps) {
-  usePaneInputFocus(
-    props.controller,
-    props.paneId,
-    props.active,
-    props.inputVersion,
-    props.focusInput,
-    props.releaseInput ?? noop,
-  );
+  // Rebuilt every render on purpose: the hook must not depend on the identity
+  // of the verbs object, only on the edges it computes.
+  usePaneInputFocus(props.controller, props.paneId, props.active, props.inputVersion, {
+    take: props.focusInput,
+    release: props.releaseInput ?? noop,
+  });
   return null;
 }
 

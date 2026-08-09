@@ -2,24 +2,39 @@ import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import type { PaneInputFocusSource } from "./paneInputFocusController";
 
 /**
+ * A pane's keyboard, as the two verbs this hook drives.
+ *
+ * One object rather than two positional callbacks: both are `() => void`, so a
+ * transposition type-checks and silently inverts the policy — the pane would
+ * take the keyboard exactly when it was told to give it up.
+ */
+export interface PaneKeyboard {
+  /** Put the keyboard in this pane's input surface. */
+  take(): void;
+  /** Give it back, if this pane is still the one holding it. */
+  release(): void;
+}
+
+/**
  * Bridges one-shot focus requests to a pane's imperative input surface after
  * React has committed it. inputVersion changes whenever that surface is rebuilt.
  *
- * `active` is the whole answer to "may this pane hold the keyboard", so it is
- * read in BOTH directions. Only taking focus was the older reading, and it
- * made the flag a half-truth: a pane that already had the keyboard when a
- * covering surface appeared went on answering every key, because nothing ever
- * asked it to let go. `releaseInput` is that missing verb — the view decides
- * whether the keyboard is still its to release, since only the view knows
- * which element is its own.
+ * `active` is read in BOTH directions. Whether a pane may hold the keyboard is
+ * DECIDED upstream, in `keyboardFocusEnabled`; this hook is one of the two
+ * things that enforce that decision, the other being the `inert` background a
+ * modal layer puts up. Neither is the decision, and neither subsumes the
+ * other: `inert` reaches everything a DOM layer stands over but exists only
+ * where there is such a layer, and this reaches the pane wherever the flag
+ * goes false. Taking focus used to be the whole of it, which left the flag a
+ * half-truth — a pane that already had the keyboard went on answering every
+ * key, because nothing ever asked it to let go.
  */
 export function usePaneInputFocus(
   controller: PaneInputFocusSource,
   paneId: string,
   active: boolean,
   inputVersion: number,
-  focusInput: () => void,
-  releaseInput: () => void,
+  keyboard: PaneKeyboard,
 ) {
   const request = useSyncExternalStore(
     controller.subscribe,
@@ -43,8 +58,8 @@ export function usePaneInputFocus(
     if (explicitlyRequested) {
       handledRequestVersion.current = request.version;
     }
-    if (becameActive || inputChanged || explicitlyRequested) focusInput();
+    if (becameActive || inputChanged || explicitlyRequested) keyboard.take();
     // Never both: every take requires `active`, and this is its edge away.
-    if (becameInactive) releaseInput();
-  }, [active, focusInput, inputVersion, paneId, releaseInput, request]);
+    if (becameInactive) keyboard.release();
+  }, [active, inputVersion, keyboard, paneId, request]);
 }

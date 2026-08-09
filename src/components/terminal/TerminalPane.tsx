@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -31,7 +31,11 @@ import {
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
 import { useAppRuntime } from "../../app/runtimeContext";
-import { usePaneInputFocus } from "../../presentation/usePaneInputFocus";
+import {
+  usePaneInputFocus,
+  type PaneKeyboard,
+} from "../../presentation/usePaneInputFocus";
+import { releaseKeyboard } from "../../presentation/releaseKeyboard";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */
@@ -112,24 +116,21 @@ export function TerminalPane({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [inputVersion, setInputVersion] = useState(0);
-  const focusInput = useCallback(() => termRef.current?.focus(), []);
-  // Only what is OURS to hand back. A modal that covers the deck is why this
-  // is asked for at all, and by the time it runs the dialog may already have
-  // taken the keyboard — blurring then would take it from the surface the
-  // user is looking at.
-  const releaseInput = useCallback(() => {
-    const term = termRef.current;
-    if (term?.textarea && document.activeElement === term.textarea) {
-      term.blur();
-    }
-  }, []);
+  // Stable for the pane's life: both verbs reach the terminal through the ref,
+  // so nothing here re-runs the focus effect.
+  const keyboard = useMemo<PaneKeyboard>(
+    () => ({
+      take: () => termRef.current?.focus(),
+      release: () => releaseKeyboard(termRef.current?.textarea),
+    }),
+    [],
+  );
   usePaneInputFocus(
     paneInputFocus,
     paneId,
     inputVersion > 0 && visible && selected === true && keyboardFocusEnabled,
     inputVersion,
-    focusInput,
-    releaseInput,
+    keyboard,
   );
   // Transient in-pane notice ([F16]) — "File not found" after a Cmd+click on a
   // stale path (or a failed open). Self-clears; anchored to the click point.
