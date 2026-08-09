@@ -9,7 +9,9 @@ export interface SkillValidation {
    * judge (an inherited one). */
   nameProblem: "empty" | "invalid" | null;
   nameTaken: boolean;
-  descriptionMissing: boolean;
+  /** The domain's description verdict, rendered by both arms — the gate refuses
+   * either, so a message for only one leaves a dead button unexplained. */
+  descriptionProblem: "empty" | "multiline" | null;
 }
 
 interface SkillEditorProps {
@@ -110,11 +112,16 @@ export function SkillEditor({
           placeholder="When should an agent reach for this skill"
           spellCheck={false}
         />
-        {validation.descriptionMissing && (
+        {validation.descriptionProblem === "empty" && (
           <div className="skills__hint">
             Required — agents pick skills by description, and some silently
             drop a skill without one
           </div>
+        )}
+        {/* Both arms again: the gate refuses "multiline" too, and with only the
+            empty arm rendered that would be a dead Save with nothing said. */}
+        {validation.descriptionProblem === "multiline" && (
+          <div className="form__error">A description has to fit on one line</div>
         )}
       </div>
 

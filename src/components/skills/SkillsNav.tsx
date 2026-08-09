@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { skillDraftOf, type SkillScope } from "../../domain/skills";
 import type { StoredSkill } from "../../ipc/skills";
 
@@ -26,6 +27,17 @@ export function SkillsNav({
   onOpen,
   onCreate,
 }: SkillsNavProps) {
+  // Parsed once per list, not once per row per render: the projection reads the
+  // whole SKILL.md — CRLF normalize, frontmatter scan, unscalar, body slice —
+  // and every keystroke in the editor beside this nav re-rendered it.
+  const described = useMemo(() => {
+    const byRow = new Map<StoredSkill, string>();
+    for (const group of groups) {
+      for (const skill of group.items) byRow.set(skill, skillDraftOf(skill).description);
+    }
+    return byRow;
+  }, [groups]);
+
   return (
     <nav className="skills__nav" aria-label="Skills library">
       {groups.map(({ label, scope, items }) => (
@@ -42,7 +54,7 @@ export function SkillsNav({
             </button>
           </div>
           {items.map((skill) => {
-            const description = skillDraftOf(skill).description;
+            const description = described.get(skill);
             return (
               <button
                 key={`${skill.scope}:${skill.wsId ?? ""}:${skill.name}`}

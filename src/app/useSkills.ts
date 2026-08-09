@@ -24,8 +24,17 @@ export interface SkillsEditorState {
    * or by `clearError` (navigation away from the failed skill). */
   error: string | null;
   clearError(): void;
-  /** `expectNew` marks a CREATE, which the backend refuses if the name is
-   * already taken — the guard that survives an unreadable library. */
+  /**
+   * `expectNew` picks between the library's two write verbs, which differ in
+   * THREE ways, not one — say all of them, because a caller reading only the
+   * collision half will be surprised by the other two:
+   *   - a create refuses a name already taken (the guard that survives an
+   *     unreadable library); an update refuses a name that is NOT there;
+   *   - a create applies this build's naming rule; an update deliberately does
+   *     not, so a hand-made `My_Skill` stays editable;
+   *   - an update carries the stored file's other frontmatter over; a create
+   *     writes exactly name, description and body.
+   */
   save(scope: SkillScope, draft: SkillDraft, expectNew: boolean): Promise<boolean>;
   /** Move the skill's directory. Deliberately does NOT reload the list —
    * a rename is always followed by a save (whose refresh covers both), so

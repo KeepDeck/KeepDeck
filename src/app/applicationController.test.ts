@@ -66,15 +66,15 @@ describe("application controller", () => {
     const deck = createDeckStore();
     const registry = createCommandRegistry();
     const { plugins, orchestrator } = dependencies();
-    const controller = createApplicationController(
+    const controller = createApplicationController({
       deck,
       plugins,
       orchestrator,
-      paneInputFocus(),
-      paneView(),
-      noSkills(),
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
       registry,
-    );
+    });
     const view = ui();
     controller.bindUi(view);
 
@@ -107,15 +107,15 @@ describe("application controller", () => {
     const { plugins, orchestrator } = dependencies();
     const focus = paneInputFocus();
     const paneView = createPaneViewActions(deck, focus);
-    const controller = createApplicationController(
+    const controller = createApplicationController({
       deck,
       plugins,
       orchestrator,
-      focus,
+      paneInputFocus: focus,
       paneView,
-      noSkills(),
+      skills: noSkills(),
       registry,
-    );
+    });
     controller.bindUi(ui());
     controller.start();
 
@@ -154,15 +154,15 @@ describe("application controller", () => {
     const focus = paneInputFocus();
     const paneView = createPaneViewActions(deck, focus);
     const revealPane = vi.spyOn(paneView, "revealPane");
-    const controller = createApplicationController(
+    const controller = createApplicationController({
       deck,
       plugins,
       orchestrator,
-      focus,
+      paneInputFocus: focus,
       paneView,
-      noSkills(),
-      createCommandRegistry(),
-    );
+      skills: noSkills(),
+      registry: createCommandRegistry(),
+    });
     const view = ui();
     controller.bindUi(view);
     const notification = {
@@ -190,15 +190,15 @@ describe("application controller", () => {
       ok: false,
       reason: "sequence-exhausted",
     });
-    const controller = createApplicationController(
+    const controller = createApplicationController({
       deck,
       plugins,
       orchestrator,
-      paneInputFocus(),
-      paneView(),
-      noSkills(),
-      createCommandRegistry(),
-    );
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      registry: createCommandRegistry(),
+    });
     const view = ui();
     controller.bindUi(view);
 

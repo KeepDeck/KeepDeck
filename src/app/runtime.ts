@@ -178,14 +178,14 @@ export function createAppRuntime(
     mcpAccess: (target) => mcp.access(target),
     lifecycle,
   });
-  const application = createApplicationController(
-    deckStore,
+  const application = createApplicationController({
+    deck: deckStore,
     plugins,
     orchestrator,
     paneInputFocus,
-    paneViewActions,
+    paneView: paneViewActions,
     skills,
-  );
+  });
   const worktreeSweeper = createWorktreeSweeper(
     deckStore,
     deckPersistence,

@@ -106,6 +106,15 @@ export function SkillsDialog({
     return built;
   }, [skills, activeWs]);
 
+  /** The listed skill at (scope, name) — "which row IS this one" asked once,
+   * where three sites had each spelled out the compound comparison. The library
+   * asks the same question of the disk; if identity ever grows (case-insensitive
+   * names, trimming), these are the two places that must move together. */
+  const skillAt = (scope: SkillScope, name: string): StoredSkill | undefined =>
+    (skills ?? []).find(
+      (s) => s.name === name && sameSkillScope(skillScopeOf(s), scope),
+    );
+
   const openSkill = (skill: StoredSkill) => {
     // The same projection the library's `read` uses, WHOLE — so the editor and
     // every other surface see one skill, not two readings of one file. It
@@ -149,10 +158,7 @@ export function SkillsDialog({
     // the user navigates next.
     clearError();
     if (next?.mode === "edit") {
-      const target = next;
-      const skill = (skills ?? []).find(
-        (s) => s.name === target.name && sameSkillScope(skillScopeOf(s), target.scope),
-      );
+      const skill = skillAt(next.scope, next.name);
       if (skill) {
         openSkill(skill);
         return;
@@ -177,9 +183,7 @@ export function SkillsDialog({
   const nameTaken =
     selection !== null &&
     !(selection.mode === "edit" && selection.name === form.name) &&
-    (skills ?? []).some(
-      (s) => s.name === form.name && sameSkillScope(skillScopeOf(s), selection.scope),
-    );
+    skillAt(selection.scope, form.name) !== undefined;
   // The name is judged only where it is being AUTHORED — a create, or an edit
   // that changes it. An INHERITED name is not the editor's to refuse: the
   // library deliberately skips this rule on an update for the same reason, so a
@@ -358,7 +362,7 @@ export function SkillsDialog({
                 scopeLabel={scopeLabel(selection.scope)}
                 form={form}
                 dirty={dirty}
-                validation={{ nameProblem, nameTaken, descriptionMissing: descriptionProblem === "empty" }}
+                validation={{ nameProblem, nameTaken, descriptionProblem }}
                 canSave={canSave}
                 error={error}
                 onField={(key, value) => {

@@ -46,16 +46,32 @@ const UI_UNAVAILABLE_MESSAGE = "The application UI is not available";
  * Plain application-policy owner. React supplies a replaceable UI port; deck
  * transitions, command registration, bootstrap and navigation ordering remain
  * app-scoped and survive render-tree churn.
+ *
+ * Dependencies as an OBJECT: six positional ports, two of them small
+ * method bags of similar shape, is a signature where the next insertion
+ * transposes silently at a call site the compiler cannot help.
  */
-export function createApplicationController(
-  deck: DeckStore,
-  plugins: Plugins,
-  orchestrator: Orchestrator,
-  paneInputFocus: PaneInputFocusPort,
-  paneView: PaneViewPort,
-  skills: SkillsLibrary,
-  registry: CommandRegistry = commands,
-): ApplicationController {
+export interface ApplicationControllerDeps {
+  deck: DeckStore;
+  plugins: Plugins;
+  orchestrator: Orchestrator;
+  paneInputFocus: PaneInputFocusPort;
+  paneView: PaneViewPort;
+  skills: SkillsLibrary;
+  /** The registry to contribute the core command set to; the process-wide one
+   * unless a suite wants its own. */
+  registry?: CommandRegistry;
+}
+
+export function createApplicationController({
+  deck,
+  plugins,
+  orchestrator,
+  paneInputFocus,
+  paneView,
+  skills,
+  registry = commands,
+}: ApplicationControllerDeps): ApplicationController {
   const actions = createDeckActions(deck);
   let ui: ApplicationUi | null = null;
   let unregisterCommands: (() => void) | null = null;

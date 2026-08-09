@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseSkillFile, type SkillDraft, type SkillScope } from "../domain/skills";
+import {
+  renameSkillFile,
+  skillDraftOf,
+  type SkillDraft,
+  type SkillScope,
+} from "../domain/skills";
 import {
   createSkillsLibrary,
   type SkillsLibrary,
@@ -59,9 +64,15 @@ type SkillStorageFakes = {
   remove: SkillsStorage["remove"];
 };
 
-/** The SKILL.md a save was handed, parsed back. */
+/** The SKILL.md a save was handed, read back the way production reads it —
+ * through the projection every surface uses, not the raw codec underneath it. */
 const written = (save: { mock: { calls: unknown[][] } }) =>
-  parseSkillFile(save.mock.calls[0]?.[2] as string);
+  skillDraftOf({
+    // The (name, content) pair as the storage got it — the projection prefers
+    // the directory name, so handing it a blank one would mask the composed one.
+    name: save.mock.calls[0]?.[1] as string,
+    content: save.mock.calls[0]?.[2] as string,
+  });
 
 describe("a write reports the library as changed", () => {
   // Without this the staged views a pane spawn injects keep yesterday's
@@ -240,12 +251,9 @@ describe("the library owns every precondition, not the door", () => {
     ).rejects.toThrow(/No skill "review" in this workspace's library/);
   });
 
-  it("names the scope without an opaque id — no surface shows one", async () => {
-    const { library } = libraryOver();
-    await expect(library.remove(WS, "ghost")).rejects.toThrow(
-      "No skill \"ghost\" in this workspace's library",
-    );
-  });
+  // The workspace wording of that refusal is pinned once, by the scope case
+  // above — a third assertion of `describeScope` differing only in the verb said
+  // nothing the second did not.
 });
 
 describe("a rename moves the directory AND fixes the file", () => {
@@ -268,12 +276,12 @@ describe("a rename moves the directory AND fixes the file", () => {
       storage.rename.mock.invocationCallOrder[0],
     );
 
-    const back = parseSkillFile(storage.save.mock.calls[0][2]);
-    expect(back.name).toBe("deep-review");
-    // And nothing else about the skill changed.
-    expect(back.description).toBe("Global one");
-    expect(back.body).toBe("Global body\n");
-    expect(back.extraFrontmatter).toEqual(["license: MIT"]);
+    // Through the domain function this layer is supposed to DELEGATE to, rather
+    // than a second copy of its byte contract: what belongs here is "rename
+    // routes through the splice, not the composer".
+    expect(storage.save.mock.calls[0][2]).toBe(
+      renameSkillFile(STORED[0].content, "deep-review"),
+    );
   });
 
   it("rewrites ONLY that line, leaving frontmatter the composer cannot carry", async () => {
@@ -298,11 +306,38 @@ describe("a rename moves the directory AND fixes the file", () => {
     );
   });
 
-  it("renames a skill this build's authoring rules would refuse", async () => {
-    // A stored skill with no description is legal — a file without frontmatter
-    // is still a skill, and nothing outside this editor requires one. Composing
-    // it through the authoring gate refused the write AFTER the directory had
-    // moved, leaving a two-identity skill no re-run could repair.
+  it("renames a skill this build's authoring rules would refuse, and still WRITES", async () => {
+    // A stored skill with no description is legal — nothing outside this editor
+    // requires one. Composing it through the authoring gate refused the write
+    // AFTER the directory had moved, leaving a two-identity skill no re-run
+    // could repair. The fixture deliberately HAS frontmatter with a `name:`, so
+    // the write actually happens: over a file with none the splice returns null
+    // and the case would pass without ever entering the branch it is about.
+    const { library, storage } = libraryOver({
+      fetch: vi.fn(async () => [
+        {
+          scope: "global" as const,
+          wsId: null,
+          name: "review",
+          content: "---\nname: review\n---\nJust a body\n",
+        },
+      ]),
+    });
+
+    await library.rename(GLOBAL, "review", "deep-review");
+
+    expect(storage.save).toHaveBeenCalledWith(
+      GLOBAL,
+      "review",
+      "---\nname: deep-review\n---\nJust a body\n",
+      false,
+    );
+    expect(storage.rename).toHaveBeenCalledWith(GLOBAL, "review", "deep-review");
+  });
+
+  it("writes nothing when the file states no name to fix", async () => {
+    // With no frontmatter the name comes from the directory and cannot
+    // contradict it, so the move IS the whole rename.
     const { library, storage } = libraryOver({
       fetch: vi.fn(async () => [
         { scope: "global" as const, wsId: null, name: "review", content: "Just a body\n" },
@@ -312,8 +347,6 @@ describe("a rename moves the directory AND fixes the file", () => {
     await library.rename(GLOBAL, "review", "deep-review");
 
     expect(storage.rename).toHaveBeenCalledWith(GLOBAL, "review", "deep-review");
-    // Nothing to fix: with no frontmatter the name comes from the directory, so
-    // the move IS the whole rename.
     expect(storage.save).not.toHaveBeenCalled();
   });
 
@@ -448,21 +481,10 @@ describe("reading one skill", () => {
     ).rejects.toThrow("No skill \"review\" in this workspace's library");
   });
 
-  it("prefers the directory name over a disagreeing frontmatter name", async () => {
-    // Every CLI keys on the directory; a hand edit can leave the two apart,
-    // and an update must write back to the directory that exists.
-    const { library } = libraryOver({
-      fetch: vi.fn(async () => [
-        {
-          scope: "global" as const,
-          wsId: null,
-          name: "on-disk",
-          content: "---\nname: stale-in-file\ndescription: d\n---\n",
-        },
-      ]),
-    });
-    expect((await library.read(GLOBAL, "on-disk")).name).toBe("on-disk");
-  });
+  // "The directory name wins over the frontmatter's" is NOT re-tested here: it
+  // is `skillDraftOf`'s rule, pinned in the domain suite over the same fixture,
+  // and `read` is that function applied to one row. Delegation is what this layer
+  // owns, and the case above already shows it.
 });
 
 describe("reading the library", () => {

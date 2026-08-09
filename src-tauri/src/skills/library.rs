@@ -84,13 +84,23 @@ pub(super) fn list(root: &Path) -> io::Result<Vec<SkillDto>> {
 
 /// `(name, SKILL.md content)` per skill directory, names alphabetical.
 /// Directories without a `SKILL.md` are not skills and are skipped.
+///
+/// So are directories whose name no WRITE could accept: every mutation here
+/// starts with [`require_safe`], so listing `my.skill` offered the editor a
+/// skill it could open and then fail to save, delete or rename, each time with a
+/// raw `unsafe skill name` from this layer. What cannot be edited must not be
+/// presented as editable — such a directory is still on disk and still staged
+/// for the agents, it is just not addressable through the app.
 fn scope_skills(dir: &Path) -> io::Result<Vec<(String, String)>> {
     let mut out = Vec::new();
     for skill in sorted_dirs(dir)? {
+        let name = skill.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        if require_safe(&name, "skill name").is_err() {
+            continue;
+        }
         let Ok(content) = fs::read_to_string(skill.join(SKILL_FILE)) else {
             continue;
         };
-        let name = skill.file_name().unwrap_or_default().to_string_lossy().into_owned();
         out.push((name, content));
     }
     Ok(out)
@@ -162,6 +172,24 @@ pub(super) fn rename(scope_dir: &Path, from: &str, to: &str) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::skills::test_support::{global, root, ws};
+
+    #[test]
+    fn list_skips_a_directory_no_write_could_touch() {
+        // Every mutation starts with `require_safe`, so listing such a directory
+        // offered the editor a skill it could open and then fail to save, delete
+        // or rename, each time with a raw "unsafe skill name" from this layer.
+        let (_tmp, root) = root();
+        let scope = global(&root);
+        save(&scope, "review", "fine").unwrap();
+        // Written past `save`, the way a hand edit or another tool would.
+        let hostile = scope.join("my.skill");
+        fs::create_dir_all(&hostile).unwrap();
+        fs::write(hostile.join(SKILL_FILE), "hand made").unwrap();
+
+        let names: Vec<String> = list(&root).unwrap().into_iter().map(|s| s.name).collect();
+
+        assert_eq!(names, vec!["review".to_string()]);
+    }
 
     #[test]
     fn save_list_roundtrip_orders_global_before_workspaces() {
