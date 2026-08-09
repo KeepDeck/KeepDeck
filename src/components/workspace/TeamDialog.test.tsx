@@ -451,6 +451,20 @@ describe("TeamDialog", () => {
     expect(roles()).toHaveLength(0);
   });
 
+  it("puts starting an agent ABOVE the pool, since the pool can offer nothing", () => {
+    // Every agent here is spoken for by another team, so the pool is a list
+    // of rows with no control on them. Below it, the one live way to add a
+    // member sat under four dead ones.
+    const ws = workspace([
+      pane("pane-1", { name: "web", role: "lead" }),
+      pane("pane-2", { name: "web", role: "impl-1" }),
+    ]);
+    open(ws);
+    expect(adds()).toHaveLength(0);
+    const order = [...document.querySelectorAll(".team__add, .team__pool")];
+    expect(order.map((el) => el.className)).toEqual(["team__add", "team__pool"]);
+  });
+
   it("offers a free agent normally, and stops saying where it is once taken", () => {
     const ws = workspace([pane("pane-1")]);
     open(ws);

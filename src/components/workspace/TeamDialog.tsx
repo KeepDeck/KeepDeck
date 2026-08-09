@@ -381,6 +381,38 @@ export function TeamDialog({
           </p>
         )}
 
+        {canRecruit.length > 0 && (
+          // Above the pool, because it is the one way of adding a member
+          // that ALWAYS works. The pool can be entirely unusable — every
+          // agent in the workspace already spoken for by another team — and
+          // then this button was the only live control on the form, sitting
+          // under a list of rows that offer nothing. Still styled secondary:
+          // starting an agent is a step ON THE WAY to a team, never the
+          // thing that finishes one.
+          <button
+            type="button"
+            className="team__add"
+            onClick={() => {
+              setTouched(true);
+              setRecruits((current) => [
+                ...current,
+                {
+                  agentType: canRecruit[0].id,
+                  role: suggestAddress([
+                    ...roles.values(),
+                    ...current.map((row) => row.role),
+                  ]),
+                  // Seeded from the global preference, like every other
+                  // spawn surface, and changeable per row from there.
+                  yolo: defaultYolo,
+                },
+              ]);
+            }}
+          >
+            + Start a new agent
+          </button>
+        )}
+
         {/* THE POOL — only what is NOT on the team. A pane that has been
             taken leaves this list, so the two together always read as one
             answer to "who is where" instead of a field of checkboxes that
@@ -433,32 +465,6 @@ export function TeamDialog({
           </>
         )}
 
-        {canRecruit.length > 0 && (
-          // Secondary by construction: starting an agent is a step ON THE
-          // WAY to a team, never the thing that finishes one.
-          <button
-            type="button"
-            className="team__add"
-            onClick={() => {
-              setTouched(true);
-              setRecruits((current) => [
-                ...current,
-                {
-                  agentType: canRecruit[0].id,
-                  role: suggestAddress([
-                    ...roles.values(),
-                    ...current.map((row) => row.role),
-                  ]),
-                  // Seeded from the global preference, like every other
-                  // spawn surface, and changeable per row from there.
-                  yolo: defaultYolo,
-                },
-              ]);
-            }}
-          >
-            + Start a new agent
-          </button>
-        )}
 
         {touched && !planned.ok && (
           // Its own style, not the git hint's: that one is green, and a
