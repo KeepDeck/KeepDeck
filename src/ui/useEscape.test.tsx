@@ -14,10 +14,10 @@ afterEach(() => {
   root = null;
 });
 
-function mount(handler: () => void) {
+function mount(handler: () => void, enabled?: boolean) {
   root ??= createRoot(document.createElement("div"));
   function Probe() {
-    useEscape(handler);
+    useEscape(handler, enabled);
     return null;
   }
   act(() => root!.render(createElement(Probe)));
@@ -58,9 +58,19 @@ describe("useEscape", () => {
     const event = press({ repeat: true });
 
     expect(handler).not.toHaveBeenCalled();
-    // Not merely un-dismissed: this surface does not claim a key it refuses
-    // to act on, so a held Escape belongs to whoever holds the keyboard once
-    // the dialog is gone.
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("declines the press outright when the surface is not taking Escape", () => {
+    const handler = vi.fn();
+    mount(handler, false);
+
+    const event = press();
+
+    expect(handler).not.toHaveBeenCalled();
+    // The point is the second assertion. Guarding inside the closure still
+    // cancelled the press, so a form with no cancel to run — the first-run
+    // workspace screen — swallowed Escape window-wide and dismissed nothing.
     expect(event.defaultPrevented).toBe(false);
   });
 

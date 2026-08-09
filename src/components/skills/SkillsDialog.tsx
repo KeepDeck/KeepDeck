@@ -149,9 +149,7 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
 
   // While a confirm is up, Escape belongs to IT (useEscape handlers stack);
   // the dialog's own close must not race a re-confirm underneath.
-  useEscape(() => {
-    if (!confirm) navigate(null, true);
-  });
+  useEscape(() => navigate(null, true), !confirm);
 
   const creating = selection?.mode === "create";
   // Taken = another skill in this scope holds the name. Keeping your OWN
