@@ -25,7 +25,9 @@
 //! before applying anything.
 
 mod inbox;
+mod nudge;
 mod reply;
+mod spool;
 mod wire;
 
 use notify::{Event, EventKind, RecursiveMode, Watcher};
@@ -125,6 +127,25 @@ pub fn bridge_reply(bridge: tauri::State<Bridge>, id: String, body: String) {
             reply::discard(&run_dir, &id);
         }
     });
+}
+
+/// Tell a pane's own in-process reporter that mail is waiting for it.
+///
+/// The terminal equivalent of this types a line into the pane. That is the
+/// floor every CLI can meet, not the goal: an agent whose reporter runs
+/// inside its own process can be told directly, and then nothing KeepDeck
+/// does ever appears in front of the model as if the user had typed it.
+///
+/// Fire-and-forget by design. Whether anybody is listening is not a fact this
+/// side can observe — the reporter answers by ASKING, through the reply path
+/// above, and a pane that never asks lets its mail expire and be reported
+/// back to the sender. Guessing here would only add a second story.
+#[tauri::command]
+pub fn bridge_nudge(bridge: tauri::State<Bridge>, pane: String) {
+    match nudge::ring(&bridge.run_dir, &pane) {
+        Ok(()) => log::info!("bridge: nudged pane={}", printable(&pane)),
+        Err(e) => log::warn!("bridge: {e}"),
+    }
 }
 
 /// Why an inbox file yielded no event.

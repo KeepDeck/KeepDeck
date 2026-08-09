@@ -18,13 +18,10 @@
 //! produced it: this is the only place that turns it into a path, so this is
 //! the only place that can be sure.
 
+use super::spool;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-
-/// The longest correlation id worth accepting. Ids are minted per hook
-/// invocation and only have to be unique within one run directory.
-const MAX_CORRELATION_LEN: usize = 64;
 
 /// How long to wait before asking whether an answer was collected.
 ///
@@ -33,22 +30,6 @@ const MAX_CORRELATION_LEN: usize = 64;
 /// teardown. Too short and a hook still reading would be called a miss; too
 /// long only delays the verdict, so it errs long.
 pub const HOOK_WAIT: Duration = Duration::from_millis(2_500);
-
-/// Whether `id` may become part of a filename.
-///
-/// ASCII alphanumerics, `-` and `_` only. Deliberately a permit-list: it
-/// rejects `..`, `/`, NUL and every unicode look-alike in one rule, and a
-/// permit-list cannot be outgrown by a separator nobody thought of. An id
-/// that fails this is dropped rather than sanitised — a rewritten id would
-/// answer a question nobody asked, and the hook that is waiting would time
-/// out either way.
-fn is_usable_correlation(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= MAX_CORRELATION_LEN
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
 
 /// Where a reply for `id` lands inside `run_dir`.
 ///
@@ -63,18 +44,10 @@ fn reply_path(run_dir: &Path, id: &str) -> PathBuf {
 /// never sees its file simply times out and behaves as if the deck had
 /// nothing to say, which is the safe direction.
 pub fn write(run_dir: &Path, id: &str, body: &str) -> Result<(), String> {
-    if !is_usable_correlation(id) {
+    if !spool::is_usable_name(id) {
         return Err(format!("refusing a reply id that cannot be a filename: {id:?}"));
     }
-    let final_path = reply_path(run_dir, id);
-    // Staged beside the target so the rename stays within one filesystem,
-    // and named so a stray staging file is recognisable.
-    let staged = run_dir.join(format!("{id}.reply.tmp"));
-    fs::write(&staged, body).map_err(|e| format!("staging a reply failed: {e}"))?;
-    fs::rename(&staged, &final_path).map_err(|e| {
-        let _ = fs::remove_file(&staged);
-        format!("publishing a reply failed: {e}")
-    })
+    spool::publish(run_dir, &format!("{id}.reply"), body)
 }
 
 /// Whether the hook collected the answer written for `id`.
@@ -159,7 +132,7 @@ mod tests {
     #[test]
     fn an_overlong_id_is_refused_before_it_reaches_the_filesystem() {
         let dir = tempfile::tempdir().unwrap();
-        let long = "a".repeat(MAX_CORRELATION_LEN + 1);
+        let long = "a".repeat(spool::MAX_NAME_LEN + 1);
         assert!(write(dir.path(), &long, "x").is_err());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }

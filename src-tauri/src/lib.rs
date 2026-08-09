@@ -155,6 +155,7 @@ pub fn run() {
             app_updater::app_update_install,
             app_updater::app_update_discard,
             agents::agents_detect,
+            bridge::bridge_nudge,
             bridge::bridge_reply,
             apps::list_applications,
             clipboard::clipboard_image_to_temp,
