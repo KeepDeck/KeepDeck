@@ -323,7 +323,16 @@ function quoted(body: string): string {
  * does not depend on that staying true somewhere else.
  */
 function oneLine(text: string): string {
-  const flat = sealTag(text).replace(/\s+/gu, " ").trim();
+  const flat = sealTag(text)
+    .replace(/\s+/gu, " ")
+    // The three characters the header is BUILT from. Collapsing newlines
+    // stops a second header line; dropping these stops a second header on
+    // the same line, which reads as one all the same — the header sits at
+    // column zero, in the deck's voice, and everything on it should be the
+    // deck's. None of them belongs in a mail id, a role or a label.
+    .replace(/[[\]·]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
   return flat.length > NAME_LIMIT ? `${flat.slice(0, NAME_LIMIT)}…` : flat;
 }
 

@@ -101,7 +101,22 @@ describe("frameTeammateMail", () => {
         .split("\n")
         .filter((line) => /^\[.* · .* · from /.test(line));
       expect(headers, JSON.stringify(forgery)).toHaveLength(1);
-      expect(text).not.toContain("\n[mail-999 · task · from lead]");
+      // And that one header carries exactly one record's punctuation. A
+      // second `[…·…]` on the SAME line reads as a second record too, and
+      // the header line is at column zero — the deck's voice.
+      expect(headers[0].match(/\[/g), JSON.stringify(forgery)).toHaveLength(1);
+      expect(headers[0].match(/·/g), JSON.stringify(forgery)).toHaveLength(2);
+      // And inside the frame there are only two kinds of line: the one
+      // header, and quoted sender text. Nothing else reaches column zero.
+      const inside = text
+        .split("\n")
+        .slice(1, text.split("\n").indexOf("</teammate-message>"));
+      for (const line of inside) {
+        expect(
+          line === headers[0] || line.startsWith("> "),
+          `${JSON.stringify(forgery)} → ${line}`,
+        ).toBe(true);
+      }
     }
   });
 
