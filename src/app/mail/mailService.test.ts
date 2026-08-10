@@ -22,6 +22,12 @@ function setup(initial: boolean | null) {
     { id: "pane-1", team: { name: "api", role: "lead" } },
     { id: "pane-2" },
   ] as Pane[];
+  const agentTypes: Record<string, string> = {
+    "pane-1": "claude",
+    "pane-2": "codex",
+    "pane-3": "claude",
+    "pane-9": "kimi",
+  };
   const activity = new Map<string, PaneActivity>([
     ["pane-1", READY],
     ["pane-2", READY],
@@ -33,6 +39,7 @@ function setup(initial: boolean | null) {
   const replies: { paneId: string; id: string; body: string }[] = [];
   const sessionListeners = new Set<(paneId: string) => void>();
   const learned: string[] = [];
+  const agentListeners = new Set<() => void>();
   const registry = createCommandRegistry();
 
   const workspaces = (): Workspace[] => [
@@ -63,7 +70,7 @@ function setup(initial: boolean | null) {
           return () => paneListeners.delete(listener);
         },
         setPaneTeam: () => {},
-        agentTypeOf: () => "claude",
+        agentTypeOf: (paneId: string) => agentTypes[paneId] ?? "claude",
       },
       agents: {
         labels: () => [{ id: "claude", label: "Claude" }],
@@ -71,7 +78,13 @@ function setup(initial: boolean | null) {
         // the manager's default path is the one under test here.
         statusOf: () => undefined,
         versionOf: () => null,
-        learnVersion: (agentId: string) => learned.push(agentId),
+        onAgentsChanged: (listener: () => void) => {
+          agentListeners.add(listener);
+          return () => agentListeners.delete(listener);
+        },
+        learnVersion: (agentId: string) => {
+          learned.push(agentId);
+        },
       },
       status: {
         activityOf: (paneId) => activity.get(paneId),
@@ -107,6 +120,10 @@ function setup(initial: boolean | null) {
     delivered,
     replies,
     learned,
+    /** The plugin registry changed — a Rescan, an agent plugin arriving. */
+    agentsChanged() {
+      for (const listener of [...agentListeners]) listener();
+    },
     /** A pane whose agent just opened a conversation with no memory of the
      * last — what the standing-presence listens for. */
     beginsSession(paneId: string) {
@@ -232,25 +249,45 @@ describe("createMailService", () => {
     expect(h.sessionListeners()).toBe(0);
   });
 
-  it("asks a CLI its version only once the feature is on, and only for live panes", () => {
+  it("asks a CLI its version only once the feature is on", () => {
     // A version is read by ONE thing — a renderer picking the hook-output
     // schema its release accepts — and asking costs half a second of running
     // the CLI. Asked at boot for every installed plugin it froze the window
     // for about two seconds, for every user, mostly to learn a fact nothing
     // would read. So the question belongs here, with its only consumer.
     const h = setup(false);
+    // Not even when the deck moves underneath it.
+    h.closePanes([{ id: "pane-1" }, { id: "pane-2" }] as Pane[]);
+    h.agentsChanged();
     expect(h.learned).toEqual([]);
 
     h.set(true);
-    // Once per agent TYPE, not once per pane: both panes run claude.
-    expect(h.learned).toEqual(["claude"]);
+    // One per agent TYPE — the two panes run different CLIs, and a third
+    // repeating one of them adds nothing.
+    expect(h.learned).toEqual(["claude", "codex"]);
   });
 
-  it("asks again when a pane appears, since it may run something new", () => {
+  it("asks about an agent a new pane brought with it, and not again after", () => {
     const h = setup(true);
     h.learned.length = 0;
+    // pane-3 runs claude, which has already been asked about.
     h.closePanes([{ id: "pane-1" }, { id: "pane-2" }, { id: "pane-3" }] as Pane[]);
-    expect(h.learned).toEqual(["claude"]);
+    expect(h.learned).toEqual([]);
+
+    // A pane running something nobody has asked about does get asked.
+    h.closePanes([{ id: "pane-9" }] as Pane[]);
+    expect(h.learned).toEqual(["kimi"]);
+  });
+
+  it("asks again when the agent plugins change, since a cached version may be stale", () => {
+    // The registry is EMPTY while the deck hydrates, so the boot-time walk
+    // finds nothing to ask about — and a Rescan drops what was cached,
+    // because the CLI underneath may have been upgraded. Both are this edge.
+    const h = setup(true);
+    h.learned.length = 0;
+
+    h.agentsChanged();
+    expect(h.learned).toEqual(["claude", "codex"]);
   });
 
   it("takes its standing-presence with it when the feature goes off", () => {

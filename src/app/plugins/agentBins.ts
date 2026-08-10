@@ -16,9 +16,9 @@
  * with that agent starts — and remembered.
  *
  * Its own module because it is the one thing here that is ABOUT the machine
- * rather than about the plugin set. The join from an agent id to its bin
- * lives here too, so no caller repeats the walk from a registry entry to
- * `detect.bin` to this cache.
+ * rather than about the plugin set. Everything here is keyed by BINARY; the
+ * walk from an agent id to the bin it declared is a fact about the plugin
+ * registry, and lives with it (`binOfAgent`, in the plugin manager).
  */
 import { detectBins, probeVersion } from "../../ipc/agents";
 
@@ -36,10 +36,10 @@ export interface AgentBins {
   detect(bins: string[]): Promise<void>;
   /** Ask this bin its version if nobody has yet, and remember the answer.
    *
-   * Single-flight per bin: two panes starting together ask once. Answered
-   * once and never re-asked — a running CLI does not change version under a
-   * live app, and the gesture for "I upgraded it" is a Rescan, which starts
-   * a fresh pass anyway.
+   * Single-flight per bin: two panes starting together ask once. Remembered
+   * until `detect` runs over that bin again — which is the Rescan and the
+   * enable gesture, the two moments a CLI on this machine can have changed
+   * under a running app.
    *
    * The CALLER establishes that this bin may be run. Nothing here knows
    * about capabilities. */
@@ -66,6 +66,15 @@ export function createAgentBins(
     installed: (bin) => installed.get(bin) !== false,
     version: (bin) => version.get(bin) ?? null,
     async detect(bins) {
+      for (const bin of bins) {
+        // A re-detection is the app asking again what is on this machine —
+        // Rescan, or an enable gesture — which is exactly when a CLI may have
+        // been upgraded under it. Forgetting the version makes the next
+        // asker re-ask; keeping it made the cache write-once for the life of
+        // the process, so a codex upgraded from 0.146 to 0.147 mid-session
+        // went on being answered in a schema it no longer speaks.
+        version.delete(bin);
+      }
       for (const status of await probe(bins)) {
         installed.set(status.bin, status.installed);
       }

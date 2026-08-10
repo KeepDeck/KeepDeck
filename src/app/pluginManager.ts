@@ -10,7 +10,6 @@ import { readText as clipboardReadText, writeText as clipboardWriteText } from "
 import {
   declaredAgentBins,
   mergeSectionValues,
-  probeableAgentBins,
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
@@ -63,6 +62,10 @@ import { openPath, openPathWith, openUrl } from "../ipc/app";
 import { voiceEngines, voiceCaptureStart } from "../ipc/voice";
 import { describeError, log } from "../ipc/log";
 import { createAgentBins } from "./plugins/agentBins";
+import {
+  binOfAgent,
+  probeableBinOfAgent,
+} from "./plugins/agentVersionGate";
 import { allocatePorts } from "../ipc/ports";
 import { scanPlugins } from "../ipc/plugins";
 import { spawnSession } from "../ipc/session";
@@ -667,27 +670,22 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * Learn what this agent's CLI answers to `--version`, if we may ask and
    * have not already.
    *
-   * Called when a pane with that agent STARTS, and deliberately not awaited:
-   * nothing needs the answer until a teammate message is rendered for that
-   * pane, which is seconds away at the very least. Until then `versionOf`
-   * reads null, which every consumer already takes as "assume the current
-   * schema".
+   * Deliberately not awaited by its caller: nothing needs the answer until a
+   * teammate message is rendered for that pane, which is seconds away at the
+   * very least. Until then `versionOf` reads null, which every consumer
+   * already takes as "assume the current schema".
    *
-   * The `exec` gate lives here because this is where manifests are visible.
-   * A probe RUNS a program named by a manifest field, so a plugin that did
-   * not declare it gets presence and nothing more.
+   * Whether we MAY ask is [`probeableBinOfAgent`] — a pure rule with a test,
+   * because it is the one thing standing between a manifest field and a
+   * process being started.
    */
   async function ensureAgentVersion(agentId: string): Promise<void> {
-    const entry = pluginRegistries.agents
-      .list()
-      .find((contribution) => contribution.entry.id === agentId);
-    const bin = entry?.entry.detect.bin;
-    if (!bin) return;
-    const owner = pluginHost
-      .getInstalled()
-      .find((plugin) => plugin.manifest.id === entry.pluginId);
-    if (!owner || !probeableAgentBins(owner.manifest).includes(bin)) return;
-    await agentBins.ensureVersion(bin);
+    const bin = probeableBinOfAgent(
+      pluginRegistries.agents.list(),
+      pluginHost.getInstalled(),
+      agentId,
+    );
+    if (bin) await agentBins.ensureVersion(bin);
   }
 
   /** Built-in plugins' categories, recorded at install — `isEnabled(id)` is a
@@ -1023,10 +1021,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
      * a second place that knows where `detect.bin` lives.
      */
     agentBinVersion: (agentId: string): string | null => {
-      const bin = pluginRegistries.agents
-        .list()
-        .find((contributed) => contributed.entry.id === agentId)?.entry.detect
-        ?.bin;
+      const bin = binOfAgent(pluginRegistries.agents.list(), agentId);
       return bin ? agentBins.version(bin) : null;
     },
     ensureAgentVersion,

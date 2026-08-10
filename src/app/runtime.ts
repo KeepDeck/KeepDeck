@@ -206,13 +206,18 @@ export function createAppRuntime(
       agents: {
         labels: agentLabels,
         statusOf: (agentId) => agentEntry(agentId)?.status,
-        // Through the agent's DECLARED bin, which is the same name the
-        // detection pass probed — the join lives with the cache, so nothing
-        // out here repeats the walk to `detect.bin`.
+        // Through the agent's DECLARED bin. The walk from an agent id to
+        // that bin lives in one place (`binOfAgent`), so nothing out here
+        // repeats it.
         versionOf: plugins.agentBinVersion,
+        onAgentsChanged: plugins.pluginRegistries.agents.subscribe,
         // Fire and forget: the port answers once per binary and remembers,
-        // and nothing in the render path may wait on a process starting.
-        learnVersion: (agentId) => void plugins.ensureAgentVersion(agentId),
+        // and nothing in the render path may wait on a process starting. The
+        // catch is what makes "cannot be awaited" true rather than merely
+        // intended — a discarded promise that rejects is an unhandled one.
+        learnVersion: (agentId) => {
+          void plugins.ensureAgentVersion(agentId).catch(() => {});
+        },
       },
       status: {
         activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),

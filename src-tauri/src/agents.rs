@@ -63,13 +63,20 @@ fn detect_bins(bins: Vec<String>, path: &std::ffi::OsStr) -> Vec<BinStatusDto> {
 #[tauri::command]
 pub async fn agents_probe_version(bin: String) -> Option<String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let path = keepdeck_env::augmented_path();
-        let found = keepdeck_env::find_program(&bin, path)?;
-        probe_version(&found, path)
+        version_of(&bin, keepdeck_env::augmented_path())
     })
     .await
+    // A panicking blocking task reads as "could not tell", like every other
+    // failure here: null means "assume the current protocol", never "old".
     .ok()
     .flatten()
+}
+
+/// Resolve `bin` on `path` and ask it. The command's whole body, kept apart
+/// from the async wrapper so the tests exercise what actually runs rather
+/// than a hand-copied twin of it.
+fn version_of(bin: &str, path: &std::ffi::OsStr) -> Option<String> {
+    probe_version(&keepdeck_env::find_program(bin, path)?, path)
 }
 
 /// How long a `--version` probe may take before it is killed, and how often
@@ -184,11 +191,8 @@ fn parse_version(said: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// Ask one bin its version the way [`agents_probe_version`] does, minus
-    /// the async wrapper: resolve on the given PATH, then run it.
-    fn probing(bin: &str, path: &std::ffi::OsStr) -> Option<String> {
-        probe_version(&keepdeck_env::find_program(bin, path)?, path)
-    }
+    /// What the command runs, on a PATH the test controls.
+    use super::version_of as probing;
 
     #[test]
     fn detects_requested_bins_on_the_given_path() {
@@ -279,10 +283,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn kills_a_binary_that_never_answers_rather_than_waiting_on_it() {
-        // Detection is sequential and the deck waits on all of it, so one
-        // program that never exits holds every agent's availability behind
-        // it — at boot, where the user sees an app that will not start. The
-        // bound is what makes a `--version` probe safe to run at all.
+        // Nothing waits on a probe, but "nothing waits" is not "anything
+        // goes": a program that never exits would hold a pool thread for the
+        // life of the app, and one per agent would leak them. The bound is
+        // what makes running somebody else's binary safe at all.
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("kd-hanging-agent");
@@ -395,6 +399,3 @@ mod tests {
         assert_eq!(parse_version(""), None);
     }
 }
-
-
-

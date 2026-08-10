@@ -119,11 +119,15 @@ export function declaredAgentBins(manifest: PluginManifest): string[] {
  * The subset of those binaries the host may RUN, to ask `--version`.
  *
  * A version probe is an execution — of a program named by a manifest field,
- * at boot, before activation, for a plugin the user may have installed and
- * never enabled. So it is gated by the same `exec` capability that governs
- * a session spawn, and by the same rule: what is not covered is detected
- * for presence and left alone. A renderer for such an agent simply gets
- * `null`, which every consumer already reads as "assume the current schema".
+ * on behalf of a host that only wants to READ something. So it is gated by
+ * the same `exec` capability that governs a session spawn, and by the same
+ * rule: what is not covered is detected for presence and left alone. A
+ * renderer for such an agent simply gets `null`, which every consumer
+ * already reads as "assume the current schema".
+ *
+ * The host asks this of the manifest that OWNS the agent, never of the
+ * installed set as a whole — see `probeableBinOfAgent`. A union would let a
+ * plugin that declared nothing be probed on somebody else's consent.
  */
 export function probeableAgentBins(manifest: PluginManifest): string[] {
   return declaredAgentBins(manifest).filter((bin) =>

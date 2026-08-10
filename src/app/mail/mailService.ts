@@ -71,6 +71,12 @@ export interface MailServiceDeps {
     /** What that agent's own binary answered to `--version`, or null. A
      * hook-output schema belongs to a RELEASE, so a renderer may need it. */
     versionOf(agentId: string): string | null;
+    /** Every change to the set of agent plugins — one registered, one
+     * uninstalled, a Rescan re-activating them all. That is when a version
+     * can become knowable (the registry was empty at boot) or become STALE
+     * (a Rescan forgets what it cached, because the CLI may have been
+     * upgraded under a running app). */
+    onAgentsChanged(listener: () => void): () => void;
     /** Go and find that out, if nobody has yet.
      *
      * Returns nothing on purpose: it must be impossible to await. Asking a
@@ -149,13 +155,19 @@ export function createMailService(
    * every installed plugin instead cost every user about two seconds of
    * blocked window, most of them for a fact nothing would ever read.
    *
-   * Fire and forget, and cheap to repeat: the port answers once per binary
-   * and remembers. Called when the feature comes up and on every deck
-   * change, so the answer is in hand long before a pane reaches the turn
-   * boundary where it could matter.
+   * Fire and forget. Called on the two edges that can change the answer —
+   * the feature coming up, and the agent plugins changing — and on a deck
+   * change, which is how a NEW pane running a new agent gets asked about.
+   * A deck notification is frequent (a selection, a title, a focus), so the
+   * walk stops at the first pane of a type already asked for: the port
+   * itself is idempotent, but reaching it costs a registry walk and a
+   * manifest check.
+   *
+   * `asked` is forgotten whenever the agent plugins change, which is exactly
+   * when a cached version is dropped and has to be learned again.
    */
+  let asked = new Set<string>();
   const learnLiveVersions = () => {
-    const asked = new Set<string>();
     for (const workspace of deps.deck.workspaces()) {
       for (const pane of workspace.panes) {
         const agentType = deps.deck.agentTypeOf(pane.id);
@@ -258,6 +270,7 @@ export function createMailService(
         mail: manager,
       });
       presence = startPresence();
+      asked = new Set();
       learnLiveVersions();
       return;
     }
@@ -272,6 +285,16 @@ export function createMailService(
     if (!manager) return;
     manager.retain(livePaneIds());
     // A pane that just appeared may run an agent nobody has asked about.
+    learnLiveVersions();
+  });
+  // The registry is EMPTY while the deck hydrates, so a boot-time walk finds
+  // nothing — and a Rescan drops what was cached, because the CLI underneath
+  // may have been upgraded. Both are this edge, not a deck change, and
+  // without it the answer was only ever learned by the coincidence that
+  // waking a restored pane happens to write to the deck.
+  const unsubscribeAgents = deps.agents.onAgentsChanged(() => {
+    if (!manager) return;
+    asked = new Set();
     learnLiveVersions();
   });
   let stopUncollected: (() => void) | null = null;
@@ -304,6 +327,7 @@ export function createMailService(
       // feature is on or off, and so are not `tearDown`'s business.
       unsubscribeSettings();
       unsubscribePanes();
+      unsubscribeAgents();
       stopUncollected?.();
       tearDown();
     },

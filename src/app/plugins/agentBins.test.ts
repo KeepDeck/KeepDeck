@@ -61,6 +61,30 @@ describe("createAgentBins", () => {
     expect(bins.version("codex")).toBe("0.147.0");
   });
 
+  it("forgets a version when the bin is detected again", async () => {
+    // Re-detection is the app asking what is on this machine NOW — a Rescan,
+    // or an enable gesture — which is exactly when a CLI may have been
+    // upgraded under it. Keeping the answer made the cache write-once for
+    // the life of the process: upgrade codex 0.146 → 0.147, hit Rescan, and
+    // mail goes on being rendered in a schema the binary no longer speaks.
+    let answer = "0.146.0";
+    const bins = createAgentBins(
+      async (asked) => asked.map((bin) => ({ bin, installed: true })),
+      async () => answer,
+    );
+    await bins.detect(["codex"]);
+    await bins.ensureVersion("codex");
+    expect(bins.version("codex")).toBe("0.146.0");
+
+    answer = "0.147.0";
+    await bins.detect(["codex"]);
+    // Forgotten, so it is unknown until somebody asks again — and unknown
+    // is the safe direction: every reader takes null as "current schema".
+    expect(bins.version("codex")).toBeNull();
+    await bins.ensureVersion("codex");
+    expect(bins.version("codex")).toBe("0.147.0");
+  });
+
   it("remembers that it could not tell, rather than asking again forever", async () => {
     // A CLI that answers nothing legible costs the same half second as one
     // that does. Re-asking on every pane start would spend it repeatedly to
