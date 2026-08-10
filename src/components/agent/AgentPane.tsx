@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRestart } from "./useRestart";
 import type { AgentRestartMode } from "../../domain/agents";
 import type { RestartOutcome } from "../../app/agentOrchestrator";
 import {
@@ -12,6 +12,7 @@ import {
 // popover uses, rather than growing a second one.
 import { formatAge } from "../../domain/usage";
 import { activityBadge, paneFrame } from "../../domain/status";
+import { useWallClock } from "../../ui/useWallClock";
 import { usePaneActivity } from "../../app/usePaneActivity";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { usePaneSessionState } from "../../app/usePaneSessionState";
@@ -217,68 +218,16 @@ export function AgentPane({
   // back short of closing it.
   const ended =
     session.kind === "exited" || session.kind === "failed" ? session : null;
-  // A successful restart remounts the whole pane via its epoch. Until then,
-  // keep both choices inert; only a rejected plan lets the user try again.
-  const restartInFlight = useRef(false);
-  const [restarting, setRestarting] = useState(false);
-  const [restartFailed, setRestartFailed] = useState(false);
-  const restart = (mode: AgentRestartMode) => {
-    if (!onRestart || restartInFlight.current) return;
-    restartInFlight.current = true;
-    setRestarting(true);
-    setRestartFailed(false);
-
-    const recover = () => {
-      restartInFlight.current = false;
-      setRestarting(false);
-      setRestartFailed(true);
-    };
-    // A restart that STOOD DOWN — the pane was stopped or closed under it —
-    // resolves without a remount, so treating "resolved" as "restarted" left
-    // the card promising a restart that was not coming. Only `restarted`
-    // keeps the spinner, because only it bumps the epoch, and that remount is
-    // what clears it.
-    const settle = (outcome: RestartOutcome) => {
-      if (outcome === "restarted") return;
-      restartInFlight.current = false;
-      setRestarting(false);
-    };
-    try {
-      void Promise.resolve(onRestart(mode)).then(settle, recover);
-    } catch {
-      recover();
-    }
-  };
-  // The suspended card dates itself, so the clock has to move even when
-  // nothing else re-renders this pane: a quiet deck would otherwise read
-  // "now" for as long as it stayed quiet. One minute is the resolution
-  // `formatAge` actually shows.
-  const [now, setNow] = useState(() => Date.now());
-  // Suspended cards and activity tooltips both date themselves; either
-  // presence arms the minute clock.
-  const dated = idle?.reason === "suspended" || activity !== undefined;
-  useEffect(() => {
-    if (!dated) return;
-    // The clock is refreshed on the way IN too: a pane that ran for an hour
-    // between two suspends would otherwise date its card by the hour-old
-    // reading. Below the formatter's own resolution the state is left
-    // untouched, so React bails out — mounting a stopped deck costs no extra
-    // render, which is the only case where this runs with nothing to correct.
-    setNow((prev) => (Date.now() - prev >= 60_000 ? Date.now() : prev));
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, [dated]);
-  // A pane that stops keeps this component MOUNTED — suspending and resuming
-  // bump no mount epoch, unlike a restart — so its runtime view state would
-  // otherwise outlive the process it describes: an exited pane that is parked
-  // and then resumed would paint "Agent exited", over a live terminal, with a
-  // Restart button that kills the session the user just brought back.
-  useEffect(() => {
-    if (!idle) return;
-    restartInFlight.current = false;
-    setRestarting(false);
-    setRestartFailed(false);
-  }, [idle]);
+  // A successful restart remounts the whole pane via its epoch. Until then
+  // both choices stay inert, and a pane that stops resets the machine —
+  // see [`useRestart`], where those two rules live with their reasoning.
+  const { restarting, restartFailed, restart } = useRestart(onRestart, idle);
+  // The suspended card and the activity tooltip both date themselves, so the
+  // clock has to move even when nothing else re-renders this pane: a quiet
+  // deck would otherwise read "now" for as long as it stayed quiet. Either
+  // presence arms it; nothing dated leaves it still, which matters because a
+  // deck runs one of these per pane.
+  const now = useWallClock(0, idle?.reason === "suspended" || activity !== undefined);
   // The context meter belongs on a LIVE pane only — a frozen, undimmed ctx% on
   // an exited / idle / unavailable / provisioning pane would read as live
   // (its last usage report lingers in the store until the pane leaves the deck).
