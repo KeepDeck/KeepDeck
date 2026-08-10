@@ -61,7 +61,7 @@ import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
 import { voiceEngines, voiceCaptureStart } from "../ipc/voice";
 import { describeError, log } from "../ipc/log";
-import { detectBins } from "../ipc/agents";
+import { createAgentBins } from "./plugins/agentBins";
 import { allocatePorts } from "../ipc/ports";
 import { scanPlugins } from "../ipc/plugins";
 import { spawnSession } from "../ipc/session";
@@ -280,6 +280,10 @@ export function createPluginManager(appDownloads: DownloadManager) {
     }) => paneSelected.emit(e),
     emitDeckChanged: () => deckChanged.emit(),
   };
+
+  /** What the host knows about the agent CLIs on this machine — installed,
+   * and which release. See [`createAgentBins`]. */
+  const agentBins = createAgentBins();
 
   // ------------------------------------------------------------------ ports
 
@@ -616,8 +620,8 @@ export function createPluginManager(appDownloads: DownloadManager) {
       // The activation gate's availability read — sync from the cache
       // `detectAndCacheBins` keeps warm; unknown bins stay permissive (this
       // is a UX gate, never a lockout boundary).
-      isAgentBinInstalled: (bin) => agentBinInstalled.get(bin) ?? true,
-      refreshAgentBins: detectAndCacheBins,
+      isAgentBinInstalled: agentBins.installed,
+      refreshAgentBins: agentBins.detect,
       // A failed plugin otherwise surfaces only as a log line and a hint in
       // Settings → Plugins — invisible unless the user goes looking. Plugin
       // source, deliberately: notification navigation maps it to the
@@ -638,31 +642,6 @@ export function createPluginManager(appDownloads: DownloadManager) {
     },
     pluginRegistries,
   );
-
-  /** Cache behind the host's `isAgentBinInstalled` dep: bin → installed.
-   * Absent entries are treated as installed (permissive by design).
-   * NOTE there is a second bin-status cache in useAgents (per-mount, for the
-   * agent pickers); this one is the ACTIVATION gate's source of truth —
-   * refreshed at bootstrap, rescan and enable gestures. New consumers of bin
-   * state should pick deliberately: picker/live freshness → useAgents,
-   * lifecycle gating → here. */
-  const agentBinInstalled = new Map<string, boolean>();
-
-  /** Cache of what each agent bin answers to `--version`, filled by the same
-   * pass. A CLI's wire protocols move between releases — codex replaced its
-   * whole hook-output schema between 0.146 and 0.147 — and a plugin that has
-   * to speak the right one has nothing else to go on. Absent means "could
-   * not tell", which every consumer must read as "assume current". */
-  const agentBinVersion = new Map<string, string>();
-
-  /** Detect the given agent bins once and record the statuses. Shared by the
-   * bootstrap pass (every declared bin) and the enable gesture's refresh. */
-  async function detectAndCacheBins(bins: string[]): Promise<void> {
-    for (const status of await detectBins(bins)) {
-      agentBinInstalled.set(status.bin, status.installed);
-      if (status.version) agentBinVersion.set(status.bin, status.version);
-    }
-  }
 
   /** Every agent bin declared by the currently installed plugins, deduped. */
   function declaredBinsOfInstalled(): string[] {
@@ -772,7 +751,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
       // One detection pass over every declared agent bin BEFORE the
       // activation gate reads it — a plugin whose CLI is missing must land in
       // `unavailable` on boot, not activate into a broken setup.
-      await detectAndCacheBins(declaredBinsOfInstalled());
+      await agentBins.detect(declaredBinsOfInstalled());
       await pluginHost.activateAll();
       // The one boot line that says the system came up — failures are logged
       // per plugin by the host, so silence here would hide a healthy boot.
@@ -807,7 +786,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
     // Always re-detect and re-activate, even when the folder didn't change —
     // gating this on a folder diff would leave a built-in agent plugin stuck
     // `unavailable` (CLI missing at boot, installed since) with no feedback.
-    await detectAndCacheBins(declaredBinsOfInstalled());
+    await agentBins.detect(declaredBinsOfInstalled());
     await pluginHost.activateAll();
   }
 
@@ -998,11 +977,22 @@ export function createPluginManager(appDownloads: DownloadManager) {
     bootstrapPlugins,
     rescanPlugins,
     restartPlugin,
-    /** What an agent's binary answers to `--version`, or null when nothing
+    /**
+     * What THIS AGENT's binary answers to `--version`, or null when nothing
      * legible came back. The one caller today is mail rendering, where the
-     * CLI's hook-output schema differs by release. */
-    agentBinVersion: (bin: string): string | null =>
-      agentBinVersion.get(bin) ?? null,
+     * CLI's hook-output schema differs by release.
+     *
+     * Keyed by agent id, not by bin: the walk from an agent to its declared
+     * bin is a fact about the registry, and a caller doing it itself would be
+     * a second place that knows where `detect.bin` lives.
+     */
+    agentBinVersion: (agentId: string): string | null => {
+      const bin = pluginRegistries.agents
+        .list()
+        .find((contributed) => contributed.entry.id === agentId)?.entry.detect
+        ?.bin;
+      return bin ? agentBins.version(bin) : null;
+    },
   };
 }
 

@@ -209,13 +209,9 @@ export function createAppRuntime(
         labels: agentLabels,
         statusOf: (agentId) => agentEntry(agentId)?.status,
         // Through the agent's DECLARED bin, which is the same name the
-        // detection pass probed — an agent whose plugin declares none simply
-        // has no version, and its renderer reads that as "assume the current
-        // schema".
-        versionOf: (agentId) => {
-          const bin = agentEntry(agentId)?.detect?.bin;
-          return bin ? plugins.agentBinVersion(bin) : null;
-        },
+        // detection pass probed — the join lives with the cache, so nothing
+        // out here repeats the walk to `detect.bin`.
+        versionOf: plugins.agentBinVersion,
       },
       status: {
         activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
