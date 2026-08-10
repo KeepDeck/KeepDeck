@@ -20,6 +20,14 @@ export interface MailLimits {
    * and the message rides in free; past this, the deck nudges the pane into
    * a turn instead — which delivers just as properly and costs one. */
   hookWaitMs: number;
+  /** How much teammate text may land in ONE turn boundary, in characters.
+   *
+   * The per-message cap lives with the framing; this is the other half, and
+   * it has to live here because only the queue's owner can bound a BATCH
+   * without losing anything. Whatever does not fit stays queued for the next
+   * ask, so the pane reads its mail over a few turns instead of taking one
+   * enormous injection — which is what a sender in a loop produces. */
+  handoverChars: number;
 }
 
 /**
@@ -46,11 +54,18 @@ export interface MailLimits {
  * and either way the message arrives through the same labelled channel. It
  * must stay well under `undeliveredMs`, or the nudge would never get a turn
  * before the message aged out.
+ *
+ * `handoverChars` — 32 000 is two full-size messages, or a great many
+ * ordinary ones, and it is a CEILING rather than a target: a hand-over
+ * always carries at least one message, however long, so nothing can be
+ * stuck behind the bound. It exists because the receiver pays for every
+ * character in its next turn, and the sender chooses how many there are.
  */
 export const MAIL_LIMITS: MailLimits = {
   undeliveredMs: 5 * 60_000,
   maxHops: 8,
   hookWaitMs: 45_000,
+  handoverChars: 32_000,
 };
 
 /** Why a message is still sitting undelivered. Both resolve on their own —

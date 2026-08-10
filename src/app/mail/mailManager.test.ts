@@ -338,6 +338,43 @@ describe("createMailManager", () => {
     expect(h.manager.inbox(B.paneId)).toHaveLength(1);
   });
 
+  it("hands over one turn's worth at a time, leaving the rest queued", () => {
+    // The receiver pays for every character in its next turn, and the SENDER
+    // chooses how many there are. Nothing caps the queue, and a hand-over
+    // used to drain all of it — so a teammate sending in a loop landed as one
+    // enormous injection. Bounded HERE rather than in the framing, because
+    // only the queue's owner can stop before a message without losing it:
+    // by the time anything is framed it has already left the queue.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, { state: "working", since: 500 });
+    // Two of these fit inside the budget; the short third one tips it over.
+    const big = "x".repeat(MAIL_LIMITS.handoverChars / 2 - 1);
+    for (const body of [big, big, "and a short one"]) {
+      h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body });
+    }
+
+    // Two fit; the third waits, in order, for the next boundary.
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toHaveLength(2);
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
+      "and a short one",
+    ]);
+  });
+
+  it("always carries at least one message, however long", () => {
+    // A ceiling, not a target. A single message past the budget must still
+    // go, or it would sit at the head of the queue forever and everything
+    // behind it with it.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, { state: "working", since: 500 });
+    h.manager.send({
+      from: A,
+      toPaneId: B.paneId,
+      kind: "note",
+      body: "x".repeat(MAIL_LIMITS.handoverChars * 3),
+    });
+    expect(h.manager.takeAtTurnEnd(B.paneId)).toHaveLength(1);
+  });
+
   it("nudges an idle pane AT ONCE, without waiting out a boundary that is not coming", () => {
     // The delay the whole feature felt like: measured live, a lead's three
     // answers each sat the full 45s wait because it had stopped 11 seconds
@@ -463,6 +500,45 @@ describe("createMailManager", () => {
     h.reports(B.paneId, done);
     expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.kind)).toEqual([
       "team",
+    ]);
+  });
+
+  it("drops a put-back briefing when a newer one is already waiting", () => {
+    // The window is ordinary: a briefing is handed to the hook, the pane
+    // restarts without reading it, the session-start announce puts the
+    // CURRENT roster in the empty queue, and only then does the transport
+    // report the old answer unread. `restore` unshifted raw, so the stale
+    // briefing went to the FRONT — and standing context never expires, so
+    // the agent read a superseded team first and, if its role changed across
+    // that restart, acted on it.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, { state: "working", since: 500 });
+    h.manager.announce(B.paneId, "team", "you are impl-1 on api");
+    const [old] = h.manager.takeAtTurnEnd(B.paneId);
+    expect(old.body).toContain("impl-1");
+
+    h.manager.announce(B.paneId, "team", "you are lead on api");
+    h.manager.restore([old]);
+
+    // Only the current one, and it is the one that survives.
+    const waiting = h.manager.takeAtTurnEnd(B.paneId);
+    expect(waiting.map((mail) => mail.body)).toEqual(["you are lead on api"]);
+  });
+
+  it("still puts traffic back at the head, where it was", () => {
+    // The supersede rule is about STANDING context only. A task or a note is
+    // not made wrong by a later one, and losing it would be losing mail —
+    // the very thing the put-back path exists to prevent.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, { state: "working", since: 500 });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "first" });
+    const [taken] = h.manager.takeAtTurnEnd(B.paneId);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "second" });
+    h.manager.restore([taken]);
+
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
+      "first",
+      "second",
     ]);
   });
 

@@ -444,8 +444,26 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       const queue = queues.get(paneId);
       if (!queue) return [];
       const taken: Mail[] = [];
+      let carried = 0;
       while (queue.length > 0) {
         const head = queue[0];
+        // Enough for this turn. The receiver pays for every character in its
+        // next turn and the SENDER chooses how many there are, so a loop of
+        // sends would otherwise arrive as one enormous injection. What is
+        // left keeps its place at the head of the queue and goes at the next
+        // boundary — nothing is dropped, because by here it has already left
+        // the queue's protection.
+        //
+        // Checked AFTER at least one message is taken: a single message
+        // longer than the whole budget must still be delivered, or it would
+        // sit at the head forever and block everything behind it.
+        if (taken.length > 0 && carried + head.body.length > limits.handoverChars) {
+          log.info(
+            "web:mail",
+            `handing over ${taken.length} of ${taken.length + queue.length} — ${carried} chars is enough for one turn`,
+          );
+          break;
+        }
         // The same two clauses the other channel obeys, asked rather than
         // repeated: a message too old to paste is too old to hand over
         // politely and its sender is owed the same report, and a pane parked
@@ -468,6 +486,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         remember(paneId, head);
         log.info("web:mail", `handed to the turn-end hook: ${trace(head)}`);
         taken.push(head);
+        carried += head.body.length;
       }
       if (queue.length === 0) queues.delete(paneId);
       // Whatever is left (a held prompt, a fresh notice) still needs its
@@ -481,8 +500,27 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         const mail = messages[i];
         log.info("web:mail", `put back, nobody took it: ${trace(mail)}`);
         const queue = queues.get(mail.toPaneId);
-        if (queue) queue.unshift(mail);
-        else queues.set(mail.toPaneId, [mail]);
+        if (!queue) {
+          queues.set(mail.toPaneId, [mail]);
+        } else if (
+          isStandingContext(mail.kind) &&
+          queue.some((waiting) => waiting.kind === mail.kind)
+        ) {
+          // A newer statement of the same standing context is already
+          // waiting, so this one is not merely older — it is WRONG, and it
+          // would go in front. The window is ordinary: a briefing is handed
+          // over, the pane restarts without reading it, `onSessionBegan`
+          // announces the current roster, and only then does the transport
+          // report the old answer unread. Standing context never expires, so
+          // an agent handed both would read a superseded team first — and if
+          // its role changed across that restart, act on it.
+          //
+          // `enqueue` states this rule for the arriving direction; the two
+          // are the same rule, and putting a message back has to obey it too.
+          log.info("web:mail", `dropped on the way back, superseded: ${trace(mail)}`);
+        } else {
+          queue.unshift(mail);
+        }
         const held = inboxes.get(mail.toPaneId);
         const at = held?.findIndex((seen) => seen.id === mail.id) ?? -1;
         if (held && at >= 0) held.splice(at, 1);

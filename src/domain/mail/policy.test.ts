@@ -216,7 +216,12 @@ describe("decideDelivery", () => {
   it("reads the limits it is given, not only the shipped ones", () => {
     // Guards against the bound being read from the module constant instead
     // of the argument — a bug no default-limits test can see.
-    const limits = { undeliveredMs: 10, maxHops: 1, hookWaitMs: 5 };
+    const limits = {
+      undeliveredMs: 10,
+      maxHops: 1,
+      hookWaitMs: 5,
+      handoverChars: 100,
+    };
     expect(decideDelivery(mail(), working, SENT_AT + 10, limits)).toEqual({ kind: "expire" });
     expect(decideDelivery(mail(), working, SENT_AT + 9, limits)).toEqual({ kind: "deliver" });
   });
