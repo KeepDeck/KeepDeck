@@ -88,37 +88,68 @@ export function publish(dir, envelope) {
  * answer cannot change. When the client cannot answer, the session is
  * treated as a root: leaving the pane bound to nothing is worse than binding
  * to the wrong one, because nothing ever reaches it again.
+ *
+ * Every member is a closure rather than a method: this object gets passed
+ * between two plugins, and a `this`-bound method breaks the moment somebody
+ * destructures it.
  */
 export function createSubagentIndex(client) {
   /** child session id → the root its work belongs to. */
   const parents = new Map();
+
+  /** Record a child, with the root its work rolls up to — a child's own
+   * children roll up to the same root, not to their parent. */
+  const note = (childID, parentID) => {
+    if (childID) parents.set(childID, parents.get(parentID) ?? parentID);
+  };
+
+  /**
+   * Ask the server about one session, and record what it says.
+   *
+   * The generated client a plugin is handed RESOLVES with `{error}` rather
+   * than throwing — measured on 1.18.15, and spelled out in both plugins —
+   * so a `catch` alone sees nothing. An answer that is not a session is not
+   * an answer, and the difference matters: "no parent" and "could not tell"
+   * lead to opposite decisions everywhere this is used.
+   */
+  const ask = async (sessionID) => {
+    if (!client?.session?.get) return "unknown";
+    let found;
+    try {
+      found = await client.session.get({ path: { id: sessionID } });
+    } catch {
+      return "unknown";
+    }
+    if (!found || found.error || !found.data?.id) return "unknown";
+    const parentID = found.data.parentID;
+    if (!parentID) return "root";
+    note(sessionID, parentID);
+    // A parent this index has never met is itself unclassified. Resolving it
+    // now is what stops a grandchild rooting to a subagent: `note` compresses
+    // one hop, and one hop is not enough on a pane resumed mid-task, where
+    // the whole chain arrives unseen.
+    if (!parents.has(parentID)) {
+      if ((await ask(parentID)) === "child") note(sessionID, parentID);
+    }
+    return "child";
+  };
+
   return {
-    /** Record a child seen being created, with the root it rolls up to —
-     * a child's own children roll up to the same root, not to their parent. */
-    note(childID, parentID) {
-      if (childID) parents.set(childID, parents.get(parentID) ?? parentID);
-    },
+    note,
     /** The root this session's work belongs to, itself if it is a root. */
     rootOf: (sessionID) => parents.get(sessionID) ?? sessionID,
-    /** Whether this session is a subagent's. Asks the server the first time
-     * it meets an id it did not watch being created. */
-    async isChild(sessionID) {
-      if (!sessionID) return false;
-      if (parents.has(sessionID)) return true;
-      if (!client?.session?.get) return false;
-      try {
-        const found = await client.session.get({ path: { id: sessionID } });
-        const parentID = found?.data?.parentID;
-        if (!parentID) return false;
-        this.note(sessionID, parentID);
-        return true;
-      } catch {
-        return false;
-      }
+    /** Whether this session is a subagent's — `"root"`, `"child"`, or
+     * `"unknown"` when the client could not say. Asked once per id and then
+     * remembered. Callers must decide what to do with `"unknown"` rather
+     * than have it silently read as one of the other two. */
+    classify: async (sessionID) => {
+      if (!sessionID) return "unknown";
+      if (parents.has(sessionID)) return "child";
+      return ask(sessionID);
     },
     /** Forget everything: a new root conversation (`/new`) owns a new
      * generation, and nothing from the old one rolls up to it. */
-    clear() {
+    clear: () => {
       parents.clear();
     },
   };

@@ -262,8 +262,18 @@ export default async (input = {}) => {
    */
   const adoptRoot = async (sessionID) => {
     if (!sessionID || activeRoot) return;
-    if (await subagents.isChild(sessionID)) return;
-    activeRoot = sessionID;
+    // A child's own session is not the pane's, but its ROOT is — and the ask
+    // that classified it already paid for that answer. Walking up rather than
+    // giving up is what makes this agree with the reporter beside it, which
+    // binds the pane to the same root from the same evidence. Declining left
+    // the courier bound to nothing on exactly the case it exists for: a pane
+    // resumed mid-task, where a subagent's events come first.
+    //
+    // `unknown` — the client could not say — adopts, for the reason the
+    // shared index gives: a pane bound to nothing is unreachable, and the
+    // doorbell is the only other way in.
+    const kind = await subagents.classify(sessionID);
+    activeRoot = kind === "child" ? subagents.rootOf(sessionID) : sessionID;
   };
 
   const onEvent = async (event) => {

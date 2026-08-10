@@ -372,6 +372,29 @@ describe("opencode mail courier", () => {
     expect(last(prompts)?.sessionID).toBe("ses_root");
   });
 
+  it("binds to the child's ROOT, so a doorbell reaches the session and not the TUI", async () => {
+    // The other half of the ask above, and the case the shared index exists
+    // for. Declining a child left the courier bound to NOTHING on a pane
+    // resumed mid-task: every doorbell fell through to `appendPrompt`, the
+    // degraded path, while the reporter beside it had already bound the pane
+    // to the same root from the same evidence. Two plugins, one process, two
+    // answers.
+    parents.ses_child = "ses_root";
+    const courier = await start();
+    await courier.event(idle("ses_child"));
+    prompts.length = 0;
+    submitted.length = 0;
+
+    pending.push({ v: 1, prompt: "ship it" });
+    writeFileSync(join(dir, "mail.wake"), "");
+    await until(() => prompts.length > 0 || submitted.length > 0);
+
+    // Into the pane's real conversation, through the session — not typed at
+    // the TUI, which is what "bound to nothing" produces.
+    expect(last(prompts)?.sessionID).toBe("ses_root");
+    expect(submitted).toEqual([]);
+  });
+
   it("stays inert outside KeepDeck", async () => {
     // A user's own opencode, or a KeepDeck too old to set the variable. It
     // must not ask, must not watch, and must not touch their session.

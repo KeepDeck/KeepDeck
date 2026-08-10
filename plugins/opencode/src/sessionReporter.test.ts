@@ -160,12 +160,66 @@ describe("opencode session reporter", () => {
     const { event } = await reporter({ client: withParents });
     await event(assistantMessage({ sessionID: "ses_child" }));
 
-    // Asked in the path shape this client wants, not the flat one.
-    expect(asked).toEqual([{ path: { id: "ses_child" } }]);
+    // Asked in the path shape this client wants, not the flat one — and the
+    // PARENT is resolved too, so a chain arriving unseen cannot leave the
+    // pane rooted at a middle link.
+    expect(asked).toEqual([
+      { path: { id: "ses_child" } },
+      { path: { id: "ses_root" } },
+    ]);
     expect(
       envelopes().find((envelope) => envelope.type === "session.bound")?.payload
         .sessionId,
     ).toBe("ses_root");
+  });
+
+  it("keeps a subagent's spend after binding through it", async () => {
+    // `activateRoot` clears the index — a new root is a new generation — and
+    // that threw away the parent link the classify had just bought. Every
+    // later message from the same subagent then resolved to itself, failed
+    // the root check, and its spend never reached the pane's total. The fake
+    // client below answers `session.get` and nothing else, which is exactly
+    // the case hydration cannot repair.
+    const withParents = {
+      ...client,
+      session: {
+        get: async (args: { path: { id: string } }) =>
+          args.path.id === "ses_child"
+            ? { data: { id: "ses_child", parentID: "ses_root" } }
+            : { data: { id: args.path.id } },
+      },
+    };
+    const { event } = await reporter({ client: withParents });
+    // The binding turn, then a SECOND subagent turn — the one the cleared
+    // index used to drop — and finally a root turn, since only a root turn
+    // publishes (occupancy and model identity are the root's).
+    await event(assistantMessage({ sessionID: "ses_child" }));
+    await event(assistantMessage({ id: "msg_2", sessionID: "ses_child" }));
+    await event(assistantMessage({ id: "msg_3", sessionID: "ses_root" }));
+
+    const reports = usageReports();
+    // All three turns, at 0.1 each. Two means the middle one was lost.
+    expect(reports[reports.length - 1]?.payload.costUsd).toBeCloseTo(0.3);
+  });
+
+  it("treats a session the client cannot answer about as the pane's own", async () => {
+    // The generated client RESOLVES with `{error}` rather than throwing —
+    // measured on 1.18.15, and documented in this very file. Reading that as
+    // "no parent" would bind the pane to a subagent on the one path this
+    // whole mechanism exists for. Unknown means unknown, and an unknown
+    // session is taken as the pane's own, because a pane bound to nothing is
+    // never reachable again.
+    const refusing = {
+      ...client,
+      session: { get: async () => ({ error: { name: "UnknownError" } }) },
+    };
+    const { event } = await reporter({ client: refusing });
+    await event(assistantMessage({ sessionID: "ses_resumed" }));
+
+    expect(
+      envelopes().find((envelope) => envelope.type === "session.bound")?.payload
+        .sessionId,
+    ).toBe("ses_resumed");
   });
 
   it("ignores a child that belongs to another active root", async () => {

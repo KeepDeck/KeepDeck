@@ -325,9 +325,18 @@ export default async (input = {}) => {
     // created, so the pane binds to the parent instead of the child.
     // Asked for its side effect: the index learns the parent, so `rootOf`
     // below answers with the pane's conversation rather than the leaf.
-    if (!activeRoot) await subagents.isChild(info.sessionID);
+    if (!activeRoot) await subagents.classify(info.sessionID);
     const owningRoot = subagents.rootOf(info.sessionID);
-    if (!activeRoot) await activateRoot(owningRoot, true);
+    if (!activeRoot) {
+      await activateRoot(owningRoot, true);
+      // `activateRoot` clears the index — a new root is a new generation —
+      // which throws away the parent link the classify above just bought.
+      // Without putting it back, every later message from this subagent
+      // resolves to ITSELF, fails the root check below, and its spend never
+      // reaches the pane's total. Hydration re-discovers it only when the
+      // client answers `session.children`, and that failure is swallowed.
+      if (owningRoot !== info.sessionID) subagents.note(info.sessionID, owningRoot);
+    }
     // Once a root is explicitly active, events for unrelated root sessions
     // in the same OpenCode server are not this pane's conversation.
     if (owningRoot !== activeRoot) return;
