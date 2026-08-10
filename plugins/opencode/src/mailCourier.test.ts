@@ -8,11 +8,23 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The courier is untyped resource JS — it is shipped to, and loaded by, the
 // user's opencode process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
 import courierPlugin from "../resources/mail-courier.js";
+
+/**
+ * This suite runs the courier on its REAL clock.
+ *
+ * It polls the deck for an answer over a 2s window (ASK_TRIES × ASK_SLEEP_MS)
+ * and the fake deck below is a polling loop of its own, so a single doorbell
+ * can legitimately take seconds — and under the full parallel suite, several.
+ * Vitest's 5s default made that a failure that reproduces nowhere else.
+ * Nothing here is a latency assertion, so the ceiling is generous and the
+ * waits below stay well inside it.
+ */
+vi.setConfig({ testTimeout: 30_000 });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const last = <T,>(items: T[]): T | undefined => items[items.length - 1];
@@ -166,12 +178,27 @@ describe("opencode mail courier", () => {
   /** Wait for something the courier does on its own clock (a doorbell it
    * noticed, not a hook we called). */
   const until = async (done: () => boolean) => {
-    // Generous on purpose. The courier polls the deck on real timers, so this
-    // budget is WALL CLOCK — and under a full parallel suite these tests have
-    // twice hit a 1s ceiling and reported a failure that reproduces nowhere
-    // else. A slow machine is not a broken courier; a test that says it is
-    // costs more than the seconds it saves.
+    // Generous on purpose: the courier polls the deck on real timers, so this
+    // budget is WALL CLOCK, and under the full parallel suite a machine
+    // running hundreds of tests is slow in ways no assertion here is about.
     for (let tries = 0; tries < 1_200 && !done(); tries++) await sleep(5);
+  };
+
+  /**
+   * Ring the deck's doorbell and wait, RE-ringing while nothing happens.
+   *
+   * Not test-flavoured patience: a ring is consumed the moment the courier
+   * notices it, and if the ask that follows times out — which it will if this
+   * process is starved past the courier's two-second window — the ring is
+   * gone and nothing retries it. The deck behaves exactly the same way and
+   * re-nudges a pane whose mail is still queued, so a test that rang once and
+   * waited was asserting something the product does not promise.
+   */
+  const ringUntil = async (done: () => boolean) => {
+    for (let rings = 0; rings < 12 && !done(); rings++) {
+      writeFileSync(join(dir, "mail.wake"), "");
+      for (let tries = 0; tries < 100 && !done(); tries++) await sleep(5);
+    }
   };
 
   it("puts the standing brief in the session without starting a turn", async () => {
@@ -239,8 +266,7 @@ describe("opencode mail courier", () => {
     await courier.event(created("ses_root"));
     prompts.length = 0;
     pending.push({ v: 1, prompt: "ship it" });
-    writeFileSync(join(dir, "mail.wake"), "");
-    await until(() => prompts.length > 0);
+    await ringUntil(() => prompts.length > 0);
 
     expect(existsSync(join(dir, "mail.wake"))).toBe(false);
     expect(last(prompts)?.body?.parts?.[0]?.text).toBe("ship it");
@@ -271,8 +297,7 @@ describe("opencode mail courier", () => {
     // land in the same first turn and the deck has already handed them over.
     await start();
     pending.push({ v: 1, context: "brief", prompt: "ship it" });
-    writeFileSync(join(dir, "mail.wake"), "");
-    await until(() => submitted.length > 1);
+    await ringUntil(() => submitted.length > 1);
 
     expect(submitted).toEqual(["brief\n\nship it", "<submit>"]);
     expect(prompts).toEqual([]);
@@ -391,8 +416,7 @@ describe("opencode mail courier", () => {
     submitted.length = 0;
 
     pending.push({ v: 1, prompt: "ship it" });
-    writeFileSync(join(dir, "mail.wake"), "");
-    await until(() => prompts.length > 0 || submitted.length > 0);
+    await ringUntil(() => prompts.length > 0 || submitted.length > 0);
 
     // Into the pane's real conversation, through the session — not typed at
     // the TUI, which is what "bound to nothing" produces.
