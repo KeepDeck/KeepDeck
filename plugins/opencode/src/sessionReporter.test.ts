@@ -136,6 +136,38 @@ describe("opencode session reporter", () => {
     ]);
   });
 
+  it("binds a pane resumed mid-task to its conversation, not to the subagent", async () => {
+    // A resumed pane (`-s <id>`, how every pane comes back after a restart)
+    // fires no root `session.created`, so its first completed message is the
+    // only thing that names its conversation. If that message is a
+    // subagent's — a pane resumed while a task was running — this bound the
+    // pane to a leaf that ends, and reported the subagent's turns as the
+    // pane's until it did. The parent is ASKED for, the same way the mail
+    // courier asks, so the two plugins cannot disagree about which session
+    // is the pane's.
+    const asked: unknown[] = [];
+    const withParents = {
+      ...client,
+      session: {
+        get: async (args: { path: { id: string } }) => {
+          asked.push(args);
+          return args.path.id === "ses_child"
+            ? { data: { id: "ses_child", parentID: "ses_root" } }
+            : { data: { id: args.path.id } };
+        },
+      },
+    };
+    const { event } = await reporter({ client: withParents });
+    await event(assistantMessage({ sessionID: "ses_child" }));
+
+    // Asked in the path shape this client wants, not the flat one.
+    expect(asked).toEqual([{ path: { id: "ses_child" } }]);
+    expect(
+      envelopes().find((envelope) => envelope.type === "session.bound")?.payload
+        .sessionId,
+    ).toBe("ses_root");
+  });
+
   it("ignores a child that belongs to another active root", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));

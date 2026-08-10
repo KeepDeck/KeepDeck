@@ -34,7 +34,12 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, rmSync, watch } from "node:fs";
 import { join } from "node:path";
-import { REPORTER, publish, readBridge } from "./keepdeck-bridge.js";
+import {
+  REPORTER,
+  createSubagentIndex,
+  publish,
+  readBridge,
+} from "./keepdeck-bridge.js";
 
 /** The answer shape this courier understands. The deck stamps it; a shape
  * change bumps it, and an answer from a version this cannot read is dropped
@@ -66,8 +71,10 @@ export default async (input = {}) => {
   let activeRoot;
   /** Child sessions (the task/subagent tool creates them in this same
    * process). Their turns are not the pane's turns and their ids are not the
-   * pane's identity. */
-  const children = new Set();
+   * pane's identity. Shared with the reporter beside this file, because two
+   * answers to "is this the pane's conversation" means mail delivered into a
+   * session whose turns the deck is not watching. */
+  const subagents = createSubagentIndex(client);
   /** Whether the pane's own turn is running. Only used to decide whether a
    * doorbell may be answered right now: mid-turn it may not, and the
    * `session.idle` at the end of that turn collects anyway. */
@@ -247,28 +254,15 @@ export default async (input = {}) => {
    * so nothing was ever collected at a turn boundary, and every doorbell fell
    * through to the TUI submit.
    *
-   * The parent check is what keeps it honest. The task tool creates child
+   * The parent check is what keeps it honest — the task tool creates child
    * sessions in this same process, and a child's events can be the first this
-   * courier sees; adopting one would bind the pane to a leaf that ends. Asked
-   * rather than guessed — and when the client cannot answer, adopting is
-   * still better than never binding at all, because the doorbell is the only
-   * other way in.
+   * courier sees; adopting one would bind the pane to a leaf that ends. That
+   * check is `createSubagentIndex`, shared with the reporter so the two
+   * plugins cannot answer it differently.
    */
   const adoptRoot = async (sessionID) => {
-    if (!sessionID || activeRoot || children.has(sessionID)) return;
-    if (client?.session?.get) {
-      try {
-        const found = await client.session.get({ path: { id: sessionID } });
-        const info = found?.data;
-        if (info?.parentID) {
-          children.add(sessionID);
-          return;
-        }
-      } catch {
-        // Fall through and adopt: an unanswerable question is not a reason
-        // to leave the pane unreachable.
-      }
-    }
+    if (!sessionID || activeRoot) return;
+    if (await subagents.isChild(sessionID)) return;
     activeRoot = sessionID;
   };
 
@@ -281,9 +275,12 @@ export default async (input = {}) => {
         // Root sessions only: the task/subagent tool creates children in this
         // same process, and binding to one would follow a transient leaf.
         if (created.parentID) {
-          children.add(created.id);
+          subagents.note(created.id, created.parentID);
           return;
         }
+        // A new root is a new generation — nothing from the old conversation
+        // rolls up to it, and its child ids answer about a session that ended.
+        subagents.clear();
         activeRoot = created.id;
         // A conversation just began — the standing brief belongs in it before
         // the first word, not after whatever the user says next.

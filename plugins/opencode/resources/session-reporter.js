@@ -23,7 +23,12 @@
  * Envelopes are uniquely named (randomUUID, so parallel events never collide),
  * written as `.tmp` and renamed so the watcher never sees a torn file.
  */
-import { REPORTER, publish as publishTo, readBridge } from "./keepdeck-bridge.js";
+import {
+  REPORTER,
+  createSubagentIndex,
+  publish as publishTo,
+  readBridge,
+} from "./keepdeck-bridge.js";
 
 export default async (input = {}) => {
   const bridge = readBridge();
@@ -39,9 +44,12 @@ export default async (input = {}) => {
   // descendants, summed into the session cumulative. A new root session owns a
   // new generation: `/new`/fork must never inherit the previous root's spend.
   const messages = new Map();
-  // child session id → root session id. Descendant spend rolls up to the pane's
-  // root, while only root turns define context occupancy and model identity.
-  const childRoots = new Map();
+  // Which sessions here are subagents' and which root their work rolls up to.
+  // Descendant spend rolls up to the pane's root, while only root turns define
+  // context occupancy and model identity. Shared with the mail courier beside
+  // this file: two answers to "is this the pane's conversation" means the deck
+  // watching one session's turns while mail lands in another.
+  const subagents = createSubagentIndex(client);
   let activeRoot;
   // The latest ROOT assistant turn — defines occupancy/identity, not spend.
   let root;
@@ -134,7 +142,7 @@ export default async (input = {}) => {
       if (!Array.isArray(children)) return;
       for (const child of children) {
         if (!child?.id) continue;
-        childRoots.set(child.id, rootSessionID);
+        subagents.note(child.id, rootSessionID);
         await hydrateSession(child.id, rootSessionID, seen);
       }
     } catch {
@@ -168,7 +176,7 @@ export default async (input = {}) => {
     const continuing = activeRoot !== undefined;
     activeRoot = sessionID;
     messages.clear();
-    childRoots.clear();
+    subagents.clear();
     root = undefined;
     sequence = 0;
     if (publishBinding) bind(sessionID, continuing);
@@ -231,7 +239,7 @@ export default async (input = {}) => {
    * is known, because a status edge beating `session.created` should still
    * land rather than strand the pane. */
   const concernsPane = (sessionID) => {
-    if (!sessionID || childRoots.has(sessionID)) return false;
+    if (!sessionID || subagents.rootOf(sessionID) !== sessionID) return false;
     return !activeRoot || sessionID === activeRoot;
   };
 
@@ -290,11 +298,10 @@ export default async (input = {}) => {
       // rolls up to the pane root.
       const created = event.properties?.info;
       if (created?.parentID) {
-        const rootSessionID =
-          childRoots.get(created.parentID) ?? created.parentID;
+        const rootSessionID = subagents.rootOf(created.parentID);
         if (!activeRoot) await activateRoot(rootSessionID, true);
         if (rootSessionID !== activeRoot) return;
-        if (created.id) childRoots.set(created.id, rootSessionID);
+        if (created.id) subagents.note(created.id, rootSessionID);
         return;
       }
       const sessionId = created?.id;
@@ -309,7 +316,17 @@ export default async (input = {}) => {
     // repeatedly as a message streams; the completed frame carries the final
     // counts).
     if (!info) return;
-    const owningRoot = childRoots.get(info.sessionID) ?? info.sessionID;
+    // Binding is how a RESUMED pane is discovered: it fires no root
+    // `session.created`, so its first completed message is the only thing
+    // that names its conversation. Which is exactly when a subagent's message
+    // can be first — a pane resumed mid-task — and this used to bind the pane
+    // to that leaf, reporting a subagent's turns as the pane's until it
+    // ended. The index ASKS the server about a session it never watched being
+    // created, so the pane binds to the parent instead of the child.
+    // Asked for its side effect: the index learns the parent, so `rootOf`
+    // below answers with the pane's conversation rather than the leaf.
+    if (!activeRoot) await subagents.isChild(info.sessionID);
+    const owningRoot = subagents.rootOf(info.sessionID);
     if (!activeRoot) await activateRoot(owningRoot, true);
     // Once a root is explicitly active, events for unrelated root sessions
     // in the same OpenCode server are not this pane's conversation.
