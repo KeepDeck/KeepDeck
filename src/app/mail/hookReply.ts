@@ -199,8 +199,13 @@ function answerMailAsk(
   // `hook_event_name`; an in-process reporter has no hook and names its own
   // question under `type`. Getting this wrong costs the only window there is
   // onto the labelled channel — "asked on undefined" tells nobody anything.
+  //
+  // Trimmed to a plain short token before it goes in a log line. The name
+  // comes out of an envelope, so it is whatever the pane's process wrote —
+  // a newline in it forges a second log entry, and a long one buries the
+  // real lines. An event named unprintably is not worth a diagnosis.
   const named = (value: unknown) =>
-    typeof value === "string" && value ? value : null;
+    typeof value === "string" && /^[\w.-]{1,64}$/.test(value) ? value : null;
   const asking =
     (isRecord(payload) && isRecord(payload.event)
       ? (named(payload.event.hook_event_name) ?? named(payload.event.type))

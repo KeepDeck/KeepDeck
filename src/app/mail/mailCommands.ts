@@ -282,7 +282,18 @@ export function registerMailCommands(
         // agent is being taken off — the one it is on. A pane on no team
         // that is asked to leave one has nothing to settle.
         const team = name ?? held?.name;
-        if (!team) return { paneId, team: null };
+        if (!team) {
+          // A role with no team to hold it. Answering "done, team: null" here
+          // told the caller its request had been carried out while nothing
+          // happened at all — the failure an agent cannot see and so keeps
+          // building on.
+          if (role) {
+            throw new Error(
+              `${str(args, "agent")} is not on a team — name the team to put it on one`,
+            );
+          }
+          return { paneId, team: null };
+        }
         const members = teamMembers(workspace, team)
           .filter((pane) => pane.id !== paneId)
           .map((pane) => ({ paneId: pane.id, role: pane.team!.role }));

@@ -314,6 +314,45 @@ describe("team.assign", () => {
     expect(leadBriefs[0].body).toContain("impl-1");
   });
 
+  it("handles each field arriving without the other", async () => {
+    // Three shapes an agent will produce, and none of them may end in a
+    // silent no-op: an agent cannot see that nothing happened, so it keeps
+    // building on a team that does not exist.
+    const { registry, mail } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+
+    // A role with no team, for a pane on NO team: refused. It used to answer
+    // "done, team: null" while doing nothing whatsoever.
+    const nowhere = await run(registry, "team.assign", { agent: "pane-2", role: "impl-3" }, lead);
+    expect(nowhere.ok).toBe(false);
+    if (!nowhere.ok) expect(nowhere.error.message).toContain("not on a team");
+
+    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
+
+    // A team with no role: refused, because a member with no address is one
+    // no teammate can reach.
+    const nameless = await run(
+      registry,
+      "team.assign",
+      { agent: "pane-2", team: "api" },
+      lead,
+    );
+    expect(nameless.ok).toBe(false);
+
+    // A role with no team, for a pane that is on one: settles onto the team
+    // it already holds. The obvious reading, and the only one that does
+    // anything.
+    await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
+    mail.takeAtTurnEnd("pane-2");
+    const rerole = await run(registry, "team.assign", { agent: "pane-2", role: "impl-2" }, lead);
+    expect(rerole.ok && rerole.value).toEqual({
+      paneId: "pane-2",
+      team: { name: "api", role: "impl-2" },
+    });
+    // And it is TOLD, like any other roster change.
+    expect(mail.takeAtTurnEnd("pane-2")[0]?.body).toContain("impl-2");
+  });
+
   it("refuses to leave a team without the member that hands out work", async () => {
     // The same rule the dialog obeys, on the path an agent drives. Without
     // it, `team.assign` could build a leaderless team — one where decideSend

@@ -212,6 +212,23 @@ describe("createMailService", () => {
     expect(h.service.current()).toBeNull();
   });
 
+  it("stops delivering after dispose, not just unregistering", () => {
+    // `dispose` runs when the app runtime is torn down — a test harness, a
+    // hot reload. Everything it drops is a live subscription into a deck that
+    // no longer exists, and the delivery half is the one that WRITES: a queue
+    // still draining after dispose types into panes belonging to a session
+    // nobody is watching. Unregistering the commands only stops new sends.
+    const h = setup(true);
+    h.reports("pane-2", APPROVING);
+    void h.send("held behind a prompt");
+
+    h.service.dispose();
+    h.reports("pane-2", READY);
+    expect(h.delivered).toHaveLength(0);
+    // And nothing is left listening for the deck to change under it.
+    expect(h.sessionListeners()).toBe(0);
+  });
+
   it("takes its standing-presence with it when the feature goes off", () => {
     // The presence re-states a pane's team on a fresh session. It was built
     // BESIDE the service in the composition root once, which meant the

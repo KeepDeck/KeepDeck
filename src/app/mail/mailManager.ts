@@ -24,6 +24,7 @@ import {
   decideSend,
   expiryNotice,
   isStandingContext,
+  senderName,
   type Mail,
   type MailKind,
   type MailLimits,
@@ -59,11 +60,11 @@ const INBOX_LIMIT = 50;
  * is one agent's words to another, and the id is enough to follow it.
  */
 function trace(mail: Mail): string {
-  const who =
-    mail.from.kind === "host"
-      ? "deck"
-      : (mail.from.pane.role ?? mail.from.pane.label);
-  return `${mail.id} ${mail.kind} ${who} → ${mail.toPaneId}`;
+  // `senderName` is the domain's own answer, so a log line and a delivered
+  // message name a sender the same way. Spelled out here once, it drifted the
+  // day the role started outranking the label — and a log that calls somebody
+  // by a name the receiver never saw is worse than one that says nothing.
+  return `${mail.id} ${mail.kind} ${senderName(mail) ?? "deck"} → ${mail.toPaneId}`;
 }
 
 export interface MailSendRequest {
@@ -230,6 +231,27 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   }
 
   /**
+   * A message has run out of time. Log it, and tell its sender if the deck
+   * owes them a report.
+   *
+   * Both channels expire on the same rule (`decideDelivery` and
+   * `decideHandover` share it) and owe the same report — but each removed the
+   * message from its queue and minted the notice for itself, and only one of
+   * them logged. Answers whether a notice was queued, which is what the drain
+   * loop needs to know: a notice is itself deliverable mail, so a pass that
+   * minted one is not finished.
+   *
+   * Removing the message stays with the caller — the two walk their queues
+   * differently, and a helper that also spliced would have to be told how.
+   */
+  function expire(head: Mail, at: number): boolean {
+    log.info("web:mail", `expired unread after ${at - head.at}ms: ${trace(head)}`);
+    const notice = expiryNotice(head, mintId(), at);
+    if (notice) enqueue(notice);
+    return notice !== null;
+  }
+
+  /**
    * Walk one pane's queue as far as it will go, and report when this pane
    * next needs attention (null = nothing pending).
    *
@@ -263,12 +285,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       );
       if (verdict.kind === "expire") {
         queue.splice(index, 1);
-        log.info("web:mail", `expired unread after ${at - head.at}ms: ${trace(head)}`);
-        const notice = expiryNotice(head, mintId(), at);
-        if (notice) {
-          enqueue(notice);
-          noticed = true;
-        }
+        if (expire(head, at)) noticed = true;
         continue;
       }
       // The message's own restriction, not the pane's: step over it and keep
@@ -439,8 +456,10 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         const verdict = decideHandover(head, deps.activityOf(paneId), at, limits);
         if (verdict === "expire") {
           queue.shift();
-          const notice = expiryNotice(head, mintId(), at);
-          if (notice) enqueue(notice);
+          // The `noticed` flag is the DRAIN loop's business — this path ends
+          // with a `drain()` below, which starts a fresh pass over whatever
+          // a notice just queued.
+          expire(head, at);
           continue;
         }
         if (verdict === "hold") break;

@@ -110,7 +110,14 @@ fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<St
                 log::warn!("agents: {} did not answer --version", program.display());
                 return None;
             }
-            Err(_) => return None,
+            // The wait itself failed, which says nothing about the child —
+            // it may still be running. Killed before giving up, or detection
+            // leaves a process behind on every probe that hits this.
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
         }
     }
     let out = child.wait_with_output().ok()?;
@@ -232,6 +239,39 @@ mod tests {
         assert!(statuses[0].installed, "presence is still answered");
         assert_eq!(statuses[0].version, None);
         assert!(!ran.exists(), "an unprobed binary must not be executed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kills_a_binary_that_never_answers_rather_than_waiting_on_it() {
+        // Detection is sequential and the deck waits on all of it, so one
+        // program that never exits holds every agent's availability behind
+        // it — at boot, where the user sees an app that will not start. The
+        // bound is what makes a `--version` probe safe to run at all.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("kd-hanging-agent");
+        std::fs::write(&bin, "#!/bin/sh\nsleep 60\n").unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // The probe runs the program on the SAME path it resolved it from, so
+        // the stub needs `/bin` to find `sleep` — exactly as a real CLI that
+        // shells out to a sibling tool does.
+        let path = std::env::join_paths([dir.path(), std::path::Path::new("/bin")]).unwrap();
+        let began = std::time::Instant::now();
+        let statuses = probing(vec!["kd-hanging-agent".into()], &path);
+        let waited = began.elapsed();
+
+        // Installed, with no version — a probe that could not answer is
+        // "unknown", never "absent": gating availability on it would hide a
+        // working CLI.
+        assert!(statuses[0].installed);
+        assert_eq!(statuses[0].version, None);
+        assert!(waited >= PROBE_TIMEOUT, "gave up too early: {waited:?}");
+        assert!(
+            waited < PROBE_TIMEOUT * 3,
+            "waited past the bound: {waited:?}"
+        );
     }
 
     #[test]

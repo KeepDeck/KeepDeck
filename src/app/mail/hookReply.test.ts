@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MailReplyRenderer } from "@keepdeck/plugin-api";
+import { log } from "../../ipc/log";
 import type { Mail, MailSender } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createHookReplies } from "./hookReply";
@@ -180,6 +181,53 @@ describe("answerMailAsk", () => {
     expect(h.replies).toEqual([]);
     // Still waiting, for an ask that can actually be answered.
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
+  });
+
+  it("answers a second ask on the same correlation, and books only the second", () => {
+    // A hook that retried, or two events racing on one id. The reply file is
+    // replaced, so the SECOND answer is the one anybody can read — and the
+    // first's booking has to go with it, or an uncollected report would put
+    // back messages the second answer already carried, delivering them twice.
+    const h = setup();
+    let cancelled = 0;
+    const channel = createHookReplies({
+      ...h.deps,
+      schedule: () => () => {
+        cancelled += 1;
+      },
+    });
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "first" });
+    channel.answer("pane-2", asking());
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "second" });
+    channel.answer("pane-2", asking());
+    expect(h.replies).toHaveLength(2);
+    // The first booking was dropped, timer and all.
+    expect(cancelled).toBe(1);
+
+    channel.uncollected("pane-2", "askABC");
+    // Only what the LAST answer carried comes back.
+    expect(h.manager.takeAtTurnEnd("pane-2").map((mail) => mail.body)).toEqual([
+      "second",
+    ]);
+  });
+
+  it("keeps an agent's own words out of the log line about it", () => {
+    // The event name comes out of an envelope, so it is whatever the pane's
+    // process wrote. A newline in it forges a second log entry — the one
+    // window onto this channel, and the pane can write in it.
+    const h = setup();
+    const lines: string[] = [];
+    const spy = vi
+      .spyOn(log, "info")
+      .mockImplementation((_scope, message) => lines.push(message));
+    h.channel.answer(
+      "pane-2",
+      asking({ event: { hook_event_name: "Stop\n[web:mail] pane-9 asked on Stop" } }),
+    );
+    spy.mockRestore();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toContain("\n");
+    expect(lines[0]).toContain("an unreadable event");
   });
 
   it("puts the messages back when nobody read the answer", () => {

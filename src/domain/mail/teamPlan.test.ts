@@ -3,6 +3,7 @@ import type { Pane, Workspace } from "../deck";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { roleById } from "./roles";
 import {
+  planDisband,
   planTeam,
   teamBriefing,
   teamNamesIn,
@@ -241,6 +242,50 @@ describe("planTeam", () => {
     expect(result.ok && teamPlanIsEmpty(result.value)).toBe(true);
     const withOne = planTeam(ws, draft({ members: [{ paneId: "pane-1", role: "lead" }] }));
     expect(withOne.ok && teamPlanIsEmpty(withOne.value)).toBe(false);
+  });
+});
+
+describe("planDisband", () => {
+  it("releases everyone holding the name and leaves nobody on it", () => {
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+      pane("pane-3", { name: "web", role: "lead" }),
+      pane("pane-4"),
+    ]);
+    const plan = planDisband(ws, "api");
+    expect(plan.ok && plan.value).toEqual({
+      name: "api",
+      members: [],
+      // Another team's members and an unaffiliated pane are untouched — a
+      // disband ends ONE team, and releasing a pane it does not own would
+      // strip a role its teammates are still briefed to address.
+      released: ["pane-1", "pane-2"],
+      recruits: [],
+    });
+  });
+
+  it("matches the name the way membership does, not the way a keyboard does", () => {
+    // The same case- and space-insensitive rule `paneIsOnTeam` applies. A
+    // disband that missed on capitalisation would report success and leave
+    // the team running.
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
+    const plan = planDisband(ws, "  API ");
+    expect(plan.ok && plan.value.released).toEqual(["pane-1"]);
+    // Trimmed, so the plan names the team rather than what was typed.
+    expect(plan.ok && plan.value.name).toBe("API");
+  });
+
+  it("refuses a name nobody holds instead of answering with an empty plan", () => {
+    // A disband that quietly does nothing is indistinguishable from one that
+    // worked, to whoever asked for it. This was the one destructive gesture
+    // that built its plan by hand and so passed no check at all.
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
+    for (const missing of ["web", "", "   "]) {
+      const plan = planDisband(ws, missing);
+      expect(plan.ok, JSON.stringify(missing)).toBe(false);
+      if (!plan.ok) expect(plan.message).toContain("no team called");
+    }
   });
 });
 
