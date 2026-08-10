@@ -229,6 +229,29 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     expect(
       readFileSync(join(kimiTeams, "skills", "keepdeck-team", "SKILL.md"), "utf8"),
     ).toContain("mail.inbox");
+
+    // opencode's two plugins are loaded by absolute path and import a
+    // sibling between them. Shipping either one without that sibling gives
+    // an agent that loads and then throws on import — so the whole trio has
+    // to arrive, and the import has to still resolve where they land.
+    const opencodeResources = join(
+      distRoot,
+      "plugins",
+      "keepdeck.opencode",
+      "resources",
+    );
+    for (const file of [
+      "keepdeck-bridge.js",
+      "mail-courier.js",
+      "session-reporter.js",
+    ]) {
+      expect(existsSync(join(opencodeResources, file))).toBe(true);
+    }
+    for (const file of ["mail-courier.js", "session-reporter.js"]) {
+      expect(readFileSync(join(opencodeResources, file), "utf8")).toContain(
+        'from "./keepdeck-bridge.js"',
+      );
+    }
   });
 
   it("is a no-op that still writes an empty index.json when plugins/ has none", () => {

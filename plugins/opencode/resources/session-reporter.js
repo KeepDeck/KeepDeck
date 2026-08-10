@@ -23,44 +23,17 @@
  * Envelopes are uniquely named (randomUUID, so parallel events never collide),
  * written as `.tmp` and renamed so the watcher never sees a torn file.
  */
-import { randomUUID } from "node:crypto";
-import { renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
-/**
- * Which process is reporting, on every lane this file publishes.
- *
- * The deck pins a pane's identity to one reporting process and refuses the
- * others — the bridge secret is inherited by the pane's whole process tree,
- * so it cannot tell them apart on its own. This reporter runs INSIDE the
- * agent, so the agent's own pid is that name; a nested opencode gets its own
- * and is refused. The shell reporters answer the same question with the
- * process group of the hook's parent, since a hook is not the agent.
- */
-const REPORTER = String(process.pid);
+import { REPORTER, publish as publishTo, readBridge } from "./keepdeck-bridge.js";
 
 export default async (input = {}) => {
-  let bridge;
-  try {
-    bridge = JSON.parse(process.env.KEEPDECK_BRIDGE ?? "");
-  } catch {
-    return {}; // not spawned by KeepDeck — stay inert
-  }
-  const { dir, pane, token } = bridge ?? {};
-  if (!dir || !pane || !token) return {};
+  const bridge = readBridge();
+  if (!bridge) return {}; // not spawned by KeepDeck — stay inert
+  const { dir, pane, token } = bridge;
 
   const client = input?.client;
 
-  /** Atomically drop one bridge envelope into the inbox. Best-effort. */
-  const publish = (envelope) => {
-    try {
-      const base = join(dir, `${envelope.type}-${randomUUID()}`);
-      writeFileSync(`${base}.tmp`, JSON.stringify(envelope));
-      renameSync(`${base}.tmp`, `${base}.json`);
-    } catch {
-      // best-effort by design
-    }
-  };
+  /** Atomically drop one bridge envelope into this pane's inbox. */
+  const publish = (envelope) => publishTo(dir, envelope);
 
   // Per-message latest snapshot for the ACTIVE ROOT session and all of its
   // descendants, summed into the session cumulative. A new root session owns a

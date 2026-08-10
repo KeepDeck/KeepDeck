@@ -32,27 +32,9 @@
  * user's session, so every failure here ends in silence.
  */
 import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  watch,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, rmSync, watch } from "node:fs";
 import { join } from "node:path";
-
-/**
- * Which process is reporting.
- *
- * The same answer the session reporter gives, for the same reason and by the
- * same rule: the deck pins a pane's identity to ONE process, because the
- * bridge secret is inherited by the pane's whole tree. This runs inside the
- * agent, so the agent's pid is that name — and being a second plugin in the
- * SAME process, it is the same name the reporter uses. A nested opencode gets
- * its own and is refused.
- */
-const REPORTER = String(process.pid);
+import { REPORTER, publish, readBridge } from "./keepdeck-bridge.js";
 
 /** The answer shape this courier understands. The deck stamps it; a shape
  * change bumps it, and an answer from a version this cannot read is dropped
@@ -70,14 +52,9 @@ const ASK_SLEEP_MS = 50;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default async (input = {}) => {
-  let bridge;
-  try {
-    bridge = JSON.parse(process.env.KEEPDECK_BRIDGE ?? "");
-  } catch {
-    return {}; // not spawned by KeepDeck — stay inert
-  }
-  const { dir, pane, token } = bridge ?? {};
-  if (!dir || !pane || !token) return {};
+  const bridge = readBridge();
+  if (!bridge) return {}; // not spawned by KeepDeck — stay inert
+  const { dir, pane, token } = bridge;
   const client = input?.client;
   // Without the client there is no way to put anything into the session, and
   // asking would take messages out of the deck's queue to drop them.
@@ -96,19 +73,6 @@ export default async (input = {}) => {
    * `session.idle` at the end of that turn collects anyway. */
   let busy = false;
 
-  /** Atomically drop one bridge envelope into the inbox — tmp + rename, so
-   * the deck's watcher never sees a torn file. */
-  const publish = (envelope) => {
-    try {
-      const base = join(dir, `${envelope.type}-${randomUUID()}`);
-      writeFileSync(`${base}.tmp`, JSON.stringify(envelope));
-      renameSync(`${base}.tmp`, `${base}.json`);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
   /**
    * Ask the deck what is waiting, and wait for the answer.
    *
@@ -125,7 +89,7 @@ export default async (input = {}) => {
    */
   const ask = async () => {
     const correlation = randomUUID();
-    const sent = publish({
+    const sent = publish(dir, {
       v: 1,
       type: "agent.status",
       paneId: pane,
