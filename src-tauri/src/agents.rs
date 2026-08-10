@@ -85,12 +85,20 @@ const PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 /// It runs on the augmented spawn PATH, like the resolution above, so a CLI
 /// that shells out to a sibling tool finds it.
 fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<String> {
+    // Output goes to a temporary FILE, not a pipe. A pipe holds 64 KB and
+    // then blocks the writer, and nothing drains it while the loop below
+    // polls — so a CLI whose `--version` says more than that would deadlock
+    // until the deadline killed it. Worse, `wait_with_output` waits for the
+    // pipe to CLOSE, which a grandchild holding the inherited write end can
+    // put off forever; `agents_detect` is a synchronous command, so that
+    // parks the caller's thread with it. A file has neither property.
+    let sink = tempfile::NamedTempFile::new().ok()?;
     let mut child = std::process::Command::new(program)
         .arg("--version")
         .env("PATH", path)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(sink.reopen().ok()?)
+        .stderr(sink.reopen().ok()?)
         .spawn()
         .ok()?;
     // Bounded, because detection runs at boot and one program that never
@@ -98,34 +106,40 @@ fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<St
     // sequential and the deck waits on all of it. A version banner is
     // printed immediately or not at all; anything slower is not answering.
     let deadline = std::time::Instant::now() + PROBE_TIMEOUT;
-    loop {
+    let exited = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(_)) => break true,
             Ok(None) if std::time::Instant::now() < deadline => {
                 std::thread::sleep(PROBE_POLL);
             }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                log::warn!("agents: {} did not answer --version", program.display());
-                return None;
-            }
-            // The wait itself failed, which says nothing about the child —
-            // it may still be running. Killed before giving up, or detection
-            // leaves a process behind on every probe that hits this.
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
+            // Out of time, or the wait itself failed — which says nothing
+            // about the child, so it may well still be running. One exit, so
+            // the kill cannot be right on one path and missing on the other:
+            // that is exactly how a process was left behind here.
+            Ok(None) | Err(_) => break false,
         }
+    };
+    if !exited {
+        let _ = child.kill();
+        let _ = child.wait();
+        log::warn!("agents: {} did not answer --version", program.display());
+        return None;
     }
-    let out = child.wait_with_output().ok()?;
-    // stdout by convention, stderr because some CLIs answer there instead.
-    let said = String::from_utf8_lossy(&out.stdout).into_owned()
-        + &String::from_utf8_lossy(&out.stderr);
+    // Bounded read: a banner is one line, and this is a file some program
+    // just wrote whatever it liked into.
+    let mut said = String::new();
+    use std::io::Read as _;
+    std::fs::File::open(sink.path())
+        .ok()?
+        .take(MAX_VERSION_BYTES)
+        .read_to_string(&mut said)
+        .ok()?;
     parse_version(&said)
 }
+
+/// How much of a `--version` answer is worth reading. A banner is a line;
+/// anything past this is a program doing something else.
+const MAX_VERSION_BYTES: u64 = 8 * 1024;
 
 /// The first dotted number in a version banner: `codex-cli 0.147.0` and
 /// `2.1.226 (Claude Code)` both answer, and a line with no number at all
@@ -272,6 +286,32 @@ mod tests {
             waited < PROBE_TIMEOUT * 3,
             "waited past the bound: {waited:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn answers_a_cli_that_says_far_more_than_a_pipe_would_hold() {
+        // Output went to a pipe, and nothing drained it while the wait loop
+        // polled — so a CLI printing more than the 64 KB buffer blocked on
+        // its own write, was killed at the deadline, and reported no version
+        // at all. A file has no such buffer, and the version is still found
+        // in what the program said first.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("kd-chatty-agent");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\necho 'chatty-cli 3.2.1'\nawk 'BEGIN{while(i++<200000)print \"noise\"}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let path = std::env::join_paths([dir.path(), std::path::Path::new("/usr/bin")]).unwrap();
+        let began = std::time::Instant::now();
+        let statuses = probing(vec!["kd-chatty-agent".into()], &path);
+        assert_eq!(statuses[0].version.as_deref(), Some("3.2.1"));
+        // And it did not spend the whole deadline blocked on a full buffer.
+        assert!(began.elapsed() < PROBE_TIMEOUT, "{:?}", began.elapsed());
     }
 
     #[test]

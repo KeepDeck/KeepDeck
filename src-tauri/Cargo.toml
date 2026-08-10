@@ -74,6 +74,10 @@ sha2 = "0.10"
 base64 = "0.22"
 minisign-verify = "0.2"
 tokio = { version = "1", features = ["sync"] }
+# Not only for tests: the `--version` probe sends a child's output to a temp
+# FILE rather than a pipe, because a pipe blocks its writer at 64 KB and its
+# reader until every inherited write end closes (src/agents.rs).
+tempfile = "3"
 
 # Our own AVCaptureDevice request with a REAL completion block (the plugin's
 # request passes a nil handler, which fails to raise the prompt in dev):
@@ -81,6 +85,3 @@ tokio = { version = "1", features = ["sync"] }
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = "0.3"
-
-[dev-dependencies]
-tempfile = "3"

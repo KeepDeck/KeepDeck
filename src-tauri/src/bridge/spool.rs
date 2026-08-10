@@ -66,8 +66,24 @@ pub fn pane_dir(run_dir: &Path, pane_id: &str) -> Result<PathBuf, String> {
 /// `run_dir.join(pane).join(file)` for itself would keep answering the old
 /// question the day this layout changes, and the failure would be a reply
 /// written to one place and looked for in another.
-pub fn pane_path(run_dir: &Path, pane_id: &str, file: &str) -> PathBuf {
-    run_dir.join(pane_id).join(file)
+///
+/// It applies the SAME permit-list, and answers `None` rather than a path
+/// when either name fails it. That is not redundancy: one of its callers
+/// DELETES what it names, and a version that trusted its arguments would
+/// rest on a check performed in a different function — which is a fact about
+/// today's callers, not a property of this one.
+pub fn pane_path(run_dir: &Path, pane_id: &str, file: &str) -> Option<PathBuf> {
+    if !is_usable_name(pane_id) {
+        return None;
+    }
+    // The FILE carries an extension, so it is checked in the part that is a
+    // name: `abc-123.reply` is `abc-123` plus a suffix this module does not
+    // get to choose. Anything with a separator or a second dot is not a name.
+    let (stem, extension) = file.rsplit_once('.')?;
+    if !is_usable_name(stem) || !is_usable_name(extension) {
+        return None;
+    }
+    Some(run_dir.join(pane_id).join(file))
 }
 
 /// Publish one file into `run_dir`, whole.
@@ -137,12 +153,29 @@ mod tests {
         // or removing one — must not conjure a directory for a pane that
         // never had one, which is what makes this separate from `pane_dir`.
         let run = tempfile::tempdir().unwrap();
-        let path = pane_path(run.path(), "pane-3", "id-1.reply");
+        let path = pane_path(run.path(), "pane-3", "id-1.reply").unwrap();
         assert_eq!(path, run.path().join("pane-3").join("id-1.reply"));
         assert_eq!(fs::read_dir(run.path()).unwrap().count(), 0);
         // And it agrees with where `pane_dir` puts things, which is the whole
         // reason both live here.
         assert_eq!(path.parent().unwrap(), pane_dir(run.path(), "pane-3").unwrap());
+    }
+
+    #[test]
+    fn naming_refuses_exactly_what_creating_refuses() {
+        // One of its callers DELETES what it names. Trusting the arguments
+        // would rest the safety of that delete on a check performed in a
+        // different function — a fact about today's callers, not a property
+        // of this one.
+        let run = tempfile::tempdir().unwrap();
+        for pane in ["../escaped", "..", "a/b", "", "with space"] {
+            assert!(pane_path(run.path(), pane, "id-1.reply").is_none(), "{pane:?}");
+        }
+        for file in ["../escaped.reply", "a/b.reply", "no-extension", ".reply", "a..reply"] {
+            assert!(pane_path(run.path(), "pane-3", file).is_none(), "{file:?}");
+        }
+        assert!(pane_path(run.path(), "pane-3", "id-1.reply").is_some());
+        assert!(pane_path(run.path(), "pane-3", "mail.wake").is_some());
     }
 
     #[test]

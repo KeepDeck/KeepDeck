@@ -47,7 +47,7 @@ pub const HOOK_WAIT: Duration = Duration::from_millis(2_500);
 /// Through `spool`, like the write below — the layout of a pane's directory
 /// is one fact, and a reply written to one place and looked for in another
 /// is exactly what a second copy of it would produce.
-fn reply_path(run_dir: &Path, pane_id: &str, id: &str) -> PathBuf {
+fn reply_path(run_dir: &Path, pane_id: &str, id: &str) -> Option<PathBuf> {
     spool::pane_path(run_dir, pane_id, &reply_file(id))
 }
 
@@ -77,7 +77,10 @@ pub fn write(run_dir: &Path, pane_id: &str, id: &str, body: &str) -> Result<(), 
 /// Only meaningful once [`HOOK_WAIT`] has passed; asked earlier it reports
 /// every answer as uncollected, because the hook is still polling for it.
 pub fn was_collected(run_dir: &Path, pane_id: &str, id: &str) -> bool {
-    !reply_path(run_dir, pane_id, id).exists()
+    // A name that cannot be a path never became a file, so there is nothing
+    // outstanding on it — the same answer, reached without composing a path
+    // out of something the permit-list refused.
+    reply_path(run_dir, pane_id, id).is_none_or(|path| !path.exists())
 }
 
 /// Drop an answer nobody came for. Named apart from the check because the two
@@ -85,7 +88,9 @@ pub fn was_collected(run_dir: &Path, pane_id: &str, id: &str) -> bool {
 /// question: a stale reply that stays would outlive its run directory's
 /// usefulness and, worse, could be read by a later hook that reused the name.
 pub fn discard(run_dir: &Path, pane_id: &str, id: &str) {
-    let _ = fs::remove_file(reply_path(run_dir, pane_id, id));
+    if let Some(path) = reply_path(run_dir, pane_id, id) {
+        let _ = fs::remove_file(path);
+    }
 }
 
 #[cfg(test)]

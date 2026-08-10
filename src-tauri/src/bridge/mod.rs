@@ -247,16 +247,25 @@ fn consume_file(path: &Path) -> Result<Inbound, Rejected> {
             Rejected::Dropped(format!("{what}: {e}"))
         }
     };
-    // `symlink_metadata`, not `metadata`: an envelope is a REGULAR FILE that a
-    // reporter renamed into place. A symlink is not one, and following it
-    // would make the inbox read whatever it points at — a fifo that blocks
-    // the watcher thread, a device, or a file somewhere else entirely, with
-    // the size cap measured against the target rather than what landed here.
+    // OPEN first, then ask the open file what it is. An envelope is a regular
+    // file a reporter renamed into place, and every other kind of thing is a
+    // way to make this thread do something else: a symlink reads a file
+    // somewhere else entirely, a fifo blocks the read forever and takes the
+    // whole bridge down with it — session bindings, usage, mail asks, for
+    // every pane at once.
+    //
+    // Statting the PATH and then reading the PATH resolves it twice, so the
+    // two can disagree: swap the file between them and the checks were done
+    // on something else. Everything below is asked of the descriptor, which
+    // names one object nobody can substitute.
     //
     // Not a privilege boundary — the panes run as the same user and can read
-    // those files directly — but the inbox has one job, and reading anything
+    // these files directly — but the inbox has one job, and reading anything
     // other than what a reporter wrote is not it.
-    let meta = fs::symlink_metadata(path).map_err(|e| vanished_or(e, "unstattable envelope"))?;
+    let file = open_plain_file(path).map_err(|e| vanished_or(e, "unopenable envelope"))?;
+    let meta = file
+        .metadata()
+        .map_err(|e| vanished_or(e, "unstattable envelope"))?;
     if !meta.is_file() {
         return Err(Rejected::Dropped("not a regular file".into()));
     }
@@ -266,8 +275,37 @@ fn consume_file(path: &Path) -> Result<Inbound, Rejected> {
             meta.len()
         )));
     }
-    let content = fs::read_to_string(path).map_err(|e| vanished_or(e, "unreadable envelope"))?;
+    // Bounded regardless of what the stat said: a file being appended to
+    // while this reads would otherwise slip past the cap it just passed.
+    use std::io::Read as _;
+    let mut content = String::new();
+    file.take(MAX_ENVELOPE_BYTES + 1)
+        .read_to_string(&mut content)
+        .map_err(|e| vanished_or(e, "unreadable envelope"))?;
+    if content.len() as u64 > MAX_ENVELOPE_BYTES {
+        return Err(Rejected::Dropped("oversized envelope (grew while reading)".into()));
+    }
     interpret(&content).map_err(Rejected::Dropped)
+}
+
+/// Open a path as a plain file, refusing to follow a symlink and refusing to
+/// wait on anything that would block.
+///
+/// `O_NOFOLLOW` makes a symlink an error rather than a redirection, and
+/// `O_NONBLOCK` is what stops a fifo parking this thread inside `open` —
+/// opening one for reading waits for a writer, forever if none comes, and
+/// this runs on the notify watcher's only thread. Both are refusals, not
+/// mitigations: the caller checks `is_file()` on the descriptor anyway, so a
+/// device that opens fine is still dropped.
+fn open_plain_file(path: &Path) -> std::io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    options.open(path)
 }
 
 #[cfg(test)]
@@ -317,24 +355,53 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn an_envelope_that_is_not_a_regular_file_is_dropped_unread() {
-        // An envelope is a file a reporter renamed into place. A symlink is
-        // not one, and following it makes the inbox read whatever it points
-        // at — with the size cap measured against the target rather than
-        // against what landed in the run directory.
+        // An envelope is a file a reporter renamed into place. Anything else
+        // is a way to make this thread do something other than its job: a
+        // symlink reads a file somewhere else, a fifo blocks forever and
+        // takes the whole bridge down with it.
         let root = tempfile::tempdir().unwrap();
         let elsewhere = root.path().join("elsewhere.txt");
         fs::write(&elsewhere, envelope(1, "session.bound", "pane-1", "tok", "sid")).unwrap();
         let link = root.path().join("linked.json");
         std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
 
-        assert!(matches!(
-            consume_file(&link),
-            Err(Rejected::Dropped(reason)) if reason.contains("not a regular file")
-        ));
-        // And a directory named like an envelope is refused the same way,
-        // rather than read as one.
+        // Refused at OPEN — the link is never followed, so the target's
+        // content cannot reach `interpret` however valid it happens to be.
+        assert!(matches!(consume_file(&link), Err(Rejected::Dropped(_))));
+        // A directory named like an envelope is refused too, rather than read.
         let dir = root.path().join("dir.json");
         fs::create_dir(&dir).unwrap();
         assert!(matches!(consume_file(&dir), Err(Rejected::Dropped(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_named_like_an_envelope_does_not_park_the_watcher() {
+        // The hazard that makes this worth doing at all. Opening a fifo for
+        // reading waits for a writer — forever, if none comes — and this runs
+        // on the notify watcher's only thread, so one of these would stop
+        // session bindings, usage and mail asks for every pane at once.
+        let root = tempfile::tempdir().unwrap();
+        let pipe = root.path().join("pipe.json");
+        let name = std::ffi::CString::new(pipe.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+
+        let began = std::time::Instant::now();
+        assert!(matches!(consume_file(&pipe), Err(Rejected::Dropped(_))));
+        assert!(began.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn an_envelope_that_outgrows_the_cap_mid_read_is_still_refused() {
+        // The stat and the read are two moments. Bounding the read as well
+        // means a file being appended to cannot pass a cap it no longer
+        // meets — the check and the thing checked stay the same object.
+        let root = tempfile::tempdir().unwrap();
+        let big = root.path().join("big.json");
+        fs::write(&big, "x".repeat(MAX_ENVELOPE_BYTES as usize + 1)).unwrap();
+        assert!(matches!(
+            consume_file(&big),
+            Err(Rejected::Dropped(reason)) if reason.contains("oversized")
+        ));
     }
 }
