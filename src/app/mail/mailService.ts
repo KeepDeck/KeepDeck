@@ -116,6 +116,7 @@ export function createMailService(
 ): MailService {
   let manager: MailManager | null = null;
   let unregister: (() => void) | null = null;
+  let presence: { dispose(): void } | null = null;
   let disposed = false;
 
   /** What THIS pane's agent contributes about mail. */
@@ -142,28 +143,32 @@ export function createMailService(
   });
 
   // Re-states a pane's standing whenever its memory of it may have gone — a
-  // fresh conversation, or a compaction. It reaches the manager through the
-  // same closure the rest does, so a toggle takes it with everything else.
-  const presence = createTeamPresence({
-    standingOf: (paneId) => {
-      for (const workspace of deps.deck.workspaces()) {
-        const pane = workspace.panes.find((candidate) => candidate.id === paneId);
-        if (!pane?.team) continue;
-        const name = pane.team.name;
-        return {
-          team: name,
-          role: pane.team.role,
-          everyRole: teamMembers(workspace, name)
-            .map((member) => member.team?.role)
-            .filter((role): role is string => Boolean(role)),
-        };
-      }
-      return null;
-    },
-    announce: (paneId, body) => manager?.announce(paneId, "team", body),
-    onSessionBegan: deps.onSessionBegan,
-    onContextRebuilt: deps.status.onContextRebuilt,
-  });
+  // fresh conversation, or a compaction. Built by `settle` and torn down with
+  // everything else, so the feature being off means no subscription at all
+  // rather than a live one whose every announcement lands on a null manager.
+  const startPresence = () =>
+    createTeamPresence({
+      standingOf: (paneId) => {
+        for (const workspace of deps.deck.workspaces()) {
+          const pane = workspace.panes.find(
+            (candidate) => candidate.id === paneId,
+          );
+          if (!pane?.team) continue;
+          const name = pane.team.name;
+          return {
+            team: name,
+            role: pane.team.role,
+            everyRole: teamMembers(workspace, name)
+              .map((member) => member.team?.role)
+              .filter((role): role is string => Boolean(role)),
+          };
+        }
+        return null;
+      },
+      announce: (paneId, body) => manager?.announce(paneId, "team", body),
+      onSessionBegan: deps.onSessionBegan,
+      onContextRebuilt: deps.status.onContextRebuilt,
+    });
 
   function settle(): void {
     if (disposed) return;
@@ -194,6 +199,7 @@ export function createMailService(
         setPaneTeam: deps.deck.setPaneTeam,
         mail: manager,
       });
+      presence = startPresence();
       return;
     }
     // Commands first: an in-flight call must not reach a manager that is
@@ -201,6 +207,12 @@ export function createMailService(
     // existing for anyone still holding a `tools/list` from a moment ago.
     unregister?.();
     unregister = null;
+    presence?.dispose();
+    presence = null;
+    // The queues these messages were taken from are about to go. Forgetting
+    // them is what stops a late report putting mail the user cleared into
+    // whatever queue exists next time.
+    hookReplies.forgetAll();
     manager?.dispose();
     manager = null;
   }
@@ -241,9 +253,11 @@ export function createMailService(
       unsubscribeSettings();
       unsubscribePanes();
       stopUncollected?.();
-      presence.dispose();
+      presence?.dispose();
+      presence = null;
       unregister?.();
       unregister = null;
+      hookReplies.forgetAll();
       manager?.dispose();
       manager = null;
     },

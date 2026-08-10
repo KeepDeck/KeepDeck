@@ -224,9 +224,12 @@ describe("createMailService", () => {
     h.beginsSession("pane-1");
     expect(h.waitingFor("pane-1")).toEqual(["team"]);
 
-    // Off: the presence still hears the signal and must produce nothing,
-    // because the queue it would write into is gone.
+    // Off: the presence is unsubscribed outright, not merely inert. A live
+    // listener whose every announcement lands on a null manager is a feature
+    // that is off in effect but not in fact — and the difference shows the
+    // day somebody makes `announce` do more than nothing.
     h.set(false);
+    expect(h.sessionListeners()).toBe(0);
     h.beginsSession("pane-1");
     h.set(true);
     expect(h.waitingFor("pane-1")).toEqual([]);

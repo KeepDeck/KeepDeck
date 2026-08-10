@@ -213,6 +213,55 @@ describe("answerMailAsk", () => {
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
   });
 
+  it("puts messages back into the queue they came from, not into a later one", () => {
+    // The report arrives seconds after the hand-over, and the feature can be
+    // switched off in between — which destroys the queues. Restoring into
+    // whatever manager is live NOW would take mail out of a queue the user
+    // cleared and put it into a fresh one, delivering messages that were
+    // deliberately thrown away.
+    const h = setup();
+    const replaced = createMailManager({
+      activityOf: () => WORKING,
+      subscribeActivity: () => () => {},
+      subscribeChannels: () => () => {},
+      deliver: () => true,
+      wake: () => true,
+      asksAtTurnEnd: () => true,
+      now: () => 1_000,
+      schedule: () => () => {},
+    });
+    let live: MailManager = h.manager;
+    const channel = createHookReplies({ ...h.deps, mail: () => live });
+
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    channel.answer("pane-2", asking());
+    live = replaced; // the toggle went off and on again
+
+    channel.uncollected("pane-2", "askABC");
+    expect(replaced.takeAtTurnEnd("pane-2")).toEqual([]);
+  });
+
+  it("forgets every hand-over when the queues behind them are destroyed", () => {
+    // `forgetAll` is what the owner calls as it disposes a manager. Without
+    // it the memory outlives what it describes, and its timers outlive the
+    // service.
+    const h = setup();
+    let cancelled = 0;
+    const channel = createHookReplies({
+      ...h.deps,
+      schedule: () => () => {
+        cancelled += 1;
+      },
+    });
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    channel.answer("pane-2", asking());
+
+    channel.forgetAll();
+    expect(cancelled).toBe(1);
+    channel.uncollected("pane-2", "askABC");
+    expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
+  });
+
   it("forgets a hand-over nobody reported, so the map cannot grow forever", () => {
     // Success is never confirmed — the transport reports only failure — so
     // the memory has to age out on its own.

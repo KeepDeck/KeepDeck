@@ -57,6 +57,14 @@ export interface HookReplies {
   /** The transport saw an answer nobody collected. The messages it carried
    * left the queue to be written there, so they go back. */
   uncollected(paneId: string, correlation: string): void;
+  /** Forget every outstanding hand-over, cancelling its timer.
+   *
+   * Called when the queues those messages came from are destroyed — the
+   * feature toggling off, or the owner disposing. Without it the memory
+   * outlives what it describes: a report arriving after a toggle would put
+   * messages taken from a dead queue into a live one, resurrecting mail into
+   * a pane that was deliberately cleared. */
+  forgetAll(): void;
 }
 
 /**
@@ -123,16 +131,22 @@ export function createHookReplies(deps: HookReplyDeps): HookReplies {
     });
   /** What each outstanding answer carried, keyed by pane AND correlation —
    * the same pair the transport reports back, and the reason a correlation
-   * borrowed from another pane cannot reclaim that pane's messages. */
-  const handedOver = new Map<string, { messages: Mail[]; forget: () => void }>();
+   * borrowed from another pane cannot reclaim that pane's messages. Each
+   * entry also remembers WHICH manager it was taken from, because that is
+   * the only queue it may go back into. */
+  const handedOver = new Map<
+    string,
+    { messages: Mail[]; from: MailManager; forget: () => void }
+  >();
   const key = (paneId: string, correlation: string) =>
     `${paneId}\0${correlation}`;
 
-  const remember = (paneId: string, correlation: string, messages: Mail[]) => {
+  const remember: Remember = (paneId, correlation, messages, from) => {
     const at = key(paneId, correlation);
     handedOver.get(at)?.forget();
     handedOver.set(at, {
       messages,
+      from,
       forget: schedule(() => handedOver.delete(at), HANDOVER_MEMORY_MS),
     });
   };
@@ -140,32 +154,43 @@ export function createHookReplies(deps: HookReplyDeps): HookReplies {
   return {
     answer: (paneId, payload) =>
       answerMailAsk(deps, paneId, payload, remember),
+    forgetAll() {
+      for (const outstanding of handedOver.values()) outstanding.forget();
+      handedOver.clear();
+    },
     uncollected(paneId, correlation) {
       const outstanding = handedOver.get(key(paneId, correlation));
       if (!outstanding) return;
       outstanding.forget();
       handedOver.delete(key(paneId, correlation));
-      const manager = deps.mail();
-      // No manager means the feature was switched off between the hand-over
-      // and the report, and its queues went with it — there is nothing to
-      // restore into.
-      if (!manager) return;
+      // Restored into the manager the messages CAME FROM, not into whatever
+      // is live now. The two differ whenever the feature toggled between the
+      // hand-over and the report, and putting them into a fresh manager
+      // would resurrect mail into a queue the user had cleared.
       log.warn(
         "web:mail",
         `${paneId} never read its answer — putting back ${outstanding.messages
           .map((mail) => mail.id)
           .join(" ")}`,
       );
-      manager.restore(outstanding.messages);
+      outstanding.from.restore(outstanding.messages);
     },
   };
 }
+
+/** Book what one answer carried, against the queue it came out of. */
+type Remember = (
+  paneId: string,
+  correlation: string,
+  messages: Mail[],
+  from: MailManager,
+) => void;
 
 function answerMailAsk(
   deps: HookReplyDeps,
   paneId: string,
   payload: unknown,
-  remember: (paneId: string, correlation: string, messages: Mail[]) => void,
+  remember: Remember,
 ): void {
   const correlation = correlationOf(payload);
   if (!correlation) return;
@@ -214,7 +239,7 @@ function answerMailAsk(
   // Remembered BEFORE the answer goes out: the transport starts its own
   // clock the moment it writes, and a report that beat this line would find
   // nothing to put back.
-  remember(paneId, correlation, taken);
+  remember(paneId, correlation, taken, manager);
   answer(
     rendered,
     `injecting ${taken.length} message(s), ${rendered.length} bytes: ${taken.map((mail) => `${mail.id}/${mail.kind}`).join(" ")}`,
