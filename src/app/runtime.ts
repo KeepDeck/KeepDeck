@@ -27,14 +27,10 @@ import { createJournalPersistence } from "./journalPersistence";
 import { commands } from "./commandRegistry";
 import { readDeck } from "./deckSurface";
 import {
-  createHookReplies,
   createMailService,
-  createMailWake,
-  createTeamPresence,
   deliverMailThroughPty,
   wakePaneForMail,
 } from "./mail";
-import { teamMembers } from "../domain/mail";
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
@@ -186,38 +182,14 @@ export function createAppRuntime(
    * last. A plain fan-out rather than a store: nothing needs the history,
    * only the moment. */
   const sessionsBegun = new Set<(paneId: string) => void>();
-  /** What a pane's agent plugin says about mail — whether it renders any, and
-   * how it wants to be woken. Read PER CALL, never cached: a plugin can be
-   * enabled or disabled while the deck is up, and a pane can be restarted
-   * onto another agent, and both answers must follow. */
-  /** The labelled channel's own owner: it answers asks and remembers what
-   * each answer carried until the transport confirms or denies the read. */
-  const hookReplies = createHookReplies({
-    mail: () => mail.current(),
-    rendererFor: (agentId: string) =>
-      plugins.pluginRegistries.agents
-        .list()
-        .find(({ entry }) => entry.id === agentId)?.entry.status?.renderMail,
-    // Through the agent's DECLARED bin, which is the same name the detection
-    // pass probed — an agent whose plugin declares none simply has no
-    // version, and its renderer reads that as "assume the current schema".
-    versionOf: (agentId: string) => {
-      const bin = plugins.pluginRegistries.agents
-        .list()
-        .find(({ entry }) => entry.id === agentId)?.entry.detect?.bin;
-      return bin ? plugins.agentBinVersion(bin) : null;
-    },
-    reply: replyToBridgeHook,
-  });
-  /** Stops the uncollected-reply listener; resolved inside `start()`. */
-  let stopUncollected: (() => void) | undefined;
-  const mailStatusOf = (paneId: string) => {
-    const agentType = paneAgentTypeOf(deckStore, paneId);
-    if (!agentType) return undefined;
-    return plugins.pluginRegistries.agents
+  /** The whole mail feature, as one create and one dispose. What it is made
+   * of — the queue, the commands, both delivery channels, the reply memory,
+   * the standing-presence — composes inside it; these are only the ports it
+   * cannot build for itself. */
+  const agentEntry = (agentId: string) =>
+    plugins.pluginRegistries.agents
       .list()
-      .find(({ entry }) => entry.id === agentType)?.entry.status;
-  };
+      .find(({ entry }) => entry.id === agentId)?.entry;
   const mail = createMailService(
     {
       agentTeams: () => getSettings()?.agentTeams ?? null,
@@ -225,33 +197,41 @@ export function createAppRuntime(
     },
     {
       registry: commands,
-      activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
-      subscribeActivity: statusTracker.subscribe,
-      subscribeChannels: subscribePaneInput,
-      deliver: deliverMailThroughPty,
-      wake: createMailWake({
-        channelOf: (paneId) => mailStatusOf(paneId)?.wake,
-        throughTerminal: wakePaneForMail,
-        throughBridge: nudgeBridgePane,
-      }),
-      // A pane whose CLI plugin renders mail will come asking at its turn
-      // boundary, so a running turn is worth waiting out for the labelled
-      // channel.
-      asksAtTurnEnd: (paneId: string) => Boolean(mailStatusOf(paneId)?.renderMail),
-      livePaneIds: () =>
-        new Set(
-          deckStore
-            .getSnapshot()
-            .workspaces.flatMap((workspace) =>
-              workspace.panes.map((pane) => pane.id),
-            ),
-        ),
-      subscribePanes: deckStore.subscribe,
-      commands: {
-        deck: () => readDeck(deckStore),
-        agents: agentLabels,
+      deck: {
+        workspaces: () => deckStore.getSnapshot().workspaces,
+        subscribe: deckStore.subscribe,
+        surface: () => readDeck(deckStore),
         setPaneTeam: (workspaceId, paneId, team) =>
           deckActions.setPaneTeam(workspaceId, paneId, team),
+        agentTypeOf: (paneId) => paneAgentTypeOf(deckStore, paneId),
+      },
+      agents: {
+        labels: agentLabels,
+        statusOf: (agentId) => agentEntry(agentId)?.status,
+        // Through the agent's DECLARED bin, which is the same name the
+        // detection pass probed — an agent whose plugin declares none simply
+        // has no version, and its renderer reads that as "assume the current
+        // schema".
+        versionOf: (agentId) => {
+          const bin = agentEntry(agentId)?.detect?.bin;
+          return bin ? plugins.agentBinVersion(bin) : null;
+        },
+      },
+      status: {
+        activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
+        subscribe: statusTracker.subscribe,
+        onContextRebuilt: statusTracker.onContextRebuilt,
+      },
+      subscribeChannels: subscribePaneInput,
+      onSessionBegan: (listener) => {
+        sessionsBegun.add(listener);
+        return () => sessionsBegun.delete(listener);
+      },
+      terminal: { deliver: deliverMailThroughPty, wake: wakePaneForMail },
+      bridge: {
+        reply: replyToBridgeHook,
+        nudge: nudgeBridgePane,
+        onReplyUncollected: onBridgeReplyUncollected,
       },
     },
   );
@@ -298,32 +278,6 @@ export function createAppRuntime(
     paneView: paneViewActions,
     skills,
     activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
-  });
-  // Re-states a pane's standing whenever its memory of it may have gone —
-  // a fresh conversation, or a compaction. Built after the mail service, so
-  // it can reach the manager that only exists while the feature is on.
-  const teamPresence = createTeamPresence({
-    standingOf: (paneId) => {
-      for (const workspace of deckStore.getSnapshot().workspaces) {
-        const pane = workspace.panes.find((candidate) => candidate.id === paneId);
-        if (!pane?.team) continue;
-        const name = pane.team.name;
-        return {
-          team: name,
-          role: pane.team.role,
-          everyRole: teamMembers(workspace, name)
-            .map((member) => member.team?.role)
-            .filter((role): role is string => Boolean(role)),
-        };
-      }
-      return null;
-    },
-    announce: (paneId, body) => mail.current()?.announce(paneId, "team", body),
-    onSessionBegan: (listener) => {
-      sessionsBegun.add(listener);
-      return () => sessionsBegun.delete(listener);
-    },
-    onContextRebuilt: statusTracker.onContextRebuilt,
   });
   const worktreeSweeper = createWorktreeSweeper(
     deckStore,
@@ -382,16 +336,8 @@ export function createAppRuntime(
         { subscribe: subscribeSessions, state: paneSessionState },
         attribution,
         { subscribe: subscribePaneKeys },
-        (paneId, payload) => hookReplies.answer(paneId, payload),
+        mail.answerAsk,
       );
-      // An answer nobody read means those messages left the queue and were
-      // written into a file that was never opened. Only the transport can see
-      // that; only the deck can do anything about it.
-      void onBridgeReplyUncollected(({ pane, id }) =>
-        hookReplies.uncollected(pane, id),
-      ).then((stop) => {
-        stopUncollected = stop;
-      });
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,
         saveNotified: saveNotifiedAchievements,
@@ -428,8 +374,6 @@ export function createAppRuntime(
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       minimizePolicy.dispose();
-      stopUncollected?.();
-      teamPresence.dispose();
       mail.dispose();
       mcp.dispose();
       journalPersistence.dispose();
