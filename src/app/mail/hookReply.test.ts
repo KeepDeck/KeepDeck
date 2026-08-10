@@ -183,32 +183,44 @@ describe("answerMailAsk", () => {
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
   });
 
-  it("answers a second ask on the same correlation, and books only the second", () => {
-    // A hook that retried, or two events racing on one id. The reply file is
-    // replaced, so the SECOND answer is the one anybody can read — and the
-    // first's booking has to go with it, or an uncollected report would put
-    // back messages the second answer already carried, delivering them twice.
+  it("refuses a second ask while an answer is still awaiting collection", () => {
+    // The second answer REPLACES the first file. The common second answer is
+    // EMPTY — nothing waiting — and the transport arms no collection watchdog
+    // for an empty one, because an empty one carries nothing to lose. So a
+    // reporter reusing a correlation could overwrite a reply full of messages
+    // with a blank, and those messages would sit booked, unwatched, and be
+    // gone in thirty seconds with their senders told they were delivered.
+    //
+    // Both shipped reporters mint a fresh id per ask, so this needs a
+    // modified one — which is exactly the threat this channel is written for.
     const h = setup();
-    let cancelled = 0;
-    const channel = createHookReplies({
-      ...h.deps,
-      schedule: () => () => {
-        cancelled += 1;
-      },
-    });
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "first" });
-    channel.answer("pane-2", asking());
-    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "second" });
-    channel.answer("pane-2", asking());
-    expect(h.replies).toHaveLength(2);
-    // The first booking was dropped, timer and all.
-    expect(cancelled).toBe(1);
+    h.channel.answer("pane-2", asking());
+    expect(h.replies).toHaveLength(1);
 
-    channel.uncollected("pane-2", "askABC");
-    // Only what the LAST answer carried comes back.
+    h.channel.answer("pane-2", asking());
+    // Nothing written over the outstanding answer.
+    expect(h.replies).toHaveLength(1);
+    // And the first ask's messages are still recoverable.
+    h.channel.uncollected("pane-2", "askABC");
     expect(h.manager.takeAtTurnEnd("pane-2").map((mail) => mail.body)).toEqual([
-      "second",
+      "first",
     ]);
+  });
+
+  it("answers again on a correlation whose answer was already reported unread", () => {
+    // The other side of the same rule: once the transport says nobody came
+    // for an answer, that correlation is free. A hook that retries after its
+    // own timeout must not be stonewalled — the messages are back in the
+    // queue and this is the ask that carries them.
+    const h = setup();
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "first" });
+    h.channel.answer("pane-2", asking());
+    h.channel.uncollected("pane-2", "askABC");
+
+    h.channel.answer("pane-2", asking());
+    expect(h.replies).toHaveLength(2);
+    expect(h.replies[1].body).toContain("first");
   });
 
   it("keeps an agent's own words out of the log line about it", () => {

@@ -141,19 +141,22 @@ export function createHookReplies(deps: HookReplyDeps): HookReplies {
   const key = (paneId: string, correlation: string) =>
     `${paneId}\0${correlation}`;
 
-  const remember: Remember = (paneId, correlation, messages, from) => {
-    const at = key(paneId, correlation);
-    handedOver.get(at)?.forget();
-    handedOver.set(at, {
-      messages,
-      from,
-      forget: schedule(() => handedOver.delete(at), HANDOVER_MEMORY_MS),
-    });
+  const handovers: Handovers = {
+    book(paneId, correlation, messages, from) {
+      const at = key(paneId, correlation);
+      handedOver.get(at)?.forget();
+      handedOver.set(at, {
+        messages,
+        from,
+        forget: schedule(() => handedOver.delete(at), HANDOVER_MEMORY_MS),
+      });
+    },
+    outstanding: (paneId, correlation) => handedOver.has(key(paneId, correlation)),
   };
 
   return {
     answer: (paneId, payload) =>
-      answerMailAsk(deps, paneId, payload, remember),
+      answerMailAsk(deps, paneId, payload, handovers),
     forgetAll() {
       for (const outstanding of handedOver.values()) outstanding.forget();
       handedOver.clear();
@@ -178,22 +181,25 @@ export function createHookReplies(deps: HookReplyDeps): HookReplies {
   };
 }
 
-/** Book what one answer carried, against the queue it came out of. */
-type Remember = (
-  paneId: string,
-  correlation: string,
-  messages: Mail[],
-  from: MailManager,
-) => void;
+/** The hand-over memory, as the asking path needs it: book what one answer
+ * carried against the queue it came out of, and say whether an answer is
+ * still awaiting collection on a given correlation. */
+interface Handovers {
+  book(
+    paneId: string,
+    correlation: string,
+    messages: Mail[],
+    from: MailManager,
+  ): void;
+  outstanding(paneId: string, correlation: string): boolean;
+}
 
 function answerMailAsk(
   deps: HookReplyDeps,
   paneId: string,
   payload: unknown,
-  remember: Remember,
+  handovers: Handovers,
 ): void {
-  const correlation = correlationOf(payload);
-  if (!correlation) return;
   const manager = deps.mail();
   // Named by whichever field this reporter's CLI uses. The hook CLIs send
   // `hook_event_name`; an in-process reporter has no hook and names its own
@@ -214,8 +220,28 @@ function answerMailAsk(
   // labelled channel: a briefing that never reaches an agent's context and a
   // hook that never asked look identical from outside, and the difference is
   // the whole diagnosis.
-  const answer = (body: string, why: string) => {
+  const said = (why: string) =>
     log.info("web:mail", `${paneId} asked on ${asking} → ${why}`);
+
+  const correlation = correlationOf(payload);
+  // An answer is ADDRESSED by correlation, so one the transport cannot write
+  // leaves nothing to reply to — but it is still an ask, and the log is the
+  // only place it can show up. Silence here would leave a reporter with a
+  // different alphabet looking at a pane that never receives mail and a log
+  // with nothing in it.
+  if (!correlation) return said("unusable correlation — nothing to answer on");
+  // The same correlation twice, with an answer still outstanding on it. The
+  // second answer REPLACES the first file, so if this one is empty — the
+  // common case, nothing waiting — it overwrites a reply carrying messages
+  // and the transport arms no watchdog for an empty one. The first ask's
+  // messages would be booked, unwatched, and gone in thirty seconds with
+  // their senders told otherwise. Only a reporter that reuses a correlation
+  // reaches this; both shipped ones mint a fresh id per ask.
+  if (handovers.outstanding(paneId, correlation)) {
+    return said(`correlation ${correlation} is already awaiting collection`);
+  }
+  const answer = (body: string, why: string) => {
+    said(why);
     deps.reply(paneId, correlation, body);
   };
   // Always answer, even with nothing: a hook that gets no file waits out its
@@ -235,16 +261,24 @@ function answerMailAsk(
     messages: taken.map(forAgent),
     cliVersion: deps.versionOf(agent),
   });
-  if (rendered === null) {
+  if (!rendered) {
     // This event cannot carry mail after all. Give it back rather than drop
     // it — the pane will ask again at an event that can.
+    //
+    // Empty counts as null, not as "an answer that happens to be blank". The
+    // transport arms its collection watchdog only for an answer WITH content,
+    // because an empty one carries nothing to lose — so handing messages over
+    // and then writing "" would book them against a reply nobody watches, and
+    // they would age out of the hand-over memory with every sender told they
+    // were delivered. That is the hole the write-failure report closed, one
+    // branch over, and a third-party renderer is all it takes to reach it.
     manager.restore(taken);
     return answer("", `${agent} cannot carry mail on this event`);
   }
   // Remembered BEFORE the answer goes out: the transport starts its own
   // clock the moment it writes, and a report that beat this line would find
   // nothing to put back.
-  remember(paneId, correlation, taken, manager);
+  handovers.book(paneId, correlation, taken, manager);
   answer(
     rendered,
     `injecting ${taken.length} message(s), ${rendered.length} bytes: ${taken.map((mail) => `${mail.id}/${mail.kind}`).join(" ")}`,
