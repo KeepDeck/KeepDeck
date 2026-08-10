@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
 import type { SessionBound } from "../ipc/sessions";
+
+const logged = vi.hoisted(() => ({ info: vi.fn() }));
+vi.mock("../ipc/log", () => ({
+  log: { info: logged.info, warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+}));
+
 import { bindingOrigin, createPaneAttribution } from "./paneAttribution";
 
 /**
@@ -48,6 +54,29 @@ describe("bindingOrigin", () => {
 });
 
 describe("createPaneAttribution", () => {
+  beforeEach(() => {
+    logged.info.mockClear();
+  });
+
+  it("says out loud when the pane's agent moves process, and only then", () => {
+    // What turns the frozen-pane symptom into one line of log: a refusal says
+    // a report came from the wrong process, never when the right one changed.
+    // A rebind by the SAME process is the ordinary case — logging it too would
+    // bury the one line worth finding.
+    const owner = attribution();
+    owner.recordBinding("pane-1", "22422");
+    owner.recordBinding("pane-1", "22422");
+    owner.recordBinding("pane-1", undefined);
+    expect(logged.info).not.toHaveBeenCalled();
+
+    owner.recordBinding("pane-1", "920");
+    expect(logged.info).toHaveBeenCalledTimes(1);
+    expect(logged.info).toHaveBeenCalledWith(
+      "web:bridge",
+      expect.stringContaining("pane-1: reporting process moved 22422 → 920"),
+    );
+  });
+
   it("pins the generation to the process that bound it", () => {
     const owner = attribution();
     expect(owner.judge(report())).toEqual({ accepted: true });
@@ -82,9 +111,10 @@ describe("createPaneAttribution", () => {
       accepted: false,
       refusal: "foreign-process",
     });
-    expect(owner.judge(report({ source: "clear" }))).toEqual({
-      accepted: true,
-    });
+    // And the consequence the pin exists for: the pane's OWN agent is still
+    // admitted on the lanes — the half a continuation's verdict, accepted
+    // whatever the pin holds, can no longer show.
+    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
   });
 
   it("follows the pane's agent to the process it re-hosts its session in", () => {

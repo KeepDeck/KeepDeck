@@ -11,6 +11,7 @@ import {
   paneAgentType,
   type Workspace,
 } from "../domain/deck";
+import { log } from "../ipc/log";
 import type { SessionBound } from "../ipc/sessions";
 
 /**
@@ -165,7 +166,19 @@ export function createPaneAttribution(
       // because nothing distinguishes "could not name itself, then could" from
       // "could not, and something else answered instead" — adopting there
       // would lock the pane out on a process it cannot vouch for.
-      if (reporter !== undefined && bound.get(paneId) !== undefined) {
+      const pinned = bound.get(paneId);
+      if (reporter !== undefined && pinned !== undefined) {
+        // Said out loud, because the silence this repairs was diagnosable only
+        // by reading a log next to a process tree: a pane whose reports are
+        // being refused shows a `foreign-process` line per report and nothing
+        // that says WHEN its agent moved. Only an actual move is logged — a
+        // rebind by the same process is the ordinary case and would drown it.
+        if (pinned !== reporter) {
+          log.info(
+            "web:bridge",
+            `${paneId}: reporting process moved ${pinned} → ${reporter}`,
+          );
+        }
         bound.set(paneId, reporter);
       }
     },
