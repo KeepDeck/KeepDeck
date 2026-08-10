@@ -502,22 +502,35 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         const queue = queues.get(mail.toPaneId);
         if (!queue) {
           queues.set(mail.toPaneId, [mail]);
-        } else if (
-          isStandingContext(mail.kind) &&
-          queue.some((waiting) => waiting.kind === mail.kind)
-        ) {
-          // A newer statement of the same standing context is already
-          // waiting, so this one is not merely older — it is WRONG, and it
-          // would go in front. The window is ordinary: a briefing is handed
-          // over, the pane restarts without reading it, `onSessionBegan`
-          // announces the current roster, and only then does the transport
-          // report the old answer unread. Standing context never expires, so
-          // an agent handed both would read a superseded team first — and if
-          // its role changed across that restart, act on it.
+        } else if (isStandingContext(mail.kind)) {
+          // Only the NEWEST statement of a standing context is true. The
+          // window is ordinary: a briefing is handed over, the pane restarts
+          // without reading it, the session-start announce puts the current
+          // roster in the queue, and only then does the transport report the
+          // old answer unread. Standing context never expires, so an agent
+          // handed both would read a superseded team first — and if its role
+          // changed across that restart, act on it.
           //
-          // `enqueue` states this rule for the arriving direction; the two
-          // are the same rule, and putting a message back has to obey it too.
-          log.info("web:mail", `dropped on the way back, superseded: ${trace(mail)}`);
+          // Compared by TIME, not by position. Nothing says the queued one is
+          // the newer: the transport arms one watchdog per reply file, so
+          // several put-backs arrive in the order they were WRITTEN, oldest
+          // first. Asking "is one already waiting?" dropped the arriving
+          // message every time and left the pane holding the stale briefing —
+          // worse than the raw unshift it replaced.
+          //
+          // `enqueue` states the same rule for the arriving direction; there
+          // it is trivially true, because what arrives is always newest.
+          const newer = queue.some(
+            (waiting) => waiting.kind === mail.kind && waiting.at >= mail.at,
+          );
+          if (newer) {
+            log.info("web:mail", `dropped on the way back, superseded: ${trace(mail)}`);
+          } else {
+            for (let at = queue.length - 1; at >= 0; at -= 1) {
+              if (queue[at].kind === mail.kind) queue.splice(at, 1);
+            }
+            queue.unshift(mail);
+          }
         } else {
           queue.unshift(mail);
         }

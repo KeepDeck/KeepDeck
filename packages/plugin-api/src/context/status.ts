@@ -302,38 +302,70 @@ const QUOTE = "> ";
  * line to read as one.
  */
 function quoted(body: string): string {
-  const cut =
-    body.length > BODY_LIMIT
-      ? `${body.slice(0, BODY_LIMIT)}\n[…cut by KeepDeck at ${BODY_LIMIT} characters]`
-      : body;
-  return sealTag(cut)
-    .split("\n")
+  return sealTag(cutAt(body, BODY_LIMIT))
+    // Split on every terminator a READER may honour, not only the one
+    // `String.split("\n")` knows. `\r` alone ends a line on a terminal, and
+    // U+2028/U+2029 are line and paragraph separators by definition — so a
+    // body carrying one produced a line the deck never quoted, at column
+    // zero, which is exactly the forgery the quoting exists to stop. They
+    // all become real lines here, and every real line gets the marker.
+    .split(LINE_BREAK)
     .map((line) => QUOTE + line)
     .join("\n");
 }
 
 /**
+ * Every character a reader may treat as ending a line.
+ *
+ * LF, CR and CRLF; VT and FF, which terminals honour; NEL (U+0085), which
+ * JavaScript's own `\s` does not cover; and the two Unicode separators. The
+ * frame's one structural promise — column zero is the deck's — is only worth
+ * as much as this list is complete, so it is stated once and used by both
+ * halves below.
+ */
+const LINE_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/u;
+
+/**
  * A name, id or kind as it may appear in a header: one line, bounded.
  *
  * These have no legitimate newline — they are an address, a mail id, a word
- * from a fixed list — so collapsing whitespace costs nothing and stops the
- * header itself from being split into a forged second one. `id` and `kind`
- * are the deck's own words today (`mail-${n}`, checked against a permit-list
- * before a send is accepted); passing them through anyway means the frame
- * does not depend on that staying true somewhere else.
+ * from a fixed list — so flattening costs nothing and stops the header itself
+ * from being split into a forged second one. `id` and `kind` are the deck's
+ * own words today (`mail-${n}`, checked against a permit-list before a send
+ * is accepted); passing them through anyway means the frame does not depend
+ * on that staying true somewhere else.
+ *
+ * One pass over three classes at once: any whitespace, any line terminator
+ * `\s` misses, and the three characters the header is BUILT from. Dropping
+ * those last is what stops a second header appearing on the SAME line, which
+ * reads as a second record just as well — the header sits at column zero, in
+ * the deck's voice, and everything on it should be the deck's. None of them
+ * belongs in a mail id, a role or a label.
  */
 function oneLine(text: string): string {
   const flat = sealTag(text)
-    .replace(/\s+/gu, " ")
-    // The three characters the header is BUILT from. Collapsing newlines
-    // stops a second header line; dropping these stops a second header on
-    // the same line, which reads as one all the same — the header sits at
-    // column zero, in the deck's voice, and everything on it should be the
-    // deck's. None of them belongs in a mail id, a role or a label.
-    .replace(/[[\]·]/gu, " ")
-    .replace(/\s+/gu, " ")
+    .replace(/[\s\v\f\u0085\u2028\u2029[\]·]+/gu, " ")
     .trim();
-  return flat.length > NAME_LIMIT ? `${flat.slice(0, NAME_LIMIT)}…` : flat;
+  return cutAt(flat, NAME_LIMIT, "…");
+}
+
+/**
+ * `text`, no longer than `limit`, cut on a character boundary.
+ *
+ * `slice` counts UTF-16 units, so cutting mid-pair leaves a lone surrogate
+ * and the frame stops being well-formed text — for the sake of one character
+ * nobody will miss. The tail says it was cut, because a silent truncation
+ * reads as the end of a thought.
+ */
+function cutAt(text: string, limit: number, tail?: string): string {
+  if (text.length <= limit) return text;
+  // The limit counts UTF-16 units, so the cut can land between the halves of
+  // one character. Drop the orphaned half: a lone surrogate makes the whole
+  // frame ill-formed text, and nobody misses the character it would buy.
+  const cut = text.slice(0, limit);
+  const last = cut.charCodeAt(cut.length - 1);
+  const kept = last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+  return `${kept}${tail ?? `\n[…cut by KeepDeck at ${limit} characters]`}`;
 }
 
 /**
@@ -348,15 +380,26 @@ function oneLine(text: string): string {
  *
  * Tolerant of spacing, because a reader is: `</teammate-message >` closes the
  * element for every XML parser ever written, and betting that a model is
- * stricter than a parser is the wrong side of that bet. Neutralised rather
- * than rejected — a message is not the sender's last chance to be understood,
- * and refusing it would make the failure the receiver's problem. The marker
- * is visible on purpose: a reader seeing `<teammate-message⧸>` knows exactly
- * what was there.
+ * stricter than a parser is the wrong side of that bet. The same argument
+ * covers characters that are not there at all — a zero-width space or a soft
+ * hyphen inside the tag name is invisible to a reader and fatal to a match —
+ * so they are REMOVED first rather than matched around. Nothing in a message
+ * needs them, and the alternative is a pattern nobody can read.
+ *
+ * Neutralised rather than rejected — a message is not the sender's last
+ * chance to be understood, and refusing it would make the failure the
+ * receiver's problem. The marker is visible on purpose: a reader seeing
+ * `<teammate-message⧸>` knows exactly what was there.
  */
 function sealTag(text: string): string {
-  return text.replace(/<\s*\/\s*teammate-message\s*>/gi, "<teammate-message⧸>");
+  return text
+    .replace(INVISIBLE, "")
+    .replace(/<\s*\/\s*teammate-message\s*>/giu, "<teammate-message⧸>");
 }
+
+/** Characters that occupy no space: zero-width marks and joiners, the byte
+ * order mark, the soft hyphen, and NUL. */
+const INVISIBLE = /[\u200b-\u200f\u2060-\u2064\ufeff\u00ad\0]/gu;
 
 /** A `turn-failed` edge from a CLI's raw failure fields — the shared shape
  * of every StopFailure-style hook (claude `error`/`error_details`, kimi

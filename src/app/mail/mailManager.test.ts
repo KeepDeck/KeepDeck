@@ -525,6 +525,29 @@ describe("createMailManager", () => {
     expect(waiting.map((mail) => mail.body)).toEqual(["you are lead on api"]);
   });
 
+  it("keeps the newest briefing whichever way round the put-backs arrive", () => {
+    // The transport arms one watchdog per reply FILE, so several put-backs
+    // arrive in the order they were written — oldest first. A rule that asked
+    // only "is one already waiting?" therefore dropped the ARRIVING message
+    // every time, leaving the pane holding the stale briefing: worse than the
+    // raw unshift it replaced. Only the newest statement is true, and which
+    // one that is comes from its time, not its position.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, { state: "working", since: 500 });
+    h.manager.announce(B.paneId, "team", "you are impl-1 on api");
+    const [older] = h.manager.takeAtTurnEnd(B.paneId);
+    h.advance(1_000);
+    h.manager.announce(B.paneId, "team", "you are lead on api");
+    const [newer] = h.manager.takeAtTurnEnd(B.paneId);
+
+    // Reported in write order: the older reply file times out first.
+    h.manager.restore([older]);
+    h.manager.restore([newer]);
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
+      "you are lead on api",
+    ]);
+  });
+
   it("still puts traffic back at the head, where it was", () => {
     // The supersede rule is about STANDING context only. A task or a note is
     // not made wrong by a later one, and losing it would be losing mail —

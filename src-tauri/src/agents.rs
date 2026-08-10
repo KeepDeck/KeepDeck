@@ -93,12 +93,21 @@ fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<St
     // put off forever; `agents_detect` is a synchronous command, so that
     // parks the caller's thread with it. A file has neither property.
     let sink = tempfile::NamedTempFile::new().ok()?;
+    // ONE handle, cloned — not two `reopen()`s. `reopen` opens the path
+    // again, which makes a separate file description with its own offset, so
+    // whichever stream wrote second started at byte 0 and erased the other.
+    // A CLI that says anything on stderr (a deprecation notice, a warning)
+    // would have lost its banner entirely, and `cliVersion` is what a
+    // renderer branches on to pick a hook-output schema. `try_clone` shares
+    // one description, so the two streams interleave instead.
+    let out = sink.reopen().ok()?;
+    let err = out.try_clone().ok()?;
     let mut child = std::process::Command::new(program)
         .arg("--version")
         .env("PATH", path)
         .stdin(std::process::Stdio::null())
-        .stdout(sink.reopen().ok()?)
-        .stderr(sink.reopen().ok()?)
+        .stdout(out)
+        .stderr(err)
         .spawn()
         .ok()?;
     // Bounded, because detection runs at boot and one program that never
@@ -125,16 +134,23 @@ fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<St
         log::warn!("agents: {} did not answer --version", program.display());
         return None;
     }
-    // Bounded read: a banner is one line, and this is a file some program
-    // just wrote whatever it liked into.
-    let mut said = String::new();
-    use std::io::Read as _;
-    std::fs::File::open(sink.path())
-        .ok()?
+    // Bounded read, through the descriptor already held rather than by
+    // re-opening the path — the same rule the inbox follows, and for the same
+    // reason: a path resolved twice can resolve to two different things.
+    //
+    // Lossy, never fallible: a program that emits one byte of Latin-1, or a
+    // multi-byte character straddling the cap, must not cost the version that
+    // was printed on line one. `read_to_string` would have failed the whole
+    // probe on either.
+    use std::io::{Read as _, Seek as _};
+    let mut sink = sink;
+    sink.as_file_mut().rewind().ok()?;
+    let mut said = Vec::new();
+    sink.as_file()
         .take(MAX_VERSION_BYTES)
-        .read_to_string(&mut said)
+        .read_to_end(&mut said)
         .ok()?;
-    parse_version(&said)
+    parse_version(&String::from_utf8_lossy(&said))
 }
 
 /// How much of a `--version` answer is worth reading. A banner is a line;
@@ -286,6 +302,49 @@ mod tests {
             waited < PROBE_TIMEOUT * 3,
             "waited past the bound: {waited:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn keeps_the_banner_when_the_cli_also_warns_on_stderr() {
+        // stdout and stderr were given two `reopen()` handles, which are two
+        // file descriptions with two offsets — so the second writer started
+        // at byte 0 and erased the first. Any CLI that prints a deprecation
+        // notice alongside its version lost the version, and `cliVersion` is
+        // what a renderer branches on to pick a hook-output schema.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("kd-warning-agent");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\necho 'mytool 1.2.3'\necho 'warning: config schema 2.0.0 is deprecated' >&2\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let statuses = probing(vec!["kd-warning-agent".into()], dir.path().as_os_str());
+        // The BANNER's version, not the one buried in the warning.
+        assert_eq!(statuses[0].version.as_deref(), Some("1.2.3"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reads_a_version_past_a_byte_that_is_not_utf8() {
+        // `read_to_string` failed the whole probe on one bad byte, throwing
+        // away a version that was printed on line one. A banner is somebody
+        // else's output: read it lossily or not at all.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("kd-latin1-agent");
+        std::fs::write(
+            &bin,
+            "#!/bin/sh\nprintf 'caf\\351 4.5.6\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let statuses = probing(vec!["kd-latin1-agent".into()], dir.path().as_os_str());
+        assert_eq!(statuses[0].version.as_deref(), Some("4.5.6"));
     }
 
     #[cfg(unix)]
