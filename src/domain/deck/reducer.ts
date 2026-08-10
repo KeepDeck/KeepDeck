@@ -20,25 +20,28 @@ import {
   findWorkspace,
   closeWorkspace,
   moveWorkspace,
-  renamePane,
   renameWorkspace,
-  resetPaneLocation,
   resolveActiveId,
-  resolvePaneProvisioning,
-  clearPaneIdle,
-  failPaneWake,
-  parkPane,
-  setPaneAutoTitle,
-  setPaneTeam,
-  setPaneProvisioningError,
-  setPaneProvisioningPhase,
-  setPaneSession,
   setWorkspacePluginSlot,
-  suspendPane,
-  requestPaneWake,
   workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
+// The pane transforms — one workspace list in, the next one out.
+import {
+  clearPaneIdle,
+  failPaneWake,
+  parkPane,
+  renamePane,
+  requestPaneWake,
+  resetPaneLocation,
+  resolvePaneProvisioning,
+  setPaneAutoTitle,
+  setPaneProvisioningError,
+  setPaneProvisioningPhase,
+  setPaneSession,
+  setPaneTeam,
+  suspendPane,
+} from "./panes";
 import { paneExecutionCwd } from "./roots";
 import type { DeckAction } from "./reducerActions";
 import {
