@@ -95,23 +95,31 @@ describe("reporter shell scripts", () => {
     const rust = readFileSync("src-tauri/src/bridge/spool.rs", "utf8");
     const maxLen = Number(rust.match(/MAX_NAME_LEN:\s*usize\s*=\s*(\d+)/)?.[1]);
     expect(maxLen, "no MAX_NAME_LEN in spool.rs").toBeGreaterThan(0);
-    // The permit-list, read out of the predicate rather than assumed.
-    const permits = rust.match(
-      /is_ascii_alphanumeric\(\)\s*\|\|\s*b\s*==\s*b'(.)'\s*\|\|\s*b\s*==\s*b'(.)'/,
-    );
-    expect(permits, "no character permit-list in is_usable_name").not.toBeNull();
+    // The permit-list, read out of the predicate rather than assumed — and
+    // read WHOLE. Matching two `b == b'X'` clauses out of however many exist
+    // would let a third permitted byte be added on the Rust side while this
+    // still compared the first two and passed, which is the divergence it is
+    // here to catch.
+    const predicate = rust.match(
+      /pub fn is_usable_name[\s\S]*?\n\}/,
+    )?.[0];
+    expect(predicate, "no is_usable_name in spool.rs").toBeTruthy();
+    const permits = [...predicate.matchAll(/b\s*==\s*b'(.)'/g)].map((m) => m[1]);
+    expect(permits.length, "unreadable permit-list").toBeGreaterThan(0);
+    expect(predicate, "is_usable_name has grown a rule this guard cannot see")
+      .toContain("is_ascii_alphanumeric()");
 
     const ts = readFileSync("src/app/mail/hookReply.ts", "utf8");
     const deck = ts.match(/USABLE_CORRELATION\s*=\s*\/\^\[([^\]]*)\]\{1,(\d+)\}\$\//);
     expect(deck, "no USABLE_CORRELATION in hookReply.ts").not.toBeNull();
 
     expect(Number(deck[2])).toBe(maxLen);
-    // Same alphabet: alphanumerics plus exactly the two Rust permits.
-    // Compared as a SET — inside a character class the order of `-` and `_`
-    // is a spelling choice, and a guard that fails on spelling teaches
-    // people to edit the guard.
+    // Same alphabet: alphanumerics plus exactly the Rust permits, however
+    // many there are. Compared as a SET — inside a character class the order
+    // of `-` and `_` is a spelling choice, and a guard that fails on spelling
+    // teaches people to edit the guard.
     const extras = (chars) => [...chars.replace("A-Za-z0-9", "")].sort().join("");
-    expect(extras(deck[1])).toBe(extras(`${permits[1]}${permits[2]}`));
+    expect(extras(deck[1])).toBe(extras(permits.join("")));
   });
 
   it("has the courier and the renderer agreeing on the ask they exchange", () => {
@@ -139,7 +147,11 @@ describe("reporter shell scripts", () => {
 
     const courierVersion = courier.match(/REPLY_VERSION\s*=\s*(\d+)/);
     expect(courierVersion, "no REPLY_VERSION in the courier").not.toBeNull();
-    expect(renderer).toContain(`MAIL_REPLY_VERSION = ${courierVersion[1]}`);
+    // Both numbers read out, then compared — a `toContain` on the rendered
+    // text would pass with the courier at 1 and the renderer at 10.
+    const rendererVersion = renderer.match(/MAIL_REPLY_VERSION\s*=\s*(\d+)/);
+    expect(rendererVersion, "no MAIL_REPLY_VERSION in the renderer").not.toBeNull();
+    expect(rendererVersion[1]).toBe(courierVersion[1]);
   });
 
   it("keeps the ask window shorter than the deck's patience, in every language", () => {
@@ -167,6 +179,7 @@ describe("reporter shell scripts", () => {
     const courierTries = Number(courier.match(/ASK_TRIES\s*=\s*(\d+)/)?.[1]);
     const courierSleep = Number(courier.match(/ASK_SLEEP_MS\s*=\s*(\d+)/)?.[1]);
     expect(courierTries, "no ASK_TRIES in the courier").toBeGreaterThan(0);
+    expect(courierSleep, "no ASK_SLEEP_MS in the courier").toBeGreaterThan(0);
     const courierWaitMs = courierTries * courierSleep;
 
     const reply = readFileSync("src-tauri/src/bridge/reply.rs", "utf8");

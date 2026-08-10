@@ -16,7 +16,25 @@ import { describe, expect, it } from "vitest";
  * by requiring the escape.
  */
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
-const ROOTS = ["src", "packages", "plugins", "scripts", "crates", "src-tauri/src"];
+/**
+ * Everything that is authored here.
+ *
+ * `resources/` is the one that is easy to miss and the one that matters
+ * most: the reporter shell scripts are written THERE and generated into each
+ * plugin's own resources folder, whose copies say "do not edit this copy". A
+ * NUL in the canonical file would be caught only in its generated twin,
+ * leaving the file that review, `git blame -L` and every reader is pointed at
+ * invisible — exactly the failure this test exists for.
+ */
+const ROOTS = [
+  "src",
+  "packages",
+  "plugins",
+  "scripts",
+  "crates",
+  "resources",
+  "src-tauri",
+];
 const SOURCE = /\.(ts|tsx|js|jsx|mjs|cjs|rs|sh|css|json|md)$/;
 const SKIP = new Set(["node_modules", "dist", "target", "gen", ".git"]);
 

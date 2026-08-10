@@ -167,6 +167,33 @@ export function createMailService(
       onContextRebuilt: deps.status.onContextRebuilt,
     });
 
+  /**
+   * Take the feature down: everything `settle` built, in the one order that
+   * is safe.
+   *
+   * Written once because it is now four steps, and it was written twice —
+   * the toggle-off branch and `dispose` — with the orders already differing.
+   * The next step added to one and not the other is a leak or a call into a
+   * disposed manager, and nothing about two copies makes them stay in step.
+   *
+   * Commands FIRST: an in-flight call must not reach a manager that is
+   * already disposed, and unregistering is what makes the tool stop existing
+   * for anyone still holding a `tools/list` from a moment ago. Then the
+   * presence, so nothing announces into what is about to go. Then the
+   * hand-over memory, because the queues those messages came from are the
+   * next thing to be destroyed and a late report must not put them into
+   * whatever queue exists next time.
+   */
+  function tearDown(): void {
+    unregister?.();
+    unregister = null;
+    presence?.dispose();
+    presence = null;
+    hookReplies.forgetAll();
+    manager?.dispose();
+    manager = null;
+  }
+
   function settle(): void {
     if (disposed) return;
     // `null` (settings still loading) is treated as off: starting the
@@ -199,19 +226,7 @@ export function createMailService(
       presence = startPresence();
       return;
     }
-    // Commands first: an in-flight call must not reach a manager that is
-    // already disposed, and unregistering is what makes the tool stop
-    // existing for anyone still holding a `tools/list` from a moment ago.
-    unregister?.();
-    unregister = null;
-    presence?.dispose();
-    presence = null;
-    // The queues these messages were taken from are about to go. Forgetting
-    // them is what stops a late report putting mail the user cleared into
-    // whatever queue exists next time.
-    hookReplies.forgetAll();
-    manager?.dispose();
-    manager = null;
+    tearDown();
   }
 
   const unsubscribeSettings = policy.subscribe(settle);
@@ -247,16 +262,12 @@ export function createMailService(
     dispose() {
       if (disposed) return;
       disposed = true;
+      // The service's OWN subscriptions — the ones that exist whether the
+      // feature is on or off, and so are not `tearDown`'s business.
       unsubscribeSettings();
       unsubscribePanes();
       stopUncollected?.();
-      presence?.dispose();
-      presence = null;
-      unregister?.();
-      unregister = null;
-      hookReplies.forgetAll();
-      manager?.dispose();
-      manager = null;
+      tearDown();
     },
   };
 }
