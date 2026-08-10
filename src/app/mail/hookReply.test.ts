@@ -133,6 +133,25 @@ describe("answerMailAsk", () => {
     expect(back.map((mail) => mail.body)).toEqual(["careful"]);
   });
 
+  it("treats an empty rendering as no rendering at all", () => {
+    // The transport arms its collection watchdog only for an answer WITH
+    // content, because an empty one carries nothing to lose. So handing
+    // messages over and then writing "" books them against a reply nobody
+    // watches: they age out of the hand-over memory in thirty seconds with
+    // every sender told they were delivered. Nothing in tree returns "" —
+    // it takes one third-party renderer, which is the whole point of a
+    // contract having a stated behaviour for it.
+    const h = setup({ render: () => "" });
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "note", body: "careful" });
+    h.channel.answer("pane-2", asking());
+
+    expect(h.replies).toEqual([{ paneId: "pane-2", id: "askABC", body: "" }]);
+    // Back in the queue, not booked against an unwatched reply.
+    expect(h.manager.takeAtTurnEnd("pane-2").map((mail) => mail.body)).toEqual([
+      "careful",
+    ]);
+  });
+
   it("withdraws the inbox entry along with the message it gives back", () => {
     // Otherwise a catch-up read would show a message the agent was never
     // handed.

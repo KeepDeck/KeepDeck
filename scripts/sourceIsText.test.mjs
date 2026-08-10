@@ -50,15 +50,18 @@ function* sources(dir) {
 describe("source files", () => {
   it("carry no NUL byte, so git never calls one binary", () => {
     const binary = [];
-    let seen = 0;
+    // Per ROOT, not one total. A total cannot tell "this root was dropped"
+    // from "this root is small": `resources` holds four files against `src`'s
+    // seven hundred, and it is the one that matters most — remove it and a
+    // total still sails past any threshold worth setting.
     for (const root of ROOTS) {
+      let seen = 0;
       for (const path of sources(join(REPO, root))) {
         seen += 1;
         if (readFileSync(path).includes(0)) binary.push(relative(REPO, path));
       }
+      expect(seen, `${root} contributed no files`).toBeGreaterThan(0);
     }
-    // A roster check too: reading nothing would make the assertion vacuous.
-    expect(seen).toBeGreaterThan(500);
     expect(binary, "write the escape (\\0), not the byte").toEqual([]);
   });
 });

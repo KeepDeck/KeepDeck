@@ -166,7 +166,12 @@ describe("opencode mail courier", () => {
   /** Wait for something the courier does on its own clock (a doorbell it
    * noticed, not a hook we called). */
   const until = async (done: () => boolean) => {
-    for (let tries = 0; tries < 200 && !done(); tries++) await sleep(5);
+    // Generous on purpose. The courier polls the deck on real timers, so this
+    // budget is WALL CLOCK — and under a full parallel suite these tests have
+    // twice hit a 1s ceiling and reported a failure that reproduces nowhere
+    // else. A slow machine is not a broken courier; a test that says it is
+    // costs more than the seconds it saves.
+    for (let tries = 0; tries < 1_200 && !done(); tries++) await sleep(5);
   };
 
   it("puts the standing brief in the session without starting a turn", async () => {
@@ -393,6 +398,43 @@ describe("opencode mail courier", () => {
     // the TUI, which is what "bound to nothing" produces.
     expect(last(prompts)?.sessionID).toBe("ses_root");
     expect(submitted).toEqual([]);
+  });
+
+  it("keeps the first session it bound, not the last answer to come back", async () => {
+    // `adoptRoot` checked `activeRoot` BEFORE its round trip and assigned
+    // after, and `chat.message` calls it outside the delivery queue — so two
+    // events could both pass the guard and the slower answer would win. An
+    // unrelated subagent's chain takes an extra hop, which makes it reliably
+    // the slower one, and the pane was rebound to somebody else's
+    // conversation for the life of the process.
+    parents.ses_alien_child = "ses_alien_root";
+    const session = client.session as {
+      get: (call: Record<string, unknown>) => Promise<unknown>;
+    };
+    const answer = session.get;
+    // The alien's answer comes back LAST, deterministically — which is what
+    // an extra hop up a chain buys it in practice.
+    session.get = async (call: Record<string, unknown>) => {
+      if ((call.path as { id: string }).id.startsWith("ses_alien")) {
+        await sleep(30);
+      }
+      return answer(call);
+    };
+
+    const courier = await start();
+    // `event` is serialized through the courier's own queue; `chat.message`
+    // deliberately is NOT — it has to await its own answer before the request
+    // is built. That is the pair that can overlap, and the alien's extra hop
+    // makes it the slower of the two.
+    const alien = courier.event(idle("ses_alien_child"));
+    await courier["chat.message"]({ sessionID: "ses_mine" }, { parts: [] });
+    await alien;
+
+    // The pane kept the identity it bound first.
+    prompts.length = 0;
+    pending.push({ v: 1, prompt: "ship it" });
+    await courier.event(idle("ses_mine"));
+    expect(last(prompts)?.sessionID).toBe("ses_mine");
   });
 
   it("stays inert outside KeepDeck", async () => {

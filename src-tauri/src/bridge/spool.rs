@@ -98,6 +98,14 @@ pub fn pane_path(run_dir: &Path, pane_id: &str, file: &str) -> Option<PathBuf> {
 /// user: a file that never lands leaves the reader believing the deck had
 /// nothing to say, which is the recoverable direction.
 pub fn publish(run_dir: &Path, file: &str, body: &str) -> Result<(), String> {
+    // Checked here as well as at every caller, for the reason `pane_path`
+    // gives: today's callers are safe, and that is a fact about them rather
+    // than a property of this function.
+    if !file.rsplit_once('.').is_some_and(|(stem, ext)| {
+        is_usable_name(stem) && is_usable_name(ext)
+    }) {
+        return Err(format!("refusing a filename that is not a plain name: {file:?}"));
+    }
     let staged = run_dir.join(format!("{file}.tmp"));
     fs::write(&staged, body).map_err(|e| format!("staging {file} failed: {e}"))?;
     fs::rename(&staged, run_dir.join(file)).map_err(|e| {

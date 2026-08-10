@@ -202,6 +202,68 @@ describe("opencode session reporter", () => {
     expect(reports[reports.length - 1]?.payload.costUsd).toBeCloseTo(0.3);
   });
 
+  it("walks a whole chain, and keeps every hop of it after binding", async () => {
+    // A pane resumed mid-task can see a GRANDCHILD first. One hop of
+    // ancestry roots the pane in the middle of the chain — a subagent that
+    // ends — and clearing the index on bind threw away whatever the walk had
+    // learned, so every intermediate session's spend was dropped from then
+    // on.
+    const tree: Record<string, string | undefined> = {
+      ses_c2: "ses_c1",
+      ses_c1: "ses_root",
+    };
+    const deep = {
+      ...client,
+      session: {
+        get: async (args: { path: { id: string } }) => ({
+          data: { id: args.path.id, parentID: tree[args.path.id] },
+        }),
+      },
+    };
+    const { event } = await reporter({ client: deep });
+    await event(assistantMessage({ sessionID: "ses_c2" }));
+    // The middle link's own turn, which only counts if the chain survived.
+    await event(assistantMessage({ id: "msg_2", sessionID: "ses_c1" }));
+    await event(assistantMessage({ id: "msg_3", sessionID: "ses_c2" }));
+    await event(assistantMessage({ id: "msg_4", sessionID: "ses_root" }));
+
+    expect(
+      envelopes().find((envelope) => envelope.type === "session.bound")?.payload
+        .sessionId,
+    ).toBe("ses_root");
+    const reports = usageReports();
+    expect(reports[reports.length - 1]?.payload.costUsd).toBeCloseTo(0.4);
+  });
+
+  it("asks again about a session the client could not answer for", async () => {
+    // "Could not tell" is not an answer and is remembered nowhere, so a
+    // transient failure does not fix the pane's identity for the process's
+    // life. A real answer IS remembered, and is not asked twice.
+    const asked: string[] = [];
+    let failing = true;
+    const flaky = {
+      ...client,
+      session: {
+        get: async (args: { path: { id: string } }) => {
+          asked.push(args.path.id);
+          return failing
+            ? { error: { name: "UnknownError" } }
+            : { data: { id: args.path.id } };
+        },
+      },
+    };
+    const { event } = await reporter({ client: flaky });
+    await event(assistantMessage({ sessionID: "ses_a" }));
+    expect(asked).toEqual(["ses_a"]);
+
+    failing = false;
+    // A second pane-less reporter would be a different instance, so drive the
+    // same one: a fresh root arrives and is asked about on its own terms.
+    await event(created("ses_b"));
+    await event(assistantMessage({ id: "msg_2", sessionID: "ses_b" }));
+    expect(asked).toEqual(["ses_a"]);
+  });
+
   it("treats a session the client cannot answer about as the pane's own", async () => {
     // The generated client RESOLVES with `{error}` rather than throwing —
     // measured on 1.18.15, and documented in this very file. Reading that as

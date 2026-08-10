@@ -272,11 +272,11 @@ export function frameTeammateMail(
  * was cut, so the receiver never mistakes truncation for the end of a
  * thought.
  *
- * How many MESSAGES ride in one frame is the caller's bound, not this
+ * How many MESSAGES ride in one frame is the CALLER's bound, not this
  * function's: dropping one here would lose it silently, because by the time
- * anything is framed the deck has already taken it out of its queue. The
- * deck bounds the batch instead (`MAIL_LIMITS.handoverChars`), so what does
- * not fit in this turn is still waiting at the next one.
+ * anything is framed the host has already taken it out of its queue. A host
+ * that hands over more than a receiver can afford has a queue to bound, and
+ * this has no way to give a message back.
  */
 const BODY_LIMIT = 16_000;
 const NAME_LIMIT = 200;

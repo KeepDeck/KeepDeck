@@ -94,63 +94,115 @@ export function publish(dir, envelope) {
  * destructures it.
  */
 export function createSubagentIndex(client) {
-  /** child session id → the root its work belongs to. */
+  /** child session id → its IMMEDIATE parent. One hop each, exactly as the
+   * server reports it; `rootOf` walks the links rather than pre-compressing
+   * them, so a hop learned later fixes every descendant at once. */
   const parents = new Map();
+  /** Sessions confirmed to have no parent. Kept apart from `parents` because
+   * "is a root" and "we have not asked" must not look alike: an answer we
+   * could not get has to be asked again, and one we got must not be. */
+  const roots = new Set();
 
-  /** Record a child, with the root its work rolls up to — a child's own
-   * children roll up to the same root, not to their parent. */
+  /** Record one hop the caller already knows — a `session.created` carrying
+   * `parentID` is the server's own word, and needs no round trip. */
   const note = (childID, parentID) => {
-    if (childID) parents.set(childID, parents.get(parentID) ?? parentID);
+    if (childID && parentID) parents.set(childID, parentID);
+  };
+
+  /** Walk to the end of the chain. An id with no recorded parent is as far
+   * as this index can see; whether that is a root or merely unasked is the
+   * caller's question, answered by `classify`. */
+  const rootOf = (sessionID) => {
+    let at = sessionID;
+    // Bounded by the map: every step consumes one recorded link, and a link
+    // is only ever written for a child, so a cycle cannot outlive the count.
+    for (let hops = parents.size; hops > 0 && parents.has(at); hops -= 1) {
+      at = parents.get(at);
+    }
+    return at;
   };
 
   /**
-   * Ask the server about one session, and record what it says.
+   * Ask the server about one session and record what it says, walking up
+   * until the chain reaches something already known.
    *
    * The generated client a plugin is handed RESOLVES with `{error}` rather
    * than throwing — measured on 1.18.15, and spelled out in both plugins —
-   * so a `catch` alone sees nothing. An answer that is not a session is not
-   * an answer, and the difference matters: "no parent" and "could not tell"
-   * lead to opposite decisions everywhere this is used.
+   * so a `catch` alone sees nothing. An unanswerable id is recorded NOWHERE,
+   * which is what makes the next call ask again instead of inheriting a
+   * guess.
+   *
+   * In flight per id, so two events racing on the same session make one
+   * request and get the same answer.
    */
-  const ask = async (sessionID) => {
-    if (!client?.session?.get) return "unknown";
-    let found;
-    try {
-      found = await client.session.get({ path: { id: sessionID } });
-    } catch {
-      return "unknown";
+  const pending = new Map();
+  const ask = (sessionID) => {
+    const already = pending.get(sessionID);
+    if (already) return already;
+    const work = (async () => {
+      if (!client?.session?.get) return "unknown";
+      let found;
+      try {
+        found = await client.session.get({ path: { id: sessionID } });
+      } catch {
+        return "unknown";
+      }
+      if (!found || found.error || !found.data?.id) return "unknown";
+      const parentID = found.data.parentID;
+      if (!parentID) {
+        roots.add(sessionID);
+        return "root";
+      }
+      note(sessionID, parentID);
+      // The parent may itself be a subagent this index has never met. One hop
+      // is not enough on a pane resumed mid-task, where the whole chain
+      // arrives unseen — and stopping early roots the pane in a leaf.
+      await classify(parentID);
+      return "child";
+    })().finally(() => pending.delete(sessionID));
+    pending.set(sessionID, work);
+    return work;
+  };
+
+  /** Whether this session is a subagent's. `"root"` and `"child"` are
+   * answers; `"unknown"` means the client could not say, and is remembered
+   * nowhere so the next caller asks again. Both callers treat `"unknown"` as
+   * a root — a pane bound to nothing is never reachable again — but they do
+   * so out loud rather than by having it look like one. */
+  const classify = async (sessionID) => {
+    if (!sessionID) return "unknown";
+    if (roots.has(sessionID)) return "root";
+    if (parents.has(sessionID)) {
+      // Known to be a child, but its ancestors may not be. Resolving now is
+      // what stops `rootOf` stopping at a middle link.
+      const top = rootOf(sessionID);
+      if (top !== sessionID && !roots.has(top)) await classify(top);
+      return "child";
     }
-    if (!found || found.error || !found.data?.id) return "unknown";
-    const parentID = found.data.parentID;
-    if (!parentID) return "root";
-    note(sessionID, parentID);
-    // A parent this index has never met is itself unclassified. Resolving it
-    // now is what stops a grandchild rooting to a subagent: `note` compresses
-    // one hop, and one hop is not enough on a pane resumed mid-task, where
-    // the whole chain arrives unseen.
-    if (!parents.has(parentID)) {
-      if ((await ask(parentID)) === "child") note(sessionID, parentID);
-    }
-    return "child";
+    return ask(sessionID);
   };
 
   return {
     note,
-    /** The root this session's work belongs to, itself if it is a root. */
-    rootOf: (sessionID) => parents.get(sessionID) ?? sessionID,
-    /** Whether this session is a subagent's — `"root"`, `"child"`, or
-     * `"unknown"` when the client could not say. Asked once per id and then
-     * remembered. Callers must decide what to do with `"unknown"` rather
-     * than have it silently read as one of the other two. */
-    classify: async (sessionID) => {
-      if (!sessionID) return "unknown";
-      if (parents.has(sessionID)) return "child";
-      return ask(sessionID);
+    rootOf,
+    classify,
+    /** Every hop from `sessionID` up to its root, as `[child, parent]` pairs.
+     * What `clear` is about to destroy, so a caller that still needs the
+     * chain can put it back. */
+    chain: (sessionID) => {
+      const hops = [];
+      let at = sessionID;
+      for (let left = parents.size; left > 0 && parents.has(at); left -= 1) {
+        hops.push([at, parents.get(at)]);
+        at = parents.get(at);
+      }
+      return hops;
     },
     /** Forget everything: a new root conversation (`/new`) owns a new
      * generation, and nothing from the old one rolls up to it. */
     clear: () => {
       parents.clear();
+      roots.clear();
     },
   };
 }

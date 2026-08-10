@@ -170,13 +170,17 @@ export default async (input = {}) => {
       },
     });
 
-  const activateRoot = async (sessionID, publishBinding) => {
+  /** `keep` is the ancestry the caller has already established for the
+   * session it is binding through — the index is cleared here, and anything
+   * learned on the way in would go with it. */
+  const activateRoot = async (sessionID, publishBinding, keep = []) => {
     // Read before the assignment below: whether this pane already had a root
     // IS the difference between a startup and a `/new`.
     const continuing = activeRoot !== undefined;
     activeRoot = sessionID;
     messages.clear();
     subagents.clear();
+    for (const [child, parent] of keep) subagents.note(child, parent);
     root = undefined;
     sequence = 0;
     if (publishBinding) bind(sessionID, continuing);
@@ -298,8 +302,14 @@ export default async (input = {}) => {
       // rolls up to the pane root.
       const created = event.properties?.info;
       if (created?.parentID) {
+        // The parent may itself be a subagent this process never watched
+        // being created — a pane resumed mid-task sees a grandchild first.
+        // Asked before `rootOf`, or the pane binds to the middle of a chain.
+        if (!activeRoot) await subagents.classify(created.parentID);
         const rootSessionID = subagents.rootOf(created.parentID);
-        if (!activeRoot) await activateRoot(rootSessionID, true);
+        if (!activeRoot) await activateRoot(rootSessionID, true, [
+          ...subagents.chain(created.parentID),
+        ]);
         if (rootSessionID !== activeRoot) return;
         if (created.id) subagents.note(created.id, rootSessionID);
         return;
@@ -323,19 +333,18 @@ export default async (input = {}) => {
     // to that leaf, reporting a subagent's turns as the pane's until it
     // ended. The index ASKS the server about a session it never watched being
     // created, so the pane binds to the parent instead of the child.
-    // Asked for its side effect: the index learns the parent, so `rootOf`
-    // below answers with the pane's conversation rather than the leaf.
+    // Asked for its side effect: the index learns the chain, so `rootOf`
+    // below answers with the pane's conversation rather than a leaf.
     if (!activeRoot) await subagents.classify(info.sessionID);
     const owningRoot = subagents.rootOf(info.sessionID);
+    // The WHOLE chain, captured before `activateRoot` clears the index — a
+    // new root is a new generation. Putting back only the leaf's own link
+    // left every intermediate subagent resolving to itself, failing the root
+    // check below, and its spend never reaching the pane's total; hydration
+    // repairs that only when the client answers `session.children`, and that
+    // failure is swallowed.
     if (!activeRoot) {
-      await activateRoot(owningRoot, true);
-      // `activateRoot` clears the index — a new root is a new generation —
-      // which throws away the parent link the classify above just bought.
-      // Without putting it back, every later message from this subagent
-      // resolves to ITSELF, fails the root check below, and its spend never
-      // reaches the pane's total. Hydration re-discovers it only when the
-      // client answers `session.children`, and that failure is swallowed.
-      if (owningRoot !== info.sessionID) subagents.note(info.sessionID, owningRoot);
+      await activateRoot(owningRoot, true, [...subagents.chain(info.sessionID)]);
     }
     // Once a root is explicitly active, events for unrelated root sessions
     // in the same OpenCode server are not this pane's conversation.

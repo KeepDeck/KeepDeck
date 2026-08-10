@@ -298,11 +298,27 @@ fn consume_file(path: &Path) -> Result<Inbound, Rejected> {
 /// mitigations: the caller checks `is_file()` on the descriptor anyway, so a
 /// device that opens fine is still dropped.
 fn open_plain_file(path: &Path) -> std::io::Result<fs::File> {
+    // Off unix there are no such flags, so the link is refused BEFORE the
+    // open instead. It is a smaller guarantee — a swap between this check and
+    // the open is not covered — but it is the difference between refusing a
+    // symlink and following one, and this file ships to whatever the build
+    // targets rather than only to the platform it was written on.
+    #[cfg(not(unix))]
+    if fs::symlink_metadata(path)?.file_type().is_symlink() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "refusing a symlink",
+        ));
+    }
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
+        // O_NOFOLLOW makes a symlink an error rather than a redirection.
+        // O_NONBLOCK is not a refusal — it is what stops `open` itself
+        // PARKING on a fifo, which waits for a writer; the `is_file()` check
+        // at the caller is what refuses one.
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
     options.open(path)
@@ -392,16 +408,29 @@ mod tests {
     }
 
     #[test]
-    fn an_envelope_that_outgrows_the_cap_mid_read_is_still_refused() {
-        // The stat and the read are two moments. Bounding the read as well
-        // means a file being appended to cannot pass a cap it no longer
-        // meets — the check and the thing checked stay the same object.
+    fn the_size_cap_names_which_check_refused() {
+        // Two checks, two moments: the stat, and the bounded read that covers
+        // a file still being appended to. They must be distinguishable, or a
+        // test asserting only "oversized" passes with the second one deleted —
+        // which is exactly what the first version of this test did.
+        //
+        // Only the stat path is reachable from a test: the grow has to happen
+        // between two statements inside `consume_file`. The read bound stays
+        // as the thing that makes the cap true rather than merely checked.
         let root = tempfile::tempdir().unwrap();
         let big = root.path().join("big.json");
         fs::write(&big, "x".repeat(MAX_ENVELOPE_BYTES as usize + 1)).unwrap();
         assert!(matches!(
             consume_file(&big),
-            Err(Rejected::Dropped(reason)) if reason.contains("oversized")
+            Err(Rejected::Dropped(reason)) if reason.contains("oversized envelope (")
+        ));
+        // And one byte under is read rather than refused (it is not an
+        // envelope, so it is dropped — by the PARSER, saying so).
+        let edge = root.path().join("edge.json");
+        fs::write(&edge, "x".repeat(MAX_ENVELOPE_BYTES as usize)).unwrap();
+        assert!(matches!(
+            consume_file(&edge),
+            Err(Rejected::Dropped(reason)) if reason.contains("not an envelope")
         ));
     }
 }

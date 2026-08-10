@@ -77,10 +77,13 @@ pub fn write(run_dir: &Path, pane_id: &str, id: &str, body: &str) -> Result<(), 
 /// Only meaningful once [`HOOK_WAIT`] has passed; asked earlier it reports
 /// every answer as uncollected, because the hook is still polling for it.
 pub fn was_collected(run_dir: &Path, pane_id: &str, id: &str) -> bool {
-    // A name that cannot be a path never became a file, so there is nothing
-    // outstanding on it — the same answer, reached without composing a path
-    // out of something the permit-list refused.
-    reply_path(run_dir, pane_id, id).is_none_or(|path| !path.exists())
+    // A name that cannot be a path never became a file. Answered as
+    // "not collected" rather than "collected": the two are not equally safe
+    // — reading it as collected means no uncollected report, so the messages
+    // it named are gone with their senders told otherwise. `write` refuses
+    // the same names, so this is unreachable today; it fails loudly if that
+    // ever stops being true.
+    reply_path(run_dir, pane_id, id).is_some_and(|path| !path.exists())
 }
 
 /// Drop an answer nobody came for. Named apart from the check because the two

@@ -273,6 +273,13 @@ export default async (input = {}) => {
     // shared index gives: a pane bound to nothing is unreachable, and the
     // doorbell is the only other way in.
     const kind = await subagents.classify(sessionID);
+    // Re-checked AFTER the round trip. The guard above ran before an await,
+    // and `chat.message` calls this outside the delivery queue's
+    // serialization — so two events can both pass it, and the SLOWER one
+    // (an unrelated subagent, whose chain takes an extra hop) lands last and
+    // wins. That rebound the pane to somebody else's conversation for the
+    // life of the process. First answer wins.
+    if (activeRoot) return;
     activeRoot = kind === "child" ? subagents.rootOf(sessionID) : sessionID;
   };
 

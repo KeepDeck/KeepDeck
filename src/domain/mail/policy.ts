@@ -20,13 +20,21 @@ export interface MailLimits {
    * and the message rides in free; past this, the deck nudges the pane into
    * a turn instead — which delivers just as properly and costs one. */
   hookWaitMs: number;
-  /** How much teammate text may land in ONE turn boundary, in characters.
+  /** How much teammate BODY text may leave the queue at one turn boundary,
+   * in characters.
    *
    * The per-message cap lives with the framing; this is the other half, and
    * it has to live here because only the queue's owner can bound a BATCH
    * without losing anything. Whatever does not fit stays queued for the next
    * ask, so the pane reads its mail over a few turns instead of taking one
-   * enormous injection — which is what a sender in a loop produces. */
+   * enormous injection — which is what a sender in a loop produces.
+   *
+   * Bodies as SENT, not as framed: the queue holds messages, and what a
+   * plugin's renderer does with them (a quote marker per line, a header per
+   * message, an envelope around the lot) is not visible from here. The framed
+   * text is therefore somewhat larger — the same order, not the same
+   * number — so this is a bound on what an agent can make another agent
+   * read, not an exact byte budget for a request. */
   handoverChars: number;
 }
 
