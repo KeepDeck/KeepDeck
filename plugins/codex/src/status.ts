@@ -111,6 +111,19 @@ function renderLegacyCodexMail(
  * is the honest trade for an envelope the model can tell apart from its
  * user's own words.
  */
+/**
+ * The events armed to ASK, declared beside the renderer that answers them.
+ *
+ * The two must agree and nothing else would notice them disagreeing: armed
+ * but not rendered burns the hook's whole wait on every fire and takes
+ * messages out of the queue to put them straight back; rendered but not
+ * armed leaves that event's mail to a paid terminal nudge. Both silent.
+ */
+export const ASKS_FOR_MAIL: ReadonlySet<string> = new Set([
+  "UserPromptSubmit",
+  "Stop",
+]);
+
 export const renderCodexMail: MailReplyRenderer = (input) => {
   const text = teammateText(input);
   const event = input.event.hook_event_name;

@@ -14,7 +14,11 @@ import { codexHistory } from "./history";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
 import { cliArgs, shellQuote } from "./trust";
-import { normalizeCodexStatus, renderCodexMail } from "./status";
+import {
+  ASKS_FOR_MAIL,
+  normalizeCodexStatus,
+  renderCodexMail,
+} from "./status";
 import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
 
 /** The `-c` override args arming the reporters — SessionStart identity plus
@@ -56,8 +60,12 @@ import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
  * binding. Sharing it needs both commands inside one handler GROUP, which
  * moves the trust fingerprint to a two-handler shape this port has never
  * measured; getting that wrong refuses every hook in silence. Worth doing,
- * not worth guessing. */
-const ASKS_FOR_MAIL = new Set(["UserPromptSubmit", "Stop"]);
+ * not worth guessing.
+ *
+ * The set itself is declared beside the renderer that has to answer these
+ * events ([`ASKS_FOR_MAIL`] in ./status): stated twice, the two drift in
+ * silence — armed-but-unrendered burns a two-second wait per fire, and
+ * rendered-but-unarmed sends that event's mail to the terminal instead. */
 
 async function hookArgs(resources: PluginResources): Promise<string[]> {
   const session = await resources.path("kd-session-hook.sh");

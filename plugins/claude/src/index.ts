@@ -22,7 +22,11 @@ import type {
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
-import { normalizeClaudeStatus, renderClaudeMail } from "./status";
+import {
+  ASKS_FOR_MAIL,
+  normalizeClaudeStatus,
+  renderClaudeMail,
+} from "./status";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
 
@@ -93,8 +97,11 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
    *
    * Only the STATUS reporter asks. SessionStart carries the identity
    * reporter too, and that one answers a different question and takes no
-   * reply — arming it to ask would make it wait for a file nobody writes. */
-  const ASKS_FOR_MAIL = new Set(["Stop", "UserPromptSubmit", "SessionStart"]);
+   * reply — arming it to ask would make it wait for a file nobody writes.
+   *
+   * The set itself is declared beside the renderer ([`ASKS_FOR_MAIL`]), which
+   * is the code that has to answer these events: stated twice, the two drift
+   * in silence. */
   if (session) {
     // The agent id is the argument, same as the status reporter's: the
     // payload does not name its CLI, and the deck refuses a binding whose

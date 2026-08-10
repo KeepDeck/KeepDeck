@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { renderKimiMail } from "./status";
 
 /**
  * kimi arms its hooks from a SHIPPED manifest rather than from code, so
@@ -33,6 +34,29 @@ describe("kimi companion manifest", () => {
     );
     for (const event of ["StopFailure", "Interrupt", "PermissionRequest", "PermissionResult"]) {
       expect(commandFor(event), event).toBe("/bin/sh ./kd-status-hook.sh kimi");
+    }
+  });
+
+  it("arms exactly the events its renderer can answer", () => {
+    // kimi declares its arming in a shipped JSON and its rendering in code,
+    // so the two can only be held together from outside. Armed but
+    // unrendered: the reporter waits out its whole window on every fire and
+    // the deck takes messages out of the queue to put them straight back.
+    // Rendered but unarmed: that event's mail falls back to a terminal nudge
+    // somebody pays a turn for. Both are silent.
+    const messages = [
+      { id: "mail-1", kind: "task", body: "take the parser", from: "lead" },
+    ];
+    for (const hook of manifest.hooks) {
+      const rendered = renderKimiMail({
+        event: { hook_event_name: hook.event },
+        messages,
+        cliVersion: null,
+      });
+      expect(
+        rendered !== null,
+        `${hook.event}: armed=${hook.command.includes("--ask")}, renders=${rendered !== null}`,
+      ).toBe(hook.command.includes("--ask"));
     }
   });
 

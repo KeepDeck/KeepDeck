@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderClaudeMail } from "./status";
+import { ASKS_FOR_MAIL, renderClaudeMail } from "./status";
 
 const MESSAGES = [
   { id: "mail-1", kind: "question", body: "which port?", from: "Agent 1" },
@@ -67,5 +67,39 @@ describe("renderClaudeMail", () => {
     expect(reason).toContain("first");
     expect(reason).toContain("second");
     expect(reason).toContain("answering mail-0");
+  });
+});
+
+describe("the armed events and the renderer agree", () => {
+  it("renders exactly the events that are armed to ask, and nothing else", () => {
+    // The invariant behind ASKS_FOR_MAIL living beside the renderer. Armed
+    // but unrendered: the reporter waits out its whole window on every fire
+    // and the deck takes messages out of the queue only to put them back.
+    // Rendered but unarmed: dead code, and that event's mail falls back to a
+    // terminal nudge somebody pays a turn for. Neither fails loudly.
+    const messages = [
+      { id: "mail-1", kind: "task", body: "take the parser", from: "lead" },
+    ];
+    for (const event of ASKS_FOR_MAIL) {
+      expect(
+        renderClaudeMail({
+          event: { hook_event_name: event },
+          messages,
+          cliVersion: null,
+        }),
+        `${event} is armed to ask but renders nothing`,
+      ).not.toBeNull();
+    }
+    // And an event nobody arms cannot carry one either.
+    for (const event of ["PostToolUse", "Notification", "SubagentStop"]) {
+      expect(
+        renderClaudeMail({
+          event: { hook_event_name: event },
+          messages,
+          cliVersion: null,
+        }),
+        `${event} renders mail but is not armed to ask`,
+      ).toBeNull();
+    }
   });
 });

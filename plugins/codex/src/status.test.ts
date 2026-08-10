@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCodexStatus, renderCodexMail } from "./status";
+import {
+  ASKS_FOR_MAIL,
+  normalizeCodexStatus,
+  renderCodexMail,
+} from "./status";
 
 const wrap = (event: Record<string, unknown>) => ({ agent: "codex", event });
 
@@ -123,5 +127,37 @@ describe("normalizeCodexStatus", () => {
     ).toBeNull();
     expect(normalizeCodexStatus({ agent: "codex" }, 100)).toBeNull();
     expect(normalizeCodexStatus(42, 100)).toBeNull();
+  });
+});
+
+describe("the armed events and the renderer agree", () => {
+  it("renders exactly the events that are armed to ask, and nothing else", () => {
+    // Same invariant as claude's, and codex names the hazard itself: a drift
+    // between the arming and the rendering is silent. Armed but unrendered
+    // costs the hook's whole wait on every fire; rendered but unarmed sends
+    // that event's mail through a terminal nudge nobody meant to pay for.
+    const messages = [
+      { id: "mail-1", kind: "task", body: "take the parser", from: "lead" },
+    ];
+    for (const event of ASKS_FOR_MAIL) {
+      expect(
+        renderCodexMail({
+          event: { hook_event_name: event },
+          messages,
+          cliVersion: "0.147.0",
+        }),
+        `${event} is armed to ask but renders nothing`,
+      ).not.toBeNull();
+    }
+    for (const event of ["PermissionRequest", "PostToolUse"]) {
+      expect(
+        renderCodexMail({
+          event: { hook_event_name: event },
+          messages,
+          cliVersion: "0.147.0",
+        }),
+        `${event} renders mail but is not armed to ask`,
+      ).toBeNull();
+    }
   });
 });

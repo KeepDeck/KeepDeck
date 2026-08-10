@@ -273,6 +273,22 @@ export const normalizeClaudeStatus: StatusNormalizer = (
  * means — another agent's output, to be weighed, not an instruction from
  * the human. A terminal paste can promise none of that.
  */
+/**
+ * The events armed to ASK, declared beside the renderer that has to answer
+ * them.
+ *
+ * The two must agree, and nothing else would notice them disagreeing. Armed
+ * but not rendered: the hook waits out its whole window on every fire and
+ * the messages are taken and put back for nothing. Rendered but not armed:
+ * dead code, and that event's mail falls back to a paid terminal nudge.
+ * Both are silent.
+ */
+export const ASKS_FOR_MAIL: ReadonlySet<string> = new Set([
+  "Stop",
+  "UserPromptSubmit",
+  "SessionStart",
+]);
+
 export const renderClaudeMail: MailReplyRenderer = ({ event, messages }) => {
   const text = frameTeammateMail(messages);
   switch (event.hook_event_name) {

@@ -5,7 +5,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
-import { renderClaudeMail } from "./status";
+import { ASKS_FOR_MAIL, renderClaudeMail } from "./status";
 
 /** Activate against a minimal fake ctx; returns the registered agent.
  * `resources` maps script name → resolved path (missing name = null), so a
@@ -91,7 +91,12 @@ describe("claude plugin hooks", () => {
     // SessionStart asks too, on the STATUS reporter: a freshly spawned
     // agent has no turn and reports nothing, so this is the only moment its
     // briefing can reach it without a keystroke typed into a booting CLI.
-    const asks = new Set(["Stop", "UserPromptSubmit", "SessionStart"]);
+    // From the renderer's own declaration, not a copy of it: the arming and
+    // the rendering must agree, and nothing else would notice them
+    // disagreeing — armed-but-unrendered burns the hook's whole wait on
+    // every fire, rendered-but-unarmed sends that event's mail through a
+    // paid terminal nudge, and both are silent.
+    const asks = ASKS_FOR_MAIL;
     // Each of these closes a hole the others cannot. StopFailure fires
     // INSTEAD of Stop on an API error; PostToolUseFailure fires INSTEAD of
     // PostToolUse when an approved tool then fails — both are the failure
