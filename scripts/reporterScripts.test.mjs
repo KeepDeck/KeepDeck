@@ -83,4 +83,48 @@ describe("reporter shell scripts", () => {
     expect(Number(threshold[1])).toBeLessThan(capBytes - 512);
     expect(Number(threshold[1])).toBeGreaterThan(capBytes - 2048);
   });
+
+  it("keeps the ask window shorter than the deck's patience, in every language", () => {
+    // One number with three homes: how long a reporter waits for the deck's
+    // answer. The shell hooks poll for it, opencode's courier polls for it in
+    // JS, and Rust decides from ITS number when nobody came for the answer
+    // and throws it away.
+    //
+    // Nothing links them. Lengthen the shell wait past the Rust window and
+    // the deck discards a reply the hook is still polling for — messages it
+    // has already booked as handed over, lost in silence, which is the exact
+    // failure the collected-check exists to prevent. Shorten it and delivery
+    // breaks; the script's own comment records that regression happening.
+    const shell = readFileSync(join(CANONICAL_DIR, "kd-status-hook.sh"), "utf8");
+    const tries = Number(shell.match(/^ASK_TRIES=(\d+)/m)?.[1]);
+    const sleep = Number(shell.match(/^ASK_SLEEP=([\d.]+)/m)?.[1]);
+    expect(tries, "no ASK_TRIES in the reporter").toBeGreaterThan(0);
+    expect(sleep, "no ASK_SLEEP in the reporter").toBeGreaterThan(0);
+    const shellWaitMs = tries * sleep * 1000;
+
+    const courier = readFileSync(
+      "plugins/opencode/resources/mail-courier.js",
+      "utf8",
+    );
+    const courierTries = Number(courier.match(/ASK_TRIES\s*=\s*(\d+)/)?.[1]);
+    const courierSleep = Number(courier.match(/ASK_SLEEP_MS\s*=\s*(\d+)/)?.[1]);
+    expect(courierTries, "no ASK_TRIES in the courier").toBeGreaterThan(0);
+    const courierWaitMs = courierTries * courierSleep;
+
+    const reply = readFileSync("src-tauri/src/bridge/reply.rs", "utf8");
+    const deckWaitMs = Number(
+      reply.match(/HOOK_WAIT[^=]*=\s*Duration::from_millis\((\d[\d_]*)\)/)?.[1]
+        ?.replace(/_/g, ""),
+    );
+    expect(deckWaitMs, "no HOOK_WAIT in the bridge").toBeGreaterThan(0);
+
+    // Every asker gives up BEFORE the deck stops waiting for it, or the deck
+    // reclaims an answer somebody is still reading.
+    expect(shellWaitMs).toBeLessThan(deckWaitMs);
+    expect(courierWaitMs).toBeLessThan(deckWaitMs);
+    // And not so far under that a slow round trip is called a miss: the deck
+    // errs long on purpose, by room for one last poll and a teardown.
+    expect(deckWaitMs - shellWaitMs).toBeLessThan(1000);
+    expect(deckWaitMs - courierWaitMs).toBeLessThan(1000);
+  });
 });
