@@ -78,8 +78,13 @@ describe("built-in plugin manifests", () => {
 
   it("carries a parseable own version", () => {
     // The plugin's DISPLAY version, which stays semver — distinct from the
-    // integer API floor above, and bumped whenever the plugin's src or
-    // resources change.
+    // integer API floor above.
+    //
+    // Parseability is ALL this checks. Whether the version was bumped for a
+    // change is a question about two commits, which a unit test cannot see;
+    // saying otherwise here would be worse than saying nothing, because a
+    // reader would stop looking for the check that does not exist. Review is
+    // what catches an unbumped plugin.
     for (const path of MANIFESTS) {
       const { id, version } = JSON.parse(readFileSync(path, "utf8"));
       expect(parseVersion(version), `${path} (${id}) version "${version}"`).not.toBeNull();
