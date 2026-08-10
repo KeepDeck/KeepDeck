@@ -71,6 +71,15 @@ export interface MailServiceDeps {
     /** What that agent's own binary answered to `--version`, or null. A
      * hook-output schema belongs to a RELEASE, so a renderer may need it. */
     versionOf(agentId: string): string | null;
+    /** Go and find that out, if nobody has yet.
+     *
+     * Returns nothing on purpose: it must be impossible to await. Asking a
+     * CLI its version RUNS it — half a second, once — and this is the only
+     * feature that ever reads the answer, so the question is asked here
+     * rather than at boot for everyone. Until it lands `versionOf` says
+     * null, which every renderer already reads as "assume the current
+     * schema". */
+    learnVersion(agentId: string): void;
   };
   status: {
     activityOf(paneId: string): PaneActivity | undefined;
@@ -131,6 +140,31 @@ export function createMailService(
         .workspaces()
         .flatMap((workspace) => workspace.panes.map((pane) => pane.id)),
     );
+
+  /**
+   * Make sure we know the CLI version of every agent currently on the deck.
+   *
+   * Asked HERE because mail is the only thing that reads it — a renderer
+   * picking the hook-output schema its release accepts. Asking at boot for
+   * every installed plugin instead cost every user about two seconds of
+   * blocked window, most of them for a fact nothing would ever read.
+   *
+   * Fire and forget, and cheap to repeat: the port answers once per binary
+   * and remembers. Called when the feature comes up and on every deck
+   * change, so the answer is in hand long before a pane reaches the turn
+   * boundary where it could matter.
+   */
+  const learnLiveVersions = () => {
+    const asked = new Set<string>();
+    for (const workspace of deps.deck.workspaces()) {
+      for (const pane of workspace.panes) {
+        const agentType = deps.deck.agentTypeOf(pane.id);
+        if (!agentType || asked.has(agentType)) continue;
+        asked.add(agentType);
+        deps.agents.learnVersion(agentType);
+      }
+    }
+  };
 
   const hookReplies: HookReplies = createHookReplies({
     mail: () => manager,
@@ -224,6 +258,7 @@ export function createMailService(
         mail: manager,
       });
       presence = startPresence();
+      learnLiveVersions();
       return;
     }
     tearDown();
@@ -234,7 +269,10 @@ export function createMailService(
   // a workspace closing, and one sweep covers both. Cheap when the feature is
   // off — there is no manager to sweep.
   const unsubscribePanes = deps.deck.subscribe(() => {
-    manager?.retain(livePaneIds());
+    if (!manager) return;
+    manager.retain(livePaneIds());
+    // A pane that just appeared may run an agent nobody has asked about.
+    learnLiveVersions();
   });
   let stopUncollected: (() => void) | null = null;
   void deps.bridge

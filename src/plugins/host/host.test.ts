@@ -613,9 +613,11 @@ describe("agent availability gate", () => {
     expect(registries.agents.list()).toEqual([]);
   });
 
-  it("offers only the exec-covered bins for a version probe", async () => {
-    // A probe SPAWNS a manifest-named program, at boot, before activation.
-    // Presence is asked of both; only the consented one may be run.
+  it("re-detects every declared bin, and asks for nothing to be run", async () => {
+    // The refresh answers ONE question — is it there — for every bin the
+    // manifest declares, including one no `exec` capability covers. Asking a
+    // binary its version is a different call made somewhere else, by whoever
+    // needs the answer, and this port cannot request it at all.
     const { deps, host } = gateHarness();
     deps.isAgentBinInstalled = vi.fn(() => true);
     const refreshAgentBins = vi.fn(async () => {});
@@ -641,7 +643,7 @@ describe("agent availability gate", () => {
     await host.setEnabled("keepdeck.kimi", false);
     await host.setEnabled("keepdeck.kimi", true);
 
-    expect(refreshAgentBins).toHaveBeenCalledWith(["kimi", "curl"], ["kimi"]);
+    expect(refreshAgentBins).toHaveBeenCalledWith(["kimi", "curl"]);
   });
 
   it("a plugin without declared bins is never gated", async () => {

@@ -210,6 +210,9 @@ export function createAppRuntime(
         // detection pass probed — the join lives with the cache, so nothing
         // out here repeats the walk to `detect.bin`.
         versionOf: plugins.agentBinVersion,
+        // Fire and forget: the port answers once per binary and remembers,
+        // and nothing in the render path may wait on a process starting.
+        learnVersion: (agentId) => void plugins.ensureAgentVersion(agentId),
       },
       status: {
         activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),

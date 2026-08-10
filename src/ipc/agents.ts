@@ -6,9 +6,6 @@ export interface BinStatus {
   bin: string;
   installed: boolean;
   path: string | null;
-  /** What it answers to `--version`, when that is legible. Null means "could
-   * not tell", never "old" — see the Rust side for why a plugin needs it. */
-  version: string | null;
 }
 
 /** Detect which of the requested binaries resolve on the spawn PATH — the
@@ -16,19 +13,34 @@ export interface BinStatus {
  *  Degrades to "all installed" if the backend errors: better to offer an
  *  agent that may fail to spawn than to hide one that works.
  *
- *  `probe` names the subset whose `--version` may be READ, which means run.
- *  Presence is a lookup and free for everyone; execution is the caller's
- *  capability decision, so a caller that only needs "is it there" omits it
- *  and nothing is spawned. */
-export async function detectBins(
-  bins: string[],
-  probe: string[] = [],
-): Promise<BinStatus[]> {
+ *  Presence only, and nothing is executed. What a binary ANSWERS is a
+ *  separate call with a separate price — see [`probeVersion`]. */
+export async function detectBins(bins: string[]): Promise<BinStatus[]> {
   if (bins.length === 0) return [];
   try {
-    return await invoke<BinStatus[]>("agents_detect", { bins, probe });
+    return await invoke<BinStatus[]>("agents_detect", { bins });
   } catch (e) {
     log.warn("web:agents", `agents_detect failed; assuming installed: ${describeError(e)}`);
-    return bins.map((bin) => ({ bin, installed: true, path: null, version: null }));
+    return bins.map((bin) => ({ bin, installed: true, path: null }));
+  }
+}
+
+/**
+ * What `bin` answers to `--version`, or null when it could not be asked.
+ *
+ * RUNS the binary, so the caller must have established that it may — the
+ * `exec` capability of the plugin that declared it. It costs about half a
+ * second, which is why it is not folded into detection: everyone needs
+ * presence at boot, and almost nobody reads a version at all.
+ *
+ * Null on failure like everything on this path. Every consumer already reads
+ * null as "assume the current protocol", never as "old".
+ */
+export async function probeVersion(bin: string): Promise<string | null> {
+  try {
+    return (await invoke<string | null>("agents_probe_version", { bin })) ?? null;
+  } catch (e) {
+    log.warn("web:agents", `probing ${bin} --version failed: ${describeError(e)}`);
+    return null;
   }
 }

@@ -32,6 +32,7 @@ function setup(initial: boolean | null) {
   const delivered: Mail[] = [];
   const replies: { paneId: string; id: string; body: string }[] = [];
   const sessionListeners = new Set<(paneId: string) => void>();
+  const learned: string[] = [];
   const registry = createCommandRegistry();
 
   const workspaces = (): Workspace[] => [
@@ -70,6 +71,7 @@ function setup(initial: boolean | null) {
         // the manager's default path is the one under test here.
         statusOf: () => undefined,
         versionOf: () => null,
+        learnVersion: (agentId: string) => learned.push(agentId),
       },
       status: {
         activityOf: (paneId) => activity.get(paneId),
@@ -104,6 +106,7 @@ function setup(initial: boolean | null) {
     registry,
     delivered,
     replies,
+    learned,
     /** A pane whose agent just opened a conversation with no memory of the
      * last — what the standing-presence listens for. */
     beginsSession(paneId: string) {
@@ -227,6 +230,27 @@ describe("createMailService", () => {
     expect(h.delivered).toHaveLength(0);
     // And nothing is left listening for the deck to change under it.
     expect(h.sessionListeners()).toBe(0);
+  });
+
+  it("asks a CLI its version only once the feature is on, and only for live panes", () => {
+    // A version is read by ONE thing — a renderer picking the hook-output
+    // schema its release accepts — and asking costs half a second of running
+    // the CLI. Asked at boot for every installed plugin it froze the window
+    // for about two seconds, for every user, mostly to learn a fact nothing
+    // would read. So the question belongs here, with its only consumer.
+    const h = setup(false);
+    expect(h.learned).toEqual([]);
+
+    h.set(true);
+    // Once per agent TYPE, not once per pane: both panes run claude.
+    expect(h.learned).toEqual(["claude"]);
+  });
+
+  it("asks again when a pane appears, since it may run something new", () => {
+    const h = setup(true);
+    h.learned.length = 0;
+    h.closePanes([{ id: "pane-1" }, { id: "pane-2" }, { id: "pane-3" }] as Pane[]);
+    expect(h.learned).toEqual(["claude"]);
   });
 
   it("takes its standing-presence with it when the feature goes off", () => {

@@ -175,15 +175,6 @@ describe("opencode mail courier", () => {
 
   const start = () => courierPlugin({ client });
 
-  /** Wait for something the courier does on its own clock (a doorbell it
-   * noticed, not a hook we called). */
-  const until = async (done: () => boolean) => {
-    // Generous on purpose: the courier polls the deck on real timers, so this
-    // budget is WALL CLOCK, and under the full parallel suite a machine
-    // running hundreds of tests is slow in ways no assertion here is about.
-    for (let tries = 0; tries < 1_200 && !done(); tries++) await sleep(5);
-  };
-
   /**
    * Ring the deck's doorbell and wait, RE-ringing while nothing happens.
    *
@@ -343,8 +334,7 @@ describe("opencode mail courier", () => {
     const courier = await start();
     await courier.event(created("ses_child", "ses_root"));
     pending.push({ v: 1, prompt: "ship it" });
-    writeFileSync(join(dir, "mail.wake"), "");
-    await until(() => submitted.length > 0);
+    await ringUntil(() => submitted.length > 0);
     // No root was ever adopted, so this went the no-session way.
     expect(prompts).toEqual([]);
     expect(submitted[0]).toBe("ship it");

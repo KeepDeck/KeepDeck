@@ -2,7 +2,6 @@ import {
   API_VERSION,
   declaredAgentBins,
   MIN_COMPATIBLE_API_VERSION,
-  probeableAgentBins,
   satisfiesApiFloor,
   type KeepDeckPlugin,
   type PluginManifest,
@@ -246,12 +245,7 @@ export class PluginHost {
       // Fresh detection before the gate, so "installed the CLI, then flipped
       // the toggle" activates without an app restart.
       const bins = declaredAgentBins(entry.manifest);
-      if (bins.length > 0) {
-        await this.deps.refreshAgentBins?.(
-          bins,
-          probeableAgentBins(entry.manifest),
-        );
-      }
+      if (bins.length > 0) await this.deps.refreshAgentBins?.(bins);
       // Superseded while suspended? A status check is the WRONG primitive
       // here — `disabled` can mean "nothing happened" or "a full enable then
       // the user's disable happened", and only the generation tells them

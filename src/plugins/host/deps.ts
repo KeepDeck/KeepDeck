@@ -111,10 +111,8 @@ export interface PluginHostDeps {
    * host calls this before the enable gesture's activation, so "installed the
    * CLI, then flipped the toggle" works without an app restart.
    *
-   * `probeable` is the subset the refresh may RUN, to read a `--version`.
-   * The host passes what the manifest's `exec` capability covers and nothing
-   * else: presence is a lookup, but asking a program its version is spawning
-   * it, and that is the capability's whole subject.
+   * Presence only — a PATH lookup, and nothing is executed. What a binary
+   * ANSWERS is asked elsewhere, lazily, by whoever needs it.
    */
-  refreshAgentBins?(bins: string[], probeable: string[]): Promise<void>;
+  refreshAgentBins?(bins: string[]): Promise<void>;
 }

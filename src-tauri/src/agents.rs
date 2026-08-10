@@ -17,54 +17,59 @@ pub struct BinStatusDto {
     pub installed: bool,
     /// Absolute path of the resolved binary, when installed.
     pub path: Option<String>,
-    /// The version it reports, when it reports one legibly.
-    ///
-    /// A CLI's own wire protocols move between releases — codex changed its
-    /// hook-output schema wholesale between 0.146 and 0.147 — and a plugin
-    /// that must speak the right one has no other way to know which. Purely
-    /// informational: absent means "could not tell", never "old".
-    pub version: Option<String>,
 }
 
 /// Detect which of the requested binaries resolve — on the SAME augmented
 /// PATH the PTY spawn uses, so "detected" == "spawnable" stays true by
 /// construction.
 ///
-/// Presence is a PATH lookup: cheap, safe to call per form open, and asked
-/// of every name in `bins`. A version is a program RUN, so it is asked only
-/// of the names in `probe` — the caller's exec-capability decision, made
-/// where capabilities are known and carried here rather than guessed at.
-/// Omitting `probe` means "presence only", which is what every caller that
-/// does not need a version should send.
+/// Presence ONLY, and nothing here starts a process. A PATH lookup costs
+/// microseconds and everyone needs the answer — the agent picker, the plugin
+/// availability gate — so it stays cheap enough to call per form open, as it
+/// says on the tin.
+///
+/// Asking a binary its VERSION is a different question with a different
+/// price (see [`agents_probe_version`]), and the two were briefly answered by
+/// one call. That made every boot pay for a fact almost nobody read.
 #[tauri::command]
-pub fn agents_detect(bins: Vec<String>, probe: Option<Vec<String>>) -> Vec<BinStatusDto> {
-    detect_bins(
-        bins,
-        &probe.unwrap_or_default().into_iter().collect(),
-        keepdeck_env::augmented_path(),
-    )
+pub fn agents_detect(bins: Vec<String>) -> Vec<BinStatusDto> {
+    detect_bins(bins, keepdeck_env::augmented_path())
 }
 
-fn detect_bins(
-    bins: Vec<String>,
-    probe: &std::collections::HashSet<String>,
-    path: &std::ffi::OsStr,
-) -> Vec<BinStatusDto> {
+fn detect_bins(bins: Vec<String>, path: &std::ffi::OsStr) -> Vec<BinStatusDto> {
     bins.into_iter()
         .map(|bin| {
             let found = keepdeck_env::find_program(&bin, path);
             BinStatusDto {
                 installed: found.is_some(),
-                version: found
-                    .as_deref()
-                    .filter(|_| probe.contains(&bin))
-                    .and_then(|p| probe_version(p, path)),
                 // Lossy is fine for display; agent binaries live at UTF-8 paths.
                 path: found.map(|p| p.to_string_lossy().into_owned()),
                 bin,
             }
         })
         .collect()
+}
+
+/// What `bin` answers to `--version`, or null when it could not be asked.
+///
+/// ASYNC and on the blocking pool, because this RUNS a program: measured on
+/// a normal install it costs ~460ms for one CLI, and a synchronous Tauri
+/// command runs on the MAIN thread — which is a frozen window for as long as
+/// the CLI takes to print one line.
+///
+/// Its own command rather than a flag on the detection above, because the
+/// caller decides WHEN it is worth paying. The deck asks once, when a pane
+/// with that agent starts, and remembers the answer; nothing waits on it.
+#[tauri::command]
+pub async fn agents_probe_version(bin: String) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = keepdeck_env::augmented_path();
+        let found = keepdeck_env::find_program(&bin, path)?;
+        probe_version(&found, path)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// How long a `--version` probe may take before it is killed, and how often
@@ -77,8 +82,11 @@ const PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 /// Ask a resolved binary what version it is, best-effort.
 ///
 /// `--version` is the one flag every agent CLI here answers, and it is the
-/// only way to tell WHICH protocol a given install speaks — see
-/// [`BinStatusDto::version`]. Everything about this fails quietly: a binary
+/// only way to tell WHICH protocol a given install speaks: a CLI's own wire
+/// formats move between releases — codex replaced its hook-output schema
+/// wholesale between 0.146 and 0.147 — and a plugin that must speak the
+/// right one has nothing else to go on. Everything about this fails
+/// quietly: a binary
 /// that does not take the flag, hangs, or prints something unparseable
 /// yields `None`, which reads as "unknown" and never as "old".
 ///
@@ -90,8 +98,8 @@ fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<St
     // polls — so a CLI whose `--version` says more than that would deadlock
     // until the deadline killed it. Worse, `wait_with_output` waits for the
     // pipe to CLOSE, which a grandchild holding the inherited write end can
-    // put off forever; `agents_detect` is a synchronous command, so that
-    // parks the caller's thread with it. A file has neither property.
+    // put off forever — parking a pool thread with no deadline on it. A file
+    // has neither property.
     let sink = tempfile::NamedTempFile::new().ok()?;
     // ONE handle, cloned — not two `reopen()`s. `reopen` opens the path
     // again, which makes a separate file description with its own offset, so
@@ -110,10 +118,10 @@ fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<St
         .stderr(err)
         .spawn()
         .ok()?;
-    // Bounded, because detection runs at boot and one program that never
-    // exits would hold every agent's availability behind it — the pass is
-    // sequential and the deck waits on all of it. A version banner is
-    // printed immediately or not at all; anything slower is not answering.
+    // Bounded, because a program that never exits would otherwise hold a
+    // pool thread for the life of the app. Nothing waits on this answer, but
+    // "nothing waits" is not "anything goes". A version banner is printed
+    // immediately or not at all; anything slower is not answering.
     let deadline = std::time::Instant::now() + PROBE_TIMEOUT;
     let exited = loop {
         match child.try_wait() {
@@ -176,11 +184,10 @@ fn parse_version(said: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// Every requested bin, version probe allowed — what the plugin host asks
-    /// for a bin an `exec` capability covers.
-    fn probing(bins: Vec<String>, path: &std::ffi::OsStr) -> Vec<BinStatusDto> {
-        let probe = bins.iter().cloned().collect();
-        detect_bins(bins, &probe, path)
+    /// Ask one bin its version the way [`agents_probe_version`] does, minus
+    /// the async wrapper: resolve on the given PATH, then run it.
+    fn probing(bin: &str, path: &std::ffi::OsStr) -> Option<String> {
+        probe_version(&keepdeck_env::find_program(bin, path)?, path)
     }
 
     #[test]
@@ -194,7 +201,7 @@ mod tests {
             std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
 
-        let statuses = probing(
+        let statuses = detect_bins(
             vec!["kd-fake-agent".into(), "kd-absent-agent".into()],
             dir.path().as_os_str(),
         );
@@ -208,9 +215,10 @@ mod tests {
         let json = serde_json::to_value(&statuses[0]).unwrap();
         assert_eq!(json["bin"], "kd-fake-agent");
         assert_eq!(json["installed"], true);
-        // A stub that says nothing has no version, and that is not a failure.
-        assert_eq!(statuses[0].version, None);
-        assert_eq!(statuses[1].version, None);
+        // Presence carries NO version: that is a separate question with a
+        // separate price, and a field that is always absent would only
+        // invite somebody to read it.
+        assert_eq!(json.get("version"), None);
     }
 
     #[cfg(unix)]
@@ -223,8 +231,10 @@ mod tests {
         std::fs::write(&bin, "#!/bin/sh\necho 'codex-cli 0.147.0'\n").unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let statuses = probing(vec!["kd-versioned-agent".into()], dir.path().as_os_str());
-        assert_eq!(statuses[0].version.as_deref(), Some("0.147.0"));
+        assert_eq!(
+            probing("kd-versioned-agent", dir.path().as_os_str()).as_deref(),
+            Some("0.147.0")
+        );
     }
 
     #[cfg(unix)]
@@ -236,20 +246,20 @@ mod tests {
         std::fs::write(&bin, "#!/bin/sh\necho 'unknown option' >&2\nexit 1\n").unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let statuses = probing(vec!["kd-grumpy-agent".into()], dir.path().as_os_str());
-        // Still installed — detection must not hinge on the version probe.
-        assert!(statuses[0].installed);
-        assert_eq!(statuses[0].version, None);
+        // Still installed — detection never hinged on the version probe, and
+        // now it cannot: they are different calls.
+        assert!(detect_bins(vec!["kd-grumpy-agent".into()], dir.path().as_os_str())[0].installed);
+        assert_eq!(probing("kd-grumpy-agent", dir.path().as_os_str()), None);
     }
 
     #[cfg(unix)]
     #[test]
-    fn never_runs_a_binary_that_was_not_offered_for_probing() {
-        // The security half. A version probe EXECUTES a program named by a
-        // manifest field, at boot, for a plugin the user may have installed
-        // and never enabled — so it is gated by the same `exec` capability
-        // that governs a session spawn. Presence is a PATH lookup and stays
-        // free; being asked about is not consent to be run.
+    fn detection_never_runs_anything_at_all() {
+        // The security half, and now a structural one: detection has no way
+        // to run a program, because asking a version is a different command.
+        // A probe EXECUTES a name that came out of a manifest, so it is gated
+        // by the `exec` capability the deck checks before calling it — and
+        // being asked whether you EXIST is never consent to be run.
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let ran = dir.path().join("it-ran");
@@ -261,14 +271,9 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let statuses = detect_bins(
-            vec!["kd-uninvited-agent".into()],
-            &std::collections::HashSet::new(),
-            dir.path().as_os_str(),
-        );
+        let statuses = detect_bins(vec!["kd-uninvited-agent".into()], dir.path().as_os_str());
         assert!(statuses[0].installed, "presence is still answered");
-        assert_eq!(statuses[0].version, None);
-        assert!(!ran.exists(), "an unprobed binary must not be executed");
+        assert!(!ran.exists(), "detection must not execute anything");
     }
 
     #[cfg(unix)]
@@ -289,14 +294,14 @@ mod tests {
         // shells out to a sibling tool does.
         let path = std::env::join_paths([dir.path(), std::path::Path::new("/bin")]).unwrap();
         let began = std::time::Instant::now();
-        let statuses = probing(vec!["kd-hanging-agent".into()], &path);
+        let version = probing("kd-hanging-agent", &path);
         let waited = began.elapsed();
 
         // Installed, with no version — a probe that could not answer is
         // "unknown", never "absent": gating availability on it would hide a
         // working CLI.
-        assert!(statuses[0].installed);
-        assert_eq!(statuses[0].version, None);
+        assert!(detect_bins(vec!["kd-hanging-agent".into()], &path)[0].installed);
+        assert_eq!(version, None);
         assert!(waited >= PROBE_TIMEOUT, "gave up too early: {waited:?}");
         assert!(
             waited < PROBE_TIMEOUT * 3,
@@ -322,9 +327,11 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let statuses = probing(vec!["kd-warning-agent".into()], dir.path().as_os_str());
         // The BANNER's version, not the one buried in the warning.
-        assert_eq!(statuses[0].version.as_deref(), Some("1.2.3"));
+        assert_eq!(
+            probing("kd-warning-agent", dir.path().as_os_str()).as_deref(),
+            Some("1.2.3")
+        );
     }
 
     #[cfg(unix)]
@@ -343,8 +350,10 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let statuses = probing(vec!["kd-latin1-agent".into()], dir.path().as_os_str());
-        assert_eq!(statuses[0].version.as_deref(), Some("4.5.6"));
+        assert_eq!(
+            probing("kd-latin1-agent", dir.path().as_os_str()).as_deref(),
+            Some("4.5.6")
+        );
     }
 
     #[cfg(unix)]
@@ -367,8 +376,7 @@ mod tests {
 
         let path = std::env::join_paths([dir.path(), std::path::Path::new("/usr/bin")]).unwrap();
         let began = std::time::Instant::now();
-        let statuses = probing(vec!["kd-chatty-agent".into()], &path);
-        assert_eq!(statuses[0].version.as_deref(), Some("3.2.1"));
+        assert_eq!(probing("kd-chatty-agent", &path).as_deref(), Some("3.2.1"));
         // And it did not spend the whole deadline blocked on a full buffer.
         assert!(began.elapsed() < PROBE_TIMEOUT, "{:?}", began.elapsed());
     }
@@ -387,3 +395,6 @@ mod tests {
         assert_eq!(parse_version(""), None);
     }
 }
+
+
+

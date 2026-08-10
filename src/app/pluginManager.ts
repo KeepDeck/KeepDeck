@@ -644,28 +644,50 @@ export function createPluginManager(appDownloads: DownloadManager) {
     pluginRegistries,
   );
 
-  /** Every agent bin declared by the currently installed plugins, deduped,
-   * beside the subset the detection pass is allowed to RUN.
-   *
-   * Two lists because they answer different questions. Presence gates
-   * activation and is a PATH lookup, so it is asked of everything. A
-   * `--version` spawns the program, at boot, for plugins the user may never
-   * have enabled — so only an `exec` capability buys it. */
-  function binsOfInstalled(): { all: string[]; probeable: string[] } {
-    const installed = pluginHost.getInstalled();
-    const dedupe = (pick: (manifest: PluginManifest) => string[]) => [
-      ...new Set(installed.flatMap((plugin) => pick(plugin.manifest))),
+  /** Every agent bin declared by the currently installed plugins, deduped. */
+  function binsOfInstalled(): string[] {
+    return [
+      ...new Set(
+        pluginHost
+          .getInstalled()
+          .flatMap((plugin) => declaredAgentBins(plugin.manifest)),
+      ),
     ];
-    return {
-      all: dedupe(declaredAgentBins),
-      probeable: dedupe(probeableAgentBins),
-    };
   }
 
-  /** One detection pass over everything installed. */
+  /** One detection pass over everything installed. Presence only: nothing
+   * here starts a program, so it costs milliseconds and the boot gate that
+   * waits on it (`agents.ready()`, which releases pane spawning) is not
+   * holding the deck behind a row of `--version` calls. */
   async function detectInstalledBins(): Promise<void> {
-    const { all, probeable } = binsOfInstalled();
-    await agentBins.detect(all, probeable);
+    await agentBins.detect(binsOfInstalled());
+  }
+
+  /**
+   * Learn what this agent's CLI answers to `--version`, if we may ask and
+   * have not already.
+   *
+   * Called when a pane with that agent STARTS, and deliberately not awaited:
+   * nothing needs the answer until a teammate message is rendered for that
+   * pane, which is seconds away at the very least. Until then `versionOf`
+   * reads null, which every consumer already takes as "assume the current
+   * schema".
+   *
+   * The `exec` gate lives here because this is where manifests are visible.
+   * A probe RUNS a program named by a manifest field, so a plugin that did
+   * not declare it gets presence and nothing more.
+   */
+  async function ensureAgentVersion(agentId: string): Promise<void> {
+    const entry = pluginRegistries.agents
+      .list()
+      .find((contribution) => contribution.entry.id === agentId);
+    const bin = entry?.entry.detect.bin;
+    if (!bin) return;
+    const owner = pluginHost
+      .getInstalled()
+      .find((plugin) => plugin.manifest.id === entry.pluginId);
+    if (!owner || !probeableAgentBins(owner.manifest).includes(bin)) return;
+    await agentBins.ensureVersion(bin);
   }
 
   /** Built-in plugins' categories, recorded at install — `isEnabled(id)` is a
@@ -1007,6 +1029,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
         ?.bin;
       return bin ? agentBins.version(bin) : null;
     },
+    ensureAgentVersion,
   };
 }
 
