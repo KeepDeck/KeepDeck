@@ -57,10 +57,11 @@ describe("createPaneAttribution", () => {
     expect(owner.judge(report({ source: "clear", sessionId: "s-2" }))).toEqual({
       accepted: true,
     });
-    // Another process may not, whatever it calls the event.
-    expect(
-      owner.judge(report({ source: "resume", reporter: "9137" })),
-    ).toEqual({ accepted: false, refusal: "foreign-process" });
+    // Another process may not START one there.
+    expect(owner.judge(report({ reporter: "9137" }))).toEqual({
+      accepted: false,
+      refusal: "foreign-process",
+    });
     // And the same process may not start a SECOND fresh session.
     expect(owner.judge(report({ sessionId: "s-3" }))).toEqual({
       accepted: false,
@@ -77,11 +78,35 @@ describe("createPaneAttribution", () => {
     owner.recordBinding("pane-1", "4021");
     owner.recordBinding("pane-1", undefined);
 
-    expect(
-      owner.judge(report({ source: "resume", reporter: "9137" })),
-    ).toEqual({ accepted: false, refusal: "foreign-process" });
+    expect(owner.judge(report({ reporter: "9137" }))).toEqual({
+      accepted: false,
+      refusal: "foreign-process",
+    });
     expect(owner.judge(report({ source: "clear" }))).toEqual({
       accepted: true,
+    });
+  });
+
+  it("follows the pane's agent to the process it re-hosts its session in", () => {
+    // Claude's answer to a full context window: fork the conversation into a
+    // daemon-hosted process, new group. The continuation is accepted, the pin
+    // moves with it — and BOTH lanes have to move, or the pane keeps its
+    // identity while its usage and status stay refused.
+    const owner = attribution();
+    owner.recordBinding("pane-1", "22422");
+    expect(
+      owner.judge(report({ source: "fork", sessionId: "s-2", reporter: "920" })),
+    ).toEqual({ accepted: true });
+    owner.recordBinding("pane-1", "920");
+
+    expect(owner.admitsReport("pane-1", "tok", "claude", "920")).toBe(true);
+    // The process it left speaks for nothing now: whatever still runs there is
+    // no longer the conversation this pane is having.
+    expect(owner.admitsReport("pane-1", "tok", "claude", "22422")).toBe(false);
+    // A fresh session from a third process is still somebody else's.
+    expect(owner.judge(report({ reporter: "9137" }))).toEqual({
+      accepted: false,
+      refusal: "foreign-process",
     });
   });
 

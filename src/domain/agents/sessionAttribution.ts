@@ -14,12 +14,24 @@
  *
  *  - a report may only speak for a pane running the SAME agent — which
  *    catches a foreign CLI on its very first report;
- *  - once a generation has bound, only the process that bound it may rebind —
- *    which catches a nested run of the pane's OWN agent whatever word it
- *    reports, including one claiming to be a continuation;
+ *  - a FRESH session may only come from the process that bound this
+ *    generation — which catches a nested run of the pane's own agent booting
+ *    a conversation of its own;
  *  - within that one process, a pane binds at most ONE fresh session — which
  *    catches an in-process teammate or subsession, where there is no process
  *    boundary left to see.
+ *
+ * A CONTINUATION is deliberately exempt from the process rule, because the
+ * pane's own agent can change process without ending its conversation:
+ * claude answers a full context window by re-hosting the session in its own
+ * daemon (`--fork-session --resume` of the transcript it was already on),
+ * under a new process group, and every later report comes from there. Holding
+ * the pin against that refuses the pane's own agent for the rest of its life —
+ * measured in the field, and the cost is total, since both bridge lanes share
+ * this rule. Nothing in the tree can tell that re-host from a nested
+ * `--resume`: both are descendants of the pane's first process. So the word
+ * decides, and what it buys is bounded by who can say it — a nested run needs
+ * the spawn's injected settings to report at all.
  *
  * All three are decided here, on plain values, so the rule can be read and
  * tested without a deck, a bridge or a process.
@@ -88,8 +100,8 @@ export type BindingRefusal =
   | "wrong-token"
   /** A different CLI than the one this pane runs. */
   | "foreign-agent"
-  /** A different PROCESS than the one that bound this generation: a nested
-   * run of the same CLI, whatever word it reports. */
+  /** A FRESH session from a different PROCESS than the one that bound this
+   * generation: a nested run of the same CLI starting its own conversation. */
   | "foreign-process"
   /** A second fresh session inside one process generation, from the SAME
    * process: an in-process teammate or subsession. */
@@ -124,8 +136,8 @@ export interface BindingClaim {
 /**
  * The whole binding rule, in the order that gives the most specific reason:
  * an unknown secret is not our reporter at all, an unsigned one cannot be
- * placed, a foreign agent is placed but wrong, and only then does the
- * one-fresh-session-per-generation rule get to speak.
+ * placed, a foreign agent is placed but wrong, and only then do the two rules
+ * about a FRESH session get to speak.
  */
 export function bindingVerdict(claim: BindingClaim): BindingVerdict {
   const refuse = (refusal: BindingRefusal): BindingVerdict => ({
@@ -138,15 +150,21 @@ export function bindingVerdict(claim: BindingClaim): BindingVerdict {
   if (!speaksForPane(claim.paneAgent, claim.reportedAgent)) {
     return refuse("foreign-agent");
   }
-  // A different process than the one this generation bound is somebody else's
-  // session whatever it calls itself — this is the rule that catches a nested
-  // `--resume`, which reports a continuation and would otherwise walk past
-  // the origin check below.
+  // The pane's conversation continuing is the one claim whose process may
+  // legitimately differ (see the header): the agent re-hosts the SAME
+  // conversation elsewhere, and refusing it strands the pane on a process
+  // that has stopped speaking. The caller re-pins to the new process, so this
+  // exemption lasts exactly one binding.
+  if (claim.origin === "swap") return { accepted: true };
+  // From here it is a fresh session, and both remaining rules are about one:
+  // a different process than the one this generation bound is a nested run
+  // booting its own conversation...
   if (!sameProcess(claim.boundReporter, claim.reportedReporter)) {
     return refuse("foreign-process");
   }
-  // Same process, second fresh session: an in-process teammate or subsession.
-  if (claim.origin === "startup" && claim.boundThisGeneration) {
+  // ...and the same process starting a second one is an in-process teammate
+  // or subsession, where no process boundary is left to see it by.
+  if (claim.boundThisGeneration) {
     return refuse("second-startup");
   }
   return { accepted: true };
