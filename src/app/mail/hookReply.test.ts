@@ -162,6 +162,26 @@ describe("answerMailAsk", () => {
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
   });
 
+  it("refuses to hand anything over on a correlation the transport cannot answer", () => {
+    // The correlation is the AGENT's word. This side accepted any non-empty
+    // string while the transport accepted only a filename-safe one, so an ask
+    // carrying a space made the deck empty the pane's queue, render it, and
+    // hand it to a write that refused — no file, no watchdog, no report, and
+    // the messages aged out of the hand-over memory with every sender told
+    // they had been delivered. Repeatable by whatever runs in that pane.
+    //
+    // An unanswerable correlation now reads as "this envelope reports and
+    // asks nothing": nothing is taken, and nothing is written back.
+    const h = setup();
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    for (const hostile of ["a b", "../escape", "", "x".repeat(65), "ask\0"]) {
+      h.channel.answer("pane-2", asking({ reply: hostile }));
+    }
+    expect(h.replies).toEqual([]);
+    // Still waiting, for an ask that can actually be answered.
+    expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
+  });
+
   it("puts the messages back when nobody read the answer", () => {
     // The messages left the queue to be written into a file. If that file is
     // never opened — the hook timed out, the process died, something removed

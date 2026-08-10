@@ -84,6 +84,36 @@ describe("reporter shell scripts", () => {
     expect(Number(threshold[1])).toBeGreaterThan(capBytes - 2048);
   });
 
+  it("agrees with the transport on what a correlation may be", () => {
+    // Two grammars for one name. The deck decides whether an envelope is
+    // ASKING (and empties the pane's queue to answer it); the transport
+    // decides whether the answer can be written at all. They disagreed once:
+    // the deck accepted any non-empty string, Rust accepted
+    // [A-Za-z0-9_-]{1,64}, and an ask carrying a space made the deck hand
+    // over every waiting message to a write that refused — no file, no
+    // watchdog, no report, mail gone with the senders told otherwise.
+    const rust = readFileSync("src-tauri/src/bridge/spool.rs", "utf8");
+    const maxLen = Number(rust.match(/MAX_NAME_LEN:\s*usize\s*=\s*(\d+)/)?.[1]);
+    expect(maxLen, "no MAX_NAME_LEN in spool.rs").toBeGreaterThan(0);
+    // The permit-list, read out of the predicate rather than assumed.
+    const permits = rust.match(
+      /is_ascii_alphanumeric\(\)\s*\|\|\s*b\s*==\s*b'(.)'\s*\|\|\s*b\s*==\s*b'(.)'/,
+    );
+    expect(permits, "no character permit-list in is_usable_name").not.toBeNull();
+
+    const ts = readFileSync("src/app/mail/hookReply.ts", "utf8");
+    const deck = ts.match(/USABLE_CORRELATION\s*=\s*\/\^\[([^\]]*)\]\{1,(\d+)\}\$\//);
+    expect(deck, "no USABLE_CORRELATION in hookReply.ts").not.toBeNull();
+
+    expect(Number(deck[2])).toBe(maxLen);
+    // Same alphabet: alphanumerics plus exactly the two Rust permits.
+    // Compared as a SET — inside a character class the order of `-` and `_`
+    // is a spelling choice, and a guard that fails on spelling teaches
+    // people to edit the guard.
+    const extras = (chars) => [...chars.replace("A-Za-z0-9", "")].sort().join("");
+    expect(extras(deck[1])).toBe(extras(`${permits[1]}${permits[2]}`));
+  });
+
   it("keeps the ask window shorter than the deck's patience, in every language", () => {
     // One number with three homes: how long a reporter waits for the deck's
     // answer. The shell hooks poll for it, opencode's courier polls for it in

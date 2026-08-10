@@ -116,6 +116,12 @@ pub fn bridge_reply(
 ) {
     if let Err(e) = reply::write(&bridge.run_dir, &pane, &id, &body) {
         log::warn!("bridge: {e}");
+        // The deck has already taken those messages out of its queue. A
+        // refusal here used to end the story — no file, so no watcher below,
+        // so nothing ever told the deck to put them back and they aged out
+        // silently. Whatever the reason a reply cannot be written, the
+        // outcome for the mail is the same one the watcher reports.
+        let _ = app.emit(REPLY_UNCOLLECTED_EVENT, ReplyUncollected { pane, id });
         return;
     }
     // An EMPTY answer is the common one — most turns end with nothing waiting
