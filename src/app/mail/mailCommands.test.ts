@@ -9,7 +9,6 @@ import type { Pane, Workspace } from "../../domain/deck";
 import type { Mail } from "../../domain/mail";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { PaneActivity } from "../../domain/status";
-import type { Deck } from "../useDeck";
 import { registerMailCommands } from "./mailCommands";
 import { createMailManager } from "./mailManager";
 
@@ -74,7 +73,7 @@ function setup() {
   };
   const dispose = registerMailCommands(registry, {
     mail,
-    deck: () => ({ workspaces }) as unknown as Deck,
+    workspaces: () => workspaces,
     agents: () => [{ id: "claude", label: "Claude" }],
     setPaneTeam,
   });

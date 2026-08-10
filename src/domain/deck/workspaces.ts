@@ -101,7 +101,7 @@ export function workspaceIdsAreUnique(
 
 /** The workspace that owns pane `paneId`, if any. */
 export function findWorkspaceOfPane(
-  workspaces: Workspace[],
+  workspaces: readonly Workspace[],
   paneId: string,
 ): Workspace | undefined {
   return workspaces.find((w) => w.panes.some((p) => p.id === paneId));

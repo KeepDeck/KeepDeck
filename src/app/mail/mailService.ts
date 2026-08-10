@@ -32,7 +32,6 @@ import type { CommandRegistry } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
 import { teamMembers, type Mail } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
-import type { Deck } from "../useDeck";
 import { describeError, log } from "../../ipc/log";
 import { createHookReplies, type HookReplies } from "./hookReply";
 import { registerMailCommands, type MailCommandDeps } from "./mailCommands";
@@ -58,8 +57,6 @@ export interface MailServiceDeps {
   deck: {
     workspaces(): readonly Workspace[];
     subscribe(listener: () => void): () => void;
-    /** The commands' view of the deck, already shaped for them. */
-    surface(): Deck;
     setPaneTeam: MailCommandDeps["setPaneTeam"];
     /** Which CLI a pane runs, or null when the deck no longer holds it. */
     agentTypeOf(paneId: string): string | null;
@@ -194,7 +191,7 @@ export function createMailService(
         asksAtTurnEnd: (paneId) => Boolean(statusOfPane(paneId)?.renderMail),
       });
       unregister = registerMailCommands(deps.registry, {
-        deck: deps.deck.surface,
+        workspaces: deps.deck.workspaces,
         agents: deps.agents.labels,
         setPaneTeam: deps.deck.setPaneTeam,
         mail: manager,

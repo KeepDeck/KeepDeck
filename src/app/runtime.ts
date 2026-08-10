@@ -25,7 +25,6 @@ import {
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { commands } from "./commandRegistry";
-import { readDeck } from "./deckSurface";
 import {
   createMailService,
   deliverMailThroughPty,
@@ -200,7 +199,6 @@ export function createAppRuntime(
       deck: {
         workspaces: () => deckStore.getSnapshot().workspaces,
         subscribe: deckStore.subscribe,
-        surface: () => readDeck(deckStore),
         setPaneTeam: (workspaceId, paneId, team) =>
           deckActions.setPaneTeam(workspaceId, paneId, team),
         agentTypeOf: (paneId) => paneAgentTypeOf(deckStore, paneId),

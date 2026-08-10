@@ -4,7 +4,6 @@ import type { Pane, Workspace } from "../../domain/deck";
 import type { Mail } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
-import type { Deck } from "../useDeck";
 import { createMailService } from "./mailService";
 
 const READY: PaneActivity = { state: "done", at: 1, interrupted: false };
@@ -62,7 +61,6 @@ function setup(initial: boolean | null) {
           paneListeners.add(listener);
           return () => paneListeners.delete(listener);
         },
-        surface: () => ({ workspaces: workspaces() }) as unknown as Deck,
         setPaneTeam: () => {},
         agentTypeOf: () => "claude",
       },

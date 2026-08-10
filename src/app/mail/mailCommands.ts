@@ -30,14 +30,20 @@ import {
   type MailSender,
   type SendRefusal,
 } from "../../domain/mail";
-import type { Deck } from "../useDeck";
 import { log } from "../../ipc/log";
 import type { MailManager } from "./mailManager";
 import { applyTeamPlan, type TeamSetupDeps } from "./teamSetup";
 
 export interface MailCommandDeps {
   mail: MailManager;
-  deck(): Deck;
+  /** The deck as it stands, as WORKSPACES and nothing else.
+   *
+   * Not the `Deck` surface: that is the return type of a React hook, so
+   * naming it here would make a command handler's contract depend on the view
+   * layer's shape — every action, every selector, all of it — for the one
+   * field it reads. What these commands need is a list of workspaces, and
+   * saying so keeps them testable with a literal. */
+  workspaces(): readonly Workspace[];
   /** Just enough to name a pane the way its header does. */
   agents(): readonly { id: string; label: string }[];
   /** Put a pane on a team, or take it off one. */
@@ -73,7 +79,7 @@ function callerWorkspace(
   deps: MailCommandDeps,
   sender: MailSender,
 ): { workspace: Workspace; pane: Pane } {
-  const workspace = findWorkspaceOfPane(deps.deck().workspaces, sender.paneId);
+  const workspace = findWorkspaceOfPane(deps.workspaces(), sender.paneId);
   const pane = workspace?.panes.find((p) => p.id === sender.paneId);
   if (!workspace || !pane) throw new Error(NOT_AN_AGENT_MESSAGE);
   return { workspace, pane };
