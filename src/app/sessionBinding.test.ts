@@ -92,6 +92,10 @@ describe("createSessionBinding", () => {
     return {
       binding: createSessionBinding(store, telemetry, attribution),
       dispatch,
+      // Exposed for the one thing only the shared instance can show: that a
+      // binding this lane accepted also opens the REPORT lanes, which read
+      // their verdict from this same rule.
+      attribution,
     };
   };
 
@@ -163,6 +167,39 @@ describe("createSessionBinding", () => {
     expect(bridge.bindPaneSpawnSpecSession).not.toHaveBeenCalledWith(
       "pane-1",
       "teammate-session",
+    );
+    binding.dispose();
+  });
+
+  it("follows a fork into the process claude re-hosts the session in", async () => {
+    // The field case: at a full context window claude forks the conversation
+    // into a daemon-hosted process, so the binding AND every later report
+    // arrive from a new process group. Both have to land — a binding accepted
+    // while the report lanes stay pinned to the process it left leaves the
+    // pane with a current identity and frozen usage and status.
+    const { binding, dispatch, attribution } = mount("session-old");
+
+    emit(own({ sessionId: "session-old", reporter: "22422" }));
+    expect(attribution.admitsReport("pane-1", "tok", "claude", "22422")).toBe(
+      true,
+    );
+    dispatch.mockClear();
+
+    emit(own({ sessionId: "session-forked", source: "fork", reporter: "920" }));
+
+    expect(bridge.beginSession).toHaveBeenCalledWith("pane-1", "session-forked");
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "setPaneSession",
+        session: expect.objectContaining({ id: "session-forked" }),
+      }),
+    );
+    expect(attribution.admitsReport("pane-1", "tok", "claude", "920")).toBe(
+      true,
+    );
+    // And the process it left speaks for this pane no longer.
+    expect(attribution.admitsReport("pane-1", "tok", "claude", "22422")).toBe(
+      false,
     );
     binding.dispose();
   });

@@ -57,30 +57,44 @@ describe("bindingVerdict", () => {
     });
   });
 
-  it("refuses another PROCESS however it describes itself", () => {
-    // The nested-run case: `claude --resume <other-id>` from a tool call
-    // reports a continuation, which walks straight past the origin rule. Its
-    // process group is not the one that bound this generation.
-    expect(
-      bindingVerdict({ ...bound, origin: "swap", reportedReporter: "9137" }),
-    ).toEqual({ accepted: false, refusal: "foreign-process" });
-    // And the same claim as a fresh start is refused for the process reason,
-    // not the origin one — the more specific rule speaks first.
+  it("refuses a fresh session from another PROCESS", () => {
+    // The nested-run case: a second `claude` from a tool call boots its own
+    // conversation. Its process group is not the one that bound this
+    // generation, and the reason is the process one, not the origin one — the
+    // more specific rule speaks first.
     expect(bindingVerdict({ ...bound, reportedReporter: "9137" })).toEqual({
       accepted: false,
       refusal: "foreign-process",
     });
   });
 
+  it("accepts the conversation continuing from another PROCESS", () => {
+    // The re-host case, measured in the field: claude answers a full context
+    // window by forking the session into its own daemon, so every later
+    // report comes from a new process group. Refusing it strands the pane on
+    // a process that has stopped speaking — and it stays stranded, because
+    // this same rule guards the usage and status lanes.
+    expect(
+      bindingVerdict({ ...bound, origin: "swap", reportedReporter: "9137" }),
+    ).toEqual({ accepted: true });
+  });
+
   it("cannot ask the process question when either side is silent", () => {
-    // A reporter whose `ps` failed says nothing, and the origin rule carries
-    // the weight alone rather than refusing every rebind on a missing field.
-    expect(
-      bindingVerdict({ ...bound, origin: "swap", reportedReporter: undefined }),
-    ).toEqual({ accepted: true });
-    expect(
-      bindingVerdict({ ...bound, origin: "swap", boundReporter: undefined }),
-    ).toEqual({ accepted: true });
+    // A reporter whose `ps` failed says nothing, so a fresh session cannot be
+    // placed by process and the one-per-generation rule carries the weight
+    // alone — the refusal names that rule rather than the process one.
+    expect(bindingVerdict({ ...bound, reportedReporter: undefined })).toEqual({
+      accepted: false,
+      refusal: "second-startup",
+    });
+    expect(bindingVerdict({ ...bound, boundReporter: undefined })).toEqual({
+      accepted: false,
+      refusal: "second-startup",
+    });
+    // With nothing bound yet, silence is no obstacle at all.
+    expect(bindingVerdict({ ...own, reportedReporter: undefined })).toEqual({
+      accepted: true,
+    });
   });
 
   it("refuses a foreign agent on its very first report", () => {

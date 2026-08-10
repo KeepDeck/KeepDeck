@@ -11,6 +11,7 @@ import {
   paneAgentType,
   type Workspace,
 } from "../domain/deck";
+import { log } from "../ipc/log";
 import type { SessionBound } from "../ipc/sessions";
 
 /**
@@ -42,8 +43,9 @@ export interface PaneAttribution {
     reportedReporter: string | undefined,
   ): boolean;
   /** This pane's generation now has an identity, reported by this process:
-   * a later fresh session, or any session from another process, is somebody
-   * else's. */
+   * a later FRESH session — a second one here, or one from another process —
+   * is somebody else's. A continuation may move the pin, because the pane's
+   * own agent may have moved. */
   recordBinding(paneId: string, reporter: string | undefined): void;
   /** The pane's process is retiring — the next fresh session it reports is
    * legitimately its own again. */
@@ -133,18 +135,52 @@ export function createPaneAttribution(
         // The same pin the binding uses: a nested run refused an identity is
         // still holding a valid secret, and its statusline would otherwise
         // write this pane's usage and context with another session's numbers.
+        //
+        // And the one place the two lanes are deliberately NOT symmetrical: a
+        // report carries no origin word, so this side cannot make the
+        // continuation exemption the binding rule makes. It follows the pin
+        // instead, which the binding lane moves when the agent re-hosts. Give
+        // this side the exemption too and every report becomes unplaceable;
+        // take it from the binding lane and the pane freezes where it stood.
         sameProcess(bound.get(paneId), reportedReporter)
       );
     },
     recordBinding(paneId, reporter) {
-      // The FIRST binding of a generation pins it, and nothing after that
-      // moves the pin. Re-pinning on every accepted report looks harmless
-      // until one of them cannot name its process: that report would erase
-      // the pin, the next one — a nested run, say — would set it to ITS
-      // process, and the pane's own agent would then be refused as foreign
-      // for the rest of the generation. A pin that only `retire` clears
-      // cannot be walked away from one silent report at a time.
-      if (!bound.has(paneId)) bound.set(paneId, reporter);
+      // The first binding of a generation establishes the entry — its presence
+      // is what "this generation has bound" means, named process or not.
+      if (!bound.has(paneId)) {
+        bound.set(paneId, reporter);
+        return;
+      }
+      // After that the pin MOVES only between two named processes. An accepted
+      // binding has passed the whole rule, so the only one that can come from
+      // another process is a continuation — the pane's own agent re-hosting
+      // its conversation (claude's daemon fork). Following it is the point:
+      // every later report comes from there, and both lanes read this pin.
+      //
+      // The two silences stay exactly as they were. A binding that cannot name
+      // its process must not erase a pin: that erasure was enough to walk the
+      // pin away one report at a time, letting the next one — a nested run,
+      // say — claim it and leave the pane's own agent foreign for the rest of
+      // the generation. And a generation that started blind stays blind,
+      // because nothing distinguishes "could not name itself, then could" from
+      // "could not, and something else answered instead" — adopting there
+      // would lock the pane out on a process it cannot vouch for.
+      const pinned = bound.get(paneId);
+      if (reporter !== undefined && pinned !== undefined) {
+        // Said out loud, because the silence this repairs was diagnosable only
+        // by reading a log next to a process tree: a pane whose reports are
+        // being refused shows a `foreign-process` line per report and nothing
+        // that says WHEN its agent moved. Only an actual move is logged — a
+        // rebind by the same process is the ordinary case and would drown it.
+        if (pinned !== reporter) {
+          log.info(
+            "web:bridge",
+            `${paneId}: reporting process moved ${pinned} → ${reporter}`,
+          );
+        }
+        bound.set(paneId, reporter);
+      }
     },
     retire(paneId) {
       bound.delete(paneId);

@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
 import type { SessionBound } from "../ipc/sessions";
+
+const logged = vi.hoisted(() => ({ info: vi.fn() }));
+vi.mock("../ipc/log", () => ({
+  log: { info: logged.info, warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+}));
+
 import { bindingOrigin, createPaneAttribution } from "./paneAttribution";
 
 /**
@@ -48,6 +54,29 @@ describe("bindingOrigin", () => {
 });
 
 describe("createPaneAttribution", () => {
+  beforeEach(() => {
+    logged.info.mockClear();
+  });
+
+  it("says out loud when the pane's agent moves process, and only then", () => {
+    // What turns the frozen-pane symptom into one line of log: a refusal says
+    // a report came from the wrong process, never when the right one changed.
+    // A rebind by the SAME process is the ordinary case — logging it too would
+    // bury the one line worth finding.
+    const owner = attribution();
+    owner.recordBinding("pane-1", "22422");
+    owner.recordBinding("pane-1", "22422");
+    owner.recordBinding("pane-1", undefined);
+    expect(logged.info).not.toHaveBeenCalled();
+
+    owner.recordBinding("pane-1", "920");
+    expect(logged.info).toHaveBeenCalledTimes(1);
+    expect(logged.info).toHaveBeenCalledWith(
+      "web:bridge",
+      expect.stringContaining("pane-1: reporting process moved 22422 → 920"),
+    );
+  });
+
   it("pins the generation to the process that bound it", () => {
     const owner = attribution();
     expect(owner.judge(report())).toEqual({ accepted: true });
@@ -57,10 +86,11 @@ describe("createPaneAttribution", () => {
     expect(owner.judge(report({ source: "clear", sessionId: "s-2" }))).toEqual({
       accepted: true,
     });
-    // Another process may not, whatever it calls the event.
-    expect(
-      owner.judge(report({ source: "resume", reporter: "9137" })),
-    ).toEqual({ accepted: false, refusal: "foreign-process" });
+    // Another process may not START one there.
+    expect(owner.judge(report({ reporter: "9137" }))).toEqual({
+      accepted: false,
+      refusal: "foreign-process",
+    });
     // And the same process may not start a SECOND fresh session.
     expect(owner.judge(report({ sessionId: "s-3" }))).toEqual({
       accepted: false,
@@ -77,11 +107,36 @@ describe("createPaneAttribution", () => {
     owner.recordBinding("pane-1", "4021");
     owner.recordBinding("pane-1", undefined);
 
+    expect(owner.judge(report({ reporter: "9137" }))).toEqual({
+      accepted: false,
+      refusal: "foreign-process",
+    });
+    // And the consequence the pin exists for: the pane's OWN agent is still
+    // admitted on the lanes — the half a continuation's verdict, accepted
+    // whatever the pin holds, can no longer show.
+    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
+  });
+
+  it("follows the pane's agent to the process it re-hosts its session in", () => {
+    // Claude's answer to a full context window: fork the conversation into a
+    // daemon-hosted process, new group. The continuation is accepted, the pin
+    // moves with it — and BOTH lanes have to move, or the pane keeps its
+    // identity while its usage and status stay refused.
+    const owner = attribution();
+    owner.recordBinding("pane-1", "22422");
     expect(
-      owner.judge(report({ source: "resume", reporter: "9137" })),
-    ).toEqual({ accepted: false, refusal: "foreign-process" });
-    expect(owner.judge(report({ source: "clear" }))).toEqual({
-      accepted: true,
+      owner.judge(report({ source: "fork", sessionId: "s-2", reporter: "920" })),
+    ).toEqual({ accepted: true });
+    owner.recordBinding("pane-1", "920");
+
+    expect(owner.admitsReport("pane-1", "tok", "claude", "920")).toBe(true);
+    // The process it left speaks for nothing now: whatever still runs there is
+    // no longer the conversation this pane is having.
+    expect(owner.admitsReport("pane-1", "tok", "claude", "22422")).toBe(false);
+    // A fresh session from a third process is still somebody else's.
+    expect(owner.judge(report({ reporter: "9137" }))).toEqual({
+      accepted: false,
+      refusal: "foreign-process",
     });
   });
 
@@ -94,8 +149,17 @@ describe("createPaneAttribution", () => {
     owner.recordBinding("pane-1", undefined);
     owner.recordBinding("pane-1", "9137");
 
-    expect(owner.judge(report({ source: "clear" }))).toEqual({
-      accepted: true,
+    // Asked where the pin actually speaks. A continuation is accepted whatever
+    // the pin says, so it can no longer show this: blind admits every process
+    // on the report lanes, while an adopted 9137 would have locked out the
+    // pane's own agent...
+    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
+    expect(owner.admitsReport("pane-1", "tok", "claude", "9137")).toBe(true);
+    // ...and a fresh session is then refused for the GENERATION, which is the
+    // rule that has something to say, rather than for its process.
+    expect(owner.judge(report({ reporter: "4021" }))).toEqual({
+      accepted: false,
+      refusal: "second-startup",
     });
   });
 
