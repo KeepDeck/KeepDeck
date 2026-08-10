@@ -15,13 +15,8 @@
  * behind the same port. Until then this is the honest floor: it works
  * everywhere, and it promises exactly as much as it can keep.
  */
-import type { Mail } from "../../domain/mail";
-import {
-  paneInputReady,
-  paneInputSettled,
-  pasteToPane,
-  writeRawToPane,
-} from "../paneInput";
+import { senderName, type Mail } from "../../domain/mail";
+import { paneInputReady, paneInputSettled, submitToPane } from "../paneInput";
 
 /**
  * The text one message becomes in a terminal.
@@ -33,15 +28,13 @@ import {
  * preamble per note would cost more context than the notes are worth.
  */
 export function renderMail(mail: Mail): string {
-  // Named by ROLE, never by pane title. The receiver replies to whatever it
-  // was told the sender was, and only a role is an address — shown a title,
-  // an agent sent to the title and was refused. A sender on no team has no
-  // address to give, so its title stands in and the reply has to be
-  // addressed some other way.
+  // Named by ROLE, never by pane title — see [`senderName`], which both
+  // channels ask rather than each deciding.
+  const from = senderName(mail);
   const origin =
-    mail.from.kind === "host"
+    from === null
       ? "from KeepDeck itself"
-      : `from ${mail.from.pane.role ?? mail.from.pane.label}, another agent in this deck and not your user`;
+      : `from ${from}, another agent in this deck and not your user`;
   return `[keepdeck mail ${mail.id} — ${mail.kind}, ${origin}; reply with mail.send replyTo="${mail.id}"]\n${mail.body}`;
 }
 
@@ -71,9 +64,7 @@ const WAKE_LINE =
  */
 export function wakePaneForMail(paneId: string, now?: number): boolean {
   if (!paneInputReady(paneId) || !paneInputSettled(paneId, now)) return false;
-  if (!pasteToPane(paneId, WAKE_LINE)) return false;
-  writeRawToPane(paneId, "\r");
-  return true;
+  return submitToPane(paneId, WAKE_LINE);
 }
 
 /**
@@ -88,14 +79,9 @@ export function deliverMailThroughPty(mail: Mail, now?: number): boolean {
   // deck could not tell that from a delivery, because a paste is answered by
   // nothing at all. Reported as a retry, which is exactly what it is.
   if (!paneInputSettled(mail.toPaneId, now)) return false;
-  // The PASTE channel, framed by the renderer, so a body containing its own
+  // The paste channel, framed by the renderer, so a body carrying its own
   // newlines or a CR arrives whole instead of submitting itself halfway
-  // through. That framing is the reason the submit below has to be separate.
-  if (!pasteToPane(mail.toPaneId, renderMail(mail))) return false;
-  // A raw CR OUTSIDE the paste, for the reason `deliverTask` documents: the
-  // whole pasted argument is wrapped in bracketed-paste markers, so a "\r"
-  // concatenated onto the text would arrive as pasted content and the
-  // message would sit in the composer unsent.
-  writeRawToPane(mail.toPaneId, "\r");
-  return true;
+  // through — and the submit after it stays a separate keystroke, which is
+  // what [`submitToPane`] owns.
+  return submitToPane(mail.toPaneId, renderMail(mail));
 }

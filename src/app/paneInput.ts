@@ -37,13 +37,17 @@ const watchers = new Set<() => void>();
  * How long a freshly registered pane is given before anything is pushed at
  * it unasked.
  *
- * "A writer exists" is not "the CLI reads it". `deliverTask` has always
- * known this and waits out the same kind of gap before its own paste; the
- * number here is that one. Under it, a paste lands in a TUI that is still
- * starting and the submit keystroke after it goes nowhere — the text sits in
- * the composer, unsent, and the deck has no way to tell that from a delivery.
+ * "A writer exists" is not "the CLI reads it". Under this, a paste lands in
+ * a TUI that is still starting and the submit keystroke after it goes
+ * nowhere — the text sits in the composer, unsent, and the deck has no way
+ * to tell that from a delivery.
+ *
+ * Exported because `deliverTask` waits out the same gap before its own
+ * paste, and had its own copy of this exact number with a comment saying so.
+ * One question, one answer: raising it in one place and not the other leaves
+ * the other channel pasting into a TUI that swallows the submit.
  */
-const SETTLE_MS = 1_500;
+export const SETTLE_MS = 1_500;
 
 /**
  * Whether this pane has been writable long enough to be pushed at.
@@ -133,5 +137,28 @@ export function pasteToPane(id: string, text: string): boolean {
   const input = entries.get(id);
   if (!input?.paste) return false;
   input.paste(text);
+  return true;
+}
+
+/**
+ * Put text in a pane and SEND it — the whole gesture, as one call.
+ *
+ * The two halves are not interchangeable and the order is the mechanism.
+ * xterm wraps the entire argument of `paste` in bracketed-paste markers, so
+ * a `\r` concatenated onto the text arrives as pasted CONTENT and the line
+ * sits in the composer unsent — indistinguishable, to everything upstream,
+ * from a delivery. The submit therefore has to be a raw keystroke OUTSIDE
+ * the paste.
+ *
+ * That is one fact about this channel, and it was re-implemented and
+ * re-explained at every call site: the spawn task, a mail delivery, a mail
+ * nudge, the pane-write command. Changing the gesture — a gap between the
+ * two writes, `\r\n`, something per-agent — meant finding all of them.
+ *
+ * False means the pane has no live paste channel; nothing was written.
+ */
+export function submitToPane(id: string, text: string): boolean {
+  if (!pasteToPane(id, text)) return false;
+  writeRawToPane(id, "\r");
   return true;
 }

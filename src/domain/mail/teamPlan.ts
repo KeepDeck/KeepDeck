@@ -18,7 +18,7 @@ import type { AgentType } from "../agents";
 import type { Resolved } from "../commands";
 import type { Workspace } from "../deck";
 import { leadRole, parseRoleAddress } from "./roles";
-import { teamMembers } from "./team";
+import { paneIsOnTeam, teamMembers } from "./team";
 
 /** An existing pane taking a role. */
 export interface TeamMemberDraft {
@@ -211,10 +211,11 @@ export function planTeam(
   // to list a pane; an agent driving `team.assign` reads no dialog, and the
   // invariant is about teams, not about a form. `editing ?? name` is the team
   // as it stands, so a member already on THIS one is staying, not moving.
-  const staying = (editing ?? name).trim().toLowerCase();
+  const staying = editing ?? name;
   for (const member of members) {
-    const held = workspace.panes.find((pane) => pane.id === member.paneId)?.team;
-    if (held && held.name.trim().toLowerCase() !== staying) {
+    const pane = workspace.panes.find((candidate) => candidate.id === member.paneId);
+    const held = pane?.team;
+    if (pane && held && !paneIsOnTeam(pane, staying)) {
       return {
         ok: false,
         message: `that agent is already ${held.role} on team "${held.name}" — take it off that team first`,
@@ -267,13 +268,9 @@ export function planTeam(
   // only otherwise the draft's own. Compared case-insensitively for the same
   // reason the roles are: the person typing "API" means the team they called
   // "api".
-  const needle = (editing ?? name).trim().toLowerCase();
   const keeping = new Set(members.map((member) => member.paneId));
-  const released = workspace.panes
-    .filter(
-      (pane) =>
-        pane.team?.name.toLowerCase() === needle && !keeping.has(pane.id),
-    )
+  const released = teamMembers(workspace, editing ?? name)
+    .filter((pane) => !keeping.has(pane.id))
     .map((pane) => pane.id);
 
   // Never any: settling a roster is an edit. Ending an agent is asked for

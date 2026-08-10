@@ -13,6 +13,7 @@ import {
   parseRoleAddress,
   planDisband,
   planTeam,
+  teamMembers,
   roleById,
   teamPlanIsEmpty,
   teamRoles,
@@ -86,10 +87,8 @@ export function TeamDialog({
   const startingMembers = useMemo(() => {
     const seeded = new Map<string, string>();
     if (editing) {
-      for (const pane of workspace.panes) {
-        if (pane.team?.name.toLowerCase() === editing.toLowerCase()) {
-          seeded.set(pane.id, pane.team.role);
-        }
+      for (const pane of teamMembers(workspace, editing)) {
+        seeded.set(pane.id, pane.team!.role);
       }
     }
     return seeded;

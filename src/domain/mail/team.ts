@@ -24,10 +24,23 @@ export interface TeamAssignment {
 
 /** The panes making up a team, in deck order. */
 export function teamMembers(workspace: Workspace, name: string): Pane[] {
-  const needle = name.trim().toLowerCase();
-  return workspace.panes.filter(
-    (pane) => pane.team?.name.toLowerCase() === needle,
-  );
+  return workspace.panes.filter((pane) => paneIsOnTeam(pane, name));
+}
+
+/**
+ * Whether this pane holds that team's name.
+ *
+ * One comparison, in one place. Membership is "the pane claims the name",
+ * matched case- and space-insensitively for the same reason roles are: the
+ * person typing "API" means the team they called "api". Three sites spelled
+ * that out inline with three slightly different normalisations — they cannot
+ * disagree while every stored name has been trimmed on the way in, but the
+ * moment membership stops being a name comparison (an id, a pane on two
+ * teams, a folding rule) the ones that were missed keep answering the old
+ * question.
+ */
+export function paneIsOnTeam(pane: Pane, name: string): boolean {
+  return pane.team?.name.trim().toLowerCase() === name.trim().toLowerCase();
 }
 
 /**
