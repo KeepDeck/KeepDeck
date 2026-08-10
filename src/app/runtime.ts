@@ -211,8 +211,10 @@ export function createAppRuntime(
         // repeats it.
         versionOf: plugins.agentBinVersion,
         onAgentsChanged: plugins.pluginRegistries.agents.subscribe,
-        // Fire and forget: the port answers once per binary and remembers,
-        // and nothing in the render path may wait on a process starting. The
+        // Fire and forget: the port answers from its own cache — which a
+        // re-detection drops, so a repeat is how a forgotten version is
+        // learned again — and nothing in the render path may wait on a
+        // process starting. The
         // catch is what makes "cannot be awaited" true rather than merely
         // intended — a discarded promise that rejects is an unhandled one.
         learnVersion: (agentId) => {

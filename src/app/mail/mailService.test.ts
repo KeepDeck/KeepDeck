@@ -267,22 +267,34 @@ describe("createMailService", () => {
     expect(h.learned).toEqual(["claude", "codex"]);
   });
 
-  it("asks about an agent a new pane brought with it, and not again after", () => {
+  it("keeps asking on every deck change, so a forgotten version is learned again", () => {
+    // Deliberately NOT memoised here. The port answers from its own cache,
+    // and that cache is the only thing that knows when the answer stopped
+    // being true — a re-detection drops it, because the CLI underneath may
+    // have been upgraded. A memo on this side was invalidated by a different
+    // signal than the cache it shadowed, so after a Rescan it reported
+    // "already asked" about a version that had just been thrown away and
+    // nothing ever asked again.
+    //
+    // Repeating is what makes that self-healing, and it is free: the port
+    // short-circuits on its own cache and spawns nothing (see agentBins).
     const h = setup(true);
     h.learned.length = 0;
-    // pane-3 runs claude, which has already been asked about.
-    h.closePanes([{ id: "pane-1" }, { id: "pane-2" }, { id: "pane-3" }] as Pane[]);
-    expect(h.learned).toEqual([]);
 
-    // A pane running something nobody has asked about does get asked.
-    h.closePanes([{ id: "pane-9" }] as Pane[]);
-    expect(h.learned).toEqual(["kimi"]);
+    h.closePanes([{ id: "pane-1" }, { id: "pane-2" }] as Pane[]);
+    expect(h.learned).toEqual(["claude", "codex"]);
+
+    // And a pane running something new is asked about along with the rest.
+    h.learned.length = 0;
+    h.closePanes([{ id: "pane-1" }, { id: "pane-9" }] as Pane[]);
+    expect(h.learned).toEqual(["claude", "kimi"]);
   });
 
-  it("asks again when the agent plugins change, since a cached version may be stale", () => {
-    // The registry is EMPTY while the deck hydrates, so the boot-time walk
-    // finds nothing to ask about — and a Rescan drops what was cached,
-    // because the CLI underneath may have been upgraded. Both are this edge.
+  it("asks once the agent registry fills, since the boot-time walk found nothing", () => {
+    // The registry is EMPTY while the deck hydrates, so the walk that runs
+    // when the feature settles has nothing to ask about. Without this edge
+    // the answer was only ever learned by the coincidence that waking a
+    // restored pane happens to write to the deck.
     const h = setup(true);
     h.learned.length = 0;
 

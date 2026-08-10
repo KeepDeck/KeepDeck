@@ -79,8 +79,9 @@ describe("probeableBinOfAgent", () => {
   });
 
   it("will not let one plugin ride on another's consent", () => {
-    // The old shape asked a UNION of every installed plugin's probeable
-    // bins, so a plugin that declared nothing could have its agent probed
+    // The permission has to come from the manifest that OWNS the agent. A
+    // rule that asked the installed set as a whole — a union of everyone's
+    // probeable bins — would let a plugin that declared nothing be probed
     // because somebody else had consented to that binary.
     const consenting = manifest("keepdeck.codex", {
       capabilities: [{ kind: "exec", commands: ["codex"] }],

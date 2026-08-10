@@ -155,24 +155,24 @@ export function createMailService(
    * every installed plugin instead cost every user about two seconds of
    * blocked window, most of them for a fact nothing would ever read.
    *
-   * Fire and forget. Called on the two edges that can change the answer —
-   * the feature coming up, and the agent plugins changing — and on a deck
-   * change, which is how a NEW pane running a new agent gets asked about.
-   * A deck notification is frequent (a selection, a title, a focus), so the
-   * walk stops at the first pane of a type already asked for: the port
-   * itself is idempotent, but reaching it costs a registry walk and a
-   * manifest check.
+   * Fire and forget, and deliberately NOT memoised here. The port already
+   * answers from its own cache, and that cache is the only thing that knows
+   * when the answer stopped being true: a re-detection drops it, because the
+   * CLI underneath may have been upgraded. A second memo on this side was
+   * invalidated by a different signal than the cache it shadowed, so after a
+   * Rescan it went on reporting "already asked" about a version that had
+   * just been thrown away — and nothing ever asked again.
    *
-   * `asked` is forgotten whenever the agent plugins change, which is exactly
-   * when a cached version is dropped and has to be learned again.
+   * The cost of not memoising is two array `find`s and a capability check
+   * per distinct agent type per notification, against a correctness hole.
    */
-  let asked = new Set<string>();
   const learnLiveVersions = () => {
+    const seen = new Set<string>();
     for (const workspace of deps.deck.workspaces()) {
       for (const pane of workspace.panes) {
         const agentType = deps.deck.agentTypeOf(pane.id);
-        if (!agentType || asked.has(agentType)) continue;
-        asked.add(agentType);
+        if (!agentType || seen.has(agentType)) continue;
+        seen.add(agentType);
         deps.agents.learnVersion(agentType);
       }
     }
@@ -270,7 +270,6 @@ export function createMailService(
         mail: manager,
       });
       presence = startPresence();
-      asked = new Set();
       learnLiveVersions();
       return;
     }
@@ -288,13 +287,14 @@ export function createMailService(
     learnLiveVersions();
   });
   // The registry is EMPTY while the deck hydrates, so a boot-time walk finds
-  // nothing — and a Rescan drops what was cached, because the CLI underneath
-  // may have been upgraded. Both are this edge, not a deck change, and
-  // without it the answer was only ever learned by the coincidence that
-  // waking a restored pane happens to write to the deck.
+  // nothing to ask about — and without this the answer was only ever learned
+  // by the coincidence that waking a restored pane happens to write to the
+  // deck. A Rescan is NOT this edge: it re-activates plugins that are already
+  // active, which adds no contribution and notifies nobody. What covers a
+  // Rescan is the port forgetting what it cached, so the next deck change
+  // asks again.
   const unsubscribeAgents = deps.agents.onAgentsChanged(() => {
     if (!manager) return;
-    asked = new Set();
     learnLiveVersions();
   });
   let stopUncollected: (() => void) | null = null;

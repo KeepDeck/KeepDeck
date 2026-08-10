@@ -85,6 +85,51 @@ describe("createAgentBins", () => {
     expect(bins.version("codex")).toBe("0.147.0");
   });
 
+  it("throws away an answer that arrives from before a re-detection", async () => {
+    // A probe takes about half a second; a re-detection takes milliseconds,
+    // so a Rescan lands in the middle of one routinely. Its answer then
+    // describes a machine the app has already stopped believing in — and
+    // writing it back would restore exactly the staleness the re-detection
+    // was for, permanently, because nothing would clear it again.
+    let release: (answer: string) => void = () => {};
+    const bins = createAgentBins(
+      async (asked) => asked.map((bin) => ({ bin, installed: true })),
+      () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    const inFlight = bins.ensureVersion("codex");
+    await bins.detect(["codex"]); // the user upgraded and hit Rescan
+    release("0.146.0"); // the pre-Rescan probe finally answers
+    await inFlight;
+
+    expect(bins.version("codex")).toBeNull();
+  });
+
+  it("does not let a later caller join a flight the re-detection discarded", async () => {
+    // Waiting on that flight would come away believing the answer had been
+    // refreshed, when it is the one being thrown out.
+    const answers: ((version: string) => void)[] = [];
+    const bins = createAgentBins(
+      async (asked) => asked.map((bin) => ({ bin, installed: true })),
+      () => new Promise<string>((resolve) => answers.push(resolve)),
+    );
+
+    // Still in flight when the re-detection lands.
+    const discarded = bins.ensureVersion("codex");
+    await bins.detect(["codex"]);
+    const fresh = bins.ensureVersion("codex");
+    expect(answers).toHaveLength(2);
+
+    // Both settle; only the one started after the re-detection is believed.
+    answers[0]("0.146.0");
+    answers[1]("0.147.0");
+    await Promise.all([discarded, fresh]);
+    expect(bins.version("codex")).toBe("0.147.0");
+  });
+
   it("remembers that it could not tell, rather than asking again forever", async () => {
     // A CLI that answers nothing legible costs the same half second as one
     // that does. Re-asking on every pane start would spend it repeatedly to
