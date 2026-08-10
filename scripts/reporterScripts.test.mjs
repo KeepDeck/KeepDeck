@@ -114,6 +114,34 @@ describe("reporter shell scripts", () => {
     expect(extras(deck[1])).toBe(extras(`${permits[1]}${permits[2]}`));
   });
 
+  it("has the courier and the renderer agreeing on the ask they exchange", () => {
+    // Two halves of one round trip that cannot import each other: the
+    // renderer is TypeScript compiled into the deck, the courier is a plain
+    // JS file opencode loads into its own process. Between them sit two
+    // literals, and a mismatch in either is silent in exactly the way that
+    // costs mail.
+    //
+    // The EVENT NAME is how the renderer knows the question is for it — the
+    // deck takes the pane's queue before rendering, so a renderer that says
+    // "not mine" hands back an empty answer while the messages ride the
+    // restore path, every turn, forever. The VERSION is how the courier
+    // knows the answer is one it can read; a courier that rejects it drops
+    // messages the deck has already booked as delivered.
+    const courier = readFileSync(
+      "plugins/opencode/resources/mail-courier.js",
+      "utf8",
+    );
+    const renderer = readFileSync("plugins/opencode/src/mail.ts", "utf8");
+
+    const asked = courier.match(/event:\s*\{\s*type:\s*"([^"]+)"/);
+    expect(asked, "no asked event type in the courier").not.toBeNull();
+    expect(renderer).toContain(`MAIL_ASK_EVENT = "${asked[1]}"`);
+
+    const courierVersion = courier.match(/REPLY_VERSION\s*=\s*(\d+)/);
+    expect(courierVersion, "no REPLY_VERSION in the courier").not.toBeNull();
+    expect(renderer).toContain(`MAIL_REPLY_VERSION = ${courierVersion[1]}`);
+  });
+
   it("keeps the ask window shorter than the deck's patience, in every language", () => {
     // One number with three homes: how long a reporter waits for the deck's
     // answer. The shell hooks poll for it, opencode's courier polls for it in

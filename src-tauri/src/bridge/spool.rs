@@ -58,6 +58,18 @@ pub fn pane_dir(run_dir: &Path, pane_id: &str) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Where one of a pane's files WOULD be, without creating anything.
+///
+/// The reading half of [`pane_dir`]: checking whether an answer is still
+/// sitting there, or removing one, must not conjure a directory for a pane
+/// that never had one. Same layout, stated once — a caller that composed
+/// `run_dir.join(pane).join(file)` for itself would keep answering the old
+/// question the day this layout changes, and the failure would be a reply
+/// written to one place and looked for in another.
+pub fn pane_path(run_dir: &Path, pane_id: &str, file: &str) -> PathBuf {
+    run_dir.join(pane_id).join(file)
+}
+
 /// Publish one file into `run_dir`, whole.
 ///
 /// Staged beside the target so the rename stays within one filesystem, then
@@ -117,6 +129,20 @@ mod tests {
             assert!(pane_dir(run.path(), hostile).is_err(), "must refuse {hostile:?}");
         }
         assert_eq!(fs::read_dir(run.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn naming_a_pane_s_file_creates_nothing() {
+        // The reading half. Asking whether an answer is still sitting there —
+        // or removing one — must not conjure a directory for a pane that
+        // never had one, which is what makes this separate from `pane_dir`.
+        let run = tempfile::tempdir().unwrap();
+        let path = pane_path(run.path(), "pane-3", "id-1.reply");
+        assert_eq!(path, run.path().join("pane-3").join("id-1.reply"));
+        assert_eq!(fs::read_dir(run.path()).unwrap().count(), 0);
+        // And it agrees with where `pane_dir` puts things, which is the whole
+        // reason both live here.
+        assert_eq!(path.parent().unwrap(), pane_dir(run.path(), "pane-3").unwrap());
     }
 
     #[test]

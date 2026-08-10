@@ -43,8 +43,17 @@ pub const HOOK_WAIT: Duration = Duration::from_millis(2_500);
 /// The `.reply` extension keeps it out of the watcher's way: the inbox only
 /// looks at `*.json`, so an answer on its way out is never mistaken for an
 /// envelope coming in.
+///
+/// Through `spool`, like the write below — the layout of a pane's directory
+/// is one fact, and a reply written to one place and looked for in another
+/// is exactly what a second copy of it would produce.
 fn reply_path(run_dir: &Path, pane_id: &str, id: &str) -> PathBuf {
-    run_dir.join(pane_id).join(format!("{id}.reply"))
+    spool::pane_path(run_dir, pane_id, &reply_file(id))
+}
+
+/// The filename one answer takes.
+fn reply_file(id: &str) -> String {
+    format!("{id}.reply")
 }
 
 /// Write one reply, atomically. `Err` is a message for the log — a hook that
@@ -55,7 +64,7 @@ pub fn write(run_dir: &Path, pane_id: &str, id: &str, body: &str) -> Result<(), 
         return Err(format!("refusing a reply id that cannot be a filename: {id:?}"));
     }
     let dir = spool::pane_dir(run_dir, pane_id)?;
-    spool::publish(&dir, &format!("{id}.reply"), body)
+    spool::publish(&dir, &reply_file(id), body)
 }
 
 /// Whether the hook collected the answer written for `id`.
