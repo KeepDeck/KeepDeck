@@ -24,12 +24,21 @@ export interface AgentBins {
    * never as "old". */
   version(bin: string): string | null;
   /** Detect the given bins once and record what came back. Shared by the
-   * bootstrap pass (every declared bin) and the enable gesture's refresh. */
-  detect(bins: string[]): Promise<void>;
+   * bootstrap pass (every declared bin) and the enable gesture's refresh.
+   *
+   * `probeable` is the subset whose `--version` may be read — which means
+   * run, and running a manifest-named program is what an `exec` capability
+   * buys. The rest are looked up for presence and never spawned; their
+   * version stays null, which every consumer already reads as "assume the
+   * current schema". */
+  detect(bins: string[], probeable?: string[]): Promise<void>;
 }
 
 export function createAgentBins(
-  probe: (bins: string[]) => Promise<
+  probe: (
+    bins: string[],
+    probeable: string[],
+  ) => Promise<
     { bin: string; installed: boolean; version?: string | null }[]
   > = detectBins,
 ): AgentBins {
@@ -43,8 +52,8 @@ export function createAgentBins(
   return {
     installed: (bin) => installed.get(bin) !== false,
     version: (bin) => version.get(bin) ?? null,
-    async detect(bins) {
-      for (const status of await probe(bins)) {
+    async detect(bins, probeable = []) {
+      for (const status of await probe(bins, probeable)) {
         installed.set(status.bin, status.installed);
         if (status.version) version.set(status.bin, status.version);
       }

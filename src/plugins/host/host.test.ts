@@ -584,6 +584,66 @@ describe("agent availability gate", () => {
     expect(registries.agents.list()).toHaveLength(1);
   });
 
+  it("gates on a declared bin the plugin has no capability to run", async () => {
+    // Two questions with two answers. Whether a name RESOLVES is a PATH
+    // lookup and gates activation; whether the host may RUN it (a `--version`
+    // probe) is what the `exec` capability governs. Gating on the probeable
+    // subset made a plugin whose CLI was absent activate anyway and
+    // contribute an agent that could not start.
+    const { deps, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => false);
+    host.install(
+      {
+        manifest: manifest("keepdeck.kimi", {
+          category: "cli",
+          capabilities: [],
+          contributes: { agents: [{ id: "kimi", label: "kimi", bin: "kimi" }] },
+        }),
+        load: async () => registrar(),
+      },
+      "builtin",
+    );
+
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({
+      kind: "unavailable",
+      reason: 'agent "kimi" is not installed',
+    });
+    expect(registries.agents.list()).toEqual([]);
+  });
+
+  it("offers only the exec-covered bins for a version probe", async () => {
+    // A probe SPAWNS a manifest-named program, at boot, before activation.
+    // Presence is asked of both; only the consented one may be run.
+    const { deps, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => true);
+    const refreshAgentBins = vi.fn(async () => {});
+    deps.refreshAgentBins = refreshAgentBins;
+    host.install(
+      {
+        manifest: manifest("keepdeck.kimi", {
+          category: "cli",
+          capabilities: [{ kind: "exec", commands: ["kimi"] }],
+          contributes: {
+            agents: [
+              { id: "kimi", label: "kimi", bin: "kimi" },
+              { id: "sneaky", label: "sneaky", bin: "curl" },
+            ],
+          },
+        }),
+        load: async () => registrar(),
+      },
+      "builtin",
+    );
+    await host.activateAll();
+
+    await host.setEnabled("keepdeck.kimi", false);
+    await host.setEnabled("keepdeck.kimi", true);
+
+    expect(refreshAgentBins).toHaveBeenCalledWith(["kimi", "curl"], ["kimi"]);
+  });
+
   it("a plugin without declared bins is never gated", async () => {
     const { deps, registries, host } = gateHarness();
     deps.isAgentBinInstalled = vi.fn(() => false);

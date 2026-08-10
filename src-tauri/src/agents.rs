@@ -28,19 +28,37 @@ pub struct BinStatusDto {
 
 /// Detect which of the requested binaries resolve — on the SAME augmented
 /// PATH the PTY spawn uses, so "detected" == "spawnable" stays true by
-/// construction. Presence-only and cheap, safe to call per form open.
+/// construction.
+///
+/// Presence is a PATH lookup: cheap, safe to call per form open, and asked
+/// of every name in `bins`. A version is a program RUN, so it is asked only
+/// of the names in `probe` — the caller's exec-capability decision, made
+/// where capabilities are known and carried here rather than guessed at.
+/// Omitting `probe` means "presence only", which is what every caller that
+/// does not need a version should send.
 #[tauri::command]
-pub fn agents_detect(bins: Vec<String>) -> Vec<BinStatusDto> {
-    detect_bins(bins, keepdeck_env::augmented_path())
+pub fn agents_detect(bins: Vec<String>, probe: Option<Vec<String>>) -> Vec<BinStatusDto> {
+    detect_bins(
+        bins,
+        &probe.unwrap_or_default().into_iter().collect(),
+        keepdeck_env::augmented_path(),
+    )
 }
 
-fn detect_bins(bins: Vec<String>, path: &std::ffi::OsStr) -> Vec<BinStatusDto> {
+fn detect_bins(
+    bins: Vec<String>,
+    probe: &std::collections::HashSet<String>,
+    path: &std::ffi::OsStr,
+) -> Vec<BinStatusDto> {
     bins.into_iter()
         .map(|bin| {
             let found = keepdeck_env::find_program(&bin, path);
             BinStatusDto {
                 installed: found.is_some(),
-                version: found.as_deref().and_then(|p| probe_version(p, path)),
+                version: found
+                    .as_deref()
+                    .filter(|_| probe.contains(&bin))
+                    .and_then(|p| probe_version(p, path)),
                 // Lossy is fine for display; agent binaries live at UTF-8 paths.
                 path: found.map(|p| p.to_string_lossy().into_owned()),
                 bin,
@@ -121,6 +139,13 @@ fn parse_version(said: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// Every requested bin, version probe allowed — what the plugin host asks
+    /// for a bin an `exec` capability covers.
+    fn probing(bins: Vec<String>, path: &std::ffi::OsStr) -> Vec<BinStatusDto> {
+        let probe = bins.iter().cloned().collect();
+        detect_bins(bins, &probe, path)
+    }
+
     #[test]
     fn detects_requested_bins_on_the_given_path() {
         let dir = tempfile::tempdir().unwrap();
@@ -132,7 +157,7 @@ mod tests {
             std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
 
-        let statuses = detect_bins(
+        let statuses = probing(
             vec!["kd-fake-agent".into(), "kd-absent-agent".into()],
             dir.path().as_os_str(),
         );
@@ -161,7 +186,7 @@ mod tests {
         std::fs::write(&bin, "#!/bin/sh\necho 'codex-cli 0.147.0'\n").unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let statuses = detect_bins(vec!["kd-versioned-agent".into()], dir.path().as_os_str());
+        let statuses = probing(vec!["kd-versioned-agent".into()], dir.path().as_os_str());
         assert_eq!(statuses[0].version.as_deref(), Some("0.147.0"));
     }
 
@@ -174,10 +199,39 @@ mod tests {
         std::fs::write(&bin, "#!/bin/sh\necho 'unknown option' >&2\nexit 1\n").unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let statuses = detect_bins(vec!["kd-grumpy-agent".into()], dir.path().as_os_str());
+        let statuses = probing(vec!["kd-grumpy-agent".into()], dir.path().as_os_str());
         // Still installed — detection must not hinge on the version probe.
         assert!(statuses[0].installed);
         assert_eq!(statuses[0].version, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn never_runs_a_binary_that_was_not_offered_for_probing() {
+        // The security half. A version probe EXECUTES a program named by a
+        // manifest field, at boot, for a plugin the user may have installed
+        // and never enabled — so it is gated by the same `exec` capability
+        // that governs a session spawn. Presence is a PATH lookup and stays
+        // free; being asked about is not consent to be run.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let ran = dir.path().join("it-ran");
+        let bin = dir.path().join("kd-uninvited-agent");
+        std::fs::write(
+            &bin,
+            format!("#!/bin/sh\ntouch '{}'\necho 'tool 9.9.9'\n", ran.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let statuses = detect_bins(
+            vec!["kd-uninvited-agent".into()],
+            &std::collections::HashSet::new(),
+            dir.path().as_os_str(),
+        );
+        assert!(statuses[0].installed, "presence is still answered");
+        assert_eq!(statuses[0].version, None);
+        assert!(!ran.exists(), "an unprobed binary must not be executed");
     }
 
     #[test]

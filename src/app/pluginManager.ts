@@ -10,6 +10,7 @@ import { readText as clipboardReadText, writeText as clipboardWriteText } from "
 import {
   declaredAgentBins,
   mergeSectionValues,
+  probeableAgentBins,
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
@@ -643,15 +644,28 @@ export function createPluginManager(appDownloads: DownloadManager) {
     pluginRegistries,
   );
 
-  /** Every agent bin declared by the currently installed plugins, deduped. */
-  function declaredBinsOfInstalled(): string[] {
-    return [
-      ...new Set(
-        pluginHost
-          .getInstalled()
-          .flatMap((plugin) => declaredAgentBins(plugin.manifest)),
-      ),
+  /** Every agent bin declared by the currently installed plugins, deduped,
+   * beside the subset the detection pass is allowed to RUN.
+   *
+   * Two lists because they answer different questions. Presence gates
+   * activation and is a PATH lookup, so it is asked of everything. A
+   * `--version` spawns the program, at boot, for plugins the user may never
+   * have enabled — so only an `exec` capability buys it. */
+  function binsOfInstalled(): { all: string[]; probeable: string[] } {
+    const installed = pluginHost.getInstalled();
+    const dedupe = (pick: (manifest: PluginManifest) => string[]) => [
+      ...new Set(installed.flatMap((plugin) => pick(plugin.manifest))),
     ];
+    return {
+      all: dedupe(declaredAgentBins),
+      probeable: dedupe(probeableAgentBins),
+    };
+  }
+
+  /** One detection pass over everything installed. */
+  async function detectInstalledBins(): Promise<void> {
+    const { all, probeable } = binsOfInstalled();
+    await agentBins.detect(all, probeable);
   }
 
   /** Built-in plugins' categories, recorded at install — `isEnabled(id)` is a
@@ -751,7 +765,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
       // One detection pass over every declared agent bin BEFORE the
       // activation gate reads it — a plugin whose CLI is missing must land in
       // `unavailable` on boot, not activate into a broken setup.
-      await agentBins.detect(declaredBinsOfInstalled());
+      await detectInstalledBins();
       await pluginHost.activateAll();
       // The one boot line that says the system came up — failures are logged
       // per plugin by the host, so silence here would hide a healthy boot.
@@ -786,7 +800,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
     // Always re-detect and re-activate, even when the folder didn't change —
     // gating this on a folder diff would leave a built-in agent plugin stuck
     // `unavailable` (CLI missing at boot, installed since) with no feedback.
-    await agentBins.detect(declaredBinsOfInstalled());
+    await detectInstalledBins();
     await pluginHost.activateAll();
   }
 

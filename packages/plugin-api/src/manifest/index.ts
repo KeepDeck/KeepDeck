@@ -8,6 +8,7 @@ export {
 export {
   declaredAgentBins,
   execCovers,
+  probeableAgentBins,
   readManifest,
   type AgentContributionSummary,
   type AgentFeatureDeclaration,

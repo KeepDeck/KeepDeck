@@ -100,22 +100,35 @@ export type AgentFeatureParameter =
   | readonly (string | number | boolean | null)[];
 
 /**
- * The binaries a plugin's declared agents need — the host's pre-activation
- * input to one shared detection pass and its activation gate.
+ * Every binary a plugin's declared agents need — the host's availability
+ * gate, which refuses to activate a plugin whose CLI is not installed.
  *
- * Only the ones an `exec` capability covers. Detection RUNS these now (a
- * `--version` probe, so a renderer can speak the hook schema its release
- * accepts), and running a program is precisely what that capability governs.
- * The activation gate applies the same rule to `detect.bin`, but activation
- * happens after detection — so a manifest field alone could name any
- * path-resolvable program and have it executed at boot, for a plugin the
- * user had installed and never enabled.
+ * EVERY one, capability or not. Asking whether a name resolves on the PATH
+ * is not running it, and a plugin that declares an agent without an `exec`
+ * capability is still a plugin whose agent is missing: gating on the
+ * filtered list quietly activated it and let it contribute an agent that
+ * cannot start. What that capability governs is [`probeableAgentBins`].
  */
 export function declaredAgentBins(manifest: PluginManifest): string[] {
   return (manifest.contributes.agents ?? [])
     .map((agent) => agent.bin)
-    .filter((bin): bin is string => typeof bin === "string" && bin !== "")
-    .filter((bin) => execCovers(manifest.capabilities, bin));
+    .filter((bin): bin is string => typeof bin === "string" && bin !== "");
+}
+
+/**
+ * The subset of those binaries the host may RUN, to ask `--version`.
+ *
+ * A version probe is an execution — of a program named by a manifest field,
+ * at boot, before activation, for a plugin the user may have installed and
+ * never enabled. So it is gated by the same `exec` capability that governs
+ * a session spawn, and by the same rule: what is not covered is detected
+ * for presence and left alone. A renderer for such an agent simply gets
+ * `null`, which every consumer already reads as "assume the current schema".
+ */
+export function probeableAgentBins(manifest: PluginManifest): string[] {
+  return declaredAgentBins(manifest).filter((bin) =>
+    execCovers(manifest.capabilities, bin),
+  );
 }
 
 /**
@@ -135,7 +148,7 @@ export function declaredAgentBins(manifest: PluginManifest): string[] {
  * It lives beside the manifest reader because it is a rule ABOUT manifests,
  * and every asker needs the same answer: the spawn gate, the activation
  * gate, the consent UI previewing what a declaration will let through, and
- * `declaredAgentBins` above.
+ * `probeableAgentBins` above.
  */
 export function execCovers(
   capabilities: readonly Capability[],

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { declaredAgentBins, readManifest } from "./manifest.ts";
+import {
+  declaredAgentBins,
+  probeableAgentBins,
+  readManifest,
+} from "./manifest.ts";
 
 /** A fully-populated valid manifest — the golden shape. */
 const GOLDEN = {
@@ -349,12 +353,14 @@ describe("agent contribution bins", () => {
     expect(declaredAgentBins(result.manifest)).toEqual(["claude"]);
   });
 
-  it("keeps an unconsented bin out of the detection pass", () => {
-    // Detection RUNS these — a `--version` probe — and running a program is
-    // what the exec capability governs. The activation gate applies the same
-    // rule to `detect.bin`, but activation happens AFTER detection, so a
-    // manifest field alone could otherwise name any path-resolvable program
-    // and have it executed at boot, for a plugin installed and never enabled.
+  it("keeps an unconsented bin out of the probe, but not out of the gate", () => {
+    // Two questions, two answers. A version probe RUNS the program — at boot,
+    // before activation, for a plugin the user may have installed and never
+    // enabled — so it needs the same `exec` capability a session spawn needs.
+    // Asking whether a NAME resolves on the PATH runs nothing, and the
+    // availability gate must see every declared bin: filtering it there would
+    // quietly activate a plugin whose CLI is absent and let it contribute an
+    // agent that cannot start.
     const result = readManifest({
       ...CLI,
       capabilities: [{ kind: "exec", commands: ["claude"] }],
@@ -367,9 +373,8 @@ describe("agent contribution bins", () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // Both are declared as agents; only the consented one is probed.
-    expect(result.manifest.contributes.agents).toHaveLength(2);
-    expect(declaredAgentBins(result.manifest)).toEqual(["claude"]);
+    expect(declaredAgentBins(result.manifest)).toEqual(["claude", "curl"]);
+    expect(probeableAgentBins(result.manifest)).toEqual(["claude"]);
   });
 
   it("rejects a bin that is not a plain program name", () => {
