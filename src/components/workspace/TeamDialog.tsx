@@ -10,6 +10,7 @@ import { baseName, paneAgentType, paneDisplayTitle } from "../../domain/deck";
 import {
   defaultRoleFor,
   mintRoleAddress,
+  paneIsOnTeam,
   parseRoleAddress,
   planDisband,
   planTeam,
@@ -424,11 +425,15 @@ export function TeamDialog({
                 // nothing because "who left" is asked only of the team being
                 // edited. Shown with where it is and no way to take it: the
                 // agent has not vanished, it is simply spoken for.
+                //
+                // Compared against the team being EDITED, not the name in the
+                // box. Typing into the box renames the team; comparing to it
+                // made every one of this team's own members read as another
+                // team's the moment a rename began, so a member dropped
+                // mid-edit could not be taken back until the dialog closed.
+                const on = editing ?? name;
                 const spokenFor =
-                  pane.team &&
-                  pane.team.name.toLowerCase() !== name.trim().toLowerCase()
-                    ? pane.team.name
-                    : null;
+                  pane.team && !paneIsOnTeam(pane, on) ? pane.team.name : null;
                 return (
                   <li key={pane.id} className="team__row">
                     <AgentGlyph icon={iconOf(pane)} />

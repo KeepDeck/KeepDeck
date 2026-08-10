@@ -465,6 +465,25 @@ describe("TeamDialog", () => {
     expect(roles()).toHaveLength(0);
   });
 
+  it("still offers this team's own member back while its name is being changed", () => {
+    // Renaming the team types into the name box. The pool compared each
+    // pane's team against THAT box, so the first keystroke of a rename made
+    // every one of this team's own members read as another team's: a member
+    // dropped by mistake could not be taken back until the dialog closed and
+    // reopened, and the row said the agent was on the very team being edited.
+    const ws = workspace([
+      pane("pane-1", { name: "web", role: "lead" }),
+      pane("pane-2", { name: "web", role: "impl-1" }),
+    ]);
+    open(ws, "web");
+    act(() => drops()[1].click());
+    expect(adds()).toHaveLength(1);
+
+    type(nameField(), "webapp");
+    expect(document.querySelector(".team__row-note")).toBeNull();
+    expect(adds()).toHaveLength(1);
+  });
+
   it("puts starting an agent ABOVE the pool, since the pool can offer nothing", () => {
     // Every agent here is spoken for by another team, so the pool is a list
     // of rows with no control on them. Below it, the one live way to add a
