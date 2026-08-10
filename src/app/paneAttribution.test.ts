@@ -119,8 +119,17 @@ describe("createPaneAttribution", () => {
     owner.recordBinding("pane-1", undefined);
     owner.recordBinding("pane-1", "9137");
 
-    expect(owner.judge(report({ source: "clear" }))).toEqual({
-      accepted: true,
+    // Asked where the pin actually speaks. A continuation is accepted whatever
+    // the pin says, so it can no longer show this: blind admits every process
+    // on the report lanes, while an adopted 9137 would have locked out the
+    // pane's own agent...
+    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
+    expect(owner.admitsReport("pane-1", "tok", "claude", "9137")).toBe(true);
+    // ...and a fresh session is then refused for the GENERATION, which is the
+    // rule that has something to say, rather than for its process.
+    expect(owner.judge(report({ reporter: "4021" }))).toEqual({
+      accepted: false,
+      refusal: "second-startup",
     });
   });
 

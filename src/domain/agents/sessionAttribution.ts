@@ -153,8 +153,10 @@ export function bindingVerdict(claim: BindingClaim): BindingVerdict {
   // The pane's conversation continuing is the one claim whose process may
   // legitimately differ (see the header): the agent re-hosts the SAME
   // conversation elsewhere, and refusing it strands the pane on a process
-  // that has stopped speaking. The caller re-pins to the new process, so this
-  // exemption lasts exactly one binding.
+  // that has stopped speaking. The caller moves the pin to the process that
+  // sent it, so the exemption spans one binding and the report lanes follow.
+  // Where either side cannot be named the pin never discriminated at all, and
+  // nothing here changes that.
   if (claim.origin === "swap") return { accepted: true };
   // From here it is a fresh session, and both remaining rules are about one:
   // a different process than the one this generation bound is a nested run

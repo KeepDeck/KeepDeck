@@ -134,6 +134,13 @@ export function createPaneAttribution(
         // The same pin the binding uses: a nested run refused an identity is
         // still holding a valid secret, and its statusline would otherwise
         // write this pane's usage and context with another session's numbers.
+        //
+        // And the one place the two lanes are deliberately NOT symmetrical: a
+        // report carries no origin word, so this side cannot make the
+        // continuation exemption the binding rule makes. It follows the pin
+        // instead, which the binding lane moves when the agent re-hosts. Give
+        // this side the exemption too and every report becomes unplaceable;
+        // take it from the binding lane and the pane freezes where it stood.
         sameProcess(bound.get(paneId), reportedReporter)
       );
     },
