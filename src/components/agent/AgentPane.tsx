@@ -7,10 +7,6 @@ import {
   type PaneIdle,
   type PaneProvisioning,
 } from "../../domain/deck";
-// A generic "3m ago" formatter that happens to live beside the usage
-// formatters; the idle card dates itself with the same wording the usage
-// popover uses, rather than growing a second one.
-import { formatAge } from "../../domain/usage";
 import { activityBadge, paneFrame } from "../../domain/status";
 import { useWallClock } from "../../ui/useWallClock";
 import { usePaneActivity } from "../../app/usePaneActivity";
@@ -20,16 +16,12 @@ import { TerminalPane } from "../terminal/TerminalPane";
 import { AgentPaneHeader } from "./AgentPaneHeader";
 import type { GitBadge } from "../../ui/gitBadge";
 import type { AgentGlyphIcon } from "../../ui/AgentGlyph";
-import { LaunchSpinner } from "../../ui/LaunchSpinner";
+import { ProvisioningBody } from "./bodies/ProvisioningBody";
+import { StoppedBody } from "./bodies/StoppedBody";
+import { UnavailableBody } from "./bodies/UnavailableBody";
+import type { UnavailableAgent } from "./unavailableAgent";
 
-/** Why a pane's agent can't run — the card copy and the recovery gesture
- * differ per kind, so they are modeled as a union, not parallel optionals. */
-export type UnavailableAgent =
-  /** No enabled plugin provides this agent (disabled or uninstalled). */
-  | { kind: "no-plugin"; agent: string }
-  /** A plugin provides it and is enabled, but the agent's CLI is not
-   * installed on this machine; `reason` is the gate's sentence. */
-  | { kind: "bin-missing"; agent: string; reason: string };
+export type { UnavailableAgent } from "./unavailableAgent";
 
 export interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
@@ -243,14 +235,6 @@ export function AgentPane({
   // and done; this view only appends the class. The selection-visibility
   // rule (not maximized, not the only pane) predates the ladder and stays.
   const frame = paneFrame(activity, selected && !focused && !solo);
-  // One string for the card that says an agent has no plugin behind it: the
-  // line renders it and its tooltip carries it, so the tail an ellipsis takes
-  // is still reachable.
-  const unavailableAgentSentence = !unavailableAgent
-    ? ""
-    : unavailableAgent.kind === "bin-missing"
-      ? `${unavailableAgent.reason} — install it, then re-enable the plugin in Settings → Plugins`
-      : `No plugin provides “${unavailableAgent.agent}” — enable it in Settings → Plugins`;
   return (
     <section
       data-pane-id={paneId}
@@ -295,142 +279,23 @@ export function AgentPane({
       />
       <div className="pane__body">
         {body === "provisioning" && provisioning ? (
-          // The worktree behind this pane is still being created (or failed):
-          // a status card instead of a terminal — mounting one now would
-          // spawn the agent into somebody else's directory.
-          provisioning.error ? (
-            <div className="pane__card" role="alert">
-              <span className="pane__exit-title">Worktree failed</span>
-              <span
-                className="pane__exit-sub pane__card-path"
-                title={provisioning.error}
-              >
-                {provisioning.error}
-              </span>
-              {onRetryProvision && (
-                <button
-                  type="button"
-                  className="pane__card-action"
-                  onClick={onRetryProvision}
-                >
-                  Retry
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="pane__card" role="status">
-              <LaunchSpinner />
-              <span className="pane__exit-title">
-                {provisioning.phase === "setup"
-                  ? "Running setup…"
-                  : "Creating worktree…"}
-              </span>
-              <ProvisionLocation provisioning={provisioning} />
-            </div>
-          )
+          <ProvisioningBody
+            provisioning={provisioning}
+            {...(onRetryProvision ? { onRetry: onRetryProvision } : {})}
+          />
         ) : body === "agent-unavailable" && unavailableAgent ? (
-          // The pane keeps its identity and session binding; the revive
-          // effect skips it, and fixing the cause brings it back live.
-          <div className="pane__card" role="alert">
-            <span className="pane__exit-title">Agent unavailable</span>
-            {/* The sentence is the tooltip too. It wears `.pane__card-path`, so
-                it ellipsizes inside the tile — and what gets cut is the tail,
-                which is the half that says what to DO about it. Naming the
-                agent there instead left the instruction unrecoverable. */}
-            <span
-              className="pane__exit-sub pane__card-path"
-              title={unavailableAgentSentence}
-            >
-              {unavailableAgentSentence}
-            </span>
-          </div>
+          <UnavailableBody agent={unavailableAgent} />
         ) : body === "stopped" && idle ? (
-          // No PTY behind it ([F7]). A rising pane is normally transient
-          // (the revive sweep wakes active-workspace panes) and persists only
-          // when its directory is gone; the other reasons wait for the user.
-          <div className="pane__card" role="status">
-            {blockedDir ? (
-              <>
-                <span className="pane__exit-title">Folder is gone</span>
-                <span className="pane__exit-sub pane__card-path" title={blockedDir}>
-                  {blockedDir}
-                </span>
-                {/* Two ways out, and the order matters: looking again costs
-                    nothing and keeps the session, while starting fresh throws
-                    the binding away with the folder. */}
-                {onResume && (
-                  <button
-                    type="button"
-                    className="pane__card-action"
-                    onClick={onResume}
-                  >
-                    Look again
-                  </button>
-                )}
-                {onStartFresh && (
-                  <button
-                    type="button"
-                    className="pane__card-action"
-                    onClick={onStartFresh}
-                  >
-                    Start fresh in the workspace folder
-                  </button>
-                )}
-              </>
-            ) : !stopped ? (
-              <span className="pane__exit-title">Waking up…</span>
-            ) : (
-              <>
-                <span className="pane__exit-title">
-                  {/* "Stopped" matches the launch setting that produces this
-                      state; a pane the user suspended says so, and dates it. */}
-                  {idle.reason === "suspended" ? "Suspended" : "Stopped"}
-                </span>
-                {idle.reason === "suspended" && (
-                  <span className="pane__exit-sub">
-                    {formatAge(Date.parse(idle.at), now)}
-                  </span>
-                )}
-                {/* A resume that was asked for and refused: say why here,
-                    where the button that will be pressed again lives. */}
-                {/* No role of its own: the card around it is already a live
-                    region, and a nested one has undefined behaviour. */}
-                {wakeError && (
-                  <span className="pane__exit-sub pane__wake-error">
-                    Couldn't resume — {wakeError}
-                  </span>
-                )}
-                {/* Say what the button does AND which session it does it to:
-                    the pane's own binding, so a stopped agent can be matched
-                    against the agent's session store (or the Sessions
-                    browser) without waking it first. Ellipsized in a narrow
-                    tile; the title carries the full id. */}
-                {resumeSessionId ? (
-                  <span
-                    className="pane__exit-sub pane__card-path pane__idle-session kd-selectable"
-                    title={resumeSessionId}
-                  >
-                    Resume session:{" "}
-                    <span className="pane__idle-session-id">{resumeSessionId}</span>
-                  </span>
-                ) : (
-                  <span className="pane__exit-sub">Starts a fresh session</span>
-                )}
-                {onResume && (
-                  <button
-                    type="button"
-                    className="pane__card-action"
-                    onClick={onResume}
-                  >
-                    {/* One verb for both reasons: the gesture is identical
-                        (hand the pane back to the revive sweep) and, bound or
-                        not, the line above already says what it will do. */}
-                    Resume
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+          <StoppedBody
+            idle={idle}
+            stopped={stopped}
+            blockedDir={blockedDir}
+            wakeError={wakeError}
+            resumeSessionId={resumeSessionId}
+            now={now}
+            {...(onResume ? { onResume } : {})}
+            {...(onStartFresh ? { onStartFresh } : {})}
+          />
         ) : body === "plan-failed" ? (
           // The spawn plan FAILED to build (e.g. a remote spawn.plan threw).
           // The pane would otherwise hang on "Waking up…" forever — surface
@@ -556,21 +421,3 @@ function unreachableBody(body: never): null {
   return null;
 }
 
-/** The creating card's location line: "branch · path" from what the intent
- * knows (the batch flow auto-names its branch on the Rust side, so it may
- * only have the base folder). */
-function ProvisionLocation({
-  provisioning,
-}: {
-  provisioning: PaneProvisioning;
-}) {
-  const location = [provisioning.branch, provisioning.path ?? provisioning.baseDir]
-    .filter(Boolean)
-    .join(" · ");
-  if (!location) return null;
-  return (
-    <span className="pane__exit-sub pane__card-path" title={location}>
-      {location}
-    </span>
-  );
-}
