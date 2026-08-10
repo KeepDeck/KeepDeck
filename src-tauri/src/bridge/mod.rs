@@ -247,7 +247,19 @@ fn consume_file(path: &Path) -> Result<Inbound, Rejected> {
             Rejected::Dropped(format!("{what}: {e}"))
         }
     };
-    let meta = fs::metadata(path).map_err(|e| vanished_or(e, "unstattable envelope"))?;
+    // `symlink_metadata`, not `metadata`: an envelope is a REGULAR FILE that a
+    // reporter renamed into place. A symlink is not one, and following it
+    // would make the inbox read whatever it points at — a fifo that blocks
+    // the watcher thread, a device, or a file somewhere else entirely, with
+    // the size cap measured against the target rather than what landed here.
+    //
+    // Not a privilege boundary — the panes run as the same user and can read
+    // those files directly — but the inbox has one job, and reading anything
+    // other than what a reporter wrote is not it.
+    let meta = fs::symlink_metadata(path).map_err(|e| vanished_or(e, "unstattable envelope"))?;
+    if !meta.is_file() {
+        return Err(Rejected::Dropped("not a regular file".into()));
+    }
     if meta.len() > MAX_ENVELOPE_BYTES {
         return Err(Rejected::Dropped(format!(
             "oversized envelope ({} bytes)",
@@ -300,5 +312,29 @@ mod tests {
             consume_file(&binary),
             Err(Rejected::Dropped(reason)) if reason.contains("unreadable")
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_envelope_that_is_not_a_regular_file_is_dropped_unread() {
+        // An envelope is a file a reporter renamed into place. A symlink is
+        // not one, and following it makes the inbox read whatever it points
+        // at — with the size cap measured against the target rather than
+        // against what landed in the run directory.
+        let root = tempfile::tempdir().unwrap();
+        let elsewhere = root.path().join("elsewhere.txt");
+        fs::write(&elsewhere, envelope(1, "session.bound", "pane-1", "tok", "sid")).unwrap();
+        let link = root.path().join("linked.json");
+        std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+
+        assert!(matches!(
+            consume_file(&link),
+            Err(Rejected::Dropped(reason)) if reason.contains("not a regular file")
+        ));
+        // And a directory named like an envelope is refused the same way,
+        // rather than read as one.
+        let dir = root.path().join("dir.json");
+        fs::create_dir(&dir).unwrap();
+        assert!(matches!(consume_file(&dir), Err(Rejected::Dropped(_))));
     }
 }
