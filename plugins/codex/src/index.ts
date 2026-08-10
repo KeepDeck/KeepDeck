@@ -14,7 +14,11 @@ import { codexHistory } from "./history";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
 import { cliArgs, shellQuote } from "./trust";
-import { normalizeCodexStatus } from "./status";
+import {
+  ASKS_FOR_MAIL,
+  normalizeCodexStatus,
+  renderCodexMail,
+} from "./status";
 import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
 
 /** The `-c` override args arming the reporters — SessionStart identity plus
@@ -44,6 +48,25 @@ import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
  *   {"session_id":…,"transcript_path":…,"cwd":…,
  *    "hook_event_name":"SessionStart","model":…,
  *    "permission_mode":…,"source":"startup"} */
+/** The events whose answer this CLI can act on. Named once, because the
+ * arming loop and the renderer have to agree and a drift between them is
+ * silent: a hook that asks where nothing is rendered waits out its window
+ * every time, and one that renders where nothing asks is never called.
+ *
+ * `SessionStart` is deliberately ABSENT, though codex can inject there and
+ * a starting agent has no other way to be told anything. The identity
+ * reporter already holds that event, and codex's `-c hooks.<Event>=`
+ * REPLACES rather than merges — a second arming would silently drop session
+ * binding. Sharing it needs both commands inside one handler GROUP, which
+ * moves the trust fingerprint to a two-handler shape this port has never
+ * measured; getting that wrong refuses every hook in silence. Worth doing,
+ * not worth guessing.
+ *
+ * The set itself is declared beside the renderer that has to answer these
+ * events ([`ASKS_FOR_MAIL`] in ./status): stated twice, the two drift in
+ * silence — armed-but-unrendered burns a two-second wait per fire, and
+ * rendered-but-unarmed sends that event's mail to the terminal instead. */
+
 async function hookArgs(resources: PluginResources): Promise<string[]> {
   const session = await resources.path("kd-session-hook.sh");
   const status = await resources.path("kd-status-hook.sh");
@@ -60,7 +83,15 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       ? ["UserPromptSubmit", "Stop", "PermissionRequest", "PostToolUse"].map(
           (event) => ({
             event,
-            command: `/bin/sh ${shellQuote(status)} codex`,
+            // `--ask` makes the reporter WAIT for the deck and print its
+            // answer. Only the two turn boundaries can act on one: Stop
+            // blocks and continues, UserPromptSubmit spills extra context
+            // into the turn just opened. PermissionRequest and PostToolUse
+            // read nothing back, and asking there would cost a round trip
+            // per tool call.
+            command: `/bin/sh ${shellQuote(status)} codex${
+              ASKS_FOR_MAIL.has(event) ? " --ask" : ""
+            }`,
           }),
         )
       : []),
@@ -120,7 +151,7 @@ const plugin: KeepDeckPlugin = {
           normalize: normalizeCodexRateLimits,
         },
       },
-      status: { normalize: normalizeCodexStatus },
+      status: { normalize: normalizeCodexStatus, renderMail: renderCodexMail },
       history: codexHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {

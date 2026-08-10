@@ -155,6 +155,10 @@ pub fn run() {
             app_updater::app_update_install,
             app_updater::app_update_discard,
             agents::agents_detect,
+            agents::agents_probe_version,
+            bridge::bridge_nudge,
+            bridge::bridge_pane_dir,
+            bridge::bridge_reply,
             apps::list_applications,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,
@@ -249,8 +253,30 @@ pub fn run() {
             codex_app_server::codex_rate_limits_read,
             kimi_usage::kimi_usages_fetch,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        // The app is going — take the agents with it.
+        //
+        // Nothing ever did this. Dropping the window closes each PTY, which
+        // hangs up the terminal and nothing more: a CLI that owns its own
+        // children lives on, orphaned, holding whatever it held. It is
+        // invisible until the next launch, when codex finds "an active
+        // writer" on the rollout it wants to resume — the writer being the
+        // codex the last run left behind.
+        //
+        // Both events, because either can be the last one this process sees:
+        // `ExitRequested` on the ordinary quit path, `Exit` when the run loop
+        // is torn down under us. `shutdown` empties the registry, so whichever
+        // comes second finds nothing to do.
+        .run(|app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                app.state::<session::SessionRegistry>()
+                    .shutdown(keepdeck_pty::STOP_GRACE);
+            }
+        });
 }
 
 #[cfg(test)]

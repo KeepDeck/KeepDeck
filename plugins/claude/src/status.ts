@@ -1,8 +1,10 @@
 import {
+  frameTeammateMail,
   isJsonRecord,
   statusSourceInstant,
   turnFailedEvent,
   type AgentStatusEvent,
+  type MailReplyRenderer,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
 
@@ -318,6 +320,70 @@ export const normalizeClaudeStatus: StatusNormalizer = (
           return null;
       }
     default:
+      return null;
+  }
+};
+
+/**
+ * Messages waiting for this pane, in the shape claude's hooks accept.
+ *
+ * Two events can carry mail and no others. `Stop` is the one that matters:
+ * blocking it hands the text over AND keeps the agent running, so a
+ * teammate's answer arrives without anyone paying for a fresh wake.
+ * `UserPromptSubmit` appends to the turn the user just opened, which is
+ * where mail that arrived while the pane was idle belongs.
+ *
+ * The framing is the entire point of this channel. `<teammate-message>`
+ * says whose words these are, and the sentence after it says what that
+ * means — another agent's output, to be weighed, not an instruction from
+ * the human. A terminal paste can promise none of that.
+ */
+/**
+ * The events armed to ASK, declared beside the renderer that has to answer
+ * them.
+ *
+ * The two must agree, and nothing else would notice them disagreeing. Armed
+ * but not rendered: the hook waits out its whole window on every fire and
+ * the messages are taken and put back for nothing. Rendered but not armed:
+ * dead code, and that event's mail falls back to a paid terminal nudge.
+ * Both are silent.
+ */
+export const ASKS_FOR_MAIL: ReadonlySet<string> = new Set([
+  "Stop",
+  "UserPromptSubmit",
+  "SessionStart",
+]);
+
+export const renderClaudeMail: MailReplyRenderer = ({ event, messages }) => {
+  const text = frameTeammateMail(messages);
+  switch (event.hook_event_name) {
+    case "Stop":
+      // Blocking is what keeps the turn alive to read this. The reason IS
+      // the delivery — claude puts it in front of the model verbatim.
+      return JSON.stringify({ decision: "block", reason: text });
+    case "UserPromptSubmit":
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext: text,
+        },
+      });
+    case "SessionStart":
+      // The one that spares a starting pane the terminal entirely. A
+      // freshly spawned agent has no turn of its own and reports nothing,
+      // so its briefing used to wait for a nudge typed into a CLI that had
+      // not finished booting — observed twice, the nudge left sitting in
+      // the composer while the pane looked broken. This fires during
+      // startup, before the first turn, and needs no keystroke at all.
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext: text,
+        },
+      });
+    default:
+      // Every other armed event (PostToolUse, Notification, the subagent
+      // brackets) reports a fact and can carry nothing back.
       return null;
   }
 };

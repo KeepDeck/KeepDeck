@@ -23,52 +23,33 @@
  * Envelopes are uniquely named (randomUUID, so parallel events never collide),
  * written as `.tmp` and renamed so the watcher never sees a torn file.
  */
-import { randomUUID } from "node:crypto";
-import { renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
-/**
- * Which process is reporting, on every lane this file publishes.
- *
- * The deck pins a pane's identity to one reporting process and refuses the
- * others — the bridge secret is inherited by the pane's whole process tree,
- * so it cannot tell them apart on its own. This reporter runs INSIDE the
- * agent, so the agent's own pid is that name; a nested opencode gets its own
- * and is refused. The shell reporters answer the same question with the
- * process group of the hook's parent, since a hook is not the agent.
- */
-const REPORTER = String(process.pid);
+import {
+  REPORTER,
+  createSubagentIndex,
+  publish as publishTo,
+  readBridge,
+} from "./keepdeck-bridge.js";
 
 export default async (input = {}) => {
-  let bridge;
-  try {
-    bridge = JSON.parse(process.env.KEEPDECK_BRIDGE ?? "");
-  } catch {
-    return {}; // not spawned by KeepDeck — stay inert
-  }
-  const { dir, pane, token } = bridge ?? {};
-  if (!dir || !pane || !token) return {};
+  const bridge = readBridge();
+  if (!bridge) return {}; // not spawned by KeepDeck — stay inert
+  const { dir, pane, token } = bridge;
 
   const client = input?.client;
 
-  /** Atomically drop one bridge envelope into the inbox. Best-effort. */
-  const publish = (envelope) => {
-    try {
-      const base = join(dir, `${envelope.type}-${randomUUID()}`);
-      writeFileSync(`${base}.tmp`, JSON.stringify(envelope));
-      renameSync(`${base}.tmp`, `${base}.json`);
-    } catch {
-      // best-effort by design
-    }
-  };
+  /** Atomically drop one bridge envelope into this pane's inbox. */
+  const publish = (envelope) => publishTo(dir, envelope);
 
   // Per-message latest snapshot for the ACTIVE ROOT session and all of its
   // descendants, summed into the session cumulative. A new root session owns a
   // new generation: `/new`/fork must never inherit the previous root's spend.
   const messages = new Map();
-  // child session id → root session id. Descendant spend rolls up to the pane's
-  // root, while only root turns define context occupancy and model identity.
-  const childRoots = new Map();
+  // Which sessions here are subagents' and which root their work rolls up to.
+  // Descendant spend rolls up to the pane's root, while only root turns define
+  // context occupancy and model identity. Shared with the mail courier beside
+  // this file: two answers to "is this the pane's conversation" means the deck
+  // watching one session's turns while mail lands in another.
+  const subagents = createSubagentIndex(client);
   let activeRoot;
   // The latest ROOT assistant turn — defines occupancy/identity, not spend.
   let root;
@@ -119,6 +100,22 @@ export default async (input = {}) => {
 
   const responseData = (response) => response?.data ?? response;
 
+  /**
+   * How this client wants a session id: as a PATH parameter.
+   *
+   * Measured on opencode 1.18.15 by loading a probe plugin into a live
+   * server: `session.messages({sessionID})` answers `{error: UnknownError}`
+   * while `session.messages({path:{id}})` answers with the rows. The flat
+   * form is what opencode's OWN code uses — but on its internal SDK wrapper,
+   * not on the generated client a plugin is handed, and the two do not agree.
+   *
+   * The client RESOLVES with `{error}` instead of throwing, so the wrong
+   * shape here cost nothing visible: hydration returned no rows, the catch
+   * below never fired, and the totals quietly became since-start-only on
+   * every resume — with descendant spend missing entirely.
+   */
+  const forSession = (sessionID) => ({ path: { id: sessionID } });
+
   /** Best-effort full-session hydration. It makes resume totals honest and
    * restores descendant spend without reading opencode's private SQLite. */
   const hydrateSession = async (sessionID, rootSessionID, seen) => {
@@ -126,7 +123,7 @@ export default async (input = {}) => {
     seen.add(sessionID);
     if (client?.session?.messages) {
       try {
-        const result = await client.session.messages({ sessionID });
+        const result = await client.session.messages(forSession(sessionID));
         const rows = responseData(result);
         if (Array.isArray(rows)) {
           for (const row of rows) {
@@ -140,12 +137,12 @@ export default async (input = {}) => {
     }
     if (!client?.session?.children) return;
     try {
-      const result = await client.session.children({ sessionID });
+      const result = await client.session.children(forSession(sessionID));
       const children = responseData(result);
       if (!Array.isArray(children)) return;
       for (const child of children) {
         if (!child?.id) continue;
-        childRoots.set(child.id, rootSessionID);
+        subagents.note(child.id, rootSessionID);
         await hydrateSession(child.id, rootSessionID, seen);
       }
     } catch {
@@ -173,13 +170,17 @@ export default async (input = {}) => {
       },
     });
 
-  const activateRoot = async (sessionID, publishBinding) => {
+  /** `keep` is the ancestry the caller has already established for the
+   * session it is binding through — the index is cleared here, and anything
+   * learned on the way in would go with it. */
+  const activateRoot = async (sessionID, publishBinding, keep = []) => {
     // Read before the assignment below: whether this pane already had a root
     // IS the difference between a startup and a `/new`.
     const continuing = activeRoot !== undefined;
     activeRoot = sessionID;
     messages.clear();
-    childRoots.clear();
+    subagents.clear();
+    for (const [child, parent] of keep) subagents.note(child, parent);
     root = undefined;
     sequence = 0;
     if (publishBinding) bind(sessionID, continuing);
@@ -242,7 +243,7 @@ export default async (input = {}) => {
    * is known, because a status edge beating `session.created` should still
    * land rather than strand the pane. */
   const concernsPane = (sessionID) => {
-    if (!sessionID || childRoots.has(sessionID)) return false;
+    if (!sessionID || subagents.rootOf(sessionID) !== sessionID) return false;
     return !activeRoot || sessionID === activeRoot;
   };
 
@@ -301,11 +302,16 @@ export default async (input = {}) => {
       // rolls up to the pane root.
       const created = event.properties?.info;
       if (created?.parentID) {
-        const rootSessionID =
-          childRoots.get(created.parentID) ?? created.parentID;
-        if (!activeRoot) await activateRoot(rootSessionID, true);
+        // The parent may itself be a subagent this process never watched
+        // being created — a pane resumed mid-task sees a grandchild first.
+        // Asked before `rootOf`, or the pane binds to the middle of a chain.
+        if (!activeRoot) await subagents.classify(created.parentID);
+        const rootSessionID = subagents.rootOf(created.parentID);
+        if (!activeRoot) await activateRoot(rootSessionID, true, [
+          ...subagents.chain(created.parentID),
+        ]);
         if (rootSessionID !== activeRoot) return;
-        if (created.id) childRoots.set(created.id, rootSessionID);
+        if (created.id) subagents.note(created.id, rootSessionID);
         return;
       }
       const sessionId = created?.id;
@@ -320,8 +326,26 @@ export default async (input = {}) => {
     // repeatedly as a message streams; the completed frame carries the final
     // counts).
     if (!info) return;
-    const owningRoot = childRoots.get(info.sessionID) ?? info.sessionID;
-    if (!activeRoot) await activateRoot(owningRoot, true);
+    // Binding is how a RESUMED pane is discovered: it fires no root
+    // `session.created`, so its first completed message is the only thing
+    // that names its conversation. Which is exactly when a subagent's message
+    // can be first — a pane resumed mid-task — and this used to bind the pane
+    // to that leaf, reporting a subagent's turns as the pane's until it
+    // ended. The index ASKS the server about a session it never watched being
+    // created, so the pane binds to the parent instead of the child.
+    // Asked for its side effect: the index learns the chain, so `rootOf`
+    // below answers with the pane's conversation rather than a leaf.
+    if (!activeRoot) await subagents.classify(info.sessionID);
+    const owningRoot = subagents.rootOf(info.sessionID);
+    // The WHOLE chain, captured before `activateRoot` clears the index — a
+    // new root is a new generation. Putting back only the leaf's own link
+    // left every intermediate subagent resolving to itself, failing the root
+    // check below, and its spend never reaching the pane's total; hydration
+    // repairs that only when the client answers `session.children`, and that
+    // failure is swallowed.
+    if (!activeRoot) {
+      await activateRoot(owningRoot, true, [...subagents.chain(info.sessionID)]);
+    }
     // Once a root is explicitly active, events for unrelated root sessions
     // in the same OpenCode server are not this pane's conversation.
     if (owningRoot !== activeRoot) return;

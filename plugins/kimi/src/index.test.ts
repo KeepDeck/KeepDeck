@@ -7,6 +7,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin, { setupNotification } from "./index";
+import { renderKimiMail } from "./status";
 
 interface ActivationOptions {
   manifestPath?: string | null;
@@ -218,5 +219,14 @@ describe("Kimi CLI plugin", () => {
         failedOperation: "check",
       }),
     ).toBeNull();
+  });
+
+  it("contributes its mail renderer, which is what puts it on the labelled channel", async () => {
+    // By identity: the deck looks for exactly this field to decide whether a
+    // pane is worth holding mail for, so a plugin that renders mail perfectly
+    // and forgets to contribute it has its messages typed into a terminal
+    // instead — with every renderer test still green.
+    const { agent } = await activate();
+    expect(agent?.status?.renderMail).toBe(renderKimiMail);
   });
 });

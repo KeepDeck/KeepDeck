@@ -1151,6 +1151,10 @@ mod tests {
         assert!(kept.ends_with(b"useful-tail"));
     }
 
+    /// What a subprocess fixture is allowed to take. Not a behaviour under
+    /// test — see the note at its use sites.
+    const STDIO_FIXTURE_TIMEOUT: Duration = Duration::from_secs(15);
+
     #[cfg(unix)]
     #[test]
     fn stdio_transport_round_trips_the_real_jsonl_protocol() {
@@ -1186,8 +1190,15 @@ done
         let manager = CodexAppServerManager::new(WorkerConfig {
             launcher: Arc::new(StdioLauncher { command }),
             idle_timeout: Duration::from_secs(10),
-            startup_timeout: Duration::from_secs(1),
-            request_timeout: Duration::from_secs(1),
+            // Generous on purpose. These three spawn a REAL /bin/sh and are
+            // about the protocol, not about latency — none of them asserts a
+            // timeout. A one-second budget therefore buys nothing and costs
+            // a flake: under the full suite the machine is running hundreds
+            // of tests at once, and forking a shell plus a JSON round trip
+            // can lose that race. The tests that DO assert a timeout use the
+            // fake launcher and keep their short budgets.
+            startup_timeout: STDIO_FIXTURE_TIMEOUT,
+            request_timeout: STDIO_FIXTURE_TIMEOUT,
         });
         let read = manager.read_rate_limits().unwrap();
         let body: Value = serde_json::from_str(&read.body).unwrap();
@@ -1228,8 +1239,15 @@ printf '%s' 'clean' > "$KEEPDECK_GRACEFUL_MARKER"
         let manager = CodexAppServerManager::new(WorkerConfig {
             launcher: Arc::new(StdioLauncher { command }),
             idle_timeout: Duration::from_secs(10),
-            startup_timeout: Duration::from_secs(1),
-            request_timeout: Duration::from_secs(1),
+            // Generous on purpose. These three spawn a REAL /bin/sh and are
+            // about the protocol, not about latency — none of them asserts a
+            // timeout. A one-second budget therefore buys nothing and costs
+            // a flake: under the full suite the machine is running hundreds
+            // of tests at once, and forking a shell plus a JSON round trip
+            // can lose that race. The tests that DO assert a timeout use the
+            // fake launcher and keep their short budgets.
+            startup_timeout: STDIO_FIXTURE_TIMEOUT,
+            request_timeout: STDIO_FIXTURE_TIMEOUT,
         });
         manager.read_rate_limits().unwrap();
         drop(manager);
@@ -1261,8 +1279,15 @@ printf '%s\n' 'not-json'
                 command: codex_command(dir.path().as_os_str()),
             }),
             idle_timeout: Duration::from_secs(10),
-            startup_timeout: Duration::from_secs(1),
-            request_timeout: Duration::from_secs(1),
+            // Generous on purpose. These three spawn a REAL /bin/sh and are
+            // about the protocol, not about latency — none of them asserts a
+            // timeout. A one-second budget therefore buys nothing and costs
+            // a flake: under the full suite the machine is running hundreds
+            // of tests at once, and forking a shell plus a JSON round trip
+            // can lose that race. The tests that DO assert a timeout use the
+            // fake launcher and keep their short budgets.
+            startup_timeout: STDIO_FIXTURE_TIMEOUT,
+            request_timeout: STDIO_FIXTURE_TIMEOUT,
         });
         let error = manager.read_rate_limits().unwrap_err();
         assert!(error.contains("wrote invalid JSON"), "{error}");

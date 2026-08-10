@@ -63,7 +63,13 @@ const plugins = {
 } as unknown as SpawnPluginAccess;
 const runtime = { plugins } as unknown as AppRuntime;
 
-const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
+/** A live bridge: the run root, plus the per-pane inbox the host creates
+ * before each spawn. The pane's OWN directory is what reaches the agent. */
+const ctx = {
+  ...EMPTY_SPAWN_CONTEXT,
+  bridgeDir: "/bridge/run-1",
+  paneBridgeDir: (paneId: string) => Promise.resolve(`/bridge/run-1/${paneId}`),
+};
 const W1: WorkspaceRef = { id: "ws-1", instance: "workspace-instance-1" };
 
 /** A claude-shaped agent: reporter args on spawn, --resume on resume. */
@@ -159,9 +165,11 @@ describe("building one plan through the agent hook", () => {
     // Host-owned arming: the ONE bridge var, token echoed in the plan.
     const env = Object.fromEntries(plan.env);
     const bridge = JSON.parse(env.KEEPDECK_BRIDGE);
+    // The pane's OWN inbox, not the run root: an answer is addressed by pane,
+    // so a correlation aimed at somebody else's pane reaches nobody.
     expect(bridge).toMatchObject({
       v: 1,
-      dir: "/bridge/run-1",
+      dir: "/bridge/run-1/pane-1",
       pane: "pane-1",
     });
     expect(plan.token).toBe(bridge.token);

@@ -7,7 +7,11 @@ import type {
 import plugin from "./index";
 
 /** Activate against a minimal fake ctx; returns the registered agent. An
- * optional `services` stub is threaded through for the fork hook. */
+ * optional `services` stub is threaded through for the fork hook.
+ *
+ * `reporterPath` stands for the resources DIRECTORY: the plugin injects two
+ * files from it now, and a stub answering one path for every name would hide
+ * a mix-up between them. Null means nothing resolves, as on a broken install. */
 function activate(
   reporterPath: string | null,
   services?: unknown,
@@ -15,7 +19,10 @@ function activate(
   let agent: AgentContribution | undefined;
   plugin.activate({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
-    resources: { path: async () => reporterPath },
+    resources: {
+      path: async (name: string) =>
+        reporterPath === null ? null : reporterPath.replace(/[^/]+$/, name),
+    },
     log: { info() {}, warn() {}, error() {} },
     notify: () => {},
     ...(services ? { services } : {}),
@@ -76,7 +83,11 @@ const input = {
 };
 
 describe("opencode plugin hooks", () => {
-  it("injects the reporter via a MERGING per-invocation config", async () => {
+  it("injects BOTH of KeepDeck's plugins via a MERGING per-invocation config", async () => {
+    // Two files, two jobs: the reporter talks about this pane and asks
+    // nothing, the courier carries mail into the session and is the only one
+    // that asks. They ride one additive array — the user's own plugins are
+    // not replaced.
     const agent = activate("/App/resources/session-reporter.js");
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
@@ -84,7 +95,10 @@ describe("opencode plugin hooks", () => {
     expect(out.args).toEqual([]);
     const env = Object.fromEntries(out.env);
     expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toEqual({
-      plugin: ["/App/resources/session-reporter.js"],
+      plugin: [
+        "/App/resources/session-reporter.js",
+        "/App/resources/mail-courier.js",
+      ],
     });
   });
 
@@ -110,7 +124,10 @@ describe("opencode plugin hooks", () => {
     );
     expect(assignments).toHaveLength(1);
     expect(JSON.parse(assignments[0]![1])).toEqual({
-      plugin: ["/App/resources/session-reporter.js"],
+      plugin: [
+        "/App/resources/session-reporter.js",
+        "/App/resources/mail-courier.js",
+      ],
       mcp: {
         keepdeck: {
           type: "local",
@@ -294,12 +311,22 @@ describe("opencode plugin hooks", () => {
     expect(out.args).toEqual(["-s", "ses_x", "--fork"]);
   });
 
-  it("degrades to a bare spawn when the reporter is missing", async () => {
+  it("degrades to a bare spawn when neither of our plugins resolves", async () => {
     const agent = activate(null);
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
     expect(out.env).toEqual([]);
     expect(out.args).toEqual([]);
+  });
+
+  it("takes mail through the courier and is never typed at", () => {
+    // Both halves of the same decision. `renderMail` is what puts this agent
+    // on the labelled channel at all; `wake: "bridge"` is what stops the deck
+    // typing a nudge into the pane when nothing else would start a turn —
+    // the courier is already inside the process and can start one properly.
+    const agent = activate("/App/resources/session-reporter.js");
+    expect(agent.status?.renderMail).toBeDefined();
+    expect(agent.status?.wake).toBe("bridge");
   });
 
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {

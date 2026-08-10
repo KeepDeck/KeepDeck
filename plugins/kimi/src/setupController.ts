@@ -1,5 +1,5 @@
 import type { PluginLogger } from "@keepdeck/plugin-api";
-import { COMPANION_VERSION } from "./companion";
+import { SETUP_VERSION } from "./companion";
 import type {
   KimiCompanionInstallation,
   KimiCompanionManager,
@@ -80,7 +80,7 @@ export function createKimiSetupController(
         // is the honest caption for what is happening.
         publish(next);
         log.info(
-          `Kimi reporter ${next.version ?? "?"} is out of date; refreshing to ${COMPANION_VERSION}`,
+          `Kimi setup is out of date; refreshing every KeepDeck companion`,
         );
         await run("configure");
         // `run` publishes its own outcome — configured, or the error that
@@ -190,7 +190,7 @@ export function stateFromInstallation(
       reason: "invalid",
     };
   }
-  if (installation.version !== COMPANION_VERSION) {
+  if (installation.version !== SETUP_VERSION) {
     return {
       kind: "needs-attention",
       operation: null,
@@ -201,7 +201,7 @@ export function stateFromInstallation(
   return {
     kind: "configured",
     operation: null,
-    version: COMPANION_VERSION,
+    version: SETUP_VERSION,
   };
 }
 

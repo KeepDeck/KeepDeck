@@ -1,17 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMPTY_SPAWN_CONTEXT, type SpawnPlanContext } from "./spawnSpecs";
+import { EMPTY_SPAWN_CONTEXT } from "./spawnSpecs";
 import { createSpawnContextSource } from "./spawnContextSource";
 
-/** A loader whose promise the test settles by hand. */
+/** A loader whose promise the test settles by hand. The loader answers the
+ * DTO half only — the per-pane inbox is a call the source composes in. */
 function deferred() {
-  let resolve!: (ctx: SpawnPlanContext) => void;
+  let resolve!: (ctx: { bridgeDir: string }) => void;
   let reject!: (e: unknown) => void;
-  const promise = new Promise<SpawnPlanContext>((res, rej) => {
+  const promise = new Promise<{ bridgeDir: string }>((res, rej) => {
     resolve = res;
     reject = rej;
   });
   return { promise, resolve, reject };
 }
+
+/** The per-pane inbox port, stubbed. */
+const perPaneDir = (paneId: string) => Promise.resolve(`/bridge/run-1/${paneId}`);
 
 /** Let the source's `.catch().then()` chain run. */
 const settle = () => Promise.resolve().then().then().then();
@@ -19,17 +23,22 @@ const settle = () => Promise.resolve().then().then().then();
 describe("createSpawnContextSource", () => {
   it("reads null until the boot load settles — callers must not spawn blind", async () => {
     const { promise, resolve } = deferred();
-    const source = createSpawnContextSource(() => promise);
+    const source = createSpawnContextSource(() => promise, perPaneDir);
     expect(source.get()).toBeNull();
 
     resolve({ bridgeDir: "/bridge/run-1" });
     await settle();
-    expect(source.get()).toEqual({ bridgeDir: "/bridge/run-1" });
+    expect(source.get()?.bridgeDir).toBe("/bridge/run-1");
+    // The per-pane inbox rides along as a call, so a plan built from this
+    // context can create the directory it is about to hand an agent.
+    await expect(source.get()?.paneBridgeDir("pane-3")).resolves.toBe(
+      "/bridge/run-1/pane-3",
+    );
   });
 
   it("notifies subscribers when the context arrives", async () => {
     const { promise, resolve } = deferred();
-    const source = createSpawnContextSource(() => promise);
+    const source = createSpawnContextSource(() => promise, perPaneDir);
     const listener = vi.fn();
     source.subscribe(listener);
 
@@ -42,7 +51,7 @@ describe("createSpawnContextSource", () => {
     // Staying null would freeze the deck's first paint forever: the gate reads
     // "still loading", and nothing else is coming.
     const { promise, reject } = deferred();
-    const source = createSpawnContextSource(() => promise);
+    const source = createSpawnContextSource(() => promise, perPaneDir);
     const listener = vi.fn();
     source.subscribe(listener);
 
@@ -54,7 +63,7 @@ describe("createSpawnContextSource", () => {
 
   it("stops notifying an unsubscribed listener", async () => {
     const { promise, resolve } = deferred();
-    const source = createSpawnContextSource(() => promise);
+    const source = createSpawnContextSource(() => promise, perPaneDir);
     const listener = vi.fn();
     source.subscribe(listener)();
 

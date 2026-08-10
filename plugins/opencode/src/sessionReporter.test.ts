@@ -136,6 +136,154 @@ describe("opencode session reporter", () => {
     ]);
   });
 
+  it("binds a pane resumed mid-task to its conversation, not to the subagent", async () => {
+    // A resumed pane (`-s <id>`, how every pane comes back after a restart)
+    // fires no root `session.created`, so its first completed message is the
+    // only thing that names its conversation. If that message is a
+    // subagent's — a pane resumed while a task was running — this bound the
+    // pane to a leaf that ends, and reported the subagent's turns as the
+    // pane's until it did. The parent is ASKED for, the same way the mail
+    // courier asks, so the two plugins cannot disagree about which session
+    // is the pane's.
+    const asked: unknown[] = [];
+    const withParents = {
+      ...client,
+      session: {
+        get: async (args: { path: { id: string } }) => {
+          asked.push(args);
+          return args.path.id === "ses_child"
+            ? { data: { id: "ses_child", parentID: "ses_root" } }
+            : { data: { id: args.path.id } };
+        },
+      },
+    };
+    const { event } = await reporter({ client: withParents });
+    await event(assistantMessage({ sessionID: "ses_child" }));
+
+    // Asked in the path shape this client wants, not the flat one — and the
+    // PARENT is resolved too, so a chain arriving unseen cannot leave the
+    // pane rooted at a middle link.
+    expect(asked).toEqual([
+      { path: { id: "ses_child" } },
+      { path: { id: "ses_root" } },
+    ]);
+    expect(
+      envelopes().find((envelope) => envelope.type === "session.bound")?.payload
+        .sessionId,
+    ).toBe("ses_root");
+  });
+
+  it("keeps a subagent's spend after binding through it", async () => {
+    // `activateRoot` clears the index — a new root is a new generation — and
+    // that threw away the parent link the classify had just bought. Every
+    // later message from the same subagent then resolved to itself, failed
+    // the root check, and its spend never reached the pane's total. The fake
+    // client below answers `session.get` and nothing else, which is exactly
+    // the case hydration cannot repair.
+    const withParents = {
+      ...client,
+      session: {
+        get: async (args: { path: { id: string } }) =>
+          args.path.id === "ses_child"
+            ? { data: { id: "ses_child", parentID: "ses_root" } }
+            : { data: { id: args.path.id } },
+      },
+    };
+    const { event } = await reporter({ client: withParents });
+    // The binding turn, then a SECOND subagent turn — the one the cleared
+    // index used to drop — and finally a root turn, since only a root turn
+    // publishes (occupancy and model identity are the root's).
+    await event(assistantMessage({ sessionID: "ses_child" }));
+    await event(assistantMessage({ id: "msg_2", sessionID: "ses_child" }));
+    await event(assistantMessage({ id: "msg_3", sessionID: "ses_root" }));
+
+    const reports = usageReports();
+    // All three turns, at 0.1 each. Two means the middle one was lost.
+    expect(reports[reports.length - 1]?.payload.costUsd).toBeCloseTo(0.3);
+  });
+
+  it("walks a whole chain, and keeps every hop of it after binding", async () => {
+    // A pane resumed mid-task can see a GRANDCHILD first. One hop of
+    // ancestry roots the pane in the middle of the chain — a subagent that
+    // ends — and clearing the index on bind threw away whatever the walk had
+    // learned, so every intermediate session's spend was dropped from then
+    // on.
+    const tree: Record<string, string | undefined> = {
+      ses_c2: "ses_c1",
+      ses_c1: "ses_root",
+    };
+    const deep = {
+      ...client,
+      session: {
+        get: async (args: { path: { id: string } }) => ({
+          data: { id: args.path.id, parentID: tree[args.path.id] },
+        }),
+      },
+    };
+    const { event } = await reporter({ client: deep });
+    await event(assistantMessage({ sessionID: "ses_c2" }));
+    // The middle link's own turn, which only counts if the chain survived.
+    await event(assistantMessage({ id: "msg_2", sessionID: "ses_c1" }));
+    await event(assistantMessage({ id: "msg_3", sessionID: "ses_c2" }));
+    await event(assistantMessage({ id: "msg_4", sessionID: "ses_root" }));
+
+    expect(
+      envelopes().find((envelope) => envelope.type === "session.bound")?.payload
+        .sessionId,
+    ).toBe("ses_root");
+    const reports = usageReports();
+    expect(reports[reports.length - 1]?.payload.costUsd).toBeCloseTo(0.4);
+  });
+
+  it("asks again about a session the client could not answer for", async () => {
+    // "Could not tell" is not an answer and is remembered nowhere, so a
+    // transient failure does not fix the pane's identity for the process's
+    // life. A real answer IS remembered, and is not asked twice.
+    const asked: string[] = [];
+    let failing = true;
+    const flaky = {
+      ...client,
+      session: {
+        get: async (args: { path: { id: string } }) => {
+          asked.push(args.path.id);
+          return failing
+            ? { error: { name: "UnknownError" } }
+            : { data: { id: args.path.id } };
+        },
+      },
+    };
+    const { event } = await reporter({ client: flaky });
+    await event(assistantMessage({ sessionID: "ses_a" }));
+    expect(asked).toEqual(["ses_a"]);
+
+    failing = false;
+    // A second pane-less reporter would be a different instance, so drive the
+    // same one: a fresh root arrives and is asked about on its own terms.
+    await event(created("ses_b"));
+    await event(assistantMessage({ id: "msg_2", sessionID: "ses_b" }));
+    expect(asked).toEqual(["ses_a"]);
+  });
+
+  it("treats a session the client cannot answer about as the pane's own", async () => {
+    // The generated client RESOLVES with `{error}` rather than throwing —
+    // measured on 1.18.15, and documented in this very file. Reading that as
+    // "no parent" would bind the pane to a subagent on the one path this
+    // whole mechanism exists for. Unknown means unknown, and an unknown
+    // session is taken as the pane's own, because a pane bound to nothing is
+    // never reachable again.
+    const refusing = {
+      ...client,
+      session: { get: async () => ({ error: { name: "UnknownError" } }) },
+    };
+    const { event } = await reporter({ client: refusing });
+    await event(assistantMessage({ sessionID: "ses_resumed" }));
+
+    expect(
+      envelopes().find((envelope) => envelope.type === "session.bound")?.payload
+        .sessionId,
+    ).toBe("ses_resumed");
+  });
+
   it("ignores a child that belongs to another active root", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
@@ -268,15 +416,27 @@ describe("opencode session reporter", () => {
       tokens: { input: 50, output: 5, cache: {} },
       cost: 0.5,
     }).event.properties.info;
+    // The SHAPE is the contract, and it is measured, not assumed: on opencode
+    // 1.18.15 the plugin's client takes the session id as a PATH parameter
+    // (`{path:{id}}`) and answers `{error: UnknownError}` to the flat
+    // `{sessionID}` form — which it RESOLVES with rather than throwing. This
+    // stub used to accept the flat form, so hydration read as working while
+    // every real call came back empty. It now refuses what the real client
+    // refuses.
+    const forId = (call: { path?: { id?: string } }) => call.path?.id;
     const hydrated = {
       ...client,
       session: {
-        messages: async ({ sessionID }: { sessionID: string }) => ({
-          data: sessionID === "ses_root" ? [{ info: rootOld }] : [{ info: childOld }],
-        }),
-        children: async ({ sessionID }: { sessionID: string }) => ({
-          data: sessionID === "ses_root" ? [{ id: "ses_child" }] : [],
-        }),
+        messages: async (call: { path?: { id?: string } }) => {
+          const id = forId(call);
+          if (!id) return { error: { name: "UnknownError" } };
+          return { data: id === "ses_root" ? [{ info: rootOld }] : [{ info: childOld }] };
+        },
+        children: async (call: { path?: { id?: string } }) => {
+          const id = forId(call);
+          if (!id) return { error: { name: "UnknownError" } };
+          return { data: id === "ses_root" ? [{ id: "ses_child" }] : [] };
+        },
       },
     };
     const { event } = await reporter({ client: hydrated });

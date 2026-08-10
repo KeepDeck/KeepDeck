@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRestart } from "./useRestart";
 import type { AgentRestartMode } from "../../domain/agents";
 import type { RestartOutcome } from "../../app/agentOrchestrator";
 import {
@@ -7,11 +7,8 @@ import {
   type PaneIdle,
   type PaneProvisioning,
 } from "../../domain/deck";
-// A generic "3m ago" formatter that happens to live beside the usage
-// formatters; the idle card dates itself with the same wording the usage
-// popover uses, rather than growing a second one.
-import { formatAge } from "../../domain/usage";
 import { activityBadge, paneFrame } from "../../domain/status";
+import { useWallClock } from "../../ui/useWallClock";
 import { usePaneActivity } from "../../app/usePaneActivity";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { usePaneSessionState } from "../../app/usePaneSessionState";
@@ -19,16 +16,12 @@ import { TerminalPane } from "../terminal/TerminalPane";
 import { AgentPaneHeader } from "./AgentPaneHeader";
 import type { GitBadge } from "../../ui/gitBadge";
 import type { AgentGlyphIcon } from "../../ui/AgentGlyph";
-import { LaunchSpinner } from "../../ui/LaunchSpinner";
+import { ProvisioningBody } from "./bodies/ProvisioningBody";
+import { StoppedBody } from "./bodies/StoppedBody";
+import { UnavailableBody } from "./bodies/UnavailableBody";
+import type { UnavailableAgent } from "./unavailableAgent";
 
-/** Why a pane's agent can't run — the card copy and the recovery gesture
- * differ per kind, so they are modeled as a union, not parallel optionals. */
-export type UnavailableAgent =
-  /** No enabled plugin provides this agent (disabled or uninstalled). */
-  | { kind: "no-plugin"; agent: string }
-  /** A plugin provides it and is enabled, but the agent's CLI is not
-   * installed on this machine; `reason` is the gate's sentence. */
-  | { kind: "bin-missing"; agent: string; reason: string };
+export type { UnavailableAgent } from "./unavailableAgent";
 
 export interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
@@ -53,6 +46,18 @@ export interface AgentPaneProps {
   /** The pane runs in YOLO mode — a standing warning chip in the header, so
    * the disabled-prompts state stays visible for the pane's whole life. */
   yolo?: boolean;
+  /** The pane's place on a team, when it is on one — a settled fact handed
+   * in, like every other badge here. Teams are formed through the deck's
+   * commands (a lead assigns its members), so this is how the person
+   * watching learns what the agents arranged among themselves. */
+  team?: { name: string; role: string } | null;
+  /** Whether the team badge must name the team too — true where the deck
+   * runs more than one. Settled by the deck, which is the only level that
+   * can see the other teams. */
+  showTeamName?: boolean;
+  /** Open the team this pane is on — the way in to an existing team, since
+   * the bar's button always starts a new one. */
+  onOpenTeam?(name: string): void;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -149,6 +154,9 @@ export function AgentPane({
   cwd,
   gitBadge,
   yolo,
+  team,
+  showTeamName,
+  onOpenTeam,
   visible,
   focused,
   hidden,
@@ -202,68 +210,16 @@ export function AgentPane({
   // back short of closing it.
   const ended =
     session.kind === "exited" || session.kind === "failed" ? session : null;
-  // A successful restart remounts the whole pane via its epoch. Until then,
-  // keep both choices inert; only a rejected plan lets the user try again.
-  const restartInFlight = useRef(false);
-  const [restarting, setRestarting] = useState(false);
-  const [restartFailed, setRestartFailed] = useState(false);
-  const restart = (mode: AgentRestartMode) => {
-    if (!onRestart || restartInFlight.current) return;
-    restartInFlight.current = true;
-    setRestarting(true);
-    setRestartFailed(false);
-
-    const recover = () => {
-      restartInFlight.current = false;
-      setRestarting(false);
-      setRestartFailed(true);
-    };
-    // A restart that STOOD DOWN — the pane was stopped or closed under it —
-    // resolves without a remount, so treating "resolved" as "restarted" left
-    // the card promising a restart that was not coming. Only `restarted`
-    // keeps the spinner, because only it bumps the epoch, and that remount is
-    // what clears it.
-    const settle = (outcome: RestartOutcome) => {
-      if (outcome === "restarted") return;
-      restartInFlight.current = false;
-      setRestarting(false);
-    };
-    try {
-      void Promise.resolve(onRestart(mode)).then(settle, recover);
-    } catch {
-      recover();
-    }
-  };
-  // The suspended card dates itself, so the clock has to move even when
-  // nothing else re-renders this pane: a quiet deck would otherwise read
-  // "now" for as long as it stayed quiet. One minute is the resolution
-  // `formatAge` actually shows.
-  const [now, setNow] = useState(() => Date.now());
-  // Suspended cards and activity tooltips both date themselves; either
-  // presence arms the minute clock.
-  const dated = idle?.reason === "suspended" || activity !== undefined;
-  useEffect(() => {
-    if (!dated) return;
-    // The clock is refreshed on the way IN too: a pane that ran for an hour
-    // between two suspends would otherwise date its card by the hour-old
-    // reading. Below the formatter's own resolution the state is left
-    // untouched, so React bails out — mounting a stopped deck costs no extra
-    // render, which is the only case where this runs with nothing to correct.
-    setNow((prev) => (Date.now() - prev >= 60_000 ? Date.now() : prev));
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
-  }, [dated]);
-  // A pane that stops keeps this component MOUNTED — suspending and resuming
-  // bump no mount epoch, unlike a restart — so its runtime view state would
-  // otherwise outlive the process it describes: an exited pane that is parked
-  // and then resumed would paint "Agent exited", over a live terminal, with a
-  // Restart button that kills the session the user just brought back.
-  useEffect(() => {
-    if (!idle) return;
-    restartInFlight.current = false;
-    setRestarting(false);
-    setRestartFailed(false);
-  }, [idle]);
+  // A successful restart remounts the whole pane via its epoch. Until then
+  // both choices stay inert, and a pane that stops resets the machine —
+  // see [`useRestart`], where those two rules live with their reasoning.
+  const { restarting, restartFailed, restart } = useRestart(onRestart, idle);
+  // The suspended card and the activity tooltip both date themselves, so the
+  // clock has to move even when nothing else re-renders this pane: a quiet
+  // deck would otherwise read "now" for as long as it stayed quiet. Either
+  // presence arms it; nothing dated leaves it still, which matters because a
+  // deck runs one of these per pane.
+  const now = useWallClock(0, idle?.reason === "suspended" || activity !== undefined);
   // The context meter belongs on a LIVE pane only — a frozen, undimmed ctx% on
   // an exited / idle / unavailable / provisioning pane would read as live
   // (its last usage report lingers in the store until the pane leaves the deck).
@@ -279,14 +235,6 @@ export function AgentPane({
   // and done; this view only appends the class. The selection-visibility
   // rule (not maximized, not the only pane) predates the ladder and stays.
   const frame = paneFrame(activity, selected && !focused && !solo);
-  // One string for the card that says an agent has no plugin behind it: the
-  // line renders it and its tooltip carries it, so the tail an ellipsis takes
-  // is still reachable.
-  const unavailableAgentSentence = !unavailableAgent
-    ? ""
-    : unavailableAgent.kind === "bin-missing"
-      ? `${unavailableAgent.reason} — install it, then re-enable the plugin in Settings → Plugins`
-      : `No plugin provides “${unavailableAgent.agent}” — enable it in Settings → Plugins`;
   return (
     <section
       data-pane-id={paneId}
@@ -319,6 +267,9 @@ export function AgentPane({
         ctxPct={ctxPct}
         paneLive={paneLive}
         yolo={yolo}
+        team={team}
+        showTeamName={showTeamName}
+        onOpenTeam={onOpenTeam}
         gitBadge={gitBadge}
         onSelect={onSelect}
         onRename={onRename}
@@ -328,142 +279,23 @@ export function AgentPane({
       />
       <div className="pane__body">
         {body === "provisioning" && provisioning ? (
-          // The worktree behind this pane is still being created (or failed):
-          // a status card instead of a terminal — mounting one now would
-          // spawn the agent into somebody else's directory.
-          provisioning.error ? (
-            <div className="pane__card" role="alert">
-              <span className="pane__exit-title">Worktree failed</span>
-              <span
-                className="pane__exit-sub pane__card-path"
-                title={provisioning.error}
-              >
-                {provisioning.error}
-              </span>
-              {onRetryProvision && (
-                <button
-                  type="button"
-                  className="pane__card-action"
-                  onClick={onRetryProvision}
-                >
-                  Retry
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="pane__card" role="status">
-              <LaunchSpinner />
-              <span className="pane__exit-title">
-                {provisioning.phase === "setup"
-                  ? "Running setup…"
-                  : "Creating worktree…"}
-              </span>
-              <ProvisionLocation provisioning={provisioning} />
-            </div>
-          )
+          <ProvisioningBody
+            provisioning={provisioning}
+            {...(onRetryProvision ? { onRetry: onRetryProvision } : {})}
+          />
         ) : body === "agent-unavailable" && unavailableAgent ? (
-          // The pane keeps its identity and session binding; the revive
-          // effect skips it, and fixing the cause brings it back live.
-          <div className="pane__card" role="alert">
-            <span className="pane__exit-title">Agent unavailable</span>
-            {/* The sentence is the tooltip too. It wears `.pane__card-path`, so
-                it ellipsizes inside the tile — and what gets cut is the tail,
-                which is the half that says what to DO about it. Naming the
-                agent there instead left the instruction unrecoverable. */}
-            <span
-              className="pane__exit-sub pane__card-path"
-              title={unavailableAgentSentence}
-            >
-              {unavailableAgentSentence}
-            </span>
-          </div>
+          <UnavailableBody agent={unavailableAgent} />
         ) : body === "stopped" && idle ? (
-          // No PTY behind it ([F7]). A rising pane is normally transient
-          // (the revive sweep wakes active-workspace panes) and persists only
-          // when its directory is gone; the other reasons wait for the user.
-          <div className="pane__card" role="status">
-            {blockedDir ? (
-              <>
-                <span className="pane__exit-title">Folder is gone</span>
-                <span className="pane__exit-sub pane__card-path" title={blockedDir}>
-                  {blockedDir}
-                </span>
-                {/* Two ways out, and the order matters: looking again costs
-                    nothing and keeps the session, while starting fresh throws
-                    the binding away with the folder. */}
-                {onResume && (
-                  <button
-                    type="button"
-                    className="pane__card-action"
-                    onClick={onResume}
-                  >
-                    Look again
-                  </button>
-                )}
-                {onStartFresh && (
-                  <button
-                    type="button"
-                    className="pane__card-action"
-                    onClick={onStartFresh}
-                  >
-                    Start fresh in the workspace folder
-                  </button>
-                )}
-              </>
-            ) : !stopped ? (
-              <span className="pane__exit-title">Waking up…</span>
-            ) : (
-              <>
-                <span className="pane__exit-title">
-                  {/* "Stopped" matches the launch setting that produces this
-                      state; a pane the user suspended says so, and dates it. */}
-                  {idle.reason === "suspended" ? "Suspended" : "Stopped"}
-                </span>
-                {idle.reason === "suspended" && (
-                  <span className="pane__exit-sub">
-                    {formatAge(Date.parse(idle.at), now)}
-                  </span>
-                )}
-                {/* A resume that was asked for and refused: say why here,
-                    where the button that will be pressed again lives. */}
-                {/* No role of its own: the card around it is already a live
-                    region, and a nested one has undefined behaviour. */}
-                {wakeError && (
-                  <span className="pane__exit-sub pane__wake-error">
-                    Couldn't resume — {wakeError}
-                  </span>
-                )}
-                {/* Say what the button does AND which session it does it to:
-                    the pane's own binding, so a stopped agent can be matched
-                    against the agent's session store (or the Sessions
-                    browser) without waking it first. Ellipsized in a narrow
-                    tile; the title carries the full id. */}
-                {resumeSessionId ? (
-                  <span
-                    className="pane__exit-sub pane__card-path pane__idle-session kd-selectable"
-                    title={resumeSessionId}
-                  >
-                    Resume session:{" "}
-                    <span className="pane__idle-session-id">{resumeSessionId}</span>
-                  </span>
-                ) : (
-                  <span className="pane__exit-sub">Starts a fresh session</span>
-                )}
-                {onResume && (
-                  <button
-                    type="button"
-                    className="pane__card-action"
-                    onClick={onResume}
-                  >
-                    {/* One verb for both reasons: the gesture is identical
-                        (hand the pane back to the revive sweep) and, bound or
-                        not, the line above already says what it will do. */}
-                    Resume
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+          <StoppedBody
+            idle={idle}
+            stopped={stopped}
+            blockedDir={blockedDir}
+            wakeError={wakeError}
+            resumeSessionId={resumeSessionId}
+            now={now}
+            {...(onResume ? { onResume } : {})}
+            {...(onStartFresh ? { onStartFresh } : {})}
+          />
         ) : body === "plan-failed" ? (
           // The spawn plan FAILED to build (e.g. a remote spawn.plan threw).
           // The pane would otherwise hang on "Waking up…" forever — surface
@@ -589,21 +421,3 @@ function unreachableBody(body: never): null {
   return null;
 }
 
-/** The creating card's location line: "branch · path" from what the intent
- * knows (the batch flow auto-names its branch on the Rust side, so it may
- * only have the base folder). */
-function ProvisionLocation({
-  provisioning,
-}: {
-  provisioning: PaneProvisioning;
-}) {
-  const location = [provisioning.branch, provisioning.path ?? provisioning.baseDir]
-    .filter(Boolean)
-    .join(" · ");
-  if (!location) return null;
-  return (
-    <span className="pane__exit-sub pane__card-path" title={location}>
-      {location}
-    </span>
-  );
-}

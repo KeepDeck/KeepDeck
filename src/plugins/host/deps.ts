@@ -110,6 +110,9 @@ export interface PluginHostDeps {
    * Refresh the cache behind `isAgentBinInstalled` for the given bins. The
    * host calls this before the enable gesture's activation, so "installed the
    * CLI, then flipped the toggle" works without an app restart.
+   *
+   * Presence only — a PATH lookup, and nothing is executed. What a binary
+   * ANSWERS is asked elsewhere, lazily, by whoever needs it.
    */
   refreshAgentBins?(bins: string[]): Promise<void>;
 }

@@ -26,10 +26,17 @@ export { mapMcpServers } from "./agents.ts";
 export type {
   AgentStatus,
   AgentStatusEvent,
+  DeliverableMail,
+  MailReplyInput,
+  MailReplyRenderer,
   StatusNormalizer,
   StatusWaitReason,
 } from "./status.ts";
-export { statusSourceInstant, turnFailedEvent } from "./status.ts";
+export {
+  frameTeammateMail,
+  statusSourceInstant,
+  turnFailedEvent,
+} from "./status.ts";
 export type {
   AccountUsage,
   AgentUsage,

@@ -10,26 +10,28 @@ import {
   firstFreeWorktree,
   moveWorkspace,
   parentDir,
-  renamePane,
   renameWorkspace,
   resolveActiveId,
-  resolvePaneProvisioning,
-  setPaneAutoTitle,
   paneOccupyingPath,
   pathOccupancy,
-  clearPaneIdle,
-  failPaneWake,
-  parkPane,
-  setPaneProvisioningError,
-  setPaneProvisioningPhase,
   setWorkspacePluginSlot,
-  suspendPane,
-  requestPaneWake,
   worktreeTargets,
   type Workspace,
 } from "./workspaces";
 import { gitWatchPaths, paneExecutionCwd } from "./roots";
-import { type Pane } from "./panes";
+import {
+  clearPaneIdle,
+  failPaneWake,
+  parkPane,
+  renamePane,
+  requestPaneWake,
+  resolvePaneProvisioning,
+  setPaneAutoTitle,
+  setPaneProvisioningError,
+  setPaneProvisioningPhase,
+  suspendPane,
+  type Pane,
+} from "./panes";
 import { createWorkspaceInstance } from "../workspaceInstance";
 
 const ws = (id: string, paneNums: number[]): Workspace => ({

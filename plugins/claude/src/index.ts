@@ -22,13 +22,33 @@ import type {
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { mcpArgs } from "./mcp";
-import { normalizeClaudeStatus } from "./status";
+import {
+  ASKS_FOR_MAIL,
+  normalizeClaudeStatus,
+  renderClaudeMail,
+} from "./status";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
 
 /** Quote a path for a shell command line (single quotes, `'\''` escaping) —
  * KeepDeck.app can live under a path with spaces. */
 const shellQuote = (path: string) => `'${path.split("'").join(`'\\''`)}'`;
+
+/**
+ * How long claude may let one of our hooks run, in seconds.
+ *
+ * Stated rather than left to claude's default, which is not something this
+ * deck gets to know: the reporter's own wait for the deck's answer is ~2s,
+ * and a limit under that would kill it mid-wait. What is lost then is not a
+ * status edge — it is MAIL, because the deck hands messages over before the
+ * answer is written, so they land in the pane's inbox and never in its
+ * context. That failure is silent on both sides, which is exactly why the
+ * number is ours and not theirs.
+ *
+ * Five times the wait: enough that a slow round trip still lands, short
+ * enough that a genuinely stuck hook does not hold a turn open.
+ */
+const HOOK_TIMEOUT_SECONDS = 10;
 
 /** The `--settings` args arming both reporters — the SessionStart identity
  * hook and the statusLine usage reporter; each degrades independently when
@@ -53,11 +73,35 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
    * same event for different facts — and an assignment would silently drop
    * whichever ran second, taking session binding or the status lane with
    * it. claude runs every entry an event has. */
-  const arm = (event: string, script: string) => {
+  const arm = (event: string, script: string, ask = false) => {
     (hooks[event] ??= []).push({
-      hooks: [{ type: "command", command: `/bin/sh ${shellQuote(script)} claude` }],
+      hooks: [
+        {
+          type: "command",
+          command: `/bin/sh ${shellQuote(script)} claude${ask ? " --ask" : ""}`,
+          timeout: HOOK_TIMEOUT_SECONDS,
+        },
+      ],
     });
   };
+  /** The three events that can carry mail BACK, and the only ones armed to
+   * ask. `Stop` matters most: blocking it hands a teammate's words over and
+   * keeps the turn alive to read them, so nothing pays for a fresh wake.
+   * `UserPromptSubmit` appends to a turn the user just opened, which is
+   * where mail that arrived while the pane sat idle belongs. `SessionStart`
+   * is what spares a STARTING pane the terminal: a freshly spawned agent
+   * has no turn and reports nothing, so its briefing otherwise waits for a
+   * nudge typed into a CLI that has not finished booting. Asking on the
+   * rest would be a round trip per tool call for an answer none of them can
+   * act on.
+   *
+   * Only the STATUS reporter asks. SessionStart carries the identity
+   * reporter too, and that one answers a different question and takes no
+   * reply — arming it to ask would make it wait for a file nobody writes.
+   *
+   * The set itself is declared beside the renderer ([`ASKS_FOR_MAIL`]), which
+   * is the code that has to answer these events: stated twice, the two drift
+   * in silence. */
   if (session) {
     // The agent id is the argument, same as the status reporter's: the
     // payload does not name its CLI, and the deck refuses a binding whose
@@ -96,7 +140,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       "SubagentStop",
       "SessionStart",
     ]) {
-      arm(event, status);
+      arm(event, status, ASKS_FOR_MAIL.has(event));
     }
   }
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
@@ -160,7 +204,7 @@ const plugin: KeepDeckPlugin = {
         normalize: normalizeClaudeStatusline,
         tail: "claude",
       },
-      status: { normalize: normalizeClaudeStatus },
+      status: { normalize: normalizeClaudeStatus, renderMail: renderClaudeMail },
       history: claudeHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {

@@ -10,6 +10,8 @@ import { useAgentRunView } from "./useAgentRunView";
 import { useAgents } from "./useAgents";
 import { useAppRuntime } from "./runtimeContext";
 import { useCloseFlow } from "./useCloseFlow";
+import { commands } from "./commandRegistry";
+import { createTeamFlow } from "./mail";
 import { useContributions, useInstalledPlugins, unavailableAgentReasons } from "../plugins";
 import { useDeck } from "./useDeck";
 import { useDragDrop } from "./useDragDrop";
@@ -84,6 +86,12 @@ export function useAppController() {
     wsId: string;
     record: SessionHandle;
   } | null>(null);
+  /** The team surface: `editing` names the team being changed, or is null
+   * for a new one. A transaction like every other dialog, so the same gate
+   * keeps a second one from stacking over it. */
+  const [teamDialog, setTeamDialog] = useState<{ editing: string | null } | null>(
+    null,
+  );
   const specByPane = runView.specs;
   const failedPanes = runView.planFailed;
   const usageLiveAgents = useMemo(() => {
@@ -114,6 +122,41 @@ export function useAppController() {
     onForkFailed: (message) => pushAlert("Could not fork the session", message),
     onCreateFailed: (message) => pushAlert("Could not add the agent", message),
   }, runView.blocked);
+  /**
+   * Applying a team, with the four ports that takes.
+   *
+   * Beside `agentFlow` and `closeFlow` because it is the same kind of thing:
+   * an operation the app owns, handed the one surface only this level has
+   * (the alert queue). It was assembled inside the dialog's `onConfirm`,
+   * which made the React tree the only place that knew a recruit is started
+   * through `agent.spawn` and that ending a member leaves its worktree alone.
+   */
+  const teamFlow = createTeamFlow({
+    setPaneTeam: deck.setPaneTeam,
+    spawn: async (workspaceId, agentType, yolo) => {
+      const result = await commands.execute(
+        "agent.spawn",
+        { workspace: workspaceId, agentType, yolo },
+        { kind: "host" },
+      );
+      if (!result.ok) throw new Error(result.error.message);
+      return (result.value as { paneId?: string }).paneId ?? null;
+    },
+    close: async (workspaceId, paneId) => {
+      await orchestrator.close({
+        kind: "agent",
+        wsId: workspaceId,
+        paneId,
+        deleteWorktrees: false,
+        worktrees: [],
+      });
+    },
+    report: pushAlert,
+    // Looked up per call: mail is an Experimental toggle, and with it off the
+    // roles are still recorded — there is simply nothing running to be told.
+    announce: (paneId, kind, body) =>
+      runtime.mail.current()?.announce(paneId, kind, body),
+  });
   const closeFlow = useCloseFlow(deck, {
     onError: (message) => pushAlert("Worktree error", message),
     onSuspendRefused: (message) =>
@@ -127,6 +170,7 @@ export function useAppController() {
     agentFlow.dialog,
     closeFlow.closing,
     forkDialog,
+    teamDialog,
     error,
     frozen && !frozenAck ? frozen : null,
   ];
@@ -364,6 +408,11 @@ export function useAppController() {
     error,
     failedPanes,
     forkDialog,
+    teamDialog,
+    setTeamDialog,
+    /** Applying a settled team — the four ports that takes are assembled
+     * here, so the dialog hands over an intent and nothing else. */
+    teamFlow,
     frozen,
     frozenAck,
     gitHeads,

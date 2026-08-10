@@ -3,8 +3,10 @@
 export {
   BranchBadge,
   StoppedMarker,
+  TeamBadge,
   YoloBadge,
   type BranchBadgeProps,
   type StoppedMarkerProps,
+  type TeamBadgeProps,
   type YoloBadgeProps,
 } from "@keepdeck/ui-kit/badges";

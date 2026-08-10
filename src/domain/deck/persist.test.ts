@@ -301,6 +301,54 @@ describe("pane YOLO mode across a restart", () => {
   });
 });
 
+describe("team membership across a restart", () => {
+  const teamState: DeckState = {
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "a",
+        cwd: "/r",
+        worktreeBaseDir: null,
+        panes: [
+          { id: "pane-1", agentType: "claude", team: { name: "api", role: "lead" } },
+          { id: "pane-2", agentType: "claude" },
+        ],
+      },
+    ],
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  };
+
+  it("brings the team back, because nobody dismissed it", () => {
+    // A deck that returned with everyone anonymous would have silently
+    // disbanded a team the user never disbanded — and taken the roles
+    // teammates address each other by with it.
+    const [member, outsider] = okDeck(serializeDeck(teamState)).state.workspaces[0]
+      .panes;
+    expect(member.team).toEqual({ name: "api", role: "lead" });
+    expect(outsider.team).toBeUndefined();
+  });
+
+  it("writes nothing for a pane on no team", () => {
+    expect(serializeDeck(teamState).match(/"team"/g)).toHaveLength(1);
+  });
+
+  it("reads a half-written entry as no membership at all", () => {
+    // A role with no team cannot be addressed, and a team with no role
+    // gives its holder no name — either way the pane is better off plainly
+    // outside than present-but-unreachable.
+    for (const broken of ['{"name":"api"}', '{"role":"lead"}', '{"name":"","role":"x"}']) {
+      const json = serializeDeck(teamState).replace(
+        '{"name":"api","role":"lead"}',
+        broken,
+      );
+      expect(okDeck(json).state.workspaces[0].panes[0].team).toBeUndefined();
+    }
+  });
+});
+
 describe("pane remote endpoint across a restart", () => {
   const remoteState: DeckState = {
     workspaces: [

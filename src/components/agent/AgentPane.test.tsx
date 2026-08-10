@@ -162,6 +162,28 @@ describe("AgentPane — header badges", () => {
     expect(ctx!.className).toContain("usage-level--warn");
   });
 
+  it("names which teammate this pane is, and shows nothing when it is none", () => {
+    // Indicator only — membership is settled in the team dialog, where the
+    // whole roster is visible. A header can say WHICH teammate this is; it
+    // cannot answer "are these roles unique", which is the question that
+    // decides whether a team works.
+    act(() => root.render(createElement(PaneUnderTest, baseProps)));
+    expect(document.querySelector(".pane__team")).toBeNull();
+
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, {
+          ...baseProps,
+          team: { name: "api", role: "impl-1" },
+        }),
+      ),
+    );
+    const badge = document.querySelector<HTMLElement>(".pane__team");
+    expect(badge!.textContent).toBe("impl-1");
+    // The team name is the tooltip's job — the role is the address.
+    expect(badge!.title).toContain("api");
+  });
+
   it("shows no context meter when the pane reports no usage", () => {
     act(() => root.render(createElement(PaneUnderTest,baseProps)));
     expect(document.querySelector(".pane__ctx")).toBeNull();

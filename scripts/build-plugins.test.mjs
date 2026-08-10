@@ -211,6 +211,47 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     expect(
       readFileSync(join(kimiCompanion, "kd-session-hook.sh"), "utf8"),
     ).toContain('"type":"session.bound"');
+
+    // The SECOND companion, whose payload is a skill file rather than a
+    // script. A copy that shipped the manifest without the skill it names
+    // installs cleanly and injects nothing, which is the failure this
+    // catches: Kimi only warns about it in its own log.
+    const kimiTeams = join(
+      distRoot,
+      "plugins",
+      "keepdeck.kimi",
+      "resources",
+      "keepdeck-teams",
+    );
+    expect(
+      JSON.parse(readFileSync(join(kimiTeams, "kimi.plugin.json"), "utf8")).sessionStart,
+    ).toEqual({ skill: "keepdeck-team" });
+    expect(
+      readFileSync(join(kimiTeams, "skills", "keepdeck-team", "SKILL.md"), "utf8"),
+    ).toContain("mail.inbox");
+
+    // opencode's two plugins are loaded by absolute path and import a
+    // sibling between them. Shipping either one without that sibling gives
+    // an agent that loads and then throws on import — so the whole trio has
+    // to arrive, and the import has to still resolve where they land.
+    const opencodeResources = join(
+      distRoot,
+      "plugins",
+      "keepdeck.opencode",
+      "resources",
+    );
+    for (const file of [
+      "keepdeck-bridge.js",
+      "mail-courier.js",
+      "session-reporter.js",
+    ]) {
+      expect(existsSync(join(opencodeResources, file))).toBe(true);
+    }
+    for (const file of ["mail-courier.js", "session-reporter.js"]) {
+      expect(readFileSync(join(opencodeResources, file), "utf8")).toContain(
+        'from "./keepdeck-bridge.js"',
+      );
+    }
   });
 
   it("is a no-op that still writes an empty index.json when plugins/ has none", () => {

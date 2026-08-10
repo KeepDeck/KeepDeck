@@ -35,34 +35,49 @@ function tomlInlineTable(entries: [string, string][]): string {
  * LANG, USER, SHELL, TMPDIR, TERM, PWD, LOGNAME), so anything the server
  * needs has to be in the table.
  */
+/**
+ * The names codex will accept — its own rule, and it applies to the KEY of a
+ * `-c mcp_servers.<name>` override.
+ *
+ * A quoted key is valid TOML and means the unquoted name, so rendering it
+ * that way looked like the careful choice. codex does not read it that way:
+ * it takes the segment LITERALLY, quotes included, and refuses it —
+ * `Invalid MCP server name '"keepdeck"': must match pattern
+ * ^[a-zA-Z0-9_-]+$`, observed on a live pane, with the whole MCP startup
+ * failing after it. So the name goes in bare.
+ *
+ * A name that does not match cannot be injected at all — there is no
+ * encoding codex accepts for one — so its server is skipped rather than
+ * mangled into a different name than the deck believes it published.
+ */
+const CODEX_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
+
 export const mcpArgs = (mcp: SpawnMcpInput | undefined): string[] =>
   mcp
     ? mapMcpServers(mcp.servers, {
-        stdio: (server) => [
-          "-c",
-          // The NAME is a TOML key, not just a value: bare, a dot in it would
-          // address a nested table (`mcp_servers.a.b`) instead of naming one
-          // server, and would then collide with a sibling inline table. The
-          // host constrains names today, but this renderer must not depend on
-          // a rule enforced three layers away.
-          `mcp_servers.${tomlString(server.name)}=` +
-            tomlInlineTable([
-              ["command", tomlString(server.command)],
-              ["args", `[${server.args.map(tomlString).join(",")}]`],
-              ...(server.env
-                ? ([
-                    [
-                      "env",
-                      tomlInlineTable(
-                        Object.entries(server.env).map(([key, value]) => [
-                          tomlString(key),
-                          tomlString(value),
-                        ]),
-                      ),
-                    ],
-                  ] as [string, string][])
-                : []),
-            ]),
-        ],
+        stdio: (server) =>
+          CODEX_SERVER_NAME.test(server.name)
+            ? [
+                "-c",
+                `mcp_servers.${server.name}=` +
+                  tomlInlineTable([
+                    ["command", tomlString(server.command)],
+                    ["args", `[${server.args.map(tomlString).join(",")}]`],
+                    ...(server.env
+                      ? ([
+                          [
+                            "env",
+                            tomlInlineTable(
+                              Object.entries(server.env).map(([key, value]) => [
+                                tomlString(key),
+                                tomlString(value),
+                              ]),
+                            ),
+                          ],
+                        ] as [string, string][])
+                      : []),
+                  ]),
+              ]
+            : [],
       }).flat()
     : [];

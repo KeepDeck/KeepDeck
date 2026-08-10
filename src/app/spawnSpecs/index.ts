@@ -40,7 +40,7 @@ export {
   hasPaneSpawnSpec,
   isPaneSpawnSpecPending,
   markPaneResumeOrigin,
-  paneIdByMcpToken,
+  paneIdBySpawnSecret,
   peekPanePlanError,
   peekPaneSpawnSpec,
   subscribeSpawnSpecs,

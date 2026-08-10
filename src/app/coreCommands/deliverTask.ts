@@ -1,4 +1,4 @@
-import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
+import { SETTLE_MS, paneInputReady, submitToPane } from "../paneInput";
 
 /**
  * Delivering a spawn's initial task into its pane.
@@ -9,13 +9,16 @@ import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
  * in one sentence.
  */
 
-/** How long task delivery waits for the pane's PTY writer to appear (a
- * worktree create + CLI start can take a while), then for the CLI to start
- * accepting input. Readiness = "the input writer exists" is an MVP heuristic
- * — replaced by a real CLI-ready signal when one exists. */
+/** How long task delivery waits for the pane's PTY writer to APPEAR — a
+ * worktree create plus a CLI start can take a while. Readiness = "the input
+ * writer exists" is an MVP heuristic, replaced by a real CLI-ready signal
+ * when one exists.
+ *
+ * How long to wait after that is not decided here: `SETTLE_MS` is the one
+ * answer to "the writer exists, but is the CLI READING yet", and this module
+ * had its own copy of the same 1500ms with a comment pointing at it. */
 const TASK_POLL_MS = 200;
 const TASK_POLL_TRIES = 300;
-const TASK_SETTLE_MS = 1500;
 
 /** Deliver a spawn's initial task into the pane once its session is live.
  * Fire-and-forget from the spawn handler: the spawn's outcome is the pane,
@@ -30,17 +33,10 @@ export async function deliverTask(
     await wait(TASK_POLL_MS);
   }
   if (!paneInputReady(paneIdToWrite)) return false;
-  await wait(TASK_SETTLE_MS);
-  // Deliver the task via the PASTE channel (bracketed framing) — the
-  // established auto-submit path. The raw TYPE channel (pane.write
-  // mode:"type") inserts printables + LF inline for editable input; it needs
-  // LF normalisation, which deliverTask has no reason to take on here.
-  if (!pasteToPane(paneIdToWrite, text)) return false;
-  // Send the submit Enter as a RAW keystroke AFTER the paste. xterm wraps the
-  // WHOLE argument of term.paste in the bracketed-paste markers, so a "\r"
-  // concatenated onto the pasted text would arrive as pasted content, not as
-  // Enter — the task would sit unsent. A raw CR outside the paste is a real
-  // keystroke that submits regardless of the TUI's paste mode.
-  writeRawToPane(paneIdToWrite, "\r");
-  return true;
+  await wait(SETTLE_MS);
+  // The PASTE channel with a submit after it — one gesture, owned by
+  // `paneInput`. The raw TYPE channel (pane.write mode:"type") inserts
+  // printables + LF inline for editable input; it needs LF normalisation,
+  // which deliverTask has no reason to take on here.
+  return submitToPane(paneIdToWrite, text);
 }

@@ -20,24 +20,28 @@ import {
   findWorkspace,
   closeWorkspace,
   moveWorkspace,
-  renamePane,
   renameWorkspace,
-  resetPaneLocation,
   resolveActiveId,
-  resolvePaneProvisioning,
+  setWorkspacePluginSlot,
+  workspaceIdsAreUnique,
+  type Workspace,
+} from "./workspaces";
+// The pane transforms — one workspace list in, the next one out.
+import {
   clearPaneIdle,
   failPaneWake,
   parkPane,
+  renamePane,
+  requestPaneWake,
+  resetPaneLocation,
+  resolvePaneProvisioning,
   setPaneAutoTitle,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setPaneSession,
-  setWorkspacePluginSlot,
+  setPaneTeam,
   suspendPane,
-  requestPaneWake,
-  workspaceIdsAreUnique,
-  type Workspace,
-} from "./workspaces";
+} from "./panes";
 import { paneExecutionCwd } from "./roots";
 import type { DeckAction } from "./reducerActions";
 import {
@@ -392,6 +396,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return withWorkspaces(
         state,
         setPaneAutoTitle(state.workspaces, action.wsId, action.paneId, action.title),
+      );
+    case "setPaneTeam":
+      // Same no-op contract. Whether the role was free is decided before the
+      // dispatch — this rung only applies the answer.
+      return withWorkspaces(
+        state,
+        setPaneTeam(state.workspaces, action.wsId, action.paneId, action.team),
       );
     case "hydrate":
       // deck.json knows nothing of the journal — keep the live slice (its

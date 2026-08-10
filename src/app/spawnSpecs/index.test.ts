@@ -50,7 +50,11 @@ const plugins = {
 } as unknown as SpawnPluginAccess;
 const runtime = { plugins } as unknown as AppRuntime;
 
-const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
+const ctx = {
+  ...EMPTY_SPAWN_CONTEXT,
+  bridgeDir: "/bridge/run-1",
+  paneBridgeDir: (paneId: string) => Promise.resolve(`/bridge/run-1/${paneId}`),
+};
 const W1: WorkspaceRef = { id: "ws-1", instance: "workspace-instance-1" };
 
 /** A claude-shaped agent: reporter args on spawn, --resume on resume. */

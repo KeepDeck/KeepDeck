@@ -23,11 +23,29 @@ import { useEffect, useState } from "react";
  */
 const TICK_MS = 30_000;
 
-export function useWallClock(atLeast = 0): number {
+export function useWallClock(
+  atLeast = 0,
+  /**
+   * Whether this surface is currently showing anything dated.
+   *
+   * A deck runs one of these per pane, and most panes show no age at all —
+   * ticking for them is work nobody can see. Turning it back ON re-reads the
+   * clock rather than resuming from a stale `now`: a component mounted for an
+   * hour before it first needed a date would otherwise stamp its card with
+   * the hour-old reading. The pane header grew its own clock for exactly
+   * these two reasons and became the fourth answer this hook exists to be
+   * the only one of.
+   */
+  enabled = true,
+): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (!enabled) return;
+    // Below the tick the state is left untouched, so React bails out and a
+    // deck that mounts already-dated costs no extra render.
+    setNow((previous) => (Date.now() - previous >= TICK_MS ? Date.now() : previous));
     const timer = setInterval(() => setNow(Date.now()), TICK_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [enabled]);
   return Math.max(now, Math.min(atLeast, now + TICK_MS));
 }

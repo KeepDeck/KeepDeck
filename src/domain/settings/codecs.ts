@@ -204,6 +204,7 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   remoteAgents: { default: false, read: readBoolean },
   parkAgentsOnLaunch: { default: false, read: readBoolean },
   mcpServer: { default: false, read: readBoolean },
+  agentTeams: { default: false, read: readBoolean },
 };
 
 /** The table as entries, typed once so every consumer doesn't re-assert the

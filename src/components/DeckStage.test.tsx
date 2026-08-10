@@ -370,6 +370,55 @@ describe("DeckStage — agent identity on the pane header", () => {
       document.querySelector("[data-pane-id='pane-2'] .pane__yolo"),
     ).toBeNull();
   });
+
+  const teamLabel = (paneId: string) =>
+    document.querySelector<HTMLElement>(
+      `[data-pane-id='${paneId}'] .pane__team .chip__label`,
+    )!.textContent;
+
+  it("names each pane's team once the deck runs more than one", () => {
+    // Reported live: two teams up, two panes both badged `lead`, and the
+    // deck offering nothing to tell which lead led which. The role is only
+    // an identity inside ONE team, so the deck — the only level that can
+    // see the other team — is what settles this.
+    render({
+      workspaces: [
+        {
+          ...workspaces[0],
+          panes: [
+            { id: "pane-1", agentType: "codex", team: { name: "api", role: "lead" } },
+            { id: "pane-2", agentType: "codex", team: { name: "web", role: "lead" } },
+          ],
+        },
+      ],
+    });
+    expect(teamLabel("pane-1")).toBe("lead · api");
+    expect(teamLabel("pane-2")).toBe("lead · web");
+  });
+
+  it("leaves the role bare while one team runs, however many wear it", () => {
+    // The other half of the same rule. One team means its name is the same
+    // word under every badge — width spent on a word that distinguishes
+    // nothing, in a header that sheds whole chips when it runs out.
+    render({
+      workspaces: [
+        {
+          ...workspaces[0],
+          panes: [
+            { id: "pane-1", agentType: "codex", team: { name: "api", role: "lead" } },
+            { id: "pane-2", agentType: "codex", team: { name: "api", role: "impl-1" } },
+          ],
+        },
+      ],
+    });
+    expect(teamLabel("pane-1")).toBe("lead");
+    expect(teamLabel("pane-2")).toBe("impl-1");
+    // The name is still one hover away, on every badge.
+    expect(
+      document.querySelector<HTMLElement>("[data-pane-id='pane-1'] .pane__team")!
+        .title,
+    ).toContain("api");
+  });
 });
 
 describe("DeckStage — a maximized pane minimizes the rest", () => {

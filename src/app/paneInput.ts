@@ -29,6 +29,58 @@ export interface PaneInput {
 }
 
 const entries = new Map<string, PaneInput>();
+/** When each pane's input was registered — see [`paneInputSettled`]. */
+const registeredAt = new Map<string, number>();
+const watchers = new Set<() => void>();
+
+/**
+ * How long a freshly registered pane is given before anything is pushed at
+ * it unasked.
+ *
+ * "A writer exists" is not "the CLI reads it". Under this, a paste lands in
+ * a TUI that is still starting and the submit keystroke after it goes
+ * nowhere — the text sits in the composer, unsent, and the deck has no way
+ * to tell that from a delivery.
+ *
+ * Exported because `deliverTask` waits out the same gap before its own
+ * paste, and had its own copy of this exact number with a comment saying so.
+ * One question, one answer: raising it in one place and not the other leaves
+ * the other channel pasting into a TUI that swallows the submit.
+ */
+export const SETTLE_MS = 1_500;
+
+/**
+ * Whether this pane has been writable long enough to be pushed at.
+ *
+ * Only for text nobody asked for — mail, mostly. A person's own paste or
+ * keystroke needs no such gate: they can see the pane, and they are the ones
+ * who decided it was ready.
+ */
+export function paneInputSettled(id: string, now: number = Date.now()): boolean {
+  const since = registeredAt.get(id);
+  return since !== undefined && now - since >= SETTLE_MS;
+}
+
+/**
+ * Tell me when any pane's input appears or goes away.
+ *
+ * The registry is the ONLY thing that knows a pane became writable, and
+ * that moment is not visible anywhere else: a terminal mounting emits no
+ * status, so anything waiting to write to a pane and watching activity
+ * instead would wait for a change that never comes. Mail waited exactly
+ * that way, and a task sent to an idle teammate sat undelivered until a
+ * person typed into it by hand.
+ */
+export function subscribePaneInput(listener: () => void): () => void {
+  watchers.add(listener);
+  return () => {
+    watchers.delete(listener);
+  };
+}
+
+function announce(): void {
+  for (const listener of [...watchers]) listener();
+}
 
 /** Register a pane's input (both channels); returns an unregister fn for
  * cleanup. */
@@ -37,10 +89,22 @@ export function registerPaneInput(
   input: PaneInput,
 ): () => void {
   entries.set(id, input);
+  registeredAt.set(id, Date.now());
+  announce();
+  // Becoming SETTLED is a second event, and nothing else would publish it:
+  // a caller that was turned away for pushing too early is waiting on a
+  // moment no status and no mount reports. Without this it would wait for
+  // whatever happened to poke the registry next.
+  const settled = setTimeout(announce, SETTLE_MS);
   return () => {
+    clearTimeout(settled);
     // Only delete if it's still ours — guards against a re-mount that already
     // replaced the entry (e.g. a StrictMode double-mount).
-    if (entries.get(id) === input) entries.delete(id);
+    if (entries.get(id) === input) {
+      entries.delete(id);
+      registeredAt.delete(id);
+      announce();
+    }
   };
 }
 
@@ -73,5 +137,28 @@ export function pasteToPane(id: string, text: string): boolean {
   const input = entries.get(id);
   if (!input?.paste) return false;
   input.paste(text);
+  return true;
+}
+
+/**
+ * Put text in a pane and SEND it — the whole gesture, as one call.
+ *
+ * The two halves are not interchangeable and the order is the mechanism.
+ * xterm wraps the entire argument of `paste` in bracketed-paste markers, so
+ * a `\r` concatenated onto the text arrives as pasted CONTENT and the line
+ * sits in the composer unsent — indistinguishable, to everything upstream,
+ * from a delivery. The submit therefore has to be a raw keystroke OUTSIDE
+ * the paste.
+ *
+ * That is one fact about this channel, and it was re-implemented and
+ * re-explained at every call site: the spawn task, a mail delivery, a mail
+ * nudge, the pane-write command. Changing the gesture — a gap between the
+ * two writes, `\r\n`, something per-agent — meant finding all of them.
+ *
+ * False means the pane has no live paste channel; nothing was written.
+ */
+export function submitToPane(id: string, text: string): boolean {
+  if (!pasteToPane(id, text)) return false;
+  writeRawToPane(id, "\r");
   return true;
 }

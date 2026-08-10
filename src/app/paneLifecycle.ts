@@ -1,4 +1,5 @@
 import type { AgentStatusTracker } from "./agentStatusTracker";
+import type { MailManager } from "./mail";
 import type { PaneAttribution } from "./paneAttribution";
 import type { UsageManager } from "./usageManager";
 
@@ -32,6 +33,14 @@ export function createPaneLifecycle(
   usage: UsageManager,
   tracker: AgentStatusTracker,
   attribution: PaneAttribution,
+  /** The mail owner, looked up rather than held: it exists only while the
+   * feature is switched on, and a reference captured here would outlive a
+   * toggle. Null is the ordinary case, not an error. */
+  mail: () => MailManager | null = () => null,
+  /** Told when a pane's agent starts a conversation that remembers nothing
+   * of the last one. Anything the deck had said to it is gone with the old
+   * generation, which is a different fact from telemetry going stale. */
+  onSessionBegan: (paneId: string) => void = () => {},
 ): PaneLifecycle {
   return {
     retire(paneId) {
@@ -39,10 +48,15 @@ export function createPaneLifecycle(
       tracker.clear(paneId);
       // A NEW process may bind a fresh session — it is the pane's own again.
       attribution.retire(paneId);
+      // Where the pane stood in a conversation described the process that
+      // just retired. Its queued and delivered mail is addressed to the PANE
+      // and survives — only the chain position and delivery spacing go.
+      mail()?.clear(paneId);
     },
     beginSession(paneId, sessionId) {
       usage.beginPaneSession(paneId, sessionId);
       tracker.clear(paneId);
+      onSessionBegan(paneId);
     },
   };
 }

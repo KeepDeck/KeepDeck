@@ -2,6 +2,7 @@ import type { AgentInfo } from "../domain/agents";
 import type { CommandRegistry } from "../domain/commands";
 import type { SpawnConfig } from "../domain/deck";
 import type { Notification } from "../domain/notifications";
+import type { PaneActivity } from "../domain/status";
 import type { StatsTab } from "../domain/usage/statsTabs";
 import { commands } from "./commandRegistry";
 import { registerCoreCommands } from "./coreCommands";
@@ -61,6 +62,10 @@ export interface ApplicationControllerDeps {
   /** The registry to contribute the core command set to; the process-wide one
    * unless a suite wants its own. */
   registry?: CommandRegistry;
+  /** What each pane's agent is doing. Defaulted to "nothing reports" so the
+   * roster degrades to what it always was rather than becoming a required
+   * wiring step for every caller. */
+  activityOf?: (paneId: string) => PaneActivity | undefined;
 }
 
 export function createApplicationController({
@@ -71,6 +76,7 @@ export function createApplicationController({
   paneView,
   skills,
   registry = commands,
+  activityOf = () => undefined,
 }: ApplicationControllerDeps): ApplicationController {
   const actions = createDeckActions(deck);
   let ui: ApplicationUi | null = null;
@@ -103,6 +109,7 @@ export function createApplicationController({
       unregisterCommands = registerCoreCommands(registry, {
         deck: () => readDeck(deck),
         agents: () => ui?.agents() ?? [],
+        activityOf,
         activatePane,
         requestCloseAgent: (wsId, paneId, label) =>
           requireUi().requestCloseAgent(wsId, paneId, label),

@@ -56,6 +56,14 @@ export function createAgentStatusChannel(
   sessions: SessionLivenessPort,
   attribution: PaneAttribution,
   keys: PaneKeyPort,
+  /** Answer a report that is also a QUESTION — a turn-end hook asking
+   * whether mail is waiting. Called in the same breath as the fold, and
+   * deliberately so: the pane's status and the decision to keep it running
+   * are one answer, and two handlers would let a pane be marked finished by
+   * one while the other was still deciding to keep it working. Absent in
+   * tests and while the feature is off; a payload that asks nothing never
+   * reaches it. */
+  answerAsk: (paneId: string, payload: unknown) => void = () => {},
 ): AgentStatusChannel {
   let disposed = false;
   let normalizerDisposers: (() => void)[] = [];
@@ -100,7 +108,14 @@ export function createAgentStatusChannel(
     label: "status report",
     subscribe: onAgentStatus,
     requireLiveProcess: true,
-    apply: (paneId, payload) => tracker.report(paneId, payload),
+    apply: (paneId, payload) => {
+      // Fold FIRST: the answer may depend on what this very event just said
+      // about the pane (a turn that has ended is a turn that can be told
+      // to keep going), and reading a status one edge stale is exactly the
+      // divergence one round trip exists to prevent.
+      tracker.report(paneId, payload);
+      answerAsk(paneId, payload);
+    },
   });
 
   let membershipKey: string | null = null;

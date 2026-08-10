@@ -69,6 +69,13 @@ export interface AgentStatusTracker {
   getSnapshot(): StatusSnapshot;
   /** Notify on every snapshot change (the `useSyncExternalStore` contract). */
   subscribe(listener: () => void): () => void;
+  /** Tell me when a pane's CONTEXT was rebuilt — a compaction. Whatever the
+   * deck told that agent may no longer be in front of it.
+   *
+   * Fired on the EDGE, not on a snapshot change: a compaction leaves an
+   * ordinary pane's activity untouched (the fold returns the same object on
+   * purpose), so anything watching the snapshot would never see one. */
+  onContextRebuilt(listener: (paneId: string) => void): () => void;
 }
 
 export function createAgentStatusTracker(): AgentStatusTracker {
@@ -81,6 +88,7 @@ export function createAgentStatusTracker(): AgentStatusTracker {
   let statuses: ReadonlyMap<string, PaneStatus> = new Map();
   let snapshot: StatusSnapshot = { panes: new Map() };
   const listeners = new Set<() => void>();
+  const rebuilt = new Set<(paneId: string) => void>();
   const normalizers = new Map<string, StatusNormalizer>();
 
   /**
@@ -132,7 +140,14 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       const normalize = normalizers.get(payload.agent);
       if (!normalize) return;
       const edge = normalize(payload, at);
-      if (edge) apply(paneId, edge);
+      if (!edge) return;
+      // Before the fold, and regardless of what the fold does with it: on
+      // an ordinary pane a compaction moves no activity at all, so this is
+      // the only place the event can still be seen.
+      if (edge.kind === "context-compacted") {
+        for (const listener of [...rebuilt]) listener(paneId);
+      }
+      apply(paneId, edge);
     },
 
     answered(paneId, at = Date.now()) {
@@ -167,6 +182,13 @@ export function createAgentStatusTracker(): AgentStatusTracker {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
+      };
+    },
+
+    onContextRebuilt(listener) {
+      rebuilt.add(listener);
+      return () => {
+        rebuilt.delete(listener);
       };
     },
   };

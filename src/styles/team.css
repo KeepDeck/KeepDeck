@@ -1,0 +1,290 @@
+/* The team dialog.
+ *
+ * Two lists that answer one question between them: the ROSTER is the team as
+ * it stands, the POOL is everyone here who is not on it. A pane taken from
+ * the pool leaves it, so at any moment each agent appears exactly once and
+ * its position IS the answer — no field of checkboxes to decode.
+ *
+ * Both lists share a row, because they are the same kind of thing seen from
+ * two sides, and a shared row is what keeps their columns lined up. */
+
+/* The dialog is what scrolls, not the lists inside it.
+ *
+ * Capping each list gave a deck of any size two separate little scroll boxes
+ * stacked in one dialog, each with its own thumb — a shape that reads as
+ * broken before it reads as scrollable, and it put a scrollbar directly over
+ * the "Add" button the pointer was heading for. One scroll region at the
+ * edge of the dialog is where people already expect to find it. */
+.team-form {
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+
+.team__roster,
+.team__pool {
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.team__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Constant, so a row never changes height as it moves between the lists
+     and the rows below it never shuffle under the cursor. The value is the
+     role field's own height: padding, borders and one line. */
+  min-height: 34px;
+}
+
+/* The role LEADS the row. It is the address teammates use, and a column of
+   addresses is what gets scanned for duplicates — so it is first, fixed, and
+   aligned down the list. */
+.team__row-role {
+  flex: none;
+  width: 120px;
+  font-size: 12px;
+  /* `.form__input` carries a 20px bottom margin for STACKED fields. Inside a
+     flex row that margin is dead space that makes the row taller than its
+     neighbours. */
+  margin-bottom: 0;
+}
+
+/* The address the role resolves to — `lead`, `impl-2`. Beside the picker,
+   because the picker names what a member is FOR and this is what teammates
+   type: two implementers are one word apart in the picker and only this
+   tells them apart. Monospace, so a column of them lines up the way the
+   duplicates it exists to reveal would. */
+.team__row-address {
+  flex: none;
+  width: 68px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sized to its CONTENT, not to the role column beside it. Matching that
+   width truncated "Claude Code" to "Claude Co…" — and an agent picker whose
+   whole job is naming which agent must never be the thing that hides the
+   name. There is room: the dialog is 560px and this row has one flexible
+   column to give it back. */
+.team__row-agent {
+  flex: none;
+  width: 180px;
+}
+
+.team__row-who {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #c5c8c6;
+}
+
+/* What tells two identically-titled panes apart — titles come from the
+   terminal, so several legitimately read "Workspace" at once. Muted, and it
+   shrinks before the name does, because the name is what the eye hunts for.
+   `margin-right: auto` is what pushes the row's control to the far edge. */
+.team__row-where {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* A pane already answering to a different team. A fact, not a problem —
+   taking it simply moves it — so it is stated, not warned about. */
+.team__row-note {
+  flex: none;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.team__member {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The per-recruit YOLO answer.
+ *
+ * The full `.form__yolo` — checkbox plus a two-line rationale — is right in
+ * a dialog that creates ONE agent and asks once. Repeated down a roster it
+ * printed the same sentence six times and turned the list into a wall of
+ * warnings. So the cell keeps the checkbox (the app's own control, amber
+ * accent, same as every spawn surface) and the sentence moves out to a
+ * single line under the list. */
+.team__row-yolo {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.team__row-yolo input {
+  accent-color: #b8863b;
+  cursor: pointer;
+}
+
+/* Amber only when armed: a team where one member runs unprompted has to
+   show WHICH one at a glance, and an always-tinted label would say nothing. */
+.team__row-yolo--on {
+  color: #c9a23c;
+}
+
+/* The rationale, once. Pulled up under the roster it belongs to. */
+.team__yolo-note {
+  margin-top: -12px;
+}
+
+.team__yolo-word {
+  color: #c9a23c;
+}
+
+.team__row-take {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid #2a3242;
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.team__row-take:hover {
+  border-color: #3a4658;
+  color: #c5c8c6;
+}
+
+/* Removal is a glyph rather than a button: it repeats down the roster, and a
+   labelled control on every row would out-shout the roles, which are the
+   thing being read. */
+.team__row-drop {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.team__row-drop:hover {
+  background-color: #1b2230;
+  color: #e5736f;
+}
+
+/* Prose in this dialog wraps — it is the only one here that explains a
+   concept rather than labelling a field — and the app's default leading
+   (`normal`, ~1.2) sets wrapped 12px text almost solid. Scoped rather than
+   fixed on `.form__desc`, whose other users are all single lines that would
+   only gain slack from it. */
+.team__desc,
+.team__empty {
+  line-height: 1.5;
+}
+
+/* `.form__desc` and `.form__error` both carry `margin-top: -12px`, which is
+   right where they were designed to sit — tucked under the dialog's TITLE.
+   In this dialog they follow a label and a button instead, and the negative
+   margin pulls each up into whatever is above it. These undo it at the two
+   sites, rather than changing a rule the other dialogs depend on. */
+.team__empty,
+.team__error {
+  margin-top: 0;
+}
+
+/* Above the actions it explains, with air of its own — a refusal jammed
+   against the button it disables reads as part of the button. */
+.team__error {
+  margin-bottom: 12px;
+}
+
+/* Ending a team, kept away from the confirm pair: `margin-right: auto` puts
+   it at the far left of the action row, so it can never be hit on the way to
+   "Save team". Quiet until hovered — it is not a hazard (the agents keep
+   running and keep their work) but it is not an ordinary edit either. */
+/* Beside Disband, not inside it: the tick is what turns an organisational
+   act into a destructive one, so it has to be its own deliberate gesture and
+   has to be READ before the button is pressed. Same compact shape as the
+   per-recruit YOLO answer, for the same reason — the meaning is in the
+   label, and it goes red when armed because that is what it now does. */
+.team__disband-close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.team__disband-close input {
+  accent-color: #b3423d;
+  cursor: pointer;
+}
+
+.team__disband-close--on {
+  color: #e5736f;
+}
+
+.team__disband {
+  margin-right: auto;
+  padding: 8px 14px;
+  border: 1px solid #2a3242;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7280;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.team__disband:hover {
+  border-color: #6b3a38;
+  color: #e5736f;
+}
+
+/* Secondary by construction: starting an agent is a step ON THE WAY to a
+   team, never the thing that finishes one. Full width it read as the
+   dialog's main action and competed with "Create team". */
+.team__add {
+  align-self: flex-start;
+  margin-bottom: 20px;
+  padding: 5px 10px;
+  border: 1px solid #2a3242;
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.team__add:hover {
+  border-color: #3a4658;
+  color: #c5c8c6;
+}

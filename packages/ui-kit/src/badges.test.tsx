@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BranchBadge,
   StoppedMarker,
+  TeamBadge,
   YoloBadge,
   YOLO_BADGE_LABEL,
   YOLO_BADGE_TITLE,
   STOPPED_MARKER_TITLE,
+  teamBadgeTitle,
 } from "./badges";
 
 (
@@ -60,6 +62,56 @@ describe("badges", () => {
       expect(badge.getAttribute("aria-label")).toBeNull();
       // The native title stays: it is the only wording a hover gets.
       expect(badge.title).toBe(YOLO_BADGE_TITLE);
+    });
+  });
+
+  describe("TeamBadge", () => {
+    it("shows the ROLE, and keeps the team name for the tooltip", () => {
+      // The role is the address teammates use, so it is what a person
+      // needs to read a conversation. Where one team runs, its name is the
+      // same word under every pane and says nothing on the badge — the
+      // tooltip carries it.
+      act(() =>
+        root.render(createElement(TeamBadge, { team: "api", role: "impl-1" })),
+      );
+      const chip = host.querySelector<HTMLElement>(".chip")!;
+      expect(chip.querySelector(".chip__label")!.textContent).toBe("impl-1");
+      expect(chip.title).toBe(teamBadgeTitle("api", "impl-1"));
+      expect(chip.title).toContain("api");
+      expect(chip.querySelector("svg")).not.toBeNull();
+    });
+
+    it("names the team after the role when asked to", () => {
+      // Two teams, two leads, and a badge saying `lead` on both — which is
+      // where the role stops being an identity. Asked, the badge qualifies
+      // it, and the team goes AFTER: clipped by a narrow header the tail is
+      // what goes, and a clipped team still tells "api" from "web" while a
+      // clipped role would not tell impl-1 from impl-2.
+      act(() =>
+        root.render(
+          createElement(TeamBadge, {
+            team: "api",
+            role: "lead",
+            showTeamName: true,
+          }),
+        ),
+      );
+      const label = host.querySelector<HTMLElement>(".chip__label")!;
+      expect(label.textContent).toBe("lead · api");
+      // The qualifier is dimmed as one piece, separator included — it reads
+      // as context for the address, not as a second address.
+      expect(label.querySelector(".team-badge__team")!.textContent).toBe(
+        " · api",
+      );
+    });
+
+    it("goes silent for assistive tech inside an already-labelled control", () => {
+      act(() =>
+        root.render(
+          createElement(TeamBadge, { team: "api", role: "lead", decorative: true }),
+        ),
+      );
+      expect(host.querySelector(".chip")!.getAttribute("aria-hidden")).toBe("true");
     });
   });
 

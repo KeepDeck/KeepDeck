@@ -5,6 +5,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
+import { ASKS_FOR_MAIL, renderClaudeMail } from "./status";
 
 /** Activate against a minimal fake ctx; returns the registered agent.
  * `resources` maps script name → resolved path (missing name = null), so a
@@ -80,6 +81,22 @@ describe("claude plugin hooks", () => {
     // stale extra would be read as one — the reporter is silent on failure,
     // so a broken command stops status with no error anywhere.
     const command = "/bin/sh '/App/resources/kd-status-hook.sh' claude";
+    // Two of them ask as well as report. `--ask` makes the reporter wait
+    // for the deck's answer and print it, which only a turn boundary can
+    // act on — Stop can be blocked to hand mail over without a fresh wake,
+    // and UserPromptSubmit can append to the turn just opened. Arming it
+    // anywhere else would buy a round trip per tool call for an answer that
+    // event cannot use.
+    const asking = `${command} --ask`;
+    // SessionStart asks too, on the STATUS reporter: a freshly spawned
+    // agent has no turn and reports nothing, so this is the only moment its
+    // briefing can reach it without a keystroke typed into a booting CLI.
+    // From the renderer's own declaration, not a copy of it: the arming and
+    // the rendering must agree, and nothing else would notice them
+    // disagreeing — armed-but-unrendered burns the hook's whole wait on
+    // every fire, rendered-but-unarmed sends that event's mail through a
+    // paid terminal nudge, and both are silent.
+    const asks = ASKS_FOR_MAIL;
     // Each of these closes a hole the others cannot. StopFailure fires
     // INSTEAD of Stop on an API error; PostToolUseFailure fires INSTEAD of
     // PostToolUse when an approved tool then fails — both are the failure
@@ -102,11 +119,26 @@ describe("claude plugin hooks", () => {
       "SessionStart",
     ];
     for (const event of armed) {
-      expect(settings.hooks[event][0].hooks[0].command, event).toBe(command);
+      expect(settings.hooks[event][0].hooks[0].command, event).toBe(
+        asks.has(event) ? asking : command,
+      );
     }
     // EXACTLY these: an event armed by accident feeds the lane edges nobody
     // reasoned about, and the normalizer's default arm drops them silently.
     expect(Object.keys(settings.hooks).sort()).toEqual([...armed].sort());
+    // And EVERY one carries a limit of ours. claude's own default is not
+    // something this deck can read, and a limit under the reporter's ~2s
+    // wait would kill it mid-round-trip — losing not a status edge but
+    // MAIL, which the deck hands over before the answer is written. It
+    // would then sit in the pane's inbox, never in its context, silently on
+    // both sides.
+    for (const event of armed) {
+      for (const entry of settings.hooks[event] as {
+        hooks: { timeout?: number }[];
+      }[]) {
+        expect(entry.hooks[0].timeout, event).toBeGreaterThanOrEqual(5);
+      }
+    }
   });
 
   it("lets both reporters ride SessionStart, in arming order", async () => {
@@ -125,8 +157,13 @@ describe("claude plugin hooks", () => {
         (entry: { hooks: { command: string }[] }) => entry.hooks[0].command,
       ),
     ).toEqual([
+      // Identity first, and it never asks: it answers a different question
+      // and takes no reply, so arming it to ask would make it wait out its
+      // whole window for a file nobody writes.
       "/bin/sh '/App/resources/kd-session-hook.sh' claude",
-      "/bin/sh '/App/resources/kd-status-hook.sh' claude",
+      // Status asks here, and this is the only event where a STARTING pane
+      // can be told anything at all.
+      "/bin/sh '/App/resources/kd-status-hook.sh' claude --ask",
     ]);
     // The status reporter's other events are untouched by the sharing.
     expect(settings.hooks.Stop).toHaveLength(1);
@@ -394,5 +431,15 @@ describe("claude fork.plan", () => {
       ),
     ).rejects.toThrow("shorter path");
     expect(copies).toEqual([]); // zero writes on refusal
+  });
+
+  it("contributes its mail renderer, which is what puts it on the labelled channel", () => {
+    // Asserted by IDENTITY, not by "something is defined": the deck decides
+    // whether a pane is worth holding mail for by looking for exactly this
+    // field, so a plugin that renders mail perfectly and forgets to
+    // contribute it falls back to having its messages typed into a terminal
+    // — with every renderer test still green.
+    const agent = activate({ ...SESSION_HOOK, ...STATUS_HOOK });
+    expect(agent.status?.renderMail).toBe(renderClaudeMail);
   });
 });

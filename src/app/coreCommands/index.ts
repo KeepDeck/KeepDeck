@@ -19,9 +19,12 @@ import {
   type Pane,
   type Workspace,
 } from "../../domain/deck";
+import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
 import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "../newAgentDefaults";
 import { mintAgentSeq } from "../ids";
+import { teamOf } from "../../domain/mail";
+import type { PaneActivity } from "../../domain/status";
 import { paneInputReady, pasteToPane, writeRawToPane } from "../paneInput";
 import { getSettings } from "../settingsManager";
 import type {
@@ -46,6 +49,14 @@ import { registerSkillsCommands } from "./skills";
 export interface CoreCommandDeps {
   deck(): Deck;
   agents(): AgentInfo[];
+  /** What a pane's agent is doing, when anything reports for it.
+   *
+   * The roster carries it because the deck can SEE this from outside and a
+   * session cannot see it at all. An agent that has to ask a teammate "are
+   * you done yet?" spends a turn, waits for a reply, and pays for both — so
+   * every question the host can already answer belongs in the answer it
+   * gives for free. */
+  activityOf(paneId: string): PaneActivity | undefined;
   /** Select a pane and hand keyboard input to its live terminal. */
   activatePane(wsId: string, paneId: string): void;
   /** Open the close-confirm flow — voice/MCP closes go through the same
@@ -136,6 +147,14 @@ export function registerCoreCommands(
             agentType: paneAgentType(p),
             branch: p.branch ?? null,
             cwd: p.cwd ?? ws.cwd,
+            // Null when nothing reports — a pane that is provisioning,
+            // stopped, or running a CLI with no status reporter. Absent
+            // information, not an absent pane.
+            activity: deps.activityOf(p.id) ?? null,
+            // Who this agent is on the team, when it is on one. The roster
+            // is where an agent learns the roles it may write to, so the
+            // field is here rather than behind a command of its own.
+            team: teamOf(p),
           })),
         }));
       },
@@ -194,6 +213,12 @@ export function registerCoreCommands(
         },
         { name: "name", type: "string", description: "Pane name" },
         {
+          name: "yolo",
+          type: "boolean",
+          description:
+            "Run without permission prompts; omitted follows the global default",
+        },
+        {
           name: "task",
           type: "string",
           description: "Initial prompt, typed into the agent once it starts",
@@ -229,10 +254,13 @@ export function registerCoreCommands(
         const id = paneId(mintAgentSeq());
         const index = nextAgentIndex(ws);
 
-        // The global YOLO default reaches this surface too, gated on the
-        // resolved agent's support like every other creation path.
+        // An explicit answer wins; without one the global default reaches
+        // this surface like every other creation path. Either way it is
+        // gated on the resolved agent's support, so a caller cannot turn on
+        // a mode the agent does not have.
+        const asked = args.yolo;
         const yolo =
-          (getSettings()?.defaultYolo ?? false) &&
+          (typeof asked === "boolean" ? asked : (getSettings()?.defaultYolo ?? false)) &&
           agentSupportsYolo(agents, agentType);
         // Location mirrors the "+ Agent" dialog's defaults: a repo workspace
         // with a base folder gets the first FREE worktree suggestion (never a
@@ -292,6 +320,14 @@ export function registerCoreCommands(
         current.deck.selectPane(workspace.id, id);
 
         const task = str(args, "task");
+        // The pane's whole starting story on one line: which agent, where,
+        // and — the part that matters for teams — whether anything will
+        // open a turn on it. A recruit spawned with no task never has one,
+        // so nothing it is told can ride a turn boundary.
+        log.info(
+          "web:spawn",
+          `${id}: ${agentType} in ${workspace.id}, task ${task ? "scheduled" : "none"}`,
+        );
         if (task) void deliverTask(id, task);
         return {
           paneId: id,

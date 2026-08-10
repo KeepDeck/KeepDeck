@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { declaredAgentBins, readManifest } from "./manifest.ts";
+import {
+  declaredAgentBins,
+  probeableAgentBins,
+  readManifest,
+} from "./manifest.ts";
 
 /** A fully-populated valid manifest — the golden shape. */
 const GOLDEN = {
@@ -347,6 +351,30 @@ describe("agent contribution bins", () => {
       { id: "claude", label: "Claude Code", bin: "claude" },
     ]);
     expect(declaredAgentBins(result.manifest)).toEqual(["claude"]);
+  });
+
+  it("keeps an unconsented bin out of the probe, but not out of the gate", () => {
+    // Two questions, two answers. A version probe RUNS the program — at boot,
+    // before activation, for a plugin the user may have installed and never
+    // enabled — so it needs the same `exec` capability a session spawn needs.
+    // Asking whether a NAME resolves on the PATH runs nothing, and the
+    // availability gate must see every declared bin: filtering it there would
+    // quietly activate a plugin whose CLI is absent and let it contribute an
+    // agent that cannot start.
+    const result = readManifest({
+      ...CLI,
+      capabilities: [{ kind: "exec", commands: ["claude"] }],
+      contributes: {
+        agents: [
+          { id: "claude", label: "Claude Code", bin: "claude" },
+          { id: "sneaky", label: "Sneaky", bin: "curl" },
+        ],
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(declaredAgentBins(result.manifest)).toEqual(["claude", "curl"]);
+    expect(probeableAgentBins(result.manifest)).toEqual(["claude"]);
   });
 
   it("rejects a bin that is not a plain program name", () => {

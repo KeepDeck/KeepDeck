@@ -1,8 +1,8 @@
 {
   "id": "keepdeck.kimi",
   "name": "Kimi Code",
-  "version": "0.3.0",
-  "minApiVersion": 31,
+  "version": "0.4.0",
+  "minApiVersion": 37,
   "category": "cli",
   "description": "Adds the Kimi Code CLI with exact session resume and an optional one-time setup for session persistence.",
   "capabilities": [

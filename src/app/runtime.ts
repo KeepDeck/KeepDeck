@@ -1,4 +1,4 @@
-import { panesRunningIn } from "../domain/deck";
+import { paneAgentType, panesRunningIn } from "../domain/deck";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
@@ -14,6 +14,7 @@ import {
 } from "./agentOrchestrator";
 import { createAgentStatusChannel } from "./agentStatusChannel";
 import { createApplicationController } from "./applicationController";
+import { createDeckActions } from "./deckActions";
 import { createDeckPersistence } from "./deckPersistence";
 import { createDeckStore } from "./deckStore";
 import {
@@ -23,9 +24,15 @@ import {
 } from "./downloadManager";
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
+import { commands } from "./commandRegistry";
+import {
+  createMailService,
+  deliverMailThroughPty,
+  wakePaneForMail,
+} from "./mail";
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
-import { paneIdByMcpToken, peekPaneSpawnSpec } from "./spawnSpecs";
+import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
 import { createPaneAttribution } from "./paneAttribution";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
@@ -38,6 +45,12 @@ import {
   subscribeSessions,
 } from "./ptyManager";
 import { subscribePaneKeys } from "./paneKeys";
+import { subscribePaneInput } from "./paneInput";
+import {
+  nudgeBridgePane,
+  onBridgeReplyUncollected,
+  replyToBridgeHook,
+} from "../ipc/status";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
@@ -58,6 +71,18 @@ import { createWorktreeManager, deckViewOf } from "./worktrees";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
+
+/** Which CLI a pane runs, or null when the deck no longer holds it. */
+function paneAgentTypeOf(
+  deck: ReturnType<typeof createDeckStore>,
+  paneId: string,
+): string | null {
+  for (const workspace of deck.getSnapshot().workspaces) {
+    const pane = workspace.panes.find((candidate) => candidate.id === paneId);
+    if (pane) return paneAgentType(pane);
+  }
+  return null;
+}
 
 /** The live agent contributions as the orchestrator needs them. */
 function agentCatalogPort(
@@ -82,6 +107,13 @@ export function createAppRuntime(
   const paneInputFocus = createPaneInputFocusController();
   const paneViewActions = createPaneViewActions(deckStore, paneInputFocus);
   const deckPersistence = createDeckPersistence(deckStore);
+  const deckActions = createDeckActions(deckStore);
+  /** How a pane reads, for anything that has to name one. Read per call — a
+   * plugin can be installed or removed while the deck is up. */
+  const agentLabels = () =>
+    plugins.pluginRegistries.agents
+      .list()
+      .map(({ entry }) => ({ id: entry.id, label: entry.label }));
   const minimizePolicy = createMinimizePolicy(deckStore, {
     minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
     subscribe: subscribeSettings,
@@ -103,11 +135,8 @@ export function createAppRuntime(
       retract: (roots) => worktrees.retractMcp(roots),
       identify: createPaneIdentity({
         workspaces: () => deckStore.getSnapshot().workspaces,
-        paneOf: paneIdByMcpToken,
-        agents: () =>
-          plugins.pluginRegistries.agents
-            .list()
-            .map(({ entry }) => ({ id: entry.id, label: entry.label })),
+        paneOf: paneIdBySpawnSecret,
+        agents: agentLabels,
       }),
     },
   );
@@ -139,10 +168,76 @@ export function createAppRuntime(
     workspaces: () => deckStore.getSnapshot().workspaces,
     secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
   });
+  // Mail exists only while its Experimental toggle is on, so the lifecycle
+  // owner looks it up instead of holding it — hence the forward reference.
   const lifecycle = createPaneLifecycle(
     usageManager,
     statusTracker,
     attribution,
+    () => mail.current(),
+    (paneId) => sessionsBegun.forEach((listener) => listener(paneId)),
+  );
+  /** Panes whose agent just started a conversation with no memory of the
+   * last. A plain fan-out rather than a store: nothing needs the history,
+   * only the moment. */
+  const sessionsBegun = new Set<(paneId: string) => void>();
+  /** The whole mail feature, as one create and one dispose. What it is made
+   * of — the queue, the commands, both delivery channels, the reply memory,
+   * the standing-presence — composes inside it; these are only the ports it
+   * cannot build for itself. */
+  const agentEntry = (agentId: string) =>
+    plugins.pluginRegistries.agents
+      .list()
+      .find(({ entry }) => entry.id === agentId)?.entry;
+  const mail = createMailService(
+    {
+      agentTeams: () => getSettings()?.agentTeams ?? null,
+      subscribe: subscribeSettings,
+    },
+    {
+      registry: commands,
+      deck: {
+        workspaces: () => deckStore.getSnapshot().workspaces,
+        subscribe: deckStore.subscribe,
+        setPaneTeam: (workspaceId, paneId, team) =>
+          deckActions.setPaneTeam(workspaceId, paneId, team),
+        agentTypeOf: (paneId) => paneAgentTypeOf(deckStore, paneId),
+      },
+      agents: {
+        labels: agentLabels,
+        statusOf: (agentId) => agentEntry(agentId)?.status,
+        // Through the agent's DECLARED bin. The walk from an agent id to
+        // that bin lives in one place (`binOfAgent`), so nothing out here
+        // repeats it.
+        versionOf: plugins.agentBinVersion,
+        onAgentsChanged: plugins.pluginRegistries.agents.subscribe,
+        // Fire and forget: the port answers from its own cache — which a
+        // re-detection drops, so a repeat is how a forgotten version is
+        // learned again — and nothing in the render path may wait on a
+        // process starting. The
+        // catch is what makes "cannot be awaited" true rather than merely
+        // intended — a discarded promise that rejects is an unhandled one.
+        learnVersion: (agentId) => {
+          void plugins.ensureAgentVersion(agentId).catch(() => {});
+        },
+      },
+      status: {
+        activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
+        subscribe: statusTracker.subscribe,
+        onContextRebuilt: statusTracker.onContextRebuilt,
+      },
+      subscribeChannels: subscribePaneInput,
+      onSessionBegan: (listener) => {
+        sessionsBegun.add(listener);
+        return () => sessionsBegun.delete(listener);
+      },
+      terminal: { deliver: deliverMailThroughPty, wake: wakePaneForMail },
+      bridge: {
+        reply: replyToBridgeHook,
+        nudge: nudgeBridgePane,
+        onReplyUncollected: onBridgeReplyUncollected,
+      },
+    },
   );
   const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager(
@@ -186,6 +281,7 @@ export function createAppRuntime(
     paneInputFocus,
     paneView: paneViewActions,
     skills,
+    activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
   });
   const worktreeSweeper = createWorktreeSweeper(
     deckStore,
@@ -214,6 +310,7 @@ export function createAppRuntime(
     paneInputFocus,
     paneViewActions,
     mcp,
+    mail,
     usageManager,
     activityWitness,
     statusTracker,
@@ -243,6 +340,7 @@ export function createAppRuntime(
         { subscribe: subscribeSessions, state: paneSessionState },
         attribution,
         { subscribe: subscribePaneKeys },
+        mail.answerAsk,
       );
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,
@@ -280,6 +378,7 @@ export function createAppRuntime(
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       minimizePolicy.dispose();
+      mail.dispose();
       mcp.dispose();
       journalPersistence.dispose();
       sessionBinding?.dispose();

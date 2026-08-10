@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use keepdeck_pty::{PtyEvent, PtySession, PtySpec, TermSize};
 use serde::{Deserialize, Serialize};
@@ -121,7 +123,49 @@ impl SessionRegistry {
             None => Ok(()),
         }
     }
+
+    /// Take every live session down, because the app is going.
+    ///
+    /// Closing a PTY does not end what runs behind it. An agent CLI that owns
+    /// its own children survives the hangup, and one that outlives the app
+    /// keeps whatever it had open — codex holds a writer on its rollout file
+    /// and then refuses to resume a thread "another writer" holds, so the
+    /// leaked process is what stops the NEXT launch restoring that pane.
+    ///
+    /// One SIGTERM to every group, then ONE shared wait, then SIGKILL to
+    /// whatever is left. A session at a time would cost the grace period per
+    /// session, and a deck of eight agents would hang the quit for half a
+    /// minute; waited together, quitting costs as long as the slowest agent
+    /// takes to shut down, which is normally a fraction of a second.
+    pub fn shutdown(&self, grace: Duration) {
+        let sessions: Vec<Arc<PtySession>> = {
+            let mut reg = self.inner.lock().expect("session registry poisoned");
+            reg.sessions.drain().map(|(_, session)| session).collect()
+        };
+        if sessions.is_empty() {
+            return;
+        }
+        log::info!("shutdown: stopping {} pty session(s)", sessions.len());
+        for session in &sessions {
+            let _ = session.signal_stop();
+        }
+        let deadline = Instant::now() + grace;
+        while Instant::now() < deadline && sessions.iter().any(|s| !s.has_exited()) {
+            thread::sleep(SHUTDOWN_POLL);
+        }
+        let stubborn = sessions.iter().filter(|s| !s.has_exited()).count();
+        for session in &sessions {
+            session.force_stop();
+        }
+        if stubborn > 0 {
+            log::warn!("shutdown: {stubborn} session(s) had to be killed");
+        }
+    }
 }
+
+/// How often the shared shutdown wait re-checks. Short enough that quitting a
+/// deck of well-behaved agents feels immediate, long enough not to spin.
+const SHUTDOWN_POLL: Duration = Duration::from_millis(25);
 
 fn unknown_session(id: &str) -> io::Error {
     io::Error::other(format!("unknown session {id}"))
@@ -235,6 +279,94 @@ pub fn session_close(registry: State<SessionRegistry>, id: String) -> Result<(),
 mod tests {
     use super::*;
     use keepdeck_pty::ExitInfo;
+    use std::sync::mpsc::Receiver;
+
+    /// A real session running `script`. The receiver is handed back and MUST
+    /// be held: the pump thread kills its child the moment a send fails, so a
+    /// dropped receiver would end the process for reasons that have nothing
+    /// to do with what is being tested.
+    #[cfg(unix)]
+    fn session(script: &str) -> (PtySession, Receiver<PtyEvent>) {
+        PtySession::spawn(PtySpec {
+            command: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+            env: Vec::new(),
+            env_defaults: Vec::new(),
+            cwd: None,
+            size: TermSize::default(),
+        })
+        .expect("spawn sh")
+    }
+
+    /// Wait for a session's final exit event, or fail. Output events on the
+    /// way are discarded — only the ending is the claim.
+    #[cfg(unix)]
+    fn expect_exit(events: &Receiver<PtyEvent>, within: Duration) {
+        let started = Instant::now();
+        while started.elapsed() < within {
+            if let Ok(PtyEvent::Exited(_)) = events.recv_timeout(Duration::from_millis(50)) {
+                return;
+            }
+        }
+        panic!("session outlived the shutdown");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_ends_every_session_including_one_that_ignores_being_asked() {
+        // The leak this exists to close: an agent that survives the hangup
+        // keeps its files open, and next launch codex refuses to resume a
+        // thread "another writer" holds — that writer being last run's codex.
+        let registry = SessionRegistry::default();
+        let (polite, polite_events) = session("sleep 30");
+        let (stubborn, stubborn_events) = session("trap '' TERM; sleep 30");
+        let polite_id = registry.insert(polite);
+        let stubborn_id = registry.insert(stubborn);
+
+        registry.shutdown(Duration::from_millis(500));
+
+        expect_exit(&polite_events, Duration::from_secs(5));
+        expect_exit(&stubborn_events, Duration::from_secs(5));
+        // And nothing is left claiming to be live: the registry is the only
+        // record of these processes, and one that outlived them would have a
+        // later close signalling a recycled pid.
+        assert!(registry.get(&polite_id).is_none());
+        assert!(registry.get(&stubborn_id).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_waits_for_the_sessions_together_not_one_after_another() {
+        // Quitting must not cost the grace period per pane. Two agents that
+        // both go on SIGTERM have to be gone in about the time one takes.
+        let registry = SessionRegistry::default();
+        let (first, first_events) = session("sleep 30");
+        let (second, second_events) = session("sleep 30");
+        registry.insert(first);
+        registry.insert(second);
+
+        // A grace far longer than anything a `sleep` takes to die, so the
+        // claim rests on the GAP rather than on absolute timing: a wait that
+        // ran its full length would take half a minute, and one that ends
+        // when the sessions do takes a moment even on a loaded machine.
+        let started = Instant::now();
+        registry.shutdown(Duration::from_secs(30));
+        let waited = started.elapsed();
+
+        expect_exit(&first_events, Duration::from_secs(5));
+        expect_exit(&second_events, Duration::from_secs(5));
+        assert!(
+            waited < Duration::from_secs(5),
+            "waited {waited:?} of a 30s grace for two prompt exits — the wait is not shared",
+        );
+    }
+
+    #[test]
+    fn shutdown_of_an_empty_registry_does_nothing_at_all() {
+        let started = Instant::now();
+        SessionRegistry::default().shutdown(Duration::from_secs(3));
+        assert!(started.elapsed() < Duration::from_millis(100));
+    }
 
     /// The webview sends camelCase keys; the FIELD names are raw serde (no
     /// Tauri conversion) — this pins the wire shape end to end, especially

@@ -11,8 +11,8 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
   it("the deck + settings revisions are the expected values", () => {
     // Pin the bumps so a forgotten version bump (the r3 SETTINGS miss) fails
     // loudly rather than silently shrinking the ladder-loop's coverage.
-    expect(DECK_STATE_VERSION).toBe(9);
-    expect(SETTINGS_VERSION).toBe(15);
+    expect(DECK_STATE_VERSION).toBe(10);
+    expect(SETTINGS_VERSION).toBe(16);
   });
 
   it("upgrades a v1 document hop by hop to the current revision", () => {

@@ -19,23 +19,33 @@ describe("codex MCP overrides", () => {
     // renderer that emitted a single entry would drop the rest silently.
     expect(mcpArgs(input(server("keepdeck"), server("mnemo")))).toEqual([
       "-c",
-      'mcp_servers."keepdeck"={command="/bin/keepdeck",args=["--mcp-shim","/home/mcp.sock"]}',
+      'mcp_servers.keepdeck={command="/bin/keepdeck",args=["--mcp-shim","/home/mcp.sock"]}',
       "-c",
-      'mcp_servers."mnemo"={command="/bin/keepdeck",args=["--mcp-shim","/home/mcp.sock"]}',
+      'mcp_servers.mnemo={command="/bin/keepdeck",args=["--mcp-shim","/home/mcp.sock"]}',
     ]);
   });
 
-  it("quotes the server NAME — it is a TOML key, not just a label", () => {
-    // Bare, a dot addresses a nested table: `mcp_servers.a.b={…}` declares b
-    // UNDER a, and collides outright with a sibling `mcp_servers.a={…}` inline
-    // table, which is closed. The host constrains names today, but this
-    // renderer must not depend on a rule enforced three layers away.
-    const dotted = mcpArgs(input(server("my.server")))[1]!;
-    expect(dotted.startsWith('mcp_servers."my.server"=')).toBe(true);
-    // And a quote in a name cannot break out of the key either.
-    expect(mcpArgs(input(server('ev"il')))[1]!.startsWith('mcp_servers."ev\\"il"=')).toBe(
+  it("leaves the server NAME bare — codex reads the key literally", () => {
+    // This test used to assert the opposite, and it was pinning a belief
+    // rather than a behaviour: a quoted key IS valid TOML for the unquoted
+    // name, so quoting looked like the careful choice. codex does not
+    // unquote it. On a live pane it answered `Invalid MCP server name
+    // '"keepdeck"': must match pattern ^[a-zA-Z0-9_-]+$` and failed MCP
+    // startup entirely — the pane lost every server, not just this one.
+    expect(mcpArgs(input(server("keepdeck")))[1]!.startsWith("mcp_servers.keepdeck=")).toBe(
       true,
     );
+  });
+
+  it("skips a name codex could not accept, rather than mangling it", () => {
+    // There is no encoding codex takes for one — quoting is what it just
+    // refused — so the choice is to omit the server or to publish it under
+    // a name the deck does not believe it has. A dot would also address a
+    // nested table and collide with a sibling inline table.
+    expect(mcpArgs(input(server("my.server")))).toEqual([]);
+    expect(mcpArgs(input(server('ev"il')))).toEqual([]);
+    // ...and one bad name does not take its siblings with it.
+    expect(mcpArgs(input(server("my.server"), server("keepdeck")))).toHaveLength(2);
   });
 
   it("escapes what TOML cannot carry raw", () => {
@@ -48,7 +58,7 @@ describe("codex MCP overrides", () => {
       args: ["--mcp-shim", "/tmp/a\tb"],
     };
     expect(mcpArgs(input(quoted))[1]).toBe(
-      'mcp_servers."keepdeck"={command="C:\\\\Program Files\\\\Keep\\"Deck\\\\keepdeck.exe",' +
+      'mcp_servers.keepdeck={command="C:\\\\Program Files\\\\Keep\\"Deck\\\\keepdeck.exe",' +
         'args=["--mcp-shim","/tmp/a\\tb"]}',
     );
   });
@@ -75,7 +85,7 @@ describe("codex MCP overrides", () => {
   it("renders a server that takes no arguments and no env", () => {
     const bare = { ...server("keepdeck"), args: [] };
     expect(mcpArgs(input(bare))[1]).toBe(
-      'mcp_servers."keepdeck"={command="/bin/keepdeck",args=[]}',
+      'mcp_servers.keepdeck={command="/bin/keepdeck",args=[]}',
     );
   });
 

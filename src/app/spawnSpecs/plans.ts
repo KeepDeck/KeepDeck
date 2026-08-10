@@ -24,14 +24,19 @@ export const BRIDGE_PROTOCOL_VERSION = 1;
 
 /** Per-install constants, resolved once at boot (`session_spawn_context`). */
 export interface SpawnPlanContext {
-  /** This run's bridge inbox — where reporters drop postbacks; "" = bridge
-   * unavailable, identity mechanisms off. */
+  /** This run's bridge inbox — the root the panes' own inboxes live under;
+   * "" = bridge unavailable, identity mechanisms off. */
   bridgeDir: string;
+  /** Create (or reuse) the inbox belonging to ONE pane and answer its path.
+   * Asked per spawn, because the directory has to exist before the agent
+   * that writes into it. */
+  paneBridgeDir(paneId: string): Promise<string>;
 }
 
 /** A context with the bridge off — safe boot fallback. */
 export const EMPTY_SPAWN_CONTEXT: SpawnPlanContext = {
   bridgeDir: "",
+  paneBridgeDir: () => Promise.reject(new Error("the bridge is unavailable")),
 };
 
 /** What a pane's PTY spawn needs beyond the pane itself. */

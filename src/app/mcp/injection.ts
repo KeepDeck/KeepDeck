@@ -177,10 +177,16 @@ export function createMcpInjection({
   return {
     async access(target) {
       if (socket() === null) return NO_ACCESS;
-      // A shared directory gets an ANONYMOUS invocation. kimi's config is one
-      // file per directory, so two panes running there would both announce
-      // whichever secret was written last — and the journal would name the
-      // wrong pane, which is worse than naming none.
+      // A shared directory gets no secret ON THE INVOCATION. kimi's config is
+      // one file per directory, so two panes running there would both
+      // announce whichever secret was written last — and naming the wrong
+      // pane is worse than naming none.
+      //
+      // It is no longer anonymous, though: the shim falls back to the secret
+      // in `KEEPDECK_BRIDGE`, which every process under a pane inherits and
+      // which names that pane exactly. Before that, kimi in a shared
+      // directory could not use a pane-scoped tool at all — mail refused it
+      // with "this connection is not attached to a pane".
       const shared =
         target.agentType === KIMI_AGENT && panesIn(target.cwd) > 1;
       const invoked = await resolve(shared ? null : target.client);

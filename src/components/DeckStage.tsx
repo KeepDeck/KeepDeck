@@ -21,6 +21,7 @@ import {
   paneBody,
 } from "../domain/deck";
 import type { MinimizeStyle, DeckLayout } from "../domain/settings";
+import { teamNamesIn } from "../domain/mail";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedItem } from "./deck/MinimizedItem";
@@ -93,6 +94,9 @@ interface DeckStageProps {
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
+  /** Open an existing team by name. Absent while the teams experiment is
+   * off, which is also when no pane wears a badge to click. */
+  onOpenTeam?(name: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
   /** Idle panes blocked from waking: paneId → the missing directory
@@ -178,6 +182,7 @@ export function DeckStage({
   onRestoreSuspendedPane,
   onCloseAgent,
   onRenamePane,
+  onOpenTeam,
   onPaneTitle,
   idleBlocked,
   wakeFailed,
@@ -411,6 +416,12 @@ export function DeckStage({
               ? "Suspended"
               : "Minimized";
 
+        // Asked once for the deck, not once per pane: a role is only an
+        // identity while ONE team holds it, and with a second team running
+        // every badge needs to say which one it belongs to. The pane itself
+        // cannot see that — from where it stands, `lead` looks unique.
+        const teamsHere = teamNamesIn(ws).length;
+
         // Resolve one pane into a full AgentPane. The catalog / spec / cwd /
         // badge resolution lives in ONE place; `layout` carries positioning.
         const renderPane = (pane: Pane) => {
@@ -457,6 +468,9 @@ export function DeckStage({
               cwd={executionCwd}
               gitBadge={badge}
               yolo={pane.yolo}
+              team={pane.team ?? null}
+              showTeamName={teamsHere > 1}
+              onOpenTeam={onOpenTeam}
               visible={layout.visible}
               focused={layout.focused}
               hidden={layout.hidden}

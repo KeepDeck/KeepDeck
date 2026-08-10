@@ -99,12 +99,74 @@ export type AgentFeatureParameter =
   | null
   | readonly (string | number | boolean | null)[];
 
-/** The binaries a plugin's declared agents need — the host's pre-activation
- * input to one shared detection pass and its activation gate. */
+/**
+ * Every binary a plugin's declared agents need — the host's availability
+ * gate, which refuses to activate a plugin whose CLI is not installed.
+ *
+ * EVERY one, capability or not. Asking whether a name resolves on the PATH
+ * is not running it, and a plugin that declares an agent without an `exec`
+ * capability is still a plugin whose agent is missing: gating on the
+ * filtered list quietly activated it and let it contribute an agent that
+ * cannot start. What that capability governs is [`probeableAgentBins`].
+ */
 export function declaredAgentBins(manifest: PluginManifest): string[] {
   return (manifest.contributes.agents ?? [])
     .map((agent) => agent.bin)
     .filter((bin): bin is string => typeof bin === "string" && bin !== "");
+}
+
+/**
+ * The subset of those binaries the host may RUN, to ask `--version`.
+ *
+ * A version probe is an execution — of a program named by a manifest field,
+ * on behalf of a host that only wants to READ something. So it is gated by
+ * the same `exec` capability that governs a session spawn, and by the same
+ * rule: what is not covered is detected for presence and left alone. A
+ * renderer for such an agent simply gets `null`, which every consumer
+ * already reads as "assume the current schema".
+ *
+ * The host asks this of the manifest that OWNS the agent, never of the
+ * installed set as a whole — see `probeableBinOfAgent`. A union would let a
+ * plugin that declared nothing be probed on somebody else's consent.
+ */
+export function probeableAgentBins(manifest: PluginManifest): string[] {
+  return declaredAgentBins(manifest).filter((bin) =>
+    execCovers(manifest.capabilities, bin),
+  );
+}
+
+/**
+ * Whether a declared `exec` capability covers `subject` — the program a
+ * session is about to spawn, a bin about to be probed, or the literal
+ * `"$SHELL"` for the user's shell.
+ *
+ * An entry covers `subject` two ways: an exact string match, or a basename
+ * match — declaring `"git"` covers a spawn of `/usr/bin/git`, because a
+ * manifest author cannot be expected to guess the host's install path.
+ *
+ * There is no wildcard. `readManifest` rejects a bare `"*"` outright, so an
+ * entry meaning "any program" cannot reach this function from a manifest —
+ * and honouring one here anyway would only re-open the hole by a second
+ * route.
+ *
+ * It lives beside the manifest reader because it is a rule ABOUT manifests,
+ * and every asker needs the same answer: the spawn gate, the activation
+ * gate, the consent UI previewing what a declaration will let through, and
+ * `probeableAgentBins` above.
+ */
+export function execCovers(
+  capabilities: readonly Capability[],
+  subject: string,
+): boolean {
+  const cut = Math.max(subject.lastIndexOf("/"), subject.lastIndexOf("\\"));
+  const base = cut < 0 ? subject : subject.slice(cut + 1);
+  return capabilities.some(
+    (capability) =>
+      capability.kind === "exec" &&
+      capability.commands.some(
+        (command) => command === subject || command === base,
+      ),
+  );
 }
 
 /** Plugin categories. `cli` teaches KeepDeck a coding agent — it may

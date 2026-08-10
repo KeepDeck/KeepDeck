@@ -8,7 +8,7 @@ import {
   MinimizeIcon,
   RestoreIcon,
 } from "../../ui/icons";
-import { BranchBadge, YoloBadge } from "../../ui/badges";
+import { BranchBadge, TeamBadge, YoloBadge } from "../../ui/badges";
 import { CloseButton } from "../../ui/CloseButton";
 import { Chip } from "../../ui/Chip";
 import type { GitBadge } from "../../ui/gitBadge";
@@ -30,12 +30,22 @@ export interface AgentPaneHeaderProps {
   ctxPct: number | undefined;
   paneLive: boolean;
   yolo?: boolean;
+  /** The pane's place on a team, when it is on one. Shown as the role,
+   * because the role is the address teammates use. */
+  team?: { name: string; role: string } | null;
+  /** Whether the badge must also name the team — true where this deck runs
+   * more than one, which is the only case where a role alone is not an
+   * identity. A settled fact about the WHOLE deck: a header sees one pane. */
+  showTeamName?: boolean;
   gitBadge?: GitBadge | null;
   /** False while a modal or covering dock owns keyboard interaction — an
    * inline rename must not be left in flight underneath one. */
   keyboardFocusEnabled: boolean;
   onSelect(): void;
   onRename(name: string): void;
+  /** Open the team this pane is on. Absent while the feature is off, which
+   * is also when no badge is rendered — the two travel together. */
+  onOpenTeam?(name: string): void;
   onMinimize?(): void;
   onToggleFocus(): void;
   onClose(): void;
@@ -60,10 +70,13 @@ export function AgentPaneHeader({
   ctxPct,
   paneLive,
   yolo,
+  team,
+  showTeamName,
   gitBadge,
   keyboardFocusEnabled,
   onSelect,
   onRename,
+  onOpenTeam,
   onMinimize,
   onToggleFocus,
   onClose,
@@ -140,6 +153,37 @@ export function AgentPaneHeader({
           />
         )}
         {yolo && <YoloBadge className="pane__yolo" />}
+        {team && (
+          // The way IN to this pane's team, and the only one that scales: a
+          // workspace may run several, so the bar's button always makes a
+          // new one and each existing team is opened from a member wearing
+          // it — which is where somebody thinking about a team is already
+          // looking.
+          //
+          // It still settles nothing itself. A header can say WHICH teammate
+          // this is; it cannot answer "are these roles unique", which is the
+          // question that decides whether a team works, and that question
+          // needs the whole roster.
+          //
+          // Before the branch chip: which teammate this is outranks which
+          // branch it sits on when reading a deck mid-conversation, and the
+          // narrow-header cascade drops from the right.
+          <button
+            type="button"
+            className="pane__team-open"
+            onClick={() => onOpenTeam?.(team.name)}
+            title={`Open team “${team.name}” — who is on it and what each is called`}
+            aria-label={`Open team ${team.name}`}
+          >
+            <TeamBadge
+              className="pane__team"
+              team={team.name}
+              role={team.role}
+              showTeamName={showTeamName}
+              decorative
+            />
+          </button>
+        )}
         {gitBadge && (
           <BranchBadge
             className="pane__branch"
