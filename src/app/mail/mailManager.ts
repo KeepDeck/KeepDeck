@@ -4,10 +4,10 @@
  *
  * Everything that DECIDES lives in `src/domain/mail`; this holds what the
  * decisions need and nothing else: a queue per receiver, what each pane has
- * already been handed, and where each pane sits in a chain. It is the only
- * stateful piece of the feature, deliberately — a second store would have to
- * agree with this one about whether a message is still pending, and they
- * would disagree exactly when it mattered.
+ * already been handed, where each pane sits in a chain, and who is owed an
+ * answer by whom. It is the only stateful piece of the feature, deliberately
+ * — a second store would have to agree with this one about whether a message
+ * is still pending, and they would disagree exactly when it mattered.
  *
  * A FACTORY, like both its siblings: the app's one instance lives in
  * `createAppRuntime` and reaches consumers as a value, while each test
@@ -23,6 +23,7 @@ import {
   decideHandover,
   decideSend,
   expiryNotice,
+  isResponse,
   isStandingContext,
   senderName,
   type Mail,
@@ -181,19 +182,28 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * that pane sends inherits. */
   const chainHop = new Map<string, number>();
   /**
-   * What each pane was handed for the turn it is IN — the only candidates a
-   * reply edge is drawn from.
+   * What each pane owes an answer to, per teammate that is waiting.
    *
-   * Not the inbox: that is a session-long journal of up to fifty messages,
-   * and an unanswered note from an hour ago would sit there collecting
-   * today's reply. "What you were just handed" is a causal answer; "what is
-   * the newest thing of theirs I still hold" is a guess dressed as one.
+   * `outstanding.get(receiver).get(sender)` is the last message that sender
+   * had handed to this pane and has not been responded to, plus whether
+   * more than one is outstanding — which is all the deck needs to decide
+   * between naming what an answer answers and admitting it cannot tell.
+   *
+   * Deliberately built from the only two things this owner knows for
+   * certain — that it handed a message over, and that a pane sent one — and
+   * from their order. An earlier attempt scoped candidates to "the turn the
+   * pane is in", read from the status lane, and the lane cannot carry that:
+   * `waiting` is a turn parked mid-flight rather than a turn ending, a pane
+   * whose agent reports no status never transitions at all, the handover at
+   * a boundary races the edge that reports it, and a global snapshot diff
+   * made one pane's edge depend on whether some unrelated pane happened to
+   * report in between. None of those can reach this shape, because nothing
+   * here samples anything.
+   *
+   * Two per pair is all it can ever hold — one id and one flag — so a pane
+   * nobody answers costs a constant, not a growing list.
    */
-  const handedThisTurn = new Map<string, Mail[]>();
-  /** The activity state last seen per pane, so a turn ENDING can be told from
-   * any other status change — the handover itself happens at a boundary,
-   * where the pane is not working yet. */
-  const lastState = new Map<string, PaneActivity["state"] | undefined>();
+  const outstanding = new Map<string, Map<string, { id: string; ambiguous: boolean }>>();
   /** When each pane last took delivery, for spacing. */
   const lastDeliveryAt = new Map<string, number>();
   /** When each pane was last nudged into a turn.
@@ -242,47 +252,57 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     if (held.length > INBOX_LIMIT) held.splice(0, held.length - INBOX_LIMIT);
     inboxes.set(paneId, held);
     // Both channels book a delivery here, so this is the one place that knows
-    // what the pane is about to act on.
-    handedThisTurn.set(paneId, [...(handedThisTurn.get(paneId) ?? []), mail]);
+    // a teammate is now waiting on this pane. The deck's own voice is not:
+    // a briefing or a delivery report is nobody's outstanding ask.
+    if (mail.from.kind !== "pane") return;
+    const bySender = outstanding.get(paneId) ?? new Map();
+    // A second unanswered message from the same teammate makes the pair
+    // ambiguous, and it STAYS ambiguous until something clears it: the deck
+    // can see that two things are owed an answer and cannot see which one
+    // the next message takes.
+    bySender.set(mail.from.pane.paneId, {
+      id: mail.id,
+      ambiguous: bySender.has(mail.from.pane.paneId),
+    });
+    outstanding.set(paneId, bySender);
   }
 
-  /**
-   * Drop each pane's candidates once its turn is over.
-   *
-   * The transition is what matters, not the state: a message is handed over
-   * AT a boundary, where the pane reads as `done`, so clearing on `done`
-   * alone would throw the candidates away before the turn they belong to
-   * even starts. A pane that answers in some later turn simply gets no edge,
-   * which is the honest outcome — by then the deck cannot say what the
-   * answer answers.
-   */
-  function forgetFinishedTurns(): void {
-    for (const paneId of [...handedThisTurn.keys()]) {
-      const state = deps.activityOf(paneId)?.state;
-      const before = lastState.get(paneId);
-      lastState.set(paneId, state);
-      if (before === "working" && state !== "working") handedThisTurn.delete(paneId);
+  /** Forget what `paneId` owed `senderPaneId`, or everything it owed. */
+  function settleOutstanding(paneId: string, senderPaneId?: string): void {
+    if (senderPaneId === undefined) {
+      outstanding.delete(paneId);
+      return;
     }
+    const bySender = outstanding.get(paneId);
+    bySender?.delete(senderPaneId);
+    if (bySender?.size === 0) outstanding.delete(paneId);
   }
 
   /**
-   * The message a send from `fromPaneId` to `toPaneId` answers, if the deck
-   * can say which without guessing.
+   * What a message from `fromPaneId` to `toPaneId` is answering, and the
+   * bookkeeping that goes with saying so.
    *
-   * Exactly one candidate, or none at all. Picking the newest of several
-   * would leave the others looking unanswered forever and the chosen one
-   * answered when it was not — and a wrong edge fails toward a MISSED
-   * observation ("nobody is waiting on anything"), while a missing edge
-   * fails toward a visible one. The deck is watched; it should err loudly.
+   * Only a RESPONDING kind draws an edge or spends what is outstanding — a
+   * lead handing out the next task while holding a teammate's answer must
+   * not lose the chance to answer it, and its task must not be labelled a
+   * reply to it.
    *
-   * Host messages never qualify: a briefing or a delivery report has no pane
-   * behind it, so it is nobody's outstanding ask.
+   * Ambiguity yields nothing and still settles the pair. Naming one of two
+   * would mark the other unanswered forever and this one answered when it
+   * was not, and a wrong edge fails toward a MISSED observation ("nobody is
+   * waiting on anything") while a missing one fails toward a visible one —
+   * the deck is watched, so it should err loudly. Settling anyway is what
+   * keeps a pair from being permanently unable to draw an edge again.
    */
-  function replyEdge(fromPaneId: string, toPaneId: string): string | undefined {
-    const candidates = (handedThisTurn.get(fromPaneId) ?? []).filter(
-      (mail) => mail.from.kind === "pane" && mail.from.pane.paneId === toPaneId,
-    );
-    return candidates.length === 1 ? candidates[0].id : undefined;
+  function replyEdge(
+    fromPaneId: string,
+    toPaneId: string,
+    kind: MailKind,
+  ): string | undefined {
+    if (!isResponse(kind)) return undefined;
+    const owed = outstanding.get(fromPaneId)?.get(toPaneId);
+    settleOutstanding(fromPaneId, toPaneId);
+    return owed && !owed.ambiguous ? owed.id : undefined;
   }
 
   /**
@@ -447,10 +467,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   }
 
   const unsubscribes = [
-    deps.subscribeActivity(() => {
-      forgetFinishedTurns();
-      drain();
-    }),
+    deps.subscribeActivity(() => drain()),
     deps.subscribeChannels(() => drain()),
   ];
 
@@ -469,7 +486,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // hand cost two lines of briefing, was checked by nothing, and taught
       // it to hoard message ids — which then reached `inbox`'s `since` as an
       // id that pane never held.
-      const replyTo = replyEdge(request.from.paneId, request.toPaneId);
+      const replyTo = replyEdge(request.from.paneId, request.toPaneId, request.kind);
       const mail: Mail = {
         id: mintId(),
         kind: request.kind,
@@ -600,11 +617,14 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         const held = inboxes.get(mail.toPaneId);
         const at = held?.findIndex((seen) => seen.id === mail.id) ?? -1;
         if (held && at >= 0) held.splice(at, 1);
-        // And it is not a reply candidate either: nobody read it, so nothing
-        // this pane sends can be answering it.
-        const handed = handedThisTurn.get(mail.toPaneId);
-        const candidate = handed?.findIndex((seen) => seen.id === mail.id) ?? -1;
-        if (handed && candidate >= 0) handed.splice(candidate, 1);
+        // Nobody read it, so nothing this pane sends can be answering it —
+        // and the pair's tally cannot have one message subtracted from it,
+        // being a count rather than a list. Dropping it says "I no longer
+        // know", which is the honest answer and the safe one: what it can
+        // cost is an edge, and what keeping it could cost is a wrong one.
+        if (mail.from.kind === "pane") {
+          settleOutstanding(mail.toPaneId, mail.from.pane.paneId);
+        }
       }
       drain();
     },
@@ -617,28 +637,29 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     retain(liveIds) {
-      for (const map of [
-        queues,
-        inboxes,
-        chainHop,
-        lastDeliveryAt,
-        lastWakeAt,
-        handedThisTurn,
-        lastState,
-      ]) {
+      for (const map of [queues, inboxes, chainHop, lastDeliveryAt, lastWakeAt, outstanding]) {
         for (const id of [...map.keys()]) {
           if (!liveIds.has(id)) map.delete(id);
         }
+      }
+      // A dead pane is also owed nothing by the living: its half of every
+      // pair goes too, or a fresh pane inheriting its slot would be handed
+      // an edge pointing into a conversation it was never part of.
+      for (const [paneId, bySender] of outstanding) {
+        for (const senderId of [...bySender.keys()]) {
+          if (!liveIds.has(senderId)) bySender.delete(senderId);
+        }
+        if (bySender.size === 0) outstanding.delete(paneId);
       }
     },
 
     clear(paneId) {
       chainHop.delete(paneId);
       lastDeliveryAt.delete(paneId);
-      // The turn those messages were handed for belonged to the process that
-      // just retired; the next one is not answering them.
-      handedThisTurn.delete(paneId);
-      lastState.delete(paneId);
+      // Whatever this pane owed an answer to was owed by the process that
+      // just retired. The next one never read those messages and is not
+      // answering them.
+      settleOutstanding(paneId);
       // A nudge was aimed at the process that just retired. The next one
       // starts fresh and is owed one of its own — most of all here, since a
       // restarted pane is exactly the pane that has forgotten everything.

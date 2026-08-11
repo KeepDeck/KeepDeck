@@ -674,69 +674,159 @@ describe("createMailManager", () => {
 });
 
 describe("the reply edge", () => {
-  it("points an answer at the message that turn was handed", () => {
-    const h = harness();
+  /** The one edge everything else is a variation on: A asks, B answers. */
+  function asked(h: ReturnType<typeof harness>) {
     h.reports(B.paneId, done);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase onto main" });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
     h.reports(A.paneId, done);
-    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "rebased" });
-    expect(last(h.delivered)?.replyTo).toBe("mail-1");
+  }
+
+  /**
+   * The edge on the message carrying this body — found by lookup, never by
+   * position.
+   *
+   * Reading the last delivery asserts about whatever landed most recently,
+   * which is not always the message under test: a delivery to a third pane,
+   * or one the deck itself sent, can land in between, and the assertion then
+   * passes or fails for reasons the test never states. Failing loudly when
+   * the message was not delivered at all is the other half — an edge read
+   * off `undefined` is a test that cannot fail.
+   */
+  function edgeOn(h: ReturnType<typeof harness>, body: string): string | undefined {
+    const sent = h.delivered.filter((mail) => mail.body === body);
+    expect(sent, `expected exactly one delivered message saying "${body}"`).toHaveLength(1);
+    return sent[0]?.replyTo;
+  }
+
+  it("names what an answer answers", () => {
+    const h = harness();
+    asked(h);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(edgeOn(h, "8080")).toBe("mail-1");
   });
 
-  it("opens a topic with no edge at all", () => {
-    // Nothing was handed to this pane, so it is not answering anything —
-    // and saying so is the point: an empty edge is what "a new subject"
-    // looks like.
+  it("spends it, so the next thing said is not a second answer to it", () => {
+    // The edge used to be computed per send and never consumed, so
+    // everything a pane said to one teammate in a row carried the same
+    // `replyTo` — one question with three answers, and an aside labelled as
+    // one of them.
     const h = harness();
-    h.reports(B.paneId, done);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "starting on it" });
-    expect(last(h.delivered)?.replyTo).toBeUndefined();
-  });
-
-  it("refuses to choose when the turn was handed two from the same teammate", () => {
-    // Taking the newest would leave the other looking unanswered forever
-    // and mark the chosen one answered when it was not. A wrong edge hides
-    // a stuck exchange; a missing one shows somebody still waiting, which
-    // is the mistake a watched deck can afford.
-    const h = harness();
-    h.reports(B.paneId, done);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "first" });
+    asked(h);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
     h.advance(PAST_SPACING);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "and also this" });
-    h.reports(A.paneId, done);
-    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "done" });
-    expect(last(h.delivered)?.replyTo).toBeUndefined();
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "question", body: "and the host?" });
+    expect(edgeOn(h, "8080")).toBe("mail-1");
+    expect(edgeOn(h, "and the host?")).toBeUndefined();
   });
 
-  it("forgets the candidates once that turn has ended", () => {
-    // The transition is what clears them, not the state: a handover happens
-    // AT a boundary, where the pane reads as done, so clearing on `done`
-    // alone would throw them away before the turn they belong to begins.
+  it("lets a task pass without answering anything or spending what is owed", () => {
+    // A lead holding a teammate's question hands out the next piece of work
+    // before getting to it. That work order is not a reply — and it must not
+    // cost the lead the chance to reply afterwards.
+    const h = harness();
+    h.reports(A.paneId, done);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "question", body: "which port?" });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "start on the parser" });
+    h.advance(PAST_SPACING);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "answer", body: "8080" });
+    expect(edgeOn(h, "start on the parser")).toBeUndefined();
+    expect(edgeOn(h, "8080")).toBe("mail-1");
+  });
+
+  it("refuses to choose between two the same teammate is waiting on, then recovers", () => {
+    // Naming one would mark the other unanswered forever and this one
+    // answered when it was not. Settling the pair anyway is what stops the
+    // two from making every later exchange between them unattributable.
     const h = harness();
     h.reports(B.paneId, done);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase onto main" });
-    h.reports(B.paneId, { state: "working", since: 2 });
-    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.advance(PAST_SPACING);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "and the host?" });
     h.reports(A.paneId, done);
-    h.manager.send({ from: B, toPaneId: A.paneId, kind: "note", body: "by the way" });
-    expect(last(h.delivered)?.replyTo).toBeUndefined();
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "both are in the env" });
+    h.advance(PAST_SPACING);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which env?" });
+    h.advance(PAST_SPACING);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: ".env.local" });
+    expect(edgeOn(h, "both are in the env")).toBeUndefined();
+    expect(edgeOn(h, ".env.local")).toBe("mail-4");
   });
 
-  it("drops a candidate that was taken at a boundary and never rendered", () => {
-    // Put back means nobody read it, so nothing this pane says next can be
-    // answering it — the same withdrawal its inbox entry gets.
+  it("is unmoved by a permission prompt in the middle of the answering turn", () => {
+    // The previous mechanism read "not working" as the turn ending, so the
+    // first approval prompt threw the question away and the answer that
+    // followed named nothing — which is most real task turns.
+    const h = harness();
+    asked(h);
+    // B — the pane that owes the answer — works, stops for an approval, and
+    // carries on. None of that ends its turn.
+    h.reports(B.paneId, { state: "working", since: 2 });
+    h.reports(B.paneId, approving);
+    h.reports(B.paneId, { state: "working", since: 3 });
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(edgeOn(h, "8080")).toBe("mail-1");
+  });
+
+  it("works for a pane that reports no activity at all", () => {
+    // Nothing here is reported: a CLI with no status voice, or one whose
+    // plugin contributes a renderer and no normalizer. The old mechanism
+    // waited for a transition that never came, so such a pane accumulated
+    // candidates for the whole session and answered with a stale edge.
+    const h = harness();
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(edgeOn(h, "8080")).toBe("mail-1");
+  });
+
+  it("does not let the deck's own voice stand in the way", () => {
+    // A briefing or a delivery report arriving between the question and the
+    // answer must not make the pair look ambiguous — nobody is waiting on
+    // KeepDeck, and an agent cannot answer it.
+    const h = harness();
+    asked(h);
+    // Handed to B, the pane that owes the answer, between the question and
+    // its reply — the position where a second teammate message would make
+    // the pair ambiguous.
+    h.advance(PAST_SPACING);
+    h.manager.announce(B.paneId, "note", "a teammate left the team");
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(edgeOn(h, "8080")).toBe("mail-1");
+  });
+
+  it("stops owing an answer to a handover that was put back unread", () => {
     const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, done);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase onto main" });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
     const taken = h.manager.takeAtTurnEnd(B.paneId);
     expect(taken).toHaveLength(1);
     h.manager.restore(taken);
     h.reports(A.paneId, done);
-    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "rebased" });
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
     // Read through the boundary, not through `delivered`: a pane that asks
     // at a turn end is nudged rather than pasted into, so nothing lands in
     // the terminal and asserting there would pass without proving anything.
     const [answer] = h.manager.takeAtTurnEnd(A.paneId);
     expect(answer.replyTo).toBeUndefined();
+  });
+
+  it("does not hand a restarted process an answer its predecessor was asked for", () => {
+    const h = harness();
+    asked(h);
+    // B's process retires — a restart, a suspend. Whatever it was asked, it
+    // was asked of a process that no longer exists.
+    h.manager.clear(B.paneId);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(edgeOn(h, "8080")).toBeUndefined();
+  });
+
+  it("forgets what a pane that is gone was waiting for", () => {
+    // Both halves of a pair have to go, or the survivor answers into a
+    // conversation whoever inherits the slot was never part of.
+    const h = harness();
+    asked(h);
+    h.manager.retain(new Set([B.paneId]));
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(edgeOn(h, "8080")).toBeUndefined();
   });
 });

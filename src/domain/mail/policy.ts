@@ -119,6 +119,25 @@ export type MailHoldReason =
 export function isStandingContext(kind: MailKind): boolean {
   return kind === "team";
 }
+
+/**
+ * Whether sending this is RESPONDING to something, rather than opening a
+ * subject of its own.
+ *
+ * The deck attributes an answer to what it answers without asking the agent
+ * for an id, and this is the half of that rule made of domain vocabulary:
+ * `answer` closes something the sender was asked, and a `question` back is
+ * the response an ambiguous task is supposed to get — the implementer's
+ * charter says so in as many words. A `task` is a work order and a `note`
+ * arrives unbidden; neither answers anything, and letting them draw an edge
+ * would mark a teammate's ask answered by a message that ignored it.
+ *
+ * `team` and `undelivered` are the deck's own voice and never sent by an
+ * agent at all, so they fall out on the same side.
+ */
+export function isResponse(kind: MailKind): boolean {
+  return kind === "answer" || kind === "question";
+}
 export type MailVerdict =
   /** Push the message itself into the pane's terminal. Only for an agent
    * with no labelled channel at all — for everyone else, see `wake`. */
