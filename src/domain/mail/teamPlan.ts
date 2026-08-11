@@ -104,7 +104,12 @@ export function teamBriefing(
       ? `The rest of the KeepDeck team, addressed by role:\n${mates.map(rosterLine).join("\n")}`
       : "You are its only member so far.",
     'Write to one with the keepdeck mail.send tool — to: "<role>", plus kind (task, question, answer or note) and body.',
-    "Read anything you have not seen with mail.inbox; answer by quoting the message id in replyTo.",
+    // No id to quote back. Correlating an answer with what it answers is the
+    // deck's job now — it knows what this pane was handed — and asking the
+    // agent for it bought nothing: nothing validated the id, nothing read it,
+    // and the habit of holding ids is what sent foreign ones to `since`.
+    // Saying the subject in words does the same work for the reader.
+    "Read anything you have not seen with mail.inbox. When you answer, say what you are answering — the subject, not an id.",
     // The sender's half of the same fact. A lead shown `delivered: false`
     // read it as failure, re-sent, and then went looking for whether its
     // teammates existed — while three good messages sat in the queue.

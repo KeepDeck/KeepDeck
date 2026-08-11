@@ -48,7 +48,10 @@ describe("renderMail", () => {
     const text = renderMail(mail());
     expect(text).toContain("Agent 1");
     expect(text).toContain("not your user");
-    expect(text).toContain('replyTo="mail-3"');
+    // The header tells a reply where to go, not which id to carry back: the
+    // deck draws that edge from what this pane was handed.
+    expect(text).toContain('answer with mail.send to="Agent 1"');
+    expect(text).not.toContain("replyTo");
     // The body is verbatim and starts its own line — nothing reformats what
     // one agent chose to say to another.
     expect(text.endsWith("\nwhich signature does the port take?")).toBe(true);
