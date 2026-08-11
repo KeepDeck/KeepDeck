@@ -204,6 +204,10 @@ describe("mail.inbox", () => {
       expect(messages[0].body).toBe("which port?");
       expect(messages[0].from).toEqual({
         kind: "pane",
+        // On no team there is no role, so the title is the only address
+        // there is — and it is the fallback rather than `paneId` because it
+        // fails with a refusal instead of reaching an inherited slot.
+        address: "Agent 1",
         label: "Agent 1",
         paneId: "pane-1",
       });
@@ -238,6 +242,30 @@ describe("mail.inbox", () => {
         role: "lead",
       },
     });
+    // And the READ path says the same. It did not: the message carried the
+    // role and both delivery channels showed it, while this projection —
+    // the one the briefing points an agent at — handed back a window title
+    // and an opaque id, so a receiver had nothing to put in `to`.
+    const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      const messages = read.value as { from: { address: string; label: string } }[];
+      expect(messages[0].from.address).toBe("lead");
+      expect(messages[0].from.label).toBe("Структура команды и количество подчинённых");
+    }
+  });
+
+  it("gives a host notice no address, because there is nobody to answer", async () => {
+    // The deck speaks only to report on delivery. A reply would go nowhere,
+    // and the union says so rather than leaving every read site to notice.
+    const { registry, mail } = setup();
+    mail.announce("pane-2", "note", "your teammate left the team");
+    const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      const messages = read.value as { from: unknown }[];
+      expect(messages[0].from).toEqual({ kind: "host" });
+    }
   });
 
   it("keeps the hop counter off the wire", async () => {

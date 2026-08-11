@@ -111,22 +111,32 @@ export function senderOf(source: CommandSource): MailSender | null {
 }
 
 /**
- * The name a receiver will address its reply TO, or null when the deck is
- * speaking and there is nobody to answer.
+ * What a receiver puts in `to` to answer this sender.
  *
  * The ROLE, because a receiver answers to whatever it is shown and only a
  * role is an address. A pane title is not one: shown a title, an agent sent
  * to the title and was refused. The title is the fallback for a sender on no
- * team, where there is no address to give — and the reply then has to be
- * addressed some other way.
+ * team, where there is no address to give.
+ *
+ * The third candidate — `paneId` — is deliberately NOT this. It always
+ * resolves, which sounds like the safe answer and is the opposite of one:
+ * `pane-N` is a reusable slot, so a stale id quietly reaches whoever
+ * inherited it, while a stale role or title comes back as a refusal. Naming
+ * the wrong pane is worse than naming none.
  *
  * A fact about the MESSAGE, not about a channel, which is why it lives here.
  * Both delivery paths derived it independently, each carrying its own copy of
  * this reasoning; change one and that channel's receivers keep getting a name
  * `resolveMailTarget` will refuse.
  */
+export function senderAddress(sender: MailSender): string {
+  return sender.role ?? sender.label;
+}
+
+/**
+ * The same answer for a whole message: the name a receiver will address its
+ * reply TO, or null when the deck is speaking and there is nobody to answer.
+ */
 export function senderName(mail: Mail): string | null {
-  return mail.from.kind === "pane"
-    ? (mail.from.pane.role ?? mail.from.pane.label)
-    : null;
+  return mail.from.kind === "pane" ? senderAddress(mail.from.pane) : null;
 }

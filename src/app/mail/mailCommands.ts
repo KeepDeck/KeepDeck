@@ -23,6 +23,7 @@ import {
   teamMembers,
   leadRole,
   resolveMailTarget,
+  senderAddress,
   senderOf,
   teamRoles,
   type Mail,
@@ -104,9 +105,22 @@ function str(args: CommandArgs, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-/** One message as the calling agent sees it. `hop` stays inside — it bounds
- * the conversation and is not the agent's business, and an agent that could
- * read it could try to reason its way around the bound. */
+/**
+ * One message as the calling agent sees it.
+ *
+ * The sender is named THREE ways because a receiver asks three different
+ * questions about it, and answering them with one field is what sent an
+ * agent looking for a window title: `address` is what goes in `to`, `label`
+ * is how a person reads it, `paneId` is who spoke and stays the same as long
+ * as that pane lives. Only `address` is an address, and the domain answers
+ * it — the two delivery channels already ask [`senderAddress`], and a
+ * projection with an opinion of its own is how this read path came to be the
+ * one that showed a title while the other two showed a role.
+ *
+ * `hop` stays inside — it bounds the conversation and is not the agent's
+ * business, and an agent that could read it could try to reason its way
+ * around the bound.
+ */
 function wire(mail: Mail) {
   return {
     id: mail.id,
@@ -119,6 +133,7 @@ function wire(mail: Mail) {
         ? { kind: "host" as const }
         : {
             kind: "pane" as const,
+            address: senderAddress(mail.from.pane),
             label: mail.from.pane.label,
             paneId: mail.from.pane.paneId,
           },
