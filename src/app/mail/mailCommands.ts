@@ -154,7 +154,12 @@ export function registerMailCommands(
           name: "to",
           type: "string",
           required: true,
-          description: "Recipient agent pane title, name, or id — in your own workspace",
+          // Named the way a reply is actually addressed. Saying "title, name,
+          // or id" described the fallback and left out the one name a
+          // teammate can be sure of, while the briefing taught roles — so
+          // the two surfaces an agent reads disagreed about how to answer.
+          description:
+            "Recipient's address in your own workspace: the role a message shows as `from.address` (lead, impl-1), or a pane title or id for an agent on no team",
         },
         {
           name: "kind",
@@ -163,11 +168,11 @@ export function registerMailCommands(
           description: `What this is: ${SENDABLE_KINDS.join(", ")}`,
         },
         { name: "body", type: "string", required: true, description: "The message" },
-        {
-          name: "replyTo",
-          type: "string",
-          description: "Id of the message this answers, when it answers one",
-        },
+        // No `replyTo`. The deck derives the edge from what this pane was
+        // handed for the turn it is in — see [`MailManager.send`]. Left as an
+        // argument it would be bookkeeping an agent maintains by hand, which
+        // costs briefing lines, is checked by nothing, and taught agents to
+        // hoard message ids they then fed to `mail.inbox`'s `since`.
       ],
       run: (args, source) => {
         const from = requireSender(source);
@@ -204,7 +209,6 @@ export function registerMailCommands(
           toPaneId: resolved.value.id,
           kind: kind as MailKind,
           body: args.body as string,
-          ...(str(args, "replyTo") ? { replyTo: str(args, "replyTo") } : {}),
         });
         if (!result.ok) throw new Error(refusalText(result.refusal));
         // ACCEPTED either way, and the answer has to say so in a word rather

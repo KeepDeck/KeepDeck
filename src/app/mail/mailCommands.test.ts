@@ -255,6 +255,23 @@ describe("mail.inbox", () => {
     }
   });
 
+  it("refuses a replyTo an agent supplies — the edge is the deck's", async () => {
+    // Nothing ever validated it, so an agent could point an answer at any id
+    // it liked. It is gone as an argument, and the registry's own refusal of
+    // an unknown one is the right answer rather than a silent drop: an agent
+    // still carrying the old instruction learns in one round trip, instead
+    // of believing it linked a message it did not.
+    const { registry, delivered } = setup();
+    const result = await run(
+      registry,
+      "mail.send",
+      { to: "pane-2", kind: "answer", body: "done", replyTo: "mail-999" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(false);
+    expect(delivered).toHaveLength(0);
+  });
+
   it("gives a host notice no address, because there is nobody to answer", async () => {
     // The deck speaks only to report on delivery. A reply would go nowhere,
     // and the union says so rather than leaving every read site to notice.

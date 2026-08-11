@@ -72,7 +72,6 @@ export interface MailSendRequest {
   toPaneId: string;
   kind: MailKind;
   body: string;
-  replyTo?: string;
 }
 
 export type MailSendResult =
@@ -181,6 +180,20 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   /** The hop of the message that last WOKE each pane — what the next message
    * that pane sends inherits. */
   const chainHop = new Map<string, number>();
+  /**
+   * What each pane was handed for the turn it is IN — the only candidates a
+   * reply edge is drawn from.
+   *
+   * Not the inbox: that is a session-long journal of up to fifty messages,
+   * and an unanswered note from an hour ago would sit there collecting
+   * today's reply. "What you were just handed" is a causal answer; "what is
+   * the newest thing of theirs I still hold" is a guess dressed as one.
+   */
+  const handedThisTurn = new Map<string, Mail[]>();
+  /** The activity state last seen per pane, so a turn ENDING can be told from
+   * any other status change — the handover itself happens at a boundary,
+   * where the pane is not working yet. */
+  const lastState = new Map<string, PaneActivity["state"] | undefined>();
   /** When each pane last took delivery, for spacing. */
   const lastDeliveryAt = new Map<string, number>();
   /** When each pane was last nudged into a turn.
@@ -228,6 +241,48 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     held.push(mail);
     if (held.length > INBOX_LIMIT) held.splice(0, held.length - INBOX_LIMIT);
     inboxes.set(paneId, held);
+    // Both channels book a delivery here, so this is the one place that knows
+    // what the pane is about to act on.
+    handedThisTurn.set(paneId, [...(handedThisTurn.get(paneId) ?? []), mail]);
+  }
+
+  /**
+   * Drop each pane's candidates once its turn is over.
+   *
+   * The transition is what matters, not the state: a message is handed over
+   * AT a boundary, where the pane reads as `done`, so clearing on `done`
+   * alone would throw the candidates away before the turn they belong to
+   * even starts. A pane that answers in some later turn simply gets no edge,
+   * which is the honest outcome — by then the deck cannot say what the
+   * answer answers.
+   */
+  function forgetFinishedTurns(): void {
+    for (const paneId of [...handedThisTurn.keys()]) {
+      const state = deps.activityOf(paneId)?.state;
+      const before = lastState.get(paneId);
+      lastState.set(paneId, state);
+      if (before === "working" && state !== "working") handedThisTurn.delete(paneId);
+    }
+  }
+
+  /**
+   * The message a send from `fromPaneId` to `toPaneId` answers, if the deck
+   * can say which without guessing.
+   *
+   * Exactly one candidate, or none at all. Picking the newest of several
+   * would leave the others looking unanswered forever and the chosen one
+   * answered when it was not — and a wrong edge fails toward a MISSED
+   * observation ("nobody is waiting on anything"), while a missing edge
+   * fails toward a visible one. The deck is watched; it should err loudly.
+   *
+   * Host messages never qualify: a briefing or a delivery report has no pane
+   * behind it, so it is nobody's outstanding ask.
+   */
+  function replyEdge(fromPaneId: string, toPaneId: string): string | undefined {
+    const candidates = (handedThisTurn.get(fromPaneId) ?? []).filter(
+      (mail) => mail.from.kind === "pane" && mail.from.pane.paneId === toPaneId,
+    );
+    return candidates.length === 1 ? candidates[0].id : undefined;
   }
 
   /**
@@ -392,7 +447,10 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   }
 
   const unsubscribes = [
-    deps.subscribeActivity(() => drain()),
+    deps.subscribeActivity(() => {
+      forgetFinishedTurns();
+      drain();
+    }),
     deps.subscribeChannels(() => drain()),
   ];
 
@@ -407,6 +465,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         request.kind,
       );
       if (verdict.kind === "refuse") return { ok: false, refusal: verdict.refusal };
+      // Derived, never taken from the caller. An agent maintaining this by
+      // hand cost two lines of briefing, was checked by nothing, and taught
+      // it to hoard message ids — which then reached `inbox`'s `since` as an
+      // id that pane never held.
+      const replyTo = replyEdge(request.from.paneId, request.toPaneId);
       const mail: Mail = {
         id: mintId(),
         kind: request.kind,
@@ -415,7 +478,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         toPaneId: request.toPaneId,
         at: now(),
         hop: verdict.hop,
-        ...(request.replyTo ? { replyTo: request.replyTo } : {}),
+        ...(replyTo ? { replyTo } : {}),
       };
       enqueue(mail);
       drain();
@@ -537,6 +600,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         const held = inboxes.get(mail.toPaneId);
         const at = held?.findIndex((seen) => seen.id === mail.id) ?? -1;
         if (held && at >= 0) held.splice(at, 1);
+        // And it is not a reply candidate either: nobody read it, so nothing
+        // this pane sends can be answering it.
+        const handed = handedThisTurn.get(mail.toPaneId);
+        const candidate = handed?.findIndex((seen) => seen.id === mail.id) ?? -1;
+        if (handed && candidate >= 0) handed.splice(candidate, 1);
       }
       drain();
     },
@@ -549,7 +617,15 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     retain(liveIds) {
-      for (const map of [queues, inboxes, chainHop, lastDeliveryAt, lastWakeAt]) {
+      for (const map of [
+        queues,
+        inboxes,
+        chainHop,
+        lastDeliveryAt,
+        lastWakeAt,
+        handedThisTurn,
+        lastState,
+      ]) {
         for (const id of [...map.keys()]) {
           if (!liveIds.has(id)) map.delete(id);
         }
@@ -559,6 +635,10 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     clear(paneId) {
       chainHop.delete(paneId);
       lastDeliveryAt.delete(paneId);
+      // The turn those messages were handed for belonged to the process that
+      // just retired; the next one is not answering them.
+      handedThisTurn.delete(paneId);
+      lastState.delete(paneId);
       // A nudge was aimed at the process that just retired. The next one
       // starts fresh and is owed one of its own — most of all here, since a
       // restarted pane is exactly the pane that has forgotten everything.

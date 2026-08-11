@@ -672,3 +672,71 @@ describe("createMailManager", () => {
     expect(h.delivered).toHaveLength(0);
   });
 });
+
+describe("the reply edge", () => {
+  it("points an answer at the message that turn was handed", () => {
+    const h = harness();
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase onto main" });
+    h.reports(A.paneId, done);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "rebased" });
+    expect(last(h.delivered)?.replyTo).toBe("mail-1");
+  });
+
+  it("opens a topic with no edge at all", () => {
+    // Nothing was handed to this pane, so it is not answering anything —
+    // and saying so is the point: an empty edge is what "a new subject"
+    // looks like.
+    const h = harness();
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "starting on it" });
+    expect(last(h.delivered)?.replyTo).toBeUndefined();
+  });
+
+  it("refuses to choose when the turn was handed two from the same teammate", () => {
+    // Taking the newest would leave the other looking unanswered forever
+    // and mark the chosen one answered when it was not. A wrong edge hides
+    // a stuck exchange; a missing one shows somebody still waiting, which
+    // is the mistake a watched deck can afford.
+    const h = harness();
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "first" });
+    h.advance(PAST_SPACING);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "and also this" });
+    h.reports(A.paneId, done);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "done" });
+    expect(last(h.delivered)?.replyTo).toBeUndefined();
+  });
+
+  it("forgets the candidates once that turn has ended", () => {
+    // The transition is what clears them, not the state: a handover happens
+    // AT a boundary, where the pane reads as done, so clearing on `done`
+    // alone would throw them away before the turn they belong to begins.
+    const h = harness();
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase onto main" });
+    h.reports(B.paneId, { state: "working", since: 2 });
+    h.reports(B.paneId, done);
+    h.reports(A.paneId, done);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "note", body: "by the way" });
+    expect(last(h.delivered)?.replyTo).toBeUndefined();
+  });
+
+  it("drops a candidate that was taken at a boundary and never rendered", () => {
+    // Put back means nobody read it, so nothing this pane says next can be
+    // answering it — the same withdrawal its inbox entry gets.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase onto main" });
+    const taken = h.manager.takeAtTurnEnd(B.paneId);
+    expect(taken).toHaveLength(1);
+    h.manager.restore(taken);
+    h.reports(A.paneId, done);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "rebased" });
+    // Read through the boundary, not through `delivered`: a pane that asks
+    // at a turn end is nudged rather than pasted into, so nothing lands in
+    // the terminal and asserting there would pass without proving anything.
+    const [answer] = h.manager.takeAtTurnEnd(A.paneId);
+    expect(answer.replyTo).toBeUndefined();
+  });
+});
