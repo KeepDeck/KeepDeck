@@ -85,8 +85,10 @@ export interface Mail {
   /** When the SENDER spoke. Expiry runs on this clock, not on when delivery
    * was last attempted — see [`decideDelivery`]. */
   at: number;
-  /** The message this one answers, when the sender named one. Correlation
-   * only: nothing enforces that the answer ever comes. */
+  /** The message this one answers, when the deck can say which — derived
+   * from what the sender was owed, never named by the sender, which had no
+   * way to be checked and taught agents to hoard ids. Correlation only:
+   * nothing enforces that the answer ever comes. */
   replyTo?: string;
   /** How many mail-caused wakes this chain has already spent — the counter
    * [`decideSend`] bounds. Zero means this message opens a chain. */

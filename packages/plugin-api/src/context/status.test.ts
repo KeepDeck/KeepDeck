@@ -32,8 +32,10 @@ describe("frameTeammateMail", () => {
   });
 
   it("heads each message with the facts a receiver cannot work out", () => {
-    // Its id (so a reply can quote it), its kind (a task is not a note), and
-    // the sender's ADDRESS — the name the receiver will write back to.
+    // Its id (which the deck's own logs and reports name it by), its kind
+    // (a task is not a note), and the sender's ADDRESS — the name the
+    // receiver will write back to. The id is not a reply's to carry: the
+    // deck derives what an answer answers on its own.
     const text = frameTeammateMail([mail()]);
     expect(text).toContain("[mail-1 · task · from lead]");
     expect(text).toContain("take the parser");

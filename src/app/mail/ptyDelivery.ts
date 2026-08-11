@@ -32,8 +32,8 @@ import { paneInputReady, paneInputSettled, submitToPane } from "../paneInput";
  * the address to send it to.
  */
 export function renderMail(mail: Mail): string {
-  // Named by ROLE, never by pane title — see [`senderName`], which both
-  // channels ask rather than each deciding.
+  // Named by ROLE, never by pane title — see [`senderAddress`], which every
+  // read path asks rather than each deciding.
   const from = senderName(mail);
   const origin =
     from === null
