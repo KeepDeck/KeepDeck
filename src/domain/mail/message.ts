@@ -105,9 +105,6 @@ export interface Mail {
    * way to be checked and taught agents to hoard ids. Correlation only:
    * nothing enforces that the answer ever comes. */
   replyTo?: string;
-  /** How many mail-caused wakes this chain has already spent — the counter
-   * [`decideSend`] bounds. Zero means this message opens a chain. */
-  hop: number;
 }
 
 /**

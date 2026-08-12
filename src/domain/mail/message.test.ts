@@ -59,7 +59,6 @@ describe("senderName", () => {
     from,
     toPaneId: "pane-2",
     at: 0,
-    hop: 0,
   });
 
   it("gives every channel the same answer as senderAddress", () => {

@@ -48,9 +48,8 @@ export function createPaneLifecycle(
       tracker.clear(paneId);
       // A NEW process may bind a fresh session — it is the pane's own again.
       attribution.retire(paneId);
-      // Where the pane stood in a conversation described the process that
-      // just retired. Its queued and delivered mail is addressed to the PANE
-      // and survives — only the chain position and delivery spacing go.
+      // Delivery spacing described the process that just retired. The pane's
+      // queued and delivered mail is addressed to the PANE and survives.
       mail()?.clear(paneId);
     },
     beginSession(paneId, sessionId) {

@@ -3,11 +3,11 @@
  * `usageManager` and `agentStatusTracker`.
  *
  * Everything that DECIDES lives in `src/domain/mail`; this holds what the
- * decisions need and nothing else: a queue per receiver, what each pane has
- * been handed and whether it has read it, and where each pane sits in a
- * chain. Who owes whom an answer is NOT held — it is read off the journal,
- * because a second shape of the same facts is a second thing to keep in step
- * and they disagree exactly when it matters.
+ * decisions need and nothing else: a queue per receiver, and what each pane
+ * has been handed and whether it has read it. Who owes whom an answer is NOT
+ * held — it is read off the journal, because a second shape of the same facts
+ * is a second thing to keep in step and they disagree exactly when it
+ * matters.
  *
  * It is where the MESSAGES live, and the only place they do. What sits
  * elsewhere is a hand-over in flight (`hookReply`'s memory of a batch given
@@ -27,7 +27,7 @@ import {
   awaitsAnswer,
   decideDelivery,
   decideHandover,
-  decideSend,
+  sendRefusal,
   droppedNotice,
   isOverdue,
   isResponse,
@@ -158,9 +158,6 @@ export interface MailManager {
    * team, or left one. It travels the ordinary route, so it waits out a
    * permission prompt and arrives labelled through the hook channel like
    * any other message.
-   *
-   * Hop zero: a fact stated by the deck starts no conversation and must not
-   * spend the pane's chain budget on one.
    */
   announce(paneId: string, kind: MailKind, body: string): void;
   /** Hand over everything waiting for this pane, because its agent just
@@ -203,9 +200,9 @@ export interface MailManager {
   waiting(paneId: string): number;
   /** Forget everything belonging to panes that no longer exist. */
   retain(liveIds: ReadonlySet<string>): void;
-  /** The pane's process was retired (restart, suspend). Its place in a chain
-   * and its delivery spacing describe that process and mean nothing to the
-   * next one; queued and delivered mail is addressed to the PANE and stays. */
+  /** The pane's process was retired (restart, suspend). Its delivery spacing
+   * describes that process and means nothing to the next one; queued and
+   * delivered mail is addressed to the PANE and stays. */
   clear(paneId: string): void;
   dispose(): void;
 }
@@ -233,9 +230,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   /** Delivered mail per receiver, for catch-up reads and for working out who
    * owes whom an answer. */
   const inboxes = new Map<string, InboxEntry[]>();
-  /** The hop of the message that last WOKE each pane — what the next message
-   * that pane sends inherits. */
-  const chainHop = new Map<string, number>();
   /** When each pane last took delivery, for spacing. */
   const lastDeliveryAt = new Map<string, number>();
   /** When each pane was last nudged into a turn.
@@ -576,9 +570,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       log.info("web:mail", `pasted into the pane: ${trace(head)}`);
       queue.splice(index, 1);
       lastDeliveryAt.set(paneId, at);
-      // The receiver now stands one message deep in this chain: whatever it
-      // sends next continues from here, which is what bounds a conversation.
-      chainHop.set(paneId, head.hop);
       // Pushed, not asked for: nothing answers a paste, and a pane mid-turn
       // will not look at it until the turn after next.
       remember(paneId, head, "unread");
@@ -617,15 +608,8 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
 
   return {
     send(request) {
-      const inherited = chainHop.get(request.from.paneId) ?? null;
-      const verdict = decideSend(
-        request.from,
-        request.toPaneId,
-        inherited,
-        limits,
-        request.kind,
-      );
-      if (verdict.kind === "refuse") return { ok: false, refusal: verdict.refusal };
+      const refusal = sendRefusal(request.from, request.toPaneId, request.kind);
+      if (refusal) return { ok: false, refusal };
       // Derived, never taken from the caller. An agent maintaining this by
       // hand cost two lines of briefing, was checked by nothing, and taught
       // it to hoard message ids — which then reached `inbox`'s `since` as an
@@ -638,7 +622,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         from: { kind: "pane", pane: request.from },
         toPaneId: request.toPaneId,
         at: now(),
-        hop: verdict.hop,
         ...(replyTo ? { replyTo } : {}),
       };
       enqueue(mail);
@@ -658,7 +641,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         from: { kind: "host" },
         toPaneId: paneId,
         at: now(),
-        hop: 0,
       });
       drain();
     },
@@ -694,7 +676,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         // briefing exclusively uses — would silently ignore.
         if (decideHandover(deps.activityOf(paneId)) === "hold") break;
         queue.shift();
-        chainHop.set(paneId, head.hop);
         // The agent's own hook asked for this and is about to be handed it,
         // so it lands in context: read, by the only definition the deck can
         // witness.
@@ -800,7 +781,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       while (queue.length > 0 && fits(queue[0].body)) {
         const head = queue[0];
         queue.shift();
-        chainHop.set(paneId, head.hop);
         remember(paneId, head, "read");
         log.info("web:mail", `handed to an explicit read: ${trace(head)}`);
         take(head);
@@ -839,7 +819,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     retain(liveIds) {
-      for (const map of [queues, inboxes, chainHop, lastDeliveryAt, lastWakeAt]) {
+      for (const map of [queues, inboxes, lastDeliveryAt, lastWakeAt]) {
         for (const id of [...map.keys()]) {
           if (!liveIds.has(id)) {
             // Whatever was queued for a pane that no longer exists can never
@@ -867,7 +847,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     clear(paneId) {
-      chainHop.delete(paneId);
       lastDeliveryAt.delete(paneId);
       // The process that read this pane's mail is gone, and its context with
       // it — so as far as the agent about to start is concerned, none of it

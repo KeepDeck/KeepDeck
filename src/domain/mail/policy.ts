@@ -1,5 +1,5 @@
 /**
- * When a message may reach its pane, and when a chain has to stop.
+ * When a message may reach its pane, and who may write to whom.
  *
  * Pure by construction: every answer here is a function of the message, the
  * receiver's OBSERVED activity and the clock. Queues, timers, retries and
@@ -13,8 +13,6 @@ import { isLeadAddress } from "./roles";
 export interface MailLimits {
   /** How long a message stays worth delivering after it was spoken. */
   undeliveredMs: number;
-  /** How many mail-caused wakes ONE chain may spend. */
-  maxHops: number;
   /** How long to hope the receiver takes a turn of its own before spending
    * one on it. At a turn boundary the agent asks the deck what is waiting
    * and the message rides in free; past this, the deck nudges the pane into
@@ -47,14 +45,6 @@ export interface MailLimits {
  * already approved. That case is the whole reason a held message needs a
  * clock: late is worse than never, because never can be reported back.
  *
- * `maxHops` — a real exchange is a handful of turns (task → question →
- * answer, maybe twice). Eight lets that finish while stopping a runaway
- * A↔B loop within seconds. It is a COST bound before it is a correctness
- * one: every hop is a turn somebody pays for, and nothing else in the
- * system stops two agents from politely answering each other forever —
- * claude's `stop_hook_active` guards one agent against its own hook and
- * cannot see the other agent at all.
- *
  * `hookWaitMs` — 45 seconds buys a free ride often enough to be worth it (a
  * teammate mid-task reaches a boundary well inside it) without making a
  * message to an idle agent feel lost. It is a COST knob, not a correctness
@@ -71,7 +61,6 @@ export interface MailLimits {
  */
 export const MAIL_LIMITS: MailLimits = {
   undeliveredMs: 5 * 60_000,
-  maxHops: 8,
   hookWaitMs: 45_000,
   handoverChars: 32_000,
 };
@@ -342,10 +331,6 @@ export function decideDelivery(
  * bug if they did: a report about a report is a chain that feeds itself, and
  * a host notice has no pane to report to.
  *
- * The hop is COPIED, never incremented. A report is the mail system
- * accounting for itself; letting it advance the counter would spend a
- * sender's chain budget on news it never asked for.
- *
  * `id` and `at` come from the caller because minting and clock-reading are
  * the owner's, not the rule's — which is what keeps this testable.
  */
@@ -376,8 +361,8 @@ export function droppedNotice(mail: Mail, id: string, at: number): Mail | null {
   );
 }
 
-/** The shape both reports share. See [`overdueNotice`] for why the hop is
- * copied and why two of the three possible senders get nothing. */
+/** The shape both reports share. See [`overdueNotice`] for why two of the
+ * three possible senders get nothing. */
 function reportToSender(mail: Mail, id: string, at: number, body: string): Mail | null {
   if (mail.from.kind !== "pane" || mail.kind === "undelivered") return null;
   return {
@@ -388,50 +373,63 @@ function reportToSender(mail: Mail, id: string, at: number, body: string): Mail 
     toPaneId: mail.from.pane.paneId,
     at,
     replyTo: mail.id,
-    hop: mail.hop,
   };
 }
 
 /** Why a send was refused. Typed rather than prose: rendering a refusal for
  * the calling agent is the command layer's job, the same split
  * `resumeRefusalText` already draws. */
-export type SendRefusal = "self-addressed" | "hop-limit" | "not-yours-to-assign";
-
-export type SendVerdict =
-  /** Accepted, carrying the hop this message is stamped with. */
-  | { kind: "accept"; hop: number }
-  | { kind: "refuse"; refusal: SendRefusal };
+export type SendRefusal = "self-addressed" | "not-yours-to-assign";
 
 /**
- * Whether `from` may send to `toPaneId`, and at which hop.
+ * Why this send is refused, or null when nothing stands in its way.
  *
- * `inheritedHop` is the hop of the message that WOKE the sender, or null
- * when nothing did — a pane acting on its own opens a fresh chain. Doing the
- * arithmetic here rather than at the call site keeps "what continues a
- * chain" in one place; a caller that computed it would be free to get it
- * wrong and the bound would quietly stop binding.
+ * Both refusals ask who is writing to whom, and neither depends on what came
+ * before — which is why this needs no state, no clock and no limits: it is a
+ * question about one message, answerable from the message alone.
+ *
+ * **There is deliberately no bound on how long an exchange may run.** There
+ * was one, and what it did is worth recording against its return: a counter
+ * a pane inherited from the message that woke it, growing by one per send
+ * and refusing past eight.
+ *
+ * It moved only on RECEIPT, so it counted turnarounds rather than messages —
+ * an agent nobody answered could write without limit, while an exchange
+ * where both sides actually replied spent the budget fastest. It lived on
+ * the pane rather than on the conversation, so unrelated threads shared it
+ * and one refusal muted that pane toward the whole deck. It reset on nothing
+ * short of the pane's process, so an administrative notice at hop zero was
+ * the only thing that ever cleared it. And because the blocked side's
+ * silence stopped advancing the other side's counter, its end state was one
+ * pane mute for the rest of its life while the other kept sending happily
+ * into it — the exact opposite of what a loop guard should produce. A team
+ * left to work unattended, which is the point of the feature, reached it on
+ * the ninth message.
+ *
+ * The risk it was aimed at is real: two agents can politely answer each
+ * other all night, and each CLI's own guard sees only itself. But that is a
+ * question of SPEND, and spend is not counted in messages — nor is mail the
+ * only way to burn it, since nothing here bounds a tool loop or a
+ * forty-minute build. It belongs where the deck already counts tokens, not
+ * in the rules about who may write to whom.
  */
-export function decideSend(
+export function sendRefusal(
   from: MailSender,
   toPaneId: string,
-  inheritedHop: number | null,
-  limits: MailLimits = MAIL_LIMITS,
   /** What is being sent. Only `task` is restricted, and only on a team. */
   kind: MailKind = "note",
-): SendVerdict {
+): SendRefusal | null {
   // A pane mailing itself wakes itself, forever, for money. There is no
   // legitimate shape of it — anything an agent wants to tell itself, it can
   // simply keep thinking.
-  if (from.paneId === toPaneId) return { kind: "refuse", refusal: "self-addressed" };
+  if (from.paneId === toPaneId) return "self-addressed";
   // A task is a WORK ORDER, and on a team exactly one member gives those.
   // This is the rule that makes "lead" mean something rather than describe
   // something: told-but-unenforced, the hierarchy lasts until the first
   // agent decides it disagrees. A sender on no team is under no hierarchy
   // and keeps the behaviour it had before teams existed.
   if (kind === "task" && from.role !== undefined && !isLeadAddress(from.role)) {
-    return { kind: "refuse", refusal: "not-yours-to-assign" };
+    return "not-yours-to-assign";
   }
-  const hop = inheritedHop === null ? 0 : inheritedHop + 1;
-  if (hop > limits.maxHops) return { kind: "refuse", refusal: "hop-limit" };
-  return { kind: "accept", hop };
+  return null;
 }
