@@ -403,7 +403,7 @@ describe("team.assign", () => {
 
   it("refuses to leave a team without the member that hands out work", async () => {
     // The same rule the dialog obeys, on the path an agent drives. Without
-    // it, `team.assign` could build a leaderless team — one where decideSend
+    // it, `team.assign` could build a leaderless team — one where sendRefusal
     // then refuses every task with nobody able to explain why.
     const { registry } = setup();
     const lead = from("pane-1", "ws-1", "Agent 1");

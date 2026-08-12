@@ -116,6 +116,10 @@ function str(args: CommandArgs, name: string): string | undefined {
  * which is [`senderAddress`] for a whole message — and a
  * projection with an opinion of its own is how this read path came to be the
  * one that showed a title while the other two showed a role.
+ *
+ * Field by field on purpose, never a spread: what an agent may read is a
+ * decision, and a message gaining an internal field later must not start
+ * arriving on the wire because nobody thought about it here.
  */
 function wire(mail: Mail) {
   return {

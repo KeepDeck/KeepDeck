@@ -412,6 +412,12 @@ export type SendRefusal = "self-addressed" | "not-yours-to-assign";
  * only way to burn it, since nothing here bounds a tool loop or a
  * forty-minute build. It belongs where the deck already counts tokens, not
  * in the rules about who may write to whom.
+ *
+ * Said plainly, because "belongs elsewhere" reads too easily as "handled
+ * elsewhere": nothing implements it today. The deck warns on a provider's
+ * usage window and stops nothing, here or anywhere else. That is the same
+ * position mail was already in — the counter never bounded volume, only
+ * turnarounds — but it is a gap, not a delegation.
  */
 export function sendRefusal(
   from: MailSender,
