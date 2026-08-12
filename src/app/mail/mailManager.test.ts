@@ -422,6 +422,64 @@ describe("createMailManager", () => {
     expect(real(B.paneId).length).toBeGreaterThan(0);
   });
 
+  it("does not report a message waiting twice because a hand-over came back", () => {
+    // The report is once per message, not once per stay in a queue. An id is
+    // forgotten only when the message is gone for good — leaving the queue
+    // for a hand-over is not that, since the transport can put it back with
+    // its clock untouched.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(A.paneId, done);
+    h.reports(B.paneId, { state: "working", since: 2 });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.advance(MAIL_LIMITS.undeliveredMs * 2);
+    const taken = h.manager.takeAtTurnEnd(B.paneId);
+    expect(taken).toHaveLength(1);
+    h.manager.restore(taken);
+    h.advance(MAIL_LIMITS.undeliveredMs * 2);
+    expect(h.manager.takeAtTurnEnd(A.paneId).filter((m) => m.kind === "undelivered")).toHaveLength(
+      1,
+    );
+  });
+
+  it("leaves a restarted process nothing it has already answered", () => {
+    // A restart un-reads what the dead process had read, because its context
+    // went with it. What it ANSWERED is a fact about the pane, not about the
+    // process — reopening it would offer the ask again and invite a second
+    // answer to the same question.
+    const h = harness({ asksAtTurnEnd: true });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.manager.takeAtTurnEnd(B.paneId);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    h.manager.clear(B.paneId);
+    expect(h.manager.inbox(B.paneId).messages).toEqual([]);
+  });
+
+  it("counts a pasted message nobody asked for as still waiting", () => {
+    // Both halves of the sum matter: the queue holds what was never handed
+    // over, and the journal holds what was pushed at a pane and never read.
+    const h = harness();
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "careful" });
+    expect(h.delivered).toHaveLength(1);
+    expect(h.manager.waiting(B.paneId)).toBe(1);
+    h.manager.inbox(B.paneId);
+    expect(h.manager.waiting(B.paneId)).toBe(0);
+  });
+
+  it("gives a restarted process a clean delivery clock, not its predecessor's", () => {
+    // `clear` promises the next process has forgotten everything. Spacing
+    // and the nudge cooldown describe the process that just retired, so a
+    // fresh one inheriting them would wait out a gap it never earned.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "one" });
+    expect(h.woken).toEqual([B.paneId]);
+    h.manager.clear(B.paneId);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "two" });
+    // Nudged again at once: the cooldown belonged to the dead process.
+    expect(h.woken).toEqual([B.paneId, B.paneId]);
+  });
+
   it("forgets panes that are gone", () => {
     const h = harness();
     h.reports(B.paneId, done);

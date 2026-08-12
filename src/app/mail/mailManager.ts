@@ -417,16 +417,19 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    */
   function reportOverdue(at: number): number | null {
     let due: number | null = null;
-    /** Ids still queued, so the set below can be pruned to them. Membership
-     * is what makes a report happen once, and the only honest way to forget
-     * an id is to notice the message is gone — a call site that forgot on
-     * the way out was wrong twice over: it leaked for mail discarded with a
-     * dead pane, and it re-reported a hand-over that came back unrendered,
-     * whose clock had not moved. */
-    const queued = new Set<string>();
+    /** Ids of mail that still EXISTS, so the set below can be pruned to it.
+     * Membership is what makes a report happen once, and the only honest way
+     * to forget an id is to notice the message is gone for good. Forgetting
+     * on the way out of a queue was wrong twice over: it leaked for mail
+     * discarded with a dead pane, and a hand-over that came back unrendered
+     * was reported all over again, its clock never having moved. */
+    const alive = new Set<string>();
+    for (const held of inboxes.values()) {
+      for (const entry of held) alive.add(entry.mail.id);
+    }
     for (const queue of [...queues.values()]) {
       for (const mail of [...queue]) {
-        queued.add(mail.id);
+        alive.add(mail.id);
         if (reportedOverdue.has(mail.id)) continue;
         if (!isOverdue(mail, at, limits)) {
           if (!isStandingContext(mail.kind)) {
@@ -441,7 +444,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       }
     }
     for (const id of [...reportedOverdue]) {
-      if (!queued.has(id)) reportedOverdue.delete(id);
+      if (!alive.has(id)) reportedOverdue.delete(id);
     }
     return due;
   }

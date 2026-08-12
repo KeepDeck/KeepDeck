@@ -259,6 +259,19 @@ describe("mail.inbox", () => {
     }
   });
 
+  it("tells the caller what choosing a kind costs, in the tool's own description", async () => {
+    // The briefing carries this too, but the briefing is what an agent reads
+    // once; the description is what it reads at the moment it is choosing.
+    // Both are composed from the predicate, and only one of them had a test.
+    const { registry } = setup();
+    const kind = registry
+      .list()
+      .find((command) => command.id === "mail.send")
+      ?.args?.find((arg) => arg.name === "kind");
+    expect(kind?.description).toContain("interrupt it and cost it a turn");
+    expect(kind?.description).toContain("idle is roused");
+  });
+
   it("refuses a replyTo an agent supplies — the edge is the deck's", async () => {
     // Nothing ever validated it, so an agent could point an answer at any id
     // it liked. It is gone as an argument, and the registry's own refusal of
