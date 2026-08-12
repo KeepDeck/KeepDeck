@@ -268,32 +268,75 @@ describe("createMailManager", () => {
     expect(h.delivered).toHaveLength(1);
   });
 
-  it("reads an inbox forward from a cursor, and from the start when it aged out", () => {
+  it("gives what has not been read, and nothing twice", () => {
+    // No cursor: the agent used to carry one and carried the wrong one — its
+    // own outgoing ids are never in its inbox, and an id this pane never
+    // held replayed the whole journal as if it were new.
     const h = harness();
     h.reports(B.paneId, done);
     for (const body of ["one", "two", "three"]) {
       h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body });
       h.advance(PAST_SPACING);
     }
-    const all = h.manager.inbox(B.paneId);
-    expect(all.map((mail) => mail.body)).toEqual(["one", "two", "three"]);
-    expect(h.manager.inbox(B.paneId, all[0].id).map((mail) => mail.body)).toEqual([
+    expect(h.manager.inbox(B.paneId).messages.map((mail) => mail.body)).toEqual([
+      "one",
       "two",
       "three",
     ]);
-    expect(h.manager.inbox(B.paneId, all[2].id)).toEqual([]);
-    // An unknown cursor yields everything rather than nothing: a repeat is
-    // recoverable, a silent hole is not.
-    expect(h.manager.inbox(B.paneId, "mail-999")).toHaveLength(3);
+    expect(h.manager.inbox(B.paneId).messages).toEqual([]);
+    // Unless the caller asks for the journal, which is what an agent whose
+    // context was rebuilt under it needs.
+    expect(h.manager.inbox(B.paneId, { all: true }).messages).toHaveLength(3);
+  });
+
+  it("reaches into the queue, which a cursor over the journal never could", () => {
+    // Held for a turn boundary that has not come. Asking is itself the
+    // labelled channel, so there is nothing to wait for.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase onto main" });
+    expect(h.delivered).toHaveLength(0);
+    expect(h.manager.inbox(B.paneId).messages.map((mail) => mail.body)).toEqual([
+      "rebase onto main",
+    ]);
+  });
+
+  it("says how much did not fit, so a capped read is not mistaken for all of it", () => {
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    const long = "x".repeat(MAIL_LIMITS.handoverChars);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: long });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "and this one" });
+    const first = h.manager.inbox(B.paneId);
+    expect(first.messages).toHaveLength(1);
+    expect(first.waiting).toBe(1);
+    const rest = h.manager.inbox(B.paneId);
+    expect(rest.messages.map((mail) => mail.body)).toEqual(["and this one"]);
+    expect(rest.waiting).toBe(0);
+  });
+
+  it("gives a restarted process back what it can no longer remember reading", () => {
+    // The mail is addressed to the pane and survives, but the process that
+    // read it is gone and its context with it — so the agent starting now
+    // catches up instead of silently missing what it was told.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "rebase onto main" });
+    expect(h.manager.inbox(B.paneId).messages).toHaveLength(1);
+    expect(h.manager.inbox(B.paneId).messages).toEqual([]);
+    h.manager.clear(B.paneId);
+    expect(h.manager.inbox(B.paneId).messages.map((mail) => mail.body)).toEqual([
+      "rebase onto main",
+    ]);
   });
 
   it("forgets panes that are gone", () => {
     const h = harness();
     h.reports(B.paneId, done);
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "one" });
-    expect(h.manager.inbox(B.paneId)).toHaveLength(1);
+    expect(h.manager.inbox(B.paneId).messages).toHaveLength(1);
     h.manager.retain(new Set([A.paneId]));
-    expect(h.manager.inbox(B.paneId)).toEqual([]);
+    expect(h.manager.inbox(B.paneId, { all: true }).messages).toEqual([]);
   });
 
   it("resets a restarted pane's place in a chain but keeps its mail", () => {
@@ -324,7 +367,7 @@ describe("createMailManager", () => {
     expect(last(h.delivered)?.hop).toBe(0);
     // What was already handed to the pane is addressed to the PANE, and
     // survives its process.
-    expect(h.manager.inbox(B.paneId)).toHaveLength(1);
+    expect(h.manager.inbox(B.paneId, { all: true }).messages).toHaveLength(1);
   });
 
   it("refuses a pane mailing itself before anything is queued", () => {
@@ -334,7 +377,7 @@ describe("createMailManager", () => {
       h.manager.send({ from: A, toPaneId: A.paneId, kind: "note", body: "hi me" }),
     ).toEqual({ ok: false, refusal: "self-addressed" });
     expect(h.delivered).toHaveLength(0);
-    expect(h.manager.inbox(A.paneId)).toEqual([]);
+    expect(h.manager.inbox(A.paneId, { all: true }).messages).toEqual([]);
   });
 
   it("waits out a running turn when the agent will come asking", async () => {
@@ -349,7 +392,7 @@ describe("createMailManager", () => {
     // Handed over exactly once — booking is what stops a second channel
     // delivering the same message again.
     expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
-    expect(h.manager.inbox(B.paneId)).toHaveLength(1);
+    expect(h.manager.inbox(B.paneId, { all: true }).messages).toHaveLength(1);
   });
 
   it("hands over one turn's worth at a time, leaving the rest queued", () => {
@@ -869,7 +912,7 @@ describe("the reply edge", () => {
     ask(h, "which port?");
     collect(h, B);
     h.manager.retain(new Set([A.paneId]));
-    expect(h.manager.inbox(B.paneId)).toEqual([]);
+    expect(h.manager.inbox(B.paneId, { all: true }).messages).toEqual([]);
   });
 });
 

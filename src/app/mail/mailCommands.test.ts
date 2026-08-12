@@ -199,7 +199,9 @@ describe("mail.inbox", () => {
     const received = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(received.ok).toBe(true);
     if (received.ok) {
-      const messages = received.value as { body: string; from: unknown }[];
+      const { messages } = received.value as {
+        messages: { body: string; from: unknown }[];
+      };
       expect(messages).toHaveLength(1);
       expect(messages[0].body).toBe("which port?");
       expect(messages[0].from).toEqual({
@@ -216,7 +218,7 @@ describe("mail.inbox", () => {
     // somebody else's.
     const sent = await run(registry, "mail.inbox", {}, from("pane-1", "ws-1", "Agent 1"));
     expect(sent.ok).toBe(true);
-    if (sent.ok) expect(sent.value).toEqual([]);
+    if (sent.ok) expect(sent.value).toMatchObject({ messages: [], waiting: 0 });
   });
 
   it("names the sender by the ROLE it answers to, not by its pane title", async () => {
@@ -249,7 +251,9 @@ describe("mail.inbox", () => {
     const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(read.ok).toBe(true);
     if (read.ok) {
-      const messages = read.value as { from: { address: string; label: string } }[];
+      const { messages } = read.value as {
+        messages: { from: { address: string; label: string } }[];
+      };
       expect(messages[0].from.address).toBe("lead");
       expect(messages[0].from.label).toBe("Структура команды и количество подчинённых");
     }
@@ -280,7 +284,7 @@ describe("mail.inbox", () => {
     const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(read.ok).toBe(true);
     if (read.ok) {
-      const messages = read.value as { from: unknown }[];
+      const { messages } = read.value as { messages: { from: unknown }[] };
       expect(messages[0].from).toEqual({ kind: "host" });
     }
   });
@@ -297,7 +301,7 @@ describe("mail.inbox", () => {
     );
     const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(read.ok).toBe(true);
-    if (read.ok) expect(read.value).not.toHaveProperty("0.hop");
+    if (read.ok) expect(read.value).not.toHaveProperty("messages.0.hop");
   });
 
   it("refuses a caller it cannot name", async () => {

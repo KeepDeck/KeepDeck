@@ -167,11 +167,25 @@ export interface MailManager {
    * and taking them must not cost them their place; their inbox entry is
    * withdrawn too, or a later read would show a message never delivered. */
   restore(messages: readonly Mail[]): void;
-  /** What this pane has been handed, oldest first. `since` is the id of the
-   * last message the caller already saw; an id that has aged out of the
-   * buffer yields everything still held, which is honest — better a repeat
-   * than a silent hole. */
-  inbox(paneId: string, since?: string): Mail[];
+  /**
+   * Everything this pane has not been given yet, oldest first — and asking
+   * is what makes it READ.
+   *
+   * It reaches into the QUEUE as well as the journal, which the old
+   * cursor-based read could not: a message held for a turn boundary that
+   * never came, or one the boundary's budget cut short, was unreachable by
+   * asking. An explicit ask is the labelled channel — the answer travels
+   * back as this call's result and never through the terminal — so a
+   * permission prompt is no reason to hold it back, though age still is.
+   *
+   * `all` re-reads the whole journal instead, for an agent whose context was
+   * rebuilt under it. `waiting` says how much did not fit this time.
+   *
+   * There is no cursor. The agent used to carry one, and carried the wrong
+   * one — its own outgoing ids are never in its inbox, and an id this pane
+   * never held replayed the entire journal as if it were new.
+   */
+  inbox(paneId: string, options?: { all?: boolean }): { messages: Mail[]; waiting: number };
   /** Forget everything belonging to panes that no longer exist. */
   retain(liveIds: ReadonlySet<string>): void;
   /** The pane's process was retired (restart, suspend). Its place in a chain
@@ -629,15 +643,48 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       drain();
     },
 
-    inbox(paneId, since) {
+    inbox(paneId, options) {
+      const at = now();
+      // Empty the queue into the journal first. `decideHandover` still
+      // expires what is too old, but its other refusal — a pane parked on a
+      // permission prompt — is about pushing AT a pane, and this is the pane
+      // asking.
+      const queue = queues.get(paneId) ?? [];
+      while (queue.length > 0) {
+        const head = queue[0];
+        if (decideHandover(head, deps.activityOf(paneId), at, limits) === "expire") {
+          queue.shift();
+          expire(head, at);
+          continue;
+        }
+        queue.shift();
+        chainHop.set(paneId, head.hop);
+        remember(paneId, head, "unread");
+        log.info("web:mail", `handed to an explicit read: ${trace(head)}`);
+      }
+      if (queue.length === 0) queues.delete(paneId);
+
       const held = inboxes.get(paneId) ?? [];
-      const from = since === undefined ? 0 : held.findIndex((e) => e.mail.id === since) + 1;
-      const shown = held.slice(from);
-      // Asking for it IS reading it — the one moment the deck can witness
-      // rather than assume. Already-answered entries keep their state: they
-      // have been through this and re-reading does not reopen them.
-      for (const entry of shown) if (entry.state === "unread") entry.state = "read";
-      return shown.map((entry) => entry.mail);
+      const pool = options?.all ? held : held.filter((entry) => entry.state === "unread");
+      const messages: Mail[] = [];
+      let carried = 0;
+      for (const entry of pool) {
+        // The same budget a turn boundary obeys, and for the same reason:
+        // every character lands in this agent's context. Checked AFTER one
+        // is taken, so a single message longer than the whole budget is
+        // still readable instead of blocking everything behind it.
+        if (messages.length > 0 && carried + entry.mail.body.length > limits.handoverChars) break;
+        // Asking for it IS reading it — the one moment the deck can witness
+        // rather than assume. An answered entry re-read stays answered:
+        // it has been through this and re-reading does not reopen it.
+        if (entry.state === "unread") entry.state = "read";
+        messages.push(entry.mail);
+        carried += entry.mail.body.length;
+      }
+      // A notice may have been queued by an expiry above, and the queue just
+      // moved under whatever timer was armed for it.
+      drain();
+      return { messages, waiting: pool.length - messages.length };
     },
 
     retain(liveIds) {

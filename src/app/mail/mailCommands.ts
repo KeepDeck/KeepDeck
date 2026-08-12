@@ -229,12 +229,13 @@ export function registerMailCommands(
 
     registry.register({
       id: "mail.inbox",
-      title: "Read messages other agents sent you",
+      title: "Read the messages waiting for you",
       args: [
         {
-          name: "since",
-          type: "string",
-          description: "Id of the last message you already read; omit for everything held",
+          name: "all",
+          type: "boolean",
+          description:
+            "Re-read everything still held, including what you have already seen — for when your context was rebuilt. Omit for just the new messages",
         },
       ],
       run: (args, source) => {
@@ -242,10 +243,20 @@ export function registerMailCommands(
         // A pane reads its OWN inbox and cannot name another's. There is no
         // argument for whose mail to read, which is the cheapest possible
         // form of that rule.
-        const since = str(args, "since");
-        return deps.mail
-          .inbox(reader.paneId, since)
-          .map(wire);
+        const { messages, waiting } = deps.mail.inbox(reader.paneId, {
+          all: args.all === true,
+        });
+        return {
+          messages: messages.map(wire),
+          // Said in the answer because the alternative is an agent that
+          // stops at what it was given: a turn's worth of mail is capped,
+          // and what did not fit is invisible unless the deck says so.
+          waiting,
+          note:
+            waiting > 0
+              ? `${waiting} more waiting — read them with another mail.inbox call`
+              : "nothing else is waiting for you",
+        };
       },
     }),
     registry.register({
