@@ -4,8 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import {
-  notify,
-  resetNotificationCenter,
+  createNotificationCenter,
+  type NotificationCenter,
+  type NotifyInput,
 } from "../../app/notificationCenter";
 import { NotificationBell } from "./NotificationBell";
 
@@ -28,21 +29,22 @@ const paneSource = {
 
 describe("NotificationBell", () => {
   let root: Root;
+  let center: NotificationCenter;
   const onOpen = vi.fn();
+  const notify = (input: NotifyInput) => center.notify(input);
 
   beforeEach(() => {
-    resetNotificationCenter();
+    center = createNotificationCenter();
     onOpen.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => {
-      root.render(createElement(NotificationBell, { onOpen }));
+      root.render(createElement(NotificationBell, { center, onOpen }));
     });
   });
 
   afterEach(() => {
     act(() => root.unmount());
-    resetNotificationCenter();
   });
 
   const bellButton = () =>
@@ -145,13 +147,19 @@ describe("NotificationBell", () => {
       notify({ title: "b", source: paneSource });
     });
     act(() => bellButton().click());
+    const clearButton =
+      document.querySelector<HTMLButtonElement>(".bell__clear-all")!;
+    clearButton.focus();
+    expect(document.activeElement).toBe(clearButton);
     act(() => {
-      document.querySelector<HTMLButtonElement>(".bell__clear-all")!.click();
+      clearButton.click();
     });
     expect(document.querySelector(".bell__panel")).not.toBeNull();
-    expect(document.querySelector(".bell__empty")?.textContent).toBe(
-      "Nothing yet",
-    );
+    const empty = document.querySelector(".bell__empty");
+    expect(empty?.textContent).toBe("Nothing yet");
+    expect(empty?.getAttribute("role")).toBe("status");
+    expect(empty?.getAttribute("aria-live")).toBe("polite");
+    expect(document.activeElement).toBe(bellButton());
     expect(document.querySelector(".bell__badge")).toBeNull();
     expect(document.querySelector(".bell__actions")).toBeNull();
     expect(onOpen).not.toHaveBeenCalled();

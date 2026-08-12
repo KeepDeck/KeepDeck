@@ -12,6 +12,7 @@ import {
 import { DeckStage } from "./components/DeckStage";
 import { DockPanel } from "./components/dock/DockPanel";
 import { NotificationBell } from "./components/notifications/NotificationBell";
+import { notificationCenter } from "./app/notificationCenter";
 import { PluginOverlays } from "./components/PluginOverlays";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { SkillsDialog } from "./components/skills/SkillsDialog";
@@ -233,7 +234,12 @@ function App() {
           >
             <StatsIcon />
           </button>
-          {showBell && <NotificationBell onOpen={openNotification} />}
+          {showBell && (
+            <NotificationBell
+              center={notificationCenter}
+              onOpen={openNotification}
+            />
+          )}
           <button
             type="button"
             className="bar__icon"

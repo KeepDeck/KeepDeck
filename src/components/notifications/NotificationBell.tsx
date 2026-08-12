@@ -1,16 +1,13 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { BellIcon } from "@keepdeck/ui-kit/icons";
-import {
-  clearAllNotifications,
-  markAllNotificationsRead,
-  markNotificationRead,
-} from "../../app/notificationCenter";
+import type { NotificationCenter } from "../../app/notificationCenter";
 import { useNotifications } from "../../app/useNotifications";
 import { unreadCount, type Notification } from "../../domain/notifications";
 import { formatAge } from "../../domain/usage";
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
 interface NotificationBellProps {
+  center: NotificationCenter;
   /** Navigate to the notification's source — the composition root resolves
    * each origin (pane / plugin / app). Called after the entry is marked read
    * and the panel closes. */
@@ -24,10 +21,11 @@ interface NotificationBellProps {
  * renders only in the modes that include the in-app channel (the caller
  * gates that).
  */
-export function NotificationBell({ onOpen }: NotificationBellProps) {
-  const notifications = useNotifications();
+export function NotificationBell({ center, onOpen }: NotificationBellProps) {
+  const notifications = useNotifications(center);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement>(null);
+  const bellButtonRef = useRef<HTMLButtonElement>(null);
   const unread = unreadCount(notifications);
 
   // The coarse ages ("5m") drift while the panel stays open — a slow tick
@@ -69,6 +67,7 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
   return (
     <span className="bell" ref={rootRef}>
       <button
+        ref={bellButtonRef}
         type="button"
         className="bar__icon bell__button"
         onClick={() => setOpen((o) => !o)}
@@ -98,7 +97,7 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
                   <button
                     type="button"
                     className="bell__action bell__mark-read"
-                    onClick={() => markAllNotificationsRead()}
+                    onClick={() => center.markAllNotificationsRead()}
                   >
                     Mark all read
                   </button>
@@ -106,7 +105,10 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
                 <button
                   type="button"
                   className="bell__action bell__clear-all"
-                  onClick={() => clearAllNotifications()}
+                  onClick={() => {
+                    bellButtonRef.current?.focus();
+                    center.clearAllNotifications();
+                  }}
                 >
                   Clear all
                 </button>
@@ -114,7 +116,9 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
             )}
           </div>
           {notifications.length === 0 ? (
-            <div className="bell__empty">Nothing yet</div>
+            <div className="bell__empty" role="status" aria-live="polite">
+              Nothing yet
+            </div>
           ) : (
             <ul className="bell__list">
               {notifications.map((n) => (
@@ -123,7 +127,7 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
                     type="button"
                     className={`bell__item${n.readAt === undefined ? " bell__item--unread" : ""}`}
                     onClick={() => {
-                      markNotificationRead(n.id);
+                      center.markNotificationRead(n.id);
                       setOpen(false);
                       onOpen(n);
                     }}

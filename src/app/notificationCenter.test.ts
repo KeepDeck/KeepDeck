@@ -3,15 +3,8 @@ import type { Settings } from "../domain/settings";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import {
-  clearAllNotifications,
-  getNotifications,
-  markAllNotificationsRead,
-  markNotificationRead,
-  notify,
-  resetNotificationCenter,
-  retractNotification,
-  setSourceVisibilityProbe,
-  subscribeNotifications,
+  createNotificationCenter,
+  type NotificationCenter,
 } from "./notificationCenter";
 import { setWindowFocusForTest } from "./windowFocus";
 
@@ -48,9 +41,29 @@ const paneSource = {
   paneId: "p-1",
 } as const;
 
+let {
+  clearAllNotifications,
+  getNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  notify,
+  retractNotification,
+  setSourceVisibilityProbe,
+  subscribeNotifications,
+}: NotificationCenter = createNotificationCenter();
+
 describe("notificationCenter", () => {
   beforeEach(() => {
-    resetNotificationCenter();
+    ({
+      clearAllNotifications,
+      getNotifications,
+      markAllNotificationsRead,
+      markNotificationRead,
+      notify,
+      retractNotification,
+      setSourceVisibilityProbe,
+      subscribeNotifications,
+    } = createNotificationCenter());
     notifyIpc.sendSystemNotification.mockClear();
     settings.current = null; // pre-boot: DEFAULT_SETTINGS apply
     setWindowFocusForTest(false);
@@ -58,8 +71,24 @@ describe("notificationCenter", () => {
   });
 
   afterEach(() => {
-    resetNotificationCenter();
     vi.useRealTimers();
+  });
+
+  it("isolates the state and subscribers of independently created centers", () => {
+    const first = createNotificationCenter();
+    const second = createNotificationCenter();
+    const firstListener = vi.fn();
+    first.subscribeNotifications(firstListener);
+
+    first.notify({ title: "first", source: { type: "app" } });
+
+    expect(first.getNotifications()).toHaveLength(1);
+    expect(second.getNotifications()).toHaveLength(0);
+    expect(firstListener).toHaveBeenCalledTimes(1);
+
+    second.notify({ title: "second", source: { type: "app" } });
+    expect(first.getNotifications()[0].title).toBe("first");
+    expect(firstListener).toHaveBeenCalledTimes(1);
   });
 
   it("records the notification and posts a banner (default mode, unfocused)", () => {
