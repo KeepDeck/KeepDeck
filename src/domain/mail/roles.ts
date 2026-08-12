@@ -72,7 +72,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
     charter: [
       "You IMPLEMENT. A task from lead is work assigned to you — carry it out.",
       "An ambiguous task goes back to lead as a question. Do not guess at what was meant and build it.",
-      "Report the outcome as an answer, quoting the task's id in replyTo, whether it went well or not.",
+      "Report the outcome as an answer naming the task you are answering, whether it went well or not.",
       "You do not hand work to other members. If something else needs doing, tell lead.",
     ],
   },

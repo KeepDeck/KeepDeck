@@ -32,8 +32,10 @@ describe("frameTeammateMail", () => {
   });
 
   it("heads each message with the facts a receiver cannot work out", () => {
-    // Its id (so a reply can quote it), its kind (a task is not a note), and
-    // the sender's ADDRESS — the name the receiver will write back to.
+    // Its id (which the deck's own logs and reports name it by), its kind
+    // (a task is not a note), and the sender's ADDRESS — the name the
+    // receiver will write back to. The id is not a reply's to carry: the
+    // deck derives what an answer answers on its own.
     const text = frameTeammateMail([mail()]);
     expect(text).toContain("[mail-1 · task · from lead]");
     expect(text).toContain("take the parser");
@@ -42,6 +44,39 @@ describe("frameTeammateMail", () => {
   it("says which message an answer is answering", () => {
     const text = frameTeammateMail([mail({ kind: "answer", replyTo: "mail-9" })]);
     expect(text).toContain("[mail-1 · answer · from lead answering mail-9]");
+  });
+
+  it("says how many more are waiting when a turn's budget cut the batch short", () => {
+    // Without it an agent handed the first batch cannot tell it apart from
+    // all of it, and stops.
+    expect(frameTeammateMail([mail()], 3)).toContain("3 more message(s) are waiting");
+    expect(frameTeammateMail([mail()], 3)).toContain("mail.inbox");
+    // And says nothing when there is nothing to say.
+    expect(frameTeammateMail([mail()], 0)).not.toContain("waiting");
+    expect(frameTeammateMail([mail()])).not.toContain("waiting");
+  });
+
+  it("does not say THE sender when a batch holds several", () => {
+    // One hand-over drains a whole queue, so a lead can be given an answer
+    // from one teammate and a question from another in the same breath. The
+    // singular told it to pick one and say nothing to the other.
+    const text = frameTeammateMail([mail({ from: "impl-1" }), mail({ from: "reviewer-1" })]);
+    expect(text).toContain("each message's own sender");
+    expect(text).toContain("several sends");
+  });
+
+  it("does not tell an agent to reply to the deck itself", () => {
+    // A frame of pure host notices — a briefing, a delivery report — names
+    // "KeepDeck" as the sender. Telling an agent to answer that sends it
+    // after an address the deck will refuse, and standing context reaches
+    // every team this way.
+    const notice = frameTeammateMail([mail({ from: null })]);
+    expect(notice).toContain("KeepDeck");
+    expect(notice).not.toContain("Reply with the keepdeck mail.send tool");
+    // A teammate in the same batch earns the line back.
+    expect(frameTeammateMail([mail({ from: null }), mail()])).toContain(
+      "Reply with the keepdeck mail.send tool",
+    );
   });
 
   it("attributes a message with no sender to the deck itself", () => {

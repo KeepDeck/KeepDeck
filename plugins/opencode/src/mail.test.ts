@@ -10,8 +10,8 @@ const mail = (over: Partial<DeliverableMail> = {}): DeliverableMail => ({
   ...over,
 });
 
-const render = (messages: DeliverableMail[], type = MAIL_ASK_EVENT) =>
-  renderOpencodeMail({ event: { type }, messages, cliVersion: "1.18.15" });
+const render = (messages: DeliverableMail[], type = MAIL_ASK_EVENT, waiting = 0) =>
+  renderOpencodeMail({ event: { type }, messages, waiting, cliVersion: "1.18.15" });
 
 describe("renderOpencodeMail", () => {
   it("splits standing context from traffic, because they land differently", () => {
@@ -41,6 +41,27 @@ describe("renderOpencodeMail", () => {
     );
     expect(brief.context).toContain("you are lead");
     expect("prompt" in brief).toBe(false);
+  });
+
+  it("carries the waiting count on whichever half it actually sent", () => {
+    // This is the one CLI whose answer is split, so it is the one that can
+    // drop the count entirely: a batch cut short after a fat re-brief holds
+    // standing context and nothing else, and putting the number only on the
+    // traffic half loses exactly the signal it exists to carry.
+    const briefOnly = JSON.parse(
+      render([mail({ kind: "team", body: "you are lead", standing: true })], MAIL_ASK_EVENT, 3)!,
+    );
+    expect(briefOnly.context).toContain("3 more message(s) are waiting");
+    // With traffic present it rides there instead, and is not said twice.
+    const both = JSON.parse(
+      render(
+        [mail({ kind: "team", body: "you are lead", standing: true }), mail()],
+        MAIL_ASK_EVENT,
+        3,
+      )!,
+    );
+    expect(both.prompt).toContain("3 more message(s) are waiting");
+    expect(both.context).not.toContain("waiting");
   });
 
   it("frames both halves as another agent's words", () => {

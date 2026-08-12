@@ -19,10 +19,13 @@ import {
 } from "../../domain/commands";
 import { findWorkspaceOfPane, type Pane, type Workspace } from "../../domain/deck";
 import {
+  SENDABLE_KINDS,
+  kindGuidance,
   planTeam,
   teamMembers,
   leadRole,
   resolveMailTarget,
+  senderAddress,
   senderOf,
   teamRoles,
   type Mail,
@@ -85,10 +88,6 @@ function callerWorkspace(
   return { workspace, pane };
 }
 
-/** What an agent may put in `kind`. `undelivered` is missing on purpose: it
- * is the deck's own word for a delivery report, and a sender able to forge
- * one could dress a message as a fact about the mail system. */
-const SENDABLE_KINDS: MailKind[] = ["task", "question", "answer", "note"];
 
 const NOT_AN_AGENT_MESSAGE =
   "only an agent pane can use mail — this connection is not attached to one";
@@ -104,9 +103,23 @@ function str(args: CommandArgs, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-/** One message as the calling agent sees it. `hop` stays inside — it bounds
- * the conversation and is not the agent's business, and an agent that could
- * read it could try to reason its way around the bound. */
+/**
+ * One message as the calling agent sees it.
+ *
+ * The sender is named THREE ways because a receiver asks three different
+ * questions about it, and answering them with one field is what sent an
+ * agent looking for a window title: `address` is what goes in `to`, `label`
+ * is how a person reads it, `paneId` is who spoke and stays the same as long
+ * as that pane lives. Only `address` is an address, and the domain answers
+ * it — the two delivery channels ask the same rule through [`senderName`],
+ * which is [`senderAddress`] for a whole message — and a
+ * projection with an opinion of its own is how this read path came to be the
+ * one that showed a title while the other two showed a role.
+ *
+ * `hop` stays inside — it bounds the conversation and is not the agent's
+ * business, and an agent that could read it could try to reason its way
+ * around the bound.
+ */
 function wire(mail: Mail) {
   return {
     id: mail.id,
@@ -119,6 +132,7 @@ function wire(mail: Mail) {
         ? { kind: "host" as const }
         : {
             kind: "pane" as const,
+            address: senderAddress(mail.from.pane),
             label: mail.from.pane.label,
             paneId: mail.from.pane.paneId,
           },
@@ -139,20 +153,28 @@ export function registerMailCommands(
           name: "to",
           type: "string",
           required: true,
-          description: "Recipient agent pane title, name, or id — in your own workspace",
+          // Named the way a reply is actually addressed. Saying "title, name,
+          // or id" described the fallback and left out the one name a
+          // teammate can be sure of, while the briefing taught roles — so
+          // the two surfaces an agent reads disagreed about how to answer.
+          description:
+            "Recipient's address in your own workspace: the role a message shows as `from.address` (lead, impl-1). A pane title or id also resolves, and is all there is for an agent on no team",
         },
         {
           name: "kind",
           type: "string",
           required: true,
-          description: `What this is: ${SENDABLE_KINDS.join(", ")}`,
+          // Not a bare list any more. The kind decides whether a teammate is
+          // pulled out of its work, so an agent choosing one is spending
+          // somebody else's turn — and it can only weigh that if it is told.
+          description: `What this is: ${SENDABLE_KINDS.join(", ")}. It decides when the message lands — ${kindGuidance(SENDABLE_KINDS)} Say what is true: an interrupt nobody needed is a teammate's turn spent for nothing.`,
         },
         { name: "body", type: "string", required: true, description: "The message" },
-        {
-          name: "replyTo",
-          type: "string",
-          description: "Id of the message this answers, when it answers one",
-        },
+        // No `replyTo`. The deck derives the edge from what this pane was
+        // handed for the turn it is in — see [`MailManager.send`]. Left as an
+        // argument it would be bookkeeping an agent maintains by hand, which
+        // costs briefing lines, is checked by nothing, and taught agents to
+        // hoard message ids they then fed to `mail.inbox`'s `since`.
       ],
       run: (args, source) => {
         const from = requireSender(source);
@@ -189,7 +211,6 @@ export function registerMailCommands(
           toPaneId: resolved.value.id,
           kind: kind as MailKind,
           body: args.body as string,
-          ...(str(args, "replyTo") ? { replyTo: str(args, "replyTo") } : {}),
         });
         if (!result.ok) throw new Error(refusalText(result.refusal));
         // ACCEPTED either way, and the answer has to say so in a word rather
@@ -210,12 +231,13 @@ export function registerMailCommands(
 
     registry.register({
       id: "mail.inbox",
-      title: "Read messages other agents sent you",
+      title: "Read the messages waiting for you",
       args: [
         {
-          name: "since",
-          type: "string",
-          description: "Id of the last message you already read; omit for everything held",
+          name: "all",
+          type: "boolean",
+          description:
+            "Re-read the most recent messages still held, including ones you have already read — for when your context was rebuilt and you need to know what you are still on the hook for. Omit for just the new ones",
         },
       ],
       run: (args, source) => {
@@ -223,10 +245,20 @@ export function registerMailCommands(
         // A pane reads its OWN inbox and cannot name another's. There is no
         // argument for whose mail to read, which is the cheapest possible
         // form of that rule.
-        const since = str(args, "since");
-        return deps.mail
-          .inbox(reader.paneId, since)
-          .map(wire);
+        const { messages, waiting } = deps.mail.inbox(reader.paneId, {
+          all: args.all === true,
+        });
+        return {
+          messages: messages.map(wire),
+          // Said in the answer because the alternative is an agent that
+          // stops at what it was given: a turn's worth of mail is capped,
+          // and what did not fit is invisible unless the deck says so.
+          waiting,
+          note:
+            waiting > 0
+              ? `${waiting} more waiting — read them with another mail.inbox call`
+              : "nothing else is waiting for you",
+        };
       },
     }),
     registry.register({

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { SENDABLE_KINDS } from "./message";
+import { awaitsAnswer } from "./policy";
 import type { Pane, Workspace } from "../deck";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { roleById } from "./roles";
@@ -319,6 +321,24 @@ describe("teamNamesIn", () => {
 });
 
 describe("teamBriefing", () => {
+  it("says what choosing a kind costs a teammate", () => {
+    // The briefing is the only text always in context — a tool's own
+    // description is not loaded until the agent has decided the tool is
+    // worth loading — so the fact that spends somebody else's turn is said
+    // here, and derived from the predicate that enforces it rather than
+    // written out beside it.
+    const text = teamBriefing("api", "lead", ["lead", "impl-1"]);
+    for (const kind of SENDABLE_KINDS) expect(text).toContain(kind);
+    // The sides are the predicate's, not a copy of it.
+    const interrupting = SENDABLE_KINDS.filter(awaitsAnswer).join(" and ");
+    expect(text).toContain(`${interrupting} interrupt it`);
+    // And the condition is stated. Without it the sentence promised that
+    // notes are free, when an IDLE teammate — the ordinary state between
+    // tasks — is roused by any kind, since it will reach no boundary alone.
+    expect(text).toContain("while a teammate is working");
+    expect(text).toContain("idle is roused for any of them");
+  });
+
   it("tells the holder what its OWN role is for", () => {
     // The whole reason roles stopped being bare addresses. Briefed with a
     // symmetrical text, a lead said "in charge is not quite the word" — it

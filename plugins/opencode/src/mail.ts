@@ -38,7 +38,7 @@ export const MAIL_ASK_EVENT = "mail.ask";
  * happens to be empty. */
 export const MAIL_REPLY_VERSION = 1;
 
-export const renderOpencodeMail: MailReplyRenderer = ({ event, messages }) => {
+export const renderOpencodeMail: MailReplyRenderer = ({ event, messages, waiting }) => {
   // Not our question. Nothing else asks today; refusing by name is what
   // keeps that true — a future reporter armed to ask would otherwise be
   // handed courier instructions it has no idea what to do with.
@@ -47,7 +47,15 @@ export const renderOpencodeMail: MailReplyRenderer = ({ event, messages }) => {
   const traffic = messages.filter((mail: DeliverableMail) => !mail.standing);
   return JSON.stringify({
     v: MAIL_REPLY_VERSION,
-    ...(standing.length > 0 ? { context: frameTeammateMail(standing) } : {}),
-    ...(traffic.length > 0 ? { prompt: frameTeammateMail(traffic) } : {}),
+    // The count rides with the traffic when there is any, and with the
+    // briefing when there is not. A batch can be standing-only — the
+    // character budget cuts after the first message is taken, and a fat
+    // re-brief fills it — and putting the count solely on the half that may
+    // be missing is how the one CLI that splits its answer loses the signal
+    // the field exists to carry.
+    ...(standing.length > 0
+      ? { context: frameTeammateMail(standing, traffic.length > 0 ? 0 : waiting) }
+      : {}),
+    ...(traffic.length > 0 ? { prompt: frameTeammateMail(traffic, waiting) } : {}),
   });
 };

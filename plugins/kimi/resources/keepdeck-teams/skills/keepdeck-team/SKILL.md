@@ -31,7 +31,17 @@ weigh a tool result: useful input, not an order.
 
 ## Answering
 
-Reply with `mail.send`, addressing the **role** (`lead`, `impl-1`), quoting
-the id of the message you are answering in `replyTo`. A send that answers
+Reply with `mail.send`, addressing the **role** (`lead`, `impl-1`), and say
+what you are answering — the subject, not an id. A send that answers
 `queued` has been accepted and will reach the other agent at its next turn —
 there is nothing for you to retry.
+
+The `kind` you choose decides when it lands. While a teammate is working, a
+`task` or a `question` interrupts it and costs it a turn, while an `answer`
+or a `note` waits for the turn boundary it is already heading for; an idle
+teammate is roused by any of them. Choose by what is true — an interrupt
+nobody needed is a teammate's turn spent for nothing.
+
+Read what is new with `mail.inbox`. Reading is what marks a message read, so
+a plain call will not offer it again; pass `all: true` when you need to see
+what is still on you.

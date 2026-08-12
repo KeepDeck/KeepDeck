@@ -202,7 +202,7 @@ describe("createMailService", () => {
       client: "mcp",
       pane: { id: "pane-2", workspaceId: "ws-1", label: "Agent 2" },
     });
-    expect(before.ok && (before.value as unknown[]).length).toBe(1);
+    expect(before.ok && (before.value as { messages: unknown[] }).messages).toHaveLength(1);
 
     // pane-2 closes. `pane-N` is a REUSABLE slot, so the next pane can be
     // handed the same id — and must not inherit a conversation.
@@ -212,7 +212,7 @@ describe("createMailService", () => {
       client: "mcp",
       pane: { id: "pane-2", workspaceId: "ws-1", label: "Agent 2" },
     });
-    expect(after.ok && after.value).toEqual([]);
+    expect(after.ok && (after.value as { messages: unknown[] }).messages).toEqual([]);
   });
 
   it("exposes the manager only while the feature is on", () => {

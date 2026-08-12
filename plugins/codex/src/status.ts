@@ -10,8 +10,8 @@ import {
 
 /** The teammate framing both events below carry, worded once for every CLI
  * in [`frameTeammateMail`]. */
-const teammateText = ({ messages }: MailReplyInput): string =>
-  frameTeammateMail(messages);
+const teammateText = ({ messages, waiting }: MailReplyInput): string =>
+  frameTeammateMail(messages, waiting);
 
 /**
  * The release at which codex replaced its hook-output schema.

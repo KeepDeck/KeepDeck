@@ -199,11 +199,17 @@ describe("mail.inbox", () => {
     const received = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(received.ok).toBe(true);
     if (received.ok) {
-      const messages = received.value as { body: string; from: unknown }[];
+      const { messages } = received.value as {
+        messages: { body: string; from: unknown }[];
+      };
       expect(messages).toHaveLength(1);
       expect(messages[0].body).toBe("which port?");
       expect(messages[0].from).toEqual({
         kind: "pane",
+        // On no team there is no role, so the title is the only address
+        // there is — and it is the fallback rather than `paneId` because it
+        // fails with a refusal instead of reaching an inherited slot.
+        address: "Agent 1",
         label: "Agent 1",
         paneId: "pane-1",
       });
@@ -212,7 +218,7 @@ describe("mail.inbox", () => {
     // somebody else's.
     const sent = await run(registry, "mail.inbox", {}, from("pane-1", "ws-1", "Agent 1"));
     expect(sent.ok).toBe(true);
-    if (sent.ok) expect(sent.value).toEqual([]);
+    if (sent.ok) expect(sent.value).toMatchObject({ messages: [], waiting: 0 });
   });
 
   it("names the sender by the ROLE it answers to, not by its pane title", async () => {
@@ -238,6 +244,62 @@ describe("mail.inbox", () => {
         role: "lead",
       },
     });
+    // And the READ path says the same. It did not: the message carried the
+    // role and both delivery channels showed it, while this projection —
+    // the one the briefing points an agent at — handed back a window title
+    // and an opaque id, so a receiver had nothing to put in `to`.
+    const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      const { messages } = read.value as {
+        messages: { from: { address: string; label: string } }[];
+      };
+      expect(messages[0].from.address).toBe("lead");
+      expect(messages[0].from.label).toBe("Структура команды и количество подчинённых");
+    }
+  });
+
+  it("tells the caller what choosing a kind costs, in the tool's own description", async () => {
+    // The briefing carries this too, but the briefing is what an agent reads
+    // once; the description is what it reads at the moment it is choosing.
+    // Both are composed from the predicate, and only one of them had a test.
+    const { registry } = setup();
+    const kind = registry
+      .list()
+      .find((command) => command.id === "mail.send")
+      ?.args?.find((arg) => arg.name === "kind");
+    expect(kind?.description).toContain("interrupt it and cost it a turn");
+    expect(kind?.description).toContain("idle is roused");
+  });
+
+  it("refuses a replyTo an agent supplies — the edge is the deck's", async () => {
+    // Nothing ever validated it, so an agent could point an answer at any id
+    // it liked. It is gone as an argument, and the registry's own refusal of
+    // an unknown one is the right answer rather than a silent drop: an agent
+    // still carrying the old instruction learns in one round trip, instead
+    // of believing it linked a message it did not.
+    const { registry, delivered } = setup();
+    const result = await run(
+      registry,
+      "mail.send",
+      { to: "pane-2", kind: "answer", body: "done", replyTo: "mail-999" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(false);
+    expect(delivered).toHaveLength(0);
+  });
+
+  it("gives a host notice no address, because there is nobody to answer", async () => {
+    // The deck speaks only to report on delivery. A reply would go nowhere,
+    // and the union says so rather than leaving every read site to notice.
+    const { registry, mail } = setup();
+    mail.announce("pane-2", "note", "your teammate left the team");
+    const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      const { messages } = read.value as { messages: { from: unknown }[] };
+      expect(messages[0].from).toEqual({ kind: "host" });
+    }
   });
 
   it("keeps the hop counter off the wire", async () => {
@@ -252,7 +314,14 @@ describe("mail.inbox", () => {
     );
     const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(read.ok).toBe(true);
-    if (read.ok) expect(read.value).not.toHaveProperty("0.hop");
+    if (read.ok) {
+      // Assert the message is THERE before asserting a field is not: the
+      // negative alone passed just as happily when the read returned
+      // nothing at all, which is a total failure of the path under test.
+      const { messages } = read.value as { messages: unknown[] };
+      expect(messages).toHaveLength(1);
+      expect(read.value).not.toHaveProperty("messages.0.hop");
+    }
   });
 
   it("refuses a caller it cannot name", async () => {

@@ -23,19 +23,24 @@ import { paneInputReady, paneInputSettled, submitToPane } from "../paneInput";
  *
  * One header line, then the body verbatim. The header says three things the
  * receiver cannot work out for itself: that this came through KeepDeck, who
- * sent it, and which id a reply should reference. Keeping it to one line is
- * deliberate — it rides in front of every message, and a paragraph of
- * preamble per note would cost more context than the notes are worth.
+ * sent it, and how to answer. Keeping it to one line is deliberate — it
+ * rides in front of every message, and a paragraph of preamble per note
+ * would cost more context than the notes are worth.
+ *
+ * It no longer asks for the id back. The deck draws that edge itself from
+ * what the pane was handed, so the only thing the header owes a reply is
+ * the address to send it to.
  */
 export function renderMail(mail: Mail): string {
-  // Named by ROLE, never by pane title — see [`senderName`], which both
-  // channels ask rather than each deciding.
+  // Named by ROLE, never by pane title — [`senderName`] is the domain's one
+  // answer to that, which every read path asks rather than each deciding.
   const from = senderName(mail);
   const origin =
     from === null
       ? "from KeepDeck itself"
       : `from ${from}, another agent in this deck and not your user`;
-  return `[keepdeck mail ${mail.id} — ${mail.kind}, ${origin}; reply with mail.send replyTo="${mail.id}"]\n${mail.body}`;
+  const answer = from === null ? "" : `; answer with mail.send to="${from}"`;
+  return `[keepdeck mail ${mail.id} — ${mail.kind}, ${origin}${answer}]\n${mail.body}`;
 }
 
 /**

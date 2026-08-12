@@ -152,13 +152,15 @@ describe("answerMailAsk", () => {
     ]);
   });
 
-  it("withdraws the inbox entry along with the message it gives back", () => {
-    // Otherwise a catch-up read would show a message the agent was never
-    // handed.
+  it("puts back a message nobody rendered, to be given out exactly once more", () => {
+    // Withdrawing the journal entry is what makes that possible: booked as
+    // delivered, it would be a message the agent was never handed and can
+    // never be handed again.
     const h = setup({ render: () => null });
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "note", body: "careful" });
-    h.channel.answer("pane-2",asking());
-    expect(h.manager.inbox("pane-2")).toEqual([]);
+    h.channel.answer("pane-2", asking());
+    expect(h.manager.inbox("pane-2").messages.map((mail) => mail.body)).toEqual(["careful"]);
+    expect(h.manager.inbox("pane-2").messages).toEqual([]);
   });
 
   it("answers nothing when the feature is switched off mid-flight", () => {
