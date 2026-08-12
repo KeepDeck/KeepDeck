@@ -393,7 +393,14 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // silently losing its mail instead of falling back to the terminal.
       if (verdict.kind === "hold" && verdict.reason === "turn-boundary") {
         log.debug("web:mail", `held for a turn boundary: ${trace(head)}`);
-        return earlier(skipped, head.at + limits.hookWaitMs);
+        // Only a message that will give up waiting needs a deadline. One
+        // that expects an answer nudges once the wait runs out; routine mail
+        // waits for the boundary however long it takes, and resolves through
+        // the activity subscription like the permission hold below — so
+        // arming a timer for it would wake the pass to decide nothing.
+        return awaitsAnswer(head.kind)
+          ? earlier(skipped, head.at + limits.hookWaitMs)
+          : skipped;
       }
       // Held on a permission prompt, which resolves through the activity
       // subscription — so the only thing left to schedule is the moment this
@@ -417,6 +424,14 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // pass repeating it is the clock.
       if (verdict.kind === "wake") {
         const woken = lastWakeAt.get(paneId);
+        // A nudge into a RUNNING turn is not lost — it is sitting in the
+        // CLI's input queue and will fire a turn on its own. Repeating it
+        // queues another, and another, and the pane pays for every one when
+        // the current turn finally ends. The clock below is for the other
+        // case, where a nudge that produced no turn plausibly went missing.
+        if (deps.activityOf(paneId)?.state === "working" && woken !== undefined) {
+          return skipped;
+        }
         if (woken !== undefined && at - woken < limits.hookWaitMs) {
           return earlier(skipped, woken + limits.hookWaitMs);
         }

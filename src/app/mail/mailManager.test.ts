@@ -444,22 +444,57 @@ describe("createMailManager", () => {
     expect(h.delivered).toEqual([]);
   });
 
-  it("nudges the pane when a RUNNING turn outlasts the wait, and hands the message to nobody", () => {
+  it("nudges a working pane for something that expects an answer", () => {
     // The terminal's whole remaining job for an agent that can receive mail
     // properly. Pushing the message itself is what left a teammate's task
     // sitting unsent in a composer, indistinguishable from a delivery; a
     // nudge that fails loses a keystroke and the message is still queued.
     const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, { state: "working", since: 500 });
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "careful" });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
     h.advance(MAIL_LIMITS.hookWaitMs);
     expect(h.woken).toEqual([B.paneId]);
     // NOTHING was handed over, and the message is still there for the turn
     // the nudge is about to start.
     expect(h.delivered).toEqual([]);
     expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
-      "careful",
+      "which port?",
     ]);
+  });
+
+  it("lets a working pane finish, for mail that expects nothing back", () => {
+    // The clock used to apply to every kind, so a pane still working after
+    // the wait fell through to a nudge — into a RUNNING turn, where it lands
+    // in the input queue and fires a turn of its own later. A ten-minute
+    // build collected one of those every 45 seconds, and the message was
+    // dropped at the end anyway.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, { state: "working", since: 500 });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "CI is red on main" });
+    h.advance(MAIL_LIMITS.hookWaitMs * 4);
+    // Drive a pass explicitly, with the clock long past the wait. Relying on
+    // an armed timer would prove nothing: routine mail arms none, so the
+    // assertion would hold even if the rule under test were gone.
+    h.reports(B.paneId, { state: "working", since: 500 });
+    expect(h.woken).toEqual([]);
+    // It is waiting, not lost: the boundary this turn is heading for hands
+    // it over.
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
+      "CI is red on main",
+    ]);
+  });
+
+  it("does not queue a second nudge behind one a running turn has not answered yet", () => {
+    // A nudge into a running turn is not lost — it is in the CLI's input
+    // queue and will fire a turn on its own. Repeating it queues another,
+    // and the pane pays for every one when the current turn ends.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    expect(h.woken).toEqual([B.paneId]);
+    h.reports(B.paneId, { state: "working", since: 2 });
+    h.advance(MAIL_LIMITS.hookWaitMs * 3);
+    expect(h.woken).toEqual([B.paneId]);
   });
 
   it("nudges a pane once per wait, however often it is asked to", () => {

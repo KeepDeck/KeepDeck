@@ -277,21 +277,30 @@ export function decideDelivery(
   }
   // An agent with NO labelled channel has the terminal or nothing.
   if (!asksAtTurnEnd) return { kind: "deliver" };
-  // Waiting is only worth anything when a boundary is actually coming. A
-  // RUNNING turn will reach one on its own and the message rides it for
-  // free; nothing else will, because an idle agent fires no hook at all.
-  //
-  // Measured: a lead stopped 11 seconds before its team's three answers
-  // arrived, and every one of them then sat the full wait — 45 seconds of
-  // nothing, ending in the nudge that could have been sent at once.
-  //
-  // This condition was here before and was removed for a real reason: back
-  // then the alternative was pushing the message into the terminal, which
-  // is unlabelled and does not reliably arrive, so waiting was worth it even
-  // when nothing was coming. The alternative is now a nudge that produces a
-  // proper delivery, and the trade reverses with it.
-  if (activity?.state === "working" && now - mail.at < limits.hookWaitMs) {
-    return { kind: "hold", reason: "turn-boundary" };
+  if (activity?.state === "working") {
+    // A turn is running, so a boundary is coming by definition and the
+    // message can ride it for free. What decides whether it is worth paying
+    // for a turn of its own is what the message EXPECTS: [`awaitsAnswer`]
+    // is true of exactly the kinds that need something back from this agent,
+    // and you spend somebody's turn to ask them for something, not to
+    // inform them.
+    //
+    // Routine mail waits without a clock. The clock used to apply to
+    // everything, so a pane still working after the wait fell through to a
+    // nudge — into a RUNNING turn, where it lands in the input queue and
+    // fires a turn of its own later. A ten-minute build collected one of
+    // those every 45 seconds.
+    if (!awaitsAnswer(mail.kind)) return { kind: "hold", reason: "turn-boundary" };
+    // Something that does expect an answer still waits a little, in case the
+    // boundary is near enough that the ride is free after all.
+    //
+    // Measured: a lead stopped 11 seconds before its team's three answers
+    // arrived, and every one of them then sat the full wait — 45 seconds of
+    // nothing, ending in the nudge that could have been sent at once. That
+    // pane was stopped, not working, which is the branch below.
+    if (now - mail.at < limits.hookWaitMs) {
+      return { kind: "hold", reason: "turn-boundary" };
+    }
   }
   // Nudge the pane into a turn and let ITS OWN channel carry the words. The
   // message stays where it is: the terminal's job here is to wake, never to
