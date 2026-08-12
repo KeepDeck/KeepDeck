@@ -354,8 +354,8 @@ export const ASKS_FOR_MAIL: ReadonlySet<string> = new Set([
   "SessionStart",
 ]);
 
-export const renderClaudeMail: MailReplyRenderer = ({ event, messages }) => {
-  const text = frameTeammateMail(messages);
+export const renderClaudeMail: MailReplyRenderer = ({ event, messages, waiting }) => {
+  const text = frameTeammateMail(messages, waiting);
   switch (event.hook_event_name) {
     case "Stop":
       // Blocking is what keeps the turn alive to read this. The reason IS

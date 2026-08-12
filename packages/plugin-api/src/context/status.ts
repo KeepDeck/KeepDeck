@@ -182,6 +182,18 @@ export interface MailReplyInput {
   event: Record<string, unknown>;
   /** Never empty: the host does not ask for a rendering of nothing. */
   messages: readonly DeliverableMail[];
+  /** How many more are still waiting after these — normally zero.
+   *
+   * A turn's worth of mail is capped, for the receiver's sake: the sender
+   * chooses how many characters arrive and the receiver pays for every one.
+   * Without a number an agent handed the first batch has no way to tell it
+   * apart from all of it, and stops. [`frameTeammateMail`] says so for every
+   * CLI at once.
+   *
+   * Optional because a renderer written against an earlier API is still a
+   * working renderer — it simply says nothing about the rest — and because
+   * the host is the only thing that supplies it. */
+  waiting?: number;
   /** What the CLI's own binary answered to `--version`, or null when nothing
    * legible came back.
    *
@@ -248,7 +260,9 @@ export function statusSourceInstant(
  */
 export function frameTeammateMail(
   messages: readonly DeliverableMail[],
+  waiting = 0,
 ): string {
+  const fromPane = messages.some((mail) => mail.from);
   return [
     "<teammate-message>",
     ...messages.map((mail) => {
@@ -266,7 +280,21 @@ export function frameTeammateMail(
     // what an answer answers from what it handed this pane, and `mail.send`
     // has no `replyTo` argument to quote one into. Asking for it here is
     // what made the primary channel contradict the briefing.
-    "Reply with the keepdeck mail.send tool, addressed to the sender named above.",
+    //
+    // Only when a teammate actually spoke. A frame of pure host notices —
+    // a briefing, a delivery report — names "KeepDeck" as the sender, and
+    // telling an agent to reply to that sends it after an address
+    // `resolveMailTarget` will refuse.
+    ...(fromPane
+      ? ["Reply with the keepdeck mail.send tool, addressed to the sender named above."]
+      : []),
+    // A capped batch is indistinguishable from all of it unless the deck
+    // says otherwise, and an agent that thinks it has everything stops.
+    ...(waiting > 0
+      ? [
+          `${waiting} more message(s) are waiting: read them now with the keepdeck mail.inbox tool, or they arrive at your next turn boundary.`,
+        ]
+      : []),
   ].join("\n");
 }
 

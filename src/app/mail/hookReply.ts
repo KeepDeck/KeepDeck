@@ -259,6 +259,9 @@ function answerMailAsk(
   const rendered = render({
     event,
     messages: taken.map(forAgent),
+    // Read AFTER the hand-over, so it counts what the turn's budget left
+    // behind rather than what was waiting before it.
+    waiting: manager.waiting(paneId),
     cliVersion: deps.versionOf(agent),
   });
   if (!rendered) {

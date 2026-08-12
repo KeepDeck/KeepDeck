@@ -192,6 +192,10 @@ export interface MailManager {
    * never held replayed the entire journal as if it were new.
    */
   inbox(paneId: string, options?: { all?: boolean }): { messages: Mail[]; waiting: number };
+  /** How much this pane has not been given yet — queued, plus delivered but
+   * never asked for. Read after a hand-over to tell the agent what its
+   * turn's budget left behind. */
+  waiting(paneId: string): number;
   /** Forget everything belonging to panes that no longer exist. */
   retain(liveIds: ReadonlySet<string>): void;
   /** The pane's process was retired (restart, suspend). Its place in a chain
@@ -721,6 +725,14 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // moved under whatever timer was armed for it.
       drain();
       return { messages, waiting: pool.length - messages.length };
+    },
+
+    waiting(paneId) {
+      const queued = queues.get(paneId)?.length ?? 0;
+      const unread = (inboxes.get(paneId) ?? []).filter(
+        (entry) => entry.state === "unread",
+      ).length;
+      return queued + unread;
     },
 
     retain(liveIds) {

@@ -38,7 +38,7 @@ export const MAIL_ASK_EVENT = "mail.ask";
  * happens to be empty. */
 export const MAIL_REPLY_VERSION = 1;
 
-export const renderOpencodeMail: MailReplyRenderer = ({ event, messages }) => {
+export const renderOpencodeMail: MailReplyRenderer = ({ event, messages, waiting }) => {
   // Not our question. Nothing else asks today; refusing by name is what
   // keeps that true — a future reporter armed to ask would otherwise be
   // handed courier instructions it has no idea what to do with.
@@ -48,6 +48,9 @@ export const renderOpencodeMail: MailReplyRenderer = ({ event, messages }) => {
   return JSON.stringify({
     v: MAIL_REPLY_VERSION,
     ...(standing.length > 0 ? { context: frameTeammateMail(standing) } : {}),
-    ...(traffic.length > 0 ? { prompt: frameTeammateMail(traffic) } : {}),
+    // The count rides with the traffic, never with standing context: what is
+    // still waiting is mail, and a briefing that announced a queue length
+    // would be reporting on something it has nothing to do with.
+    ...(traffic.length > 0 ? { prompt: frameTeammateMail(traffic, waiting) } : {}),
   });
 };

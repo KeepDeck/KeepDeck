@@ -36,8 +36,8 @@ import {
  * agent's output, not the human's instruction. A terminal paste can say
  * neither, because it arrives as keystrokes indistinguishable from typing.
  */
-export const renderKimiMail: MailReplyRenderer = ({ event, messages }) => {
-  const text = frameTeammateMail(messages);
+export const renderKimiMail: MailReplyRenderer = ({ event, messages, waiting }) => {
+  const text = frameTeammateMail(messages, waiting);
   switch (event.hook_event_name) {
     case "Stop":
       return JSON.stringify({

@@ -331,6 +331,19 @@ describe("createMailManager", () => {
     ]);
   });
 
+  it("counts what a pane has not been given, queued and delivered alike", () => {
+    // What the hand-over frame tells the agent. Both halves count: the
+    // budget leaves messages queued, and a paste leaves them delivered but
+    // never asked for.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "one" });
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "two" });
+    expect(h.manager.waiting(B.paneId)).toBe(2);
+    h.manager.takeAtTurnEnd(B.paneId);
+    expect(h.manager.waiting(B.paneId)).toBe(0);
+  });
+
   it("forgets panes that are gone", () => {
     const h = harness();
     h.reports(B.paneId, done);
