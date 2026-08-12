@@ -123,19 +123,38 @@ describe("NotificationBell", () => {
     expect(document.querySelector(".bell__badge")).toBeNull(); // read
   });
 
-  it("mark-all-read clears the badge and the button disappears", () => {
+  it("mark-all-read clears the badge but keeps history clearable", () => {
     act(() => {
       notify({ title: "a", source: paneSource });
       notify({ title: "b", source: paneSource });
     });
     act(() => bellButton().click());
     act(() => {
-      document.querySelector<HTMLButtonElement>(".bell__clear")!.click();
+      document.querySelector<HTMLButtonElement>(".bell__mark-read")!.click();
     });
     expect(document.querySelector(".bell__badge")).toBeNull();
-    expect(document.querySelector(".bell__clear")).toBeNull();
+    expect(document.querySelector(".bell__mark-read")).toBeNull();
+    expect(document.querySelector(".bell__clear-all")).not.toBeNull();
     // The list itself stays — history, not an inbox purge.
     expect(document.querySelectorAll(".bell__item")).toHaveLength(2);
+  });
+
+  it("clear-all empties history without closing the panel", () => {
+    act(() => {
+      notify({ title: "a", source: paneSource });
+      notify({ title: "b", source: paneSource });
+    });
+    act(() => bellButton().click());
+    act(() => {
+      document.querySelector<HTMLButtonElement>(".bell__clear-all")!.click();
+    });
+    expect(document.querySelector(".bell__panel")).not.toBeNull();
+    expect(document.querySelector(".bell__empty")?.textContent).toBe(
+      "Nothing yet",
+    );
+    expect(document.querySelector(".bell__badge")).toBeNull();
+    expect(document.querySelector(".bell__actions")).toBeNull();
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("a second press on the bell button closes the panel exactly once", () => {

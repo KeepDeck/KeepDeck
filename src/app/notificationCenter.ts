@@ -1,5 +1,6 @@
 import {
   addNotification,
+  clearNotifications,
   markAllRead,
   markRead,
   retractByTag,
@@ -169,6 +170,15 @@ export function markNotificationRead(id: string): void {
 
 export function markAllNotificationsRead(): void {
   const next = markAllRead(items, Date.now());
+  if (next === items) return;
+  items = next;
+  emit();
+}
+
+/** Empty only the in-app history. Banner cooldowns deliberately survive, just
+ * as they do when a resolved event retracts its entry. */
+export function clearAllNotifications(): void {
+  const next = clearNotifications(items);
   if (next === items) return;
   items = next;
   emit();

@@ -3,6 +3,7 @@ import type { Settings } from "../domain/settings";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import {
+  clearAllNotifications,
   getNotifications,
   markAllNotificationsRead,
   markNotificationRead,
@@ -229,5 +230,25 @@ describe("notificationCenter", () => {
     expect(getNotifications()).toBe(snapshot);
     markAllNotificationsRead();
     expect(getNotifications().every((n) => n.readAt !== undefined)).toBe(true);
+  });
+
+  it("clears in-app history once while preserving the banner cooldown", () => {
+    notify({ title: "first", source: paneSource, tag: "x" });
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
+
+    const listener = vi.fn();
+    const unsubscribe = subscribeNotifications(listener);
+    clearAllNotifications();
+    expect(getNotifications()).toHaveLength(0);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    clearAllNotifications();
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1_000);
+    notify({ title: "second", source: paneSource, tag: "x" });
+    expect(getNotifications()).toHaveLength(1);
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 });

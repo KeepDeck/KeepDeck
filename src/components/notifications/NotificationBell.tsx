@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { BellIcon } from "@keepdeck/ui-kit/icons";
 import {
+  clearAllNotifications,
   markAllNotificationsRead,
   markNotificationRead,
 } from "../../app/notificationCenter";
@@ -91,14 +92,25 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
         <div className="bell__panel" role="group" aria-label="Notifications">
           <div className="bell__head">
             <span className="bell__title">Notifications</span>
-            {unread > 0 && (
-              <button
-                type="button"
-                className="bell__clear"
-                onClick={() => markAllNotificationsRead()}
-              >
-                Mark all read
-              </button>
+            {notifications.length > 0 && (
+              <span className="bell__actions">
+                {unread > 0 && (
+                  <button
+                    type="button"
+                    className="bell__action bell__mark-read"
+                    onClick={() => markAllNotificationsRead()}
+                  >
+                    Mark all read
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="bell__action bell__clear-all"
+                  onClick={() => clearAllNotifications()}
+                >
+                  Clear all
+                </button>
+              </span>
             )}
           </div>
           {notifications.length === 0 ? (

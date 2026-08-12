@@ -4,6 +4,7 @@ import {
   addNotification,
   BANNER_COOLDOWN_MS,
   bannerVerdict,
+  clearNotifications,
   markAllRead,
   markRead,
   NOTIFICATIONS_CAP,
@@ -115,6 +116,12 @@ describe("read state", () => {
 
   it("unreadCount counts only unread", () => {
     expect(unreadCount([make(), make({ readAt: 1 }), make()])).toBe(2);
+  });
+
+  it("clears history and no-ops by reference when already empty", () => {
+    expect(clearNotifications([make(), make({ readAt: 1 })])).toEqual([]);
+    const empty: readonly Notification[] = [];
+    expect(clearNotifications(empty)).toBe(empty);
   });
 });
 

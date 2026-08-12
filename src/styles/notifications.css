@@ -60,7 +60,13 @@
   color: #c5c8c6;
 }
 
-.bell__clear {
+.bell__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bell__action {
   border: 0;
   background: transparent;
   color: #6b7280;
@@ -70,7 +76,7 @@
   border-radius: 4px;
 }
 
-.bell__clear:hover {
+.bell__action:hover {
   color: #c5c8c6;
   background-color: #1b2230;
 }
