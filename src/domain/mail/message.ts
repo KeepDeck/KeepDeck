@@ -38,6 +38,21 @@ export type MailKind =
   | "team";
 
 /**
+ * What an AGENT may put in `kind`.
+ *
+ * `undelivered` is missing on purpose: it is the deck's own word for a
+ * delivery report, and a sender able to forge one could dress a message as a
+ * fact about the mail system. `team` is missing for the same reason — a
+ * briefing is the deck telling a pane where it stands, and standing context
+ * bypasses the terminal entirely on the strength of that.
+ *
+ * A rule about the vocabulary, so it lives with the vocabulary: the command
+ * layer offers it and the briefing explains it, and neither should be the
+ * place that decides it.
+ */
+export const SENDABLE_KINDS: readonly MailKind[] = ["task", "question", "answer", "note"];
+
+/**
  * The pane that sent it, as it read AT SEND TIME.
  *
  * `label` is copied rather than looked up on read for the reason the journal
@@ -126,10 +141,11 @@ export function senderOf(source: CommandSource): MailSender | null {
  * inherited it, while a stale role or title comes back as a refusal. Naming
  * the wrong pane is worse than naming none.
  *
- * A fact about the MESSAGE, not about a channel, which is why it lives here.
- * Both delivery paths derived it independently, each carrying its own copy of
- * this reasoning; change one and that channel's receivers keep getting a name
- * `resolveMailTarget` will refuse.
+ * A fact about the SENDER, not about a channel, which is why it lives here.
+ * The three read paths derived it independently once, each carrying its own
+ * copy of this reasoning; change one and that path's receivers keep getting
+ * a name `resolveMailTarget` will refuse. [`senderName`] is the same answer
+ * for a whole message, and is what the two delivery channels call.
  */
 export function senderAddress(sender: MailSender): string {
   return sender.role ?? sender.label;

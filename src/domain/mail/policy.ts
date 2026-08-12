@@ -153,6 +153,23 @@ export function awaitsAnswer(kind: MailKind): boolean {
 export function isResponse(kind: MailKind): boolean {
   return kind === "answer";
 }
+
+/**
+ * What choosing a kind COSTS, in the words its sender needs.
+ *
+ * Since [`decideDelivery`] started reading the kind, this is no longer a
+ * label on a message — it decides whether a teammate is pulled out of its
+ * work. An agent picking one is deciding how to spend somebody else's turn,
+ * and "task, question, answer, note" told it none of that.
+ *
+ * Derived from the predicate rather than written beside it, so the sentence
+ * cannot say one thing while the code does another. Two surfaces disagreeing
+ * about how mail works is the defect this whole feature keeps producing.
+ */
+export function kindGuidance(kinds: readonly MailKind[]): string {
+  const named = (chosen: readonly MailKind[]) => chosen.join(" and ");
+  return `${named(kinds.filter(awaitsAnswer))} interrupt a teammate that is working and cost it a turn; ${named(kinds.filter((kind) => !awaitsAnswer(kind)))} wait for its next turn boundary.`;
+}
 export type MailVerdict =
   /** Push the message itself into the pane's terminal. Only for an agent
    * with no labelled channel at all — for everyone else, see `wake`. */

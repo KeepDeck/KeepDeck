@@ -4,10 +4,15 @@
  *
  * Everything that DECIDES lives in `src/domain/mail`; this holds what the
  * decisions need and nothing else: a queue per receiver, what each pane has
- * already been handed, where each pane sits in a chain, and who is owed an
- * answer by whom. It is the only stateful piece of the feature, deliberately
- * — a second store would have to agree with this one about whether a message
- * is still pending, and they would disagree exactly when it mattered.
+ * been handed and whether it has read it, and where each pane sits in a
+ * chain. Who owes whom an answer is NOT held — it is read off the journal,
+ * because a second shape of the same facts is a second thing to keep in step
+ * and they disagree exactly when it matters.
+ *
+ * It is where the MESSAGES live, and the only place they do. What sits
+ * elsewhere is a hand-over in flight (`hookReply`'s memory of a batch given
+ * to a transport that has not confirmed it), which is a fact about that
+ * round trip rather than about the mail.
  *
  * A FACTORY, like both its siblings: the app's one instance lives in
  * `createAppRuntime` and reaches consumers as a value, while each test

@@ -19,6 +19,8 @@ import {
 } from "../../domain/commands";
 import { findWorkspaceOfPane, type Pane, type Workspace } from "../../domain/deck";
 import {
+  SENDABLE_KINDS,
+  kindGuidance,
   planTeam,
   teamMembers,
   leadRole,
@@ -86,10 +88,6 @@ function callerWorkspace(
   return { workspace, pane };
 }
 
-/** What an agent may put in `kind`. `undelivered` is missing on purpose: it
- * is the deck's own word for a delivery report, and a sender able to forge
- * one could dress a message as a fact about the mail system. */
-const SENDABLE_KINDS: MailKind[] = ["task", "question", "answer", "note"];
 
 const NOT_AN_AGENT_MESSAGE =
   "only an agent pane can use mail — this connection is not attached to one";
@@ -113,7 +111,8 @@ function str(args: CommandArgs, name: string): string | undefined {
  * agent looking for a window title: `address` is what goes in `to`, `label`
  * is how a person reads it, `paneId` is who spoke and stays the same as long
  * as that pane lives. Only `address` is an address, and the domain answers
- * it — the two delivery channels already ask [`senderAddress`], and a
+ * it — the two delivery channels ask the same rule through [`senderName`],
+ * which is [`senderAddress`] for a whole message — and a
  * projection with an opinion of its own is how this read path came to be the
  * one that showed a title while the other two showed a role.
  *
@@ -165,7 +164,10 @@ export function registerMailCommands(
           name: "kind",
           type: "string",
           required: true,
-          description: `What this is: ${SENDABLE_KINDS.join(", ")}`,
+          // Not a bare list any more. The kind decides whether a teammate is
+          // pulled out of its work, so an agent choosing one is spending
+          // somebody else's turn — and it can only weigh that if it is told.
+          description: `What this is: ${SENDABLE_KINDS.join(", ")}. It decides when the message lands — ${kindGuidance(SENDABLE_KINDS)} Say what is true: an interrupt nobody needed is a teammate's turn spent for nothing.`,
         },
         { name: "body", type: "string", required: true, description: "The message" },
         // No `replyTo`. The deck derives the edge from what this pane was

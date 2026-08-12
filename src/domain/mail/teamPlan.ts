@@ -17,6 +17,8 @@
 import type { AgentType } from "../agents";
 import type { Resolved } from "../commands";
 import type { Workspace } from "../deck";
+import { SENDABLE_KINDS } from "./message";
+import { kindGuidance } from "./policy";
 import { leadRole, parseRoleAddress } from "./roles";
 import { paneIsOnTeam, teamMembers } from "./team";
 
@@ -103,7 +105,12 @@ export function teamBriefing(
     mates.length
       ? `The rest of the KeepDeck team, addressed by role:\n${mates.map(rosterLine).join("\n")}`
       : "You are its only member so far.",
-    'Write to one with the keepdeck mail.send tool — to: "<role>", plus kind (task, question, answer or note) and body.',
+    'Write to one with the keepdeck mail.send tool — to: "<role>", plus kind and body.',
+    // The briefing is the only text always in context; a tool's own
+    // description is not loaded until the agent has decided the tool is
+    // worth loading. So the fact that costs a teammate its turn is said
+    // here too, and derived from the same predicate so the two cannot drift.
+    `The kind decides when it lands: ${kindGuidance(SENDABLE_KINDS)} Choose by what is true — an interrupt nobody needed is a teammate's turn spent for nothing.`,
     // No id to quote back. Correlating an answer with what it answers is the
     // deck's job now — it knows what this pane was handed — and asking the
     // agent for it bought nothing: nothing validated the id, nothing read it,
