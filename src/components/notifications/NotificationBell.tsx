@@ -116,16 +116,15 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
                       onOpen(n);
                     }}
                   >
-                    {n.icon !== undefined ? (
-                      <span className="bell__icon" aria-hidden>
-                        {n.icon}
-                      </span>
-                    ) : (
-                      <span
-                        className={`bell__dot bell__dot--${n.severity}`}
-                        aria-hidden
-                      />
-                    )}
+                    <span className="bell__leading" aria-hidden>
+                      {n.icon !== undefined ? (
+                        <span className="bell__icon">{n.icon}</span>
+                      ) : n.severity !== "info" ? (
+                        <span
+                          className={`bell__dot bell__dot--${n.severity}`}
+                        />
+                      ) : null}
+                    </span>
                     <span className="bell__text">
                       <span className="bell__item-title">{n.title}</span>
                       {n.body !== undefined && (
