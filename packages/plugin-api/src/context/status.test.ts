@@ -56,6 +56,15 @@ describe("frameTeammateMail", () => {
     expect(frameTeammateMail([mail()])).not.toContain("waiting");
   });
 
+  it("does not say THE sender when a batch holds several", () => {
+    // One hand-over drains a whole queue, so a lead can be given an answer
+    // from one teammate and a question from another in the same breath. The
+    // singular told it to pick one and say nothing to the other.
+    const text = frameTeammateMail([mail({ from: "impl-1" }), mail({ from: "reviewer-1" })]);
+    expect(text).toContain("each message's own sender");
+    expect(text).toContain("several sends");
+  });
+
   it("does not tell an agent to reply to the deck itself", () => {
     // A frame of pure host notices — a briefing, a delivery report — names
     // "KeepDeck" as the sender. Telling an agent to answer that sends it

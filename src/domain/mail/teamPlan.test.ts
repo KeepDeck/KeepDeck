@@ -329,11 +329,14 @@ describe("teamBriefing", () => {
     // written out beside it.
     const text = teamBriefing("api", "lead", ["lead", "impl-1"]);
     for (const kind of SENDABLE_KINDS) expect(text).toContain(kind);
-    expect(text).toContain("interrupt a teammate that is working");
-    expect(text).toContain("wait for its next turn boundary");
-    // And the sides are the predicate's, not a copy of it.
+    // The sides are the predicate's, not a copy of it.
     const interrupting = SENDABLE_KINDS.filter(awaitsAnswer).join(" and ");
-    expect(text).toContain(`${interrupting} interrupt`);
+    expect(text).toContain(`${interrupting} interrupt it`);
+    // And the condition is stated. Without it the sentence promised that
+    // notes are free, when an IDLE teammate — the ordinary state between
+    // tasks — is roused by any kind, since it will reach no boundary alone.
+    expect(text).toContain("while a teammate is working");
+    expect(text).toContain("idle is roused for any of them");
   });
 
   it("tells the holder what its OWN role is for", () => {

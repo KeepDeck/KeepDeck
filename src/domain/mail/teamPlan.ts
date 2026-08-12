@@ -116,7 +116,11 @@ export function teamBriefing(
     // agent for it bought nothing: nothing validated the id, nothing read it,
     // and the habit of holding ids is what sent foreign ones to `since`.
     // Saying the subject in words does the same work for the reader.
-    "Read anything you have not seen with mail.inbox. When you answer, say what you are answering — the subject, not an id.",
+    // Says what reading DOES, because it is not a passive look: a message
+    // handed back is a message read, and a plain call will not offer it
+    // again. An agent that read a task and moved on would otherwise check
+    // for outstanding work, see nothing, and conclude it owes nobody.
+    "Read what is new with mail.inbox; reading it is what marks it read, so a plain call will not show it again. Use all: true to see what is still on you. When you answer, say what you are answering — the subject, not an id.",
     // The sender's half of the same fact. A lead shown `delivered: false`
     // read it as failure, re-sent, and then went looking for whether its
     // teammates existed — while three good messages sat in the queue.

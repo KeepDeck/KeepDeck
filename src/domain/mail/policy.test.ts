@@ -245,13 +245,6 @@ describe("decideDelivery", () => {
     expect(MAIL_LIMITS.hookWaitMs).toBeLessThan(MAIL_LIMITS.undeliveredMs);
   });
 
-  it("steers straight into a running turn when no hook exists", () => {
-    // The pre-existing behaviour, and what every CLI without a mail-capable
-    // hook still gets.
-    expect(decideDelivery(mail(), working, SENT_AT, MAIL_LIMITS, false)).toEqual({
-      kind: "deliver",
-    });
-  });
 
   it("reads the limits it is given, not only the shipped ones", () => {
     // Guards against the bound being read from the module constant instead

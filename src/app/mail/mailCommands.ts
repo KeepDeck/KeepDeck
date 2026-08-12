@@ -158,7 +158,7 @@ export function registerMailCommands(
           // teammate can be sure of, while the briefing taught roles — so
           // the two surfaces an agent reads disagreed about how to answer.
           description:
-            "Recipient's address in your own workspace: the role a message shows as `from.address` (lead, impl-1), or a pane title or id for an agent on no team",
+            "Recipient's address in your own workspace: the role a message shows as `from.address` (lead, impl-1). A pane title or id also resolves, and is all there is for an agent on no team",
         },
         {
           name: "kind",
@@ -237,7 +237,7 @@ export function registerMailCommands(
           name: "all",
           type: "boolean",
           description:
-            "Re-read everything still held, including what you have already seen — for when your context was rebuilt. Omit for just the new messages",
+            "Re-read the most recent messages still held, including ones you have already read — for when your context was rebuilt and you need to know what you are still on the hook for. Omit for just the new ones",
         },
       ],
       run: (args, source) => {

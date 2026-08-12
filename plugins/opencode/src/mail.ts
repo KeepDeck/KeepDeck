@@ -47,10 +47,15 @@ export const renderOpencodeMail: MailReplyRenderer = ({ event, messages, waiting
   const traffic = messages.filter((mail: DeliverableMail) => !mail.standing);
   return JSON.stringify({
     v: MAIL_REPLY_VERSION,
-    ...(standing.length > 0 ? { context: frameTeammateMail(standing) } : {}),
-    // The count rides with the traffic, never with standing context: what is
-    // still waiting is mail, and a briefing that announced a queue length
-    // would be reporting on something it has nothing to do with.
+    // The count rides with the traffic when there is any, and with the
+    // briefing when there is not. A batch can be standing-only — the
+    // character budget cuts after the first message is taken, and a fat
+    // re-brief fills it — and putting the count solely on the half that may
+    // be missing is how the one CLI that splits its answer loses the signal
+    // the field exists to carry.
+    ...(standing.length > 0
+      ? { context: frameTeammateMail(standing, traffic.length > 0 ? 0 : waiting) }
+      : {}),
     ...(traffic.length > 0 ? { prompt: frameTeammateMail(traffic, waiting) } : {}),
   });
 };

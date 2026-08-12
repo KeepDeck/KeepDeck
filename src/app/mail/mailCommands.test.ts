@@ -301,7 +301,14 @@ describe("mail.inbox", () => {
     );
     const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
     expect(read.ok).toBe(true);
-    if (read.ok) expect(read.value).not.toHaveProperty("messages.0.hop");
+    if (read.ok) {
+      // Assert the message is THERE before asserting a field is not: the
+      // negative alone passed just as happily when the read returned
+      // nothing at all, which is a total failure of the path under test.
+      const { messages } = read.value as { messages: unknown[] };
+      expect(messages).toHaveLength(1);
+      expect(read.value).not.toHaveProperty("messages.0.hop");
+    }
   });
 
   it("refuses a caller it cannot name", async () => {

@@ -262,7 +262,9 @@ export function frameTeammateMail(
   messages: readonly DeliverableMail[],
   waiting = 0,
 ): string {
-  const fromPane = messages.some((mail) => mail.from);
+  // `!== null` rather than a truthy test: an empty name is still a sender,
+  // and conflating the two would silently drop the reply line for one.
+  const fromPane = messages.some((mail) => mail.from !== null);
   return [
     "<teammate-message>",
     ...messages.map((mail) => {
@@ -285,8 +287,14 @@ export function frameTeammateMail(
     // a briefing, a delivery report — names "KeepDeck" as the sender, and
     // telling an agent to reply to that sends it after an address
     // `resolveMailTarget` will refuse.
+    // "The sender", singular, was wrong the moment a batch held two: one
+    // hand-over drains a whole queue, so a lead can be given an answer from
+    // one teammate and a question from another in the same breath, and each
+    // is owed its own reply to its own address.
     ...(fromPane
-      ? ["Reply with the keepdeck mail.send tool, addressed to the sender named above."]
+      ? [
+          "Reply with the keepdeck mail.send tool, addressing each message's own sender as named above — several messages may need several sends.",
+        ]
       : []),
     // A capped batch is indistinguishable from all of it unless the deck
     // says otherwise, and an agent that thinks it has everything stops.
