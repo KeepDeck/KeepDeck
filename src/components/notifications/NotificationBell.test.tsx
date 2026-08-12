@@ -4,8 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import {
-  notify,
-  resetNotificationCenter,
+  createNotificationCenter,
+  type NotificationCenter,
+  type NotifyInput,
 } from "../../app/notificationCenter";
 import { NotificationBell } from "./NotificationBell";
 
@@ -28,21 +29,22 @@ const paneSource = {
 
 describe("NotificationBell", () => {
   let root: Root;
+  let center: NotificationCenter;
   const onOpen = vi.fn();
+  const notify = (input: NotifyInput) => center.notify(input);
 
   beforeEach(() => {
-    resetNotificationCenter();
+    center = createNotificationCenter();
     onOpen.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => {
-      root.render(createElement(NotificationBell, { onOpen }));
+      root.render(createElement(NotificationBell, { center, onOpen }));
     });
   });
 
   afterEach(() => {
     act(() => root.unmount());
-    resetNotificationCenter();
   });
 
   const bellButton = () =>
@@ -82,19 +84,30 @@ describe("NotificationBell", () => {
     expect(document.querySelector(".bell__body")?.textContent).toBe("b1");
   });
 
-  it("renders an entry's own icon in place of the severity dot", () => {
+  it("uses one leading slot without ornamenting routine info", () => {
     act(() => {
       notify({ title: "badge", icon: "💎", source: { type: "app" } });
       notify({ title: "plain", source: { type: "app" } });
+      notify({
+        title: "warning",
+        severity: "warning",
+        source: { type: "app" },
+      });
     });
     act(() => bellButton().click());
     const items = [...document.querySelectorAll(".bell__item")];
+    expect(document.querySelectorAll(".bell__leading")).toHaveLength(3);
     const badge = items.find((item) => item.textContent?.includes("badge"))!;
     expect(badge.querySelector(".bell__icon")?.textContent).toBe("💎");
     expect(badge.querySelector(".bell__dot")).toBeNull();
     const plain = items.find((item) => item.textContent?.includes("plain"))!;
     expect(plain.querySelector(".bell__icon")).toBeNull();
-    expect(plain.querySelector(".bell__dot")).not.toBeNull();
+    expect(plain.querySelector(".bell__dot")).toBeNull();
+    expect(plain.querySelector(".bell__leading")?.childElementCount).toBe(0);
+    const warning = items.find((item) =>
+      item.textContent?.includes("warning"),
+    )!;
+    expect(warning.querySelector(".bell__dot--warning")).not.toBeNull();
   });
 
   it("clicking an entry marks it read, closes the panel and navigates", () => {
@@ -112,19 +125,44 @@ describe("NotificationBell", () => {
     expect(document.querySelector(".bell__badge")).toBeNull(); // read
   });
 
-  it("mark-all-read clears the badge and the button disappears", () => {
+  it("mark-all-read clears the badge but keeps history clearable", () => {
     act(() => {
       notify({ title: "a", source: paneSource });
       notify({ title: "b", source: paneSource });
     });
     act(() => bellButton().click());
     act(() => {
-      document.querySelector<HTMLButtonElement>(".bell__clear")!.click();
+      document.querySelector<HTMLButtonElement>(".bell__mark-read")!.click();
     });
     expect(document.querySelector(".bell__badge")).toBeNull();
-    expect(document.querySelector(".bell__clear")).toBeNull();
+    expect(document.querySelector(".bell__mark-read")).toBeNull();
+    expect(document.querySelector(".bell__clear-all")).not.toBeNull();
     // The list itself stays — history, not an inbox purge.
     expect(document.querySelectorAll(".bell__item")).toHaveLength(2);
+  });
+
+  it("clear-all empties history without closing the panel", () => {
+    act(() => {
+      notify({ title: "a", source: paneSource });
+      notify({ title: "b", source: paneSource });
+    });
+    act(() => bellButton().click());
+    const clearButton =
+      document.querySelector<HTMLButtonElement>(".bell__clear-all")!;
+    clearButton.focus();
+    expect(document.activeElement).toBe(clearButton);
+    act(() => {
+      clearButton.click();
+    });
+    expect(document.querySelector(".bell__panel")).not.toBeNull();
+    const empty = document.querySelector(".bell__empty");
+    expect(empty?.textContent).toBe("Nothing yet");
+    expect(empty?.getAttribute("role")).toBe("status");
+    expect(empty?.getAttribute("aria-live")).toBe("polite");
+    expect(document.activeElement).toBe(bellButton());
+    expect(document.querySelector(".bell__badge")).toBeNull();
+    expect(document.querySelector(".bell__actions")).toBeNull();
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("a second press on the bell button closes the panel exactly once", () => {

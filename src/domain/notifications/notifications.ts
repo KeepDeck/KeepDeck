@@ -124,6 +124,13 @@ export function markAllRead(
   return items.map((n) => (n.readAt === undefined ? { ...n, readAt: at } : n));
 }
 
+/** Remove the center's runtime history. Same-reference no-op when empty. */
+export function clearNotifications(
+  items: readonly Notification[],
+): readonly Notification[] {
+  return items.length === 0 ? items : [];
+}
+
 export function unreadCount(items: readonly Notification[]): number {
   return items.reduce((sum, n) => sum + (n.readAt === undefined ? 1 : 0), 0);
 }

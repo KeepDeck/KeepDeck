@@ -60,7 +60,13 @@
   color: #c5c8c6;
 }
 
-.bell__clear {
+.bell__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bell__action {
   border: 0;
   background: transparent;
   color: #6b7280;
@@ -70,7 +76,7 @@
   border-radius: 4px;
 }
 
-.bell__clear:hover {
+.bell__action:hover {
   color: #c5c8c6;
   background-color: #1b2230;
 }
@@ -90,9 +96,10 @@
 }
 
 .bell__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 8px;
   width: 100%;
   padding: 8px;
   border: 0;
@@ -111,25 +118,24 @@
   color: #c5c8c6;
 }
 
+.bell__leading {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+}
+
 .bell__dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  flex: none;
-  align-self: center;
 }
 
-/* An entry carrying its own emoji (achievement badges) shows it where the
-   severity dot would sit. */
+/* Routine info needs no ornament. Exceptional severity and achievement emoji
+   share one slot, centered on the title line rather than the whole row. */
 .bell__icon {
-  flex: none;
   font-size: 13px;
-  line-height: 1.2;
-  align-self: center;
-}
-
-.bell__dot--info {
-  background-color: #3b82a0;
+  line-height: 1;
 }
 
 .bell__dot--warning {
@@ -150,6 +156,7 @@
 
 .bell__item-title {
   font-size: 12px;
+  line-height: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -168,9 +175,8 @@
 }
 
 .bell__age {
-  flex: none;
   font-size: 10px;
+  line-height: 16px;
   color: #6b7280;
-  margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }

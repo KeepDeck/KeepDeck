@@ -1,15 +1,13 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { BellIcon } from "@keepdeck/ui-kit/icons";
-import {
-  markAllNotificationsRead,
-  markNotificationRead,
-} from "../../app/notificationCenter";
+import type { NotificationCenter } from "../../app/notificationCenter";
 import { useNotifications } from "../../app/useNotifications";
 import { unreadCount, type Notification } from "../../domain/notifications";
 import { formatAge } from "../../domain/usage";
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
 interface NotificationBellProps {
+  center: NotificationCenter;
   /** Navigate to the notification's source — the composition root resolves
    * each origin (pane / plugin / app). Called after the entry is marked read
    * and the panel closes. */
@@ -23,10 +21,11 @@ interface NotificationBellProps {
  * renders only in the modes that include the in-app channel (the caller
  * gates that).
  */
-export function NotificationBell({ onOpen }: NotificationBellProps) {
-  const notifications = useNotifications();
+export function NotificationBell({ center, onOpen }: NotificationBellProps) {
+  const notifications = useNotifications(center);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement>(null);
+  const bellButtonRef = useRef<HTMLButtonElement>(null);
   const unread = unreadCount(notifications);
 
   // The coarse ages ("5m") drift while the panel stays open — a slow tick
@@ -68,6 +67,7 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
   return (
     <span className="bell" ref={rootRef}>
       <button
+        ref={bellButtonRef}
         type="button"
         className="bar__icon bell__button"
         onClick={() => setOpen((o) => !o)}
@@ -91,18 +91,34 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
         <div className="bell__panel" role="group" aria-label="Notifications">
           <div className="bell__head">
             <span className="bell__title">Notifications</span>
-            {unread > 0 && (
-              <button
-                type="button"
-                className="bell__clear"
-                onClick={() => markAllNotificationsRead()}
-              >
-                Mark all read
-              </button>
+            {notifications.length > 0 && (
+              <span className="bell__actions">
+                {unread > 0 && (
+                  <button
+                    type="button"
+                    className="bell__action bell__mark-read"
+                    onClick={() => center.markAllNotificationsRead()}
+                  >
+                    Mark all read
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="bell__action bell__clear-all"
+                  onClick={() => {
+                    bellButtonRef.current?.focus();
+                    center.clearAllNotifications();
+                  }}
+                >
+                  Clear all
+                </button>
+              </span>
             )}
           </div>
           {notifications.length === 0 ? (
-            <div className="bell__empty">Nothing yet</div>
+            <div className="bell__empty" role="status" aria-live="polite">
+              Nothing yet
+            </div>
           ) : (
             <ul className="bell__list">
               {notifications.map((n) => (
@@ -111,21 +127,20 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
                     type="button"
                     className={`bell__item${n.readAt === undefined ? " bell__item--unread" : ""}`}
                     onClick={() => {
-                      markNotificationRead(n.id);
+                      center.markNotificationRead(n.id);
                       setOpen(false);
                       onOpen(n);
                     }}
                   >
-                    {n.icon !== undefined ? (
-                      <span className="bell__icon" aria-hidden>
-                        {n.icon}
-                      </span>
-                    ) : (
-                      <span
-                        className={`bell__dot bell__dot--${n.severity}`}
-                        aria-hidden
-                      />
-                    )}
+                    <span className="bell__leading" aria-hidden>
+                      {n.icon !== undefined ? (
+                        <span className="bell__icon">{n.icon}</span>
+                      ) : n.severity !== "info" ? (
+                        <span
+                          className={`bell__dot bell__dot--${n.severity}`}
+                        />
+                      ) : null}
+                    </span>
                     <span className="bell__text">
                       <span className="bell__item-title">{n.title}</span>
                       {n.body !== undefined && (
