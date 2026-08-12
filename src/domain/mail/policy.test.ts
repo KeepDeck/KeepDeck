@@ -8,8 +8,10 @@ import {
   decideDelivery,
   decideHandover,
   decideSend,
-  expiryNotice,
+  droppedNotice,
+  isOverdue,
   isResponse,
+  overdueNotice,
 } from "./policy";
 
 const sender: MailSender = {
@@ -128,10 +130,6 @@ describe("decideDelivery", () => {
     expect(
       decideDelivery(briefing, done, SENT_AT + MAIL_LIMITS.undeliveredMs * 12),
     ).toEqual({ kind: "hold", reason: "labelled-only" });
-    // Traffic still keeps it: acting late can be worse than not acting.
-    expect(
-      decideDelivery(mail(), done, SENT_AT + MAIL_LIMITS.undeliveredMs),
-    ).toEqual({ kind: "expire" });
   });
 
   it("still types in what a pane is meant to ACT on", () => {
@@ -164,20 +162,21 @@ describe("decideDelivery", () => {
     expect(decideDelivery(mail(), undefined, SENT_AT)).toEqual({ kind: "deliver" });
   });
 
-  it("expiry outranks EVERY other verdict, holds included", () => {
-    // The ordering rule, and the one a refactor quietly loses: move the
-    // clock check below the holds and a message can sit at a permission
-    // prompt forever, then land the moment the user clicks — a correction
-    // arriving after the action it meant to stop. Never is better than
-    // late, because never can be reported back to the sender.
-    //
-    // Every state is asserted here on purpose: the held ones are what pin
-    // the ORDER (they are the verdicts expiry has to beat), the reachable
-    // ones pin that an aged message is not delivered just because it could
-    // have been.
-    const late = SENT_AT + MAIL_LIMITS.undeliveredMs;
+  it("decides the same thing however long a message has waited", () => {
+    // Age used to outrank every verdict here, and a message older than the
+    // window was destroyed: a teammate running a ten-minute build lost
+    // everything written to it, on the argument that a correction arriving
+    // after the action it meant to stop is worse than none. That argument is
+    // the RECEIVER's to make — it is the only party that knows what the
+    // message says — so the clock moved out of this decision entirely and
+    // became something the SENDER is told ([`isOverdue`]).
+    const fresh = mail();
+    const old = mail({ at: 0 });
+    const late = MAIL_LIMITS.undeliveredMs * 10;
     for (const activity of [working, asking, done, failed, approving, undefined]) {
-      expect(decideDelivery(mail(), activity, late)).toEqual({ kind: "expire" });
+      expect(decideDelivery(old, activity, late), String(activity?.state)).toEqual(
+        decideDelivery(fresh, activity, late),
+      );
     }
   });
 
@@ -263,29 +262,32 @@ describe("decideDelivery", () => {
       hookWaitMs: 5,
       handoverChars: 100,
     };
-    expect(decideDelivery(mail(), working, SENT_AT + 10, limits)).toEqual({ kind: "expire" });
-    expect(decideDelivery(mail(), working, SENT_AT + 9, limits)).toEqual({ kind: "deliver" });
+    // The wait before a nudge is the one bound this decision still reads.
+    const asking = mail({ kind: "question" });
+    expect(decideDelivery(asking, working, SENT_AT + 5, limits, true)).toEqual({
+      kind: "wake",
+    });
+    expect(decideDelivery(asking, working, SENT_AT + 4, limits, true)).toEqual({
+      kind: "hold",
+      reason: "turn-boundary",
+    });
+    expect(isOverdue(mail(), SENT_AT + 10, limits)).toBe(true);
+    expect(isOverdue(mail(), SENT_AT + 9, limits)).toBe(false);
   });
 });
 
 describe("decideHandover", () => {
-  it("shares its clauses with the terminal's verdict rather than copying them", () => {
-    // The point of the function: one answer to "is this still worth landing"
-    // and one to "is this pane safe to push at", used by both channels. They
-    // were copied into the application owner once, and a fifth reason to
-    // hold would then have been honoured on the terminal path and ignored on
-    // the labelled one — the path a briefing exclusively uses.
-    const stale = mail({ at: 0 });
-    const now = MAIL_LIMITS.undeliveredMs;
-    expect(decideHandover(stale, undefined, now)).toBe("expire");
-    expect(decideDelivery(stale, undefined, now)).toEqual({ kind: "expire" });
-
-    const fresh = mail({ at: now });
-    expect(decideHandover(fresh, approving, now)).toBe("hold");
-    expect(decideDelivery(fresh, approving, now)).toEqual({
+  it("shares the one clause it has with the terminal's verdict, rather than copying it", () => {
+    // A pane parked on a permission prompt is unsafe to push at through
+    // either door. Copied into the application owner once, it made a reason
+    // to hold that the terminal path honoured and this one — the path a
+    // briefing exclusively uses — silently ignored.
+    expect(decideHandover(approving)).toBe("hold");
+    expect(decideDelivery(mail(), approving, SENT_AT)).toEqual({
       kind: "hold",
       reason: "permission",
     });
+    expect(decideHandover(done)).toBe("hand");
   });
 
   it("hands over the standing context the other channel refuses to touch", () => {
@@ -294,11 +296,32 @@ describe("decideHandover", () => {
     // waiting for.
     const briefing = mail({ kind: "team", at: 0 });
     const now = MAIL_LIMITS.undeliveredMs * 10;
-    expect(decideHandover(briefing, done, now)).toBe("hand");
+    expect(decideHandover(done)).toBe("hand");
     expect(decideDelivery(briefing, done, now)).toEqual({
       kind: "hold",
       reason: "labelled-only",
     });
+  });
+
+  it("no longer refuses a message for its age, on either path", () => {
+    // Age used to destroy: a message older than the window was dropped and
+    // its sender told it never arrived, so a teammate running a long build
+    // lost everything written to it. Whether stale content is still worth
+    // acting on is the RECEIVER's judgement — the deck does not know what
+    // the message says — and its sender is told it is waiting instead.
+    const old = mail({ at: 0 });
+    const now = MAIL_LIMITS.undeliveredMs * 10;
+    expect(decideHandover(done)).toBe("hand");
+    expect(decideDelivery(old, done, now)).toEqual({ kind: "deliver" });
+    expect(isOverdue(old, now)).toBe(true);
+  });
+
+  it("keeps no clock at all on a briefing", () => {
+    // An agent that takes no turn for an hour is exactly the one that would
+    // otherwise be told its briefing is overdue, when the briefing is what
+    // it is missing.
+    const briefing = mail({ kind: "team", at: 0 });
+    expect(isOverdue(briefing, MAIL_LIMITS.undeliveredMs * 100)).toBe(false);
   });
 });
 
@@ -376,9 +399,9 @@ describe("decideSend", () => {
   });
 });
 
-describe("expiryNotice", () => {
-  it("reports back to the pane that sent the expired message", () => {
-    const notice = expiryNotice(mail({ kind: "task", hop: 2 }), "mail-9", 5_000);
+describe("the reports owed to a sender", () => {
+  it("tells a sender its message is waiting, and that nothing was lost", () => {
+    const notice = overdueNotice(mail({ kind: "task", hop: 2 }), "mail-9", 5_000);
     expect(notice).toMatchObject({
       id: "mail-9",
       kind: "undelivered",
@@ -388,24 +411,38 @@ describe("expiryNotice", () => {
       at: 5_000,
     });
     expect(notice?.body).toContain("task");
+    // The distinction the whole change turns on: a sender that reads
+    // "dropped" re-sends, and a lead already did exactly that off a weaker
+    // signal — it read `delivered: false` as failure and went looking for
+    // whether its teammates were alive.
+    expect(notice?.body).toContain("nothing to re-send");
+  });
+
+  it("says plainly when a message really was lost", () => {
+    // The one way that still happens, and it is about a queue with no end in
+    // sight rather than about a clock.
+    expect(droppedNotice(mail({ kind: "task" }), "mail-9", 5_000)?.body).toContain(
+      "Dropped",
+    );
   });
 
   it("copies the hop instead of advancing it", () => {
     // A report is the mail system accounting for itself. Advancing the
     // counter would spend the sender's chain budget on news it never asked
     // for, and could refuse the reply it is about to want to send.
-    expect(expiryNotice(mail({ hop: 4 }), "mail-9", 5_000)?.hop).toBe(4);
+    expect(overdueNotice(mail({ hop: 4 }), "mail-9", 5_000)?.hop).toBe(4);
+    expect(droppedNotice(mail({ hop: 4 }), "mail-9", 5_000)?.hop).toBe(4);
   });
 
-  it("owes nothing for a report that itself expired", () => {
+  it("owes nothing for a report about a report", () => {
     // Otherwise every undelivered notice mints another one, forever, and
     // the hop counter cannot stop it because the hop never advances.
-    expect(expiryNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
+    expect(overdueNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
+    expect(droppedNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
   });
 
   it("owes nothing when the host was the sender", () => {
-    expect(
-      expiryNotice(mail({ from: { kind: "host" } }), "mail-9", 5_000),
-    ).toBeNull();
+    expect(overdueNotice(mail({ from: { kind: "host" } }), "mail-9", 5_000)).toBeNull();
+    expect(droppedNotice(mail({ from: { kind: "host" } }), "mail-9", 5_000)).toBeNull();
   });
 });

@@ -23,9 +23,11 @@ import {
   decideDelivery,
   decideHandover,
   decideSend,
-  expiryNotice,
+  droppedNotice,
+  isOverdue,
   isResponse,
   isStandingContext,
+  overdueNotice,
   senderName,
   type Mail,
   type MailKind,
@@ -50,6 +52,10 @@ const SERIALIZE_MS = 400;
  * because nothing prunes it otherwise and a long-lived pane would grow one
  * without limit. */
 const INBOX_LIMIT = 50;
+
+/** How many messages may WAIT for one pane. See [`enqueue`] for why a queue
+ * needs a bound of its own now. */
+const QUEUE_LIMIT = 50;
 
 /**
  * One delivered message and where it stands with its receiver.
@@ -232,9 +238,12 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * answers would be prodded on every drain until its mail expired. */
   const lastWakeAt = new Map<string, number>();
 
+  /** Queued messages whose sender has already been told they are waiting.
+   * An id leaves when its message leaves the queue. */
+  const reportedOverdue = new Set<string>();
+
   let sequence = 0;
   let cancelTimer: (() => void) | null = null;
-  let noticed = false;
   let disposed = false;
 
   function mintId(): string {
@@ -261,6 +270,19 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       }
     }
     queue.push(mail);
+    // The only bound left on a queue, and it had to replace one: age used to
+    // empty it, and age no longer drops anything. A pane that has collected
+    // nothing for this long is not about to catch up on the oldest, so the
+    // oldest is what goes — and its sender is told, because this is the one
+    // remaining way a message is genuinely lost.
+    while (queue.length > QUEUE_LIMIT) {
+      const dropped = queue.shift();
+      if (!dropped) break;
+      leftQueue(dropped);
+      log.warn("web:mail", `dropped, the queue is full: ${trace(dropped)}`);
+      const notice = droppedNotice(dropped, mintId(), now());
+      if (notice) enqueue(notice);
+    }
   }
 
   /** Book a delivery, saying whether the receiver ASKED for it — see
@@ -320,24 +342,45 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   }
 
   /**
-   * A message has run out of time. Log it, and tell its sender if the deck
-   * owes them a report.
+   * Tell the senders of anything that has been queued too long, once each.
    *
-   * Both channels expire on the same rule (`decideDelivery` and
-   * `decideHandover` share it) and owe the same report — but each removed the
-   * message from its queue and minted the notice for itself, and only one of
-   * them logged. Answers whether a notice was queued, which is what the drain
-   * loop needs to know: a notice is itself deliverable mail, so a pass that
-   * minted one is not finished.
+   * Once, because the message is not going anywhere: it stays queued until
+   * its pane can take it, so a report every window would be the same news
+   * repeated at a sender that can do nothing with it. `reportedOverdue`
+   * is what makes it once, and an id leaves that set when its message
+   * leaves the queue.
    *
-   * Removing the message stays with the caller — the two walk their queues
-   * differently, and a helper that also spliced would have to be told how.
+   * Walks every queued message rather than each queue's head. The walk that
+   * delivers stops at the first thing it cannot place, so a message behind a
+   * held one is exactly the message most likely to be waiting — and under
+   * the old rule it was the one that quietly died there.
+   *
+   * Returns when the next unreported message comes due, so the drain can arm
+   * a timer for it, or null when nothing is pending.
    */
-  function expire(head: Mail, at: number): boolean {
-    log.info("web:mail", `expired unread after ${at - head.at}ms: ${trace(head)}`);
-    const notice = expiryNotice(head, mintId(), at);
-    if (notice) enqueue(notice);
-    return notice !== null;
+  function reportOverdue(at: number): number | null {
+    let due: number | null = null;
+    for (const queue of [...queues.values()]) {
+      for (const mail of [...queue]) {
+        if (reportedOverdue.has(mail.id)) continue;
+        if (!isOverdue(mail, at, limits)) {
+          if (!isStandingContext(mail.kind)) {
+            due = earlier(due, mail.at + limits.undeliveredMs);
+          }
+          continue;
+        }
+        reportedOverdue.add(mail.id);
+        log.info("web:mail", `still queued after ${at - mail.at}ms: ${trace(mail)}`);
+        const notice = overdueNotice(mail, mintId(), at);
+        if (notice) enqueue(notice);
+      }
+    }
+    return due;
+  }
+
+  /** A message has left a queue for good; it can no longer come due. */
+  function leftQueue(mail: Mail): void {
+    reportedOverdue.delete(mail.id);
   }
 
   /**
@@ -372,11 +415,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         limits,
         asksAtTurnEnd(paneId),
       );
-      if (verdict.kind === "expire") {
-        queue.splice(index, 1);
-        if (expire(head, at)) noticed = true;
-        continue;
-      }
       // The message's own restriction, not the pane's: step over it and keep
       // looking. It leaves through `takeAtTurnEnd` or not at all — and it
       // schedules NOTHING, because standing context keeps no clock. There is
@@ -458,6 +496,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       }
       log.info("web:mail", `pasted into the pane: ${trace(head)}`);
       queue.splice(index, 1);
+      leftQueue(head);
       lastDeliveryAt.set(paneId, at);
       // The receiver now stands one message deep in this chain: whatever it
       // sends next continues from here, which is what bounds a conversation.
@@ -473,18 +512,14 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   function drain(): void {
     if (disposed) return;
     const at = now();
-    let deadline: number | null = null;
-    // A notice minted mid-pass belongs to a pane this pass may already have
-    // walked, so one more pass is owed. It converges after that: a notice
-    // cannot mint another notice (`expiryNotice` refuses).
-    for (let pass = 0; pass < 2; pass += 1) {
-      noticed = false;
-      deadline = null;
-      for (const [paneId, queue] of [...queues]) {
-        deadline = earlier(deadline, drainPane(paneId, queue, at));
-        if (queue.length === 0) queues.delete(paneId);
-      }
-      if (!noticed) break;
+    // Before placing anything: a message that has waited too long earns its
+    // sender a word, and the notice is itself deliverable mail that the pass
+    // below should place in the same breath. It cannot cascade — a notice
+    // about a notice is refused by `overdueNotice`.
+    let deadline = reportOverdue(at);
+    for (const [paneId, queue] of [...queues]) {
+      deadline = earlier(deadline, drainPane(paneId, queue, at));
+      if (queue.length === 0) queues.delete(paneId);
     }
     cancelTimer?.();
     cancelTimer = null;
@@ -551,7 +586,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     takeAtTurnEnd(paneId) {
-      const at = now();
       const queue = queues.get(paneId);
       if (!queue) return [];
       const taken: Mail[] = [];
@@ -576,23 +610,13 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
           break;
         }
         // The same two clauses the other channel obeys, asked rather than
-        // repeated: a message too old to paste is too old to hand over
-        // politely and its sender is owed the same report, and a pane parked
-        // on a permission prompt is unsafe to push at through either door.
-        // Copied here once, they made a fifth reason to hold something the
-        // terminal would honour and this — the path a briefing exclusively
-        // uses — would silently ignore.
-        const verdict = decideHandover(head, deps.activityOf(paneId), at, limits);
-        if (verdict === "expire") {
-          queue.shift();
-          // The `noticed` flag is the DRAIN loop's business — this path ends
-          // with a `drain()` below, which starts a fresh pass over whatever
-          // a notice just queued.
-          expire(head, at);
-          continue;
-        }
-        if (verdict === "hold") break;
+        // repeated: a pane parked on a permission prompt is unsafe to push at
+        // through either door. Copied here once, it made a fifth reason to
+        // hold something the terminal would honour and this — the path a
+        // briefing exclusively uses — would silently ignore.
+        if (decideHandover(deps.activityOf(paneId)) === "hold") break;
         queue.shift();
+        leftQueue(head);
         chainHop.set(paneId, head.hop);
         // The agent's own hook asked for this and is about to be handed it,
         // so it lands in context: read, by the only definition the deck can
@@ -659,20 +683,17 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     inbox(paneId, options) {
-      const at = now();
-      // Empty the queue into the journal first. `decideHandover` still
-      // expires what is too old, but its other refusal — a pane parked on a
+      // Empty the queue into the journal first, holding nothing back. The one
+      // refusal a turn-boundary handover honours — a pane parked on a
       // permission prompt — is about pushing AT a pane, and this is the pane
-      // asking.
+      // asking. Age is no reason either: nothing is dropped for being late,
+      // and a message that waited is exactly what an agent going to look for
+      // its mail is looking for.
       const queue = queues.get(paneId) ?? [];
       while (queue.length > 0) {
         const head = queue[0];
-        if (decideHandover(head, deps.activityOf(paneId), at, limits) === "expire") {
-          queue.shift();
-          expire(head, at);
-          continue;
-        }
         queue.shift();
+        leftQueue(head);
         chainHop.set(paneId, head.hop);
         remember(paneId, head, "unread");
         log.info("web:mail", `handed to an explicit read: ${trace(head)}`);

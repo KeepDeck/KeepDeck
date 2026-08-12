@@ -172,10 +172,7 @@ export type MailVerdict =
    * nudge, and the message is still in the queue for the next turn.
    */
   | { kind: "wake" }
-  | { kind: "hold"; reason: MailHoldReason }
-  /** Too old to be worth landing; goes back to the sender undelivered. No
-   * reason field — there is one way to expire, and nothing branches on it. */
-  | { kind: "expire" };
+  | { kind: "hold"; reason: MailHoldReason };
 
 /**
  * Whether `mail` may be handed over at a turn boundary, when the agent has
@@ -191,25 +188,34 @@ export type MailVerdict =
  * labelled channel. Standing context is the clearest case — held there,
  * delivered here, because this is the moment it was waiting for.
  */
-export function decideHandover(
-  mail: Mail,
-  activity: PaneActivity | undefined,
-  now: number,
-  limits: MailLimits = MAIL_LIMITS,
-): "hand" | "expire" | "hold" {
-  if (hasGoneStale(mail, now, limits)) return "expire";
+export function decideHandover(activity: PaneActivity | undefined): "hand" | "hold" {
   return parkedOnAPrompt(activity) ? "hold" : "hand";
 }
 
 /**
- * Too old to be worth landing.
+ * Whether `mail` has been waiting long enough that its SENDER should be told.
  *
- * Standing context keeps no clock at all ([`isStandingContext`]): it cannot
- * go stale, and an agent that takes no turn for an hour is exactly the one
- * that would otherwise lose its briefing and then be handed a teammate's
- * task with no idea who is asking.
+ * It is a fact about the wait, not a verdict on the message, and that is the
+ * whole of the change it records. This clock used to destroy: a message
+ * older than the window was dropped and its sender told it never arrived —
+ * so a teammate running a ten-minute build lost everything written to it, on
+ * the argument that a correction arriving after the action it meant to stop
+ * is worse than none.
+ *
+ * The argument is sound and belongs to the RECEIVER, who alone knows what
+ * the message was about; the deck does not. What the deck can do is say when
+ * a message it holds has been waiting, and let the receiver read it with its
+ * age in view. Nothing is thrown away for being late.
+ *
+ * Standing context keeps no clock at all ([`isStandingContext`]): an agent
+ * that takes no turn for an hour is exactly the one that would otherwise be
+ * told its briefing is overdue, when the briefing is what it is missing.
  */
-function hasGoneStale(mail: Mail, now: number, limits: MailLimits): boolean {
+export function isOverdue(
+  mail: Mail,
+  now: number,
+  limits: MailLimits = MAIL_LIMITS,
+): boolean {
   return !isStandingContext(mail.kind) && now - mail.at >= limits.undeliveredMs;
 }
 
@@ -248,14 +254,10 @@ export function decideDelivery(
    * render mail — either way the terminal is the only way in. */
   asksAtTurnEnd = false,
 ): MailVerdict {
-  // Expiry is judged BEFORE deliverability, and the order is the rule, not
-  // an accident: the case that matters is a held message whose pane just
-  // became reachable. Delivering it then is exactly the failure the clock
-  // exists to prevent — the correction arrives after the action it was
-  // meant to stop.
-  //
-  // See [`hasGoneStale`] for why standing context is exempt.
-  if (hasGoneStale(mail, now, limits)) return { kind: "expire" };
+  // No clause for age. A message that has waited too long is a fact its
+  // SENDER is told about ([`isOverdue`]) — it is not a reason to stop trying
+  // to deliver it, and the receiver is the only party that can judge whether
+  // its contents still matter.
   // See [`parkedOnAPrompt`] for why this outranks everything below it.
   if (parkedOnAPrompt(activity)) return { kind: "hold", reason: "permission" };
   // A message that may only arrive labelled never touches the terminal —
@@ -312,10 +314,11 @@ export function decideDelivery(
  * The delivery report owed to the sender of a message that aged out, or null
  * when none is owed.
  *
- * §7's rule with its teeth in: an expired message goes BACK to its sender as
- * undelivered rather than quietly landing late. Two messages earn no report
- * and both would be a bug if they did — a report about a report is a chain
- * that feeds itself, and a host notice has no pane to report to.
+ * A sender learns that its message is still sitting in a queue, rather than
+ * being left to wonder — and, since nothing is dropped for being late, that
+ * is all the report says. Two messages earn no report and both would be a
+ * bug if they did: a report about a report is a chain that feeds itself, and
+ * a host notice has no pane to report to.
  *
  * The hop is COPIED, never incremented. A report is the mail system
  * accounting for itself; letting it advance the counter would spend a
@@ -324,12 +327,41 @@ export function decideDelivery(
  * `id` and `at` come from the caller because minting and clock-reading are
  * the owner's, not the rule's — which is what keeps this testable.
  */
-export function expiryNotice(mail: Mail, id: string, at: number): Mail | null {
+export function overdueNotice(mail: Mail, id: string, at: number): Mail | null {
+  return reportToSender(
+    mail,
+    id,
+    at,
+    `Still waiting: your ${mail.kind} has not reached its pane yet — it is queued and will land when that agent next takes a turn. Nothing is lost and there is nothing to re-send.`,
+  );
+}
+
+/**
+ * The report owed when a message is dropped to keep a queue bounded.
+ *
+ * The one way a message is still lost, and it says so plainly. Age is no
+ * longer a reason to drop anything ([`isOverdue`]), so what remains is a
+ * pane that has taken nothing for so long that its queue would grow without
+ * end — and there the oldest goes, because the newest is the one still worth
+ * landing.
+ */
+export function droppedNotice(mail: Mail, id: string, at: number): Mail | null {
+  return reportToSender(
+    mail,
+    id,
+    at,
+    `Dropped: your ${mail.kind} was never collected, and that agent has so much waiting that the oldest had to go. It has read nothing you sent — take it up with your user rather than re-sending.`,
+  );
+}
+
+/** The shape both reports share. See [`overdueNotice`] for why the hop is
+ * copied and why two of the three possible senders get nothing. */
+function reportToSender(mail: Mail, id: string, at: number, body: string): Mail | null {
   if (mail.from.kind !== "pane" || mail.kind === "undelivered") return null;
   return {
     id,
     kind: "undelivered",
-    body: `Undelivered: your ${mail.kind} did not reach its pane within the delivery window, and has been dropped.`,
+    body,
     from: { kind: "host" },
     toPaneId: mail.from.pane.paneId,
     at,

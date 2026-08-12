@@ -177,24 +177,25 @@ describe("createMailManager", () => {
     expect(notice.replyTo).toBe("mail-1");
   });
 
-  it("does not report on a report — an expired notice ends the chain", () => {
+  it("tells a sender its message is waiting, once, and does not report on the report", () => {
     const h = harness();
-    // Neither pane can take anything, so the notice expires too.
+    // Neither pane can take anything, so both the message and the notice sit
+    // in their queues for as long as the test runs.
     h.reports(A.paneId, approving);
     h.reports(B.paneId, approving);
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
-
     h.advance(MAIL_LIMITS.undeliveredMs);
-    h.advance(MAIL_LIMITS.undeliveredMs);
-    h.advance(MAIL_LIMITS.undeliveredMs);
-    // Nothing was ever delivered, and crucially nothing is still pending:
-    // a notice that minted another notice would keep the queue alive
-    // forever, and the hop counter could not stop it — a notice copies its
-    // hop rather than advancing it.
-    expect(h.delivered).toHaveLength(0);
+    h.advance(MAIL_LIMITS.undeliveredMs * 3);
+    // The prompts clear, and A hears exactly one word about it: a notice
+    // that minted another notice would keep the queue alive forever, and the
+    // hop counter could not stop it — a notice copies its hop rather than
+    // advancing it.
     h.reports(A.paneId, done);
     h.reports(B.paneId, done);
-    expect(h.delivered).toHaveLength(0);
+    h.advance(PAST_SPACING);
+    expect(h.delivered.filter((mail) => mail.kind === "undelivered")).toHaveLength(1);
+    // And the message itself still lands. It was late, never lost.
+    expect(h.delivered.map((mail) => mail.body)).toContain("which port?");
   });
 
   it("stops an A↔B ping-pong rather than letting two agents bill each other forever", () => {
@@ -526,16 +527,36 @@ describe("createMailManager", () => {
     expect(h.delivered).toHaveLength(0);
   });
 
-  it("reports an expired message to its sender even on the asking path", () => {
+  it("keeps a long-waiting message for the turn that finally comes", () => {
+    // The case the old clock destroyed: a pane working through something
+    // long. Its sender is told the message is waiting, and the message is
+    // still there when the turn ends.
     const h = harness({ asksAtTurnEnd: true });
     h.reports(A.paneId, done);
     h.reports(B.paneId, { state: "working", since: 500 });
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
-    h.advance(MAIL_LIMITS.undeliveredMs);
-    // It aged out along the way; the hand-over yields nothing and the
-    // sender still hears about it. The report waits for A's own hook first,
-    // like everything else, and reaches the terminal once that wait is up.
-    expect(h.manager.takeAtTurnEnd(B.paneId)).toEqual([]);
+    h.advance(MAIL_LIMITS.undeliveredMs * 3);
+    expect(h.manager.takeAtTurnEnd(A.paneId).map((mail) => mail.kind)).toEqual([
+      "undelivered",
+    ]);
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
+      "which port?",
+    ]);
+  });
+
+  it("drops the oldest when a queue has grown past what a pane will ever collect", () => {
+    // The one bound left, and it replaces the one age used to provide. The
+    // sender is told, because this is now the only way a message is really
+    // lost.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(A.paneId, done);
+    h.reports(B.paneId, { state: "working", since: 500 });
+    for (let i = 0; i < 51; i += 1) {
+      h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: `note ${i}` });
+    }
+    const bodies = h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body);
+    expect(bodies).not.toContain("note 0");
+    expect(bodies).toContain("note 50");
     expect(h.manager.takeAtTurnEnd(A.paneId).map((mail) => mail.kind)).toEqual([
       "undelivered",
     ]);
