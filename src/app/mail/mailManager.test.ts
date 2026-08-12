@@ -5,6 +5,9 @@ import { createMailManager } from "./mailManager";
 
 const A: MailSender = { paneId: "pane-1", workspaceId: "ws-1", label: "Agent 1" };
 const B: MailSender = { paneId: "pane-2", workspaceId: "ws-1", label: "Agent 2" };
+/** A third pane, for the cases that are about a PAIR rather than about two
+ * panes — one teammate's ask must not close another's. */
+const C: MailSender = { paneId: "pane-3", workspaceId: "ws-1", label: "Agent 3" };
 
 const done: PaneActivity = { state: "done", at: 1, interrupted: false };
 const approving: PaneActivity = { state: "waiting", since: 1, reason: "permission" };
@@ -16,6 +19,17 @@ const PAST_SPACING = 5_000;
 /** `Array.prototype.at` is outside this project's target lib. */
 function last<T>(items: readonly T[]): T | undefined {
   return items[items.length - 1];
+}
+
+/** The edge on the message with this body among what was PASTED into panes.
+ * Named rather than positional, and loud when the message never landed. */
+function edgeOn(
+  h: { delivered: readonly Mail[] },
+  body: string,
+): string | undefined {
+  const sent = h.delivered.filter((mail) => mail.body === body);
+  expect(sent, `expected exactly one delivered message saying "${body}"`).toHaveLength(1);
+  return sent[0]?.replyTo;
 }
 
 function harness(options: { asksAtTurnEnd?: boolean } = {}) {
@@ -674,35 +688,48 @@ describe("createMailManager", () => {
 });
 
 describe("the reply edge", () => {
-  /** The one edge everything else is a variation on: A asks, B answers. */
-  function asked(h: ReturnType<typeof harness>) {
-    h.reports(B.paneId, done);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
-    h.reports(A.paneId, done);
+  /** Every pane here has a labelled channel, which is the ordinary case: mail
+   * waits in the queue and its agent's hook collects it at a turn boundary. */
+  function asking() {
+    return harness({ asksAtTurnEnd: true });
+  }
+
+  /** A asks B something. Bodies differ so an assertion can name one. */
+  function ask(h: ReturnType<typeof harness>, body: string) {
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body });
+  }
+
+  /** The pane takes a turn: its hook asks the deck what is waiting, and what
+   * comes back lands in its context — which is what makes it READ. */
+  function collect(h: ReturnType<typeof harness>, pane: MailSender) {
+    return h.manager.takeAtTurnEnd(pane.paneId);
   }
 
   /**
-   * The edge on the message carrying this body — found by lookup, never by
-   * position.
+   * The edge on the message carrying this body, collected at that pane's
+   * boundary — found by lookup, never by position.
    *
-   * Reading the last delivery asserts about whatever landed most recently,
-   * which is not always the message under test: a delivery to a third pane,
-   * or one the deck itself sent, can land in between, and the assertion then
-   * passes or fails for reasons the test never states. Failing loudly when
-   * the message was not delivered at all is the other half — an edge read
-   * off `undefined` is a test that cannot fail.
+   * Reading whatever landed most recently asserts about a message the test
+   * never names: a delivery to a third pane, or one the deck itself sent, can
+   * land in between. Failing loudly when the message is not there at all is
+   * the other half — an edge read off `undefined` is a test that cannot fail.
    */
-  function edgeOn(h: ReturnType<typeof harness>, body: string): string | undefined {
-    const sent = h.delivered.filter((mail) => mail.body === body);
-    expect(sent, `expected exactly one delivered message saying "${body}"`).toHaveLength(1);
-    return sent[0]?.replyTo;
+  function edgeAt(
+    h: ReturnType<typeof harness>,
+    pane: MailSender,
+    body: string,
+  ): string | undefined {
+    const found = collect(h, pane).filter((mail) => mail.body === body);
+    expect(found, `expected exactly one message saying "${body}"`).toHaveLength(1);
+    return found[0]?.replyTo;
   }
 
   it("names what an answer answers", () => {
-    const h = harness();
-    asked(h);
+    const h = asking();
+    ask(h, "which port?");
+    collect(h, B);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
-    expect(edgeOn(h, "8080")).toBe("mail-1");
+    expect(edgeAt(h, A, "8080")).toBe("mail-1");
   });
 
   it("spends it, so the next thing said is not a second answer to it", () => {
@@ -710,123 +737,167 @@ describe("the reply edge", () => {
     // everything a pane said to one teammate in a row carried the same
     // `replyTo` — one question with three answers, and an aside labelled as
     // one of them.
-    const h = harness();
-    asked(h);
+    const h = asking();
+    ask(h, "which port?");
+    collect(h, B);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
-    h.advance(PAST_SPACING);
-    h.manager.send({ from: B, toPaneId: A.paneId, kind: "question", body: "and the host?" });
-    expect(edgeOn(h, "8080")).toBe("mail-1");
-    expect(edgeOn(h, "and the host?")).toBeUndefined();
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "and 5432 for the db" });
+    const [first, second] = collect(h, A);
+    expect(first.replyTo).toBe("mail-1");
+    expect(second.replyTo).toBeUndefined();
   });
 
   it("lets a task pass without answering anything or spending what is owed", () => {
     // A lead holding a teammate's question hands out the next piece of work
     // before getting to it. That work order is not a reply — and it must not
     // cost the lead the chance to reply afterwards.
-    const h = harness();
-    h.reports(A.paneId, done);
+    const h = asking();
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "question", body: "which port?" });
-    h.reports(B.paneId, done);
+    collect(h, A);
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "start on the parser" });
-    h.advance(PAST_SPACING);
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "answer", body: "8080" });
-    expect(edgeOn(h, "start on the parser")).toBeUndefined();
-    expect(edgeOn(h, "8080")).toBe("mail-1");
+    const [task, answer] = collect(h, B);
+    expect(task.replyTo).toBeUndefined();
+    expect(answer.replyTo).toBe("mail-1");
+  });
+
+  it("is not answering a note, which nobody was waiting on", () => {
+    // Booking every kind was the defect: an unbidden note became a debt that
+    // the reader's next message spent, and an unrelated answer shipped
+    // labelled as a reply to it. ONE note on purpose — two would leave the
+    // pair ambiguous, and the test would pass without proving the note was
+    // never a debt at all.
+    const h = asking();
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "CI is red on main" });
+    collect(h, B);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "starting on it" });
+    expect(edgeAt(h, A, "starting on it")).toBeUndefined();
+  });
+
+  it("does not call a question a response, however much it reads like one", () => {
+    // A question back at an ambiguous task and a question opening a new
+    // subject are the same message to the deck. Treating both as responses
+    // made the new subject spend the debt and arrive labelled as a reply.
+    const h = asking();
+    ask(h, "which port?");
+    collect(h, B);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "question", body: "which env do you mean?" });
+    expect(edgeAt(h, A, "which env do you mean?")).toBeUndefined();
   });
 
   it("refuses to choose between two the same teammate is waiting on, then recovers", () => {
     // Naming one would mark the other unanswered forever and this one
-    // answered when it was not. Settling the pair anyway is what stops the
-    // two from making every later exchange between them unattributable.
-    const h = harness();
-    h.reports(B.paneId, done);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
-    h.advance(PAST_SPACING);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "and the host?" });
-    h.reports(A.paneId, done);
+    // answered when it was not. Marking both anyway is what stops the two
+    // from making every later exchange between them unattributable.
+    const h = asking();
+    ask(h, "which port?");
+    ask(h, "and the host?");
+    collect(h, B);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "both are in the env" });
-    h.advance(PAST_SPACING);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which env?" });
-    h.advance(PAST_SPACING);
+    const [muddled] = collect(h, A);
+    expect(muddled.replyTo).toBeUndefined();
+    ask(h, "which env?");
+    collect(h, B);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: ".env.local" });
-    expect(edgeOn(h, "both are in the env")).toBeUndefined();
-    expect(edgeOn(h, ".env.local")).toBe("mail-4");
+    expect(edgeAt(h, A, ".env.local")).toBe("mail-4");
   });
 
   it("is unmoved by a permission prompt in the middle of the answering turn", () => {
-    // The previous mechanism read "not working" as the turn ending, so the
+    // An earlier mechanism read "not working" as the turn ending, so the
     // first approval prompt threw the question away and the answer that
     // followed named nothing — which is most real task turns.
-    const h = harness();
-    asked(h);
-    // B — the pane that owes the answer — works, stops for an approval, and
-    // carries on. None of that ends its turn.
+    const h = asking();
+    ask(h, "which port?");
+    collect(h, B);
     h.reports(B.paneId, { state: "working", since: 2 });
     h.reports(B.paneId, approving);
     h.reports(B.paneId, { state: "working", since: 3 });
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
-    expect(edgeOn(h, "8080")).toBe("mail-1");
+    expect(edgeAt(h, A, "8080")).toBe("mail-1");
   });
 
-  it("works for a pane that reports no activity at all", () => {
-    // Nothing here is reported: a CLI with no status voice, or one whose
-    // plugin contributes a renderer and no normalizer. The old mechanism
-    // waited for a transition that never came, so such a pane accumulated
-    // candidates for the whole session and answered with a stale edge.
-    const h = harness();
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
-    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
-    expect(edgeOn(h, "8080")).toBe("mail-1");
+  it("keeps the pairs apart when one pane owes two teammates at once", () => {
+    // Two teammates, two debts, one pane. Nothing here is a pair of panes:
+    // an answer to one must not close what the other is waiting on, and
+    // must not read as ambiguous because two asks are outstanding in total.
+    const h = asking();
+    h.manager.send({ from: A, toPaneId: C.paneId, kind: "question", body: "which port?" });
+    h.manager.send({ from: B, toPaneId: C.paneId, kind: "question", body: "which branch?" });
+    collect(h, C);
+    h.manager.send({ from: C, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    h.manager.send({ from: C, toPaneId: B.paneId, kind: "answer", body: "feat/parser" });
+    expect(edgeAt(h, A, "8080")).toBe("mail-1");
+    expect(edgeAt(h, B, "feat/parser")).toBe("mail-2");
   });
 
   it("does not let the deck's own voice stand in the way", () => {
-    // A briefing or a delivery report arriving between the question and the
-    // answer must not make the pair look ambiguous — nobody is waiting on
-    // KeepDeck, and an agent cannot answer it.
-    const h = harness();
-    asked(h);
-    // Handed to B, the pane that owes the answer, between the question and
-    // its reply — the position where a second teammate message would make
-    // the pair ambiguous.
-    h.advance(PAST_SPACING);
+    // A briefing or a delivery report between the question and the answer
+    // must not make the pair look ambiguous — nobody is waiting on KeepDeck,
+    // and an agent cannot answer it.
+    const h = asking();
+    ask(h, "which port?");
     h.manager.announce(B.paneId, "note", "a teammate left the team");
+    collect(h, B);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
-    expect(edgeOn(h, "8080")).toBe("mail-1");
+    expect(edgeAt(h, A, "8080")).toBe("mail-1");
   });
 
   it("stops owing an answer to a handover that was put back unread", () => {
-    const h = harness({ asksAtTurnEnd: true });
-    h.reports(B.paneId, done);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    const h = asking();
+    ask(h, "which port?");
     const taken = h.manager.takeAtTurnEnd(B.paneId);
     expect(taken).toHaveLength(1);
     h.manager.restore(taken);
-    h.reports(A.paneId, done);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
-    // Read through the boundary, not through `delivered`: a pane that asks
-    // at a turn end is nudged rather than pasted into, so nothing lands in
-    // the terminal and asserting there would pass without proving anything.
-    const [answer] = h.manager.takeAtTurnEnd(A.paneId);
-    expect(answer.replyTo).toBeUndefined();
+    expect(edgeAt(h, A, "8080")).toBeUndefined();
   });
 
   it("does not hand a restarted process an answer its predecessor was asked for", () => {
-    const h = harness();
-    asked(h);
-    // B's process retires — a restart, a suspend. Whatever it was asked, it
-    // was asked of a process that no longer exists.
+    // The mail survives the restart — it is addressed to the pane — but the
+    // process that READ it is gone, so the agent starting now has not read
+    // anything and is not answering it.
+    const h = asking();
+    ask(h, "which port?");
+    collect(h, B);
     h.manager.clear(B.paneId);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(edgeAt(h, A, "8080")).toBeUndefined();
+  });
+
+  it("forgets a pane that is gone for good", () => {
+    const h = asking();
+    ask(h, "which port?");
+    collect(h, B);
+    h.manager.retain(new Set([A.paneId]));
+    expect(h.manager.inbox(B.paneId)).toEqual([]);
+  });
+});
+
+describe("what counts as reading", () => {
+  it("does not treat a paste nobody asked for as read", () => {
+    // A pane with no labelled channel is pasted into, and a paste is
+    // answered by nothing at all: mid-turn it sits in an input buffer the
+    // agent will not look at until the turn after next. Calling that read
+    // would be the deck guessing.
+    const h = harness();
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.reports(A.paneId, done);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(h.delivered.map((mail) => mail.body)).toContain("which port?");
     expect(edgeOn(h, "8080")).toBeUndefined();
   });
 
-  it("forgets what a pane that is gone was waiting for", () => {
-    // Both halves of a pair have to go, or the survivor answers into a
-    // conversation whoever inherits the slot was never part of.
+  it("counts the agent going to look as reading", () => {
+    // The same pasted message, once its agent asks for its mail. That ask is
+    // the event the deck can witness, and it is what turns a delivery into
+    // something the agent can be answering.
     const h = harness();
-    asked(h);
-    h.manager.retain(new Set([B.paneId]));
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.manager.inbox(B.paneId);
+    h.reports(A.paneId, done);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
-    expect(edgeOn(h, "8080")).toBeUndefined();
+    expect(edgeOn(h, "8080")).toBe("mail-1");
   });
 });

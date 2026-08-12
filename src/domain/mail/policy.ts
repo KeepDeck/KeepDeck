@@ -121,22 +121,37 @@ export function isStandingContext(kind: MailKind): boolean {
 }
 
 /**
- * Whether sending this is RESPONDING to something, rather than opening a
- * subject of its own.
+ * Whether RECEIVING this leaves the reader owing its sender a response.
  *
- * The deck attributes an answer to what it answers without asking the agent
- * for an id, and this is the half of that rule made of domain vocabulary:
- * `answer` closes something the sender was asked, and a `question` back is
- * the response an ambiguous task is supposed to get — the implementer's
- * charter says so in as many words. A `task` is a work order and a `note`
- * arrives unbidden; neither answers anything, and letting them draw an edge
- * would mark a teammate's ask answered by a message that ignored it.
+ * The cut is [`MailKind`]'s own: `task` and `question` interrupt — each
+ * expects something back — while `note` merely informs and `answer` closes
+ * what the reader itself asked. Only the first two can be outstanding, so
+ * only they can be what a later answer is answering.
+ *
+ * Booking every kind was a defect, not an omission: a teammate's answer, or
+ * an unbidden note, became a debt that the reader's next message spent, and
+ * an unrelated question shipped labelled as a reply to it.
+ */
+export function awaitsAnswer(kind: MailKind): boolean {
+  return kind === "task" || kind === "question";
+}
+
+/**
+ * Whether SENDING this closes something the sender was asked.
+ *
+ * `answer` alone. A `question` back is a response in ordinary speech and the
+ * implementer's charter invites one — but the deck cannot tell that question
+ * from one opening a subject of its own, and treating both as responses made
+ * a new topic spend a debt and arrive labelled as a reply to it. The
+ * clarifying question simply gets no edge, which is the direction this whole
+ * rule errs in: a missing edge shows somebody still waiting, a wrong one
+ * hides it.
  *
  * `team` and `undelivered` are the deck's own voice and never sent by an
  * agent at all, so they fall out on the same side.
  */
 export function isResponse(kind: MailKind): boolean {
-  return kind === "answer" || kind === "question";
+  return kind === "answer";
 }
 export type MailVerdict =
   /** Push the message itself into the pane's terminal. Only for an agent

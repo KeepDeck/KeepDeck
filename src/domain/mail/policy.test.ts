@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { PaneActivity } from "../status";
 import type { Mail, MailSender } from "./message";
+import type { MailKind } from "./message";
 import {
   MAIL_LIMITS,
+  awaitsAnswer,
   decideDelivery,
   decideHandover,
   decideSend,
   expiryNotice,
+  isResponse,
 } from "./policy";
 
 const sender: MailSender = {
@@ -35,6 +38,44 @@ const asking: PaneActivity = { state: "waiting", since: 1, reason: "question" };
 const approving: PaneActivity = { state: "waiting", since: 1, reason: "permission" };
 const done: PaneActivity = { state: "done", at: 1, interrupted: false };
 const failed: PaneActivity = { state: "failed", at: 1, error: "rate_limit" };
+
+describe("what a kind means for an answer", () => {
+  // The whole vocabulary in one table, because the two predicates are each
+  // other's mirror and the pair is only right if read together: what leaves
+  // the reader owing a response, and what pays that off. A kind added to the
+  // union without a row here is a compile error at the table, which is the
+  // point of writing it out rather than testing two or three cases.
+  const kinds: Array<[MailKind, { awaits: boolean; responds: boolean }]> = [
+    // A work order and a question each expect something back.
+    ["task", { awaits: true, responds: false }],
+    ["question", { awaits: true, responds: false }],
+    // An answer closes what the sender was asked, and opens nothing.
+    ["answer", { awaits: false, responds: true }],
+    // A note merely informs — nobody is waiting on it.
+    ["note", { awaits: false, responds: false }],
+    // The deck's own voice. An agent can send neither, and neither can be
+    // answered: there is no pane behind them.
+    ["undelivered", { awaits: false, responds: false }],
+    ["team", { awaits: false, responds: false }],
+  ];
+
+  for (const [kind, expected] of kinds) {
+    it(`${kind}: ${expected.awaits ? "awaits an answer" : "awaits nothing"}, ${
+      expected.responds ? "is a response" : "is not a response"
+    }`, () => {
+      expect(awaitsAnswer(kind)).toBe(expected.awaits);
+      expect(isResponse(kind)).toBe(expected.responds);
+    });
+  }
+
+  it("never counts one kind as both an open ask and its own answer", () => {
+    // The two halves of one rule: something that closes a debt cannot also
+    // create one, or a pair would owe each other forever on one message.
+    for (const [kind] of kinds) {
+      expect(awaitsAnswer(kind) && isResponse(kind)).toBe(false);
+    }
+  });
+});
 
 describe("decideDelivery", () => {
   it("delivers into a running turn — steering is the normal mode, not an intrusion", () => {
