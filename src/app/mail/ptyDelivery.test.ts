@@ -38,7 +38,6 @@ function mail(over: Partial<Mail> = {}): Mail {
     },
     toPaneId: "pane-2",
     at: 1_000,
-    hop: 0,
     ...over,
   };
 }

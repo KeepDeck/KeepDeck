@@ -3,11 +3,11 @@
  * `usageManager` and `agentStatusTracker`.
  *
  * Everything that DECIDES lives in `src/domain/mail`; this holds what the
- * decisions need and nothing else: a queue per receiver, what each pane has
- * been handed and whether it has read it, and where each pane sits in a
- * chain. Who owes whom an answer is NOT held — it is read off the journal,
- * because a second shape of the same facts is a second thing to keep in step
- * and they disagree exactly when it matters.
+ * decisions need and nothing else: a queue per receiver, and what each pane
+ * has been handed and whether it has read it. Who owes whom an answer is NOT
+ * held — it is read off the journal, because a second shape of the same facts
+ * is a second thing to keep in step and they disagree exactly when it
+ * matters.
  *
  * It is where the MESSAGES live, and the only place they do. What sits
  * elsewhere is a hand-over in flight (`hookReply`'s memory of a batch given
@@ -27,8 +27,9 @@ import {
   awaitsAnswer,
   decideDelivery,
   decideHandover,
-  decideSend,
+  sendRefusal,
   droppedNotice,
+  forgottenNotice,
   isOverdue,
   isResponse,
   isStandingContext,
@@ -53,10 +54,26 @@ import { log } from "../../ipc/log";
  */
 const SERIALIZE_MS = 400;
 
-/** How many delivered messages a pane keeps for catch-up reads. Bounded
- * because nothing prunes it otherwise and a long-lived pane would grow one
- * without limit. */
+/** How much HISTORY a pane keeps for catch-up reads. Bounded because nothing
+ * prunes it otherwise and a long-lived pane would grow one without limit. */
 const INBOX_LIMIT = 50;
+
+/**
+ * How far a journal may grow when history alone cannot keep it under
+ * [`INBOX_LIMIT`].
+ *
+ * An open ask is not history: [`takeReplyEdge`] reads it, so spending one
+ * turns an honest "two teammates are waiting, name neither" into a confident
+ * edge to whichever survived — and the sender of the other is told its
+ * message went nowhere when the receiver has it. So asks are exempt from the
+ * cap the way standing context is exempt from the queue's.
+ *
+ * An exemption still needs a floor under it, and this is it. Reaching it
+ * means one pane owes two hundred answers, which is a broken team rather
+ * than a busy one; past that the deck would be holding an unbounded journal
+ * to preserve edges nobody is going to draw.
+ */
+const INBOX_CEILING = 200;
 
 /** How many messages may WAIT for one pane. See [`enqueue`] for why a queue
  * needs a bound of its own now. */
@@ -158,9 +175,6 @@ export interface MailManager {
    * team, or left one. It travels the ordinary route, so it waits out a
    * permission prompt and arrives labelled through the hook channel like
    * any other message.
-   *
-   * Hop zero: a fact stated by the deck starts no conversation and must not
-   * spend the pane's chain budget on one.
    */
   announce(paneId: string, kind: MailKind, body: string): void;
   /** Hand over everything waiting for this pane, because its agent just
@@ -203,9 +217,9 @@ export interface MailManager {
   waiting(paneId: string): number;
   /** Forget everything belonging to panes that no longer exist. */
   retain(liveIds: ReadonlySet<string>): void;
-  /** The pane's process was retired (restart, suspend). Its place in a chain
-   * and its delivery spacing describe that process and mean nothing to the
-   * next one; queued and delivered mail is addressed to the PANE and stays. */
+  /** The pane's process was retired (restart, suspend). Its delivery spacing
+   * describes that process and means nothing to the next one; queued and
+   * delivered mail is addressed to the PANE and stays. */
   clear(paneId: string): void;
   dispose(): void;
 }
@@ -233,9 +247,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   /** Delivered mail per receiver, for catch-up reads and for working out who
    * owes whom an answer. */
   const inboxes = new Map<string, InboxEntry[]>();
-  /** The hop of the message that last WOKE each pane — what the next message
-   * that pane sends inherits. */
-  const chainHop = new Map<string, number>();
   /** When each pane last took delivery, for spacing. */
   const lastDeliveryAt = new Map<string, number>();
   /** When each pane was last nudged into a turn.
@@ -319,12 +330,35 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * messages to lose.
    */
   function reportDropped(dropped: Mail): void {
-    const notice = droppedNotice(dropped, mintId(), now());
+    pushNotice(droppedNotice(dropped, mintId(), now()));
+  }
+
+  /** Tell a sender the deck has stopped tracking a message it DID deliver.
+   * Same door as [`reportDropped`], different news — see [`forgottenNotice`]
+   * for why the two must not share a sentence. */
+  function reportForgotten(forgotten: Mail): void {
+    pushNotice(forgottenNotice(forgotten, mintId(), now()));
+  }
+
+  function pushNotice(notice: Mail | null): void {
     if (!notice) return;
     const queue = queues.get(notice.toPaneId);
     if (queue) queue.push(notice);
     else queues.set(notice.toPaneId, [notice]);
     log.info("web:mail", `queued: ${trace(notice)}`);
+  }
+
+  /**
+   * Whether this entry may be spent to keep a journal bounded.
+   *
+   * History is anything nobody is waiting on. Standing context is never
+   * history however old it gets — the same exemption `enqueue` gives it,
+   * and for the same reason: a pane reading its teammates' mail without
+   * knowing who is asking is worse off than one kept waiting.
+   */
+  function isHistory(entry: InboxEntry): boolean {
+    if (isStandingContext(entry.mail.kind)) return false;
+    return entry.state === "answered" || !awaitsAnswer(entry.mail.kind);
   }
 
   /** Book a delivery, saying whether the receiver ASKED for it — see
@@ -334,20 +368,33 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     held.push({ mail, state });
     inboxes.set(paneId, held);
     while (held.length > INBOX_LIMIT) {
-      // Spend the history before spending anything anyone is waiting on. A
-      // blind splice from the front took whichever entry was oldest, which
-      // included messages nobody had read yet and asks still owed an answer
-      // — the second kind silently turning "two teammates are both waiting,
-      // so name neither" into a confident edge to the survivor.
+      // Spend the history and nothing else. A blind splice from the front
+      // took whichever entry was oldest, including asks still owed an answer
+      // — silently turning "two teammates are both waiting, so name neither"
+      // into a confident edge to the survivor.
+      //
+      // Never what just arrived, either. The arrival is the one entry that
+      // cannot be history yet, and a journal that spends it on arrival tells
+      // an `all: true` read the pane was never handed it — while the pane's
+      // agent is reading it in the same breath.
       const spare = held.findIndex(
-        (entry) => entry.state === "answered" || !awaitsAnswer(entry.mail.kind),
+        (entry, index) => index < held.length - 1 && isHistory(entry),
       );
-      const [evicted] = held.splice(spare >= 0 ? spare : 0, 1);
-      log.warn("web:mail", `dropped from a full journal: ${trace(evicted.mail)}`);
-      // Nothing was owed on it, so nobody needs telling. Otherwise this is
-      // an open ask going out of the world, and its sender hears the same
-      // thing it hears when a queue overflows.
-      if (spare < 0) reportDropped(evicted.mail);
+      if (spare < 0) break;
+      const [evicted] = held.splice(spare, 1);
+      log.warn("web:mail", `spent from a full journal: ${trace(evicted.mail)}`);
+    }
+    // Only open asks left and still over the line: see [`INBOX_CEILING`] for
+    // why they were allowed to get here, and why they cannot go on.
+    while (held.length > INBOX_CEILING) {
+      const oldest = held.findIndex((entry) => !isStandingContext(entry.mail.kind));
+      if (oldest < 0) break;
+      const [evicted] = held.splice(oldest, 1);
+      log.warn("web:mail", `forgotten, the journal is full: ${trace(evicted.mail)}`);
+      // An ask going out of the world. Its sender hears that the deck has
+      // stopped tracking it — not that it never arrived, which is what it
+      // used to be told and is a different thing to act on.
+      if (!isHistory(evicted)) reportForgotten(evicted.mail);
     }
   }
 
@@ -478,10 +525,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * `delivered: false`, queued behind briefings restated at session start.
    */
   function drainPane(paneId: string, queue: Mail[], at: number): number | null {
-    /** The earliest deadline owed to messages this walk stepped OVER. They
-     * are still queued and still expire, so their clock has to survive a
-     * pass that found nothing deliverable behind them. */
-    let skipped: number | null = null;
     let index = 0;
     while (index < queue.length) {
       const head = queue[index];
@@ -513,9 +556,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         // waits for the boundary however long it takes, and resolves through
         // the activity subscription like the permission hold below — so
         // arming a timer for it would wake the pass to decide nothing.
-        return awaitsAnswer(head.kind)
-          ? earlier(skipped, head.at + limits.hookWaitMs)
-          : skipped;
+        return awaitsAnswer(head.kind) ? head.at + limits.hookWaitMs : null;
       }
       // Held on a permission prompt, which resolves through the activity
       // subscription. Nothing else is worth waking a pass for: the deadline
@@ -527,7 +568,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // away gave every other message the same shape.
       if (verdict.kind === "hold") {
         log.debug("web:mail", `held on ${verdict.reason}: ${trace(head)}`);
-        return skipped;
+        return null;
       }
       // A nudge, not a delivery: the message stays exactly where it is, and
       // what it buys is a TURN — whose hook then carries the words properly.
@@ -538,7 +579,17 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         // is the same one after which the sender is told its message is
         // waiting: past it the deck has said everything it can, and the
         // person watching the deck can see the rest.
-        if (isOverdue(head, at, limits)) return skipped;
+        //
+        // Per MESSAGE, and stepping over rather than stopping. A queue is
+        // oldest-first and nothing expires any more, so one message that has
+        // crossed the line sits at its head for good — and returning here
+        // silenced the pane for everything BEHIND it, permanently. What a
+        // newer message buys is a turn, and the turn's hand-over carries the
+        // old one out with it.
+        if (isOverdue(head, at, limits)) {
+          index += 1;
+          continue;
+        }
         const woken = lastWakeAt.get(paneId);
         // A nudge into a RUNNING turn is not lost — it is sitting in the
         // CLI's input queue and will fire a turn on its own. Repeating it
@@ -546,22 +597,22 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         // the current turn finally ends. The clock below is for the other
         // case, where a nudge that produced no turn plausibly went missing.
         if (deps.activityOf(paneId)?.state === "working" && woken !== undefined) {
-          return skipped;
+          return null;
         }
         if (woken !== undefined && at - woken < limits.hookWaitMs) {
-          return earlier(skipped, woken + limits.hookWaitMs);
+          return woken + limits.hookWaitMs;
         }
         if (!deps.wake(paneId)) {
           log.debug("web:mail", `no input channel to wake: ${trace(head)}`);
-          return skipped;
+          return null;
         }
         log.info("web:mail", `nudged the pane into a turn for: ${trace(head)}`);
         lastWakeAt.set(paneId, at);
-        return earlier(skipped, at + limits.hookWaitMs);
+        return at + limits.hookWaitMs;
       }
       const last = lastDeliveryAt.get(paneId);
       if (last !== undefined && at - last < SERIALIZE_MS) {
-        return earlier(skipped, last + SERIALIZE_MS);
+        return last + SERIALIZE_MS;
       }
       // No input channel: the pane is starting, or stopped. This is the ONE
       // refusal that says so — a pane can be perfectly alive and report no
@@ -571,20 +622,17 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // instant this pass could name.
       if (!deps.deliver(head)) {
         log.debug("web:mail", `no input channel yet: ${trace(head)}`);
-        return skipped;
+        return null;
       }
       log.info("web:mail", `pasted into the pane: ${trace(head)}`);
       queue.splice(index, 1);
       lastDeliveryAt.set(paneId, at);
-      // The receiver now stands one message deep in this chain: whatever it
-      // sends next continues from here, which is what bounds a conversation.
-      chainHop.set(paneId, head.hop);
       // Pushed, not asked for: nothing answers a paste, and a pane mid-turn
       // will not look at it until the turn after next.
       remember(paneId, head, "unread");
-      return earlier(skipped, queue.length > 0 ? at + SERIALIZE_MS : null);
+      return queue.length > 0 ? at + SERIALIZE_MS : null;
     }
-    return skipped;
+    return null;
   }
 
   function drain(): void {
@@ -617,15 +665,8 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
 
   return {
     send(request) {
-      const inherited = chainHop.get(request.from.paneId) ?? null;
-      const verdict = decideSend(
-        request.from,
-        request.toPaneId,
-        inherited,
-        limits,
-        request.kind,
-      );
-      if (verdict.kind === "refuse") return { ok: false, refusal: verdict.refusal };
+      const refusal = sendRefusal(request.from, request.toPaneId, request.kind);
+      if (refusal) return { ok: false, refusal };
       // Derived, never taken from the caller. An agent maintaining this by
       // hand cost two lines of briefing, was checked by nothing, and taught
       // it to hoard message ids — which then reached `inbox`'s `since` as an
@@ -638,7 +679,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         from: { kind: "pane", pane: request.from },
         toPaneId: request.toPaneId,
         at: now(),
-        hop: verdict.hop,
         ...(replyTo ? { replyTo } : {}),
       };
       enqueue(mail);
@@ -658,7 +698,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         from: { kind: "host" },
         toPaneId: paneId,
         at: now(),
-        hop: 0,
       });
       drain();
     },
@@ -694,7 +733,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         // briefing exclusively uses — would silently ignore.
         if (decideHandover(deps.activityOf(paneId)) === "hold") break;
         queue.shift();
-        chainHop.set(paneId, head.hop);
         // The agent's own hook asked for this and is about to be handed it,
         // so it lands in context: read, by the only definition the deck can
         // witness.
@@ -800,7 +838,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       while (queue.length > 0 && fits(queue[0].body)) {
         const head = queue[0];
         queue.shift();
-        chainHop.set(paneId, head.hop);
         remember(paneId, head, "read");
         log.info("web:mail", `handed to an explicit read: ${trace(head)}`);
         take(head);
@@ -839,15 +876,29 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     retain(liveIds) {
-      for (const map of [queues, inboxes, chainHop, lastDeliveryAt, lastWakeAt]) {
+      /** Queued for panes that are going, and collected rather than reported
+       * on the spot.
+       *
+       * A report goes INTO its recipient's queue, so reporting mid-walk
+       * recreated a queue keyed to a pane this very call had already passed
+       * or deleted — and `pane-N` is a slot a later pane inherits, so the
+       * next agent to occupy it was handed a delivery report about a message
+       * it never sent. */
+      const orphaned: Mail[] = [];
+      for (const map of [queues, inboxes, lastDeliveryAt, lastWakeAt]) {
         for (const id of [...map.keys()]) {
           if (!liveIds.has(id)) {
-            // Whatever was queued for a pane that no longer exists can never
-            // be delivered; its senders are owed the same word they get when
-            // a queue overflows.
-            if (map === queues) for (const mail of queues.get(id) ?? []) reportDropped(mail);
+            if (map === queues) orphaned.push(...(queues.get(id) ?? []));
             map.delete(id);
           }
+        }
+      }
+      // Whatever was queued for a pane that no longer exists can never be
+      // delivered; its senders are owed the same word they get when a queue
+      // overflows — and a sender that is itself gone is owed nothing at all.
+      for (const mail of orphaned) {
+        if (mail.from.kind === "pane" && liveIds.has(mail.from.pane.paneId)) {
+          reportDropped(mail);
         }
       }
       // A debt names its creditor by pane id, and `pane-N` is a slot a later
@@ -867,7 +918,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     clear(paneId) {
-      chainHop.delete(paneId);
       lastDeliveryAt.delete(paneId);
       // The process that read this pane's mail is gone, and its context with
       // it — so as far as the agent about to start is concerned, none of it

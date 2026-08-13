@@ -25,10 +25,11 @@ export type MailKind =
   | "question"
   | "answer"
   | "note"
-  /** A delivery report: something this pane sent never landed. Its own kind
-   * rather than a `note` because the receiver must be able to tell a fact
-   * about the mail system from a peer's words — and because a report about
-   * a report would start a chain of its own. */
+  /** The deck reporting on something this pane sent: that it is still
+   * waiting, that it was dropped, or that it has been forgotten. Its own
+   * kind rather than a `note` because the receiver must be able to tell a
+   * fact about the mail system from a peer's words — and because a report
+   * about a report would start a chain of its own. */
   | "undelivered"
   /** The deck telling a pane where it now stands: its team, its role, and
    * the roles it can write to. An agent cannot discover any of that on its
@@ -105,9 +106,6 @@ export interface Mail {
    * way to be checked and taught agents to hoard ids. Correlation only:
    * nothing enforces that the answer ever comes. */
   replyTo?: string;
-  /** How many mail-caused wakes this chain has already spent — the counter
-   * [`decideSend`] bounds. Zero means this message opens a chain. */
-  hop: number;
 }
 
 /**

@@ -128,9 +128,10 @@ describe("mail.send", () => {
   });
 
   it("refuses a caller it cannot name", async () => {
-    // The sender's identity is the reply address and the only thing bounding
-    // a chain. Without one there is nothing to answer and nothing to charge
-    // the hop against, so the message is refused rather than sent anonymously.
+    // The sender's identity is the reply address, and it is what a `task` is
+    // weighed against. Without one there is nothing to answer and no way to
+    // ask whose task this is, so the message is refused rather than sent
+    // anonymously.
     const { registry, delivered } = setup();
     const result = await run(
       registry,
@@ -302,28 +303,6 @@ describe("mail.inbox", () => {
     }
   });
 
-  it("keeps the hop counter off the wire", async () => {
-    // It bounds the conversation. An agent that could read it could try to
-    // reason its way around it, and it answers no question an agent has.
-    const { registry } = setup();
-    await run(
-      registry,
-      "mail.send",
-      { to: "pane-2", kind: "note", body: "one" },
-      from("pane-1", "ws-1", "Agent 1"),
-    );
-    const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
-    expect(read.ok).toBe(true);
-    if (read.ok) {
-      // Assert the message is THERE before asserting a field is not: the
-      // negative alone passed just as happily when the read returned
-      // nothing at all, which is a total failure of the path under test.
-      const { messages } = read.value as { messages: unknown[] };
-      expect(messages).toHaveLength(1);
-      expect(read.value).not.toHaveProperty("messages.0.hop");
-    }
-  });
-
   it("refuses a caller it cannot name", async () => {
     const { registry } = setup();
     const result = await run(registry, "mail.inbox", {}, ANONYMOUS);
@@ -424,7 +403,7 @@ describe("team.assign", () => {
 
   it("refuses to leave a team without the member that hands out work", async () => {
     // The same rule the dialog obeys, on the path an agent drives. Without
-    // it, `team.assign` could build a leaderless team — one where decideSend
+    // it, `team.assign` could build a leaderless team — one where sendRefusal
     // then refuses every task with nobody able to explain why.
     const { registry } = setup();
     const lead = from("pane-1", "ws-1", "Agent 1");

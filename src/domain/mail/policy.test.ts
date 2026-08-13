@@ -7,8 +7,9 @@ import {
   awaitsAnswer,
   decideDelivery,
   decideHandover,
-  decideSend,
+  sendRefusal,
   droppedNotice,
+  forgottenNotice,
   isOverdue,
   isResponse,
   overdueNotice,
@@ -30,7 +31,6 @@ function mail(over: Partial<Mail> = {}): Mail {
     from: { kind: "pane", pane: sender },
     toPaneId: "pane-2",
     at: SENT_AT,
-    hop: 0,
     ...over,
   };
 }
@@ -251,7 +251,6 @@ describe("decideDelivery", () => {
     // of the argument — a bug no default-limits test can see.
     const limits = {
       undeliveredMs: 10,
-      maxHops: 1,
       hookWaitMs: 5,
       handoverChars: 100,
     };
@@ -318,83 +317,56 @@ describe("decideHandover", () => {
   });
 });
 
-describe("decideSend", () => {
-  it("opens a chain at hop zero when nothing woke the sender", () => {
-    expect(decideSend(sender, "pane-2", null)).toEqual({ kind: "accept", hop: 0 });
-  });
-
-  it("continues a chain one hop past the message that woke the sender", () => {
-    expect(decideSend(sender, "pane-2", 3)).toEqual({ kind: "accept", hop: 4 });
-  });
-
+describe("sendRefusal", () => {
   it("lets only the lead hand out work on a team", () => {
     // The rule that makes "lead" mean something rather than describe
     // something. Told but unenforced, the hierarchy lasts exactly until the
     // first agent decides it disagrees.
     const lead = { ...sender, role: "lead" };
     const impl = { ...sender, role: "impl-1" };
-    expect(decideSend(lead, "pane-2", null, MAIL_LIMITS, "task")).toEqual({
-      kind: "accept",
-      hop: 0,
-    });
-    expect(decideSend(impl, "pane-2", null, MAIL_LIMITS, "task")).toEqual({
-      kind: "refuse",
-      refusal: "not-yours-to-assign",
-    });
+    expect(sendRefusal(lead, "pane-2", "task")).toBeNull();
+    expect(sendRefusal(impl, "pane-2", "task")).toBe("not-yours-to-assign");
     // Everything else it may say to anyone: a member that can only be
     // spoken to is not a member, and reporting back is the whole point.
     for (const kind of ["question", "answer", "note"] as const) {
-      expect(decideSend(impl, "pane-2", null, MAIL_LIMITS, kind), kind).toEqual({
-        kind: "accept",
-        hop: 0,
-      });
+      expect(sendRefusal(impl, "pane-2", kind), kind).toBeNull();
     }
   });
 
   it("leaves a pane on no team exactly as it was before teams existed", () => {
     // No team is no hierarchy. Restricting a sender that answers to nobody
     // would take away a capability to enforce a structure it is not in.
-    expect(decideSend(sender, "pane-2", null, MAIL_LIMITS, "task")).toEqual({
-      kind: "accept",
-      hop: 0,
-    });
+    expect(sendRefusal(sender, "pane-2", "task")).toBeNull();
   });
 
   it("refuses a pane mailing itself — a loop of one, and it never ends", () => {
-    expect(decideSend(sender, sender.paneId, null)).toEqual({
-      kind: "refuse",
-      refusal: "self-addressed",
-    });
+    expect(sendRefusal(sender, sender.paneId)).toBe("self-addressed");
   });
 
-  it("stops the chain one hop past the limit, and not before", () => {
-    // The boundary IS the guard: off by one here and either a legitimate
-    // exchange is cut short or an A↔B loop runs a turn longer than agreed,
-    // and every extra turn is money.
-    expect(decideSend(sender, "pane-2", MAIL_LIMITS.maxHops - 1)).toEqual({
-      kind: "accept",
-      hop: MAIL_LIMITS.maxHops,
-    });
-    expect(decideSend(sender, "pane-2", MAIL_LIMITS.maxHops)).toEqual({
-      kind: "refuse",
-      refusal: "hop-limit",
-    });
+  it("calls a self-addressed task self-addressed, not somebody else's to assign", () => {
+    // Order matters, and only one order is honest: the sender's mistake is
+    // the address, and telling an implementer to go ask the lead about a
+    // message it wrote to ITSELF would send it off to bother a teammate
+    // over nothing.
+    const impl = { ...sender, role: "impl-1" };
+    expect(sendRefusal(impl, impl.paneId, "task")).toBe("self-addressed");
   });
 
-  it("refuses a self-send even when the chain still has budget", () => {
-    // Order matters: the cheaper, unconditional refusal must not hide
-    // behind the hop check, or a self-addressed message would be accepted
-    // for eight hops before anything objected.
-    expect(decideSend(sender, sender.paneId, 0)).toEqual({
-      kind: "refuse",
-      refusal: "self-addressed",
-    });
+  it("never refuses for how long the exchange has already run", () => {
+    // A depth counter used to, and the ninth message of an ordinary
+    // unattended exchange is where it bit — see [`sendRefusal`] for why it
+    // is gone rather than recalibrated. Nothing here may reintroduce a
+    // memory of what came before: this answer is a function of one message.
+    const impl = { ...sender, role: "impl-1" };
+    for (let round = 0; round < 100; round += 1) {
+      expect(sendRefusal(impl, "pane-2", "answer"), `round ${round}`).toBeNull();
+    }
   });
 });
 
 describe("the reports owed to a sender", () => {
   it("tells a sender its message is waiting, and that nothing was lost", () => {
-    const notice = overdueNotice(mail({ kind: "task", hop: 2 }), "mail-9", 5_000);
+    const notice = overdueNotice(mail({ kind: "task" }), "mail-9", 5_000);
     expect(notice).toMatchObject({
       id: "mail-9",
       kind: "undelivered",
@@ -419,19 +391,25 @@ describe("the reports owed to a sender", () => {
     );
   });
 
-  it("copies the hop instead of advancing it", () => {
-    // A report is the mail system accounting for itself. Advancing the
-    // counter would spend the sender's chain budget on news it never asked
-    // for, and could refuse the reply it is about to want to send.
-    expect(overdueNotice(mail({ hop: 4 }), "mail-9", 5_000)?.hop).toBe(4);
-    expect(droppedNotice(mail({ hop: 4 }), "mail-9", 5_000)?.hop).toBe(4);
+  it("says a forgotten message ARRIVED, and asks for it again", () => {
+    // The distinction a sender acts on. "Never collected" sends it looking
+    // for a delivery failure that did not happen; what actually happened is
+    // that the receiver has it, never answered, and the deck has stopped
+    // tracking the pair — so the useful instruction is to ask again.
+    const notice = forgottenNotice(mail({ kind: "question" }), "mail-9", 5_000);
+    expect(notice?.body).toContain("reached that agent");
+    expect(notice?.body).toContain("ask again");
+    expect(notice?.body).not.toContain("never collected");
+    expect(notice).toMatchObject({ kind: "undelivered", replyTo: "mail-1" });
   });
 
   it("owes nothing for a report about a report", () => {
-    // Otherwise every undelivered notice mints another one, forever, and
-    // the hop counter cannot stop it because the hop never advances.
+    // Otherwise every undelivered notice mints another one, forever. The
+    // kind is the whole guard — there is no counter behind it to catch what
+    // this misses.
     expect(overdueNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
     expect(droppedNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
+    expect(forgottenNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
   });
 
   it("owes nothing when the host was the sender", () => {

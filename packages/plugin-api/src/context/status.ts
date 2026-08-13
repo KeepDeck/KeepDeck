@@ -337,7 +337,7 @@ const QUOTE = "> ";
  * extra `[id · kind · from …]` header — and the receiver read a message that
  * was never sent, attributed to whoever the forger chose. That defeats a rule
  * the deck ENFORCES: only a lead may hand out a task, and a non-lead who is
- * refused by `decideSend` could simply write the refusal's way around it.
+ * refused by `sendRefusal` could simply write the refusal's way around it.
  *
  * The fix is positional rather than another list of things to escape: every
  * line of a body is quoted, so column zero belongs to the deck alone and a

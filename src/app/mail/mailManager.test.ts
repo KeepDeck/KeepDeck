@@ -16,11 +16,6 @@ const approving: PaneActivity = { state: "waiting", since: 1, reason: "permissio
  * the next message to land does not have to know the gap. */
 const PAST_SPACING = 5_000;
 
-/** `Array.prototype.at` is outside this project's target lib. */
-function last<T>(items: readonly T[]): T | undefined {
-  return items[items.length - 1];
-}
-
 /** The edge on the message with this body among what was PASTED into panes.
  * Named rather than positional, and loud when the message never landed. */
 function edgeOn(
@@ -188,8 +183,8 @@ describe("createMailManager", () => {
     h.advance(MAIL_LIMITS.undeliveredMs * 3);
     // The prompts clear, and A hears exactly one word about it: a notice
     // that minted another notice would keep the queue alive forever, and the
-    // hop counter could not stop it — a notice copies its hop rather than
-    // advancing it.
+    // only thing stopping that is that a report about a report is refused by
+    // kind.
     h.reports(A.paneId, done);
     h.reports(B.paneId, done);
     h.advance(PAST_SPACING);
@@ -198,7 +193,13 @@ describe("createMailManager", () => {
     expect(h.delivered.map((mail) => mail.body)).toContain("which port?");
   });
 
-  it("stops an A↔B ping-pong rather than letting two agents bill each other forever", () => {
+  it("lets an A↔B exchange run for as long as the work takes", () => {
+    // The field incident this exists against: a depth counter refused the
+    // ninth message of an ordinary exchange, and the pane it refused stayed
+    // mute toward the whole deck until its process restarted. An implementer
+    // finished its task and could not report it. A team left to work
+    // unattended is the POINT of the feature, and it talks far more than
+    // nine times.
     const h = harness();
     h.reports(A.paneId, done);
     h.reports(B.paneId, done);
@@ -206,38 +207,21 @@ describe("createMailManager", () => {
     let from = A;
     let to = B;
     const results = [];
-    for (let round = 0; round < MAIL_LIMITS.maxHops + 5; round += 1) {
-      const result = h.manager.send({
-        from,
-        toPaneId: to.paneId,
-        kind: "question",
-        body: `round ${round}`,
-      });
-      results.push(result);
-      if (!result.ok) break;
+    for (let round = 0; round < 40; round += 1) {
+      results.push(
+        h.manager.send({
+          from,
+          toPaneId: to.paneId,
+          kind: "question",
+          body: `round ${round}`,
+        }),
+      );
       h.advance(PAST_SPACING);
       [from, to] = [to, from];
     }
 
-    // Each delivery moves the receiver one hop deeper, so the exchange runs
-    // exactly as far as the budget allows and then refuses — on its own,
-    // with nobody watching.
-    expect(results.filter((result) => result.ok)).toHaveLength(MAIL_LIMITS.maxHops + 1);
-    expect(last(results)).toEqual({ ok: false, refusal: "hop-limit" });
-  });
-
-  it("lets an untouched pane open a fresh chain after another one was spent", () => {
-    const h = harness();
-    h.reports(A.paneId, done);
-    h.reports(B.paneId, done);
-    // B is deep in a chain...
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "one" });
-    h.advance(PAST_SPACING);
-    // ...but A was never woken by mail, so what A sends still starts at zero.
-    const fresh = h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "two" });
-    expect(fresh).toMatchObject({ ok: true });
-    h.advance(PAST_SPACING);
-    expect(last(h.delivered)?.hop).toBe(0);
+    expect(results.filter((result) => result.ok)).toHaveLength(results.length);
+    expect(h.delivered.map((mail) => mail.body)).toContain("round 39");
   });
 
   it("delivers to a pane that has never reported anything at all", () => {
@@ -489,35 +473,45 @@ describe("createMailManager", () => {
     expect(h.manager.inbox(B.paneId, { all: true }).messages).toEqual([]);
   });
 
-  it("resets a restarted pane's place in a chain but keeps its mail", () => {
-    const h = harness();
-    h.reports(A.paneId, done);
+  it("keeps nudging for newer mail once an older message has stopped earning it", () => {
+    // A queue is oldest-first and nothing expires any more, so a message that
+    // has crossed the report window sits at its head for good. Stopping the
+    // walk there silenced the pane for everything BEHIND it, permanently: the
+    // prompt clears, the pane goes idle, and nothing ever prods it again.
+    const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, done);
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "one" });
-    h.advance(PAST_SPACING);
-    // Taking delivery put B one hop deep, so its reply continues the chain.
-    // Asserting this BEFORE the clear is what makes the assertion after it
-    // mean anything: without it, "hop 0" is also what a manager that never
-    // counted hops at all would answer.
-    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "mid-chain" });
-    h.advance(PAST_SPACING);
-    expect(last(h.delivered)?.hop).toBe(1);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "old" });
+    const nudges = () => h.woken.filter((paneId) => paneId === B.paneId).length;
+    expect(nudges()).toBe(1);
+    h.advance(MAIL_LIMITS.undeliveredMs * 2);
+    const spent = nudges();
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "new" });
+    expect(nudges()).toBeGreaterThan(spent);
+  });
 
-    h.manager.clear(B.paneId);
-    const afterRestart = h.manager.send({
-      from: B,
-      toPaneId: A.paneId,
-      kind: "answer",
-      body: "done",
-    });
-    expect(afterRestart).toMatchObject({ ok: true });
-    h.advance(PAST_SPACING);
-    // A retired process took the chain with it: the new one is not mid-
-    // conversation, so its first message opens a chain of its own.
-    expect(last(h.delivered)?.hop).toBe(0);
-    // What was already handed to the pane is addressed to the PANE, and
-    // survives its process.
-    expect(h.manager.inbox(B.paneId, { all: true }).messages).toHaveLength(1);
+  it("leaves no queue behind for a pane it has just forgotten", () => {
+    // A report goes INTO its recipient's queue, so reporting while pruning
+    // recreated a queue keyed to a pane this same call had already deleted.
+    // `pane-N` is a slot the next pane inherits, and that agent would be
+    // handed a delivery report about a message it never sent.
+    const h = harness();
+    h.reports(B.paneId, approving);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "for a pane on its way out" });
+    h.manager.retain(new Set());
+    expect(h.manager.waiting(A.paneId)).toBe(0);
+    expect(h.manager.waiting(B.paneId)).toBe(0);
+  });
+
+  it("still tells a LIVING sender that the pane it wrote to is gone", () => {
+    // The other half of the rule above: silence is only owed to a sender
+    // that has gone too.
+    const h = harness();
+    h.reports(B.paneId, approving);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "one" });
+    h.manager.retain(new Set([A.paneId]));
+    expect(h.manager.inbox(A.paneId).messages.map((mail) => mail.kind)).toEqual([
+      "undelivered",
+    ]);
   });
 
   it("refuses a pane mailing itself before anything is queued", () => {
@@ -711,17 +705,17 @@ describe("createMailManager", () => {
     ]);
   });
 
-  it("lets the deck speak for itself, without spending a chain", () => {
+  it("lets the deck speak for itself, as the host rather than as a pane", () => {
     // The host already speaks for delivery reports; a team briefing is the
-    // other thing only the deck knows. It starts no conversation, so it
-    // must not cost the pane a hop from its budget.
+    // other thing only the deck knows. It has to arrive as the DECK: named
+    // as a pane it would be a teammate's words, which the briefing itself
+    // tells the agent to weigh rather than obey.
     const h = harness({ asksAtTurnEnd: true });
     h.reports(B.paneId, done);
     h.manager.announce(B.paneId, "team", "you are lead on api");
     const [briefing] = h.manager.takeAtTurnEnd(B.paneId);
     expect(briefing.from).toEqual({ kind: "host" });
     expect(briefing.kind).toBe("team");
-    expect(briefing.hop).toBe(0);
   });
 
   it("never types a briefing into a pane, however ready that pane is", () => {
@@ -1188,5 +1182,69 @@ describe("what counts as reading", () => {
     h.reports(A.paneId, done);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
     expect(edgeOn(h, "8080")).toBe("mail-1");
+  });
+});
+
+describe("a journal that cannot hold everything", () => {
+  /** Just past the delivery spacing, and small enough that a long loop stays
+   * well inside the window after which a sender is told its message waits. */
+  const NEXT_DELIVERY = 500;
+
+  function fill(h: ReturnType<typeof harness>, from: MailSender, count: number): void {
+    for (let i = 0; i < count; i += 1) {
+      h.manager.send({ from, toPaneId: B.paneId, kind: "question", body: `${from.paneId} q${i}` });
+      h.advance(NEXT_DELIVERY);
+    }
+  }
+
+  it("never spends what has just arrived", () => {
+    // The arrival is the one entry that cannot be history yet. Spending it
+    // told an `all: true` read the pane was never handed the message — while
+    // its agent was reading that very message.
+    const h = harness();
+    h.reports(B.paneId, done);
+    fill(h, C, 50);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "the newest thing" });
+    h.advance(NEXT_DELIVERY);
+    const bodies = h.manager.inbox(B.paneId, { all: true }).messages.map((mail) => mail.body);
+    expect(bodies).toContain("the newest thing");
+  });
+
+  it("keeps both teammates' open asks rather than losing the older one", () => {
+    // Losing an open ask does not merely forget it. It turns an honest "two
+    // are waiting, so name neither" into a confident edge to whichever
+    // survived — and tells the other sender its message went nowhere, while
+    // the receiver is holding it.
+    const h = harness();
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.advance(NEXT_DELIVERY);
+    fill(h, C, 50);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "and the host?" });
+    h.advance(NEXT_DELIVERY);
+    h.manager.inbox(B.paneId);
+    h.reports(A.paneId, done);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(edgeOn(h, "8080")).toBeUndefined();
+    expect(h.delivered.filter((mail) => mail.kind === "undelivered")).toEqual([]);
+  });
+
+  it("tells a sender the deck has FORGOTTEN its message, not that it never arrived", () => {
+    // At the ceiling an ask does go, and what its sender is told has to be
+    // actionable: it arrived, it was never answered, and an answer now will
+    // not be tied back to it. "Never collected" would send that agent
+    // looking for a delivery failure that did not happen.
+    const h = harness();
+    h.reports(B.paneId, done);
+    // A cannot take delivery, so its notices stay where an explicit read
+    // will find them rather than racing the drain.
+    h.reports(A.paneId, approving);
+    fill(h, A, 201);
+    const notices = h.manager
+      .inbox(A.paneId)
+      .messages.filter((mail) => mail.kind === "undelivered");
+    expect(notices).not.toEqual([]);
+    expect(notices[0].body).toContain("Forgotten");
+    expect(notices[0].body).not.toContain("never collected");
   });
 });

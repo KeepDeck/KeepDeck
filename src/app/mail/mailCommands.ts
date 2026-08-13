@@ -9,7 +9,8 @@
  *
  * Both commands read WHO IS CALLING and refuse anyone they cannot name.
  * That is not a formality — the sender's identity is the reply address, the
- * only thing bounding a chain, and the only answer to "whose inbox is this".
+ * thing a `task` is weighed against, and the only answer to "whose inbox is
+ * this".
  */
 import {
   resolvePaneRef,
@@ -116,9 +117,9 @@ function str(args: CommandArgs, name: string): string | undefined {
  * projection with an opinion of its own is how this read path came to be the
  * one that showed a title while the other two showed a role.
  *
- * `hop` stays inside — it bounds the conversation and is not the agent's
- * business, and an agent that could read it could try to reason its way
- * around the bound.
+ * Field by field on purpose, never a spread: what an agent may read is a
+ * decision, and a message gaining an internal field later must not start
+ * arriving on the wire because nobody thought about it here.
  */
 function wire(mail: Mail) {
   return {
@@ -358,7 +359,5 @@ function refusalText(refusal: SendRefusal): string {
       return "a pane cannot send mail to itself";
     case "not-yours-to-assign":
       return `only ${leadRole().id} hands out work on a team — send a question or a note instead, or ask ${leadRole().id} to assign it`;
-    case "hop-limit":
-      return "this exchange has gone back and forth too many times — answer it yourself, or ask the user";
   }
 }
