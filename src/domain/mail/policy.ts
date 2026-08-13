@@ -361,8 +361,28 @@ export function droppedNotice(mail: Mail, id: string, at: number): Mail | null {
   );
 }
 
-/** The shape both reports share. See [`overdueNotice`] for why two of the
- * three possible senders get nothing. */
+/**
+ * The report owed when a DELIVERED message falls out of the receiver's
+ * journal.
+ *
+ * Different from [`droppedNotice`] in the one way that matters to a sender:
+ * this message arrived. What is gone is the deck's memory of it — so an
+ * answer arriving now cannot be tied back to it, and nothing is tracking
+ * that it went unanswered. Telling that sender its message was never
+ * collected would send it looking for a delivery failure that did not
+ * happen, and the honest instruction is the opposite one: ask again.
+ */
+export function forgottenNotice(mail: Mail, id: string, at: number): Mail | null {
+  return reportToSender(
+    mail,
+    id,
+    at,
+    `Forgotten: your ${mail.kind} reached that agent and was never answered, and it has been handed so much mail since that the deck no longer tracks it. An answer now will not be tied back to it — ask again if you still need one.`,
+  );
+}
+
+/** The shape all three reports share. See [`overdueNotice`] for why two of
+ * the three possible senders get nothing. */
 function reportToSender(mail: Mail, id: string, at: number, body: string): Mail | null {
   if (mail.from.kind !== "pane" || mail.kind === "undelivered") return null;
   return {

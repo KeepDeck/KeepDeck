@@ -9,6 +9,7 @@ import {
   decideHandover,
   sendRefusal,
   droppedNotice,
+  forgottenNotice,
   isOverdue,
   isResponse,
   overdueNotice,
@@ -390,12 +391,25 @@ describe("the reports owed to a sender", () => {
     );
   });
 
+  it("says a forgotten message ARRIVED, and asks for it again", () => {
+    // The distinction a sender acts on. "Never collected" sends it looking
+    // for a delivery failure that did not happen; what actually happened is
+    // that the receiver has it, never answered, and the deck has stopped
+    // tracking the pair — so the useful instruction is to ask again.
+    const notice = forgottenNotice(mail({ kind: "question" }), "mail-9", 5_000);
+    expect(notice?.body).toContain("reached that agent");
+    expect(notice?.body).toContain("ask again");
+    expect(notice?.body).not.toContain("never collected");
+    expect(notice).toMatchObject({ kind: "undelivered", replyTo: "mail-1" });
+  });
+
   it("owes nothing for a report about a report", () => {
     // Otherwise every undelivered notice mints another one, forever. The
     // kind is the whole guard — there is no counter behind it to catch what
     // this misses.
     expect(overdueNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
     expect(droppedNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
+    expect(forgottenNotice(mail({ kind: "undelivered" }), "mail-9", 5_000)).toBeNull();
   });
 
   it("owes nothing when the host was the sender", () => {

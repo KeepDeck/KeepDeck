@@ -473,6 +473,47 @@ describe("createMailManager", () => {
     expect(h.manager.inbox(B.paneId, { all: true }).messages).toEqual([]);
   });
 
+  it("keeps nudging for newer mail once an older message has stopped earning it", () => {
+    // A queue is oldest-first and nothing expires any more, so a message that
+    // has crossed the report window sits at its head for good. Stopping the
+    // walk there silenced the pane for everything BEHIND it, permanently: the
+    // prompt clears, the pane goes idle, and nothing ever prods it again.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "old" });
+    const nudges = () => h.woken.filter((paneId) => paneId === B.paneId).length;
+    expect(nudges()).toBe(1);
+    h.advance(MAIL_LIMITS.undeliveredMs * 2);
+    const spent = nudges();
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "new" });
+    expect(nudges()).toBeGreaterThan(spent);
+  });
+
+  it("leaves no queue behind for a pane it has just forgotten", () => {
+    // A report goes INTO its recipient's queue, so reporting while pruning
+    // recreated a queue keyed to a pane this same call had already deleted.
+    // `pane-N` is a slot the next pane inherits, and that agent would be
+    // handed a delivery report about a message it never sent.
+    const h = harness();
+    h.reports(B.paneId, approving);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "for a pane on its way out" });
+    h.manager.retain(new Set());
+    expect(h.manager.waiting(A.paneId)).toBe(0);
+    expect(h.manager.waiting(B.paneId)).toBe(0);
+  });
+
+  it("still tells a LIVING sender that the pane it wrote to is gone", () => {
+    // The other half of the rule above: silence is only owed to a sender
+    // that has gone too.
+    const h = harness();
+    h.reports(B.paneId, approving);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "one" });
+    h.manager.retain(new Set([A.paneId]));
+    expect(h.manager.inbox(A.paneId).messages.map((mail) => mail.kind)).toEqual([
+      "undelivered",
+    ]);
+  });
+
   it("refuses a pane mailing itself before anything is queued", () => {
     const h = harness();
     h.reports(A.paneId, done);
@@ -1141,5 +1182,69 @@ describe("what counts as reading", () => {
     h.reports(A.paneId, done);
     h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
     expect(edgeOn(h, "8080")).toBe("mail-1");
+  });
+});
+
+describe("a journal that cannot hold everything", () => {
+  /** Just past the delivery spacing, and small enough that a long loop stays
+   * well inside the window after which a sender is told its message waits. */
+  const NEXT_DELIVERY = 500;
+
+  function fill(h: ReturnType<typeof harness>, from: MailSender, count: number): void {
+    for (let i = 0; i < count; i += 1) {
+      h.manager.send({ from, toPaneId: B.paneId, kind: "question", body: `${from.paneId} q${i}` });
+      h.advance(NEXT_DELIVERY);
+    }
+  }
+
+  it("never spends what has just arrived", () => {
+    // The arrival is the one entry that cannot be history yet. Spending it
+    // told an `all: true` read the pane was never handed the message — while
+    // its agent was reading that very message.
+    const h = harness();
+    h.reports(B.paneId, done);
+    fill(h, C, 50);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "the newest thing" });
+    h.advance(NEXT_DELIVERY);
+    const bodies = h.manager.inbox(B.paneId, { all: true }).messages.map((mail) => mail.body);
+    expect(bodies).toContain("the newest thing");
+  });
+
+  it("keeps both teammates' open asks rather than losing the older one", () => {
+    // Losing an open ask does not merely forget it. It turns an honest "two
+    // are waiting, so name neither" into a confident edge to whichever
+    // survived — and tells the other sender its message went nowhere, while
+    // the receiver is holding it.
+    const h = harness();
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.advance(NEXT_DELIVERY);
+    fill(h, C, 50);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "and the host?" });
+    h.advance(NEXT_DELIVERY);
+    h.manager.inbox(B.paneId);
+    h.reports(A.paneId, done);
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    expect(edgeOn(h, "8080")).toBeUndefined();
+    expect(h.delivered.filter((mail) => mail.kind === "undelivered")).toEqual([]);
+  });
+
+  it("tells a sender the deck has FORGOTTEN its message, not that it never arrived", () => {
+    // At the ceiling an ask does go, and what its sender is told has to be
+    // actionable: it arrived, it was never answered, and an answer now will
+    // not be tied back to it. "Never collected" would send that agent
+    // looking for a delivery failure that did not happen.
+    const h = harness();
+    h.reports(B.paneId, done);
+    // A cannot take delivery, so its notices stay where an explicit read
+    // will find them rather than racing the drain.
+    h.reports(A.paneId, approving);
+    fill(h, A, 201);
+    const notices = h.manager
+      .inbox(A.paneId)
+      .messages.filter((mail) => mail.kind === "undelivered");
+    expect(notices).not.toEqual([]);
+    expect(notices[0].body).toContain("Forgotten");
+    expect(notices[0].body).not.toContain("never collected");
   });
 });
