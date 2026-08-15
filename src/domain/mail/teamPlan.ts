@@ -20,6 +20,7 @@ import type { Workspace } from "../deck";
 import { SENDABLE_KINDS } from "./message";
 import { kindGuidance } from "./policy";
 import {
+  isLeadAddress,
   leadRole,
   parseRoleAddress,
   peerRole,
@@ -110,9 +111,14 @@ export function teamBriefing(
   // reports members hearing "equals, nobody assigns" directly under a
   // charter saying a task from lead is work. A peer is flat wherever it
   // stands — the same predicate its send gate runs on — and everyone else
-  // keeps the graded line. The briefing must not advertise what the rules
-  // refuse, so a peer is not offered the task kind either.
-  const flat = mine?.role.standing === "peer";
+  // keeps the graded line. A role the catalog has LOST keeps the roster's
+  // answer: its standing is unreadable, and a flat team whose custom peer
+  // role was deleted must not start hearing about a lead it never had.
+  // The briefing must not advertise what the rules refuse, so a flat
+  // member is not offered the task kind either.
+  const flat = mine
+    ? mine.role.standing === "peer"
+    : !everyRole.some(isLeadAddress);
   const kinds = SENDABLE_KINDS.filter((kind) => !flat || kind !== "task");
   return [
     // "KeepDeck team" every time, never a bare "team". Asked what its team

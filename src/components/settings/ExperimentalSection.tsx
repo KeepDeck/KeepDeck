@@ -40,8 +40,9 @@ export function ExperimentalSection() {
   const settings = useSettings();
   // The roles on offer, read from the catalog rather than listed here — and
   // read PER RENDER, not at import: as a module constant this was frozen
-  // before the user's catalog had even loaded, which is precisely the
-  // falling-out-of-step it existed to prevent.
+  // before the user's catalog had even loaded. Per render, not per catalog
+  // change — the hint refreshes when the dialog does, which is when it is
+  // read; a live subscription would be ceremony for a sentence.
   const roleSummary = teamRoles()
     .map((role) => role.label)
     .join(", ");

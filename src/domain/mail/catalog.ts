@@ -163,19 +163,21 @@ export function mergeRoleCatalog(stored: ReadonlyMap<string, unknown>): {
             };
           })()
         : { texts: record, hadSemantics: false };
+    // Only a hand edit can put these fields on a built-in's record — the
+    // form never offers them — so the note tells that person what happened
+    // rather than silently shrugging. Said BEFORE the text read: a record
+    // that is nothing but semantics would otherwise hear that its label is
+    // missing and never that the one field it DID write was ignored.
+    if (bare.hadSemantics) {
+      problems.push(
+        `${base.id}: repeatable and standing are the deck's to decide for a built-in role — a record edits the texts`,
+      );
+    }
     const read = readStoredRole(bare.texts);
     if (!read.ok) {
       problems.push(`${base.id}: ${read.problem} — using the built-in texts`);
       roles.push(base);
       continue;
-    }
-    // Only a hand edit can put these fields on a built-in's record — the
-    // form never offers them — so the note tells that person what happened
-    // rather than silently shrugging.
-    if (bare.hadSemantics) {
-      problems.push(
-        `${base.id}: repeatable and standing are the deck's to decide for a built-in role — texts applied, the rest ignored`,
-      );
     }
     roles.push({
       ...base,

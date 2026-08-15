@@ -185,24 +185,37 @@ export function TeamDialog({
   // about the team as it stands, so a rename must not make the members it
   // dropped invisible.
   const planned = planTeam(workspace, draft, editing);
-  // "+ Team" is ALWAYS a new team; a name an existing team holds would not
-  // create one — planTeam would settle it as an EDIT of that team against
-  // this near-empty draft, silently releasing every member the draft does
-  // not hold. A create must not become an eviction, so it is refused in
-  // words instead.
-  const nameTaken =
-    editing === null &&
-    teamNamesIn(workspace).some(
-      (existing) => existing.toLowerCase() === name.trim().toLowerCase(),
-    );
+  // "+ Team" is ALWAYS a new team, and a rename must stay a rename: a name
+  // some OTHER team holds would not create or rename anything. planTeam
+  // would settle it as an edit of that team (create), or silently MERGE
+  // two teams into one name with duplicate addresses (rename) — either
+  // way, members evicted or mail misdelivered with nobody re-briefed. So
+  // it is refused in words instead.
+  const trimmedName = name.trim().toLowerCase();
+  const nameTaken = teamNamesIn(workspace).some(
+    (existing) =>
+      existing.toLowerCase() === trimmedName &&
+      (editing === null ||
+        existing.toLowerCase() !== editing.trim().toLowerCase()),
+  );
   // Nothing to do is not an error, but it is not a confirmable form either:
   // a dialog that dispatches a no-op teaches people it did something.
   const valid = planned.ok && !teamPlanIsEmpty(planned.value) && !nameTaken;
 
+  /** Whether a roles-map entry still names a pane the workspace holds. */
+  const paneLives = (paneId: string) =>
+    workspace.panes.some((candidate) => candidate.id === paneId);
+
+  /** The live entries' addresses out of a roles map. Dead panes' entries
+   * are dropped from the roster and the draft, so a ghost must not keep
+   * its address "taken" for the minting paths either. */
+  const liveRoleValues = (held: ReadonlyMap<string, string>): string[] =>
+    [...held].filter(([paneId]) => paneLives(paneId)).map(([, role]) => role);
+
   /** Every address the roster holds, apart from one row's own — what a fresh
    * address has to avoid. */
   const addressesBesides = (mine: string): string[] =>
-    [...roles.values(), ...recruits.map((recruit) => recruit.role)].filter(
+    [...liveRoleValues(roles), ...recruits.map((recruit) => recruit.role)].filter(
       (address) => address !== mine,
     );
 
@@ -224,7 +237,10 @@ export function TeamDialog({
       next.set(
         pane.id,
         pane.team?.role ??
-          suggestAddress([...next.values(), ...recruits.map((r) => r.role)]),
+          suggestAddress([
+            ...liveRoleValues(next),
+            ...recruits.map((r) => r.role),
+          ]),
       );
       return next;
     });
@@ -534,7 +550,7 @@ export function TeamDialog({
                 {
                   agentType: canRecruit[0].id,
                   role: suggestAddress([
-                    ...roles.values(),
+                    ...liveRoleValues(roles),
                     ...current.map((row) => row.role),
                   ]),
                   // Seeded from the global preference, like every other

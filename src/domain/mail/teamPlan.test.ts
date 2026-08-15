@@ -437,6 +437,17 @@ describe("teamBriefing", () => {
     expect(text).not.toContain("equals");
   });
 
+  it("falls back to the roster's shape for a role the catalog has lost", () => {
+    // A custom peer role deleted in settings leaves its flat team briefed
+    // by addresses the catalog cannot read. The equals wording must
+    // survive on a lead-less roster — hearing about a lead it never had
+    // (and being offered the task kind its gate refuses) is the regression
+    // this pins.
+    const text = teamBriefing("crew", "buddy-1", ["buddy-1", "buddy-2"]);
+    expect(text).toContain("equals");
+    expect(text).not.toContain("task");
+  });
+
   it("still briefs a member whose role the catalog has lost", () => {
     // A role removed from the catalog leaves a pane holding its address.
     // Saying less is right; saying nothing would strand a live member.

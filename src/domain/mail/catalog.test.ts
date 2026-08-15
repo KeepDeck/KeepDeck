@@ -74,6 +74,18 @@ describe("mergeRoleCatalog", () => {
     expect(problems).toHaveLength(1);
   });
 
+  it("names the ignored semantics even when they are all the record holds", () => {
+    // A minimal hand-written {"standing":"leads"}: told only that its
+    // label is missing, its author would never learn that the one field
+    // they DID write was ignored.
+    const { roles, problems } = mergeRoleCatalog(
+      stored({ lead: { standing: "leads" } }),
+    );
+    expect(roles.find((role) => role.id === "lead")!.label).toBe("Lead");
+    expect(problems.some((entry) => entry.includes("standing"))).toBe(true);
+    expect(problems.some((entry) => entry.includes("label"))).toBe(true);
+  });
+
   it("adds a role of the user's own — a repeatable working role by default", () => {
     const { roles, problems } = mergeRoleCatalog(stored({ docs: docs() }));
     const role = roles.find((candidate) => candidate.id === "docs")!;

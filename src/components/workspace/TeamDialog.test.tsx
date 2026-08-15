@@ -622,9 +622,79 @@ describe("TeamDialog", () => {
     const ws = workspace([pane("pane-1")]);
     open(ws);
     type(nameField(), "api");
-    expect(document.querySelector(".team__pool-team")).toBeNull();
+    expect(adds()).toHaveLength(1);
     act(() => adds()[0].click());
     expect(roles()).toEqual(["lead"]);
+    // Taken, it leaves the pool entirely — the two lists together answer
+    // "who is where" exactly once.
+    expect(document.querySelector(".team__pool")).toBeNull();
+  });
+
+  it("refuses to rename a team onto a name another team holds", () => {
+    // planTeam would MERGE them: released is computed against the edited
+    // team, so the other keeps its members and one name ends up with two
+    // leads — mail resolving to whichever comes first.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "web", role: "lead" }),
+    ]);
+    open(ws, "api");
+    type(nameField(), "web");
+    expect(submit().disabled).toBe(true);
+    expect(document.querySelector(".team__error")!.textContent).toContain(
+      "already exists",
+    );
+    // Its own name back — however cased — is a rename to nowhere, not a
+    // collision.
+    type(nameField(), "API");
+    expect(document.querySelector(".team__error")).toBeNull();
+  });
+
+  it("closes a disband confirm whose team vanished underneath", () => {
+    // Reachable only from outside the dialog (an agent-driven disband over
+    // MCP) — the one state where the confirm's red button must not sit
+    // dead on screen.
+    open(workspace([pane("pane-1", { name: "api", role: "lead" })]), "api");
+    endTeam();
+    open(workspace([pane("pane-1")]), "api");
+    expect(document.querySelector(".confirm")).not.toBeNull();
+    confirmDisband();
+    expect(confirmed).toEqual([]);
+    expect(document.querySelector(".confirm")).toBeNull();
+  });
+
+  it("hands Escape back when the briefed row leaves the roster", () => {
+    let cancelled = 0;
+    const mount = (panes: Pane[]) =>
+      act(() =>
+        root.render(
+          createElement(TeamDialog, {
+            workspace: workspace(panes),
+            agents: AGENTS,
+            editing: "api",
+            defaultYolo: false,
+            onConfirm: () => {},
+            onCancel: () => {
+              cancelled += 1;
+            },
+          }),
+        ),
+      );
+    mount([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+    ]);
+    act(() => all<HTMLButtonElement>(".team__row-info")[1].click());
+    expect(document.querySelector(".confirm")).not.toBeNull();
+    // The briefed pane closes over MCP: the notice unrenders with its row,
+    // and Escape must come back to the dialog — guarded on the stale KEY,
+    // the dialog sat deaf with nothing on screen.
+    mount([pane("pane-1", { name: "api", role: "lead" })]);
+    expect(document.querySelector(".confirm")).toBeNull();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(cancelled).toBe(1);
   });
 
   it("refuses to create a team under a name an existing team holds", () => {

@@ -189,7 +189,7 @@ export function TeamRolesSection() {
         // The person reading this is the one who can fix the file, so the
         // refusals arrive verbatim — the same words the merge produced.
         <span className="settings__hint kd-selectable">
-          Some stored records were refused:
+          Problems with the stored role files:
           {catalog.problems.map((refusal) => (
             <span key={refusal} className="settings__refusal">
               {refusal}
@@ -373,7 +373,7 @@ export function TeamRolesSection() {
             <button
               type="button"
               className="form__create"
-              disabled={busy}
+              disabled={busy || !catalog.writable}
               onClick={() => void submit()}
             >
               Save
@@ -382,9 +382,13 @@ export function TeamRolesSection() {
         </div>
       ) : (
         <div className="form__types">
+          {/* Declined up front when this session cannot save (the boot
+              read failed): a form that can only fail on submit invites the
+              gesture it will refuse — the problems banner says why. */}
           <button
             type="button"
             className="form__type"
+            disabled={!catalog.writable}
             onClick={() => {
               setSelected({ kind: "create" });
               setDraft(FRESH);
