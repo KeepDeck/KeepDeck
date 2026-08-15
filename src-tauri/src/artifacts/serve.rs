@@ -72,8 +72,11 @@ pub(super) fn serve_export(
     body.extend_from_slice(EXPORT_META.as_bytes());
     match manifest.format {
         ArtifactFormat::Html => body.extend_from_slice(&bytes),
+        // md export renders WITHOUT the live-refresh snippet: the
+        // session URL is dead by design, and a script pointing at
+        // nothing would show a goodbye note on first open.
         ArtifactFormat::Md => body.extend_from_slice(
-            md_page(&manifest.title, &String::from_utf8_lossy(&bytes)).as_bytes(),
+            md_page_static(&manifest.title, &String::from_utf8_lossy(&bytes)).as_bytes(),
         ),
     }
     let disposition = format!("attachment; filename=\"{slug}.html\"");
@@ -117,7 +120,31 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
 }
 
 /// The shared md page template — the same one export renders through.
+/// The LIVE-REFRESH snippet rides the template: md artifacts refresh in
+/// place exactly like html ones (the template is OURS, the snippet is
+/// ours, the page's CSP allows our own inline script — and export omits
+/// it, where the URL is dead by design).
 fn md_page(title: &str, source: &str) -> String {
+    let style = "body{font-family:system-ui,sans-serif;margin:2rem;max-width:42rem}pre{background:#f4f4f4;padding:1rem;overflow:auto}";
+    format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title><style>{}</style></head><body>{}{}</body></html>",
+        escape_html(title),
+        style,
+        render_markdown(source),
+        LIVE_REFRESH_SNIPPET
+    )
+}
+
+/// The template-injected live-refresh block — the SAME contract the
+/// skill teaches agents to embed in their html pages verbatim: reload on
+/// `version`, a visible goodbye on `bye`. Server-side md injection uses
+/// the same shape so both formats behave identically.
+const LIVE_REFRESH_SNIPPET: &str = "<script>\n(()=>{const es=new EventSource(location.pathname+\"/events\");\nes.addEventListener(\"version\",()=>location.reload());\nes.addEventListener(\"bye\",()=>{const n=document.createElement(\"div\");\nn.setAttribute(\"style\",\"background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999\");\nn.textContent=\"This page's server went away — republish or reopen from the agent's message.\";\ndocument.body.appendChild(n);});})();\n</script>";
+
+/// The EXPORT variant of the md page: same template, NO snippet (the
+/// URL is dead outside the session — a live-refresh script pointing at
+/// nothing would show a goodbye note on first open).
+fn md_page_static(title: &str, source: &str) -> String {
     let style = "body{font-family:system-ui,sans-serif;margin:2rem;max-width:42rem}pre{background:#f4f4f4;padding:1rem;overflow:auto}";
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title><style>{}</style></head><body>{}</body></html>",

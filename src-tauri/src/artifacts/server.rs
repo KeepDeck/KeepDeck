@@ -789,6 +789,50 @@ mod tests {
     }
 
     #[test]
+    fn md_artifacts_live_refresh_through_the_template_snippet() {
+        // The template injects the live-refresh block for md pages too —
+        // both formats behave identically in-session (export omits it,
+        // where the URL is dead).
+        let (server, store, _root, _dir) = fixture("md-live");
+        store
+            .publish(
+                &PublishIdentity {
+                    workspace_id: "ws-1".into(),
+                    pane_id: "p".into(),
+                    label: "l".into(),
+                },
+                PublishRequest {
+                    slug: Some("notes"),
+                    title: "Notes",
+                    format: ArtifactFormat::Md,
+                    path: None,
+                    content: Some(b"# hi\n\nbody"),
+                    message: None,
+                    cwd: None,
+                },
+                1000,
+            )
+            .unwrap();
+        let manifest = crate::artifacts::store::manifest_for(&_root, "ws-1", "notes")
+            .unwrap()
+            .unwrap();
+        let (_, headers, body) = get(server.port(), &format!("/a/{}/notes", manifest.token));
+        let text = String::from_utf8_lossy(&body).into_owned();
+        assert!(headers.contains("content-security-policy"), "{headers}");
+        assert!(text.contains("<h1>hi</h1>"), "{text}");
+        assert!(
+            text.contains("EventSource(location.pathname+\"/events\")"),
+            "the live-refresh snippet rides the template: {text}"
+        );
+        // And the export variant omits it.
+        let (_, _, export_body) = get(server.port(), &format!("/a/{}/notes/export", manifest.token));
+        let export_text = String::from_utf8_lossy(&export_body).into_owned();
+        assert!(export_text.contains("<h1>hi</h1>"));
+        assert!(!export_text.contains("EventSource"), "export is static: {export_text}");
+        server.stop();
+    }
+
+    #[test]
     fn a_wedged_subscriber_prunes_instead_of_hanging_the_broadcast() {
         // End-to-end: a real store publish feeding the server's own
         // broadcast (the command tail's exact wiring), with a subscriber
