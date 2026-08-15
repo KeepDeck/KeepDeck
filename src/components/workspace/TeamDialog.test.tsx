@@ -539,9 +539,29 @@ describe("TeamDialog", () => {
     type(nameField(), "api");
     // Listed, and where it is said out loud: the agent has not vanished, it
     // is spoken for. Hiding it would send somebody looking for it.
-    expect(document.querySelector(".team__row-note")!.textContent).toContain("web");
+    expect(document.querySelector(".team__pool-team")!.textContent).toContain(
+      "on team “web”",
+    );
     expect(adds()).toHaveLength(0);
     expect(roles()).toHaveLength(0);
+  });
+
+  it("leads the pool with takeable agents and folds the spoken-for to a line per team", () => {
+    // A row per busy pane repeated one fact as many times as that team has
+    // members, and buried the agents that can actually be added.
+    const ws = workspace([
+      pane("pane-1", { name: "web", role: "lead" }),
+      pane("pane-2", { name: "web", role: "impl-1" }),
+      pane("pane-3"),
+    ]);
+    open(ws);
+    type(nameField(), "api");
+    const rows = all(".team__pool > li");
+    expect(rows[0].className).toContain("team__row");
+    expect(adds()).toHaveLength(1);
+    const groups = all(".team__pool-team");
+    expect(groups).toHaveLength(1);
+    expect(groups[0].querySelectorAll(".team__pool-member")).toHaveLength(2);
   });
 
   it("still offers this team's own member back while its name is being changed", () => {
@@ -559,7 +579,7 @@ describe("TeamDialog", () => {
     expect(adds()).toHaveLength(1);
 
     type(nameField(), "webapp");
-    expect(document.querySelector(".team__row-note")).toBeNull();
+    expect(document.querySelector(".team__pool-team")).toBeNull();
     expect(adds()).toHaveLength(1);
   });
 

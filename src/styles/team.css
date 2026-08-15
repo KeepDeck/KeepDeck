@@ -205,6 +205,32 @@
   color: #c5c8c6;
 }
 
+/* Agents SPOKEN FOR by another team: one line per team, sunk below the
+   takeable rows. A row each repeated the same fact as many times as that
+   team has members, and pushed the panes that can actually be added out
+   of first sight. */
+.team__pool-team {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-height: 26px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.team__pool-team-name {
+  flex: none;
+}
+
+.team__pool-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #9aa3af;
+}
+
 /* Removal is a glyph rather than a button: it repeats down the roster, and a
    labelled control on every row would out-shout the roles, which are the
    thing being read. */

@@ -279,6 +279,32 @@ export function TeamDialog({
     .filter((pane) => !roles.has(pane.id))
     .map((pane) => ({ pane, label: titleOf(pane) }));
 
+  // A pane holds ONE team, so a pooled pane that already has a different
+  // one cannot be taken — it would be pulled out of a team whose remaining
+  // members are still briefed to address its role. Membership is compared
+  // against the team being EDITED, never the name box: typing renames the
+  // team, and compared to the box every own member read as another team's
+  // from a rename's first keystroke.
+  //
+  // The takeable lead the pool; the spoken-for sink below it, folded to a
+  // line per TEAM — a row each repeated one fact as many times as that
+  // team has members, and pushed the panes that can actually be added out
+  // of first sight.
+  const currentTeam = editing ?? name;
+  const takeable = available.filter(
+    ({ pane }) => !pane.team || paneIsOnTeam(pane, currentTeam),
+  );
+  const spokenFor: { team: string; members: typeof available }[] = [];
+  for (const entry of available) {
+    if (!entry.pane.team || paneIsOnTeam(entry.pane, currentTeam)) continue;
+    const team = entry.pane.team.name;
+    const group = spokenFor.find(
+      (candidate) => candidate.team.toLowerCase() === team.toLowerCase(),
+    );
+    if (group) group.members.push(entry);
+    else spokenFor.push({ team, members: [entry] });
+  }
+
   // The row whose briefing the notice quotes — re-found per render, so the
   // words stay live while the roster is edited under it, and a dropped row
   // simply closes it.
@@ -504,51 +530,44 @@ export function TeamDialog({
           <>
             <span className="form__label">Also running here</span>
             <ul className="team__pool">
-              {available.map(({ pane, label }) => {
-                // A pane holds ONE team, so taking one that already has a
-                // team would not add it — it would silently pull it out of
-                // the other, whose remaining members are still briefed to
-                // address a role that then reaches nobody, and who are told
-                // nothing because "who left" is asked only of the team being
-                // edited. Shown with where it is and no way to take it: the
-                // agent has not vanished, it is simply spoken for.
-                //
-                // Compared against the team being EDITED, not the name in the
-                // box. Typing into the box renames the team; comparing to it
-                // made every one of this team's own members read as another
-                // team's the moment a rename began, so a member dropped
-                // mid-edit could not be taken back until the dialog closed.
-                const on = editing ?? name;
-                const spokenFor =
-                  pane.team && !paneIsOnTeam(pane, on) ? pane.team.name : null;
-                return (
-                  <li key={pane.id} className="team__row">
-                    <AgentGlyph icon={iconOf(pane)} />
-                    <span className="team__row-who">{label}</span>
-                    <span className="team__row-where">{whereOf(pane)}</span>
-                    {activity && <RowActivity source={activity} paneId={pane.id} />}
-                    {spokenFor ? (
-                      <span
-                        className="team__row-note"
-                        title={`Already on “${spokenFor}” — open that team from this agent's badge to take it off first`}
-                      >
-                        on “{spokenFor}”
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="team__row-take"
-                        onClick={() => {
-                          setTouched(true);
-                          take(pane);
-                        }}
-                      >
-                        Add
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
+              {takeable.map(({ pane, label }) => (
+                <li key={pane.id} className="team__row">
+                  <AgentGlyph icon={iconOf(pane)} />
+                  <span className="team__row-who">{label}</span>
+                  <span className="team__row-where">{whereOf(pane)}</span>
+                  {activity && <RowActivity source={activity} paneId={pane.id} />}
+                  <button
+                    type="button"
+                    className="team__row-take"
+                    onClick={() => {
+                      setTouched(true);
+                      take(pane);
+                    }}
+                  >
+                    Add
+                  </button>
+                </li>
+              ))}
+              {/* Shown, not hidden: these agents have not vanished, they
+                  are spoken for — and saying so once per TEAM answers it,
+                  in words ("on team") rather than a bare quoted name. */}
+              {spokenFor.map((group) => (
+                <li
+                  key={group.team}
+                  className="team__pool-team"
+                  title={`Already on “${group.team}” — open that team from an agent's badge to take one off first`}
+                >
+                  <span className="team__pool-team-name">
+                    on team “{group.team}”
+                  </span>
+                  {group.members.map(({ pane, label }) => (
+                    <span key={pane.id} className="team__pool-member">
+                      <AgentGlyph icon={iconOf(pane)} />
+                      {label}
+                    </span>
+                  ))}
+                </li>
+              ))}
             </ul>
           </>
         )}
