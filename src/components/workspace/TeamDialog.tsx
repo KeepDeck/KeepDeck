@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   agentSupportsNew,
   agentSupportsYolo,
@@ -15,12 +15,16 @@ import {
   planDisband,
   planTeam,
   teamMembers,
+  teamNamesIn,
   roleById,
+  teamBriefing,
   teamPlanIsEmpty,
   teamRoles,
   type TeamPlan,
   type TeamRecruitDraft,
 } from "../../domain/mail";
+import { activityBadge, type PaneActivity } from "../../domain/status";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Dropdown } from "../../ui/Dropdown";
@@ -36,6 +40,16 @@ interface TeamDialogProps {
   /** The YOLO toggle's starting position for a new recruit — the global
    * preference, the same seed the "+ Agent" and fork dialogs use. */
   defaultYolo: boolean;
+  /** Live agent activity, as the tray reads it — a port rather than a
+   * context reach, so a test host without a status lane simply shows no
+   * dots. The subscription lives per row, because only that row re-renders
+   * when its pane's activity moves. `of` must answer a STABLE reference
+   * between changes: it feeds useSyncExternalStore, which re-renders
+   * forever on a fresh object per read. */
+  activity?: {
+    subscribe(listener: () => void): () => void;
+    of(paneId: string): PaneActivity | undefined;
+  };
   /** Apply a settled roster. `closing` names the panes to END as well as
    * release — only the disband gesture asks for that, and only when the
    * person ticked it in the same breath, which is why it travels beside the
@@ -61,6 +75,30 @@ function whereOf(pane: Pane): string {
   return pane.cwd ? baseName(pane.cwd) : "";
 }
 
+/** One pane's live status — the tray's own badge model, rendered small. Its
+ * own component because the subscription is per row, and a hook cannot sit
+ * inside the roster loop. */
+function RowActivity({
+  source,
+  paneId,
+}: {
+  source: NonNullable<TeamDialogProps["activity"]>;
+  paneId: string;
+}) {
+  const activity = useSyncExternalStore(source.subscribe, () => source.of(paneId));
+  const view = activity ? activityBadge(activity) : null;
+  if (!view) return null;
+  return (
+    <span
+      className={`team__row-activity team__row-activity--${view.tone}`}
+      title={view.detail ? `${view.label} — ${view.detail}` : view.label}
+    >
+      <span className="team__row-activity-dot" />
+      {view.label}
+    </span>
+  );
+}
+
 /**
  * The whole team in one place: its name, who is on it, what each is called,
  * and any agents to start alongside them.
@@ -81,6 +119,7 @@ export function TeamDialog({
   agents,
   editing,
   defaultYolo,
+  activity,
   onConfirm,
   onCancel,
 }: TeamDialogProps) {
@@ -106,10 +145,13 @@ export function TeamDialog({
    * dialog opens: the destructive reading of a control has to be chosen
    * again each time, never inherited from the last team somebody ended. */
   const [closeOnDisband, setCloseOnDisband] = useState(false);
-  // Escape closes it, like every other dialog here. Nothing has happened
-  // yet when it does: the whole point of settling a team as one plan is
-  // that leaving mid-edit changes nothing.
-  useEscape(onCancel);
+  /** The roster row whose briefing is open in a notice over this dialog —
+   * null when none is. */
+  const [briefFor, setBriefFor] = useState<string | null>(null);
+  /** Whether the disband confirm is up. Ending a team is not an edit, so
+   * the question is asked in its own dialog, not by a control in the
+   * footer. */
+  const [disbanding, setDisbanding] = useState(false);
 
   const canRecruit = useMemo(
     () => selectableAgents(agents).filter((agent) => agentSupportsNew(agents, agent.id)),
@@ -127,23 +169,53 @@ export function TeamDialog({
    * it, and an empty picker is the honest rendering of "no role yet". */
   const roleIdOf = (address: string) => parseRoleAddress(address)?.role.id ?? "";
 
+  // Entries whose pane left the WORKSPACE while the dialog was open (an
+  // agent closed over MCP) are dropped from the draft and the roster both.
+  // Carried with `pane: null`, they wore the recruit branch — a dashed
+  // card with a dead agent picker, claiming an agent was about to start.
+  const liveRoles = [...roles].filter(([paneId]) =>
+    workspace.panes.some((candidate) => candidate.id === paneId),
+  );
   const draft = {
     name,
-    members: [...roles].map(([paneId, role]) => ({ paneId, role })),
+    members: liveRoles.map(([paneId, role]) => ({ paneId, role })),
     recruits,
   };
   // `editing` matters beyond seeding the form: who has LEFT is a question
   // about the team as it stands, so a rename must not make the members it
   // dropped invisible.
   const planned = planTeam(workspace, draft, editing);
+  // "+ Team" is ALWAYS a new team, and a rename must stay a rename: a name
+  // some OTHER team holds would not create or rename anything. planTeam
+  // would settle it as an edit of that team (create), or silently MERGE
+  // two teams into one name with duplicate addresses (rename) — either
+  // way, members evicted or mail misdelivered with nobody re-briefed. So
+  // it is refused in words instead.
+  const trimmedName = name.trim().toLowerCase();
+  const nameTaken = teamNamesIn(workspace).some(
+    (existing) =>
+      existing.toLowerCase() === trimmedName &&
+      (editing === null ||
+        existing.toLowerCase() !== editing.trim().toLowerCase()),
+  );
   // Nothing to do is not an error, but it is not a confirmable form either:
   // a dialog that dispatches a no-op teaches people it did something.
-  const valid = planned.ok && !teamPlanIsEmpty(planned.value);
+  const valid = planned.ok && !teamPlanIsEmpty(planned.value) && !nameTaken;
+
+  /** Whether a roles-map entry still names a pane the workspace holds. */
+  const paneLives = (paneId: string) =>
+    workspace.panes.some((candidate) => candidate.id === paneId);
+
+  /** The live entries' addresses out of a roles map. Dead panes' entries
+   * are dropped from the roster and the draft, so a ghost must not keep
+   * its address "taken" for the minting paths either. */
+  const liveRoleValues = (held: ReadonlyMap<string, string>): string[] =>
+    [...held].filter(([paneId]) => paneLives(paneId)).map(([, role]) => role);
 
   /** Every address the roster holds, apart from one row's own — what a fresh
    * address has to avoid. */
   const addressesBesides = (mine: string): string[] =>
-    [...roles.values(), ...recruits.map((recruit) => recruit.role)].filter(
+    [...liveRoleValues(roles), ...recruits.map((recruit) => recruit.role)].filter(
       (address) => address !== mine,
     );
 
@@ -165,7 +237,10 @@ export function TeamDialog({
       next.set(
         pane.id,
         pane.team?.role ??
-          suggestAddress([...next.values(), ...recruits.map((r) => r.role)]),
+          suggestAddress([
+            ...liveRoleValues(next),
+            ...recruits.map((r) => r.role),
+          ]),
       );
       return next;
     });
@@ -193,13 +268,13 @@ export function TeamDialog({
    * reading it they are all members — the difference is only that some do
    * not exist yet. */
   const roster = [
-    ...[...roles].map(([paneId, role]) => {
-      const pane = workspace.panes.find((candidate) => candidate.id === paneId);
+    ...liveRoles.map(([paneId, role]) => {
+      const pane = workspace.panes.find((candidate) => candidate.id === paneId)!;
       return {
         key: paneId,
         role,
-        pane: pane ?? null,
-        label: pane ? titleOf(pane) : paneId,
+        pane: pane as Pane | null,
+        label: titleOf(pane),
         agentType: "",
         yolo: false,
         setRole: (next: string) => setRole(paneId, next),
@@ -239,6 +314,57 @@ export function TeamDialog({
     .filter((pane) => !roles.has(pane.id))
     .map((pane) => ({ pane, label: titleOf(pane) }));
 
+  // A pane holds ONE team, so a pooled pane that already has a different
+  // one cannot be taken — it would be pulled out of a team whose remaining
+  // members are still briefed to address its role. Membership is compared
+  // against the team being EDITED, never the name box: typing renames the
+  // team, and compared to the box every own member read as another team's
+  // from a rename's first keystroke.
+  //
+  // The takeable lead the pool; the spoken-for sink below it, folded to a
+  // line per TEAM — a row each repeated one fact as many times as that
+  // team has members, and pushed the panes that can actually be added out
+  // of first sight.
+  const currentTeam = editing ?? name;
+  const takeable = available.filter(
+    ({ pane }) => !pane.team || paneIsOnTeam(pane, currentTeam),
+  );
+  const spokenFor: { team: string; members: typeof available }[] = [];
+  for (const entry of available) {
+    if (!entry.pane.team || paneIsOnTeam(entry.pane, currentTeam)) continue;
+    const team = entry.pane.team.name;
+    const group = spokenFor.find(
+      (candidate) => candidate.team.toLowerCase() === team.toLowerCase(),
+    );
+    if (group) group.members.push(entry);
+    else spokenFor.push({ team, members: [entry] });
+  }
+
+  // The row whose briefing the notice quotes — re-found per render, so the
+  // words stay live while the roster is edited under it, and a dropped row
+  // simply closes it.
+  const briefRow = roster.find((row) => row.key === briefFor) ?? null;
+
+  // Escape closes the dialog, like every other one here — nothing has
+  // happened yet, since settling a team as one plan is what makes leaving
+  // mid-edit free. While anything is STACKED over it, Escape is the top
+  // surface's to claim, and the guard reads the same value the notice
+  // renders from (briefRow, never the raw key) — so a stale key can never
+  // leave the dialog deaf with nothing on screen.
+  useEscape(onCancel, briefRow === null && !disbanding);
+
+  // What the roster itself says the team's shape is. The label reads it
+  // back, so a person assembling a flat team watches the deck agree — and
+  // a mixed or unknown roster claims nothing, because planTeam is about to
+  // say why in words.
+  const standings = roster.map((row) => parseRoleAddress(row.role)?.role.standing);
+  const shapeLabel =
+    roster.length > 0 && standings.every((standing) => standing === "peer")
+      ? "The team — flat, everyone equal"
+      : standings.some((standing) => standing === "leads")
+        ? "The team — led"
+        : "The team";
+
   return (
     <ModalOverlay>
       <form
@@ -274,9 +400,8 @@ export function TeamDialog({
         {/* THE TEAM — a roster of roles, which is what a team IS. The role
             leads each row because it is the address teammates use and the
             column that has to be scanned for duplicates; who fills it comes
-            second. Rows stay in the order they were added, so the first one
-            is the lead and reads like one. */}
-        <span className="form__label">The team</span>
+            second. */}
+        <span className="form__label">{shapeLabel}</span>
         {roster.length === 0 ? (
           <p className="form__desc team__empty">
             Nobody yet — take an agent from below, or start a new one.
@@ -306,11 +431,26 @@ export function TeamDialog({
                       types — hiding it would leave the person unable to read
                       their own roster. */}
                   <span className="team__row-address">{row.role}</span>
+                  {!parseRoleAddress(row.role) && (
+                    // A role deleted from the catalog under a live member:
+                    // the address still works, but the charter behind it is
+                    // gone, so its holder is briefed thinly. Picking a role
+                    // is the fix, and this is what says so.
+                    <span
+                      className="team__row-note"
+                      title="This role is no longer in the catalog — pick one to give the member a charter again"
+                    >
+                      not in the catalog
+                    </span>
+                  )}
                   {row.pane ? (
                     <>
                       <AgentGlyph icon={iconOf(row.pane)} />
                       <span className="team__row-who">{row.label}</span>
                       <span className="team__row-where">{whereOf(row.pane)}</span>
+                      {activity && (
+                        <RowActivity source={activity} paneId={row.pane.id} />
+                      )}
                     </>
                   ) : (
                     <>
@@ -353,6 +493,21 @@ export function TeamDialog({
                       )}
                     </>
                   )}
+                  {/* The role's briefing, ON DEMAND — beside the row's other
+                      meta control (×), not between the address and the
+                      member it names: the left half of a row is identity,
+                      the right edge is what can be done to it. Assembling a
+                      team is frequent and reading a charter is rare, so the
+                      words sit behind this ask rather than in a panel. */}
+                  <button
+                    type="button"
+                    className="team__row-info"
+                    aria-label={`What "${row.role}" will be told`}
+                    title="What this member will be told"
+                    onClick={() => setBriefFor(row.key)}
+                  >
+                    ⓘ
+                  </button>
                   <button
                     type="button"
                     className="team__row-drop"
@@ -395,7 +550,7 @@ export function TeamDialog({
                 {
                   agentType: canRecruit[0].id,
                   role: suggestAddress([
-                    ...roles.values(),
+                    ...liveRoleValues(roles),
                     ...current.map((row) => row.role),
                   ]),
                   // Seeded from the global preference, like every other
@@ -417,62 +572,76 @@ export function TeamDialog({
           <>
             <span className="form__label">Also running here</span>
             <ul className="team__pool">
-              {available.map(({ pane, label }) => {
-                // A pane holds ONE team, so taking one that already has a
-                // team would not add it — it would silently pull it out of
-                // the other, whose remaining members are still briefed to
-                // address a role that then reaches nobody, and who are told
-                // nothing because "who left" is asked only of the team being
-                // edited. Shown with where it is and no way to take it: the
-                // agent has not vanished, it is simply spoken for.
-                //
-                // Compared against the team being EDITED, not the name in the
-                // box. Typing into the box renames the team; comparing to it
-                // made every one of this team's own members read as another
-                // team's the moment a rename began, so a member dropped
-                // mid-edit could not be taken back until the dialog closed.
-                const on = editing ?? name;
-                const spokenFor =
-                  pane.team && !paneIsOnTeam(pane, on) ? pane.team.name : null;
-                return (
-                  <li key={pane.id} className="team__row">
-                    <AgentGlyph icon={iconOf(pane)} />
-                    <span className="team__row-who">{label}</span>
-                    <span className="team__row-where">{whereOf(pane)}</span>
-                    {spokenFor ? (
+              {takeable.map(({ pane, label }) => (
+                <li key={pane.id} className="team__row">
+                  <AgentGlyph icon={iconOf(pane)} />
+                  <span className="team__row-who">{label}</span>
+                  <span className="team__row-where">{whereOf(pane)}</span>
+                  {activity && <RowActivity source={activity} paneId={pane.id} />}
+                  <button
+                    type="button"
+                    className="team__row-take"
+                    onClick={() => {
+                      setTouched(true);
+                      take(pane);
+                    }}
+                  >
+                    Add
+                  </button>
+                </li>
+              ))}
+              {/* Shown, not hidden: these agents have not vanished, they
+                  are spoken for — and saying so once per TEAM answers it,
+                  with the word "Team" naming what the quotes hold. One
+                  compact card per team: a head with the name and the
+                  count, then the members in a dense grid whose cells
+                  truncate — a large team grows in rows of a grid, never
+                  into a ragged inline paragraph. */}
+              {spokenFor.map((group) => (
+                <li
+                  key={group.team}
+                  className="team__pool-team"
+                  title={`Already on “${group.team}” — open that team from an agent's badge to take one off first`}
+                >
+                  <div className="team__pool-team-head">
+                    <span className="team__pool-team-name">
+                      Team “{group.team}”
+                    </span>
+                    <span className="team__pool-team-count">
+                      {group.members.length}{" "}
+                      {group.members.length === 1 ? "agent" : "agents"}
+                    </span>
+                  </div>
+                  <div className="team__pool-team-grid">
+                    {group.members.map(({ pane, label }) => (
                       <span
-                        className="team__row-note"
-                        title={`Already on “${spokenFor}” — open that team from this agent's badge to take it off first`}
+                        key={pane.id}
+                        className="team__pool-member"
+                        title={label}
                       >
-                        on “{spokenFor}”
+                        <AgentGlyph icon={iconOf(pane)} />
+                        <span className="team__pool-member-name">{label}</span>
                       </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="team__row-take"
-                        onClick={() => {
-                          setTouched(true);
-                          take(pane);
-                        }}
-                      >
-                        Add
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
+                    ))}
+                  </div>
+                </li>
+              ))}
             </ul>
           </>
         )}
 
-
-        {touched && !planned.ok && (
+        {touched && (nameTaken || !planned.ok) && (
           // Its own style, not the git hint's: that one is green, and a
           // refusal rendered in the colour of a positive result is read as
           // one. Directly above the actions, where the disabled button that
           // it explains actually is.
           <p className="form__error team__error" role="alert">
-            ⚠ {planned.message}
+            ⚠{" "}
+            {nameTaken
+              ? `a team called “${name.trim()}” already exists — open it from an agent's badge to edit it`
+              : planned.ok
+                ? ""
+                : planned.message}
           </p>
         )}
 
@@ -482,52 +651,23 @@ export function TeamDialog({
             // roster and confirm — but only as a side effect of emptying a
             // list, which is not a thing anyone would think to try. Ending
             // a team is a deliberate act and deserves to be sayable.
-            //
-            // By default it takes the roles away and NOTHING else: the
-            // agents keep running, keep their panes and keep their work.
-            // Ending them is the other thing people actually want here —
-            // the team is over, so are its agents — and closing four panes
-            // by hand afterwards is busywork. So it is offered, but it is
-            // ASKED FOR: the tick arms it, and the button then says what it
-            // will do, because a destructive act must never be reachable by
-            // the same click as an organisational one.
-            <>
-              <label
-                className={`team__disband-close${
-                  closeOnDisband ? " team__disband-close--on" : ""
-                }`}
-                title="End the agents too, keeping their worktrees — deleting one of those is its own decision"
-              >
-                <input
-                  type="checkbox"
-                  checked={closeOnDisband}
-                  onChange={(e) => setCloseOnDisband(e.target.checked)}
-                />
-                close the agents too
-              </label>
-              <button
-                type="button"
-                className="team__disband"
-                title={
-                  closeOnDisband
-                    ? `Take every agent off “${editing}” and close it`
-                    : `Take every agent off “${editing}” — they keep running`
-                }
-                onClick={() => {
-                  // Through the domain, like every other change to a team.
-                  // This gesture used to build its plan by hand, which made
-                  // the destructive path the one path that passed no check.
-                  const disbanding = planDisband(workspace, editing);
-                  if (!disbanding.ok) return;
-                  onConfirm(
-                    disbanding.value,
-                    closeOnDisband ? disbanding.value.released : [],
-                  );
-                }}
-              >
-                {closeOnDisband ? "Disband & close" : "Disband"}
-              </button>
-            </>
+            <button
+              // Ending the team is not an edit, so it is not one of the
+              // form's verdict buttons: one quiet door at the far left,
+              // and the decision itself happens in the app's destructive
+              // confirm — its own words, its own moment, its own Escape.
+              type="button"
+              className="team__end"
+              onClick={() => {
+                // The destructive reading is chosen again each time the
+                // question is asked, never inherited from the last team
+                // somebody ended.
+                setCloseOnDisband(false);
+                setDisbanding(true);
+              }}
+            >
+              Disband team
+            </button>
           )}
           <button type="button" className="form__cancel" onClick={onCancel}>
             Cancel
@@ -537,6 +677,70 @@ export function TeamDialog({
           </button>
         </div>
       </form>
+      {briefRow && (
+        // The briefing ON DEMAND, over the dialog — the app's own stacked
+        // notice, the same machinery every other dialog stacks. Verbatim
+        // from the same teamBriefing the deck will say, off the draft as
+        // it stands: a précis would be a second briefing to keep true.
+        <ConfirmDialog
+          title={`${parseRoleAddress(briefRow.role)?.role.label ?? briefRow.role} — ${briefRow.role}`}
+          message={teamBriefing(
+            name.trim() || "…",
+            briefRow.role,
+            roster.map((row) => row.role),
+          )}
+          confirmLabel="OK"
+          onConfirm={() => setBriefFor(null)}
+        />
+      )}
+      {disbanding && editing && (
+        // The destructive act gets the destructive dialog: Cancel holds
+        // focus so Enter cannot disband, and the tick that ends the agents
+        // too is read HERE, beside the button it changes. By default the
+        // roles come off and nothing else.
+        <ConfirmDialog
+          title={`Disband “${editing}”?`}
+          message={`Every agent comes off “${editing}” and its roles stop reaching anyone. Unless you also close them below, the agents keep running and keep their work.`}
+          confirmLabel="Disband"
+          cancelLabel="Cancel"
+          destructive
+          onConfirm={() => {
+            // Through the domain, like every other change to a team. This
+            // gesture used to build its plan by hand, which made the
+            // destructive path the one path that passed no check.
+            const disband = planDisband(workspace, editing);
+            if (!disband.ok) {
+              // The team can vanish under an open dialog (an agent-driven
+              // disband over MCP). A dead red button is the one thing this
+              // confirm must not be — closing it says the moment passed.
+              setDisbanding(false);
+              return;
+            }
+            setDisbanding(false);
+            onConfirm(disband.value, closeOnDisband ? disband.value.released : []);
+          }}
+          onCancel={() => setDisbanding(false)}
+        >
+          <label
+            className={`team__disband-close${
+              closeOnDisband ? " team__disband-close--on" : ""
+            }`}
+            title="Keeps their worktrees — deleting one of those is its own decision"
+          >
+            <input
+              type="checkbox"
+              checked={closeOnDisband}
+              onChange={(e) => setCloseOnDisband(e.target.checked)}
+            />
+            {/* The app draws its own box — the OS control is the one
+                element no stylesheet reaches, and it showed. */}
+            <span className="team__disband-box" aria-hidden="true">
+              ✓
+            </span>
+            close the agents too
+          </label>
+        </ConfirmDialog>
+      )}
     </ModalOverlay>
   );
 }

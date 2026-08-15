@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 // to staging's views or the library's wire shape lands in one file rather
 // than reaching up into this router.
 pub use library::SkillDto;
+pub(crate) use library::require_safe;
 pub use staging::{SkillStagingDto, SkillsLocks};
 
 /// Every skill in the library, global scope first, then workspaces, names

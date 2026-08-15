@@ -125,11 +125,12 @@ export async function applyTeamPlan(
   }
   // And whoever left hears once, so it stops addressing roles that no
   // longer reach anyone — except the ones being closed, who have nothing
-  // left to say it to.
+  // left to say it to. In the name they actually HELD: renamed in the
+  // same breath, the plan's own name is a team the leaver was never on.
   const ending = new Set(closing);
   for (const paneId of plan.released) {
     if (ending.has(paneId)) continue;
-    deps.announce?.(paneId, "team", teamFarewell(plan.name));
+    deps.announce?.(paneId, "team", teamFarewell(plan.formerName ?? plan.name));
   }
 
   // Closing comes LAST, after every pane has been taken off the team. A

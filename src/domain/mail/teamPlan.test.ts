@@ -132,6 +132,41 @@ describe("planTeam", () => {
     expect(twoHeads.ok).toBe(false);
   });
 
+  it("accepts a flat team of peers, where nobody leads", () => {
+    // The second team shape: equals only. No lead to demand — the peer
+    // charter names nobody to take direction from.
+    const ws = workspace([pane("pane-1"), pane("pane-2")]);
+    const result = planTeam(
+      ws,
+      draft({
+        members: [
+          { paneId: "pane-1", role: "peer-1" },
+          { paneId: "pane-2", role: "peer-2" },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("refuses to mix peers with led roles, either way around", () => {
+    // "An equal under a boss" is a contradiction in the roster itself: the
+    // peer charter says nobody outranks it, the worker charters name a lead.
+    const ws = workspace([pane("pane-1"), pane("pane-2")]);
+    for (const other of ["lead", "impl-1"]) {
+      const result = planTeam(
+        ws,
+        draft({
+          members: [
+            { paneId: "pane-1", role: "peer-1" },
+            { paneId: "pane-2", role: other },
+          ],
+        }),
+      );
+      expect(result.ok, other).toBe(false);
+      if (!result.ok) expect(result.message).toContain("flat");
+    }
+  });
+
   it("refuses to take a pane that already belongs to another team", () => {
     // One team per pane. Poaching strands the team left behind: its members
     // stay briefed to address a role that reaches nobody. The dialog declines
@@ -227,6 +262,9 @@ describe("planTeam", () => {
     expect(result.ok && result.value.released).toEqual(["pane-2"]);
     // And the one that stayed moves to the new name.
     expect(result.ok && result.value.name).toBe("platform");
+    // The plan says what the released member actually HELD, so a farewell
+    // can name the team it was on rather than the name it was changed to.
+    expect(result.ok && result.value.formerName).toBe("api");
   });
 
   it("disbands without demanding a lead for the empty roster it leaves", () => {
@@ -371,6 +409,43 @@ describe("teamBriefing", () => {
     expect(text).toContain("Your user's instructions outrank");
     expect(text).toContain("task from lead is work assigned to you");
     expect(text).toContain("not as an order");
+  });
+
+  it("briefs a flat team as equals, and does not offer the task kind", () => {
+    // The briefing must not advertise what the rules refuse: a peer's task
+    // is refused at the door, and the outranking line has no lead to name.
+    const text = teamBriefing("research", "peer-1", ["peer-1", "peer-2"]);
+    expect(text).toContain("equals");
+    expect(text).toContain("not as an order");
+    expect(text).not.toContain("task");
+    expect(text).not.toContain("lead");
+    // One kind is left on the interrupting side, and its verb agrees —
+    // "question interrupt it" read as a typo in every flat briefing.
+    expect(text).toContain("question interrupts it and costs it a turn");
+    for (const line of roleById("peer")!.charter) {
+      expect(text).toContain(line);
+    }
+  });
+
+  it("briefs a member by ITS standing, not by who else survived the roster", () => {
+    // A lead whose spawn failed, or whose pane closed without a re-plan,
+    // leaves reports members on a lead-less roster. Their charter still
+    // says a task from lead is work — the closing line must not contradict
+    // it in the same breath.
+    const text = teamBriefing("api", "impl-1", ["impl-1", "reviewer-1"]);
+    expect(text).toContain("task from lead is work assigned to you");
+    expect(text).not.toContain("equals");
+  });
+
+  it("falls back to the roster's shape for a role the catalog has lost", () => {
+    // A custom peer role deleted in settings leaves its flat team briefed
+    // by addresses the catalog cannot read. The equals wording must
+    // survive on a lead-less roster — hearing about a lead it never had
+    // (and being offered the task kind its gate refuses) is the regression
+    // this pins.
+    const text = teamBriefing("crew", "buddy-1", ["buddy-1", "buddy-2"]);
+    expect(text).toContain("equals");
+    expect(text).not.toContain("task");
   });
 
   it("still briefs a member whose role the catalog has lost", () => {

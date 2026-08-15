@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import type { Pane, Workspace } from "../../domain/deck";
 import type { TeamPlan } from "../../domain/mail";
+import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { TeamDialog } from "./TeamDialog";
 
@@ -110,6 +111,16 @@ describe("TeamDialog", () => {
   const nameField = () => document.querySelector<HTMLInputElement>(".form__input")!;
   const submit = () => document.querySelector<HTMLButtonElement>(".form__create")!;
   const startNew = () => document.querySelector<HTMLButtonElement>(".team__add")!;
+  /** The two-step disband: the quiet door in the foot, then the confirm's
+   * own destructive button. */
+  const endTeam = () =>
+    act(() => document.querySelector<HTMLButtonElement>(".team__end")!.click());
+  const confirmDisband = () =>
+    act(() =>
+      Array.from(document.querySelectorAll("button"))
+        .find((candidate) => candidate.textContent === "Disband")!
+        .click(),
+    );
 
   it("starts with an empty team and everyone in the pool", () => {
     open(workspace([pane("pane-1"), pane("pane-2")]));
@@ -224,7 +235,8 @@ describe("TeamDialog", () => {
       pane("pane-3", { name: "web", role: "lead" }),
     ]);
     open(ws, "api");
-    act(() => document.querySelector<HTMLButtonElement>(".team__disband")!.click());
+    endTeam();
+    confirmDisband();
     expect(confirmed).toEqual([
       {
         name: "api",
@@ -234,34 +246,31 @@ describe("TeamDialog", () => {
       },
     ]);
     // Roles away, agents untouched: they keep running, keep their panes and
-    // keep their work. Ending them is the other button's meaning.
+    // keep their work. Ending them is the confirm's tick, left alone here.
     expect(ending).toEqual([[]]);
     // Another team in the same workspace is none of this one's business.
     expect(confirmed[0].released).not.toContain("pane-3");
   });
 
-  it("ends the agents too when that is asked for, and says so on the button", () => {
+  it("ends the agents too when the confirm's tick asks for it", () => {
     // The thing people actually want when a team is over: the four panes go
     // with it, instead of being closed one at a time afterwards. Asked for
-    // explicitly, because a destructive act must not be reachable by the
-    // same click as an organisational one — and the button says which it is
-    // about to do.
+    // explicitly, inside the destructive confirm, beside the button it
+    // changes — a destructive act must not be reachable by the same click
+    // as an organisational one.
     const ws = workspace([
       pane("pane-1", { name: "api", role: "lead" }),
       pane("pane-2", { name: "api", role: "impl-1" }),
     ]);
     open(ws, "api");
-    const disband = () => document.querySelector<HTMLButtonElement>(".team__disband")!;
-    expect(disband().textContent).toBe("Disband");
-    const tick = document.querySelector<HTMLInputElement>(
-      ".team__disband-close input",
-    )!;
-    // Off when the dialog opens: the destructive reading is chosen again
-    // each time, never inherited from the last team somebody ended.
-    expect(tick.checked).toBe(false);
-    act(() => tick.click());
-    expect(disband().textContent).toBe("Disband & close");
-    act(() => disband().click());
+    endTeam();
+    const tick = () =>
+      document.querySelector<HTMLInputElement>(".team__disband-close input")!;
+    // Off every time the question is asked: the destructive reading is
+    // chosen again, never inherited from the last team somebody ended.
+    expect(tick().checked).toBe(false);
+    act(() => tick().click());
+    confirmDisband();
     expect(confirmed).toEqual([
       {
         name: "api",
@@ -283,8 +292,21 @@ describe("TeamDialog", () => {
     ]);
     open(ws, "api");
     act(() => drops()[1].click());
-    act(() => document.querySelector<HTMLButtonElement>(".team__disband")!.click());
+    endTeam();
+    confirmDisband();
     expect(confirmed[0].released).toEqual(["pane-1", "pane-2"]);
+  });
+
+  it("lets Escape close the disband confirm, not the dialog under it", () => {
+    open(workspace([pane("pane-1", { name: "api", role: "lead" })]), "api");
+    endTeam();
+    expect(document.querySelector(".confirm")).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(document.querySelector(".confirm")).toBeNull();
+    expect(document.querySelector(".team-form")).not.toBeNull();
+    expect(confirmed).toEqual([]);
   });
 
   it("closes on Escape, like every other dialog here", () => {
@@ -340,7 +362,85 @@ describe("TeamDialog", () => {
 
   it("offers no disband for a team that does not exist yet", () => {
     open(workspace([pane("pane-1")]));
-    expect(document.querySelector(".team__disband")).toBeNull();
+    expect(document.querySelector(".team__end")).toBeNull();
+  });
+
+  it("quotes a member's briefing in a notice, on demand", () => {
+    // Assembling a team is frequent and reading a charter is rare, so the
+    // words sit behind the row's own ask rather than in a standing panel —
+    // and they are the same teamBriefing the deck will say, verbatim: a
+    // précis would be a second briefing to keep true.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+    ]);
+    open(ws, "api");
+    expect(document.querySelector(".confirm")).toBeNull();
+    act(() => all<HTMLButtonElement>(".team__row-info")[1].click());
+    const notice = document.querySelector(".confirm")!;
+    expect(notice.textContent).toContain("impl-1");
+    expect(notice.textContent).toContain("You IMPLEMENT");
+    // While the notice is up, Escape is ITS to claim: one press closes the
+    // notice and the dialog underneath stays.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(document.querySelector(".confirm")).toBeNull();
+    expect(document.querySelector(".team-form")).not.toBeNull();
+  });
+
+  it("reads a flat roster back as a flat team over the list", () => {
+    // The label is the deck agreeing with what the person is assembling.
+    open(
+      workspace([
+        pane("pane-1", { name: "r", role: "peer-1" }),
+        pane("pane-2", { name: "r", role: "peer-2" }),
+      ]),
+      "r",
+    );
+    expect(all(".form__label")[1].textContent).toContain("flat");
+  });
+
+  it("reads a roster with a lead back as a led team", () => {
+    open(workspace([pane("pane-1", { name: "api", role: "lead" })]), "api");
+    expect(all(".form__label")[1].textContent).toContain("led");
+  });
+
+  it("shows each pane's live activity when the deck provides the lane", () => {
+    // A port, not a context reach: without it (every other test here) the
+    // dialog simply shows no dots. The snapshot must be STABLE between
+    // reads — useSyncExternalStore's contract, same as the real tracker's.
+    const working: PaneActivity = { state: "working", since: 1 };
+    act(() =>
+      root.render(
+        createElement(TeamDialog, {
+          workspace: workspace([pane("pane-1", { name: "api", role: "lead" })]),
+          agents: AGENTS,
+          editing: "api",
+          defaultYolo: false,
+          activity: {
+            subscribe: () => () => {},
+            of: () => working,
+          },
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+    expect(document.querySelector(".team__row-activity--working")).not.toBeNull();
+  });
+
+  it("marks a member whose role the catalog no longer knows", () => {
+    // Deleting a role from the settings never rewrites a deck — the pane
+    // keeps its address and mail keeps flowing — but its charter is gone,
+    // and the roster is where a person would look for what is off.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "architect-1" }),
+    ]);
+    open(ws, "api");
+    const notes = all(".team__row-note").map((note) => note.textContent);
+    expect(notes).toEqual(["not in the catalog"]);
   });
 
   it("keeps a re-added member's own role instead of renaming it", () => {
@@ -460,9 +560,29 @@ describe("TeamDialog", () => {
     type(nameField(), "api");
     // Listed, and where it is said out loud: the agent has not vanished, it
     // is spoken for. Hiding it would send somebody looking for it.
-    expect(document.querySelector(".team__row-note")!.textContent).toContain("web");
+    expect(document.querySelector(".team__pool-team")!.textContent).toContain(
+      "Team “web”",
+    );
     expect(adds()).toHaveLength(0);
     expect(roles()).toHaveLength(0);
+  });
+
+  it("leads the pool with takeable agents and folds the spoken-for to a line per team", () => {
+    // A row per busy pane repeated one fact as many times as that team has
+    // members, and buried the agents that can actually be added.
+    const ws = workspace([
+      pane("pane-1", { name: "web", role: "lead" }),
+      pane("pane-2", { name: "web", role: "impl-1" }),
+      pane("pane-3"),
+    ]);
+    open(ws);
+    type(nameField(), "api");
+    const rows = all(".team__pool > li");
+    expect(rows[0].className).toContain("team__row");
+    expect(adds()).toHaveLength(1);
+    const groups = all(".team__pool-team");
+    expect(groups).toHaveLength(1);
+    expect(groups[0].querySelectorAll(".team__pool-member")).toHaveLength(2);
   });
 
   it("still offers this team's own member back while its name is being changed", () => {
@@ -480,7 +600,7 @@ describe("TeamDialog", () => {
     expect(adds()).toHaveLength(1);
 
     type(nameField(), "webapp");
-    expect(document.querySelector(".team__row-note")).toBeNull();
+    expect(document.querySelector(".team__pool-team")).toBeNull();
     expect(adds()).toHaveLength(1);
   });
 
@@ -502,8 +622,113 @@ describe("TeamDialog", () => {
     const ws = workspace([pane("pane-1")]);
     open(ws);
     type(nameField(), "api");
-    expect(document.querySelector(".team__row-note")).toBeNull();
+    expect(adds()).toHaveLength(1);
     act(() => adds()[0].click());
     expect(roles()).toEqual(["lead"]);
+    // Taken, it leaves the pool entirely — the two lists together answer
+    // "who is where" exactly once.
+    expect(document.querySelector(".team__pool")).toBeNull();
+  });
+
+  it("refuses to rename a team onto a name another team holds", () => {
+    // planTeam would MERGE them: released is computed against the edited
+    // team, so the other keeps its members and one name ends up with two
+    // leads — mail resolving to whichever comes first.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "web", role: "lead" }),
+    ]);
+    open(ws, "api");
+    type(nameField(), "web");
+    expect(submit().disabled).toBe(true);
+    expect(document.querySelector(".team__error")!.textContent).toContain(
+      "already exists",
+    );
+    // Its own name back — however cased — is a rename to nowhere, not a
+    // collision.
+    type(nameField(), "API");
+    expect(document.querySelector(".team__error")).toBeNull();
+  });
+
+  it("closes a disband confirm whose team vanished underneath", () => {
+    // Reachable only from outside the dialog (an agent-driven disband over
+    // MCP) — the one state where the confirm's red button must not sit
+    // dead on screen.
+    open(workspace([pane("pane-1", { name: "api", role: "lead" })]), "api");
+    endTeam();
+    open(workspace([pane("pane-1")]), "api");
+    expect(document.querySelector(".confirm")).not.toBeNull();
+    confirmDisband();
+    expect(confirmed).toEqual([]);
+    expect(document.querySelector(".confirm")).toBeNull();
+  });
+
+  it("hands Escape back when the briefed row leaves the roster", () => {
+    let cancelled = 0;
+    const mount = (panes: Pane[]) =>
+      act(() =>
+        root.render(
+          createElement(TeamDialog, {
+            workspace: workspace(panes),
+            agents: AGENTS,
+            editing: "api",
+            defaultYolo: false,
+            onConfirm: () => {},
+            onCancel: () => {
+              cancelled += 1;
+            },
+          }),
+        ),
+      );
+    mount([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+    ]);
+    act(() => all<HTMLButtonElement>(".team__row-info")[1].click());
+    expect(document.querySelector(".confirm")).not.toBeNull();
+    // The briefed pane closes over MCP: the notice unrenders with its row,
+    // and Escape must come back to the dialog — guarded on the stale KEY,
+    // the dialog sat deaf with nothing on screen.
+    mount([pane("pane-1", { name: "api", role: "lead" })]);
+    expect(document.querySelector(".confirm")).toBeNull();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(cancelled).toBe(1);
+  });
+
+  it("refuses to create a team under a name an existing team holds", () => {
+    // planTeam would settle that as an EDIT of the existing team against
+    // this near-empty draft, silently releasing every member the draft
+    // does not hold — a create must not become an eviction.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2"),
+    ]);
+    open(ws);
+    type(nameField(), "API");
+    act(() => adds()[0].click());
+    expect(submit().disabled).toBe(true);
+    expect(document.querySelector(".team__error")!.textContent).toContain(
+      "already exists",
+    );
+  });
+
+  it("drops a roster entry whose pane left the workspace", () => {
+    // An agent closed over MCP while the dialog is open: the deck prop
+    // moves under the dialog's own roles state. Rendered with a null pane,
+    // the entry wore the recruit branch — a dashed card with a dead agent
+    // picker claiming an agent was about to start.
+    open(
+      workspace([
+        pane("pane-1", { name: "api", role: "lead" }),
+        pane("pane-2", { name: "api", role: "impl-1" }),
+      ]),
+      "api",
+    );
+    expect(roles()).toEqual(["lead", "impl-1"]);
+    open(workspace([pane("pane-1", { name: "api", role: "lead" })]), "api");
+    expect(roles()).toEqual(["lead"]);
+    expect(document.querySelector(".team__row-agent")).toBeNull();
   });
 });

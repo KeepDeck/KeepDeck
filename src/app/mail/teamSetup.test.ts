@@ -230,6 +230,22 @@ describe("applyTeamPlan", () => {
     ]);
   });
 
+  it("bids farewell in the name the member actually HELD through a rename", async () => {
+    // Renamed in the same breath, the plan's own name is a team the
+    // dropped member was never on — the farewell must not claim it was.
+    const h = setup();
+    await applyTeamPlan(h.deps, "ws-1", {
+      name: "webapp",
+      formerName: "web",
+      members: [{ paneId: "pane-1", role: "lead" }],
+      released: ["pane-2"],
+      recruits: [],
+    });
+    const farewell = h.told.find((entry) => entry.paneId === "pane-2")!;
+    expect(farewell.body).toContain('"web"');
+    expect(farewell.body).not.toContain("webapp");
+  });
+
   it("says no goodbye to an agent it is about to close", async () => {
     // A farewell exists so a member stops writing to roles that no longer
     // reach anyone. One being closed has nothing left to stop doing, and

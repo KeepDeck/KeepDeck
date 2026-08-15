@@ -325,7 +325,10 @@ describe("sendRefusal", () => {
     const lead = { ...sender, role: "lead" };
     const impl = { ...sender, role: "impl-1" };
     expect(sendRefusal(lead, "pane-2", "task")).toBeNull();
-    expect(sendRefusal(impl, "pane-2", "task")).toBe("not-yours-to-assign");
+    expect(sendRefusal(impl, "pane-2", "task")).toEqual({
+      kind: "not-yours-to-assign",
+      sender: "reports",
+    });
     // Everything else it may say to anyone: a member that can only be
     // spoken to is not a member, and reporting back is the whole point.
     for (const kind of ["question", "answer", "note"] as const) {
@@ -340,7 +343,18 @@ describe("sendRefusal", () => {
   });
 
   it("refuses a pane mailing itself — a loop of one, and it never ends", () => {
-    expect(sendRefusal(sender, sender.paneId)).toBe("self-addressed");
+    expect(sendRefusal(sender, sender.paneId)).toEqual({ kind: "self-addressed" });
+  });
+
+  it("tells a refused peer its team is flat, not to go ask a lead", () => {
+    // Same gate, different honest instruction: a peer's team has nobody who
+    // assigns, and sending it to a lead would name a member that is not
+    // there.
+    const peer = { ...sender, role: "peer-1" };
+    expect(sendRefusal(peer, "pane-2", "task")).toEqual({
+      kind: "not-yours-to-assign",
+      sender: "peer",
+    });
   });
 
   it("calls a self-addressed task self-addressed, not somebody else's to assign", () => {
@@ -349,7 +363,9 @@ describe("sendRefusal", () => {
     // message it wrote to ITSELF would send it off to bother a teammate
     // over nothing.
     const impl = { ...sender, role: "impl-1" };
-    expect(sendRefusal(impl, impl.paneId, "task")).toBe("self-addressed");
+    expect(sendRefusal(impl, impl.paneId, "task")).toEqual({
+      kind: "self-addressed",
+    });
   });
 
   it("never refuses for how long the exchange has already run", () => {

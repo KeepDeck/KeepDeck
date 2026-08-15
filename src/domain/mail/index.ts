@@ -1,3 +1,4 @@
+export * from "./catalog";
 export * from "./message";
 export * from "./policy";
 export * from "./roles";

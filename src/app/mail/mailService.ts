@@ -97,6 +97,9 @@ export interface MailServiceDeps {
   subscribeChannels(listener: () => void): () => void;
   /** A pane whose agent started a conversation with no memory of the last. */
   onSessionBegan(listener: (paneId: string) => void): () => void;
+  /** The role catalog changed under every live team at once — the standing
+   * presence re-states each member's briefing. */
+  onRoleCatalogChanged(listener: () => void): () => void;
   terminal: {
     deliver(mail: Mail): boolean;
     wake(paneId: string): boolean;
@@ -211,6 +214,14 @@ export function createMailService(
       announce: (paneId, body) => manager?.announce(paneId, "team", body),
       onSessionBegan: deps.onSessionBegan,
       onContextRebuilt: deps.status.onContextRebuilt,
+      onCatalogChanged: deps.onRoleCatalogChanged,
+      onRosterChanged: deps.deck.subscribe,
+      teamedPanes: () =>
+        deps.deck
+          .workspaces()
+          .flatMap((workspace) =>
+            workspace.panes.filter((pane) => pane.team).map((pane) => pane.id),
+          ),
     });
 
   /**

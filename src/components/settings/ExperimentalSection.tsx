@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { updateSettings } from "../../app/settingsManager";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
-import { leadRole, teamRoles } from "../../domain/mail";
+import { leadRole, peerRole, teamRoles } from "../../domain/mail";
 import { shellLine } from "../../domain/mcp";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { writeText } from "../../ipc/clipboard";
@@ -36,12 +36,16 @@ import { writeText } from "../../ipc/clipboard";
  * true whether or not this dialog is open, so the MCP owner looks it up once
  * per settled transition instead of this row re-fetching on every mount.
  */
-/** The roles on offer, read from the catalog rather than listed here: a
- * second place that spelt them would be the first to fall out of step. */
-const roleSummary = teamRoles().map((role) => role.label).join(", ");
-
 export function ExperimentalSection() {
   const settings = useSettings();
+  // The roles on offer, read from the catalog rather than listed here — and
+  // read PER RENDER, not at import: as a module constant this was frozen
+  // before the user's catalog had even loaded. Per render, not per catalog
+  // change — the hint refreshes when the dialog does, which is when it is
+  // read; a live subscription would be ceremony for a sentence.
+  const roleSummary = teamRoles()
+    .map((role) => role.label)
+    .join(", ");
   const remoteAgents =
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
   const mcpServer = settings?.mcpServer ?? DEFAULT_SETTINGS.mcpServer;
@@ -203,8 +207,10 @@ export function ExperimentalSection() {
           To build one: use the team button in the workspace bar. Name the
           team, put agents on it, and give each a role — {roleSummary}. The
           role says what a member is for AND is the address teammates write
-          to; a team needs exactly one {leadRole().label.toLowerCase()},
-          which is the member that hands out the work.
+          to. A led team needs exactly one {leadRole().label.toLowerCase()},
+          the member that hands out the work — or make everyone a{" "}
+          {peerRole().label.toLowerCase()} for a flat team, where agents
+          work as equals and nobody assigns.
         </span>
       )}
 

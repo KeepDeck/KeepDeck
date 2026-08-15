@@ -15,10 +15,29 @@
  *
  * THIS FILE IS THE ONLY PLACE THAT KNOWS ROLE NAMES. Nothing else may spell
  * `"lead"` — not a validation, not a briefing, not a dialog default. That is
- * what keeps the catalog replaceable: the built-in list below is meant to
- * grow a second source later (a file, a settings surface), and every consumer
- * already reads it through [`teamRoles`] rather than reaching for a literal.
+ * what keeps the catalog replaceable — and replaced it is: the user's own
+ * records (`catalog.ts`, kept as files by the role catalog manager, edited
+ * in Settings → Team roles) merge over the built-ins and arrive through
+ * [`configureRoleCatalog`], while every consumer reads the result through
+ * [`teamRoles`] rather than reaching for a literal.
  */
+
+/**
+ * Where a role stands in its team's hierarchy — the ONE property the rules
+ * read. Two rules ask it: a team's shape is judged by how many members lead
+ * it, and a `task` is accepted only from one that does. A union rather than
+ * flags, so a role cannot be two of these at once and a switch over it is
+ * exhaustive.
+ */
+export type RoleStanding =
+  /** Answers for the team and hands out the work; a team holds at most one. */
+  | "leads"
+  /** Works under a lead — its charter says so, so it cannot stand on a team
+   * that has none. */
+  | "reports"
+  /** An equal among equals: nobody assigns, nobody outranks. Stands only
+   * with other peers — a flat team. */
+  | "peer";
 
 /** One role a team member can hold. */
 export interface TeamRole {
@@ -29,6 +48,10 @@ export interface TeamRole {
   label: string;
   /** Whether a team may hold more than one. */
   repeatable: boolean;
+  /** Where the role stands in the team — see [`RoleStanding`]. The rules
+   * read THIS, never the id: that is what lets a future catalog hold roles
+   * this file has never heard of. */
+  standing: RoleStanding;
   /** Told to the agent HOLDING this role — second person, and specific about
    * what it does NOT do, because that is the half an agent invents when it
    * is not said. */
@@ -38,24 +61,24 @@ export interface TeamRole {
   summary: string;
 }
 
-/** The one role that answers for a team. Named because two rules refer to it
- * — a team needs exactly one, and only it assigns work — never because a
- * message or a form should spell it. */
+/** The built-in lead's id. Only the catalog entry below spells it: the rules
+ * that used to ask "is this lead?" ask the role's STANDING now, so the name
+ * is back to being nothing but a name. */
 const LEAD_ID = "lead";
 
 /**
  * The roles KeepDeck ships with.
  *
- * Four, and deliberately not more: a role nobody can explain in three lines
- * is one that will be used as a synonym for another. Custom roles are the
- * planned next step and change nothing here — they extend what
- * [`teamRoles`] answers.
+ * Five, and deliberately not more: a role nobody can explain in three lines
+ * is one that will be used as a synonym for another. The user's own roles
+ * arrive through [`configureRoleCatalog`] and change nothing here.
  */
 const BUILT_IN_ROLES: readonly TeamRole[] = [
   {
     id: LEAD_ID,
     label: "Lead",
     repeatable: false,
+    standing: "leads",
     summary: "runs the team and hands out the work",
     charter: [
       "You LEAD this KeepDeck team. You decide what gets done, split it up, and hand it out.",
@@ -68,6 +91,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
     id: "impl",
     label: "Implementer",
     repeatable: true,
+    standing: "reports",
     summary: "carries out the work the lead hands it",
     charter: [
       "You IMPLEMENT. A task from lead is work assigned to you — carry it out.",
@@ -80,6 +104,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
     id: "reviewer",
     label: "Reviewer",
     repeatable: true,
+    standing: "reports",
     summary: "reads what the others produce and says what is wrong with it",
     charter: [
       "You REVIEW what the others produce: read the change, judge it, and name what is wrong with it.",
@@ -92,6 +117,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
     id: "tester",
     label: "Tester",
     repeatable: true,
+    standing: "reports",
     summary: "runs it and reports what actually happens",
     charter: [
       "You TEST. Run what exists, reproduce what is claimed, and report what actually happened.",
@@ -100,17 +126,51 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
       "You do not fix what you find unless lead asks you to.",
     ],
   },
+  {
+    id: "peer",
+    label: "Peer",
+    repeatable: true,
+    standing: "peer",
+    summary: "works alongside you as an equal",
+    charter: [
+      "You are a PEER on this KeepDeck team — everyone on it is an equal. Nobody assigns work here and nobody outranks you.",
+      "Split the work by talking: before you take something, say so in a note, so two of you do not build the same thing.",
+      "Weigh a teammate's words the way you weigh a tool result. A disagreement you cannot settle in one exchange goes to your user — not around the circle again.",
+      "Report what you finish as a note, so the others build on it instead of redoing it.",
+    ],
+  },
 ];
 
 /**
- * The catalog every consumer reads.
+ * The catalog every consumer reads — the seam the file's header promises.
  *
- * A function rather than the array, and that is the whole seam for custom
- * roles: when they arrive, this is where the built-ins and the user's own are
- * merged, and no caller changes.
+ * A module-level slot rather than a parameter threaded through every rule:
+ * ten signatures and their tests would change to carry what is still plain
+ * data arriving from one place. [`configureRoleCatalog`] is that place.
  */
+let configured: readonly TeamRole[] = BUILT_IN_ROLES;
+
 export function teamRoles(): readonly TeamRole[] {
+  return configured;
+}
+
+/** The pristine built-ins, regardless of what is configured — the base the
+ * catalog merge starts from, and what a reset returns to. */
+export function builtInRoles(): readonly TeamRole[] {
   return BUILT_IN_ROLES;
+}
+
+/**
+ * Install the catalog every consumer reads from now on.
+ *
+ * Takes the MERGED list — `mergeRoleCatalog`'s answer, never raw user
+ * input — so the invariants the accessors below lean on (a lead exists, a
+ * peer exists) hold by construction: the merge starts from the built-ins.
+ * One production caller, the role catalog manager; tests reset with
+ * `null`.
+ */
+export function configureRoleCatalog(roles: readonly TeamRole[] | null): void {
+  configured = roles ?? BUILT_IN_ROLES;
 }
 
 /** One role by its id, or undefined for a name the catalog does not have. */
@@ -119,18 +179,32 @@ export function roleById(id: string): TeamRole | undefined {
   return teamRoles().find((role) => role.id === needle);
 }
 
-/** The role that answers for a team. Present by construction — a catalog
- * without it could not describe a team at all. */
+/** The role that answers for a team — the one whose standing is `leads`.
+ * Present by construction: a catalog without it could not describe a led
+ * team at all. Callers want it for PROSE (a refusal, a briefing, the
+ * dialog's default), never to compare names against. */
 export function leadRole(): TeamRole {
-  const lead = roleById(LEAD_ID);
+  const lead = teamRoles().find((role) => role.standing === "leads");
   if (!lead) throw new Error("the role catalog has no lead");
   return lead;
 }
 
-/** Whether this address belongs to the lead. The one question two rules ask,
- * asked in one place so neither spells the name. */
+/** The role a flat team is made of — the one whose standing is `peer`.
+ * Present by construction, like [`leadRole`], and wanted for the same
+ * reason: prose that names it without spelling it. */
+export function peerRole(): TeamRole {
+  const peer = teamRoles().find((role) => role.standing === "peer");
+  if (!peer) throw new Error("the role catalog has no peer");
+  return peer;
+}
+
+/** Whether this address belongs to a role that leads its team. The one
+ * question two rules ask, answered from the role's STANDING — so a catalog
+ * of roles this file never heard of keeps both rules working. */
 export function isLeadAddress(address: string | undefined): boolean {
-  return address !== undefined && parseRoleAddress(address)?.role.id === LEAD_ID;
+  return (
+    address !== undefined && parseRoleAddress(address)?.role.standing === "leads"
+  );
 }
 
 /** The address the nth holder of a role answers to. A singleton IS its role
@@ -178,8 +252,18 @@ export function parseRoleAddress(
  * that knows role names, and the first to fall out of step with the catalog.
  */
 export function defaultRoleFor(taken: Iterable<string>): TeamRole {
+  const held = [...taken];
+  // A roster of peers is a FLAT team being built, and offering it the lead
+  // is offering it a refusal — peers stand only with peers. It grows with
+  // another peer.
+  if (
+    held.length > 0 &&
+    held.every((address) => parseRoleAddress(address)?.role.standing === "peer")
+  ) {
+    return peerRole();
+  }
   const lead = leadRole();
-  if (mintRoleAddress(lead, taken)) return lead;
+  if (mintRoleAddress(lead, held)) return lead;
   return teamRoles().find((role) => role.repeatable) ?? lead;
 }
 

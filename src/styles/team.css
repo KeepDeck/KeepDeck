@@ -40,6 +40,32 @@
   min-height: 34px;
 }
 
+/* A ROSTER row gets a surface of its own. Bare, the row was a scatter of
+   controls on the dialog's ground — the bordered role picker was the only
+   shape, so it out-shouted the member it names, and the row's loose right
+   half (an empty where, a floating ×) read as debris. One quiet card turns
+   the scatter into a list and makes the emptiness part of a shape. The
+   POOL keeps bare rows on purpose: carded like the roster, "on the team"
+   and "available" would look like one list split by a heading. */
+.team__member .team__row {
+  padding: 4px 8px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #10151c;
+}
+
+/* The controls a row hides in plain sight (ⓘ, ×) answer to the hover. */
+.team__member .team__row:hover {
+  border-color: #2a3346;
+}
+
+/* An agent that does not exist yet: same card, dashed — the roster shows
+   it as a member (it is one, the moment it was asked for) while the edge
+   says it is still to be started. */
+.team__member--new .team__row {
+  border-style: dashed;
+}
+
 /* The role LEADS the row. It is the address teammates use, and a column of
    addresses is what gets scanned for duplicates — so it is first, fixed, and
    aligned down the list. */
@@ -104,8 +130,9 @@
   color: #6b7280;
 }
 
-/* A pane already answering to a different team. A fact, not a problem —
-   taking it simply moves it — so it is stated, not warned about. */
+/* A quiet aside on a roster row — today the "not in the catalog" marker
+   for a role the settings deleted under a live member. A fact, not a
+   problem, so it is stated, not warned about. */
 .team__row-note {
   flex: none;
   font-size: 12px;
@@ -173,6 +200,70 @@
   color: #c5c8c6;
 }
 
+/* Agents SPOKEN FOR by another team: one compact card per team, sunk
+   below the takeable rows. A row each repeated the same fact as many
+   times as that team has members; an inline run of names went ragged the
+   moment a team grew or a title ran long. A card with a member GRID does
+   neither — cells truncate, and a big team adds grid rows, not sprawl.
+   Darker than a roster card on purpose: inert content, not a control. */
+.team__pool-team {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #171e29;
+  border-radius: 8px;
+  background-color: #0c1017;
+}
+
+.team__pool-team-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* The name gives way before the count does — an unbounded team name
+   ellipses inside the head instead of pushing the card open. */
+.team__pool-team-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team__pool-team-count {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.team__pool-team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 12px;
+}
+
+.team__pool-member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: #9aa3af;
+}
+
+/* The whole reason a cell survives any title: the name gives way, the
+   glyph and the grid do not. The full title stays on the cell's hover. */
+.team__pool-member-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Removal is a glyph rather than a button: it repeats down the roster, and a
    labelled control on every row would out-shout the roles, which are the
    thing being read. */
@@ -222,40 +313,23 @@
   margin-bottom: 12px;
 }
 
-/* Ending a team, kept away from the confirm pair: `margin-right: auto` puts
-   it at the far left of the action row, so it can never be hit on the way to
-   "Save team". Quiet until hovered — it is not a hazard (the agents keep
-   running and keep their work) but it is not an ordinary edit either. */
-/* Beside Disband, not inside it: the tick is what turns an organisational
-   act into a destructive one, so it has to be its own deliberate gesture and
-   has to be READ before the button is pressed. Same compact shape as the
-   per-recruit YOLO answer, for the same reason — the meaning is in the
-   label, and it goes red when armed because that is what it now does. */
-.team__disband-close {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: #6b7280;
-  cursor: pointer;
+/* The foot is a different kind of content — verdicts, not fields — and
+   without a line the disband cluster read as one more stray row. */
+.team-form .form__actions {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #151b26;
 }
 
-.team__disband-close input {
-  accent-color: #b3423d;
-  cursor: pointer;
-}
-
-.team__disband-close--on {
-  color: #e5736f;
-}
-
-.team__disband {
+/* Ending the team is not an edit, so it is not one of the form's verdict
+   buttons: one quiet text door at the row's far left, which opens the
+   app's destructive confirm — the decision gets its own moment and its
+   own words instead of a corner of the footer. `margin-right: auto` is
+   what pushes Cancel/Save to the far edge. */
+.team__end {
   margin-right: auto;
-  padding: 8px 14px;
-  border: 1px solid #2a3242;
-  border-radius: 8px;
+  padding: 8px 0;
+  border: none;
   background: transparent;
   color: #6b7280;
   font: inherit;
@@ -263,9 +337,63 @@
   cursor: pointer;
 }
 
-.team__disband:hover {
-  border-color: #6b3a38;
+.team__end:hover {
   color: #e5736f;
+}
+
+/* The opt-in inside the disband confirm — off every time the question is
+   asked, red once armed: it is what turns an organisational act into a
+   destructive one, and it is read beside the button it changes. */
+.team__disband-close {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 6px;
+  font-size: 12px;
+  color: #9aa3af;
+  cursor: pointer;
+}
+
+.team__disband-close--on {
+  color: #e5736f;
+}
+
+/* The app draws its own box — the OS control was the one element in the
+   dialog no stylesheet reached, and it showed. The input stays for the
+   semantics (state, keyboard, the tests' handle) and lends the box its
+   focus ring. */
+.team__disband-close input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.team__disband-box {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #3a4658;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: transparent;
+}
+
+.team__disband-close input:focus-visible + .team__disband-box {
+  outline: 2px solid #5a6b86;
+  outline-offset: 1px;
+}
+
+.team__disband-close--on .team__disband-box {
+  border-color: #b3423d;
+  background-color: #b3423d;
+  color: #ffffff;
 }
 
 /* Secondary by construction: starting an agent is a step ON THE WAY to a
@@ -287,4 +415,48 @@
 .team__add:hover {
   border-color: #3a4658;
   color: #c5c8c6;
+}
+
+/* The role's briefing behind an ask — a reference, not a step of
+   assembling the team, so the glyph stays quiet until hovered. */
+.team__row-info {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.team__row-info:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
+}
+
+/* The same tones the pane header and the tray speak — see status.css. */
+.team__row-activity {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.team__row-activity--working { color: var(--status-working); }
+.team__row-activity--waiting { color: var(--status-waiting); }
+.team__row-activity--done { color: var(--status-done); }
+.team__row-activity--failed { color: var(--status-failed); }
+
+.team__row-activity-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
 }
