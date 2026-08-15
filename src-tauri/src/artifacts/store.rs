@@ -43,6 +43,10 @@ use super::claim::{self, ClaimedRoot};
 pub(crate) const CONTENT_CAP_BYTES: usize = 256 * 1024;
 pub(crate) const FILE_CAP_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const TITLE_MAX: usize = 200;
+/// Caps mirrored from the TS domain (its `model.ts` owns the canonical
+/// numbers and their tests; these must not drift). MESSAGE_MAX is the
+/// wire-side validation's bound — slice 4's command layer applies it.
+#[allow(dead_code)]
 pub(crate) const MESSAGE_MAX: usize = 500;
 
 /// A format pinned at first publish.
@@ -111,7 +115,9 @@ pub struct PublishOutcome {
     pub version: u64,
     pub is_new: bool,
     /// The artifact's token — STORE-INTERNAL (the TS-visible result
-    /// carries composed URLs, never this).
+    /// carries composed URLs, never this). Read by the slice-5 URL
+    /// compositor; unread until then.
+    #[allow(dead_code)]
     pub token: String,
 }
 
@@ -395,7 +401,9 @@ impl ArtifactsStore {
     /// derive). Idempotent on absence. Takes the data guard like every
     /// other mutation: an unguarded drop racing a mid-write publish would
     /// let the publish RE-CREATE the directory after the drop removed it —
-    /// the exact orphan this exists to prevent.
+    /// the exact orphan this exists to prevent. (Unreferenced until the
+    /// slice-5/6 wiring hooks workspace deletion.)
+    #[allow(dead_code)]
     pub fn drop_workspace(&self, workspace_id: &str) -> StoreResult<()> {
         self.with_enabled(|root, data| {
             let _guard = data.lock().expect("artifacts data poisoned");
