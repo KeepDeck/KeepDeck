@@ -289,65 +289,26 @@
   color: #c5c8c6;
 }
 
-/* ---- The two-pane layout: roster left, the selected role right ---- */
-
-/* In the NARROW dialog — no member yet, so no panel — the wrappers
-   dissolve: the form's own flex column and 28px padding lay everything out
-   exactly as they always did. Only the wide layout gives them shape. */
-.team__cols,
-.team__main,
-.team__foot {
-  display: contents;
-}
-
-/* The form's own padding moves into the columns and the foot, so the role
-   panel runs full-bleed from the dialog's top edge down to the foot's
-   border — an inset card floating inside padding read as a note, not as
-   the second half of the dialog. The form's overflow already clips both
-   columns to the rounded corners. */
-.team-form--wide {
-  max-width: 860px;
+/* The role's briefing behind an ask — a reference, not a step of
+   assembling the team, so the glyph stays quiet until hovered. */
+.team__row-info {
+  flex: none;
+  width: 20px;
+  height: 20px;
   padding: 0;
-}
-
-.team-form--wide .team__cols {
-  display: flex;
-  align-items: stretch;
-}
-
-.team-form--wide .team__main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 22px 20px 4px 26px;
-}
-
-/* One stripe under both columns; its border is the line the panel's bottom
-   edge lands on, so the panel has no floating corner. */
-.team-form--wide .team__foot {
-  display: block;
-  padding: 14px 24px 20px 26px;
-  border-top: 1px solid #151b26;
-}
-
-.team-form--wide .team__foot .form__actions {
-  margin-top: 12px;
-}
-
-/* A roster row is now also a SELECTOR (it aims the role panel), so it gets
-   the outline vocabulary the rest of the app uses for a chosen thing. The
-   pool's rows share the geometry but not the gesture. */
-.team__member .team__row {
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 2px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
   cursor: pointer;
 }
 
-.team__row--chosen {
-  border-color: #3a4658;
-  background-color: #12161f;
+.team__row-info:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
 }
 
 /* The same tones the pane header and the tray speak — see status.css. */
@@ -372,88 +333,3 @@
   background-color: currentColor;
 }
 
-.team__role-panel {
-  flex: none;
-  width: 300px;
-  display: flex;
-  flex-direction: column;
-  padding: 20px 22px;
-  background-color: #0b0f16;
-  border-left: 1px solid #151b26;
-}
-
-.team__panel-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.team__panel-role {
-  font-size: 15px;
-  font-weight: 650;
-  color: #c5c8c6;
-}
-
-.team__panel-addr {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: #8b93a7;
-}
-
-.team__panel-tag {
-  flex: none;
-  margin-left: auto;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #8b93a7;
-  border: 1px solid #232c3c;
-  border-radius: 12px;
-  padding: 1px 8px;
-  white-space: nowrap;
-}
-
-/* The briefing verbatim, one paragraph per line of it. Capped and
-   scrollable on its own: the dialog scrolls for the roster, and a long
-   charter must not be the thing that decides the roster's height. */
-.team__panel-brief {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  max-height: 340px;
-  overflow-y: auto;
-  font-size: 12px;
-  line-height: 1.65;
-  color: #9aa3af;
-}
-
-.team__panel-brief p {
-  margin: 0;
-}
-
-.team__panel-brief p:first-child {
-  color: #c5c8c6;
-}
-
-.team__panel-note {
-  margin: auto 0 0;
-  padding-top: 14px;
-  font-size: 11px;
-  line-height: 1.55;
-  color: #6b7280;
-}
-
-/* Below the panel's worth of width, the columns stack and the panel
-   becomes the roster's footnote rather than its neighbour. */
-@media (max-width: 900px) {
-  .team-form--wide .team__cols {
-    flex-direction: column;
-  }
-
-  .team__role-panel {
-    width: auto;
-    border-left: none;
-    border-top: 1px solid #151b26;
-  }
-}

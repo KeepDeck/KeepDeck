@@ -23,6 +23,7 @@ import {
   type TeamRecruitDraft,
 } from "../../domain/mail";
 import { activityBadge, type PaneActivity } from "../../domain/status";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Dropdown } from "../../ui/Dropdown";
@@ -70,13 +71,6 @@ function whereOf(pane: Pane): string {
   if (pane.branch) return pane.branch;
   return pane.cwd ? baseName(pane.cwd) : "";
 }
-
-/** The role panel's one-word answer to "where does this member stand". */
-const STANDING_TAG = {
-  leads: "in charge",
-  reports: "under the lead",
-  peer: "equal",
-} as const;
 
 /** One pane's live status — the tray's own badge model, rendered small. Its
  * own component because the subscription is per row, and a hook cannot sit
@@ -151,11 +145,11 @@ export function TeamDialog({
   // Escape closes it, like every other dialog here. Nothing has happened
   // yet when it does: the whole point of settling a team as one plan is
   // that leaving mid-edit changes nothing.
-  useEscape(onCancel);
-
-  /** Which roster row the role panel describes — a key, not an index, so a
-   * drop above the chosen row does not silently move the panel. */
-  const [chosen, setChosen] = useState<string | null>(null);
+  /** The roster row whose briefing is open in a notice over this dialog —
+   * null when none is. While it is up, Escape is the NOTICE's to claim
+   * (the hook below declines), or one press would close both. */
+  const [briefFor, setBriefFor] = useState<string | null>(null);
+  useEscape(onCancel, briefFor === null);
 
   const canRecruit = useMemo(
     () => selectableAgents(agents).filter((agent) => agentSupportsNew(agents, agent.id)),
@@ -285,11 +279,10 @@ export function TeamDialog({
     .filter((pane) => !roles.has(pane.id))
     .map((pane) => ({ pane, label: titleOf(pane) }));
 
-  // The role panel follows this row. The chosen key can leave the roster —
-  // a drop, an edit — and the fallback keeps the panel on the team rather
-  // than on a memory of it.
-  const panelRow = roster.find((row) => row.key === chosen) ?? roster[0] ?? null;
-  const panelRole = panelRow ? parseRoleAddress(panelRow.role) : null;
+  // The row whose briefing the notice quotes — re-found per render, so the
+  // words stay live while the roster is edited under it, and a dropped row
+  // simply closes it.
+  const briefRow = roster.find((row) => row.key === briefFor) ?? null;
 
   // What the roster itself says the team's shape is. The label reads it
   // back, so a person assembling a flat team watches the deck agree — and
@@ -306,19 +299,12 @@ export function TeamDialog({
   return (
     <ModalOverlay>
       <form
-        // Wide only while there is a member to describe: the role panel
-        // exists to quote a briefing, and an empty roster has none — shown
-        // anyway, it was a large foreign rectangle explaining its own
-        // absence. The dialog opens at its old width and grows with the
-        // first member.
-        className={`form team-form${panelRow ? " team-form--wide" : ""}`}
+        className="form team-form"
         onSubmit={(e) => {
           e.preventDefault();
           if (planned.ok && valid) onConfirm(planned.value);
         }}
       >
-        <div className="team__cols">
-        <div className="team__main">
         <h2 className="form__title">{editing ? "Edit team" : "New team"}</h2>
         <p className="form__desc team__desc">
           Agents on a team can write to each other by role — “ask impl-1”,
@@ -359,16 +345,7 @@ export function TeamDialog({
                 key={row.key}
                 className={`team__member${row.pane ? "" : " team__member--new"}`}
               >
-                {/* Clicking anywhere in the row aims the role panel at it;
-                    focus does the same, so tabbing through the roster's own
-                    controls carries the panel along for keyboard users. */}
-                <div
-                  className={`team__row${
-                    panelRow?.key === row.key ? " team__row--chosen" : ""
-                  }`}
-                  onClick={() => setChosen(row.key)}
-                  onFocusCapture={() => setChosen(row.key)}
-                >
+                <div className="team__row">
                   {/* A role is picked, not typed. It is no longer just an
                       address: it carries what the member is FOR, and that
                       only exists for a role the catalog has. Typing one in
@@ -386,6 +363,19 @@ export function TeamDialog({
                       types — hiding it would leave the person unable to read
                       their own roster. */}
                   <span className="team__row-address">{row.role}</span>
+                  {/* The role's briefing, ON DEMAND. Assembling a team is
+                      frequent and reading a charter is rare — a standing
+                      panel served the rare need with permanent width, so
+                      the words sit behind this ask instead. */}
+                  <button
+                    type="button"
+                    className="team__row-info"
+                    aria-label={`What "${row.role}" will be told`}
+                    title="What this member will be told"
+                    onClick={() => setBriefFor(row.key)}
+                  >
+                    ⓘ
+                  </button>
                   {!parseRoleAddress(row.role) && (
                     // A role deleted from the catalog under a live member:
                     // the address still works, but the charter behind it is
@@ -560,47 +550,7 @@ export function TeamDialog({
             </ul>
           </>
         )}
-        </div>
 
-        {/* The selected member's role, in the AGENT'S OWN WORDS — the same
-            `teamBriefing` the deck will say, rendered from the draft as it
-            stands. A précis here would be a second briefing to keep true;
-            quoting the real one is what lets a person read their charter
-            edits with the agent's eyes. */}
-        {panelRow && (
-          <aside className="team__role-panel" aria-label="Role details">
-              <div className="team__panel-head">
-                <span className="team__panel-role">
-                  {panelRole?.role.label ?? panelRow.role}
-                </span>
-                <span className="team__panel-addr">{panelRow.role}</span>
-                {panelRole && (
-                  <span className="team__panel-tag">
-                    {STANDING_TAG[panelRole.role.standing]}
-                  </span>
-                )}
-              </div>
-              <span className="form__label">What this member will be told</span>
-              <div className="team__panel-brief">
-                {teamBriefing(
-                  name.trim() || "…",
-                  panelRow.role,
-                  roster.map((row) => row.role),
-                )
-                  .split("\n")
-                  .map((line, index) => (
-                    <p key={index}>{line}</p>
-                  ))}
-              </div>
-              <p className="team__panel-note">
-                These are the exact words the deck will say. Charters and
-                summaries are editable in Settings → Team roles.
-              </p>
-          </aside>
-        )}
-        </div>
-
-        <div className="team__foot">
         {touched && !planned.ok && (
           // Its own style, not the git hint's: that one is green, and a
           // refusal rendered in the colour of a positive result is read as
@@ -671,8 +621,23 @@ export function TeamDialog({
             {editing ? "Save team" : "Create team"}
           </button>
         </div>
-        </div>
       </form>
+      {briefRow && (
+        // The briefing ON DEMAND, over the dialog — the app's own stacked
+        // notice, the same machinery every other dialog stacks. Verbatim
+        // from the same teamBriefing the deck will say, off the draft as
+        // it stands: a précis would be a second briefing to keep true.
+        <ConfirmDialog
+          title={`${parseRoleAddress(briefRow.role)?.role.label ?? briefRow.role} — ${briefRow.role}`}
+          message={teamBriefing(
+            name.trim() || "…",
+            briefRow.role,
+            roster.map((row) => row.role),
+          )}
+          confirmLabel="OK"
+          onConfirm={() => setBriefFor(null)}
+        />
+      )}
     </ModalOverlay>
   );
 }

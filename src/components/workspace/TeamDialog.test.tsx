@@ -344,35 +344,28 @@ describe("TeamDialog", () => {
     expect(document.querySelector(".team__disband")).toBeNull();
   });
 
-  it("stays at its old width until there is a member to describe", () => {
-    // The role panel exists to quote a briefing; an empty roster has none,
-    // and a large empty panel explaining its own absence read as foreign.
-    // The panel — and the width it needs — arrive with the first member.
-    open(workspace([pane("pane-1")]));
-    expect(document.querySelector(".team-form--wide")).toBeNull();
-    expect(document.querySelector(".team__role-panel")).toBeNull();
-    act(() => adds()[0].click());
-    expect(document.querySelector(".team-form--wide")).not.toBeNull();
-    expect(document.querySelector(".team__role-panel")).not.toBeNull();
-  });
-
-  it("shows the selected member's briefing beside the roster, verbatim", () => {
-    // The panel quotes the same teamBriefing the deck will say — a précis
-    // would be a second briefing to keep true. It opens on the first row
-    // and follows a click.
+  it("quotes a member's briefing in a notice, on demand", () => {
+    // Assembling a team is frequent and reading a charter is rare, so the
+    // words sit behind the row's own ask rather than in a standing panel —
+    // and they are the same teamBriefing the deck will say, verbatim: a
+    // précis would be a second briefing to keep true.
     const ws = workspace([
       pane("pane-1", { name: "api", role: "lead" }),
       pane("pane-2", { name: "api", role: "impl-1" }),
     ]);
     open(ws, "api");
-    const brief = () =>
-      document.querySelector(".team__panel-brief")!.textContent!;
-    expect(brief()).toContain("You LEAD this KeepDeck team");
-    act(() => all<HTMLElement>(".team__member .team__row")[1].click());
-    expect(brief()).toContain("You IMPLEMENT");
-    expect(document.querySelector(".team__panel-addr")!.textContent).toBe(
-      "impl-1",
-    );
+    expect(document.querySelector(".confirm")).toBeNull();
+    act(() => all<HTMLButtonElement>(".team__row-info")[1].click());
+    const notice = document.querySelector(".confirm")!;
+    expect(notice.textContent).toContain("impl-1");
+    expect(notice.textContent).toContain("You IMPLEMENT");
+    // While the notice is up, Escape is ITS to claim: one press closes the
+    // notice and the dialog underneath stays.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(document.querySelector(".confirm")).toBeNull();
+    expect(document.querySelector(".team-form")).not.toBeNull();
   });
 
   it("reads a flat roster back as a flat team over the list", () => {
