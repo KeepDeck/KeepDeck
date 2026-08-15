@@ -282,4 +282,47 @@ describe("registerArtifactCommands", () => {
       run("artifact.list", {}, paneSource("pane-gone")),
     ).rejects.toThrow(/deck-internal/);
   });
+
+  it("announce fires on isNew, NEVER on republish, and on delete", async () => {
+    const announce = vi.fn();
+    const deck = () => ({ workspaces: [ws([pane()])] });
+    const registry = createCommandRegistry();
+    registerArtifactCommands(registry, {
+      deck,
+      announce,
+    });
+    const run = async (id: string, args: Record<string, unknown>, source: CommandSource) => {
+      const result = await registry.execute(id, args as never, source);
+      if (!result.ok) throw new Error(result.error.message);
+      return result.value;
+    };
+
+    // First publish: isNew → announce("published").
+    await run("artifact.publish", { title: "T", format: "html", content: "x" }, paneSource());
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "published", slug: "auth-flow" }),
+    );
+
+    // Republish (isNew false in the IPC result): NO announce.
+    vi.mocked(artifactPublish).mockResolvedValue({
+      slug: "auth-flow", version: 2, isNew: false,
+      url: "http://x/a/t/auth-flow", indexUrl: "http://x/i/",
+    });
+    await run("artifact.publish", { title: "T", format: "html", content: "y" }, paneSource());
+    expect(announce).toHaveBeenCalledTimes(1);
+
+    // Delete (deleted true): announce("deleted").
+    vi.mocked(artifactDelete).mockResolvedValue({ id: "auth-flow", deleted: true, versionCount: 2, createdAt: 1 });
+    await run("artifact.delete", { id: "auth-flow" }, paneSource());
+    expect(announce).toHaveBeenCalledTimes(2);
+    expect(announce).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "deleted", slug: "auth-flow" }),
+    );
+
+    // Idempotent no-op delete (deleted false): NO announce.
+    vi.mocked(artifactDelete).mockResolvedValue({ id: "auth-flow", deleted: false, versionCount: null, createdAt: null });
+    await run("artifact.delete", { id: "auth-flow" }, paneSource());
+    expect(announce).toHaveBeenCalledTimes(2);
+  });
 });
