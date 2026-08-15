@@ -155,7 +155,20 @@ export function createAppRuntime(
       subscribe: subscribeSettings,
     },
     { enable: artifactsEnable, disable: artifactsDisable },
-    () => {},
+    (transition) => {
+      // A failed transition MUST be visible somewhere: the contention
+      // refusal ("owned by another KeepDeck process") would otherwise be
+      // dropped entirely — the toggle reads On while the store is
+      // claimed elsewhere, and the only symptom is every publish
+      // refusing. The log is the MVP floor; the ExperimentalSection
+      // surface is a graduation polish (the mcpStatus.error precedent).
+      if (!transition.ok) {
+        log.warn(
+          "web:artifacts",
+          `artifacts ${transition.desired ? "enable" : "disable"} failed: ${transition.detail}`,
+        );
+      }
+    },
   );
   let disposeArtifactCommands: (() => void) | null = null;
   const reconcileArtifactCommands = () => {

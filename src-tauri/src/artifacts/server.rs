@@ -55,8 +55,9 @@ struct SubEntry {
 }
 
 /// Everything the threads share. `Arc`-held by DisplayServer, the accept
-/// loop and the keepalive-tick loop alike.
-struct Shared {
+/// loop and the keepalive-tick loop alike. (Visible to the module's
+/// tests — the wedged-subscriber test reads the registry directly.)
+pub(super) struct Shared {
     root: PathBuf,
     port: u16,
     /// Index tokens: boot-minted per workspace, in-memory, dying with
@@ -73,7 +74,7 @@ struct Shared {
 }
 
 pub struct DisplayServer {
-    shared: Arc<Shared>,
+    pub(super) shared: Arc<Shared>,
 }
 
 impl DisplayServer {
@@ -486,6 +487,12 @@ fn subscribe(
     if stream.write_all(head.as_bytes()).is_err() {
         return;
     }
+    // A write timeout on the stored clone: a wedged subscriber (live tab,
+    // full TCP buffer — suspended machine, backgrounded browser) must
+    // ERROR-AND-PRUNE, never block the registry lock — which the publish
+    // tail holds across broadcast, so a hang here would hang every
+    // publish's display tail AND the enable/disable toggle.
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let _ = &manifest;
     shared
         .subs
@@ -778,6 +785,57 @@ mod tests {
             text.contains("event: bye\ndata: artifact gone"),
             "tick backstop fired:\n{text}"
         );
+        server.stop();
+    }
+
+    #[test]
+    fn a_wedged_subscriber_prunes_instead_of_hanging_the_broadcast() {
+        // End-to-end: a real store publish feeding the server's own
+        // broadcast (the command tail's exact wiring), with a subscriber
+        // that NEVER reads — its buffer fills, the write times out, the
+        // entry prunes, and the broadcast RETURNS (no hang, no panic).
+        let (server, store, root, _dir) = fixture("wedged");
+        let token = publish(&store, "wedge", b"v1");
+        let mut wedged = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        wedged
+            .write_all(
+                format!("GET /a/{token}/wedge/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
+            )
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+        // Fill the wedged subscriber's buffer: broadcasts until the
+        // write timeout errors. Bounded by the work, not wall time.
+        for i in 2..=40u64 {
+            store
+                .publish(
+                    &PublishIdentity {
+                        workspace_id: "ws-1".into(),
+                        pane_id: "p".into(),
+                        label: "l".into(),
+                    },
+                    PublishRequest {
+                        slug: Some("wedge"),
+                        title: "T",
+                        format: ArtifactFormat::Html,
+                        path: None,
+                        content: Some(b"bytes"),
+                        message: None,
+                        cwd: None,
+                    },
+                    1000 + i,
+                )
+                .unwrap();
+            server.broadcast_version("ws-1", "wedge", i);
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        // The registry pruned the dead entry (or would on the next
+        // write); the proof of no-hang is that we GOT here.
+        let registry = server.shared.subs.lock().expect("subs poisoned");
+        let entries = registry.get(&("ws-1".to_string(), "wedge".to_string()));
+        let pinned = entries.map(|v| v.len()).unwrap_or(0);
+        drop(registry);
+        assert!(pinned <= 1, "wedged entry pruned or pending prune: {pinned}");
+        let _ = root;
         server.stop();
     }
 

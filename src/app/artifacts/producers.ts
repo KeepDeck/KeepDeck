@@ -34,6 +34,8 @@ export function announceArtifact(
       title: `${event.paneLabel} published an artifact`,
       body: `${event.slug} · ${wsName} — click to open it in the browser`,
       source,
+      // Same-artifact publishes replace, never stack (a flapping slug
+      // holds one slot). Deletes carry their own lane — see below.
       tag: `artifacts:${event.workspaceId}:${event.slug}`,
     });
     return;
@@ -42,6 +44,10 @@ export function announceArtifact(
     title: `${event.paneLabel} removed an artifact`,
     body: `${event.slug} · ${wsName}`,
     source,
-    tag: `artifacts:${event.workspaceId}:${event.slug}`,
+    // A DISTINCT tag from the publish announce: the center replaces
+    // same-tag entries, and one shared tag would let a delete eat the
+    // publish's slot (and a resurrection's republish eat the delete's)
+    // — the true story needs both lanes.
+    tag: `artifacts-del:${event.workspaceId}:${event.slug}`,
   });
 }

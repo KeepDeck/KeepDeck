@@ -65,7 +65,8 @@ fn unix_time_ms() -> u64 {
 /// Open a URL in the system browser without an AppHandle (the publish
 /// tail runs off the command's app context; the OS opener is the same
 /// one the open_url command reaches). Best-effort by contract — callers
-/// log, never fail.
+/// log, never fail. Scoped: `open` is the DARWIN opener — swap for
+/// xdg-open if a Linux build ever lands.
 fn open_browser(url: &str) -> Result<(), String> {
     std::process::Command::new("open")
         .arg(url)
