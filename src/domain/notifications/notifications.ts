@@ -161,6 +161,19 @@ export interface BannerContext {
 }
 
 /**
+ * Whether the user is looking at the notification's source surface right
+ * now — the one suppression the banner decision has, and the same fact
+ * that makes an entry land already read: an event watched where it
+ * happened is history, not news, and must not grow the unread badge.
+ * Callers resolve `sourceVisible`; pass `false` when unknown.
+ */
+export function seenInPlace(
+  ctx: Pick<BannerContext, "windowFocused" | "sourceVisible">,
+): boolean {
+  return ctx.windowFocused && ctx.sourceVisible;
+}
+
+/**
  * Whether a notification earns a system banner. Two suppressions only:
  * the source is literally on screen (the pane already shows its own card —
  * a banner would point at what the user is looking at), or the same tag
@@ -174,7 +187,7 @@ export type BannerVerdict = "banner" | "seen-in-place" | "cooldown";
  * this time. Callers must consume the verdict, never re-derive a reason
  * from the context. */
 export function bannerVerdict(ctx: BannerContext): BannerVerdict {
-  if (ctx.windowFocused && ctx.sourceVisible) return "seen-in-place";
+  if (seenInPlace(ctx)) return "seen-in-place";
   if (
     ctx.lastBannerAt !== undefined &&
     ctx.now - ctx.lastBannerAt < BANNER_COOLDOWN_MS

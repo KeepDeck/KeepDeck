@@ -132,12 +132,30 @@ describe("notificationCenter", () => {
     expect(notifyIpc.sendSystemNotification).not.toHaveBeenCalled();
   });
 
-  it("suppresses the banner when the source is on screen in a focused window", () => {
+  it("an event watched at its source lands in history already read", () => {
     setWindowFocusForTest(true);
     setSourceVisibilityProbe((source) => source.type === "pane");
     notify({ title: "t", source: paneSource });
-    expect(getNotifications()).toHaveLength(1); // still recorded
+    // Still recorded — history is history — but watched events are not
+    // NEWS: per-event entries from a pane the user is staring at must not
+    // grow the unread badge.
+    expect(getNotifications()).toHaveLength(1);
+    expect(getNotifications()[0].readAt).toBeDefined();
     expect(notifyIpc.sendSystemNotification).not.toHaveBeenCalled();
+
+    // Unwatched (window unfocused): the identical event is unread again.
+    setWindowFocusForTest(false);
+    notify({ title: "t2", source: paneSource });
+    expect(getNotifications()[0].title).toBe("t2");
+    expect(getNotifications()[0].readAt).toBeUndefined();
+  });
+
+  it("watched events land read in app-only mode too — the fact is mode-independent", () => {
+    withNotificationPrefs({ mode: "app" });
+    setWindowFocusForTest(true);
+    setSourceVisibilityProbe(() => true);
+    notify({ title: "t", source: paneSource });
+    expect(getNotifications()[0].readAt).toBeDefined();
   });
 
   it("banners when focused but the source is off screen", () => {
@@ -197,7 +215,7 @@ describe("notificationCenter", () => {
     ]);
   });
 
-  it("the cooldown memory is bounded: the coldest tag is evicted, not leaked", () => {
+  it("the cooldown memory is bounded: the coldest key is evicted, not leaked", () => {
     notify({ title: "first", source: paneSource, tag: "tag-first" });
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
     // 512 fresh tags push "tag-first" out of the bounded map…
