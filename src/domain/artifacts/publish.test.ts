@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { IdentitySnapshot } from "./model";
 import {
   MINT_RETRY_MAX,
   mintSlugFromTitle,
@@ -7,12 +6,6 @@ import {
   type ExistingArtifact,
   type PublishDeps,
 } from "./publish";
-
-const author: IdentitySnapshot = {
-  paneId: "pane-1",
-  workspaceId: "ws-1",
-  label: "support 1",
-};
 
 const existing = (over: Partial<ExistingArtifact> = {}): ExistingArtifact => ({
   slug: "auth-flow" as ExistingArtifact["slug"],
@@ -29,12 +22,12 @@ const names = (...taken: string[]): PublishDeps => {
 
 describe("explicit slug", () => {
   it("creates when the name is free", () => {
-    const plan = planPublish(null, { slug: "new-thing", title: "T", format: "md" }, author, names());
+    const plan = planPublish(null, { slug: "new-thing", title: "T", format: "md" }, names());
     expect(plan).toEqual({ kind: "create", slug: "new-thing", format: "md" });
   });
 
   it("refuses an off-grammar slug", () => {
-    const plan = planPublish(null, { slug: "Bad_Slug", title: "T", format: "md" }, author, names());
+    const plan = planPublish(null, { slug: "Bad_Slug", title: "T", format: "md" }, names());
     expect(plan).toEqual({ kind: "error", reason: "invalid-slug" });
   });
 
@@ -42,7 +35,6 @@ describe("explicit slug", () => {
     const plan = planPublish(
       existing(),
       { slug: "auth-flow", title: "T", format: "html" },
-      author,
       names("auth-flow"),
     );
     expect(plan).toEqual({ kind: "append", slug: "auth-flow", nextVersion: 4 });
@@ -52,7 +44,6 @@ describe("explicit slug", () => {
     const plan = planPublish(
       existing(),
       { slug: "auth-flow", title: "T", format: "md" },
-      author,
       names("auth-flow"),
     );
     expect(plan).toEqual({
@@ -69,7 +60,6 @@ describe("explicit slug", () => {
     const plan = planPublish(
       existing(),
       { slug: "other-thing", title: "T", format: "html" },
-      author,
       names("auth-flow"),
     );
     expect(plan).toEqual({ kind: "create", slug: "other-thing", format: "html" });
@@ -89,7 +79,7 @@ describe("minted slug", () => {
   });
 
   it("mints the base when free", () => {
-    const plan = planPublish(null, { title: "Auth Flow", format: "html" }, author, names());
+    const plan = planPublish(null, { title: "Auth Flow", format: "html" }, names());
     expect(plan).toEqual({ kind: "create", slug: "auth-flow", format: "html" });
   });
 
@@ -97,7 +87,6 @@ describe("minted slug", () => {
     const plan = planPublish(
       null,
       { title: "Auth Flow", format: "html" },
-      author,
       names("auth-flow", "auth-flow-2"),
     );
     expect(plan).toEqual({ kind: "create", slug: "auth-flow-3", format: "html" });
@@ -107,7 +96,6 @@ describe("minted slug", () => {
     const plan = planPublish(
       existing(),
       { title: "Auth Flow", format: "html" },
-      author,
       names("auth-flow"),
     );
     expect(plan).toEqual({ kind: "append", slug: "auth-flow", nextVersion: 4 });
@@ -117,7 +105,6 @@ describe("minted slug", () => {
     const plan = planPublish(
       existing(),
       { title: "Auth Flow", format: "md" },
-      author,
       names("auth-flow"),
     );
     expect(plan.kind).toBe("error");
@@ -128,14 +115,15 @@ describe("minted slug", () => {
   });
 
   it("errors when MINT_RETRY_MAX attempts all collide", () => {
-    const taken: string[] = [];
-    for (let i = 1; i <= MINT_RETRY_MAX + 2; i++) {
-      taken.push(i === 1 ? "auth-flow" : `auth-flow-${i + 1}`);
+    // The candidate sequence is base, -2, -3 … -<MINT_RETRY_MAX>; occupy
+    // every one of them.
+    const taken: string[] = ["auth-flow"];
+    for (let i = 2; i <= MINT_RETRY_MAX; i++) {
+      taken.push(`auth-flow-${i}`);
     }
     const plan = planPublish(
       null,
       { title: "Auth Flow", format: "html" },
-      author,
       names(...taken),
     );
     expect(plan).toEqual({
@@ -144,11 +132,42 @@ describe("minted slug", () => {
       detail: "mint retries exhausted",
     });
   });
+
+  it("retries -2 FIRST past an occupied base (the sequence is base, -2, -3…)", () => {
+    // The discriminating case: ONLY the base is occupied — the next
+    // candidate must be -2, not -3 (a skipped -2 breaks the
+    // mail-vocabulary predictability the retry rule exists for).
+    const plan = planPublish(
+      null,
+      { title: "Auth Flow", format: "html" },
+      names("auth-flow"),
+    );
+    expect(plan).toEqual({ kind: "create", slug: "auth-flow-2", format: "html" });
+  });
+
+  it("a full-length base colliding yields a GRAMMAR-VALID suffixed candidate, never a null slug", () => {
+    // 64-char base + suffix would exceed the grammar; the planner budgets
+    // the base so the candidate stays legal — and never emits an
+    // unvalidated slug (the create below carries a real string, not null).
+    const base = mintSlugFromTitle("A".repeat(100));
+    expect(base).toHaveLength(64);
+    const plan = planPublish(
+      null,
+      { title: "A".repeat(100), format: "html" },
+      names(base),
+    );
+    expect(plan.kind).toBe("create");
+    if (plan.kind === "create") {
+      expect(typeof plan.slug).toBe("string");
+      expect(plan.slug).toHaveLength(64);
+      expect(plan.slug.endsWith("-2")).toBe(true);
+    }
+  });
 });
 
 describe("title validation gates everything", () => {
   it("refuses an empty title before any slug work", () => {
-    const plan = planPublish(null, { title: "", format: "html" }, author, names());
+    const plan = planPublish(null, { title: "", format: "html" }, names());
     expect(plan).toEqual({ kind: "error", reason: "invalid-title" });
   });
 });
@@ -157,7 +176,7 @@ describe("the v1+v2 race mirror", () => {
   it("plan #2 re-plans against the UPDATED existing, not the stale snapshot", () => {
     // Two same-slug first-publishes serialize in the store; the mirror:
     // after plan #1's create lands, the racer plans against v1 EXISTING.
-    const first = planPublish(null, { slug: "race", title: "T", format: "html" }, author, names());
+    const first = planPublish(null, { slug: "race", title: "T", format: "html" }, names());
     expect(first).toEqual({ kind: "create", slug: "race", format: "html" });
 
     // The racer's plan: the store now holds the artifact (v1).
@@ -165,7 +184,6 @@ describe("the v1+v2 race mirror", () => {
     const second = planPublish(
       afterCreate,
       { slug: "race", title: "T", format: "html" },
-      author,
       names("race"),
     );
     expect(second).toEqual({ kind: "append", slug: "race", nextVersion: 2 });
@@ -175,7 +193,7 @@ describe("the v1+v2 race mirror", () => {
     // The regression pin is the line above: against the UPDATED existing
     // the racer appends. Two plans against one STALE (null) snapshot both
     // saying `create` is exactly what the store's mutex prevents.
-    const beforeCreate = planPublish(null, { slug: "race", title: "T", format: "html" }, author, names());
+    const beforeCreate = planPublish(null, { slug: "race", title: "T", format: "html" }, names());
     expect(beforeCreate.kind).toBe("create");
   });
 });

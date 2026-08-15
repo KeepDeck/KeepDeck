@@ -19,10 +19,10 @@
  * promised anyone anything.
  */
 import {
+  SLUG_MAX,
   validateSlug,
   validateTitle,
   type ArtifactFormat,
-  type IdentitySnapshot,
   type Slug,
 } from "./model";
 
@@ -88,11 +88,22 @@ export interface PublishDeps {
  * `{kind:"error", reason:"invalid-slug"}` on a MINTED request as
  * "try the next suffix", not a user-facing refusal. (Kept as one function
  * so the collision matrix is one test table, not two code paths.)
+ *
+ * STORE CONTRACT (what slice 2 passes): `existing` is the artifact under
+ * the TITLE-DERIVED BASE slug — `mintSlugFromTitle(request.title)`, looked
+ * up in the store, null when that name is free. Landing on it appends
+ * (a name-keyed shared canvas: the publisher derived the same name as the
+ * artifact's owner, which is indistinguishable from intending to
+ * republish it); OCCUPANCY of the suffixed retry names (`-2`, `-3`, …)
+ * is what `deps.exists` answers. Under this contract the design's
+ * "explicit slug colliding with a DIFFERENT artifact = error" case is
+ * unreachable by construction: an explicit publish naming an existing
+ * artifact IS that artifact's canvas, and a different artifact with the
+ * same name cannot exist.
  */
 export function planPublish(
   existing: ExistingArtifact | null,
   request: PublishRequest,
-  _author: IdentitySnapshot,
   deps: PublishDeps,
 ): PublishPlan | { kind: "error"; reason: PublishRefusal; detail?: string } {
   const title = validateTitle(request.title);
@@ -119,25 +130,34 @@ export function planPublish(
     return { kind: "create", slug, format: request.format };
   }
 
-  // Minted slug: derive, then walk suffixes until a free name or the bound.
+  // Minted slug: base, then -2, -3, … — each candidate budgeted to the
+  // grammar's 64 by truncating the BASE (never the suffix, which is the
+  // part that makes the name distinct). A 64-char base plus an unbudgeted
+  // suffix would exceed the grammar, and the planner never emits an
+  // unvalidated slug: validateSlug gates every candidate, `continue`
+  // treats an off-grammar one as a spent attempt (unreachable by
+  // construction — the budget makes it so — but the branch means the
+  // invariant is checked, not cast away).
   const base = mintSlugFromTitle(title);
   for (let attempt = 1; attempt <= MINT_RETRY_MAX; attempt++) {
-    const candidate = attempt === 1 ? base : `${base}-${attempt + 1}`;
-    const slug = validateSlug(candidate) as Slug; // grammar-true by construction
-    if (existing !== null && existing.slug === slug) {
+    const suffix = attempt === 1 ? "" : `-${attempt}`;
+    const head = base.slice(0, SLUG_MAX - suffix.length).replace(/-+$/, "");
+    const candidate = validateSlug(head + suffix);
+    if (candidate === null) continue;
+    if (existing !== null && existing.slug === candidate) {
       // The mint landed on THIS artifact's own name: a same-canvas
       // republish, not a collision — append.
       if (existing.format !== request.format) {
         return {
           kind: "error",
           reason: "format-pinned",
-          detail: `${slug} is ${existing.format}; publish a new artifact for ${request.format}`,
+          detail: `${candidate} is ${existing.format}; publish a new artifact for ${request.format}`,
         };
       }
-      return { kind: "append", slug, nextVersion: existing.versionCount + 1 };
+      return { kind: "append", slug: candidate, nextVersion: existing.versionCount + 1 };
     }
-    if (!deps.exists(slug)) {
-      return { kind: "create", slug, format: request.format };
+    if (!deps.exists(candidate)) {
+      return { kind: "create", slug: candidate, format: request.format };
     }
   }
   return { kind: "error", reason: "invalid-slug", detail: "mint retries exhausted" };
