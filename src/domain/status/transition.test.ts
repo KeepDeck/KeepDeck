@@ -10,7 +10,7 @@ const interrupted: PaneActivity = { state: "done", at: 2, interrupted: true };
 const failed: PaneActivity = { state: "failed", at: 2, error: "rate_limit" };
 
 describe("activityTransition", () => {
-  it("a new wait announces; a changed question re-announces (replace)", () => {
+  it("a new wait announces; a changed question announces as its own entry", () => {
     expect(activityTransition(undefined, waiting)).toBe("announce");
     expect(activityTransition(working, waiting)).toBe("announce");
     // Same-reason re-asserts never reach the table (the reducer keeps the
@@ -18,18 +18,9 @@ describe("activityTransition", () => {
     expect(activityTransition(waiting, question)).toBe("announce");
   });
 
-  it("an answered wait retracts — resumed turn or the user's own interrupt", () => {
-    expect(activityTransition(waiting, working)).toBe("retract");
-    expect(activityTransition(waiting, interrupted)).toBe("retract");
-  });
-
-  it("a pane leaving the store withdraws only a standing wait", () => {
-    expect(activityTransition(waiting, undefined)).toBe("retract");
-    // Done and failed entries are history; history may stand.
-    expect(activityTransition(done, undefined)).toBe("none");
-    expect(activityTransition(failed, undefined)).toBe("none");
-    expect(activityTransition(working, undefined)).toBe("none");
-    expect(activityTransition(undefined, undefined)).toBe("none");
+  it("an answered wait announces nothing — the dated entry stands as history", () => {
+    expect(activityTransition(waiting, working)).toBe("none");
+    expect(activityTransition(waiting, interrupted)).toBe("none");
   });
 
   it("a finish announces only for a turn that was actually running here", () => {
@@ -39,9 +30,10 @@ describe("activityTransition", () => {
     expect(activityTransition(failed, done)).toBe("none");
   });
 
-  it("an interrupt is the user's own hand — silent unless it cut a wait", () => {
+  it("an interrupt is the user's own hand — always silent", () => {
     expect(activityTransition(working, interrupted)).toBe("none");
     expect(activityTransition(undefined, interrupted)).toBe("none");
+    expect(activityTransition(waiting, interrupted)).toBe("none");
   });
 
   it("a failure always announces", () => {

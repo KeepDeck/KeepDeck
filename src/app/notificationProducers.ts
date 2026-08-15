@@ -14,7 +14,7 @@ import {
 import type { WorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import type { AgentStatusTracker } from "./agentStatusTracker";
-import { notify, retractNotification } from "./notificationCenter";
+import { notify } from "./notificationCenter";
 import { getSettings } from "./settingsManager";
 import { getUpdateState, subscribeUpdates } from "./updateManager";
 
@@ -125,9 +125,12 @@ function paneContextById(
 /**
  * Watch the activity tracker and announce the transitions worth leaving the
  * app for: the agent needs the user (approval or a question), finished a
- * turn, or died on an API error. One tag per pane, replace-not-stack — a
- * "needs approval" banner is superseded by the "finished" that follows it,
- * never stacked under it. Suppression while the pane is on screen is the
+ * turn, or died on an API error. Every announcement is its own dated entry
+ * — no tag, nothing replaced, nothing withdrawn: a resolved wait is a past
+ * fact, and facts stand. The banner side stays flap-proof independently:
+ * the center's cooldown keys an untagged entry on its source (one pane =
+ * one cooling unit), so a question machine-gunning the center cannot
+ * machine-gun the OS. Suppression while the pane is on screen is the
  * center's own rule ([`bannerVerdict`]), not re-derived here — and WHICH
  * transitions speak at all is the domain's ([`activityTransition`]); this
  * module only words the message.
@@ -148,14 +151,8 @@ export function initActivityNotifications(
       if (before === activity) continue;
       announceActivity(workspaces, paneId, before, activity, agents);
     }
-    // A pane LEAVING the store is a transition too — its process retired,
-    // or the pane left the deck. A standing "needs approval" for it would
-    // report a wait that no longer exists; the domain table withdraws it.
-    for (const [paneId, before] of prev) {
-      if (!next.has(paneId)) {
-        announceActivity(workspaces, paneId, before, undefined, agents);
-      }
-    }
+    // A pane LEAVING the store is not an announcement either: its entries
+    // are dated history and history stands.
     prev = next;
   });
 }
@@ -164,17 +161,11 @@ function announceActivity(
   workspaces: Workspace[],
   paneId: string,
   before: PaneActivity | undefined,
-  activity: PaneActivity | undefined,
+  activity: PaneActivity,
   agents: AgentInfo[],
 ): void {
-  const tag = `pane:${paneId}:activity`;
   const verdict = activityTransition(before, activity);
   if (verdict === "none") return;
-  if (verdict === "retract") {
-    retractNotification(tag);
-    return;
-  }
-  if (activity === undefined) return; // a removal never announces
   const c = paneContextById(workspaces, paneId, agents);
   if (!c) return;
   const badge = activityBadge(activity);
@@ -190,7 +181,6 @@ function announceActivity(
         body: c.wsName,
         severity: "warning",
         source,
-        tag,
       });
       return;
     case "failed":
@@ -201,7 +191,6 @@ function announceActivity(
         body: activity.detail ? `${activity.detail} · ${c.wsName}` : c.wsName,
         severity: "error",
         source,
-        tag,
       });
       return;
     default:
@@ -209,7 +198,6 @@ function announceActivity(
         title: `${c.title} finished`,
         body: c.wsName,
         source,
-        tag,
       });
   }
 }

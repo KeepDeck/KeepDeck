@@ -113,20 +113,6 @@ export function addNotification(
   return [next, ...kept].slice(0, NOTIFICATIONS_CAP);
 }
 
-/**
- * Withdraw a tag's notification: the event it announced has been answered
- * (an approval prompt the user resolved in the pane), so keeping it —
- * even as a read entry — would report a wait that no longer exists.
- * Same-reference no-op when the tag holds no slot.
- */
-export function retractByTag(
-  items: readonly Notification[],
-  tag: string,
-): readonly Notification[] {
-  const kept = items.filter((n) => n.tag !== tag);
-  return kept.length === items.length ? items : kept;
-}
-
 /** Mark one notification read. Returns the same array when nothing changed
  * (unknown id, already read) so subscribers skip a render. */
 export function markRead(
