@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import { ExperimentalSection } from "./ExperimentalSection";
 import { GeneralSection } from "./GeneralSection";
 import { NotificationsSection } from "./NotificationsSection";
+import { TeamRolesSection } from "./TeamRolesSection";
 import { TerminalSection } from "./TerminalSection";
 import { UpdatesSection } from "./UpdatesSection";
 
@@ -22,5 +23,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "terminal", label: "Terminal", Component: TerminalSection },
   { id: "notifications", label: "Notifications", Component: NotificationsSection },
   { id: "experimental", label: "Experimental", Component: ExperimentalSection },
+  { id: "team-roles", label: "Team roles", Component: TeamRolesSection },
   { id: "updates", label: "Updates", Component: UpdatesSection },
 ];

@@ -57,36 +57,34 @@ export function roleIdProblem(id: string): string | null {
   return null;
 }
 
+/**
+ * Why these role TEXTS cannot brief anyone, or null when they can — the
+ * demands `readStoredRole` makes of a file, exported so the settings form
+ * asks them BEFORE writing one and refuses in exactly the same words.
+ */
+export function roleTextsProblem(record: StoredRole): string | null {
+  if (!record.label.trim()) return "label is missing or empty";
+  if (!record.summary.trim()) return "summary is missing or empty";
+  if (record.charter.length === 0 || record.charter.some((line) => !line.trim())) {
+    return "charter must be a non-empty list of non-empty lines";
+  }
+  return null;
+}
+
 type ReadStored =
   | { ok: true; role: StoredRole }
   | { ok: false; problem: string };
 
 /** What one stored record means, field by field — or why it means nothing.
  * Reads `unknown` because the bytes come from a hand-editable file, and a
- * shape the type system promised is exactly what such a file cannot. */
+ * shape the type system promised is exactly what such a file cannot. The
+ * SHAPE questions live here; the text questions are [`roleTextsProblem`]'s,
+ * shared with the form. */
 function readStoredRole(raw: unknown): ReadStored {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ok: false, problem: "the record is not an object" };
   }
   const record = raw as Record<string, unknown>;
-  const text = (field: "label" | "summary"): string | null => {
-    const value = record[field];
-    return typeof value === "string" && value.trim().length > 0
-      ? value.trim()
-      : null;
-  };
-  const label = text("label");
-  if (!label) return { ok: false, problem: "label is missing or empty" };
-  const summary = text("summary");
-  if (!summary) return { ok: false, problem: "summary is missing or empty" };
-  const charter = record.charter;
-  if (
-    !Array.isArray(charter) ||
-    charter.length === 0 ||
-    charter.some((line) => typeof line !== "string" || line.trim().length === 0)
-  ) {
-    return { ok: false, problem: "charter must be a non-empty list of non-empty lines" };
-  }
   if (record.repeatable !== undefined && typeof record.repeatable !== "boolean") {
     return { ok: false, problem: "repeatable must be true or false" };
   }
@@ -97,16 +95,19 @@ function readStoredRole(raw: unknown): ReadStored {
       problem: 'standing can be "reports" or "peer" — a team\'s lead stays the built-in one',
     };
   }
-  return {
-    ok: true,
-    role: {
-      label,
-      summary,
-      charter: charter.map((line: string) => line.trim()),
-      repeatable: record.repeatable as boolean | undefined,
-      standing,
-    },
+  // A wrong-typed text lands as an empty one and is refused by the shared
+  // predicate — "missing" and "not text" call for the same fix.
+  const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+  const charterRaw = record.charter;
+  const role: StoredRole = {
+    label: text(record.label),
+    summary: text(record.summary),
+    charter: Array.isArray(charterRaw) ? charterRaw.map(text) : [],
+    repeatable: record.repeatable as boolean | undefined,
+    standing,
   };
+  const problem = roleTextsProblem(role);
+  return problem ? { ok: false, problem } : { ok: true, role };
 }
 
 /**
