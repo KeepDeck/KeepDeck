@@ -55,7 +55,7 @@ import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
 import { createPaneLifecycle } from "./paneLifecycle";
-import { subscribeRoleCatalog } from "./roleCatalogManager";
+import { subscribeRoleCatalogChanges } from "./roleCatalogManager";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
 import { createUsageChannel } from "./usageChannel";
@@ -232,9 +232,10 @@ export function createAppRuntime(
         sessionsBegun.add(listener);
         return () => sessionsBegun.delete(listener);
       },
-      // The catalog manager notifies once per installed change — load or
-      // save alike — which is exactly the grain the re-brief wants.
-      onRoleCatalogChanged: subscribeRoleCatalog,
+      // CHANGES only, never the boot load: an app start installs the same
+      // catalog the panes were last briefed from, and re-stating it would
+      // hand every teamed pane an unsolicited briefing per launch.
+      onRoleCatalogChanged: subscribeRoleCatalogChanges,
       terminal: { deliver: deliverMailThroughPty, wake: wakePaneForMail },
       bridge: {
         reply: replyToBridgeHook,

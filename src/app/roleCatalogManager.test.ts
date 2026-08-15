@@ -95,9 +95,10 @@ describe("roleCatalogManager", () => {
     expect(teamRoles()).toEqual(builtInRoles());
   });
 
-  it("keeps the built-ins when the load fails, and does not block the app", async () => {
-    // Never install an empty lie: an unreadable folder costs the user
-    // their custom roles for the session, not the teams feature.
+  it("keeps the built-ins when the load fails, says so, and refuses to save", async () => {
+    // Never install an empty lie — and never let one be SAVED: with the
+    // records unknown, a save would overwrite files this session never
+    // saw, and the fresh-install look of the UI would invite exactly that.
     const ports: RoleCatalogPorts = {
       fetchRoleFiles: vi.fn(async () => {
         throw new Error("no disk today");
@@ -108,6 +109,57 @@ describe("roleCatalogManager", () => {
     const manager = createRoleCatalogManager(ports);
     await manager.init();
     expect(teamRoles()).toEqual(builtInRoles());
-    expect(manager.get().problems).toEqual([]);
+    expect(manager.get().problems[0]).toContain("could not be read");
+    await expect(
+      manager.save("docs", { label: "x", summary: "y", charter: ["z"] }),
+    ).rejects.toThrow(/Restart/);
+    await expect(manager.remove("docs")).rejects.toThrow(/Restart/);
+    expect(ports.saveRoleFile).not.toHaveBeenCalled();
+    expect(ports.deleteRoleFile).not.toHaveBeenCalled();
+  });
+
+  it("treats the boot load as a baseline and only a real difference as a change", async () => {
+    // Fired on load, the change feed re-briefed every teamed pane on every
+    // app start — the boot install is what the panes were last briefed
+    // from, not news.
+    const { manager } = host({ docs: DOCS });
+    const changed = vi.fn();
+    manager.onCatalogChanged(changed);
+    await manager.init();
+    expect(changed).not.toHaveBeenCalled();
+    await manager.save("buddy", {
+      label: "Buddy",
+      summary: "stands beside you",
+      charter: ["You HELP."],
+    });
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a save that landed when only the re-read fails", async () => {
+    // The write is durable; the directory read is not. Reporting the save
+    // as failed — while the domain kept briefing from the old texts — was
+    // both halves of the lie.
+    const { disk, ports, manager } = host();
+    await manager.init();
+    (ports.fetchRoleFiles as ReturnType<typeof vi.fn>).mockImplementation(
+      async () => {
+        throw new Error("transient EIO");
+      },
+    );
+    await manager.save("docs", {
+      label: "Docs",
+      summary: "writes it down",
+      charter: ["You DOCUMENT."],
+    });
+    expect(disk.has("docs")).toBe(true);
+    expect(roleById("docs")).toBeDefined();
+    expect(manager.get().storedIds.has("docs")).toBe(true);
+  });
+
+  it("lowercases stored ids so a hand-cased file still reads as the role it edits", async () => {
+    const { manager } = host({ Lead: JSON.stringify({ label: "Captain", summary: "s", charter: ["c"] }) });
+    await manager.init();
+    expect(manager.get().storedIds.has("lead")).toBe(true);
+    expect(roleById("lead")?.label).toBe("Captain");
   });
 });
