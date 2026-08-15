@@ -241,12 +241,12 @@ describe("TeamDialog", () => {
     expect(confirmed[0].released).not.toContain("pane-3");
   });
 
-  it("ends the agents too when that is asked for, and says so on the button", () => {
+  it("ends the agents too when that is asked for, and arms the control red", () => {
     // The thing people actually want when a team is over: the four panes go
     // with it, instead of being closed one at a time afterwards. Asked for
     // explicitly, because a destructive act must not be reachable by the
-    // same click as an organisational one — and the button says which it is
-    // about to do.
+    // same click as an organisational one — and the armed control shows
+    // which it is about to do.
     const ws = workspace([
       pane("pane-1", { name: "api", role: "lead" }),
       pane("pane-2", { name: "api", role: "impl-1" }),
@@ -261,7 +261,10 @@ describe("TeamDialog", () => {
     // each time, never inherited from the last team somebody ended.
     expect(tick.checked).toBe(false);
     act(() => tick.click());
-    expect(disband().textContent).toBe("Disband & close");
+    // The label holds still — nothing in the row may move when the tick
+    // lands — and the whole composed control turns red instead.
+    expect(disband().textContent).toBe("Disband");
+    expect(document.querySelector(".team__danger--armed")).not.toBeNull();
     act(() => disband().click());
     expect(confirmed).toEqual([
       {

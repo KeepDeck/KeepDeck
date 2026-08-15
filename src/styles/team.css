@@ -311,16 +311,33 @@
   border-top: 1px solid #151b26;
 }
 
-/* Ending a team, kept away from the confirm pair at the row's far left.
-   SAME clothes as Cancel — one shape family across the row, because three
-   button styles in one line read as disorder — and the red arrives only on
-   hover and when armed: it is not a hazard at rest (the agents keep
-   running and keep their work), but it is not an ordinary edit either. */
-.team__disband {
-  padding: 8px 14px;
+/* Ending a team is ONE composed control at the row's far left: the verb
+   and its arming tick share a single outline, so they read as an object
+   rather than two strays drifting beside Cancel/Save. Cancel's clothes,
+   one shape family across the row; the red arrives on hover and when
+   armed — not a hazard at rest (the agents keep running and keep their
+   work), but not an ordinary edit either. The button's label holds still,
+   so nothing in the row moves when the tick lands; `margin-right: auto`
+   is what pushes Cancel/Save to the far edge. */
+.team__danger {
+  display: flex;
+  align-items: stretch;
+  margin-right: auto;
   border: 1px solid #2a3343;
   border-radius: 8px;
   background-color: #161b26;
+  overflow: hidden;
+}
+
+.team__danger--armed {
+  border-color: #6b3a38;
+}
+
+.team__disband {
+  padding: 8px 12px;
+  border: none;
+  border-right: 1px solid #2a3343;
+  background: transparent;
   color: #9aa3af;
   font: inherit;
   font-size: 13px;
@@ -328,27 +345,35 @@
 }
 
 .team__disband:hover {
-  border-color: #6b3a38;
   background-color: #1b2230;
   color: #e5736f;
 }
 
-/* Beside Disband, AFTER it: the tick is Disband's modifier, and read the
-   other way around it was a stray checkbox floating at the corner. It has
-   to be its own deliberate gesture, READ before the button is pressed —
-   and it goes red when armed, because that is what the button now does.
-   `margin-right: auto` here is what pushes Cancel/Save to the far edge. */
+.team__danger--armed .team__disband {
+  border-right-color: #6b3a38;
+  color: #e5736f;
+}
+
+/* The tick that ARMS the button beside it — its own deliberate gesture,
+   READ before the button is pressed, living inside the same outline. */
 .team__disband-close {
   position: relative;
-  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-right: auto;
+  padding: 0 10px;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: #6b7280;
   cursor: pointer;
+}
+
+.team__disband-close:hover {
+  background-color: #1b2230;
+}
+
+.team__danger--armed .team__disband-close {
+  color: #e5736f;
 }
 
 /* The app draws its own box — the OS control was the one element in the
@@ -382,11 +407,7 @@
   outline-offset: 1px;
 }
 
-.team__disband-close--on {
-  color: #e5736f;
-}
-
-.team__disband-close--on .team__disband-box {
+.team__danger--armed .team__disband-box {
   border-color: #b3423d;
   background-color: #b3423d;
   color: #ffffff;

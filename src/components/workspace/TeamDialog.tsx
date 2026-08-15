@@ -613,10 +613,16 @@ export function TeamDialog({
             // ASKED FOR: the tick arms it, and the button then says what it
             // will do, because a destructive act must never be reachable by
             // the same click as an organisational one.
-            <>
-              {/* The verb first, its modifier second: the tick ARMS the
-                  button beside it, and read the other way around it was a
-                  stray checkbox floating at the dialog's corner. */}
+            <div
+              className={`team__danger${
+                closeOnDisband ? " team__danger--armed" : ""
+              }`}
+            >
+              {/* ONE composed control: the verb and its arming tick share a
+                  single outline, so they read as an object rather than two
+                  strays drifting beside Cancel/Save. The button's label
+                  holds still — the tick's answer shows as the whole group
+                  turning red — so nothing in the row moves when it lands. */}
               <button
                 type="button"
                 className="team__disband"
@@ -637,12 +643,10 @@ export function TeamDialog({
                   );
                 }}
               >
-                {closeOnDisband ? "Disband & close" : "Disband"}
+                Disband
               </button>
               <label
-                className={`team__disband-close${
-                  closeOnDisband ? " team__disband-close--on" : ""
-                }`}
+                className="team__disband-close"
                 title="End the agents too, keeping their worktrees — deleting one of those is its own decision"
               >
                 <input
@@ -657,7 +661,7 @@ export function TeamDialog({
                 </span>
                 close the agents too
               </label>
-            </>
+            </div>
           )}
           <button type="button" className="form__cancel" onClick={onCancel}>
             Cancel
