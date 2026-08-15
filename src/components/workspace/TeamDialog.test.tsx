@@ -111,6 +111,16 @@ describe("TeamDialog", () => {
   const nameField = () => document.querySelector<HTMLInputElement>(".form__input")!;
   const submit = () => document.querySelector<HTMLButtonElement>(".form__create")!;
   const startNew = () => document.querySelector<HTMLButtonElement>(".team__add")!;
+  /** The two-step disband: the quiet door in the foot, then the confirm's
+   * own destructive button. */
+  const endTeam = () =>
+    act(() => document.querySelector<HTMLButtonElement>(".team__end")!.click());
+  const confirmDisband = () =>
+    act(() =>
+      Array.from(document.querySelectorAll("button"))
+        .find((candidate) => candidate.textContent === "Disband")!
+        .click(),
+    );
 
   it("starts with an empty team and everyone in the pool", () => {
     open(workspace([pane("pane-1"), pane("pane-2")]));
@@ -225,7 +235,8 @@ describe("TeamDialog", () => {
       pane("pane-3", { name: "web", role: "lead" }),
     ]);
     open(ws, "api");
-    act(() => document.querySelector<HTMLButtonElement>(".team__disband")!.click());
+    endTeam();
+    confirmDisband();
     expect(confirmed).toEqual([
       {
         name: "api",
@@ -235,37 +246,31 @@ describe("TeamDialog", () => {
       },
     ]);
     // Roles away, agents untouched: they keep running, keep their panes and
-    // keep their work. Ending them is the other button's meaning.
+    // keep their work. Ending them is the confirm's tick, left alone here.
     expect(ending).toEqual([[]]);
     // Another team in the same workspace is none of this one's business.
     expect(confirmed[0].released).not.toContain("pane-3");
   });
 
-  it("ends the agents too when that is asked for, and arms the control red", () => {
+  it("ends the agents too when the confirm's tick asks for it", () => {
     // The thing people actually want when a team is over: the four panes go
     // with it, instead of being closed one at a time afterwards. Asked for
-    // explicitly, because a destructive act must not be reachable by the
-    // same click as an organisational one — and the armed control shows
-    // which it is about to do.
+    // explicitly, inside the destructive confirm, beside the button it
+    // changes — a destructive act must not be reachable by the same click
+    // as an organisational one.
     const ws = workspace([
       pane("pane-1", { name: "api", role: "lead" }),
       pane("pane-2", { name: "api", role: "impl-1" }),
     ]);
     open(ws, "api");
-    const disband = () => document.querySelector<HTMLButtonElement>(".team__disband")!;
-    expect(disband().textContent).toBe("Disband");
-    const tick = document.querySelector<HTMLInputElement>(
-      ".team__disband-close input",
-    )!;
-    // Off when the dialog opens: the destructive reading is chosen again
-    // each time, never inherited from the last team somebody ended.
-    expect(tick.checked).toBe(false);
-    act(() => tick.click());
-    // The label holds still — nothing in the row may move when the tick
-    // lands — and the whole composed control turns red instead.
-    expect(disband().textContent).toBe("Disband");
-    expect(document.querySelector(".team__danger--armed")).not.toBeNull();
-    act(() => disband().click());
+    endTeam();
+    const tick = () =>
+      document.querySelector<HTMLInputElement>(".team__disband-close input")!;
+    // Off every time the question is asked: the destructive reading is
+    // chosen again, never inherited from the last team somebody ended.
+    expect(tick().checked).toBe(false);
+    act(() => tick().click());
+    confirmDisband();
     expect(confirmed).toEqual([
       {
         name: "api",
@@ -287,8 +292,21 @@ describe("TeamDialog", () => {
     ]);
     open(ws, "api");
     act(() => drops()[1].click());
-    act(() => document.querySelector<HTMLButtonElement>(".team__disband")!.click());
+    endTeam();
+    confirmDisband();
     expect(confirmed[0].released).toEqual(["pane-1", "pane-2"]);
+  });
+
+  it("lets Escape close the disband confirm, not the dialog under it", () => {
+    open(workspace([pane("pane-1", { name: "api", role: "lead" })]), "api");
+    endTeam();
+    expect(document.querySelector(".confirm")).not.toBeNull();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(document.querySelector(".confirm")).toBeNull();
+    expect(document.querySelector(".team-form")).not.toBeNull();
+    expect(confirmed).toEqual([]);
   });
 
   it("closes on Escape, like every other dialog here", () => {
@@ -344,7 +362,7 @@ describe("TeamDialog", () => {
 
   it("offers no disband for a team that does not exist yet", () => {
     open(workspace([pane("pane-1")]));
-    expect(document.querySelector(".team__disband")).toBeNull();
+    expect(document.querySelector(".team__end")).toBeNull();
   });
 
   it("quotes a member's briefing in a notice, on demand", () => {

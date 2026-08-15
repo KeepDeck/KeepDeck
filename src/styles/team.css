@@ -311,68 +311,41 @@
   border-top: 1px solid #151b26;
 }
 
-/* Ending a team is ONE composed control at the row's far left: the verb
-   and its arming tick share a single outline, so they read as an object
-   rather than two strays drifting beside Cancel/Save. Cancel's clothes,
-   one shape family across the row; the red arrives on hover and when
-   armed — not a hazard at rest (the agents keep running and keep their
-   work), but not an ordinary edit either. The button's label holds still,
-   so nothing in the row moves when the tick lands; `margin-right: auto`
-   is what pushes Cancel/Save to the far edge. */
-.team__danger {
-  display: flex;
-  align-items: stretch;
+/* Ending the team is not an edit, so it is not one of the form's verdict
+   buttons: one quiet text door at the row's far left, which opens the
+   app's destructive confirm — the decision gets its own moment and its
+   own words instead of a corner of the footer. `margin-right: auto` is
+   what pushes Cancel/Save to the far edge. */
+.team__end {
   margin-right: auto;
-  border: 1px solid #2a3343;
-  border-radius: 8px;
-  background-color: #161b26;
-  overflow: hidden;
-}
-
-.team__danger--armed {
-  border-color: #6b3a38;
-}
-
-.team__disband {
-  padding: 8px 12px;
+  padding: 8px 0;
   border: none;
-  border-right: 1px solid #2a3343;
   background: transparent;
-  color: #9aa3af;
+  color: #6b7280;
   font: inherit;
   font-size: 13px;
   cursor: pointer;
 }
 
-.team__disband:hover {
-  background-color: #1b2230;
+.team__end:hover {
   color: #e5736f;
 }
 
-.team__danger--armed .team__disband {
-  border-right-color: #6b3a38;
-  color: #e5736f;
-}
-
-/* The tick that ARMS the button beside it — its own deliberate gesture,
-   READ before the button is pressed, living inside the same outline. */
+/* The opt-in inside the disband confirm — off every time the question is
+   asked, red once armed: it is what turns an organisational act into a
+   destructive one, and it is read beside the button it changes. */
 .team__disband-close {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: #6b7280;
+  gap: 7px;
+  margin: 2px 0 6px;
+  font-size: 12px;
+  color: #9aa3af;
   cursor: pointer;
 }
 
-.team__disband-close:hover {
-  background-color: #1b2230;
-}
-
-.team__danger--armed .team__disband-close {
+.team__disband-close--on {
   color: #e5736f;
 }
 
@@ -407,7 +380,7 @@
   outline-offset: 1px;
 }
 
-.team__danger--armed .team__disband-box {
+.team__disband-close--on .team__disband-box {
   border-color: #b3423d;
   background-color: #b3423d;
   color: #ffffff;
