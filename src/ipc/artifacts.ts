@@ -19,8 +19,3 @@ export async function artifactsEnable(): Promise<number> {
 export async function artifactsDisable(): Promise<void> {
   await invoke("artifacts_disable");
 }
-
-/** Test seam: the policy's test mocks this MODULE and needs the doubles
- * under a stable name — re-exported by the test's vi.mock factory. Not
- * for production use (it is undefined outside the mock). */
-export const __testTransport: unknown = undefined;

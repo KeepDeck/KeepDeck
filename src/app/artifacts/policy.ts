@@ -12,12 +12,19 @@
  * learns there are two halves.
  */
 import { describeError, log } from "../../ipc/log";
-import { artifactsDisable, artifactsEnable } from "../../ipc/artifacts";
 
 export interface ArtifactsSettingsPort {
   /** The toggle's value, or `null` until the settings load settles. */
   artifacts(): boolean | null;
   subscribe(listener: () => void): () => void;
+}
+
+/** The backend calls the policy drives — injectable for tests, the
+ * McpTransportPort pattern (the mcp policy's own comment applies verbatim:
+ * the wiring site is the one owner of the transport binding). */
+export interface ArtifactsTransportPort {
+  enable(): Promise<unknown>;
+  disable(): Promise<unknown>;
 }
 
 export interface ArtifactsTransition {
@@ -33,8 +40,22 @@ export interface ArtifactsPolicy {
   dispose(options?: { disable?: boolean }): void;
 }
 
+/**
+ * Reconcile the durable `artifacts` setting with the Rust store + display
+ * server — the `createMcpServerPolicy` shape applied to the artifacts
+ * feature: boot reconcile desired-vs-applied, enable/disable on every
+ * toggle flip, serialized backend calls, epoch-guarded retry,
+ * final-disable-on-dispose. The transport port is REQUIRED (the mcp
+ * policy's own rule: the wiring site is the one owner of the ipc
+ * binding). REPORT CONTRACT: the consumer guards `disposed` itself (the
+ * mcp service precedent) — an in-flight transition may still report
+ * after dispose().
+ */
 export function createArtifactsPolicy(
   settings: ArtifactsSettingsPort,
+  // REQUIRED, not defaulted — a default would be a second home for the
+  // transport binding (the mcp policy's comment, applied verbatim).
+  transport: ArtifactsTransportPort,
   report: (transition: ArtifactsTransition) => void,
 ): ArtifactsPolicy {
   let applied: boolean | null = null;
@@ -51,12 +72,17 @@ export function createArtifactsPolicy(
     chain = chain.then(async () => {
       try {
         const value = await (desired
-          ? artifactsEnable()
-          : artifactsDisable());
+          ? transport.enable()
+          : transport.disable());
         report({
           desired,
           ok: true,
-          detail: desired ? `display server on port ${value}` : null,
+          // The port clause only when a REAL port came back — the honest
+          // 0 (server arrives in slice 5) reports no lie.
+          detail:
+            desired && typeof value === "number" && value > 0
+              ? `display server on port ${value}`
+              : null,
         });
       } catch (e) {
         const detail = describeError(e);
@@ -80,7 +106,7 @@ export function createArtifactsPolicy(
       if (options.disable) {
         chain = chain.then(async () => {
           try {
-            await artifactsDisable();
+            await transport.disable();
           } catch (e) {
             log.warn(
               "web:artifacts",
