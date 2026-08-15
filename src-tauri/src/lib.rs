@@ -1,6 +1,7 @@
 mod agents;
 mod apps;
 mod app_updater;
+mod artifacts;
 mod bridge;
 mod clipboard;
 mod codex_app_server;
