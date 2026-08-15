@@ -222,6 +222,11 @@ describe("formatTimestamp", () => {
     expect(formatTimestamp(at(2026, 3, 5, 9, 0), at(2026, 3, 6, 9, 0))).toBe(
       "05.03",
     );
+    // "Today" is the same CALENDAR day, not the same date number: a
+    // month-old entry matching today's date-of-month still shows its date.
+    expect(formatTimestamp(at(2026, 7, 15, 14, 0), at(2026, 8, 15, 20, 0))).toBe(
+      "15.07",
+    );
   });
 });
 

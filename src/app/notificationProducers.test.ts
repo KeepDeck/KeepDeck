@@ -15,6 +15,11 @@ import { normalizeClaudeStatus } from "../../plugins/claude/src/status";
 const center = vi.hoisted(() => ({
   notify: vi.fn(),
 }));
+
+/** The input of the notify call #i — for assertions on the WHOLE shape
+ * (objectContaining cannot see a key that must be ABSENT). */
+const callArg = (i: number): Record<string, unknown> | undefined =>
+  center.notify.mock.calls[i]?.[0] as Record<string, unknown> | undefined;
 vi.mock("./notificationCenter", () => center);
 
 const settings = vi.hoisted(() => ({
@@ -253,8 +258,7 @@ describe("activity notifications", () => {
         title: "Claude 1 — needs your input",
       }),
     );
-    const second = center.notify.mock.lastCall?.[0] as Record<string, unknown>;
-    expect(second.tag).toBeUndefined();
+    expect(callArg(1)?.tag).toBeUndefined();
   });
 
   it("announces a finished turn, but never one the user cut themselves", () => {
@@ -266,6 +270,9 @@ describe("activity notifications", () => {
         body: "Alpha",
       }),
     );
+    // Every activity branch appends history — none of them may carry a
+    // tag, or the entries would start replacing each other again.
+    expect(callArg(0)?.tag).toBeUndefined();
 
     center.notify.mockClear();
     edge({ kind: "turn-start", at: 300 });
@@ -332,6 +339,7 @@ describe("activity notifications", () => {
         severity: "error",
       }),
     );
+    expect(callArg(0)?.tag).toBeUndefined();
   });
 
   it("stays silent for a pane the deck no longer names", () => {
