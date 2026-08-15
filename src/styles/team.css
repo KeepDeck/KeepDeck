@@ -40,6 +40,38 @@
   min-height: 34px;
 }
 
+/* A team name is a word, not a sentence — full width it read as the
+   dialog's main event and dwarfed the roster it merely labels. */
+.team__name {
+  width: 260px;
+}
+
+/* A ROSTER row gets a surface of its own. Bare, the row was a scatter of
+   controls on the dialog's ground — the bordered role picker was the only
+   shape, so it out-shouted the member it names, and the row's loose right
+   half (an empty where, a floating ×) read as debris. One quiet card turns
+   the scatter into a list and makes the emptiness part of a shape. The
+   POOL keeps bare rows on purpose: carded like the roster, "on the team"
+   and "available" would look like one list split by a heading. */
+.team__member .team__row {
+  padding: 4px 8px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #10151c;
+}
+
+/* The controls a row hides in plain sight (ⓘ, ×) answer to the hover. */
+.team__member .team__row:hover {
+  border-color: #2a3346;
+}
+
+/* An agent that does not exist yet: same card, dashed — the roster shows
+   it as a member (it is one, the moment it was asked for) while the edge
+   says it is still to be started. */
+.team__member--new .team__row {
+  border-style: dashed;
+}
+
 /* The role LEADS the row. It is the address teammates use, and a column of
    addresses is what gets scanned for duplicates — so it is first, fixed, and
    aligned down the list. */
@@ -222,42 +254,25 @@
   margin-bottom: 12px;
 }
 
-/* Ending a team, kept away from the confirm pair: `margin-right: auto` puts
-   it at the far left of the action row, so it can never be hit on the way to
-   "Save team". Quiet until hovered — it is not a hazard (the agents keep
-   running and keep their work) but it is not an ordinary edit either. */
-/* Beside Disband, not inside it: the tick is what turns an organisational
-   act into a destructive one, so it has to be its own deliberate gesture and
-   has to be READ before the button is pressed. Same compact shape as the
-   per-recruit YOLO answer, for the same reason — the meaning is in the
-   label, and it goes red when armed because that is what it now does. */
-.team__disband-close {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: #6b7280;
-  cursor: pointer;
+/* The foot is a different kind of content — verdicts, not fields — and
+   without a line the disband cluster read as one more stray row. */
+.team-form .form__actions {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #151b26;
 }
 
-.team__disband-close input {
-  accent-color: #b3423d;
-  cursor: pointer;
-}
-
-.team__disband-close--on {
-  color: #e5736f;
-}
-
+/* Ending a team, kept away from the confirm pair at the row's far left.
+   SAME clothes as Cancel — one shape family across the row, because three
+   button styles in one line read as disorder — and the red arrives only on
+   hover and when armed: it is not a hazard at rest (the agents keep
+   running and keep their work), but it is not an ordinary edit either. */
 .team__disband {
-  margin-right: auto;
   padding: 8px 14px;
-  border: 1px solid #2a3242;
+  border: 1px solid #2a3343;
   border-radius: 8px;
-  background: transparent;
-  color: #6b7280;
+  background-color: #161b26;
+  color: #9aa3af;
   font: inherit;
   font-size: 13px;
   cursor: pointer;
@@ -265,7 +280,67 @@
 
 .team__disband:hover {
   border-color: #6b3a38;
+  background-color: #1b2230;
   color: #e5736f;
+}
+
+/* Beside Disband, AFTER it: the tick is Disband's modifier, and read the
+   other way around it was a stray checkbox floating at the corner. It has
+   to be its own deliberate gesture, READ before the button is pressed —
+   and it goes red when armed, because that is what the button now does.
+   `margin-right: auto` here is what pushes Cancel/Save to the far edge. */
+.team__disband-close {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+/* The app draws its own box — the OS control was the one element in the
+   dialog no stylesheet reached, and it showed. The input stays for the
+   semantics (state, keyboard, the tests' handle) and lends the box its
+   focus ring. */
+.team__disband-close input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.team__disband-box {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #3a4658;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1;
+  color: transparent;
+}
+
+.team__disband-close input:focus-visible + .team__disband-box {
+  outline: 2px solid #5a6b86;
+  outline-offset: 1px;
+}
+
+.team__disband-close--on {
+  color: #e5736f;
+}
+
+.team__disband-close--on .team__disband-box {
+  border-color: #b3423d;
+  background-color: #b3423d;
+  color: #ffffff;
 }
 
 /* Secondary by construction: starting an agent is a step ON THE WAY to a

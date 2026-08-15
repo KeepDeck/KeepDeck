@@ -314,7 +314,7 @@ export function TeamDialog({
         <span className="form__label">Team name</span>
         <input
           {...noAutoCorrect}
-          className="form__input"
+          className="form__input team__name"
           value={name}
           onChange={(e) => {
             setTouched(true);
@@ -363,19 +363,6 @@ export function TeamDialog({
                       types — hiding it would leave the person unable to read
                       their own roster. */}
                   <span className="team__row-address">{row.role}</span>
-                  {/* The role's briefing, ON DEMAND. Assembling a team is
-                      frequent and reading a charter is rare — a standing
-                      panel served the rare need with permanent width, so
-                      the words sit behind this ask instead. */}
-                  <button
-                    type="button"
-                    className="team__row-info"
-                    aria-label={`What "${row.role}" will be told`}
-                    title="What this member will be told"
-                    onClick={() => setBriefFor(row.key)}
-                  >
-                    ⓘ
-                  </button>
                   {!parseRoleAddress(row.role) && (
                     // A role deleted from the catalog under a live member:
                     // the address still works, but the charter behind it is
@@ -438,6 +425,21 @@ export function TeamDialog({
                       )}
                     </>
                   )}
+                  {/* The role's briefing, ON DEMAND — beside the row's other
+                      meta control (×), not between the address and the
+                      member it names: the left half of a row is identity,
+                      the right edge is what can be done to it. Assembling a
+                      team is frequent and reading a charter is rare, so the
+                      words sit behind this ask rather than in a panel. */}
+                  <button
+                    type="button"
+                    className="team__row-info"
+                    aria-label={`What "${row.role}" will be told`}
+                    title="What this member will be told"
+                    onClick={() => setBriefFor(row.key)}
+                  >
+                    ⓘ
+                  </button>
                   <button
                     type="button"
                     className="team__row-drop"
@@ -577,19 +579,9 @@ export function TeamDialog({
             // will do, because a destructive act must never be reachable by
             // the same click as an organisational one.
             <>
-              <label
-                className={`team__disband-close${
-                  closeOnDisband ? " team__disband-close--on" : ""
-                }`}
-                title="End the agents too, keeping their worktrees — deleting one of those is its own decision"
-              >
-                <input
-                  type="checkbox"
-                  checked={closeOnDisband}
-                  onChange={(e) => setCloseOnDisband(e.target.checked)}
-                />
-                close the agents too
-              </label>
+              {/* The verb first, its modifier second: the tick ARMS the
+                  button beside it, and read the other way around it was a
+                  stray checkbox floating at the dialog's corner. */}
               <button
                 type="button"
                 className="team__disband"
@@ -612,6 +604,24 @@ export function TeamDialog({
               >
                 {closeOnDisband ? "Disband & close" : "Disband"}
               </button>
+              <label
+                className={`team__disband-close${
+                  closeOnDisband ? " team__disband-close--on" : ""
+                }`}
+                title="End the agents too, keeping their worktrees — deleting one of those is its own decision"
+              >
+                <input
+                  type="checkbox"
+                  checked={closeOnDisband}
+                  onChange={(e) => setCloseOnDisband(e.target.checked)}
+                />
+                {/* The app draws its own box — the OS control is the one
+                    element here no stylesheet reaches, and it showed. */}
+                <span className="team__disband-box" aria-hidden="true">
+                  ✓
+                </span>
+                close the agents too
+              </label>
             </>
           )}
           <button type="button" className="form__cancel" onClick={onCancel}>
