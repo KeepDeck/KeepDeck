@@ -550,22 +550,38 @@ export function TeamDialog({
               ))}
               {/* Shown, not hidden: these agents have not vanished, they
                   are spoken for — and saying so once per TEAM answers it,
-                  in words ("on team") rather than a bare quoted name. */}
+                  in words ("on team") rather than a bare quoted name. One
+                  compact card per team: a head with the name and the
+                  count, then the members in a dense grid whose cells
+                  truncate — a large team grows in rows of a grid, never
+                  into a ragged inline paragraph. */}
               {spokenFor.map((group) => (
                 <li
                   key={group.team}
                   className="team__pool-team"
                   title={`Already on “${group.team}” — open that team from an agent's badge to take one off first`}
                 >
-                  <span className="team__pool-team-name">
-                    on team “{group.team}”
-                  </span>
-                  {group.members.map(({ pane, label }) => (
-                    <span key={pane.id} className="team__pool-member">
-                      <AgentGlyph icon={iconOf(pane)} />
-                      {label}
+                  <div className="team__pool-team-head">
+                    <span className="team__pool-team-name">
+                      on team “{group.team}”
                     </span>
-                  ))}
+                    <span className="team__pool-team-count">
+                      {group.members.length}{" "}
+                      {group.members.length === 1 ? "agent" : "agents"}
+                    </span>
+                  </div>
+                  <div className="team__pool-team-grid">
+                    {group.members.map(({ pane, label }) => (
+                      <span
+                        key={pane.id}
+                        className="team__pool-member"
+                        title={label}
+                      >
+                        <AgentGlyph icon={iconOf(pane)} />
+                        <span className="team__pool-member-name">{label}</span>
+                      </span>
+                    ))}
+                  </div>
                 </li>
               ))}
             </ul>

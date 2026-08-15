@@ -205,30 +205,59 @@
   color: #c5c8c6;
 }
 
-/* Agents SPOKEN FOR by another team: one line per team, sunk below the
-   takeable rows. A row each repeated the same fact as many times as that
-   team has members, and pushed the panes that can actually be added out
-   of first sight. */
+/* Agents SPOKEN FOR by another team: one compact card per team, sunk
+   below the takeable rows. A row each repeated the same fact as many
+   times as that team has members; an inline run of names went ragged the
+   moment a team grew or a title ran long. A card with a member GRID does
+   neither — cells truncate, and a big team adds grid rows, not sprawl.
+   Darker than a roster card on purpose: inert content, not a control. */
 .team__pool-team {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  min-height: 26px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #171e29;
+  border-radius: 8px;
+  background-color: #0c1017;
+}
+
+.team__pool-team-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   font-size: 12px;
   color: #6b7280;
 }
 
-.team__pool-team-name {
+.team__pool-team-count {
+  margin-left: auto;
   flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.team__pool-team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 4px 12px;
 }
 
 .team__pool-member {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  min-width: 0;
   font-size: 12px;
   color: #9aa3af;
+}
+
+/* The whole reason a cell survives any title: the name gives way, the
+   glyph and the grid do not. The full title stays on the cell's hover. */
+.team__pool-member-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Removal is a glyph rather than a button: it repeats down the roster, and a
