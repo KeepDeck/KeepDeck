@@ -215,6 +215,7 @@ export function createMailService(
       onSessionBegan: deps.onSessionBegan,
       onContextRebuilt: deps.status.onContextRebuilt,
       onCatalogChanged: deps.onRoleCatalogChanged,
+      onRosterChanged: deps.deck.subscribe,
       teamedPanes: () =>
         deps.deck
           .workspaces()

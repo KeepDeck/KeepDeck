@@ -43,6 +43,9 @@ export interface TeamPresenceDeps {
   /** Everyone currently on any team — the panes whose briefing that change
    * may have rewritten. Read per call: membership moves. */
   teamedPanes(): string[];
+  /** The deck's roster moved — a pane appeared, joined or left. What a
+   * catalog sweep that found nobody retries on. */
+  onRosterChanged(listener: () => void): () => void;
 }
 
 export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } {
@@ -62,6 +65,23 @@ export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } 
     );
   };
 
+  // A catalog change that found NOBODY teamed is OWED, not done. At boot,
+  // a cross-session file edit fires the change before the restored deck
+  // has hydrated — consumed then, every restored team would keep briefing
+  // from texts the disk no longer holds, with no per-pane trigger left to
+  // save them. The debt is paid on the next roster movement that brings a
+  // teamed pane.
+  let owedSweep = false;
+  const sweep = (why: string) => {
+    const panes = deps.teamedPanes();
+    if (panes.length === 0) {
+      owedSweep = true;
+      return;
+    }
+    owedSweep = false;
+    for (const paneId of panes) restate(why)(paneId);
+  };
+
   const unsubscribes = [
     deps.onSessionBegan(restate("began a fresh session")),
     deps.onContextRebuilt(restate("had its context rebuilt")),
@@ -70,10 +90,9 @@ export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } 
     // re-reads each standing, and standing context supersedes itself in
     // the queue — a pane that collects nothing meanwhile holds ONE
     // briefing, not a pile.
-    deps.onCatalogChanged(() => {
-      for (const paneId of deps.teamedPanes()) {
-        restate("the role catalog changed")(paneId);
-      }
+    deps.onCatalogChanged(() => sweep("the role catalog changed")),
+    deps.onRosterChanged(() => {
+      if (owedSweep) sweep("the role catalog changed before the deck was up");
     }),
   ];
 

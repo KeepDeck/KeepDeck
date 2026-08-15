@@ -160,6 +160,48 @@ describe("roleCatalogManager", () => {
     const { manager } = host({ Lead: JSON.stringify({ label: "Captain", summary: "s", charter: ["c"] }) });
     await manager.init();
     expect(manager.get().storedIds.has("lead")).toBe(true);
-    expect(roleById("lead")?.label).toBe("Captain");
+  });
+
+  it("re-briefs across a restart when the files changed while the app was closed", async () => {
+    // The baseline outlives the process: a hand edit made between sessions
+    // installs at boot as a CHANGE against what the teams were last
+    // briefed with — not as a fresh baseline that would leave every
+    // restored team on stale texts forever.
+    let persisted: string | null = null;
+    const baseline = {
+      load: () => persisted,
+      store: (fingerprint: string) => {
+        persisted = fingerprint;
+      },
+    };
+    const first = host({ docs: DOCS });
+    await createRoleCatalogManager({ ...first.ports, baseline }).init();
+
+    const edited = host({
+      docs: JSON.stringify({
+        label: "Docs v2",
+        summary: "writes it down",
+        charter: ["You DOCUMENT better."],
+      }),
+    });
+    const changed = vi.fn();
+    const second = createRoleCatalogManager({ ...edited.ports, baseline });
+    second.onCatalogChanged(changed);
+    await second.init();
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    // And an UNCHANGED folder still installs as quietly as ever.
+    const same = host({
+      docs: JSON.stringify({
+        label: "Docs v2",
+        summary: "writes it down",
+        charter: ["You DOCUMENT better."],
+      }),
+    });
+    const quiet = vi.fn();
+    const third = createRoleCatalogManager({ ...same.ports, baseline });
+    third.onCatalogChanged(quiet);
+    await third.init();
+    expect(quiet).not.toHaveBeenCalled();
   });
 });

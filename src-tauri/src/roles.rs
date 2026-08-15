@@ -67,8 +67,8 @@ fn list(root: &Path) -> io::Result<Vec<RoleFileDto>> {
         Err(e) => return Err(e),
     };
     let mut roles = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for entry in entries {
+        let path = entry?.path();
         // Only `<id>.json` FILES with a path-safe stem are records; anything
         // else in the folder — an editor backup, a directory that happens to
         // end in .json — is simply not a role, and could never be addressed
@@ -85,14 +85,14 @@ fn list(root: &Path) -> io::Result<Vec<RoleFileDto>> {
         if require_safe(id, "role id").is_err() {
             continue;
         }
-        // A file that cannot be READ costs only itself, like a record that
-        // cannot be parsed: hand-edited bytes (wrong encoding, a binary
-        // paste) must not take the whole catalog down — and with it every
-        // save, whose reload would report an unrelated file's failure as
-        // the save's own.
-        let Ok(content) = fs::read_to_string(&path) else {
-            continue;
-        };
+        // Read LOSSILY, and the two failure classes part ways. Bad BYTES
+        // (a hand edit in the wrong encoding) become a record that will not
+        // parse — visible, named in the webview's problems, deletable from
+        // its orphan row — instead of a silently absent one whose built-in
+        // stand-in invites the very overwrite the manager's gate exists to
+        // prevent. A real IO failure propagates: the gate can only refuse
+        // to write over what it KNOWS it could not read.
+        let content = String::from_utf8_lossy(&fs::read(&path)?).into_owned();
         roles.push(RoleFileDto {
             id: id.to_string(),
             content,
@@ -162,15 +162,20 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_record_costs_only_itself() {
-        // Non-UTF-8 bytes from a hand edit. Propagated, this failed the
-        // whole list — and the manager's post-save reload then reported an
-        // unrelated, successful write as failed.
+    fn non_utf8_bytes_become_a_visible_record_rather_than_an_absence() {
+        // Propagated, one bad file failed the whole list; SKIPPED, it
+        // vanished — its built-in stand-in showed no "edited" badge and
+        // invited an overwrite. Listed lossily, the webview sees a record
+        // that will not parse, names it, and offers its deletion.
         let (_tmp, root) = root();
         save(&root, "docs", "{}").unwrap();
         fs::write(root.join("binary.json"), [0xff, 0xfe, 0x00]).unwrap();
         let listed = list(&root).unwrap();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].id, "docs");
+        assert_eq!(
+            listed.iter().map(|role| role.id.as_str()).collect::<Vec<_>>(),
+            ["binary", "docs"],
+        );
+        // The lossy content is still THERE to fail a JSON parse loudly.
+        assert!(listed[0].content.contains('\u{fffd}'));
     }
 }
