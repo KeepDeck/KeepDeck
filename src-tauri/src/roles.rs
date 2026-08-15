@@ -67,12 +67,15 @@ fn list(root: &Path) -> io::Result<Vec<RoleFileDto>> {
         Err(e) => return Err(e),
     };
     let mut roles = Vec::new();
-    for entry in entries {
-        let path = entry?.path();
+    for entry in entries.flatten() {
+        let path = entry.path();
         // Only `<id>.json` FILES with a path-safe stem are records; anything
         // else in the folder — an editor backup, a directory that happens to
         // end in .json — is simply not a role, and could never be addressed
-        // as one.
+        // as one. An UNSAFE-named .json is skipped too, diverging from the
+        // skills library's list-and-refuse policy on purpose: no write
+        // command could ever touch such a file (require_safe gates delete as
+        // well), so listing it would offer a deletion that cannot work.
         if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
             continue;
         }
@@ -82,9 +85,17 @@ fn list(root: &Path) -> io::Result<Vec<RoleFileDto>> {
         if require_safe(id, "role id").is_err() {
             continue;
         }
+        // A file that cannot be READ costs only itself, like a record that
+        // cannot be parsed: hand-edited bytes (wrong encoding, a binary
+        // paste) must not take the whole catalog down — and with it every
+        // save, whose reload would report an unrelated file's failure as
+        // the save's own.
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
         roles.push(RoleFileDto {
             id: id.to_string(),
-            content: fs::read_to_string(&path)?,
+            content,
         });
     }
     roles.sort_by(|a, b| a.id.cmp(&b.id));
@@ -145,6 +156,19 @@ mod tests {
         save(&root, "docs", "{}").unwrap();
         fs::write(root.join("notes.txt"), "not a role").unwrap();
         fs::create_dir(root.join("stray.json")).unwrap();
+        let listed = list(&root).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "docs");
+    }
+
+    #[test]
+    fn an_unreadable_record_costs_only_itself() {
+        // Non-UTF-8 bytes from a hand edit. Propagated, this failed the
+        // whole list — and the manager's post-save reload then reported an
+        // unrelated, successful write as failed.
+        let (_tmp, root) = root();
+        save(&root, "docs", "{}").unwrap();
+        fs::write(root.join("binary.json"), [0xff, 0xfe, 0x00]).unwrap();
         let listed = list(&root).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, "docs");
