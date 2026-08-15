@@ -343,6 +343,19 @@ describe("TeamDialog", () => {
     expect(document.querySelector(".team__disband")).toBeNull();
   });
 
+  it("marks a member whose role the catalog no longer knows", () => {
+    // Deleting a role from the settings never rewrites a deck — the pane
+    // keeps its address and mail keeps flowing — but its charter is gone,
+    // and the roster is where a person would look for what is off.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "architect-1" }),
+    ]);
+    open(ws, "api");
+    const notes = all(".team__row-note").map((note) => note.textContent);
+    expect(notes).toEqual(["not in the catalog"]);
+  });
+
   it("keeps a re-added member's own role instead of renaming it", () => {
     const ws = workspace([pane("pane-1", { name: "api", role: "reviewer-1" })]);
     open(ws, "api");

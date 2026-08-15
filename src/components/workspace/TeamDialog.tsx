@@ -306,6 +306,18 @@ export function TeamDialog({
                       types — hiding it would leave the person unable to read
                       their own roster. */}
                   <span className="team__row-address">{row.role}</span>
+                  {!parseRoleAddress(row.role) && (
+                    // A role deleted from the catalog under a live member:
+                    // the address still works, but the charter behind it is
+                    // gone, so its holder is briefed thinly. Picking a role
+                    // is the fix, and this is what says so.
+                    <span
+                      className="team__row-note"
+                      title="This role is no longer in the catalog — pick one to give the member a charter again"
+                    >
+                      not in the catalog
+                    </span>
+                  )}
                   {row.pane ? (
                     <>
                       <AgentGlyph icon={iconOf(row.pane)} />
