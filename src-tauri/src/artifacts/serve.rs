@@ -137,9 +137,14 @@ fn md_page(title: &str, source: &str) -> String {
 
 /// The template-injected live-refresh block — the SAME contract the
 /// skill teaches agents to embed in their html pages verbatim: reload on
-/// `version`, a visible goodbye on `bye`. Server-side md injection uses
-/// the same shape so both formats behave identically.
-const LIVE_REFRESH_SNIPPET: &str = "<script>\n(()=>{const es=new EventSource(location.pathname+\"/events\");\nes.addEventListener(\"version\",()=>location.reload());\nes.addEventListener(\"bye\",()=>{const n=document.createElement(\"div\");\nn.setAttribute(\"style\",\"background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999\");\nn.textContent=\"This page's server went away — republish or reopen from the agent's message.\";\ndocument.body.appendChild(n);});})();\n</script>";
+/// `version`, a visible goodbye on `bye` or `error`. The subscribe URL
+/// carries `location.search` so a `?v=`-PINNED tab subscribes pinned
+/// too (the pathname drops the query; without it the server-side
+/// pinned-immunity never engages from a real pinned tab). The error arm
+/// CLOSES the source once — EventSource silently reconnects forever on
+/// server death, which is the silent-staleness the goodbye exists to
+/// prevent.
+const LIVE_REFRESH_SNIPPET: &str = "<script>\n(()=>{const note=()=>{const n=document.createElement(\"div\");\nn.setAttribute(\"style\",\"background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999\");\nn.textContent=\"This page's server went away — republish or reopen from the agent's message.\";\ndocument.body.appendChild(n);};\nconst es=new EventSource(location.pathname+\"/events\"+location.search);\nes.addEventListener(\"version\",()=>location.reload());\nes.addEventListener(\"bye\",()=>{es.close();note();});\nes.addEventListener(\"error\",()=>{es.close();note();});})();\n</script>";
 
 /// The EXPORT variant of the md page: same template, NO snippet (the
 /// URL is dead outside the session — a live-refresh script pointing at

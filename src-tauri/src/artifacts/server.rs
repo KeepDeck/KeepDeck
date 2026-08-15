@@ -821,8 +821,12 @@ mod tests {
         assert!(headers.contains("content-security-policy"), "{headers}");
         assert!(text.contains("<h1>hi</h1>"), "{text}");
         assert!(
-            text.contains("EventSource(location.pathname+\"/events\")"),
-            "the live-refresh snippet rides the template: {text}"
+            text.contains("EventSource(location.pathname+\"/events\"+location.search)"),
+            "the live-refresh snippet rides the template (pin-preserving subscribe): {text}"
+        );
+        assert!(
+            text.contains("es.addEventListener(\"error\""),
+            "the error arm closes the source (no silent reconnect loop): {text}"
         );
         // And the export variant omits it.
         let (_, _, export_body) = get(server.port(), &format!("/a/{}/notes/export", manifest.token));
