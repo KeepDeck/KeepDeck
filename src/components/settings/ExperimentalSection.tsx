@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { updateSettings } from "../../app/settingsManager";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
-import { leadRole, teamRoles } from "../../domain/mail";
+import { leadRole, peerRole, teamRoles } from "../../domain/mail";
 import { shellLine } from "../../domain/mcp";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { writeText } from "../../ipc/clipboard";
@@ -203,8 +203,10 @@ export function ExperimentalSection() {
           To build one: use the team button in the workspace bar. Name the
           team, put agents on it, and give each a role — {roleSummary}. The
           role says what a member is for AND is the address teammates write
-          to; a team needs exactly one {leadRole().label.toLowerCase()},
-          which is the member that hands out the work.
+          to. A led team needs exactly one {leadRole().label.toLowerCase()},
+          the member that hands out the work — or make everyone a{" "}
+          {peerRole().label.toLowerCase()} for a flat team, where agents
+          work as equals and nobody assigns.
         </span>
       )}
 

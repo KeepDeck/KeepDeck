@@ -408,6 +408,19 @@ describe("teamBriefing", () => {
     expect(text).toContain("not as an order");
   });
 
+  it("briefs a flat team as equals, and does not offer the task kind", () => {
+    // The briefing must not advertise what the rules refuse: a peer's task
+    // is refused at the door, and the outranking line has no lead to name.
+    const text = teamBriefing("research", "peer-1", ["peer-1", "peer-2"]);
+    expect(text).toContain("equals");
+    expect(text).toContain("not as an order");
+    expect(text).not.toContain("task");
+    expect(text).not.toContain("lead");
+    for (const line of roleById("peer")!.charter) {
+      expect(text).toContain(line);
+    }
+  });
+
   it("still briefs a member whose role the catalog has lost", () => {
     // A role removed from the catalog leaves a pane holding its address.
     // Saying less is right; saying nothing would strand a live member.
