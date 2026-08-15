@@ -2,6 +2,7 @@ import { askForPaneBack } from "./app/resumeOutcome";
 import { TeamDialog } from "./components/workspace/TeamDialog";
 import { isFoundUpdate, restartToUpdate } from "./app/updateManager";
 import { useAppController } from "./app/useAppController";
+import { useAppRuntime } from "./app/runtimeContext";
 import {
   DockIcon,
   GearIcon,
@@ -41,6 +42,10 @@ import "./styles/index.css";
 
 function App() {
   const controller = useAppController();
+  // The status tracker feeds the team dialog's live activity column; read
+  // here (before the ready gate — hooks run unconditionally) and passed as
+  // a port, so the dialog stays testable with a literal.
+  const { statusTracker } = useAppRuntime();
   if (!controller.ready) return <div className="deck" />;
   const {
     active,
@@ -425,6 +430,10 @@ function App() {
               agents={agents}
               editing={teamDialog.editing}
               defaultYolo={settings.defaultYolo}
+              activity={{
+                subscribe: statusTracker.subscribe,
+                of: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
+              }}
               onConfirm={(plan, closing) => {
                 setTeamDialog(null);
                 void teamFlow.apply(active.id, plan, closing);

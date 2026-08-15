@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentInfo } from "../../domain/agents";
 import type { Pane, Workspace } from "../../domain/deck";
 import type { TeamPlan } from "../../domain/mail";
+import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { TeamDialog } from "./TeamDialog";
 
@@ -341,6 +342,66 @@ describe("TeamDialog", () => {
   it("offers no disband for a team that does not exist yet", () => {
     open(workspace([pane("pane-1")]));
     expect(document.querySelector(".team__disband")).toBeNull();
+  });
+
+  it("shows the selected member's briefing beside the roster, verbatim", () => {
+    // The panel quotes the same teamBriefing the deck will say — a précis
+    // would be a second briefing to keep true. It opens on the first row
+    // and follows a click.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "api", role: "impl-1" }),
+    ]);
+    open(ws, "api");
+    const brief = () =>
+      document.querySelector(".team__panel-brief")!.textContent!;
+    expect(brief()).toContain("You LEAD this KeepDeck team");
+    act(() => all<HTMLElement>(".team__member .team__row")[1].click());
+    expect(brief()).toContain("You IMPLEMENT");
+    expect(document.querySelector(".team__panel-addr")!.textContent).toBe(
+      "impl-1",
+    );
+  });
+
+  it("reads a flat roster back as a flat team over the list", () => {
+    // The label is the deck agreeing with what the person is assembling.
+    open(
+      workspace([
+        pane("pane-1", { name: "r", role: "peer-1" }),
+        pane("pane-2", { name: "r", role: "peer-2" }),
+      ]),
+      "r",
+    );
+    expect(all(".form__label")[1].textContent).toContain("flat");
+  });
+
+  it("reads a roster with a lead back as a led team", () => {
+    open(workspace([pane("pane-1", { name: "api", role: "lead" })]), "api");
+    expect(all(".form__label")[1].textContent).toContain("led");
+  });
+
+  it("shows each pane's live activity when the deck provides the lane", () => {
+    // A port, not a context reach: without it (every other test here) the
+    // dialog simply shows no dots. The snapshot must be STABLE between
+    // reads — useSyncExternalStore's contract, same as the real tracker's.
+    const working: PaneActivity = { state: "working", since: 1 };
+    act(() =>
+      root.render(
+        createElement(TeamDialog, {
+          workspace: workspace([pane("pane-1", { name: "api", role: "lead" })]),
+          agents: AGENTS,
+          editing: "api",
+          defaultYolo: false,
+          activity: {
+            subscribe: () => () => {},
+            of: () => working,
+          },
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+    expect(document.querySelector(".team__row-activity--working")).not.toBeNull();
   });
 
   it("marks a member whose role the catalog no longer knows", () => {

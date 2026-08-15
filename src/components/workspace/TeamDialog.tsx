@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import {
   agentSupportsNew,
   agentSupportsYolo,
@@ -16,11 +16,13 @@ import {
   planTeam,
   teamMembers,
   roleById,
+  teamBriefing,
   teamPlanIsEmpty,
   teamRoles,
   type TeamPlan,
   type TeamRecruitDraft,
 } from "../../domain/mail";
+import { activityBadge, type PaneActivity } from "../../domain/status";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Dropdown } from "../../ui/Dropdown";
@@ -36,6 +38,14 @@ interface TeamDialogProps {
   /** The YOLO toggle's starting position for a new recruit — the global
    * preference, the same seed the "+ Agent" and fork dialogs use. */
   defaultYolo: boolean;
+  /** Live agent activity, as the tray reads it — a port rather than a
+   * context reach, so a test host without a status lane simply shows no
+   * dots. The subscription lives per row, because only that row re-renders
+   * when its pane's activity moves. */
+  activity?: {
+    subscribe(listener: () => void): () => void;
+    of(paneId: string): PaneActivity | undefined;
+  };
   /** Apply a settled roster. `closing` names the panes to END as well as
    * release — only the disband gesture asks for that, and only when the
    * person ticked it in the same breath, which is why it travels beside the
@@ -61,6 +71,37 @@ function whereOf(pane: Pane): string {
   return pane.cwd ? baseName(pane.cwd) : "";
 }
 
+/** The role panel's one-word answer to "where does this member stand". */
+const STANDING_TAG = {
+  leads: "in charge",
+  reports: "under the lead",
+  peer: "equal",
+} as const;
+
+/** One pane's live status — the tray's own badge model, rendered small. Its
+ * own component because the subscription is per row, and a hook cannot sit
+ * inside the roster loop. */
+function RowActivity({
+  source,
+  paneId,
+}: {
+  source: NonNullable<TeamDialogProps["activity"]>;
+  paneId: string;
+}) {
+  const activity = useSyncExternalStore(source.subscribe, () => source.of(paneId));
+  const view = activity ? activityBadge(activity) : null;
+  if (!view) return null;
+  return (
+    <span
+      className={`team__row-activity team__row-activity--${view.tone}`}
+      title={view.detail ? `${view.label} — ${view.detail}` : view.label}
+    >
+      <span className="team__row-activity-dot" />
+      {view.label}
+    </span>
+  );
+}
+
 /**
  * The whole team in one place: its name, who is on it, what each is called,
  * and any agents to start alongside them.
@@ -81,6 +122,7 @@ export function TeamDialog({
   agents,
   editing,
   defaultYolo,
+  activity,
   onConfirm,
   onCancel,
 }: TeamDialogProps) {
@@ -110,6 +152,10 @@ export function TeamDialog({
   // yet when it does: the whole point of settling a team as one plan is
   // that leaving mid-edit changes nothing.
   useEscape(onCancel);
+
+  /** Which roster row the role panel describes — a key, not an index, so a
+   * drop above the chosen row does not silently move the panel. */
+  const [chosen, setChosen] = useState<string | null>(null);
 
   const canRecruit = useMemo(
     () => selectableAgents(agents).filter((agent) => agentSupportsNew(agents, agent.id)),
@@ -239,16 +285,38 @@ export function TeamDialog({
     .filter((pane) => !roles.has(pane.id))
     .map((pane) => ({ pane, label: titleOf(pane) }));
 
+  // The role panel follows this row. The chosen key can leave the roster —
+  // a drop, an edit — and the fallback keeps the panel on the team rather
+  // than on a memory of it.
+  const panelRow = roster.find((row) => row.key === chosen) ?? roster[0] ?? null;
+  const panelRole = panelRow ? parseRoleAddress(panelRow.role) : null;
+
+  // What the roster itself says the team's shape is. The label reads it
+  // back, so a person assembling a flat team watches the deck agree — and
+  // a mixed or unknown roster claims nothing, because planTeam is about to
+  // say why in words.
+  const standings = roster.map((row) => parseRoleAddress(row.role)?.role.standing);
+  const shapeLabel =
+    roster.length > 0 && standings.every((standing) => standing === "peer")
+      ? "The team — flat, everyone equal"
+      : standings.some((standing) => standing === "leads")
+        ? "The team — led"
+        : "The team";
+
   return (
     <ModalOverlay>
       <form
-        className="form team-form"
+        className="form team-form team-form--wide"
         onSubmit={(e) => {
           e.preventDefault();
           if (planned.ok && valid) onConfirm(planned.value);
         }}
       >
-        <h2 className="form__title">{editing ? "Edit team" : "New team"}</h2>
+        <div className="team__head">
+          <h2 className="form__title">{editing ? "Edit team" : "New team"}</h2>
+        </div>
+        <div className="team__cols">
+        <div className="team__main">
         <p className="form__desc team__desc">
           Agents on a team can write to each other by role — “ask impl-1”,
           “report to lead”. The role is the address, so it has to be unique.
@@ -276,7 +344,7 @@ export function TeamDialog({
             column that has to be scanned for duplicates; who fills it comes
             second. Rows stay in the order they were added, so the first one
             is the lead and reads like one. */}
-        <span className="form__label">The team</span>
+        <span className="form__label">{shapeLabel}</span>
         {roster.length === 0 ? (
           <p className="form__desc team__empty">
             Nobody yet — take an agent from below, or start a new one.
@@ -288,7 +356,16 @@ export function TeamDialog({
                 key={row.key}
                 className={`team__member${row.pane ? "" : " team__member--new"}`}
               >
-                <div className="team__row">
+                {/* Clicking anywhere in the row aims the role panel at it;
+                    focus does the same, so tabbing through the roster's own
+                    controls carries the panel along for keyboard users. */}
+                <div
+                  className={`team__row${
+                    panelRow?.key === row.key ? " team__row--chosen" : ""
+                  }`}
+                  onClick={() => setChosen(row.key)}
+                  onFocusCapture={() => setChosen(row.key)}
+                >
                   {/* A role is picked, not typed. It is no longer just an
                       address: it carries what the member is FOR, and that
                       only exists for a role the catalog has. Typing one in
@@ -323,6 +400,9 @@ export function TeamDialog({
                       <AgentGlyph icon={iconOf(row.pane)} />
                       <span className="team__row-who">{row.label}</span>
                       <span className="team__row-where">{whereOf(row.pane)}</span>
+                      {activity && (
+                        <RowActivity source={activity} paneId={row.pane.id} />
+                      )}
                     </>
                   ) : (
                     <>
@@ -451,6 +531,7 @@ export function TeamDialog({
                     <AgentGlyph icon={iconOf(pane)} />
                     <span className="team__row-who">{label}</span>
                     <span className="team__row-where">{whereOf(pane)}</span>
+                    {activity && <RowActivity source={activity} paneId={pane.id} />}
                     {spokenFor ? (
                       <span
                         className="team__row-note"
@@ -476,8 +557,54 @@ export function TeamDialog({
             </ul>
           </>
         )}
+        </div>
 
+        {/* The selected member's role, in the AGENT'S OWN WORDS — the same
+            `teamBriefing` the deck will say, rendered from the draft as it
+            stands. A précis here would be a second briefing to keep true;
+            quoting the real one is what lets a person read their charter
+            edits with the agent's eyes. */}
+        <aside className="team__role-panel" aria-label="Role details">
+          {panelRow ? (
+            <>
+              <div className="team__panel-head">
+                <span className="team__panel-role">
+                  {panelRole?.role.label ?? panelRow.role}
+                </span>
+                <span className="team__panel-addr">{panelRow.role}</span>
+                {panelRole && (
+                  <span className="team__panel-tag">
+                    {STANDING_TAG[panelRole.role.standing]}
+                  </span>
+                )}
+              </div>
+              <span className="form__label">What this member will be told</span>
+              <div className="team__panel-brief">
+                {teamBriefing(
+                  name.trim() || "…",
+                  panelRow.role,
+                  roster.map((row) => row.role),
+                )
+                  .split("\n")
+                  .map((line, index) => (
+                    <p key={index}>{line}</p>
+                  ))}
+              </div>
+              <p className="team__panel-note">
+                These are the exact words the deck will say. Charters and
+                summaries are editable in Settings → Team roles.
+              </p>
+            </>
+          ) : (
+            <p className="team__panel-empty">
+              Take an agent onto the team, and this panel shows what its
+              role will tell it.
+            </p>
+          )}
+        </aside>
+        </div>
 
+        <div className="team__foot">
         {touched && !planned.ok && (
           // Its own style, not the git hint's: that one is green, and a
           // refusal rendered in the colour of a positive result is read as
@@ -547,6 +674,7 @@ export function TeamDialog({
           <button type="submit" className="form__create" disabled={!valid}>
             {editing ? "Save team" : "Create team"}
           </button>
+        </div>
         </div>
       </form>
     </ModalOverlay>
