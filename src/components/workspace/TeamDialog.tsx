@@ -306,17 +306,20 @@ export function TeamDialog({
   return (
     <ModalOverlay>
       <form
-        className="form team-form team-form--wide"
+        // Wide only while there is a member to describe: the role panel
+        // exists to quote a briefing, and an empty roster has none — shown
+        // anyway, it was a large foreign rectangle explaining its own
+        // absence. The dialog opens at its old width and grows with the
+        // first member.
+        className={`form team-form${panelRow ? " team-form--wide" : ""}`}
         onSubmit={(e) => {
           e.preventDefault();
           if (planned.ok && valid) onConfirm(planned.value);
         }}
       >
-        <div className="team__head">
-          <h2 className="form__title">{editing ? "Edit team" : "New team"}</h2>
-        </div>
         <div className="team__cols">
         <div className="team__main">
+        <h2 className="form__title">{editing ? "Edit team" : "New team"}</h2>
         <p className="form__desc team__desc">
           Agents on a team can write to each other by role — “ask impl-1”,
           “report to lead”. The role is the address, so it has to be unique.
@@ -564,9 +567,8 @@ export function TeamDialog({
             stands. A précis here would be a second briefing to keep true;
             quoting the real one is what lets a person read their charter
             edits with the agent's eyes. */}
-        <aside className="team__role-panel" aria-label="Role details">
-          {panelRow ? (
-            <>
+        {panelRow && (
+          <aside className="team__role-panel" aria-label="Role details">
               <div className="team__panel-head">
                 <span className="team__panel-role">
                   {panelRole?.role.label ?? panelRow.role}
@@ -594,14 +596,8 @@ export function TeamDialog({
                 These are the exact words the deck will say. Charters and
                 summaries are editable in Settings → Team roles.
               </p>
-            </>
-          ) : (
-            <p className="team__panel-empty">
-              Take an agent onto the team, and this panel shows what its
-              role will tell it.
-            </p>
-          )}
-        </aside>
+          </aside>
+        )}
         </div>
 
         <div className="team__foot">

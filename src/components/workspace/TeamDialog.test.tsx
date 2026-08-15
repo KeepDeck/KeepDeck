@@ -344,6 +344,18 @@ describe("TeamDialog", () => {
     expect(document.querySelector(".team__disband")).toBeNull();
   });
 
+  it("stays at its old width until there is a member to describe", () => {
+    // The role panel exists to quote a briefing; an empty roster has none,
+    // and a large empty panel explaining its own absence read as foreign.
+    // The panel — and the width it needs — arrive with the first member.
+    open(workspace([pane("pane-1")]));
+    expect(document.querySelector(".team-form--wide")).toBeNull();
+    expect(document.querySelector(".team__role-panel")).toBeNull();
+    act(() => adds()[0].click());
+    expect(document.querySelector(".team-form--wide")).not.toBeNull();
+    expect(document.querySelector(".team__role-panel")).not.toBeNull();
+  });
+
   it("shows the selected member's briefing beside the roster, verbatim", () => {
     // The panel quotes the same teamBriefing the deck will say — a précis
     // would be a second briefing to keep true. It opens on the first row

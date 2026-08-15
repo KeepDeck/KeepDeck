@@ -291,41 +291,47 @@
 
 /* ---- The two-pane layout: roster left, the selected role right ---- */
 
-/* The form's own 28px padding moves into three wrappers (head, main, foot)
-   so the role panel can run full-bleed to the dialog's right edge — an
-   inset card inside padding read as a note, not as the second half of the
-   dialog. */
+/* In the NARROW dialog — no member yet, so no panel — the wrappers
+   dissolve: the form's own flex column and 28px padding lay everything out
+   exactly as they always did. Only the wide layout gives them shape. */
+.team__cols,
+.team__main,
+.team__foot {
+  display: contents;
+}
+
+/* The form's own padding moves into the columns and the foot, so the role
+   panel runs full-bleed from the dialog's top edge down to the foot's
+   border — an inset card floating inside padding read as a note, not as
+   the second half of the dialog. The form's overflow already clips both
+   columns to the rounded corners. */
 .team-form--wide {
   max-width: 860px;
   padding: 0;
 }
 
-.team__head {
-  padding: 22px 26px 0;
-}
-
-.team__head .form__title {
-  margin-bottom: 14px;
-}
-
-.team__cols {
+.team-form--wide .team__cols {
   display: flex;
   align-items: stretch;
 }
 
-.team__main {
+.team-form--wide .team__main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: 0 20px 4px 26px;
+  padding: 22px 20px 4px 26px;
 }
 
-.team__foot {
-  padding: 0 24px 20px 26px;
+/* One stripe under both columns; its border is the line the panel's bottom
+   edge lands on, so the panel has no floating corner. */
+.team-form--wide .team__foot {
+  display: block;
+  padding: 14px 24px 20px 26px;
+  border-top: 1px solid #151b26;
 }
 
-.team__foot .form__actions {
+.team-form--wide .team__foot .form__actions {
   margin-top: 12px;
 }
 
@@ -438,17 +444,10 @@
   color: #6b7280;
 }
 
-.team__panel-empty {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #6b7280;
-}
-
 /* Below the panel's worth of width, the columns stack and the panel
    becomes the roster's footnote rather than its neighbour. */
 @media (max-width: 900px) {
-  .team__cols {
+  .team-form--wide .team__cols {
     flex-direction: column;
   }
 
