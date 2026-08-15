@@ -42,6 +42,10 @@ const SLUG_GRAMMAR = /^[a-z0-9-]{1,64}$/;
  * MINTED slug is derived from the title by `mintSlug` (publish.ts); an
  * EXPLICIT one is validated here and nothing else. */
 export function validateSlug(input: string): Slug | null {
+  // The typeof guard: the branded type promises a string, but this is a
+  // JS boundary — an untrusted payload field reaches it as `unknown`,
+  // and the regex's implicit String() coercion must not launder it.
+  if (typeof input !== "string") return null;
   return SLUG_GRAMMAR.test(input) ? (input as Slug) : null;
 }
 
@@ -90,13 +94,17 @@ export const CONTENT_CAP_BYTES = 256 * 1024;
 export const FILE_CAP_BYTES = 2 * 1024 * 1024;
 
 /** A title that fits, or null. Titles interpolate into every surface
- * (template, export header, badge) — the cap bounds the escaping surface. */
+ * (template, export header, badge) — the cap bounds the escaping surface.
+ * Length counts UNICODE SCALARS (not UTF-16 units): the Rust store's
+ * mirror counts chars() — one semantics on both sides of the seam, so
+ * a 150-emoji title gets one verdict everywhere. */
 export function validateTitle(input: string): string | null {
-  return input.length > 0 && input.length <= TITLE_MAX ? input : null;
+  const scalars = Array.from(input).length;
+  return scalars > 0 && scalars <= TITLE_MAX ? input : null;
 }
 
 /** A changelog line that fits, or null (empty string is allowed — an
- * iteration without a message is ordinary). */
+ * iteration without a message is ordinary). Scalars, like the title. */
 export function validateMessage(input: string): string | null {
-  return input.length <= MESSAGE_MAX ? input : null;
+  return Array.from(input).length <= MESSAGE_MAX ? input : null;
 }

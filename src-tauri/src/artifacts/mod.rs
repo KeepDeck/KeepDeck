@@ -141,9 +141,8 @@ pub struct PublishPayload {
     path: Option<String>,
     content: Option<String>,
     message: Option<String>,
-    /// Slice 6's publish-tail flag (auto-open fires in the Rust path
-    /// once the entry-points slice wires it — B9's order test).
-    #[allow(dead_code)]
+    /// The auto-open flag (from the artifactAutoOpen setting): first
+    /// publish of a NEW artifact opens the browser when true.
     auto_open: bool,
 }
 
@@ -278,7 +277,7 @@ pub fn artifact_read(
     use store::ReadResult;
     let result = state
         .store
-        .read(&payload.workspace_id, &payload.slug, payload.version, unix_time_ms())
+        .read(&payload.workspace_id, &payload.slug, payload.version)
         .map_err(|e| e.0)?;
     Ok(match result {
         ReadResult::Inline {
@@ -291,7 +290,7 @@ pub fn artifact_read(
             at,
         } => serde_json::json!({
             "kind": "inline",
-            "slug": slug,
+            "id": slug,
             "version": version,
             "title": title,
             "format": match format { store::ArtifactFormat::Html => "html", store::ArtifactFormat::Md => "md" },
@@ -301,7 +300,7 @@ pub fn artifact_read(
         }),
         ReadResult::OverCap { slug, version, size, title, note, .. } => serde_json::json!({
             "kind": "overCap",
-            "slug": slug,
+            "id": slug,
             "version": version,
             "size": size,
             "title": title,

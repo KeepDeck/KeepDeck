@@ -138,9 +138,11 @@ describe("registerArtifactCommands", () => {
     expect(result).toMatchObject({
       id: "auth-flow",
       version: 1,
-      isNew: true,
       url: "http://127.0.0.1:43119/a/t/auth-flow",
     });
+    // `isNew` is OFF the agent wire (the design's drop-it rule) — the
+    // negative assertion is the pin (it once shipped ON, test-locked).
+    expect(result).not.toHaveProperty("isNew");
     // No token anywhere in the wire result.
     expect(JSON.stringify(result)).not.toContain('"token"');
   });
@@ -247,8 +249,7 @@ describe("registerArtifactCommands", () => {
         { title: "x".repeat(201), format: "html", content: "x" },
         paneSource(),
       ),
-    ).rejects.toThrow(/title must be ≤200/);
-    expect(artifactPublish).not.toHaveBeenCalled();
+    ).rejects.toThrow(/title must be 1\.\.200 chars/);
   });
 
   it("delete passes the workspace-scoped slug through", async () => {

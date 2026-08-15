@@ -85,12 +85,14 @@ pub(super) fn render_markdown(source: &str) -> String {
             flush_table!();
             continue;
         }
-        // Headings.
+        // Headings. The payload escapes BEFORE inline(): inline scans
+        // markers on ESCAPED text (its contract) — every block path owes
+        // its payload the same escape the paragraph path gives its own.
         if let Some(rest) = trimmed.strip_prefix("#### ") {
             flush_paragraph!();
             flush_table!();
             out.push_str("<h4>");
-            out.push_str(&inline(rest));
+            out.push_str(&inline(&escape_html(rest)));
             out.push_str("</h4>\n");
             continue;
         }
@@ -98,7 +100,7 @@ pub(super) fn render_markdown(source: &str) -> String {
             flush_paragraph!();
             flush_table!();
             out.push_str("<h3>");
-            out.push_str(&inline(rest));
+            out.push_str(&inline(&escape_html(rest)));
             out.push_str("</h3>\n");
             continue;
         }
@@ -106,7 +108,7 @@ pub(super) fn render_markdown(source: &str) -> String {
             flush_paragraph!();
             flush_table!();
             out.push_str("<h2>");
-            out.push_str(&inline(rest));
+            out.push_str(&inline(&escape_html(rest)));
             out.push_str("</h2>\n");
             continue;
         }
@@ -114,7 +116,7 @@ pub(super) fn render_markdown(source: &str) -> String {
             flush_paragraph!();
             flush_table!();
             out.push_str("<h1>");
-            out.push_str(&inline(rest));
+            out.push_str(&inline(&escape_html(rest)));
             out.push_str("</h1>\n");
             continue;
         }
@@ -131,7 +133,7 @@ pub(super) fn render_markdown(source: &str) -> String {
             flush_table!();
             let rest = rest.strip_prefix(' ').unwrap_or(rest);
             out.push_str("<blockquote>");
-            out.push_str(&inline(rest));
+            out.push_str(&inline(&escape_html(rest)));
             out.push_str("</blockquote>\n");
             continue;
         }
@@ -140,7 +142,7 @@ pub(super) fn render_markdown(source: &str) -> String {
             flush_paragraph!();
             flush_table!();
             out.push_str("<ul><li>");
-            out.push_str(&inline(rest));
+            out.push_str(&inline(&escape_html(rest)));
             out.push_str("</li></ul>\n");
             continue;
         }
@@ -148,7 +150,7 @@ pub(super) fn render_markdown(source: &str) -> String {
             flush_paragraph!();
             flush_table!();
             out.push_str("<ol><li>");
-            out.push_str(&inline(rest));
+            out.push_str(&inline(&escape_html(rest)));
             out.push_str("</li></ol>\n");
             continue;
         }
@@ -170,7 +172,7 @@ pub(super) fn render_markdown(source: &str) -> String {
             out.push_str("<tr>");
             for cell in cells {
                 out.push_str("<td>");
-                out.push_str(&inline(cell));
+                out.push_str(&inline(&escape_html(cell)));
                 out.push_str("</td>");
             }
             out.push_str("</tr>\n");
@@ -279,6 +281,29 @@ mod tests {
         assert!(html.contains("&lt;img src=x&gt;"));
         // A javascript: URL is TEXT here — no anchor is ever emitted.
         assert!(!html.contains("<a"));
+    }
+
+    #[test]
+    fn hostile_input_is_escaped_through_every_block_path() {
+        // The regression corpus for the 5 paths that once called inline()
+        // on RAW payload (headings, blockquote, list, ordered, table
+        // cells): markup fed through each must come out escaped.
+        let html = render_markdown(concat!(
+            "# h1 <script>a</script>\n",
+            "## h2 <img src=x onerror=b>\n",
+            "### h3 <b>c</b>\n",
+            "#### h4 <iframe>d</iframe>\n",
+            "> quote <svg onload=e>\n",
+            "- item <script>f</script>\n",
+            "1. first <script>g</script>\n",
+            "| <script>h</script> | cell <b>i</b> |\n",
+        ));
+        for hostile in ["<script>", "<img", "<iframe", "<svg", "<b>"] {
+            assert!(!html.contains(hostile), "raw {hostile} leaked:\n{html}");
+        }
+        // Every payload survived AS TEXT (escaped), not silently dropped.
+        assert!(html.contains("&lt;script&gt;a&lt;/script&gt;"));
+        assert!(html.contains("&lt;script&gt;h&lt;/script&gt;"));
     }
 
     #[test]

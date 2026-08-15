@@ -22,6 +22,12 @@ import type {
 } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
 import { paneExecutionCwd } from "../../domain/deck/roots";
+import {
+  isArtifactFormat,
+  MESSAGE_MAX,
+  TITLE_MAX,
+  validateTitle,
+} from "../../domain/artifacts/model";
 import { getSettings } from "../settingsManager";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
@@ -168,13 +174,16 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
     ],
     run: async (args, source) => {
       const caller = callerContext(source, deps);
+      // All arg rules come from the domain module — ONE home per rule,
+      // the same home the Rust store mirrors (its caps carry the same
+      // names); inline literals here are how the three-homes drift
+      // shipped (UTF-16 vs scalars refused different titles).
       const title = str(args, "title");
-      if (!title) throw new Error("publish needs a title");
-      if (title.length > 200) {
-        throw new Error("title must be ≤200 chars");
+      if (title === undefined || validateTitle(title) === null) {
+        throw new Error(`title must be 1..${TITLE_MAX} chars`);
       }
       const format = str(args, "format");
-      if (format !== "html" && format !== "md") {
+      if (format === undefined || !isArtifactFormat(format)) {
         throw new Error(`unknown format ${JSON.stringify(String(args.format))} — expected html or md`);
       }
       const path = str(args, "path");
@@ -196,8 +205,8 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         );
       }
       const message = str(args, "message");
-      if (message !== undefined && message.length > 500) {
-        throw new Error("message must be ≤500 chars");
+      if (message !== undefined && message.length > MESSAGE_MAX) {
+        throw new Error(`message must be ≤${MESSAGE_MAX} chars`);
       }
       const autoOpen =
         getSettings()?.artifactAutoOpen ?? DEFAULT_SETTINGS.artifactAutoOpen;
@@ -229,7 +238,8 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         indexUrl: wire.indexUrl,
         id: wire.slug,
         version: wire.version,
-        isNew: wire.isNew,
+        // `isNew` stays OFF the agent wire (the design's drop-it rule —
+        // the announce above already gates on it via the IPC result).
         note: wire.url
           ? "published — print both urls; the page refreshes on every republish"
           : "published, but the display server is off — the artifact is stored and listed; say the id and title",

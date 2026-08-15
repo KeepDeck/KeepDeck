@@ -43,11 +43,11 @@ use super::claim::{self, ClaimedRoot};
 pub(crate) const CONTENT_CAP_BYTES: usize = 256 * 1024;
 pub(crate) const FILE_CAP_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const TITLE_MAX: usize = 200;
-/// Caps mirrored from the TS domain (its `model.ts` owns the canonical
-/// numbers and their tests; these must not drift). MESSAGE_MAX is the
-/// wire-side validation's bound — slice 4's command layer applies it.
-#[allow(dead_code)]
 pub(crate) const MESSAGE_MAX: usize = 500;
+/// The identity label's cap: labels interpolate into every version entry
+/// and the index; an unbounded one would inflate manifests past their
+/// parse cap (write-succeeds-then-quarantines, the silent-loss class).
+pub(crate) const LABEL_MAX: usize = 200;
 
 /// A format pinned at first publish.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,8 +89,11 @@ pub struct Manifest {
     pub versions: Vec<VersionMeta>,
 }
 
-/// What `artifact_list` returns per artifact.
+/// What `artifact_list` returns per artifact — camelCase on the wire
+/// (the design's §2 table; publish's result carries the same
+/// convention, and one feature must not speak two).
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ArtifactMeta {
     pub id: String,
     pub title: String,
@@ -115,9 +118,8 @@ pub struct PublishOutcome {
     pub version: u64,
     pub is_new: bool,
     /// The artifact's token — STORE-INTERNAL (the TS-visible result
-    /// carries composed URLs, never this). Read by the slice-5 URL
-    /// compositor; unread until then.
-    #[allow(dead_code)]
+    /// carries composed URLs, never this). Consumed by the display
+    /// server's URL compositor in the publish tail.
     pub token: String,
 }
 
@@ -218,6 +220,23 @@ impl ArtifactsStore {
     ) -> StoreResult<PublishOutcome> {
         self.with_enabled(|root, data| {
             let title = validate_title(request.title)?;
+            // The stored state's own bounds: a message or label past its
+            // cap inflates the manifest past MANIFEST_CAP_BYTES — the
+            // write would succeed and the NEXT load would quarantine it
+            // (publish-Ok-then-artifact-vanishes, the silent-loss class).
+            // Bounded at the write, not just the wire.
+            if let Some(message) = request.message {
+                if message.chars().count() > MESSAGE_MAX {
+                    return Err(StoreError::new(format!(
+                        "message must be ≤{MESSAGE_MAX} chars"
+                    )));
+                }
+            }
+            if identity.label.chars().count() > LABEL_MAX {
+                return Err(StoreError::new(format!(
+                    "author label must be ≤{LABEL_MAX} chars"
+                )));
+            }
             let format = request.format;
             let bytes = read_source(root, &request)?;
             let _guard = data.lock().expect("artifacts data poisoned");
@@ -274,6 +293,15 @@ impl ArtifactsStore {
             });
             let manifest_bytes = serde_json::to_vec(&manifest)
                 .map_err(|e| StoreError::new(format!("encoding manifest failed: {e}")))?;
+            // The belt to the caps' braces: whatever the entry sizes, the
+            // serialized manifest must stay inside what load_manifest will
+            // accept — a write the next read would quarantine is a bug
+            // caught here, at the write, where it can refuse loudly.
+            if manifest_bytes.len() as u64 > MANIFEST_CAP_BYTES {
+                return Err(StoreError::new(
+                    "this artifact's manifest exceeds the store's parse cap — remove old versions or shorten metadata",
+                ));
+            }
             write_atomic(&dir.join(MANIFEST_FILE), &manifest_bytes)
                 .map_err(|e| StoreError::new(format!("writing manifest failed: {e}")))?;
             Ok(outcome)
@@ -320,7 +348,6 @@ impl ArtifactsStore {
         workspace_id: &str,
         slug: &str,
         version: Option<u64>,
-        now_ms: u64,
     ) -> StoreResult<ReadResult> {
         self.with_enabled(|root, _data| {
             let manifest = load_manifest(root, workspace_id, slug)?
@@ -348,7 +375,6 @@ impl ArtifactsStore {
                     size: bytes.len() as u64,
                     title: manifest.title,
                     note: "this version exceeds the inline cap — open it in the browser or export it".into(),
-                    _now: now_ms,
                 });
             }
             Ok(ReadResult::Inline {
@@ -376,7 +402,7 @@ impl ArtifactsStore {
             let manifest = load_manifest(root, workspace_id, slug)?;
             match manifest {
                 None => Ok(DeleteOutcome {
-                    slug: slug.to_string(),
+                    id: slug.to_string(),
                     deleted: false,
                     version_count: None,
                     created_at: None,
@@ -386,7 +412,7 @@ impl ArtifactsStore {
                     let created_at = manifest.created;
                     remove_dir_all_best_effort(&dir)?;
                     Ok(DeleteOutcome {
-                        slug: slug.to_string(),
+                        id: slug.to_string(),
                         deleted: true,
                         version_count: Some(version_count),
                         created_at: Some(created_at),
@@ -401,12 +427,14 @@ impl ArtifactsStore {
     /// derive). Idempotent on absence. Takes the data guard like every
     /// other mutation: an unguarded drop racing a mid-write publish would
     /// let the publish RE-CREATE the directory after the drop removed it —
-    /// the exact orphan this exists to prevent. (Unreferenced until the
-    /// slice-5/6 wiring hooks workspace deletion.)
-    #[allow(dead_code)]
+    /// the exact orphan this exists to prevent.
     pub fn drop_workspace(&self, workspace_id: &str) -> StoreResult<()> {
         self.with_enabled(|root, data| {
             let _guard = data.lock().expect("artifacts data poisoned");
+            // The id arrives as a raw invoke argument: the SAME wall every
+            // other workspace-id consumer applies (load_manifest's first
+            // act), or `../../x` would delete outside the store.
+            require_safe(workspace_id, "workspace id")?;
             let dir = workspaces_root(root).join(workspace_id);
             match fs::remove_dir_all(&dir) {
                 Ok(()) => Ok(()),
@@ -502,7 +530,6 @@ fn manifest_for_inner(root: &Path, ws: &str, slug: &str) -> StoreResult<Option<M
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum ReadResult {
     Inline {
         slug: String,
@@ -519,13 +546,15 @@ pub enum ReadResult {
         size: u64,
         title: String,
         note: String,
-        _now: u64,
     },
 }
 
+/// The delete result — camelCase + `id` (the design's §2 wire table;
+/// the agent-facing vocabulary is `id`, matching list and publish).
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeleteOutcome {
-    pub slug: String,
+    pub id: String,
     pub deleted: bool,
     pub version_count: Option<u64>,
     pub created_at: Option<u64>,
@@ -893,7 +922,7 @@ mod tests {
         assert_eq!(list[0].version_count, 1);
         assert_eq!(list[0].last_author, "support 1");
 
-        match store.read("ws-1", "auth-flow", None, 0).unwrap() {
+        match store.read("ws-1", "auth-flow", None).unwrap() {
             ReadResult::Inline { bytes, version, .. } => {
                 assert_eq!(bytes, b"<h1>v1</h1>");
                 assert_eq!(version, 1);
@@ -972,7 +1001,7 @@ mod tests {
         // The artifact 404s (absence), the store keeps working.
         let list = store.list("ws-1").unwrap();
         assert!(list.iter().all(|a| a.id != "sick"));
-        assert!(store.read("ws-1", "sick", None, 0).is_err());
+        assert!(store.read("ws-1", "sick", None).is_err());
         // And a new publish under the same slug resurrects cleanly.
         let out = store.publish(&identity(), content_request(Some("sick"), b"<p/>"), 2000).unwrap();
         assert!(out.is_new);
@@ -1166,7 +1195,7 @@ mod tests {
         // list AGAIN (the bricked-list regression), then recover.
         store.publish(&identity(), content_request(Some("sick"), b"<p/>"), 2000).unwrap();
         std::fs::write(root.join("ws/ws-1/sick/manifest.json"), b"{ not json").unwrap();
-        let _ = store.read("ws-1", "sick", None, 0);
+        let _ = store.read("ws-1", "sick", None);
         store.list("ws-1").unwrap(); // <-- used to brick forever
         let out = store.publish(&identity(), content_request(Some("sick"), b"<p/>"), 3000).unwrap();
         assert!(out.is_new);
@@ -1176,8 +1205,6 @@ mod tests {
 
     #[derive(serde::Deserialize, Debug)]
     struct GoldenCase {
-        #[allow(dead_code)]
-        name: String,
         existing: Option<GoldenExisting>,
         taken: Vec<String>,
         request: GoldenRequest,
@@ -1262,18 +1289,18 @@ mod tests {
             let result = resolve_slug(existing.as_ref(), &request, &root, "ws-1");
             match case.expect.kind.as_str() {
                 "error" => {
-                    let err = result.expect_err(&case.name);
+                    let err = result.expect_err("golden case");
                     if let Some(needle) = &case.expect.error_contains {
                         assert!(err.0.contains(needle), "{case:?}: {err:?}");
                     }
                 }
                 _ => {
-                    let slug = result.expect(&case.name);
+                    let slug = result.expect("golden case");
                     assert_eq!(
                         slug,
                         case.expect.slug.clone().unwrap(),
                         "case: {}",
-                        case.name
+                        "golden case"
                     );
                 }
             }
@@ -1308,7 +1335,7 @@ mod tests {
             cwd: Some(dir.path().to_str().unwrap()),
         };
         store.publish(&identity(), request, 1000).unwrap();
-        match store.read("ws-1", "big-artifact", None, 0).unwrap() {
+        match store.read("ws-1", "big-artifact", None).unwrap() {
             ReadResult::OverCap { note, size, .. } => {
                 assert!(note.contains("browser"), "note points at the durable forms: {note}");
                 assert!(size > CONTENT_CAP_BYTES as u64);
