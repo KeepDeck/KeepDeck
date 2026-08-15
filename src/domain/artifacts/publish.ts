@@ -82,24 +82,21 @@ export interface PublishDeps {
 }
 
 /**
- * Plan one publish. The caller re-invokes per retry attempt; the returned
- * `error` for a minted collision is internal signal — the COMMAND layer
- * loops retries; callers following this contract treat
- * `{kind:"error", reason:"invalid-slug"}` on a MINTED request as
- * "try the next suffix", not a user-facing refusal. (Kept as one function
- * so the collision matrix is one test table, not two code paths.)
+ * Plan one publish. The collision policy, by slug provenance:
+ * - EXPLICIT slug: `existing` (the store's answer for THIS slug) names the
+ *   canvas — same artifact means append (shared canvas: any pane may
+ *   republish), no artifact means the name is free to create.
+ * - MINTED slug: `existing` is IGNORED. A derived name has no references
+ *   to protect, so every collision retries with the next suffix — even
+ *   landing on the base of another artifact (a stranger's canvas) is a
+ *   retry, never a silent join. Same-canvas iteration is what explicit
+ *   ids are for; the skill teaches naming them.
  *
- * STORE CONTRACT (what slice 2 passes): `existing` is the artifact under
- * the TITLE-DERIVED BASE slug — `mintSlugFromTitle(request.title)`, looked
- * up in the store, null when that name is free. Landing on it appends
- * (a name-keyed shared canvas: the publisher derived the same name as the
- * artifact's owner, which is indistinguishable from intending to
- * republish it); OCCUPANCY of the suffixed retry names (`-2`, `-3`, …)
- * is what `deps.exists` answers. Under this contract the design's
- * "explicit slug colliding with a DIFFERENT artifact = error" case is
- * unreachable by construction: an explicit publish naming an existing
- * artifact IS that artifact's canvas, and a different artifact with the
- * same name cannot exist.
+ * The retry sequence is base, -2, -3, … (bounded by MINT_RETRY_MAX); each
+ * candidate is budgeted to the grammar's 64 by truncating the BASE — never
+ * the suffix, which is the part that makes the name distinct. validateSlug
+ * gates every candidate through a checked branch: no unvalidated slug ever
+ * leaves this function.
  */
 export function planPublish(
   existing: ExistingArtifact | null,
@@ -130,32 +127,14 @@ export function planPublish(
     return { kind: "create", slug, format: request.format };
   }
 
-  // Minted slug: base, then -2, -3, … — each candidate budgeted to the
-  // grammar's 64 by truncating the BASE (never the suffix, which is the
-  // part that makes the name distinct). A 64-char base plus an unbudgeted
-  // suffix would exceed the grammar, and the planner never emits an
-  // unvalidated slug: validateSlug gates every candidate, `continue`
-  // treats an off-grammar one as a spent attempt (unreachable by
-  // construction — the budget makes it so — but the branch means the
-  // invariant is checked, not cast away).
+  // Minted slug: retry past EVERY collision — occupancy is deps.exists'
+  // one question, `existing` carries no ownership and is not consulted.
   const base = mintSlugFromTitle(title);
   for (let attempt = 1; attempt <= MINT_RETRY_MAX; attempt++) {
     const suffix = attempt === 1 ? "" : `-${attempt}`;
     const head = base.slice(0, SLUG_MAX - suffix.length).replace(/-+$/, "");
     const candidate = validateSlug(head + suffix);
     if (candidate === null) continue;
-    if (existing !== null && existing.slug === candidate) {
-      // The mint landed on THIS artifact's own name: a same-canvas
-      // republish, not a collision — append.
-      if (existing.format !== request.format) {
-        return {
-          kind: "error",
-          reason: "format-pinned",
-          detail: `${candidate} is ${existing.format}; publish a new artifact for ${request.format}`,
-        };
-      }
-      return { kind: "append", slug: candidate, nextVersion: existing.versionCount + 1 };
-    }
     if (!deps.exists(candidate)) {
       return { kind: "create", slug: candidate, format: request.format };
     }

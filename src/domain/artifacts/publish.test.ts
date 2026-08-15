@@ -92,26 +92,28 @@ describe("minted slug", () => {
     expect(plan).toEqual({ kind: "create", slug: "auth-flow-3", format: "html" });
   });
 
-  it("appends when the mint lands on THIS artifact's own name", () => {
+  it("minted collisions ALWAYS retry — even onto another artifact's base (no silent joins)", () => {
+    // A stranger's artifact holds auth-flow; my title derives the same
+    // base. The mint must NOT append to their canvas — it retries.
+    // Same-canvas iteration is what explicit ids are for.
     const plan = planPublish(
       existing(),
       { title: "Auth Flow", format: "html" },
       names("auth-flow"),
     );
-    expect(plan).toEqual({ kind: "append", slug: "auth-flow", nextVersion: 4 });
+    expect(plan).toEqual({ kind: "create", slug: "auth-flow-2", format: "html" });
   });
 
-  it("refuses the format flip when the mint lands on this artifact", () => {
+  it("the mint never flips a format it landed on — it never lands on one", () => {
+    // Follows from minted-always-retries: no append on the mint path, so
+    // the format-pin refusal is explicit-slug-only. Pinned so a future
+    // "clever" change to append-on-mint fails this line.
     const plan = planPublish(
-      existing(),
-      { title: "Auth Flow", format: "md" },
+      existing({ format: "md" }),
+      { title: "Auth Flow", format: "html" },
       names("auth-flow"),
     );
-    expect(plan.kind).toBe("error");
-    if (plan.kind === "error") {
-      expect(plan.reason).toBe("format-pinned");
-      expect(plan.detail).toContain("auth-flow is html");
-    }
+    expect(plan).toEqual({ kind: "create", slug: "auth-flow-2", format: "html" });
   });
 
   it("errors when MINT_RETRY_MAX attempts all collide", () => {
