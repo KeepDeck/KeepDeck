@@ -73,8 +73,12 @@ struct SubEntry {
 /// loop and the keepalive-tick loop alike. (Visible to the module's
 /// tests — the wedged-subscriber test reads the registry directly.)
 pub(super) struct Shared {
-    root: PathBuf,
-    port: u16,
+    /// The store root — read by the lock-free tail entries and mod.rs's
+    /// resolve command.
+    pub(super) root: PathBuf,
+    /// Read by the lock-free tail entries (index_url_for, the resolve
+    /// path) — pub(super) so mod.rs's router command reaches it.
+    pub(super) port: u16,
     /// Index tokens: boot-minted per workspace, in-memory, dying with
     /// the port (B5 — born together, dead together).
     index_tokens: Mutex<HashMap<String, String>>,
@@ -165,50 +169,20 @@ impl DisplayServer {
         (artifact, index)
     }
 
-    /// resolve_urls (B10's identifier-only entry): the notification
-    /// router's path — no token in hand; the server resolves the manifest
-    /// via the ws scan. Dead artifact → None artifact (the router's
-    /// index-fallback rule).
-    pub fn resolve_urls(&self, ws: &str, slug: &str) -> (Option<String>, String) {
-        let artifact = manifest_for(&self.shared.root, ws, slug)
-            .ok()
-            .flatten()
-            .map(|m| format!("http://127.0.0.1:{}/a/{}/{}", self.shared.port, m.token, slug));
-        (artifact, self.index_url(ws))
-    }
-
     fn index_url(&self, ws: &str) -> String {
-        let token = ensure_index_token(&self.shared, ws);
-        format!("http://127.0.0.1:{}/{}/", self.shared.port, token)
+        index_url_for(&self.shared, ws)
     }
 
-    /// Broadcast a `version` event to an artifact's UNPINNED subscribers
-    /// — the publish tail calls this AFTER the store mutex releases.
-    pub fn broadcast_version(&self, ws: &str, slug: &str, version: u64) {
-        // The CURRENT artifact's token — re-read per broadcast (the
-        // no-cache rule): entries minted against a DIFFERENT token are
-        // tabs of a dead generation (delete → resurrect reused the key);
-        // they get bye, never the new artifact's events.
-        let live_token = manifest_for(&self.shared.root, ws, slug)
-            .ok()
-            .flatten()
-            .map(|m| m.token);
-        let mut registry = self.shared.subs.lock().expect("subs poisoned");
-        if let Some(entries) = registry.get_mut(&(ws.to_string(), slug.to_string())) {
-            entries.retain(|entry| {
-                if let Some(token) = &live_token {
-                    if &entry.token != token {
-                        let _ = write_event(&entry.write, "bye", "artifact replaced");
-                        let _ = entry.write.shutdown(std::net::Shutdown::Both);
-                        return false;
-                    }
-                }
-                if entry.pinned.is_some() {
-                    return true; // pinned: never yanked, stays subscribed
-                }
-                write_event(&entry.write, "version", &version.to_string()).is_ok()
-            });
-        }
+    // (resolve_urls and broadcast_version moved to the LOCK-FREE
+    // entries — index_url_for / broadcast_version_on — when the command
+    // tail stopped holding the server mutex; the methods died with the
+    // move, deleted rather than suppressed.)
+
+    /// The shared handle for lock-free tail operations (the publish tail
+    /// broadcasts WITHOUT holding the server mutex — see
+    /// broadcast_version_on).
+    pub fn shared_arc(&self) -> Arc<Shared> {
+        Arc::clone(&self.shared)
     }
 
     /// Broadcast `bye` + close SYNCHRONOUSLY (tool-delete) — the
@@ -224,12 +198,53 @@ impl DisplayServer {
     }
 }
 
+/// Broadcast a `version` event to an artifact's UNPINNED subscribers —
+/// callable WITHOUT the DisplayServer mutex (the publish tail's shape):
+/// the caller holds only this Arc. The CURRENT artifact's token is
+/// re-read per broadcast (the no-cache rule): entries minted against a
+/// DIFFERENT token are tabs of a dead generation (delete → resurrect
+/// reused the key); they get bye, never the new artifact's events.
+pub(super) fn broadcast_version_on(
+    shared: &Arc<Shared>,
+    ws: &str,
+    slug: &str,
+    version: u64,
+) {
+    let live_token = manifest_for(&shared.root, ws, slug)
+        .ok()
+        .flatten()
+        .map(|m| m.token);
+    let mut registry = shared.subs.lock().expect("subs poisoned");
+    if let Some(entries) = registry.get_mut(&(ws.to_string(), slug.to_string())) {
+        entries.retain(|entry| {
+            if let Some(token) = &live_token {
+                if &entry.token != token {
+                    let _ = write_event(&entry.write, "bye", "artifact replaced");
+                    let _ = entry.write.shutdown(std::net::Shutdown::Both);
+                    return false;
+                }
+            }
+            if entry.pinned.is_some() {
+                return true; // pinned: never yanked, stays subscribed
+            }
+            write_event(&entry.write, "version", &version.to_string()).is_ok()
+        });
+    }
+}
+
 fn ensure_index_token(shared: &Shared, ws: &str) -> String {
     let mut tokens = shared.index_tokens.lock().expect("index tokens poisoned");
     tokens
         .entry(ws.to_string())
         .or_insert_with(mint_token)
         .clone()
+}
+
+/// The workspace index URL — lock-free entry (the notification router's
+/// resolution runs without the server mutex).
+pub(super) fn index_url_for(shared: &Arc<Shared>, ws: &str) -> String {
+    let token = ensure_index_token(shared, ws);
+    format!("http://127.0.0.1:{}/{}/", shared.port, token)
 }
 
 // ---- the accept loop (B1: poll(listener, wake) → verdict) ----
@@ -644,6 +659,7 @@ mod tests {
         ArtifactFormat, ArtifactsStore, PublishIdentity, PublishRequest,
     };
     use std::io::Read as _;
+    use std::os::fd::AsRawFd as _;
 
     /// A live server over a real store root in a temp dir.
     fn fixture(tag: &str) -> (DisplayServer, ArtifactsStore, PathBuf, tempfile::TempDir) {
@@ -905,16 +921,30 @@ mod tests {
         // broadcast (the command tail's exact wiring), with a subscriber
         // that NEVER reads — its buffer fills, the write times out, the
         // entry prunes, and the broadcast RETURNS (no hang, no panic).
+        // The wedge is REAL: the client sets a tiny SO_RCVBUF before
+        // connecting (a previous version drove ~1KB of events against
+        // default buffers and passed vacuously — the timeout never
+        // engaged).
         let (server, store, root, _dir) = fixture("wedged");
         let token = publish(&store, "wedge", b"v1");
         let mut wedged = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        let rcvbuf: libc::c_int = 1024;
+        unsafe {
+            libc::setsockopt(
+                wedged.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_RCVBUF,
+                &rcvbuf as *const _ as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            );
+        }
         wedged
             .write_all(
                 format!("GET /a/{token}/wedge/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
             )
             .unwrap();
         std::thread::sleep(Duration::from_millis(150));
-        // Fill the wedged subscriber's buffer: broadcasts until the
+        // Fill the wedged subscriber's small buffer: broadcasts until the
         // write timeout errors. Bounded by the work, not wall time.
         for i in 2..=40u64 {
             store

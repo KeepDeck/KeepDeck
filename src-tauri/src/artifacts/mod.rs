@@ -231,19 +231,24 @@ pub fn artifact_publish(
     // broadcast, then AUTO-OPEN on first-publish-of-NEW (best-effort:
     // an opener failure degrades to the notification that exists
     // anyway, logged, never failing the publish).
+    //
+    // The server LOCK is held only for the existence check + compose;
+    // broadcast runs on the CLONED Arc — a wedged subscriber inside
+    // broadcast_version must not hold every later publish tail (and the
+    // enable/disable toggle) hostage behind this mutex.
     let url_and_index = {
         let server = state.server.lock().expect("artifacts server poisoned");
         server.as_ref().map(|live| {
             let (url, index) = live.compose_urls(&payload.workspace_id, &out.slug, &out.token);
-            live.broadcast_version(&payload.workspace_id, &out.slug, out.version);
-            (url, index)
+            (url, index, live.shared_arc())
         })
     };
     let (url, index_url) = match url_and_index {
-        Some((url, index)) => {
+        Some((url, index, shared)) => {
+            server::broadcast_version_on(&shared, &payload.workspace_id, &out.slug, out.version);
             if out.is_new && payload.auto_open {
-                // Auto-open runs OUTSIDE the server lock (the opener can
-                // block on the OS; the server must never wait for it).
+                // Auto-open runs OUTSIDE every lock (the opener can
+                // block on the OS).
                 if let Err(e) = open_browser(&url) {
                     log::warn!("artifacts: auto-open failed (publish unaffected): {e}");
                 }
@@ -328,17 +333,28 @@ pub fn artifact_delete(
 }
 
 /// The notification router's URL resolution (identifier-only, B10).
+/// Runs WITHOUT the server mutex (only the Arc): a notification click
+/// must not queue behind a wedged publish tail's broadcast.
 #[tauri::command(async)]
 pub fn artifact_resolve_urls(
     state: State<ArtifactsState>,
     payload: WorkspacePayload,
     slug: String,
 ) -> Result<ResolveUrlsResult, String> {
-    let server = state.server.lock().expect("artifacts server poisoned");
-    match server.as_ref() {
-        Some(live) => {
-            let (url, index_url) = live.resolve_urls(&payload.workspace_id, &slug);
-            Ok(ResolveUrlsResult { url, index_url })
+    let shared = {
+        let server = state.server.lock().expect("artifacts server poisoned");
+        server.as_ref().map(|live| live.shared_arc())
+    };
+    match shared {
+        Some(shared) => {
+            let artifact = store::manifest_for(&shared.root, &payload.workspace_id, &slug)
+                .ok()
+                .flatten()
+                .map(|m| {
+                    format!("http://127.0.0.1:{}/a/{}/{}", shared.port, m.token, slug)
+                });
+            let index_url = server::index_url_for(&shared, &payload.workspace_id);
+            Ok(ResolveUrlsResult { url: artifact, index_url })
         }
         None => Err("display server off".into()),
     }

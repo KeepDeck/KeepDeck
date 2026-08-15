@@ -85,5 +85,33 @@
     "taken": [],
     "request": { "slug": null, "title": "！！！", "format": "md" },
     "expect": { "kind": "create", "slug": "artifact" }
+  },
+  {
+    "name": "unicode İ lowercases to i+combining-dot (full Unicode: the dot becomes a dash, both twins)",
+    "existing": null,
+    "taken": [],
+    "request": { "slug": null, "title": "İstanbul", "format": "md" },
+    "expect": { "kind": "create", "slug": "i-stanbul" }
+  },
+  {
+    "name": "kelvin sign K lowercases to k (full Unicode, both twins)",
+    "existing": null,
+    "taken": [],
+    "request": { "slug": null, "title": "\u212A", "format": "md" },
+    "expect": { "kind": "create", "slug": "k" }
+  },
+  {
+    "name": "CJK title collapses to the fallback (no ascii survives)",
+    "existing": null,
+    "taken": [],
+    "request": { "slug": null, "title": "日本語のタイトル", "format": "md" },
+    "expect": { "kind": "create", "slug": "artifact" }
+  },
+  {
+    "name": "emoji-only title → fallback (scalars, not UTF-16 units)",
+    "existing": null,
+    "taken": [],
+    "request": { "slug": null, "title": "🎉🎉🎉", "format": "md" },
+    "expect": { "kind": "create", "slug": "artifact" }
   }
 ]

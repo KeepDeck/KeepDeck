@@ -793,12 +793,15 @@ const MINT_RETRY_MAX: usize = 8;
 /// Mint a slug from the title (the domain's derivation, mirrored for the
 /// Rust side; the TS planner owns the canonical definition and its tests).
 fn mint_slug_from_title(title: &str) -> String {
+    // FULL Unicode lowercasing, the TS twin's semantics exactly: the
+    // twins once diverged here (ascii-only let İ/K mint different slugs
+    // on the two sides); the shared fixtures pin the agreement.
+    let lowered = title.to_lowercase();
     let mut derived = String::new();
     let mut dash = false;
-    for c in title.chars() {
-        let lower = c.to_ascii_lowercase();
-        if lower.is_ascii_lowercase() || lower.is_ascii_digit() {
-            derived.push(lower);
+    for c in lowered.chars() {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            derived.push(c);
             dash = false;
         } else if !dash && !derived.is_empty() {
             derived.push('-');

@@ -243,11 +243,12 @@ export function ExperimentalSection() {
         releases the store. Off by default — the feature is experimental.
       </span>
 
-      {artifacts && (
+      {artifacts && artifactAutoOpen && (
         <span className="settings__hint">
           The first publish of a new artifact opens it in the browser
           automatically; later versions refresh the open page instead of
-          opening tabs.
+          opening tabs. (Turn "Auto-open artifacts" off to publish
+          silently.)
         </span>
       )}
 
@@ -269,7 +270,11 @@ export function ExperimentalSection() {
         </div>
       )}
 
-      {artifacts && !mcpServer && (
+      {artifacts && !served && (
+        // Keyed on the CONFIRMED socket (the same observable the
+        // registration gate reads), not the setting: mcpServer-ON with a
+        // failed socket showed neither tools nor this hint — the hint and
+        // the gate must agree on what "the transport is down" means.
         // Same shape as the teams pairing: the pages keep serving with the
         // transport off, but PUBLISHING is an MCP call — a pane could be
         // asked to show something and have no way to do it.
