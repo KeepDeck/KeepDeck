@@ -28,10 +28,10 @@ use crate::state::write_atomic;
 
 pub(crate) const SKILL_FILE: &str = "SKILL.md";
 
-/// Path-segment safety shared by skill names and workspace ids: one plain
-/// directory name, no traversal. The friendlier naming rules (kebab-case
-/// etc.) are the webview's business.
-pub(super) fn require_safe(segment: &str, what: &str) -> Result<(), String> {
+/// Path-segment safety shared by skill names, workspace ids and role ids
+/// (via the `skills` re-export): one plain directory name, no traversal.
+/// The friendlier naming rules (kebab-case etc.) are the webview's business.
+pub(crate) fn require_safe(segment: &str, what: &str) -> Result<(), String> {
     let ok = !segment.is_empty()
         && segment.len() <= 64
         && segment

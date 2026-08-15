@@ -27,6 +27,7 @@ mod project_git;
 mod session_tail;
 mod session;
 mod sessions;
+mod roles;
 mod skills;
 mod voice;
 mod history;
@@ -217,6 +218,9 @@ pub fn run() {
             skills::skills_stage,
             skills::skills_prune,
             skills::skills_disarm,
+            roles::roles_list,
+            roles::roles_save,
+            roles::roles_delete,
             ports::ports_allocate,
             plugins_fs::plugins_scan,
             plugins_fs::plugins_resolve_dir,
