@@ -154,9 +154,9 @@ export function windowResetCaption(
 
 /** "now" / "3m ago" / "2h ago" — the popover's "Updated …" line. */
 /** THE relative-age formatter — the usage chips/tables and the
- * notification bell are the two surfaces a user compares when asking
- * "when did this happen", so they share one set of thresholds. The bell
- * drops the suffix; the thresholds and flooring never fork. */
+ * notification bell's tooltip are the two surfaces a user compares when
+ * asking "when did this happen", so they share one set of thresholds.
+ * The thresholds and flooring never fork. */
 export function formatAge(
   reportedAt: number,
   now: number,
@@ -168,6 +168,28 @@ export function formatAge(
   if (s < 3600) return `${Math.floor(s / 60)}m${suffix}`;
   if (s < 86_400) return `${Math.floor(s / 3600)}h${suffix}`;
   return `${Math.floor(s / 86_400)}d${suffix}`;
+}
+
+const two = (n: number): string => String(n).padStart(2, "0");
+
+/**
+ * THE exact-stamp formatter for the notification bell: `14:32` for an
+ * entry from today, `26.12` for an older one — the user asked for a plain
+ * date over relative words ("an hour ago"), and the day alone is enough
+ * because the list is runtime state that never outlives the process. No
+ * year, no locale words: both would add width, not information. The
+ * relative age stays available beside it via [`formatAge`] (the tooltip).
+ */
+export function formatTimestamp(at: number, now: number): string {
+  const d = new Date(at);
+  const n = new Date(now);
+  const sameDay =
+    d.getFullYear() === n.getFullYear() &&
+    d.getMonth() === n.getMonth() &&
+    d.getDate() === n.getDate();
+  return sameDay
+    ? `${two(d.getHours())}:${two(d.getMinutes())}`
+    : `${two(d.getDate())}.${two(d.getMonth() + 1)}`;
 }
 
 /** THE display name of a model field — one fallback for every surface

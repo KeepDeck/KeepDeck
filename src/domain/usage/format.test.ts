@@ -7,6 +7,7 @@ import {
   formatCountdown,
   formatMoment,
   formatPct,
+  formatTimestamp,
   formatTokens,
   formatUsd,
   limitLevel,
@@ -192,6 +193,35 @@ describe("staleness and age", () => {
     expect(formatAge(NOW - 5000, NOW, "bare")).toBe("now");
     expect(formatAge(NOW - 3 * 60_000, NOW, "bare")).toBe("3m");
     expect(formatAge(NOW - 2 * 86_400_000, NOW, "bare")).toBe("2d");
+  });
+});
+
+describe("formatTimestamp", () => {
+  // Local-calendar instants, so the suite holds in any timezone.
+  const at = (y: number, m: number, d: number, h = 0, min = 0) =>
+    new Date(y, m - 1, d, h, min).getTime();
+
+  it("today's entries show the clock time", () => {
+    expect(formatTimestamp(at(2026, 8, 15, 14, 32), at(2026, 8, 15, 20, 0))).toBe(
+      "14:32",
+    );
+    // Midnight is the boundary, not midnight-ish: the same calendar day
+    // keeps the clock even at 00:01.
+    expect(formatTimestamp(at(2026, 8, 15, 0, 1), at(2026, 8, 15, 23, 59))).toBe(
+      "00:01",
+    );
+  });
+
+  it("older entries show the plain date, zero-padded", () => {
+    expect(formatTimestamp(at(2026, 8, 14, 22, 0), at(2026, 8, 15, 0, 1))).toBe(
+      "14.08",
+    );
+    expect(formatTimestamp(at(2026, 7, 31, 9, 0), at(2026, 8, 1, 9, 0))).toBe(
+      "31.07",
+    );
+    expect(formatTimestamp(at(2026, 3, 5, 9, 0), at(2026, 3, 6, 9, 0))).toBe(
+      "05.03",
+    );
   });
 });
 
