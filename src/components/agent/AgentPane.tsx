@@ -7,7 +7,11 @@ import {
   type PaneIdle,
   type PaneProvisioning,
 } from "../../domain/deck";
-import { activityBadge, paneFrame } from "../../domain/status";
+import {
+  activityBadge,
+  paneFrame,
+  type PaneFramePlace,
+} from "../../domain/status";
 import { useWallClock } from "../../ui/useWallClock";
 import { usePaneActivity } from "../../app/usePaneActivity";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
@@ -68,13 +72,23 @@ export interface AgentPaneProps {
   /** List layout: render header-only (the terminal body is hidden but stays
    * mounted), with a chevron; clicking the header expands it (via onSelect). */
   folded?: boolean;
-  /** Whether this is the active pane (gets the highlight border). */
+  /** Whether this is the active pane — drives terminal keyboard focus.
+   * The frame's selection rung does NOT read this: it comes from
+   * [`framePlace`], which the stage states in layout terms. */
   selected: boolean;
   /** Whether global presentation surfaces allow terminal keyboard focus. */
   keyboardFocusEnabled: boolean;
-  /** The only pane in its workspace: no maximize control ([U1]) and no highlight
-   * border ([U2]) — there's nothing to maximize over or tell it apart from. */
+  /** The only pane in its workspace: no maximize control ([U1]). Chrome
+   * vocabulary only — a list row reads `solo: true` as well, so the frame
+   * ladder must not learn "fills the stage" from it (that fact is
+   * [`framePlace`]). */
   solo: boolean;
+  /** The pane's place as the frame ladder sees it, stated by the stage —
+   * the one surface that knows which layout renders (`solo` is chrome
+   * vocabulary: true on every list row AND on a lone grid pane, but only
+   * the grid pane fills the stage). This pane adds its live activity; the
+   * domain ladder does all the ranking. */
+  framePlace: PaneFramePlace;
   /** The pane has no process behind it, and why ([F7]) — render a quiet tile
    * instead of mounting a terminal (mounting is what spawns the PTY). */
   idle?: PaneIdle;
@@ -164,6 +178,7 @@ export function AgentPane({
   selected,
   keyboardFocusEnabled,
   solo,
+  framePlace,
   idle,
   wakeError,
   blockedDir,
@@ -231,10 +246,10 @@ export function AgentPane({
   // channel gates ingest on a live process and clears a pane the moment
   // its process dies, so whatever the store holds is current by contract.
   const activityView = activity ? activityBadge(activity) : null;
-  // The ONE frame this pane wears — the domain ranks attention, selection
-  // and done; this view only appends the class. The selection-visibility
-  // rule (not maximized, not the only pane) predates the ladder and stays.
-  const frame = paneFrame(activity, selected && !focused && !solo);
+  // The ONE frame this pane wears — the domain ladder ranks attention, the
+  // full-bleed gate, selection and the activity tail. This view contributes
+  // only facts: its live activity, and the place the stage stated.
+  const frame = paneFrame({ activity, ...framePlace });
   return (
     <section
       data-pane-id={paneId}

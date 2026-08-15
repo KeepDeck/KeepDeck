@@ -21,6 +21,7 @@ import {
   paneBody,
 } from "../domain/deck";
 import type { MinimizeStyle, DeckLayout } from "../domain/settings";
+import type { PaneFramePlace } from "../domain/status";
 import { teamNamesIn } from "../domain/mail";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
@@ -46,6 +47,11 @@ interface PaneLayout {
   /** Header-only (list layout, a non-expanded row). */
   folded: boolean;
   solo: boolean;
+  /** The pane's place as the frame ladder sees it — stated HERE, the one
+   * surface that knows which layout is rendering (`solo` is chrome
+   * vocabulary: a list row and a lone grid pane both read it, only one
+   * fills the stage). */
+  framePlace: PaneFramePlace;
   onMinimize?: () => void;
 }
 
@@ -277,6 +283,12 @@ export function DeckStage({
             // to explicit grid minimizes this includes suspended panes while
             // the global placement is Tray and its suspend transition put it
             // in the existing minimized set.
+            // Hidden from the chosen layout, but still mounted. In addition
+            // to explicit grid minimizes this includes suspended panes while
+            // the global placement is Tray and its suspend transition put it
+            // in the existing minimized set. A hidden pane is never the
+            // selected one — selection resolves to a live, visible pane
+            // (the same contract MinimizedItem documents for its chip).
             return {
               colSpan: 1,
               visible: false,
@@ -284,6 +296,7 @@ export function DeckStage({
               hidden: true,
               folded: false,
               solo: false,
+              framePlace: { selected: false, fullBleed: false },
             };
           }
           if (isList) {
@@ -295,6 +308,10 @@ export function DeckStage({
               hidden: false,
               folded,
               solo: true, // no maximize / highlight border in list rows
+              // Expansion itself marks the cursor's row — a highlight border
+              // would double it — and an accordion row never fills the
+              // stage, whatever its chrome `solo` says.
+              framePlace: { selected: false, fullBleed: false },
             };
           }
           const isFocused = pane.id === focusedHere;
@@ -308,6 +325,13 @@ export function DeckStage({
             hidden: hiddenByMaximize,
             folded: false,
             solo: soloGrid,
+            // Only a grid pane can fill the stage: maximized by hand, or the
+            // one live pane left. Selection stays truthful — the ladder's
+            // full-bleed gate decides whether it ever wears.
+            framePlace: {
+              selected: pane.id === selectedPaneId,
+              fullBleed: isFocused || soloGrid,
+            },
             // No minimizing the last visible agent — that would leave an empty
             // grid; hide the control until there's more than one live pane.
             onMinimize:
@@ -478,6 +502,7 @@ export function DeckStage({
               selected={pane.id === selectedPaneId}
               keyboardFocusEnabled={keyboardFocusEnabled}
               solo={layout.solo}
+              framePlace={layout.framePlace}
               idle={pane.idle}
               wakeError={wakeFailed[pane.id] ?? null}
               blockedDir={idleBlocked[pane.id] ?? null}

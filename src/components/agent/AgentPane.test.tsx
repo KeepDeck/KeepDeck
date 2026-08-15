@@ -78,6 +78,7 @@ const baseProps = {
   selected: false,
   keyboardFocusEnabled: true,
   solo: false,
+  framePlace: { selected: false, fullBleed: false },
   colSpan: 1,
   onSelect: () => {},
   onToggleFocus: () => {},
@@ -345,11 +346,14 @@ describe("AgentPane — activity badge", () => {
   });
 
   it("ranks the frame by the domain ladder — attention beats selection, working and done yield", () => {
-    // Selected (and neither maximized nor solo): the selection frame shows
-    // until an attention state takes it.
+    // A selected gridded pane: the selection frame shows until an
+    // attention state takes it.
     act(() =>
       root.render(
-        createElement(PaneUnderTest, { ...baseProps, selected: true }),
+        createElement(PaneUnderTest, {
+          ...baseProps,
+          framePlace: { selected: true, fullBleed: false },
+        }),
       ),
     );
     let pane = document.querySelector<HTMLElement>(".pane");
@@ -366,11 +370,7 @@ describe("AgentPane — activity badge", () => {
     expect(pane!.className).toContain("pane--frame-selected");
 
     // …and shows on its own once the selection frame is gone.
-    act(() =>
-      root.render(
-        createElement(PaneUnderTest, { ...baseProps, selected: false }),
-      ),
-    );
+    act(() => root.render(createElement(PaneUnderTest, baseProps)));
     pane = document.querySelector<HTMLElement>(".pane");
     expect(pane!.className).toContain("pane--frame-done");
 
@@ -382,11 +382,71 @@ describe("AgentPane — activity badge", () => {
     // …and yields to selection exactly like done does.
     act(() =>
       root.render(
-        createElement(PaneUnderTest, { ...baseProps, selected: true }),
+        createElement(PaneUnderTest, {
+          ...baseProps,
+          framePlace: { selected: true, fullBleed: false },
+        }),
       ),
     );
     pane = document.querySelector<HTMLElement>(".pane");
     expect(pane!.className).toContain("pane--frame-selected");
+  });
+
+  it("wears attention only when its place fills the whole stage — the rim says nothing else", () => {
+    // A stage-filling pane: attention still frames…
+    const fillsStage = { ...baseProps, framePlace: { selected: false, fullBleed: true } };
+    act(() => root.render(createElement(PaneUnderTest, fillsStage)));
+    reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
+    let pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-waiting");
+
+    // …but done and working don't — the pane's own header spells them out
+    // in place, and a rim repeating them at the screen's edge is noise.
+    reportEdge({ kind: "turn-end", at: Date.now() });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).not.toContain("pane--frame-done");
+
+    reportEdge({ kind: "turn-start", at: Date.now() });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).not.toContain("pane--frame-working");
+
+    // Selection has nothing to pick out from the whole stage either.
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, {
+          ...baseProps,
+          framePlace: { selected: true, fullBleed: true },
+        }),
+      ),
+    );
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).not.toContain("pane--frame-selected");
+
+    // Attention pierces that rim exactly the same way.
+    reportEdge({
+      kind: "turn-failed",
+      at: Date.now(),
+      error: "rate_limit",
+      detail: "Weekly limit reached",
+    });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-failed");
+  });
+
+  it("frames working and done on a list row — chrome `solo` is not the stage", () => {
+    // The regression this pins: a list-layout row carries `solo: true` for
+    // its CHROME (no maximize control), but it is an accordion row, not a
+    // stage-filling pane — the stage states its place truthfully, and the
+    // row keeps the frames a gridded pane wears.
+    const row = { ...baseProps, solo: true, folded: true };
+    act(() => root.render(createElement(PaneUnderTest, row)));
+    reportEdge({ kind: "turn-start", at: Date.now() });
+    let pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-working");
+
+    reportEdge({ kind: "turn-end", at: Date.now() });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-done");
   });
 
   it("shows nothing before the first edge, and renders the tracker verbatim", () => {

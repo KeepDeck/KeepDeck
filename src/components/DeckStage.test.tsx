@@ -2,19 +2,25 @@
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createAgentStatusTracker } from "../app/agentStatusTracker";
 import { createUsageManager } from "../app/usageManager";
 import { AppRuntimeProvider } from "../app/runtimeContext";
 import type { AppRuntime } from "../app/runtime";
 
-/** The runtime slice the panes under DeckStage read (activity + ctx%). */
+/** The runtime slice the panes under DeckStage read (activity + ctx%). The
+ * tracker is a mutable binding so the frames describe can report live
+ * activity; that describe takes a fresh instance in its beforeEach AND
+ * restores a clean one in afterEach, so the frame-agnostic describes never
+ * observe reported edges whatever order they run in. */
+let statusTracker = createAgentStatusTracker();
 const withRuntime = (el: ReactElement) =>
   createElement(
     AppRuntimeProvider,
     {
       runtime: {
-        statusTracker: createAgentStatusTracker(),
+        statusTracker,
         usageManager: createUsageManager(),
       } as unknown as AppRuntime,
     },
@@ -548,5 +554,75 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
     ).toBe(true);
     expect(document.querySelector(".deck__tray")).toBeNull();
     expect(document.querySelector(".deck__folds")).toBeNull();
+  });
+});
+
+describe("DeckStage — status frames across layouts", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    vi.mocked(TerminalPane).mockClear();
+    statusTracker = createAgentStatusTracker();
+    statusTracker.registerNormalizer(
+      "codex",
+      (payload: unknown) =>
+        (payload as { edge?: AgentStatusEvent }).edge ?? null,
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    statusTracker = createAgentStatusTracker();
+  });
+
+  const render = (overrides: Record<string, unknown> = {}) =>
+    act(() => root.render(withRuntime(createElement(DeckStage, props(overrides)))));
+
+  const paneEl = (paneId: string) =>
+    document.querySelector<HTMLElement>(`[data-pane-id='${paneId}']`)!;
+
+  const reportEdge = (paneId: string, edge: AgentStatusEvent) =>
+    act(() => statusTracker.report(paneId, { agent: "codex", edge }));
+
+  it("frames working and done on list rows — an accordion row is not the stage", () => {
+    render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-2" } } });
+    reportEdge("pane-1", { kind: "turn-start", at: 1 });
+    reportEdge("pane-2", { kind: "turn-end", at: 1 });
+
+    // Both rows keep the frames a gridded pane wears, and neither wears a
+    // selection border — expansion itself marks the cursor's row.
+    expect(paneEl("pane-1").classList.contains("pane--frame-working")).toBe(
+      true,
+    );
+    expect(paneEl("pane-2").classList.contains("pane--frame-done")).toBe(true);
+    expect(paneEl("pane-2").classList.contains("pane--frame-selected")).toBe(
+      false,
+    );
+  });
+
+  it("keeps a stage-filling grid pane's rim for attention alone", () => {
+    // Maximized by hand.
+    render({ viewByWs: { "ws-1": { focus: "pane-1" } } });
+    reportEdge("pane-1", { kind: "turn-start", at: 1 });
+    expect(paneEl("pane-1").classList.contains("pane--frame-working")).toBe(
+      false,
+    );
+    reportEdge("pane-1", { kind: "waiting", at: 2, reason: "permission" });
+    expect(paneEl("pane-1").classList.contains("pane--frame-waiting")).toBe(
+      true,
+    );
+
+    // The lone pane left on the grid reads the same.
+    render({ viewByWs: { "ws-1": { minimized: ["pane-2"] } } });
+    reportEdge("pane-1", { kind: "turn-start", at: 3 });
+    expect(paneEl("pane-1").classList.contains("pane--frame-working")).toBe(
+      false,
+    );
+    reportEdge("pane-1", { kind: "waiting", at: 4, reason: "question" });
+    expect(paneEl("pane-1").classList.contains("pane--frame-waiting")).toBe(
+      true,
+    );
   });
 });
