@@ -99,6 +99,7 @@ function setup(initial: boolean | null) {
         sessionListeners.add(listener);
         return () => sessionListeners.delete(listener);
       },
+      onRoleCatalogChanged: () => () => {},
       terminal: {
         deliver: (mail) => {
           delivered.push(mail);

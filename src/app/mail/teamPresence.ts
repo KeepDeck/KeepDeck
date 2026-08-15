@@ -37,6 +37,12 @@ export interface TeamPresenceDeps {
   onSessionBegan(listener: (paneId: string) => void): () => void;
   /** A pane whose context was rebuilt under it. */
   onContextRebuilt(listener: (paneId: string) => void): () => void;
+  /** The role catalog changed — the charters and summaries every live
+   * briefing was built from may no longer be what the deck believes. */
+  onCatalogChanged(listener: () => void): () => void;
+  /** Everyone currently on any team — the panes whose briefing that change
+   * may have rewritten. Read per call: membership moves. */
+  teamedPanes(): string[];
 }
 
 export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } {
@@ -59,6 +65,16 @@ export function createTeamPresence(deps: TeamPresenceDeps): { dispose(): void } 
   const unsubscribes = [
     deps.onSessionBegan(restate("began a fresh session")),
     deps.onContextRebuilt(restate("had its context rebuilt")),
+    // One event, many panes: unlike the two signals above this one names
+    // nobody, so the walk over the teamed panes lives here. `restate`
+    // re-reads each standing, and standing context supersedes itself in
+    // the queue — a pane that collects nothing meanwhile holds ONE
+    // briefing, not a pile.
+    deps.onCatalogChanged(() => {
+      for (const paneId of deps.teamedPanes()) {
+        restate("the role catalog changed")(paneId);
+      }
+    }),
   ];
 
   return {
