@@ -30,6 +30,7 @@ vi.mock("../../ipc/roles", () => rolesIpc);
 import {
   initRoleCatalog,
   resetRoleCatalogManager,
+  saveStoredRole,
 } from "../../app/roleCatalogManager";
 import { roleById } from "../../domain/mail";
 import { TeamRolesSection } from "./TeamRolesSection";
@@ -128,6 +129,79 @@ describe("TeamRolesSection", () => {
       "numbered",
     );
     expect(rolesIpc.saveRoleFile).not.toHaveBeenCalled();
+  });
+
+  it("lets a late-landing catalog re-seed an untouched editor", async () => {
+    await mount();
+    await click(row("Lead"));
+    expect((field("Role label") as HTMLInputElement).value).toBe("Lead");
+    // The stored override lands AFTER the editor opened — a slow boot read
+    // resolving, another surface saving. Untouched, the draft follows it:
+    // saving the pre-load seed would overwrite texts the user never saw.
+    rolesIpc.disk.set(
+      "lead",
+      JSON.stringify({ label: "Captain", summary: "owns it", charter: ["You COMMAND."] }),
+    );
+    await act(async () => {
+      await saveStoredRole("docs", {
+        label: "Docs",
+        summary: "writes",
+        charter: ["You DOCUMENT."],
+      });
+    });
+    expect((field("Role label") as HTMLInputElement).value).toBe("Captain");
+    // Typed-into, the draft is the user's and stays through the next change.
+    type(field("Role label") as HTMLInputElement, "Chief");
+    await act(async () => {
+      await saveStoredRole("buddy", {
+        label: "Buddy",
+        summary: "helps",
+        charter: ["You HELP."],
+      });
+    });
+    expect((field("Role label") as HTMLInputElement).value).toBe("Chief");
+  });
+
+  it("shows an orphan deletion's failure even with no editor open", async () => {
+    // The error used to render only inside the editor — an orphan is
+    // deleted while browsing, and a refusal set into hidden state reads as
+    // a button that did nothing.
+    rolesIpc.disk.set("broken", "{oops");
+    await mount();
+    rolesIpc.deleteRoleFile.mockImplementationOnce(async () => {
+      throw new Error("disk said no");
+    });
+    await click(button("Delete"));
+    expect(document.querySelector('[role="alert"]')!.textContent).toContain(
+      "disk said no",
+    );
+  });
+
+  it("keeps an unrelated open draft when an orphan is deleted", async () => {
+    rolesIpc.disk.set("broken", "{oops");
+    await mount();
+    await click(row("Peer"));
+    type(field("Role label") as HTMLInputElement, "Buddy");
+    await click(button("Delete"));
+    expect(rolesIpc.disk.has("broken")).toBe(false);
+    expect((field("Role label") as HTMLInputElement).value).toBe("Buddy");
+  });
+
+  it("freezes a custom role's standing and repeatability after creation", async () => {
+    // The team rules run on these, and live teams were planned against
+    // them — flipped underneath, a led team's member would be refused as
+    // "flat" while its briefing still names the lead.
+    rolesIpc.disk.set(
+      "docs",
+      JSON.stringify({ label: "Docs", summary: "writes it down", charter: ["You DOCUMENT."] }),
+    );
+    await mount();
+    await click(row("Docs"));
+    expect(button("A peer — flat teams only").disabled).toBe(true);
+    expect(
+      document.querySelector<HTMLInputElement>(".roles__repeatable input")!
+        .disabled,
+    ).toBe(true);
   });
 
   it("creates a role of the user's own that the whole catalog then knows", async () => {

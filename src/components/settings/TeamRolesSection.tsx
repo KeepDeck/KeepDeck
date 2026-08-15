@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   removeStoredRole,
   saveStoredRole,
@@ -65,6 +65,9 @@ export function TeamRolesSection() {
   const catalog = useRoleCatalog();
   const [selected, setSelected] = useState<Selection | null>(null);
   const [draft, setDraft] = useState<RoleDraft | null>(null);
+  /** Whether the person has TYPED into the draft — the line between a seed
+   * that follows a late-loading catalog and words that are theirs. */
+  const [dirty, setDirty] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -81,19 +84,35 @@ export function TeamRolesSection() {
   const open = (role: TeamRole) => {
     setSelected({ kind: "edit", id: role.id });
     setDraft(draftOf(role));
+    setDirty(false);
     setProblem(null);
   };
   const close = () => {
     setSelected(null);
     setDraft(null);
+    setDirty(false);
     setProblem(null);
   };
-  const edit = (patch: Partial<RoleDraft>) =>
+  const edit = (patch: Partial<RoleDraft>) => {
+    setDirty(true);
     setDraft((current) => (current ? { ...current, ...patch } : current));
+  };
 
+  // The catalog can land or change UNDER an open editor — the boot load
+  // resolving late, another surface saving. An UNTOUCHED draft follows it:
+  // seeded from the pre-load built-ins and saved, it would overwrite
+  // stored texts the user never saw. A draft they typed into is theirs and
+  // stays; a role deleted underneath closes the editor.
+  useEffect(() => {
+    if (dirty || selected?.kind !== "edit") return;
+    const role = teamRoles().find((candidate) => candidate.id === selected.id);
+    if (role) setDraft(draftOf(role));
+    else close();
+  }, [catalog, dirty, selected]);
+
+  const creating = selected?.kind === "create";
   const isCustom =
-    selected?.kind === "create" ||
-    (selected?.kind === "edit" && !builtinIds.has(selected.id));
+    creating || (selected?.kind === "edit" && !builtinIds.has(selected.id));
 
   const submit = async () => {
     if (!draft || !selected || busy) return;
@@ -139,7 +158,10 @@ export function TeamRolesSection() {
     setBusy(true);
     try {
       await removeStoredRole(id);
-      close();
+      // Close only the editor this deletion is ABOUT: an orphan's Delete
+      // beside an open, unrelated draft must not discard that draft.
+      if (selected?.kind === "edit" && selected.id === id) close();
+      else setProblem(null);
     } catch (e) {
       setProblem(describeError(e));
     } finally {
@@ -217,6 +239,15 @@ export function TeamRolesSection() {
         ))}
       </ul>
 
+      {problem && (
+        // Rendered OUTSIDE the editor: an orphan's failed deletion has no
+        // editor open, and an error set into hidden state is a button that
+        // just did nothing.
+        <p className="form__error roles__error" role="alert">
+          ⚠ {problem}
+        </p>
+      )}
+
       {draft && selected ? (
         <div className="roles__editor">
           {selected.kind === "create" && (
@@ -283,6 +314,7 @@ export function TeamRolesSection() {
                     key={value}
                     type="button"
                     className={`form__type${draft.standing === value ? " form__type--active" : ""}`}
+                    disabled={!creating}
                     onClick={() => edit({ standing: value })}
                   >
                     {label}
@@ -293,17 +325,24 @@ export function TeamRolesSection() {
                 <input
                   type="checkbox"
                   checked={draft.repeatable}
+                  disabled={!creating}
                   onChange={(e) => edit({ repeatable: e.target.checked })}
                 />
                 a team may hold several ({draft.id.trim() || "role"}-1,{" "}
                 {draft.id.trim() || "role"}-2, …)
               </label>
+              {!creating && (
+                // The rules run on these, and live teams were planned
+                // against them: flipped underneath, a led team's member
+                // would be refused as "flat" while its briefing still
+                // names the lead. Text stays editable; shape does not.
+                <span className="settings__hint">
+                  Standing and repeatability are set at creation — the team
+                  rules run on them. Delete the role and recreate it to
+                  change them.
+                </span>
+              )}
             </>
-          )}
-          {problem && (
-            <p className="form__error roles__error" role="alert">
-              ⚠ {problem}
-            </p>
           )}
           <div className="form__actions roles__actions">
             {selected.kind === "edit" &&
