@@ -389,6 +389,54 @@ describe("AgentPane — activity badge", () => {
     expect(pane!.className).toContain("pane--frame-selected");
   });
 
+  it("wears attention only when it fills the whole stage — the rim says nothing else", () => {
+    // Maximized by hand: attention still frames…
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, { ...baseProps, focused: true }),
+      ),
+    );
+    reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
+    let pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-waiting");
+
+    // …but done and working don't — the pane's own header spells them out
+    // in place, and a rim repeating them at the screen's edge is noise.
+    reportEdge({ kind: "turn-end", at: Date.now() });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).not.toContain("pane--frame-done");
+    expect(pane!.className).not.toContain("pane--frame-selected");
+
+    reportEdge({ kind: "turn-start", at: Date.now() });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).not.toContain("pane--frame-working");
+
+    // The only pane on the stage reads the same — and selection has
+    // nothing to pick out from there either.
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, {
+          ...baseProps,
+          solo: true,
+          selected: true,
+        }),
+      ),
+    );
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).not.toContain("pane--frame-working");
+    expect(pane!.className).not.toContain("pane--frame-selected");
+
+    // Attention pierces the solo rim exactly like the maximized one.
+    reportEdge({
+      kind: "turn-failed",
+      at: Date.now(),
+      error: "rate_limit",
+      detail: "Weekly limit reached",
+    });
+    pane = document.querySelector<HTMLElement>(".pane");
+    expect(pane!.className).toContain("pane--frame-failed");
+  });
+
   it("shows nothing before the first edge, and renders the tracker verbatim", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
     expect(document.querySelector(".pane__activity")).toBeNull();

@@ -231,10 +231,16 @@ export function AgentPane({
   // channel gates ingest on a live process and clears a pane the moment
   // its process dies, so whatever the store holds is current by contract.
   const activityView = activity ? activityBadge(activity) : null;
-  // The ONE frame this pane wears — the domain ranks attention, selection
-  // and done; this view only appends the class. The selection-visibility
-  // rule (not maximized, not the only pane) predates the ladder and stays.
-  const frame = paneFrame(activity, selected && !focused && !solo);
+  // The ONE frame this pane wears — the domain ladder ranks attention,
+  // the full-bleed gate, selection and the activity tail; this view only
+  // states the facts. `fullBleed` names the stage-filling mode (maximized
+  // by hand, or the only pane there is), whose rim speaks for attention
+  // alone.
+  const frame = paneFrame({
+    activity,
+    selected,
+    fullBleed: focused || solo,
+  });
   return (
     <section
       data-pane-id={paneId}

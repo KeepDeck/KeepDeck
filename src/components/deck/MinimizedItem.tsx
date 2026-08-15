@@ -99,12 +99,11 @@ export function MinimizedItem({
   onClick,
 }: MinimizedItemProps) {
   // The stand-in wears the pane's status frame — attention must survive
-  // minimizing. Same narrow selector and domain decider as the pane's own
-  // border, and the same trust: the status channel keeps the tracker
-  // honest about dead processes, so no gate is re-derived here. A hidden
-  // pane is never the selected one.
+  // minimizing, and working/done stay worth a chip. The same domain
+  // decider as the pane's own border, fed the stand-in's true facts: a
+  // hidden pane is never the selected one and never fills the stage.
   const activity = usePaneActivity(paneId);
-  const frame = paneFrame(activity, false);
+  const frame = paneFrame({ activity, selected: false, fullBleed: false });
   // The hover details spell out what the frame only colours: the same
   // settled badge the pane header renders (domain formats, views render).
   const activityView = activity ? activityBadge(activity) : null;
