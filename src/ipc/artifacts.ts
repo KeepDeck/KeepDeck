@@ -60,3 +60,13 @@ export async function artifactDelete(payload: {
 }): Promise<unknown> {
   return await invoke("artifact_delete", { payload });
 }
+
+/** The notification router's identifier-only URL entry (B10): no token
+ * in hand — the server resolves via the ws scan. Dead artifact →
+ * `url: null` (the router falls back to the index). */
+export async function artifactResolveUrls(
+  payload: { workspaceId: string },
+  slug: string,
+): Promise<{ url: string | null; indexUrl: string }> {
+  return await invoke("artifact_resolve_urls", { payload, slug });
+}

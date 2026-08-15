@@ -44,6 +44,15 @@ interface PublishIpcResult {
 export interface ArtifactCommandDeps {
   /** The live deck — workspaces and panes for identity resolution. */
   deck: () => { workspaces: Workspace[] } | null;
+  /** The notification producers' announce — first-publish and delete
+   * events (republish never announces; the note carries it). */
+  announce?: (event: {
+    kind: "published" | "deleted";
+    workspaceId: string;
+    workspaceInstance: Workspace["instance"];
+    slug: string;
+    paneLabel: string;
+  }) => void;
 }
 
 /** The refusal every artifact tool gives an anonymous caller — reason
@@ -62,6 +71,7 @@ function str(args: Record<string, unknown>, name: string): string | undefined {
 /** The resolved rung-3 context: which workspace, which pane, which cwd. */
 interface CallerContext {
   workspaceId: string;
+  workspaceInstance: Workspace["instance"];
   paneId: string;
   label: string;
   cwd: string | null;
@@ -88,6 +98,7 @@ function callerContext(
     if (found) {
       return {
         workspaceId: ws.id,
+        workspaceInstance: ws.instance,
         paneId: found.id,
         label: pane.label,
         cwd: paneExecutionCwd(ws, found),
@@ -204,6 +215,15 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         autoOpen,
       });
       const wire = result as PublishIpcResult;
+      if (wire.isNew && deps.announce) {
+        deps.announce({
+          kind: "published",
+          workspaceId: caller.workspaceId,
+          workspaceInstance: caller.workspaceInstance,
+          slug: wire.slug,
+          paneLabel: caller.label,
+        });
+      }
       return {
         url: wire.url,
         indexUrl: wire.indexUrl,
@@ -287,10 +307,20 @@ function deleteCommand(deps: ArtifactCommandDeps): CommandSpec {
       const caller = callerContext(source, deps);
       const id = str(args, "id");
       if (!id) throw new Error("delete needs an id");
-      return await artifactDelete({
+      const outcome = (await artifactDelete({
         workspaceId: caller.workspaceId,
         slug: id,
-      });
+      })) as { deleted: boolean };
+      if (outcome.deleted && deps.announce) {
+        deps.announce({
+          kind: "deleted",
+          workspaceId: caller.workspaceId,
+          workspaceInstance: caller.workspaceInstance,
+          slug: id,
+          paneLabel: caller.label,
+        });
+      }
+      return outcome;
     },
   };
 }

@@ -62,6 +62,18 @@ fn unix_time_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Open a URL in the system browser without an AppHandle (the publish
+/// tail runs off the command's app context; the OS opener is the same
+/// one the open_url command reaches). Best-effort by contract — callers
+/// log, never fail.
+fn open_browser(url: &str) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("spawning the opener failed: {e}"))
+}
+
 /// Claim the store root, then bind the display server on it.
 /// Idempotent; a contention refusal surfaces verbatim so the toggle can
 /// say WHY. Resolves to the display server's port.
@@ -213,18 +225,33 @@ pub fn artifact_publish(
         .store
         .publish(&identity, request, unix_time_ms())
         .map_err(|e| e.0)?;
-    // The display tail — compose URLs (null when the server is down,
-    // honestly), then broadcast AFTER the store's own writes settled.
-    let server = state.server.lock().expect("artifacts server poisoned");
-    let (url, index_url) = match server.as_ref() {
-        Some(live) => {
+    // The display tail — everything here runs AFTER the store's data
+    // mutex released (publish returned): compose URLs (null when the
+    // server is down, honestly — a publish never fails on that), then
+    // broadcast, then AUTO-OPEN on first-publish-of-NEW (best-effort:
+    // an opener failure degrades to the notification that exists
+    // anyway, logged, never failing the publish).
+    let url_and_index = {
+        let server = state.server.lock().expect("artifacts server poisoned");
+        server.as_ref().map(|live| {
             let (url, index) = live.compose_urls(&payload.workspace_id, &out.slug, &out.token);
             live.broadcast_version(&payload.workspace_id, &out.slug, out.version);
+            (url, index)
+        })
+    };
+    let (url, index_url) = match url_and_index {
+        Some((url, index)) => {
+            if out.is_new && payload.auto_open {
+                // Auto-open runs OUTSIDE the server lock (the opener can
+                // block on the OS; the server must never wait for it).
+                if let Err(e) = open_browser(&url) {
+                    log::warn!("artifacts: auto-open failed (publish unaffected): {e}");
+                }
+            }
             (Some(url), Some(index))
         }
         None => (None, None),
     };
-    drop(server);
     Ok(PublishResult {
         slug: out.slug,
         version: out.version,

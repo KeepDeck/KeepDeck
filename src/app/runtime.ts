@@ -33,6 +33,10 @@ import {
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
+import { createArtifactsPolicy } from "./artifacts/policy";
+import { registerArtifactCommands } from "./artifacts/artifactCommands";
+import { announceArtifact } from "./artifacts/producers";
+import { artifactsDisable, artifactsEnable } from "../ipc/artifacts";
 import { createPaneAttribution } from "./paneAttribution";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
@@ -140,6 +144,44 @@ export function createAppRuntime(
       }),
     },
   );
+  // Fleet artifacts: the enable policy (store + display server ride the
+  // one Rust pair) and the command registration, gated on BOTH edges —
+  // the artifacts setting AND the CONFIRMED mcp socket (the registry IS
+  // the MCP projection; the tools exist only while both hold). The
+  // disposer pattern makes re-registration idempotent on either edge.
+  const artifactsPolicy = createArtifactsPolicy(
+    {
+      artifacts: () => getSettings()?.artifacts ?? null,
+      subscribe: subscribeSettings,
+    },
+    { enable: artifactsEnable, disable: artifactsDisable },
+    () => {},
+  );
+  let disposeArtifactCommands: (() => void) | null = null;
+  const reconcileArtifactCommands = () => {
+    const shouldRun =
+      (getSettings()?.artifacts ?? false) && mcp.status().socket !== null;
+    if (shouldRun && disposeArtifactCommands === null) {
+      disposeArtifactCommands = registerArtifactCommands(
+        commands,
+        {
+          deck: () => deckStore.getSnapshot(),
+          announce: (event) =>
+            announceArtifact(event, {
+              workspaces: () => deckStore.getSnapshot().workspaces,
+            }),
+        },
+      );
+    } else if (!shouldRun && disposeArtifactCommands !== null) {
+      disposeArtifactCommands();
+      disposeArtifactCommands = null;
+    }
+  };
+  const stopArtifactWiring = [
+    subscribeSettings(reconcileArtifactCommands),
+    mcp.subscribe(reconcileArtifactCommands),
+  ];
+  reconcileArtifactCommands();
   const journalPersistence = createJournalPersistence(
     deckStore,
     deckPersistence,
@@ -379,6 +421,9 @@ export function createAppRuntime(
       worktreeSweeper.dispose();
       minimizePolicy.dispose();
       mail.dispose();
+      disposeArtifactCommands?.();
+      for (const stop of stopArtifactWiring) stop();
+      artifactsPolicy.dispose({ disable: true });
       mcp.dispose();
       journalPersistence.dispose();
       sessionBinding?.dispose();
