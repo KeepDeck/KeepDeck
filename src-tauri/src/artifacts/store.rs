@@ -423,6 +423,84 @@ const MANIFEST_FILE: &str = "manifest.json";
 /// A manifest larger than this is untrusted garbage, not state.
 const MANIFEST_CAP_BYTES: u64 = 64 * 1024;
 
+// ---- read-only helpers for the display server (slice 5) ----
+// These re-read from disk per call (the H1 no-cache rule) and never
+// mutate — the server's whole read path is stateless against the store.
+
+/// One artifact's manifest by (workspace, slug) — the router's and the
+/// keepalive tick's lookup. Absent/broken → None.
+pub fn manifest_for(root: &Path, ws: &str, slug: &str) -> Result<Option<Manifest>, String> {
+    manifest_for_inner(root, ws, slug).map_err(|e| e.0)
+}
+
+/// The ws scan (B3): every workspace's artifact under `slug`, for
+/// token-resolving an incoming request. O(workspaces) — a stated design.
+pub fn scan_workspaces(root: &Path, slug: &str) -> Result<Vec<(String, Manifest)>, String> {
+    let mut out = Vec::new();
+    for ws_dir in sorted_dirs(&workspaces_root(root)).map_err(|e| e.0)? {
+        let ws = ws_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        if let Some(manifest) = manifest_for_inner(root, &ws, slug).ok().flatten() {
+            out.push((ws, manifest));
+        }
+    }
+    Ok(out)
+}
+
+/// One version's bytes — derived filename, NotFound → None (the
+/// per-version 404 semantics).
+pub fn read_version_bytes(
+    root: &Path,
+    ws: &str,
+    slug: &str,
+    manifest: &Manifest,
+    n: u64,
+) -> Option<Vec<u8>> {
+    let path = artifact_dir(root, ws, slug)
+        .join(format!("v{}.{ext}", n, ext = manifest.format.extension()));
+    fs::read(path).ok()
+}
+
+/// The index's listing rows — id/title/format/count/author plus the
+/// artifact token (the index builds per-artifact links with it).
+pub struct IndexRow {
+    pub id: String,
+    pub title: String,
+    pub format: ArtifactFormat,
+    pub version_count: u64,
+    pub last_author: String,
+    pub token: String,
+}
+
+pub fn store_meta(root: &Path, ws: &str) -> Vec<IndexRow> {
+    let mut out = Vec::new();
+    let Ok(dirs) = sorted_dirs(&workspaces_root(root).join(ws)) else {
+        return out;
+    };
+    for dir in dirs {
+        let slug = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        if let Ok(Some(manifest)) = manifest_for_inner(root, ws, &slug) {
+            out.push(IndexRow {
+                id: slug,
+                title: manifest.title,
+                format: manifest.format,
+                version_count: manifest.versions.len() as u64,
+                last_author: manifest
+                    .versions
+                    .last()
+                    .map(|v| v.author_label.clone())
+                    .unwrap_or_default(),
+                token: manifest.token,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.id.cmp(&b.id));
+    out
+}
+
+fn manifest_for_inner(root: &Path, ws: &str, slug: &str) -> StoreResult<Option<Manifest>> {
+    load_manifest(root, ws, slug)
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum ReadResult {

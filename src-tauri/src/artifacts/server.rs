@@ -1,0 +1,775 @@
+//! The localhost display server (B1-B4, B10): the artifacts feature's
+//! human surface. std-only — no HTTP crate in the tree; hand-rolled
+//! HTTP/1.1 with bounds (8 KiB head cap, 30s head timeout, GET-only,
+//! one request per connection, `Connection: close` everywhere, SSE
+//! close-delimited streaming).
+//!
+//! Lifecycle mirrors McpServer (idempotent enable handled by the caller,
+//! teardown wake, dead-flag) with ONE deliberate difference: no
+//! port-local lock — a socket NAME is claimable, a kernel-assigned
+//! ephemeral port is not, and the STORE root's lock (claim.rs)
+//! transitively protects the port: enable claims the root BEFORE
+//! binding, so a second instance fails at the claim and never gets here.
+//!
+//! ROUTE-TABLE INVARIANTS — break either knowingly, never by accident:
+//! (1) NEVER answer 3xx from any route: the CSP spec ignores a source
+//!     expression's PATH across redirects — one redirect and the
+//!     per-artifact connect-src pin stops pinning. No redirects exist.
+//! (2) NEVER produce a MIME outside MIME_ALLOWLIST: a JS-mime same-origin
+//!     URL would let a hostile artifact register a service worker on
+//!     the artifact origin.
+//!
+//! Layout note: B8 specced listener/http/routes/sse as separate files;
+//! they land as this one `server.rs` with section banners (beside
+//! `serve.rs`, `render.rs`, `token.rs`) — same code, fewer cohesive
+//! units. Reviewers may ask for the split.
+
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use crate::artifacts::serve;
+use crate::artifacts::store::{manifest_for, Manifest};
+use crate::artifacts::token::{mint_token, token_eq};
+
+const HEAD_CAP: usize = 8 * 1024;
+const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
+const KEEPALIVE_TICK: Duration = Duration::from_secs(15);
+const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
+const ACCEPT_FAILURE_LIMIT: u32 = 10;
+
+/// INVARIANT (2): the only MIMEs this server may ever answer with.
+const MIME_SSE: &str = "text/event-stream";
+
+/// (workspace, slug) — an artifact's identity for subscribers.
+type SubKey = (String, String);
+
+struct SubEntry {
+    write: TcpStream,
+    /// A `?v=`-pinned tab: never yanked to latest (§5's reviewer rule).
+    pinned: Option<u64>,
+}
+
+/// Everything the threads share. `Arc`-held by DisplayServer, the accept
+/// loop and the keepalive-tick loop alike.
+struct Shared {
+    root: PathBuf,
+    port: u16,
+    /// Index tokens: boot-minted per workspace, in-memory, dying with
+    /// the port (B5 — born together, dead together).
+    index_tokens: Mutex<HashMap<String, String>>,
+    subs: Mutex<HashMap<SubKey, Vec<SubEntry>>>,
+    dead: AtomicBool,
+    /// The teardown wake pair: the NEAR end is HELD here for the
+    /// server's life (dropping it in `stop` is the poll-wake — if it
+    /// dropped at `start`'s return the accept loop would see instant EOF
+    /// and exit); the far end is what the loop polls.
+    wake_keep: Mutex<Option<std::os::unix::net::UnixStream>>,
+    wake_poll: Mutex<Option<std::os::unix::net::UnixStream>>,
+}
+
+pub struct DisplayServer {
+    shared: Arc<Shared>,
+}
+
+impl DisplayServer {
+    /// Bind, spawn the accept and keepalive-tick threads. The caller
+    /// (mod.rs's enable) has ALREADY claimed the store root — the read
+    /// path goes to disk per request (the no-cache rule), so the server
+    /// needs only the root, not the store object.
+    pub fn start(root: &Path) -> Result<Self, String> {
+        let listener = TcpListener::bind(("127.0.0.1", 0))
+            .map_err(|e| format!("binding the display server failed: {e}"))?;
+        let port = listener
+            .local_addr()
+            .map_err(|e| e.to_string())?
+            .port();
+        listener
+            .set_nonblocking(true)
+            .map_err(|e| format!("nonblocking listener: {e}"))?;
+        let (wake_near, wake_far) = std::os::unix::net::UnixStream::pair()
+            .map_err(|e| format!("wake pair: {e}"))?;
+        let shared = Arc::new(Shared {
+            root: root.to_path_buf(),
+            port,
+            index_tokens: Mutex::new(HashMap::new()),
+            subs: Mutex::new(HashMap::new()),
+            dead: AtomicBool::new(false),
+            wake_keep: Mutex::new(Some(wake_near)),
+            wake_poll: Mutex::new(Some(wake_far)),
+        });
+        std::thread::Builder::new()
+            .name("keepdeck artifacts accept".into())
+            .spawn({
+                let shared = Arc::clone(&shared);
+                move || accept_loop(listener, shared)
+            })
+            .map_err(|e| format!("spawning the accept loop failed: {e}"))?;
+        std::thread::Builder::new()
+            .name("keepdeck artifacts tick".into())
+            .spawn({
+                let shared = Arc::clone(&shared);
+                move || tick_loop(shared)
+            })
+            .map_err(|e| format!("spawning the keepalive tick failed: {e}"))?;
+        Ok(Self { shared })
+    }
+
+    pub fn port(&self) -> u16 {
+        self.shared.port
+    }
+
+    /// Teardown: bye to EVERY subscriber (Off means Off — subscribers
+    /// close before anything they observe changes shape), then the wake
+    /// drop ends the accept loop and the tick sees dead and exits.
+    pub fn stop(&self) {
+        let mut registry = self.shared.subs.lock().expect("subs poisoned");
+        let drained: Vec<SubEntry> = registry.values_mut().flat_map(|v| v.drain(..)).collect();
+        drop(registry);
+        for entry in drained {
+            let _ = write_event(&entry.write, "bye", "server stopping");
+            let _ = entry.write.shutdown(std::net::Shutdown::Both);
+        }
+        self.shared.dead.store(true, Ordering::SeqCst);
+        // Dropping the NEAR end is the poll-wake: the far end polls EOF
+        // and the accept loop exits.
+        drop(self.shared.wake_keep.lock().expect("wake poisoned").take());
+        drop(self.shared.wake_poll.lock().expect("wake poisoned").take());
+    }
+
+    /// compose_urls (B10): the ONE URL builder, the publish path's entry
+    /// (token in hand from the store commit).
+    pub fn compose_urls(&self, ws: &str, slug: &str, token: &str) -> (String, String) {
+        let index = self.index_url(ws);
+        let artifact = format!("http://127.0.0.1:{}/a/{}/{}", self.shared.port, token, slug);
+        (artifact, index)
+    }
+
+    /// resolve_urls (B10's identifier-only entry): the notification
+    /// router's path — no token in hand; the server resolves the manifest
+    /// via the ws scan. Dead artifact → None artifact (the router's
+    /// index-fallback rule).
+    pub fn resolve_urls(&self, ws: &str, slug: &str) -> (Option<String>, String) {
+        let artifact = manifest_for(&self.shared.root, ws, slug)
+            .ok()
+            .flatten()
+            .map(|m| format!("http://127.0.0.1:{}/a/{}/{}", self.shared.port, m.token, slug));
+        (artifact, self.index_url(ws))
+    }
+
+    fn index_url(&self, ws: &str) -> String {
+        let token = ensure_index_token(&self.shared, ws);
+        format!("http://127.0.0.1:{}/{}/", self.shared.port, token)
+    }
+
+    /// Broadcast a `version` event to an artifact's UNPINNED subscribers
+    /// — the publish tail calls this AFTER the store mutex releases.
+    pub fn broadcast_version(&self, ws: &str, slug: &str, version: u64) {
+        let mut registry = self.shared.subs.lock().expect("subs poisoned");
+        if let Some(entries) = registry.get_mut(&(ws.to_string(), slug.to_string())) {
+            entries.retain(|entry| {
+                if entry.pinned.is_some() {
+                    return true; // pinned: never yanked, stays subscribed
+                }
+                write_event(&entry.write, "version", &version.to_string()).is_ok()
+            });
+        }
+    }
+
+    /// Broadcast `bye` + close SYNCHRONOUSLY (tool-delete) — the
+    /// milliseconds walk, not tick-paced (B4).
+    pub fn broadcast_bye(&self, ws: &str, slug: &str, reason: &str) {
+        let mut registry = self.shared.subs.lock().expect("subs poisoned");
+        if let Some(entries) = registry.remove(&(ws.to_string(), slug.to_string())) {
+            for entry in entries {
+                let _ = write_event(&entry.write, "bye", reason);
+                let _ = entry.write.shutdown(std::net::Shutdown::Both);
+            }
+        }
+    }
+}
+
+fn ensure_index_token(shared: &Shared, ws: &str) -> String {
+    let mut tokens = shared.index_tokens.lock().expect("index tokens poisoned");
+    tokens
+        .entry(ws.to_string())
+        .or_insert_with(mint_token)
+        .clone()
+}
+
+// ---- the accept loop (B1: poll(listener, wake) → verdict) ----
+
+fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
+    use std::os::fd::AsRawFd as _;
+    let mut failures = 0u32;
+    loop {
+        let mut fds = [
+            libc::pollfd {
+                fd: listener.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: shared
+                    .wake_poll
+                    .lock()
+                    .expect("wake poisoned")
+                    .as_ref()
+                    .map(|w| w.as_raw_fd())
+                    .unwrap_or(-1),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, -1) };
+        if ready < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            log::warn!("artifacts: poll failed, accept loop exiting: {error}");
+            shared.dead.store(true, Ordering::SeqCst);
+            return;
+        }
+        if fds[1].revents != 0 {
+            // Teardown wins over a pending connection.
+            return;
+        }
+        if fds[0].revents == 0 {
+            continue;
+        }
+        let Ok((stream, _)) = listener.accept() else {
+            failures += 1;
+            if failures >= ACCEPT_FAILURE_LIMIT {
+                log::error!("artifacts: accept failed {failures} times, loop dead");
+                shared.dead.store(true, Ordering::SeqCst);
+                return;
+            }
+            log::warn!("artifacts: accept failed, backing off");
+            std::thread::sleep(ACCEPT_BACKOFF);
+            continue;
+        };
+        failures = 0;
+        let _ = stream.set_nonblocking(false);
+        let shared = Arc::clone(&shared);
+        let spawned = std::thread::Builder::new()
+            .name("keepdeck artifacts conn".into())
+            .spawn(move || handle_connection(stream, shared));
+        if let Err(e) = spawned {
+            log::warn!("artifacts: dropping connection, no thread: {e}");
+        }
+    }
+}
+
+// ---- HTTP (B2): bounded head parse, GET-only, one request per conn ----
+
+struct Request {
+    path: String,
+    query_v: Option<String>,
+}
+
+fn read_request(stream: &mut TcpStream) -> Result<Request, u16> {
+    let Ok(()) = stream.set_read_timeout(Some(HEAD_TIMEOUT)) else {
+        return Err(400);
+    };
+    let cloned = match stream.try_clone() {
+        Ok(c) => c,
+        Err(_) => return Err(400),
+    };
+    let mut reader = BufReader::new(cloned);
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).is_err() {
+        return Err(400);
+    }
+    if request_line.len() > HEAD_CAP {
+        return Err(431);
+    }
+    // Drain the rest of the head (bounded): we never read a body.
+    let mut total = request_line.len();
+    let mut header = String::new();
+    loop {
+        header.clear();
+        match reader.read_line(&mut header) {
+            Ok(0) => break,
+            Ok(n) => {
+                total += n;
+                if total > HEAD_CAP {
+                    return Err(431);
+                }
+                if header == "\r\n" || header == "\n" {
+                    break;
+                }
+            }
+            Err(_) => return Err(400),
+        }
+    }
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or("");
+    let target = parts.next().unwrap_or("");
+    if method != "GET" {
+        return Err(405);
+    }
+    let (path, query) = match target.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (target, None),
+    };
+    let query_v = query.and_then(|q| {
+        q.split('&').find_map(|pair| {
+            let (k, v) = pair.split_once('=')?;
+            (k == "v").then(|| v.to_string())
+        })
+    });
+    if let Some(v) = &query_v {
+        if v.is_empty() || !v.chars().all(|c| c.is_ascii_digit()) {
+            return Err(400);
+        }
+    }
+    Ok(Request {
+        path: percent_decode(path),
+        query_v,
+    })
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() + 1 && i + 2 < bytes.len() + 1 {
+            let hex = |b: u8| (b as char).to_digit(16);
+            if i + 2 < bytes.len() {
+                if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                    out.push((hi * 16 + lo) as u8);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+// ---- routes (B3) ----
+
+fn handle_connection(mut stream: TcpStream, shared: Arc<Shared>) {
+    let request = match read_request(&mut stream) {
+        Ok(request) => request,
+        Err(status) => {
+            let _ = respond_empty(&mut stream, status);
+            return;
+        }
+    };
+    if shared.dead.load(Ordering::SeqCst) {
+        let _ = respond_empty(&mut stream, 404);
+        return;
+    }
+    let segments: Vec<&str> = request.path.trim_matches('/').split('/').collect();
+    // NO-ORACLE: unknown token and valid-token-unknown-id answer
+    // byte-identical 404s — nothing distinguishes them.
+    let not_found = |stream: &mut TcpStream| respond_empty(stream, 404);
+
+    match segments.as_slice() {
+        // Artifact routes: the TOKEN is the first segment under /a/.
+        ["a", token, slug] => {
+            match resolve_by_token(&shared, token, slug) {
+                Some((ws, manifest)) => {
+                    serve::serve_artifact(
+                        &mut stream,
+                        &shared.root,
+                        &ws,
+                        &manifest,
+                        slug,
+                        request.query_v.as_deref().and_then(|v| v.parse().ok()),
+                    );
+                }
+                None => {
+                    let _ = not_found(&mut stream);
+                }
+            }
+        }
+        ["a", token, slug, "events"] => {
+            match resolve_by_token(&shared, token, slug) {
+                Some((ws, manifest)) => {
+                    subscribe(stream, &shared, ws, slug, manifest, request.query_v);
+                }
+                None => {
+                    let _ = not_found(&mut stream);
+                }
+            }
+        }
+        ["a", token, slug, "export"] => match resolve_by_token(&shared, token, slug) {
+            Some((ws, manifest)) => {
+                serve::serve_export(&mut stream, &shared.root, &ws, &manifest, slug);
+            }
+            None => {
+                let _ = not_found(&mut stream);
+            }
+        },
+        [index_token] => {
+            // The workspace INDEX: the token resolves the workspace via
+            // the in-memory boot-mint map (constant-time compare).
+            let ws = shared
+                .index_tokens
+                .lock()
+                .expect("index tokens poisoned")
+                .iter()
+                .find(|(_, v)| token_eq(v, index_token))
+                .map(|(k, _)| k.clone());
+            match ws {
+                Some(ws) => serve::serve_index(&mut stream, &shared.root, &ws),
+                None => {
+                    let _ = not_found(&mut stream);
+                }
+            }
+        }
+        _ => {
+            let _ = not_found(&mut stream);
+        }
+    }
+}
+
+/// Token resolution is a SCAN, not a map (B3): a token+slug pair names
+/// no workspace; iterate ws/*/ reading each matching slug's manifest,
+/// constant-time token compare. O(workspaces) per request — a stated
+/// decision, not an accident.
+fn resolve_by_token(shared: &Shared, token: &str, slug: &str) -> Option<(String, crate::artifacts::store::Manifest)> {
+    for (ws, manifest) in crate::artifacts::store::scan_workspaces(&shared.root, slug).ok()? {
+        if token_eq(&manifest.token, token) {
+            return Some((ws, manifest));
+        }
+    }
+    None
+}
+
+// ---- SSE (B4) ----
+
+fn write_event(stream: &TcpStream, event: &str, data: &str) -> std::io::Result<()> {
+    let mut stream = stream.try_clone()?;
+    stream.write_all(format!("event: {event}\ndata: {data}\n\n").as_bytes())?;
+    stream.flush()
+}
+
+fn subscribe(
+    mut stream: TcpStream,
+    shared: &Arc<Shared>,
+    ws: String,
+    slug: &str,
+    manifest: Manifest,
+    query_v: Option<String>,
+) {
+    // The SSE response: close-delimited (no Content-Length), the read
+    // half ignored, writes event-driven.
+    let pinned = query_v.as_deref().and_then(|v| v.parse().ok());
+    let mut head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {MIME_SSE}\r\nConnection: close\r\n"
+    );
+    head.push_str("Access-Control-Allow-Origin: none\r\n\r\n");
+    if stream.write_all(head.as_bytes()).is_err() {
+        return;
+    }
+    // An immediate event names the CURRENT version — a fresh subscriber
+    // learns where "latest" is without a page reload.
+    let _ = write_event(&stream, "version", &latest_of(&manifest).to_string());
+    shared
+        .subs
+        .lock()
+        .expect("subs poisoned")
+        .entry((ws, slug.to_string()))
+        .or_default()
+        .push(SubEntry { write: stream, pinned });
+    // The connection thread ENDS here; broadcasts and the tick write to
+    // the stored clone; a dead peer's write error prunes it lazily.
+}
+
+fn latest_of(manifest: &Manifest) -> u64 {
+    manifest.versions.last().map(|v| v.n).unwrap_or(0)
+}
+
+/// ONE keepalive tick thread per server (B4): walks the registry every
+/// 15s — a manifest re-read per distinct artifact doubles as the
+/// rm-the-dir backstop (gone → bye + close); alive → `: ping`.
+fn tick_loop(shared: Arc<Shared>) {
+    loop {
+        std::thread::sleep(KEEPALIVE_TICK);
+        if shared.dead.load(Ordering::SeqCst) {
+            return;
+        }
+        let keys: Vec<SubKey> = shared
+            .subs
+            .lock()
+            .expect("subs poisoned")
+            .keys()
+            .cloned()
+            .collect();
+        for (ws, slug) in keys {
+            let alive = manifest_for(&shared.root, &ws, &slug)
+                .ok()
+                .flatten()
+                .is_some();
+            if !alive {
+                let mut registry = shared.subs.lock().expect("subs poisoned");
+                if let Some(entries) = registry.remove(&(ws, slug)) {
+                    for entry in entries {
+                        let _ = write_event(&entry.write, "bye", "artifact gone");
+                        let _ = entry.write.shutdown(std::net::Shutdown::Both);
+                    }
+                }
+                continue;
+            }
+            let mut registry = shared.subs.lock().expect("subs poisoned");
+            if let Some(entries) = registry.get_mut(&(ws, slug)) {
+                entries.retain(|entry| {
+                    let mut ping = entry.write.try_clone().unwrap();
+                    ping.write_all(b": ping\n\n").and_then(|_| ping.flush()).is_ok()
+                });
+            }
+        }
+    }
+}
+
+fn respond_empty(stream: &mut TcpStream, status: u16) -> std::io::Result<()> {
+    let reason = match status {
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        431 => "Request Header Fields Too Large",
+        _ => "Error",
+    };
+    stream.write_all(
+        format!("HTTP/1.1 {status} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .as_bytes(),
+    )?;
+    stream.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::artifacts::store::{
+        ArtifactFormat, ArtifactsStore, PublishIdentity, PublishRequest,
+    };
+    use std::io::Read as _;
+
+    /// A live server over a real store root in a temp dir.
+    fn fixture(tag: &str) -> (DisplayServer, ArtifactsStore, PathBuf, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join(format!("artifacts-{tag}"));
+        let store = ArtifactsStore::default();
+        store.enable(&root).unwrap();
+        let server = DisplayServer::start(&root).unwrap();
+        (server, store, root, dir)
+    }
+
+    fn publish(store: &ArtifactsStore, slug: &str, body: &[u8]) -> String {
+        store
+            .publish(
+                &PublishIdentity {
+                    workspace_id: "ws-1".into(),
+                    pane_id: "pane-1".into(),
+                    label: "support 1".into(),
+                },
+                PublishRequest {
+                    slug: Some(slug),
+                    title: "T",
+                    format: ArtifactFormat::Html,
+                    path: None,
+                    content: Some(body),
+                    message: None,
+                    cwd: None,
+                },
+                1000,
+            )
+            .unwrap()
+            .token
+    }
+
+    /// One GET; returns (status-line, headers-lowercase, body-raw).
+    fn get(port: u16, path: &str) -> (String, String, Vec<u8>) {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream
+            .write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).unwrap();
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        let (head, body) = text.split_once("\r\n\r\n").unwrap();
+        let mut lines = head.lines();
+        let status = lines.next().unwrap().to_string();
+        let headers: String = lines.map(str::to_lowercase).collect::<Vec<_>>().join("\n");
+        (status, headers, body.as_bytes().to_vec())
+    }
+
+    #[test]
+    fn artifact_page_carries_the_path_pinned_csp_and_serves_bytes_verbatim() {
+        let (server, store, _root, _dir) = fixture("csp");
+        let token = publish(&store, "auth-flow", b"<h1>v1</h1>");
+        let (status, headers, body) = get(server.port(), &format!("/a/{token}/auth-flow"));
+        assert!(status.starts_with("HTTP/1.1 200"), "{status}");
+        assert!(headers.contains(&format!("connect-src /a/{token}/auth-flow/events")), "{headers}");
+        assert!(headers.contains("base-uri 'none'"));
+        assert!(headers.contains("form-action 'none'"));
+        assert!(headers.contains("referrer-policy: no-referrer"));
+        assert!(headers.contains("x-content-type-options: nosniff"));
+        assert_eq!(body, b"<h1>v1</h1>");
+        server.stop();
+    }
+
+    #[test]
+    fn no_oracle_unknown_token_and_unknown_id_are_byte_identical() {
+        let (server, store, _root, _dir) = fixture("oracle");
+        let token = publish(&store, "x", b"<p/>");
+        let (_, headers_a, body_a) = get(server.port(), "/a/wrong-token/x");
+        let (_, headers_b, body_b) = get(server.port(), &format!("/a/{token}/no-such-artifact"));
+        assert_eq!(headers_a, headers_b);
+        assert_eq!(body_a, body_b);
+        server.stop();
+    }
+
+    #[test]
+    fn non_get_is_405_and_the_route_table_never_redirects() {
+        let (server, store, _root, _dir) = fixture("methods");
+        let token = publish(&store, "x", b"<p/>");
+        let mut stream = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        stream
+            .write_all(format!("POST /a/{token}/x HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).unwrap();
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        assert!(text.starts_with("HTTP/1.1 405"), "{text}");
+        assert!(!text.contains(" 3"), "no 3xx anywhere: {text}");
+        server.stop();
+    }
+
+    #[test]
+    fn export_prepends_the_meta_csp_at_byte_zero() {
+        let (server, store, _root, _dir) = fixture("export");
+        // A crafted page placing its own <head> LATE: everything before
+        // our meta would run unsandboxed from file:// if we inserted
+        // after theirs — byte-zero prepend is the fix under test.
+        let crafted = b"<html><body>late head</body><head>x</head></html>";
+        let token = publish(&store, "crafted", crafted);
+        let (status, headers, body) = get(server.port(), &format!("/a/{token}/crafted/export"));
+        assert!(status.starts_with("HTTP/1.1 200"), "{status}");
+        assert!(headers.contains("content-disposition: attachment"), "{headers}");
+        let text = String::from_utf8_lossy(&body).into_owned();
+        assert!(
+            text.starts_with("<head><meta http-equiv=\"Content-Security-Policy\""),
+            "meta is the FIRST bytes: {}",
+            &text[..80.min(text.len())]
+        );
+        assert!(text.ends_with("late head</body><head>x</head></html>"));
+        server.stop();
+    }
+
+    #[test]
+    fn sse_subscriber_gets_the_current_version_then_live_updates() {
+        let (server, store, _root, _dir) = fixture("sse");
+        let token = publish(&store, "live", b"v1");
+        let mut sub = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        sub.write_all(
+            format!("GET /a/{token}/live/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+        // A republish broadcasts version 2 to the open subscriber. The
+        // test drives the broadcast directly — the artifact_publish
+        // command's tail (mod.rs) does exactly this call after the store
+        // commit; its wiring is the slice-6 integration's subject.
+        publish(&store, "live", b"v2");
+        server.broadcast_version("ws-1", "live", 2);
+        let mut stream = sub.try_clone().unwrap();
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        let mut raw = Vec::new();
+        sub.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let _ = sub.read_to_end(&mut raw);
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        assert!(text.starts_with("HTTP/1.1 200"), "{text}");
+        assert!(text.contains("event: version\ndata: 1"), "current on subscribe:\n{text}");
+        assert!(text.contains("event: version\ndata: 2"), "live update:\n{text}");
+        server.stop();
+    }
+
+    #[test]
+    fn delete_says_bye_synchronously() {
+        let (server, store, _root, _dir) = fixture("bye");
+        let token = publish(&store, "gone", b"v1");
+        let mut sub = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        sub.write_all(
+            format!("GET /a/{token}/gone/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+        store.delete("ws-1", "gone").unwrap();
+        // The delete command's bye walk (mod.rs) — replicated here: the
+        // server's own broadcast_bye.
+        server.broadcast_bye("ws-1", "gone", "artifact deleted");
+        let mut raw = Vec::new();
+        sub.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let _ = sub.read_to_end(&mut raw);
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        assert!(text.contains("event: bye\ndata: artifact deleted"), "{text}");
+        server.stop();
+    }
+
+    #[test]
+    fn the_index_lists_artifacts_and_escapes_their_titles() {
+        let (server, store, _root, _dir) = fixture("index");
+        let token = publish(&store, "x", b"<p/>");
+        // A title with markup: the index must escape it.
+        store
+            .publish(
+                &PublishIdentity {
+                    workspace_id: "ws-1".into(),
+                    pane_id: "p".into(),
+                    label: "<script>l</script>".into(),
+                },
+                PublishRequest {
+                    slug: Some("evil"),
+                    title: "<script>t</script>",
+                    format: ArtifactFormat::Html,
+                    path: None,
+                    content: Some(b"x"),
+                    message: None,
+                    cwd: None,
+                },
+                1000,
+            )
+            .unwrap();
+        let index_url = server.compose_urls("ws-1", "probe", &token).1;
+        let path = index_url.trim_start_matches("http://127.0.0.1:");
+        let path = path.trim_start_matches(&server.port().to_string());
+        let (_, headers, body) = get(server.port(), path);
+        assert!(headers.contains("content-security-policy"), "{headers}");
+        let text = String::from_utf8_lossy(&body).into_owned();
+        assert!(text.contains("&lt;script&gt;t&lt;/script&gt;"), "{text}");
+        assert!(!text.contains("<script>"), "{text}");
+        server.stop();
+    }
+
+    #[test]
+    fn teardown_says_bye_before_the_socket_closes() {
+        let (server, store, _root, _dir) = fixture("teardown");
+        let token = publish(&store, "t", b"v1");
+        let mut sub = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        sub.write_all(
+            format!("GET /a/{token}/t/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+        server.stop();
+        let mut raw = Vec::new();
+        sub.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let _ = sub.read_to_end(&mut raw);
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        // bye arrives BEFORE EOF (byte order: the event is in the bytes).
+        assert!(text.contains("event: bye\ndata: server stopping"), "{text}");
+    }
+}
+
