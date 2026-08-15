@@ -519,7 +519,7 @@ describe("createMailManager", () => {
     h.reports(A.paneId, done);
     expect(
       h.manager.send({ from: A, toPaneId: A.paneId, kind: "note", body: "hi me" }),
-    ).toEqual({ ok: false, refusal: "self-addressed" });
+    ).toEqual({ ok: false, refusal: { kind: "self-addressed" } });
     expect(h.delivered).toHaveLength(0);
     expect(h.manager.inbox(A.paneId, { all: true }).messages).toEqual([]);
   });

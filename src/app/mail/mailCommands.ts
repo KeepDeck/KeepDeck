@@ -354,10 +354,14 @@ export function registerMailCommands(
  * Prose lives here rather than in the domain, the same split
  * `resumeRefusalText` draws. */
 function refusalText(refusal: SendRefusal): string {
-  switch (refusal) {
+  switch (refusal.kind) {
     case "self-addressed":
       return "a pane cannot send mail to itself";
     case "not-yours-to-assign":
-      return `only ${leadRole().id} hands out work on a team — send a question or a note instead, or ask ${leadRole().id} to assign it`;
+      // The honest next step differs by where the sender stands: a working
+      // role has a lead to ask, a peer's team has nobody who assigns at all.
+      return refusal.sender === "peer"
+        ? "this team is flat: nobody assigns work here — say it as a question or a note"
+        : `only ${leadRole().id} hands out work on a team — send a question or a note instead, or ask ${leadRole().id} to assign it`;
   }
 }

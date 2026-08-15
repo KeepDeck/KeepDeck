@@ -8,7 +8,7 @@
  */
 import type { PaneActivity } from "../status";
 import type { Mail, MailKind, MailSender } from "./message";
-import { isLeadAddress } from "./roles";
+import { isLeadAddress, parseRoleAddress } from "./roles";
 
 export interface MailLimits {
   /** How long a message stays worth delivering after it was spoken. */
@@ -396,10 +396,15 @@ function reportToSender(mail: Mail, id: string, at: number, body: string): Mail 
   };
 }
 
-/** Why a send was refused. Typed rather than prose: rendering a refusal for
- * the calling agent is the command layer's job, the same split
- * `resumeRefusalText` already draws. */
-export type SendRefusal = "self-addressed" | "not-yours-to-assign";
+/** Why a send was refused, carried as data so the command layer can render
+ * it honestly. `not-yours-to-assign` says where the SENDER stands, because
+ * the honest instruction differs: a working role is told to ask its lead,
+ * a peer is told its team has nobody who assigns at all. Typed rather than
+ * prose: rendering for the calling agent is the command layer's job, the
+ * same split `resumeRefusalText` already draws. */
+export type SendRefusal =
+  | { kind: "self-addressed" }
+  | { kind: "not-yours-to-assign"; sender: "reports" | "peer" };
 
 /**
  * Why this send is refused, or null when nothing stands in its way.
@@ -448,14 +453,23 @@ export function sendRefusal(
   // A pane mailing itself wakes itself, forever, for money. There is no
   // legitimate shape of it — anything an agent wants to tell itself, it can
   // simply keep thinking.
-  if (from.paneId === toPaneId) return "self-addressed";
-  // A task is a WORK ORDER, and on a team exactly one member gives those.
-  // This is the rule that makes "lead" mean something rather than describe
-  // something: told-but-unenforced, the hierarchy lasts until the first
+  if (from.paneId === toPaneId) return { kind: "self-addressed" };
+  // A task is a WORK ORDER, and only a role that leads its team gives those.
+  // This is the rule that makes the hierarchy mean something rather than
+  // describe something: told-but-unenforced, it lasts until the first
   // agent decides it disagrees. A sender on no team is under no hierarchy
   // and keeps the behaviour it had before teams existed.
   if (kind === "task" && from.role !== undefined && !isLeadAddress(from.role)) {
-    return "not-yours-to-assign";
+    // A peer is refused because its team is FLAT; anything else — a working
+    // role, or a role the catalog has since lost — is refused toward its
+    // lead. The unknown role lands on the reports side deliberately: its
+    // standing cannot be read, and "ask the lead" at least names a next
+    // step, where "your team is flat" would assert a shape nobody checked.
+    const standing = parseRoleAddress(from.role)?.role.standing;
+    return {
+      kind: "not-yours-to-assign",
+      sender: standing === "peer" ? "peer" : "reports",
+    };
   }
   return null;
 }
