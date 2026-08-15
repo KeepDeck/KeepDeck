@@ -481,8 +481,13 @@ pub fn scan_workspaces(root: &Path, slug: &str) -> Result<Vec<(String, Manifest)
     let mut out = Vec::new();
     for ws_dir in sorted_dirs(&workspaces_root(root)).map_err(|e| e.0)? {
         let ws = ws_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        if let Some(manifest) = manifest_for_inner(root, &ws, slug).ok().flatten() {
-            out.push((ws, manifest));
+        // Per-workspace tolerance: one broken workspace skips (logged),
+        // the scan continues — a single bad directory must not 404
+        // every artifact on the server.
+        match manifest_for_inner(root, &ws, slug) {
+            Ok(Some(manifest)) => out.push((ws, manifest)),
+            Ok(None) => {}
+            Err(e) => log::warn!("artifacts: scanning {ws:?} for {slug:?} skipped: {}", e.0),
         }
     }
     Ok(out)

@@ -21,6 +21,7 @@ import type {
   CommandSpec,
 } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
+import { findWorkspaceOfPane } from "../../domain/deck";
 import { paneExecutionCwd } from "../../domain/deck/roots";
 import {
   isArtifactFormat,
@@ -89,8 +90,8 @@ interface CallerContext {
 
 /** Rungs 1-3 of the ladder. Returns the context, or throws the refusal.
  * The source's pane `{id, workspaceId, label}` is the RESOLVED identity
- * (spawn-secret → pane at call time); the deck lookup below turns the
- * reusable id into this deck's live pane for the cwd. */
+ * (spawn-secret → pane at call time); findWorkspaceOfPane turns the
+ * reusable id into this deck's live pane+workspace for the cwd. */
 function callerContext(
   source: CommandSource,
   deps: ArtifactCommandDeps,
@@ -99,18 +100,17 @@ function callerContext(
     source.kind === "external" && source.pane ? source.pane : undefined;
   if (!pane) throw anonymousRefusal();
   const deck = deps.deck();
-  for (const ws of deck?.workspaces ?? []) {
-    const found = ws.panes.find((p) => p.id === pane.id);
-    if (found) {
-      return {
-        workspaceId: ws.id,
-        workspaceInstance: ws.instance,
-        paneId: found.id,
-        label: pane.label,
-        cwd: paneExecutionCwd(ws, found),
-        remote: found.remoteEndpoint !== undefined,
-      };
-    }
+  const owner = findWorkspaceOfPane(deck?.workspaces ?? [], pane.id);
+  const found = owner?.panes.find((p) => p.id === pane.id);
+  if (owner && found) {
+    return {
+      workspaceId: owner.id,
+      workspaceInstance: owner.instance,
+      paneId: found.id,
+      label: pane.label,
+      cwd: paneExecutionCwd(owner, found),
+      remote: found.remoteEndpoint !== undefined,
+    };
   }
   throw anonymousRefusal();
 }

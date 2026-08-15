@@ -787,7 +787,7 @@ mod tests {
         // holds latest from its GET — an immediate version would loop
         // page→subscribe→reload forever with the snippet contract
         // (D5-1's regression pin).
-        server.broadcast_version("ws-1", "live", 2);
+        broadcast_version_on(&server.shared_arc(), "ws-1", "live", 2);
         let mut stream = sub.try_clone().unwrap();
         let _ = stream.shutdown(std::net::Shutdown::Write);
         let mut raw = Vec::new();
@@ -818,7 +818,7 @@ mod tests {
             )
             .unwrap();
         std::thread::sleep(Duration::from_millis(150));
-        server.broadcast_version("ws-1", "pin", 2);
+        broadcast_version_on(&server.shared_arc(), "ws-1", "pin", 2);
         std::thread::sleep(Duration::from_millis(300));
         let _ = pinned.shutdown(std::net::Shutdown::Write);
         let _ = sibling.shutdown(std::net::Shutdown::Write);
@@ -966,7 +966,7 @@ mod tests {
                     1000 + i,
                 )
                 .unwrap();
-            server.broadcast_version("ws-1", "wedge", i);
+            broadcast_version_on(&server.shared_arc(), "ws-1", "wedge", i);
         }
         std::thread::sleep(Duration::from_millis(200));
         // The registry pruned the dead entry (or would on the next
