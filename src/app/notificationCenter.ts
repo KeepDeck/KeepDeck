@@ -1,10 +1,11 @@
 import {
   addNotification,
+  bannerCooldownKey,
+  bannerVerdict,
   clearNotifications,
   markAllRead,
   markRead,
   retractByTag,
-  bannerVerdict,
   type Notification,
   type NotificationSeverity,
   type NotificationSource,
@@ -52,11 +53,12 @@ export interface NotificationCenter {
   ): void;
 }
 
-/** Last banner time per tag — the cooldown's memory. Bounded: pane ids mint
- * forever, so without a cap this would grow for the app's lifetime. Insertion
- * order ≈ recency here (a tag re-banners via delete+set), so evicting the
- * first key sheds the coldest cooldown — at worst one long-dead tag gets a
- * redundant banner instead of a suppressed one. */
+/** Last banner time per cooldown key (tag, else source) — the cooldown's
+ * memory. Bounded: pane ids mint forever, so without a cap this would grow
+ * for the app's lifetime. Insertion order ≈ recency here (a key re-banners
+ * via delete+set), so evicting the first key sheds the coldest cooldown —
+ * at worst one long-dead key gets a redundant banner instead of a
+ * suppressed one. */
 const BANNER_TAGS_MAX = 512;
 
 /** Build one app-lifetime notification owner. Tests and embedded surfaces use
@@ -120,15 +122,13 @@ export function createNotificationCenter(): NotificationCenter {
       delivered = true;
     }
     if (prefs.mode !== "app") {
+      const cooldownKey = bannerCooldownKey(notification);
       const verdict = bannerVerdict({
         windowFocused: isWindowFocused(),
         sourceVisible: sourceVisible?.(notification.source) ?? false,
         now,
         // A miss is undefined — exactly the verdict's "never bannered".
-        lastBannerAt:
-          notification.tag !== undefined
-            ? lastBannerAt.get(notification.tag)
-            : undefined,
+        lastBannerAt: lastBannerAt.get(cooldownKey),
       });
       if (verdict === "seen-in-place") {
         // The user is looking at the source surface: the event announced
@@ -138,12 +138,10 @@ export function createNotificationCenter(): NotificationCenter {
         delivered = true;
       }
       if (verdict === "banner") {
-        if (notification.tag !== undefined) {
-          lastBannerAt.delete(notification.tag); // re-set → back of the order
-          lastBannerAt.set(notification.tag, now);
-          if (lastBannerAt.size > BANNER_TAGS_MAX) {
-            lastBannerAt.delete(lastBannerAt.keys().next().value as string);
-          }
+        lastBannerAt.delete(cooldownKey); // re-set → back of the order
+        lastBannerAt.set(cooldownKey, now);
+        if (lastBannerAt.size > BANNER_TAGS_MAX) {
+          lastBannerAt.delete(lastBannerAt.keys().next().value as string);
         }
         // The OS banner has no icon slot of ours — the emoji rides the title.
         sendSystemNotification(

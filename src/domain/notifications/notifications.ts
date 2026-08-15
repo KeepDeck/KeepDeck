@@ -66,10 +66,36 @@ export interface Notification {
  * never matter for memory. Oldest entries fall off first. */
 export const NOTIFICATIONS_CAP = 200;
 
-/** Minimum quiet time between system banners for the same tag: a source
- * flapping faster than this keeps updating the center entry but stops
- * hammering the OS. */
+/** Minimum quiet time between system banners for the same flapping unit:
+ * a source re-announcing faster than this keeps landing in the center but
+ * stops hammering the OS. */
 export const BANNER_COOLDOWN_MS = 5_000;
+
+/**
+ * The unit the banner cooldown lives on — decoupled from the list's
+ * replace key on purpose. A tagged entry cools on its tag (a tagged series
+ * is one voice); an UNTAGGED one cools on its source, so a pane emitting
+ * a stream of separate history entries must not banner per entry. Keys are
+ * opaque strings compared for identity only.
+ */
+export function bannerCooldownKey(
+  notification: Pick<Notification, "tag" | "source">,
+): string {
+  if (notification.tag !== undefined) return `tag:${notification.tag}`;
+  const { source } = notification;
+  switch (source.type) {
+    case "pane":
+      // Pane ids are minted from one deck-wide sequence, unique for the
+      // app's lifetime — the pane alone names the flapping unit.
+      return `pane:${source.paneId}`;
+    case "plugin":
+      return `plugin:${source.pluginId}`;
+    case "stats":
+      return "stats";
+    case "app":
+      return "app";
+  }
+}
 
 /**
  * Add `next` to the list (newest first). A same-tag predecessor is removed —

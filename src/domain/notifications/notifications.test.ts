@@ -3,6 +3,7 @@ import { createWorkspaceInstance } from "../workspaceInstance";
 import {
   addNotification,
   BANNER_COOLDOWN_MS,
+  bannerCooldownKey,
   bannerVerdict,
   clearNotifications,
   markAllRead,
@@ -88,6 +89,37 @@ describe("retractByTag", () => {
   it("is a same-reference no-op when the tag holds no slot", () => {
     const items = [make({ tag: "pane:2:activity" }), make()];
     expect(retractByTag(items, "pane:1:activity")).toBe(items);
+  });
+});
+
+describe("bannerCooldownKey", () => {
+  const otherPane = {
+    type: "pane",
+    workspace: { id: "ws-9", instance: ws1 },
+    paneId: "pane-9",
+  } as const;
+
+  it("a tag names the unit; the source is ignored beneath it", () => {
+    expect(bannerCooldownKey({ tag: "x", source: make().source })).toBe(
+      `tag:x`,
+    );
+  });
+
+  it("an untagged pane entry cools on its pane; panes never share", () => {
+    const source = make().source;
+    expect(bannerCooldownKey({ source })).toBe("pane:pane-1");
+    expect(bannerCooldownKey({ source: otherPane })).toBe("pane:pane-9");
+    expect(bannerCooldownKey({ source })).not.toBe(
+      bannerCooldownKey({ source: otherPane }),
+    );
+  });
+
+  it("every other source kind has its own unit", () => {
+    expect(
+      bannerCooldownKey({ source: { type: "plugin", pluginId: "git" } }),
+    ).toBe("plugin:git");
+    expect(bannerCooldownKey({ source: { type: "app" } })).toBe("app");
+    expect(bannerCooldownKey({ source: { type: "stats" } })).toBe("stats");
   });
 });
 

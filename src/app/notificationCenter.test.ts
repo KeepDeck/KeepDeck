@@ -208,15 +208,27 @@ describe("notificationCenter", () => {
     unsubscribe();
   });
 
-  it("the cooldown is keyed per tag; untagged notifications never share one", () => {
+  it("the cooldown is keyed per tag, or per source when untagged", () => {
     notify({ title: "a", source: paneSource, tag: "tag-a" });
     vi.advanceTimersByTime(1_000);
     // A different tag inside tag-a's window still banners…
     notify({ title: "b", source: paneSource, tag: "tag-b" });
-    // …and untagged ones always do, even back to back.
+    // …and so does a DIFFERENT untagged source…
+    notify({ title: "c", source: { type: "app" } });
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(3);
+    // …but untagged entries from ONE source share its cooldown: a pane
+    // emitting a stream of separate history entries must not banner per
+    // entry — the entry still lands, only the banner waits.
     notify({ title: "u1", source: paneSource });
     notify({ title: "u2", source: paneSource });
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(4);
+    expect(getNotifications().map((n) => n.title)).toEqual([
+      "u2",
+      "u1",
+      "c",
+      "b",
+      "a",
+    ]);
   });
 
   it("the cooldown memory is bounded: the coldest tag is evicted, not leaked", () => {
