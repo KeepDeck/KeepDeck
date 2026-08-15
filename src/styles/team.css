@@ -40,12 +40,6 @@
   min-height: 34px;
 }
 
-/* A team name is a word, not a sentence — full width it read as the
-   dialog's main event and dwarfed the roster it merely labels. */
-.team__name {
-  width: 260px;
-}
-
 /* A ROSTER row gets a surface of its own. Bare, the row was a scatter of
    controls on the dialog's ground — the bordered role picker was the only
    shape, so it out-shouted the member it names, and the row's loose right

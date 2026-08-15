@@ -340,7 +340,7 @@ export function TeamDialog({
         <span className="form__label">Team name</span>
         <input
           {...noAutoCorrect}
-          className="form__input team__name"
+          className="form__input"
           value={name}
           onChange={(e) => {
             setTouched(true);
