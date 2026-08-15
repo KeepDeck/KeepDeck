@@ -141,14 +141,35 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
 ];
 
 /**
- * The catalog every consumer reads.
+ * The catalog every consumer reads — the seam the file's header promises.
  *
- * A function rather than the array, and that is the whole seam for custom
- * roles: when they arrive, this is where the built-ins and the user's own are
- * merged, and no caller changes.
+ * A module-level slot rather than a parameter threaded through every rule:
+ * ten signatures and their tests would change to carry what is still plain
+ * data arriving from one place. [`configureRoleCatalog`] is that place.
  */
+let configured: readonly TeamRole[] = BUILT_IN_ROLES;
+
 export function teamRoles(): readonly TeamRole[] {
+  return configured;
+}
+
+/** The pristine built-ins, regardless of what is configured — the base the
+ * catalog merge starts from, and what a reset returns to. */
+export function builtInRoles(): readonly TeamRole[] {
   return BUILT_IN_ROLES;
+}
+
+/**
+ * Install the catalog every consumer reads from now on.
+ *
+ * Takes the MERGED list — `mergeRoleCatalog`'s answer, never raw user
+ * input — so the invariants the accessors below lean on (a lead exists, a
+ * peer exists) hold by construction: the merge starts from the built-ins.
+ * One production caller, the role catalog manager; tests reset with
+ * `null`.
+ */
+export function configureRoleCatalog(roles: readonly TeamRole[] | null): void {
+  configured = roles ?? BUILT_IN_ROLES;
 }
 
 /** One role by its id, or undefined for a name the catalog does not have. */
