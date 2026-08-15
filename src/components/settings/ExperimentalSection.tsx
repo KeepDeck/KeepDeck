@@ -46,6 +46,9 @@ export function ExperimentalSection() {
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
   const mcpServer = settings?.mcpServer ?? DEFAULT_SETTINGS.mcpServer;
   const agentTeams = settings?.agentTeams ?? DEFAULT_SETTINGS.agentTeams;
+  const artifacts = settings?.artifacts ?? DEFAULT_SETTINGS.artifacts;
+  const artifactAutoOpen =
+    settings?.artifactAutoOpen ?? DEFAULT_SETTINGS.artifactAutoOpen;
   const mcpStatus = useMcpStatus();
   const served = mcpStatus.socket !== null;
   // The invocation comes from the transport's own status — a fact about the
@@ -216,6 +219,64 @@ export function ExperimentalSection() {
         <span className="settings__hint">
           Turn the MCP server on as well: agents send mail by calling the
           deck, so with the socket down they can receive but never reply.
+        </span>
+      )}
+
+      <span className="form__label">Fleet artifacts</span>
+      <div className="form__types">
+        {[true, false].map((on) => (
+          <button
+            key={String(on)}
+            type="button"
+            className={`form__type${artifacts === on ? " form__type--active" : ""}`}
+            onClick={() => updateSettings({ artifacts: on })}
+          >
+            {on ? "On" : "Off"}
+          </button>
+        ))}
+      </div>
+      <span className="settings__hint">
+        Lets agents publish presentation pages (HTML or Markdown) that open
+        in your browser, refresh live as the agent iterates, and can be
+        read and reviewed by teammates. On claims the artifact store and
+        starts the local display server; Off closes every open page and
+        releases the store. Off by default — the feature is experimental.
+      </span>
+
+      {artifacts && (
+        <span className="settings__hint">
+          The first publish of a new artifact opens it in the browser
+          automatically; later versions refresh the open page instead of
+          opening tabs.
+        </span>
+      )}
+
+      {artifacts && (
+        <span className="form__label">Auto-open artifacts</span>
+      )}
+      {artifacts && (
+        <div className="form__types">
+          {[true, false].map((on) => (
+            <button
+              key={String(on)}
+              type="button"
+              className={`form__type${artifactAutoOpen === on ? " form__type--active" : ""}`}
+              onClick={() => updateSettings({ artifactAutoOpen: on })}
+            >
+              {on ? "On" : "Off"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {artifacts && !mcpServer && (
+        // Same shape as the teams pairing: the pages keep serving with the
+        // transport off, but PUBLISHING is an MCP call — a pane could be
+        // asked to show something and have no way to do it.
+        <span className="settings__hint">
+          Turn the MCP server on as well: agents publish artifacts by
+          calling the deck, so with the socket down they cannot publish
+          (pages already published keep serving).
         </span>
       )}
     </>

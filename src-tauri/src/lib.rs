@@ -98,6 +98,7 @@ pub fn run() {
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(history::HistoryIndex::default())
         .manage(session::SessionRegistry::default())
+        .manage(artifacts::ArtifactsStore::default())
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
@@ -157,6 +158,8 @@ pub fn run() {
             app_updater::app_update_discard,
             agents::agents_detect,
             agents::agents_probe_version,
+            artifacts::artifacts_enable,
+            artifacts::artifacts_disable,
             bridge::bridge_nudge,
             bridge::bridge_pane_dir,
             bridge::bridge_reply,
