@@ -20,6 +20,23 @@
  * already reads it through [`teamRoles`] rather than reaching for a literal.
  */
 
+/**
+ * Where a role stands in its team's hierarchy — the ONE property the rules
+ * read. Two rules ask it: a team's shape is judged by how many members lead
+ * it, and a `task` is accepted only from one that does. A union rather than
+ * flags, so a role cannot be two of these at once and a switch over it is
+ * exhaustive.
+ */
+export type RoleStanding =
+  /** Answers for the team and hands out the work; a team holds at most one. */
+  | "leads"
+  /** Works under a lead — its charter says so, so it cannot stand on a team
+   * that has none. */
+  | "reports"
+  /** An equal among equals: nobody assigns, nobody outranks. Stands only
+   * with other peers — a flat team. */
+  | "peer";
+
 /** One role a team member can hold. */
 export interface TeamRole {
   /** The address teammates type, and this catalog's key. A repeatable role
@@ -29,6 +46,10 @@ export interface TeamRole {
   label: string;
   /** Whether a team may hold more than one. */
   repeatable: boolean;
+  /** Where the role stands in the team — see [`RoleStanding`]. The rules
+   * read THIS, never the id: that is what lets a future catalog hold roles
+   * this file has never heard of. */
+  standing: RoleStanding;
   /** Told to the agent HOLDING this role — second person, and specific about
    * what it does NOT do, because that is the half an agent invents when it
    * is not said. */
@@ -38,9 +59,9 @@ export interface TeamRole {
   summary: string;
 }
 
-/** The one role that answers for a team. Named because two rules refer to it
- * — a team needs exactly one, and only it assigns work — never because a
- * message or a form should spell it. */
+/** The built-in lead's id. Only the catalog entry below spells it: the rules
+ * that used to ask "is this lead?" ask the role's STANDING now, so the name
+ * is back to being nothing but a name. */
 const LEAD_ID = "lead";
 
 /**
@@ -56,6 +77,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
     id: LEAD_ID,
     label: "Lead",
     repeatable: false,
+    standing: "leads",
     summary: "runs the team and hands out the work",
     charter: [
       "You LEAD this KeepDeck team. You decide what gets done, split it up, and hand it out.",
@@ -68,6 +90,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
     id: "impl",
     label: "Implementer",
     repeatable: true,
+    standing: "reports",
     summary: "carries out the work the lead hands it",
     charter: [
       "You IMPLEMENT. A task from lead is work assigned to you — carry it out.",
@@ -80,6 +103,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
     id: "reviewer",
     label: "Reviewer",
     repeatable: true,
+    standing: "reports",
     summary: "reads what the others produce and says what is wrong with it",
     charter: [
       "You REVIEW what the others produce: read the change, judge it, and name what is wrong with it.",
@@ -92,6 +116,7 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
     id: "tester",
     label: "Tester",
     repeatable: true,
+    standing: "reports",
     summary: "runs it and reports what actually happens",
     charter: [
       "You TEST. Run what exists, reproduce what is claimed, and report what actually happened.",
@@ -119,18 +144,23 @@ export function roleById(id: string): TeamRole | undefined {
   return teamRoles().find((role) => role.id === needle);
 }
 
-/** The role that answers for a team. Present by construction — a catalog
- * without it could not describe a team at all. */
+/** The role that answers for a team — the one whose standing is `leads`.
+ * Present by construction: a catalog without it could not describe a led
+ * team at all. Callers want it for PROSE (a refusal, a briefing, the
+ * dialog's default), never to compare names against. */
 export function leadRole(): TeamRole {
-  const lead = roleById(LEAD_ID);
+  const lead = teamRoles().find((role) => role.standing === "leads");
   if (!lead) throw new Error("the role catalog has no lead");
   return lead;
 }
 
-/** Whether this address belongs to the lead. The one question two rules ask,
- * asked in one place so neither spells the name. */
+/** Whether this address belongs to a role that leads its team. The one
+ * question two rules ask, answered from the role's STANDING — so a catalog
+ * of roles this file never heard of keeps both rules working. */
 export function isLeadAddress(address: string | undefined): boolean {
-  return address !== undefined && parseRoleAddress(address)?.role.id === LEAD_ID;
+  return (
+    address !== undefined && parseRoleAddress(address)?.role.standing === "leads"
+  );
 }
 
 /** The address the nth holder of a role answers to. A singleton IS its role

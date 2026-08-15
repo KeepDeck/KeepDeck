@@ -260,7 +260,7 @@ export function planTeam(
         message: `"${role}" is not a role this deck knows`,
       };
     }
-    if (known.role === leadRole()) leads += 1;
+    if (known.role.standing === "leads") leads += 1;
   }
   // A team answers to someone. Without a lead nobody assigns work and every
   // member is briefed as taking direction from a role that is not there;

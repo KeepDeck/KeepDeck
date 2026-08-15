@@ -32,6 +32,17 @@ describe("the role catalog", () => {
     expect(teamRoles().filter((role) => !role.repeatable)).toEqual([lead]);
   });
 
+  it("puts exactly one role in charge, and the built-in workers under it", () => {
+    // The rules read standing, never the id — so the catalog must place
+    // every role, and put exactly one in the leading position.
+    expect(teamRoles().filter((role) => role.standing === "leads")).toEqual([
+      leadRole(),
+    ]);
+    for (const id of ["impl", "reviewer", "tester"]) {
+      expect(roleById(id)?.standing, id).toBe("reports");
+    }
+  });
+
   it("has no two roles under one name", () => {
     const ids = teamRoles().map((role) => role.id);
     expect(new Set(ids).size).toBe(ids.length);
