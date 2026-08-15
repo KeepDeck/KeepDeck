@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { initRoleCatalog } from "./app/roleCatalogManager";
 import { initSettings } from "./app/settingsManager";
 import { initUsagePersistence } from "./app/usagePersistence";
 import { initUsageHistory } from "./app/usageHistoryManager";
@@ -17,6 +18,9 @@ suppressNativeContextMenu();
 // Kick off the settings load with the other boot IO — the first paint gates
 // on it (App renders the bare shell until the store settles).
 void initSettings();
+// The role catalog rides the same boot IO: until it lands, every consumer
+// reads the built-in roles, so nothing gates on it.
+void initRoleCatalog();
 // Detailed Stats: load the durable delta log before live pane snapshots begin
 // appending. Capture itself is deck-aware and mounts with the usage channel.
 // The achievements notifier that consumes it is a runtime-owned service.
