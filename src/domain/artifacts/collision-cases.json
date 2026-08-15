@@ -1,0 +1,89 @@
+[
+  {
+    "name": "explicit slug, name free → create",
+    "existing": null,
+    "taken": [],
+    "request": { "slug": "new-thing", "title": "T", "format": "html" },
+    "expect": { "kind": "create", "slug": "new-thing" }
+  },
+  {
+    "name": "explicit off-grammar slug → error",
+    "existing": null,
+    "taken": [],
+    "request": { "slug": "Bad_Slug", "title": "T", "format": "md" },
+    "expect": { "kind": "error", "errorContains": "slug" }
+  },
+  {
+    "name": "explicit same-canvas republish → append",
+    "existing": { "slug": "auth-flow", "format": "html", "versionCount": 3 },
+    "taken": ["auth-flow"],
+    "request": { "slug": "auth-flow", "title": "T", "format": "html" },
+    "expect": { "kind": "append", "slug": "auth-flow", "nextVersion": 4 }
+  },
+  {
+    "name": "explicit format flip → error naming the original",
+    "existing": { "slug": "auth-flow", "format": "html", "versionCount": 3 },
+    "taken": ["auth-flow"],
+    "request": { "slug": "auth-flow", "title": "T", "format": "md" },
+    "expect": { "kind": "error", "errorContains": "is html" }
+  },
+  {
+    "name": "explicit slug naming another name than `existing` → create",
+    "existing": { "slug": "auth-flow", "format": "html", "versionCount": 3 },
+    "taken": ["auth-flow"],
+    "request": { "slug": "other-thing", "title": "T", "format": "html" },
+    "expect": { "kind": "create", "slug": "other-thing" }
+  },
+  {
+    "name": "mint, base free → create base",
+    "existing": null,
+    "taken": [],
+    "request": { "slug": null, "title": "Auth Flow", "format": "html" },
+    "expect": { "kind": "create", "slug": "auth-flow" }
+  },
+  {
+    "name": "mint, ONLY base taken → -2 (the skipped-suffix regression)",
+    "existing": null,
+    "taken": ["auth-flow"],
+    "request": { "slug": null, "title": "Auth Flow", "format": "html" },
+    "expect": { "kind": "create", "slug": "auth-flow-2" }
+  },
+  {
+    "name": "mint, base and -2 taken → -3",
+    "existing": null,
+    "taken": ["auth-flow", "auth-flow-2"],
+    "request": { "slug": null, "title": "Auth Flow", "format": "html" },
+    "expect": { "kind": "create", "slug": "auth-flow-3" }
+  },
+  {
+    "name": "mint onto a STRANGER's base → retry, never join (P1)",
+    "existing": { "slug": "auth-flow", "format": "md", "versionCount": 9 },
+    "taken": ["auth-flow"],
+    "request": { "slug": null, "title": "Auth Flow", "format": "html" },
+    "expect": { "kind": "create", "slug": "auth-flow-2" }
+  },
+  {
+    "name": "mint retries exhausted → error",
+    "existing": null,
+    "taken": [
+      "auth-flow", "auth-flow-2", "auth-flow-3", "auth-flow-4",
+      "auth-flow-5", "auth-flow-6", "auth-flow-7", "auth-flow-8"
+    ],
+    "request": { "slug": null, "title": "Auth Flow", "format": "html" },
+    "expect": { "kind": "error", "errorContains": "exhausted" }
+  },
+  {
+    "name": "full-length base colliding → grammar-valid budgeted -2",
+    "existing": null,
+    "taken": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    "request": { "slug": null, "title": "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "format": "html" },
+    "expect": { "kind": "create", "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-2" }
+  },
+  {
+    "name": "title of pure punctuation → fallback base",
+    "existing": null,
+    "taken": [],
+    "request": { "slug": null, "title": "！！！", "format": "md" },
+    "expect": { "kind": "create", "slug": "artifact" }
+  }
+]

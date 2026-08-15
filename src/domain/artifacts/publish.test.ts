@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import cases from "./collision-cases.json";
 import {
   MINT_RETRY_MAX,
   mintSlugFromTitle,
@@ -197,5 +198,54 @@ describe("the v1+v2 race mirror", () => {
     // saying `create` is exactly what the store's mutex prevents.
     const beforeCreate = planPublish(null, { slug: "race", title: "T", format: "html" }, names());
     expect(beforeCreate.kind).toBe("create");
+  });
+});
+
+/**
+ * SHARED GOLDEN FIXTURES — the collision matrix as one JSON set, run by
+ * this TS suite AND the Rust store's suite (include_str! of this same
+ * file). The two planners are deliberate mirrors (the store needs the
+ * decision under its mutex; the TS planner is the canonical definition) —
+ * unguarded twins are how the append-on-mint divergence happened. Drift
+ * now fails a test on BOTH sides instead of shipping.
+ */
+describe("collision golden fixtures (shared with the Rust store)", () => {
+  it.each(cases)("$name", (fixture) => {
+    const existing: ExistingArtifact | null = fixture.existing
+      ? {
+          slug: fixture.existing.slug as ExistingArtifact["slug"],
+          format: fixture.existing.format as ExistingArtifact["format"],
+          versionCount: fixture.existing.versionCount,
+        }
+      : null;
+    const plan = planPublish(
+      existing,
+      {
+        slug: fixture.request.slug ?? undefined,
+        title: fixture.request.title,
+        format: fixture.request.format as ExistingArtifact["format"],
+      },
+      names(...fixture.taken),
+    );
+    if (fixture.expect.kind === "error") {
+      expect(plan.kind).toBe("error");
+      if (plan.kind === "error" && fixture.expect.errorContains) {
+        expect(
+          `${plan.reason} ${plan.detail ?? ""}`,
+        ).toContain(fixture.expect.errorContains);
+      }
+    } else if (fixture.expect.kind === "append") {
+      expect(plan).toEqual({
+        kind: "append",
+        slug: fixture.expect.slug,
+        nextVersion: fixture.expect.nextVersion,
+      });
+    } else {
+      expect(plan).toEqual({
+        kind: "create",
+        slug: fixture.expect.slug,
+        format: fixture.request.format,
+      });
+    }
   });
 });

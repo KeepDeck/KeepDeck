@@ -126,6 +126,10 @@ pub struct PublishRequest<'a> {
     /// Inline bytes (capped at CONTENT_CAP_BYTES at the boundary).
     pub content: Option<&'a [u8]>,
     pub message: Option<&'a str>,
+    /// The publishing pane's execution cwd — the §6 containment boundary
+    /// for the `path` arm. `None` (provisioning/remote pane) refuses
+    /// `path`, `content` still allowed.
+    pub cwd: Option<&'a str>,
 }
 
 /// The store's error: a sentence the agent can act on (the command layer
@@ -278,6 +282,13 @@ impl ArtifactsStore {
                 let Some(slug) = dir.file_name().map(|n| n.to_string_lossy().into_owned()) else {
                     continue;
                 };
+                // A name that is not a safe slug is not an artifact: a
+                // quarantine aside (`sick.<ms>.quarantined`) or any junk
+                // dir an agent mkdir'd into the workspace — skipped, never
+                // propagated. One hostile dir must not brick the listing.
+                if require_slug(&slug).is_err() {
+                    continue;
+                }
                 if let Some(manifest) = load_manifest(root, workspace_id, &slug)? {
                     let last = manifest.versions.last();
                     out.push(ArtifactMeta {
@@ -381,9 +392,13 @@ impl ArtifactsStore {
 
     /// Drop a workspace's whole store — called from workspace deletion
     /// (the live workspace set is deck-model knowledge Rust cannot
-    /// derive). Idempotent on absence.
+    /// derive). Idempotent on absence. Takes the data guard like every
+    /// other mutation: an unguarded drop racing a mid-write publish would
+    /// let the publish RE-CREATE the directory after the drop removed it —
+    /// the exact orphan this exists to prevent.
     pub fn drop_workspace(&self, workspace_id: &str) -> StoreResult<()> {
-        self.with_enabled(|root, _data| {
+        self.with_enabled(|root, data| {
+            let _guard = data.lock().expect("artifacts data poisoned");
             let dir = workspaces_root(root).join(workspace_id);
             match fs::remove_dir_all(&dir) {
                 Ok(()) => Ok(()),
@@ -439,9 +454,27 @@ fn artifact_dir(root: &Path, workspace_id: &str, slug: &str) -> PathBuf {
 }
 
 /// One path-segment safety check, the skills library's rule: plain name,
-/// no traversal. Workspace ids arrive from the deck model, slugs from the
-/// agent — both get the same wall.
+/// no traversal. Workspace ids arrive from the deck model, so the
+/// permissive segment rule fits them.
 fn require_safe(segment: &str, what: &str) -> StoreResult<()> {
+    let ok = !segment.is_empty()
+        && segment.len() <= 64
+        && segment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && segment.starts_with(|c: char| c.is_ascii_alphanumeric());
+    if ok {
+        Ok(())
+    } else {
+        Err(StoreError::new(format!("unsafe {what}: {segment:?}")))
+    }
+}
+
+/// The SLUG wall — the domain grammar verbatim (`^[a-z0-9-]{1,64}`, the
+/// TS `validateSlug`'s twin). Stricter than [`require_safe`] on purpose:
+/// a slug is agent-facing vocabulary AND a directory name, and the two
+/// rule sets agree exactly here or nowhere.
+fn require_slug(segment: &str) -> StoreResult<()> {
     let ok = !segment.is_empty()
         && segment.len() <= 64
         && segment
@@ -450,7 +483,9 @@ fn require_safe(segment: &str, what: &str) -> StoreResult<()> {
     if ok {
         Ok(())
     } else {
-        Err(StoreError::new(format!("unsafe {what}: {segment:?}")))
+        Err(StoreError::new(format!(
+            "slug must be lowercase letters, digits, dashes (1..=64): {segment:?}"
+        )))
     }
 }
 
@@ -492,7 +527,7 @@ fn load_manifest(
     slug: &str,
 ) -> StoreResult<Option<Manifest>> {
     require_safe(workspace_id, "workspace id")?;
-    require_safe(slug, "slug")?;
+    require_slug(slug)?;
     let dir = artifact_dir(root, workspace_id, slug);
     let path = dir.join(MANIFEST_FILE);
     let bytes = match fs::read(&path) {
@@ -506,20 +541,17 @@ fn load_manifest(
     }
     match serde_json::from_slice::<Manifest>(&bytes) {
         Ok(manifest) => {
-            for (index, version) in manifest.versions.iter().enumerate() {
-                if version.n != index as u64 + 1 {
-                    quarantine(&dir, slug, "version numbers not dense from 1");
-                    return Ok(None);
-                }
-            }
-            if !manifest.versions.is_empty()
-                && manifest.versions.iter().any(|v| {
-                    !dir.join(format!("v{}.{ext}", v.n, ext = manifest.format.extension())).exists()
-                })
-            {
-                // A manifest naming absent files is a PARTIAL state (a
-                // version file was rm'd by hand): the artifact stays
-                // listable, that VERSION 404s on read. Not corruption.
+            // STRICT SHAPE: version numbers dense from 1, and never empty —
+            // a hand-edited `versions: []` would list as a phantom count-0
+            // artifact; both are the same hand-edit class, both quarantine.
+            let dense = manifest
+                .versions
+                .iter()
+                .enumerate()
+                .all(|(index, version)| version.n == index as u64 + 1);
+            if !dense || manifest.versions.is_empty() {
+                quarantine(&dir, slug, "version numbers not dense from 1 (or none)");
+                return Ok(None);
             }
             Ok(Some(manifest))
         }
@@ -576,21 +608,13 @@ fn resolve_slug<'a>(
     workspace_id: &str,
 ) -> StoreResult<String> {
     if let Some(explicit) = request.slug {
-        require_safe(explicit, "slug")?;
-        // The domain grammar is lowercase; the store's wall agrees.
-        if !explicit
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        {
-            return Err(StoreError::new(format!(
-                "slug must be lowercase letters, digits, dashes: {explicit:?}"
-            )));
-        }
+        require_slug(explicit)?;
         if let Some(manifest) = existing {
             if manifest.format != request.format {
                 return Err(StoreError::new(format!(
-                    "{explicit} is {:?}; publish a new artifact for {:?}",
-                    manifest.format, request.format
+                    "{explicit} is {}; publish a new artifact for {}",
+                    manifest.format.extension(),
+                    request.format.extension()
                 )));
             }
         }
@@ -647,7 +671,12 @@ fn mint_slug_from_title(title: &str) -> String {
 fn read_source(root: &Path, request: &PublishRequest<'_>) -> StoreResult<Vec<u8>> {
     match (request.path, request.content) {
         (Some(path), _) => {
-            let bytes = enforce_and_read(root, path, request.format)?;
+            let bytes = enforce_and_read(
+                root,
+                request.cwd.map(Path::new),
+                path,
+                request.format,
+            )?;
             if bytes.len() > FILE_CAP_BYTES {
                 return Err(StoreError::new(format!(
                     "source file exceeds the {FILE_CAP_BYTES}-byte cap"
@@ -669,13 +698,23 @@ fn read_source(root: &Path, request: &PublishRequest<'_>) -> StoreResult<Vec<u8>
     }
 }
 
-/// §6 enforcement, per-call stateless: canonicalize both, prefix-check
-/// with a separator, extension must agree with the declared format, and
-/// the store root itself is off-limits (self-reference). A `cwd` is
-/// required — TS refuses remote/provisioning panes' path arms before the
-/// invoke, and Rust re-checks containment against the boundary it was
-/// handed (trust-but-verify: TS is first-party, but the wall is cheap).
-fn enforce_and_read(root: &Path, path: &str, format: ArtifactFormat) -> StoreResult<Vec<u8>> {
+/// §6 enforcement, per-call stateless: canonicalize both the requested
+/// path AND the pane-cwd boundary (symlink-aware — a `note.html` symlinked
+/// to `/etc/passwd` inside the pane's own cwd is the concrete defeat this
+/// wall exists for), prefix-check, extension must agree with the declared
+/// format, and the store root itself is off-limits (self-reference).
+/// `Path::starts_with` compares COMPONENTS, so the separator-aware prefix
+/// (`/etc/cwd-evil` must not match boundary `/etc/cwd`) is built in.
+/// No boundary (`None`) + the path arm = refusal with the remedy — TS
+/// refuses remote/provisioning panes' path arms pre-invoke (the
+/// three-rung ladder), and Rust re-checks against the boundary it was
+/// handed: trust-but-verify, with the verify being load-bearing.
+fn enforce_and_read(
+    root: &Path,
+    boundary: Option<&Path>,
+    path: &str,
+    format: ArtifactFormat,
+) -> StoreResult<Vec<u8>> {
     let declared = Path::new(path);
     match declared.extension().and_then(|e| e.to_str()) {
         Some(ext) if ext.eq_ignore_ascii_case(format.extension()) => {}
@@ -686,8 +725,21 @@ fn enforce_and_read(root: &Path, path: &str, format: ArtifactFormat) -> StoreRes
             )))
         }
     }
+    let Some(boundary) = boundary else {
+        return Err(StoreError::new(
+            "path publish needs a pane cwd — publish `content` instead, or run inside a KeepDeck pane",
+        ));
+    };
     let canonical = fs::canonicalize(declared)
         .map_err(|e| StoreError::new(format!("resolving {path:?} failed: {e}")))?;
+    let boundary_canonical = fs::canonicalize(boundary)
+        .map_err(|e| StoreError::new(format!("resolving the pane cwd failed: {e}")))?;
+    if !canonical.starts_with(&boundary_canonical) {
+        return Err(StoreError::new(format!(
+            "publish path must stay inside the pane's cwd ({} resolves outside)",
+            path
+        )));
+    }
     let root_canonical = fs::canonicalize(root)
         .map_err(|e| StoreError::new(format!("resolving the store root failed: {e}")))?;
     if canonical.starts_with(&root_canonical) {
@@ -732,6 +784,7 @@ mod tests {
             path: None,
             content: Some(content),
             message: None,
+            cwd: None,
         }
     }
 
@@ -886,6 +939,7 @@ mod tests {
     #[test]
     fn path_publish_enforced_containment_extension_and_caps() {
         let (store, dir, _root) = store_with_root("enforce");
+        let boundary = dir.path();
         // Inside cwd, right extension: OK.
         let good = dir.path().join("page.html");
         std::fs::write(&good, b"<p>ok</p>").unwrap();
@@ -896,8 +950,42 @@ mod tests {
             path: Some(good.to_str().unwrap()),
             content: None,
             message: None,
+            cwd: Some(boundary.to_str().unwrap()),
         };
         store.publish(&identity(), ok_request, 1000).unwrap();
+
+        // A symlink INSIDE the boundary pointing OUT: the concrete §6
+        // defeat — canonicalize resolves through it, the prefix check is
+        // the only wall that sees the truth.
+        let secret = std::env::temp_dir().join(format!("keepdeck-secret-{}.html", std::process::id()));
+        std::fs::write(&secret, b"<p>outside</p>").unwrap();
+        let link = dir.path().join("note.html");
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        let escape_request = PublishRequest {
+            slug: Some("escape"),
+            title: "T",
+            format: ArtifactFormat::Html,
+            path: Some(link.to_str().unwrap()),
+            content: None,
+            message: None,
+            cwd: Some(boundary.to_str().unwrap()),
+        };
+        let err = store.publish(&identity(), escape_request, 2000).unwrap_err();
+        assert!(err.0.contains("inside the pane's cwd"), "symlink escape: {}", err.0);
+
+        // No boundary + the path arm = refusal with the remedy (the
+        // provisioning/remote pane case — content stays allowed).
+        let no_cwd_request = PublishRequest {
+            slug: Some("no-cwd"),
+            title: "T",
+            format: ArtifactFormat::Html,
+            path: Some(good.to_str().unwrap()),
+            content: None,
+            message: None,
+            cwd: None,
+        };
+        let err = store.publish(&identity(), no_cwd_request, 3000).unwrap_err();
+        assert!(err.0.contains("needs a pane cwd"), "no-boundary refusal: {}", err.0);
 
         // Wrong extension vs declared format: refused.
         let wrong = dir.path().join("page.md");
@@ -909,24 +997,14 @@ mod tests {
             path: Some(wrong.to_str().unwrap()),
             content: None,
             message: None,
+            cwd: Some(boundary.to_str().unwrap()),
         };
-        let err = store.publish(&identity(), wrong_request, 2000).unwrap_err();
+        let err = store.publish(&identity(), wrong_request, 4000).unwrap_err();
         assert!(err.0.contains("does not match"), "extension gate: {}", err.0);
 
         // The store's own root is not a publishable source.
-        let manifest_file = _root.join("ws/ws-1/via-path/manifest.json");
-        let self_request = PublishRequest {
-            slug: Some("self"),
-            title: "T",
-            format: ArtifactFormat::Html,
-            path: Some(manifest_file.to_str().unwrap()),
-            content: None,
-            message: None,
-        };
-        // (manifest.json has the wrong extension anyway; use a planted
-        // .html file inside the root for the true self-reference case.)
-        let planted = _root.join("ws/ws-1/planted.html");
         std::fs::create_dir_all(_root.join("ws/ws-1")).unwrap();
+        let planted = _root.join("ws/ws-1/planted.html");
         std::fs::write(&planted, b"<p>inside store</p>").unwrap();
         let self_request = PublishRequest {
             slug: Some("self"),
@@ -935,8 +1013,9 @@ mod tests {
             path: Some(planted.to_str().unwrap()),
             content: None,
             message: None,
+            cwd: Some(_root.to_str().unwrap()),
         };
-        let err = store.publish(&identity(), self_request, 3000).unwrap_err();
+        let err = store.publish(&identity(), self_request, 5000).unwrap_err();
         assert!(err.0.contains("not a publishable source"), "store wall: {}", err.0);
 
         // Oversized file: refused.
@@ -949,9 +1028,170 @@ mod tests {
             path: Some(big.to_str().unwrap()),
             content: None,
             message: None,
+            cwd: Some(boundary.to_str().unwrap()),
         };
-        let err = store.publish(&identity(), big_request, 4000).unwrap_err();
+        let err = store.publish(&identity(), big_request, 6000).unwrap_err();
         assert!(err.0.contains("cap"), "file cap: {}", err.0);
+    }
+
+    #[test]
+    fn a_crash_orphan_version_file_is_overwritten_by_the_next_publish() {
+        let (store, _dir, root) = store_with_root("orphan");
+        store.publish(&identity(), content_request(Some("o"), b"one"), 1000).unwrap();
+        // A crash between the version write and the manifest write leaves
+        // v2.html orphaned; the next publish computes v2 again and its
+        // bytes replace the orphan's.
+        std::fs::write(root.join("ws/ws-1/o/v2.html"), b"orphan bytes").unwrap();
+        let out = store
+            .publish(&identity(), content_request(Some("o"), b"real two"), 2000)
+            .unwrap();
+        assert_eq!(out.version, 2);
+        let body = std::fs::read(root.join("ws/ws-1/o/v2.html")).unwrap();
+        assert_eq!(body, b"real two");
+    }
+
+    #[test]
+    fn an_empty_versions_manifest_quarantines_strictly() {
+        let (store, _dir, root) = store_with_root("empty-versions");
+        store.publish(&identity(), content_request(Some("phantom"), b"<p/>"), 1000).unwrap();
+        let manifest_path = root.join("ws/ws-1/phantom/manifest.json");
+        let raw = std::fs::read_to_string(&manifest_path).unwrap();
+        let mut doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        doc["versions"] = serde_json::json!([]);
+        std::fs::write(&manifest_path, doc.to_string()).unwrap();
+        // A phantom count-0 listing is a hand-edit, not a state: the
+        // artifact is quarantined and the listing stays clean.
+        let list = store.list("ws-1").unwrap();
+        assert!(list.iter().all(|a| a.id != "phantom"));
+    }
+
+    #[test]
+    fn listing_survives_quarantine_siblings_and_junk_dirs() {
+        let (store, _dir, root) = store_with_root("junk");
+        store.publish(&identity(), content_request(Some("live"), b"<p/>"), 1000).unwrap();
+        // A quarantined aside (dotted name) and a junk dir an agent
+        // mkdir'd — neither bricks the listing.
+        std::fs::create_dir_all(root.join("ws/ws-1/sick.123.quarantined")).unwrap();
+        std::fs::create_dir_all(root.join("ws/ws-1/random junk")).unwrap();
+        let list = store.list("ws-1").unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "live");
+        // And the malformed-manifest flow specifically: quarantine, then
+        // list AGAIN (the bricked-list regression), then recover.
+        store.publish(&identity(), content_request(Some("sick"), b"<p/>"), 2000).unwrap();
+        std::fs::write(root.join("ws/ws-1/sick/manifest.json"), b"{ not json").unwrap();
+        let _ = store.read("ws-1", "sick", None, 0);
+        store.list("ws-1").unwrap(); // <-- used to brick forever
+        let out = store.publish(&identity(), content_request(Some("sick"), b"<p/>"), 3000).unwrap();
+        assert!(out.is_new);
+        let list = store.list("ws-1").unwrap();
+        assert!(list.iter().any(|a| a.id == "sick"));
+    }
+
+    #[derive(serde::Deserialize, Debug)]
+    struct GoldenCase {
+        #[allow(dead_code)]
+        name: String,
+        existing: Option<GoldenExisting>,
+        taken: Vec<String>,
+        request: GoldenRequest,
+        expect: GoldenExpect,
+    }
+
+    #[derive(serde::Deserialize, Debug)]
+    #[serde(rename_all = "camelCase")]
+    struct GoldenExisting {
+        slug: String,
+        format: String,
+        version_count: u64,
+    }
+
+    #[derive(serde::Deserialize, Debug)]
+    struct GoldenRequest {
+        slug: Option<String>,
+        title: String,
+        format: String,
+    }
+
+    #[derive(serde::Deserialize, Debug)]
+    #[serde(rename_all = "camelCase")]
+    struct GoldenExpect {
+        kind: String,
+        slug: Option<String>,
+        next_version: Option<u64>,
+        error_contains: Option<String>,
+    }
+
+    /// The SHARED collision fixtures (the TS planner runs the same JSON —
+    /// `src/domain/artifacts/collision-cases.json`): the Rust mirror and
+    /// the canonical definition answer identically or a test fails on
+    /// both sides. Unguarded twins are how the append-on-mint divergence
+    /// shipped; this is the guard.
+    #[test]
+    fn collision_golden_fixtures_shared_with_the_ts_planner() {
+        let cases: Vec<GoldenCase> = serde_json::from_str(include_str!(
+            "../../../src/domain/artifacts/collision-cases.json"
+        ))
+        .unwrap();
+        assert!(cases.len() >= 12);
+        for case in &cases {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().join("artifacts");
+            std::fs::create_dir_all(root.join("ws/ws-1")).unwrap();
+            for taken in &case.taken {
+                let dir = root.join("ws/ws-1").join(taken);
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(dir.join("manifest.json"), b"{}").unwrap();
+            }
+            let existing = case.existing.as_ref().map(|e| Manifest {
+                title: "T".into(),
+                format: if e.format == "md" { ArtifactFormat::Md } else { ArtifactFormat::Html },
+                token: "x".into(),
+                created: 0,
+                versions: (1..=e.version_count)
+                    .map(|n| VersionMeta {
+                        n,
+                        author_pane_id: "p".into(),
+                        author_label: "l".into(),
+                        at: 0,
+                        size: 1,
+                        message: None,
+                    })
+                    .collect(),
+            });
+            let format = if case.request.format == "md" {
+                ArtifactFormat::Md
+            } else {
+                ArtifactFormat::Html
+            };
+            let request = PublishRequest {
+                slug: case.request.slug.as_deref(),
+                title: &case.request.title,
+                format,
+                path: None,
+                content: Some(b"x"),
+                message: None,
+                cwd: None,
+            };
+            let result = resolve_slug(existing.as_ref(), &request, &root, "ws-1");
+            match case.expect.kind.as_str() {
+                "error" => {
+                    let err = result.expect_err(&case.name);
+                    if let Some(needle) = &case.expect.error_contains {
+                        assert!(err.0.contains(needle), "{case:?}: {err:?}");
+                    }
+                }
+                _ => {
+                    let slug = result.expect(&case.name);
+                    assert_eq!(
+                        slug,
+                        case.expect.slug.clone().unwrap(),
+                        "case: {}",
+                        case.name
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -979,6 +1219,7 @@ mod tests {
             path: Some(big.to_str().unwrap()),
             content: None,
             message: None,
+            cwd: Some(dir.path().to_str().unwrap()),
         };
         store.publish(&identity(), request, 1000).unwrap();
         match store.read("ws-1", "big-artifact", None, 0).unwrap() {
