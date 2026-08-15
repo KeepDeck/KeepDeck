@@ -44,12 +44,27 @@ const ATTENTION_FLOOR = 3;
  * only pane there is — which is a fact about layout, not a frame mode. */
 export interface PaneFrameFacts {
   activity?: PaneActivity;
-  /** The pane the deck highlights — where the cursor is. */
+  /** Whether this surface wears the deck's selection border at all: a
+   * gridded pane holding the cursor does; a list row never does (its
+   * accordion expansion is its own selection mark — a green border would
+   * double it), and neither does a hidden pane or a tray chip. Stating
+   * that is a fact about the surface; WHAT the fact wears is the
+   * ladder's, and the full-bleed gate below already yields selection to
+   * the stage-filling mode. */
   selected: boolean;
   /** The pane fills the whole stage, so its border is the rim of
    * everything the user is already looking at. */
   fullBleed: boolean;
 }
+
+/** The place-half of [`PaneFrameFacts`] — everything but the live
+ * activity, which the pane itself adds. Stated by the surface that owns
+ * the layout semantics (the stage: a maximized or lone GRID pane fills
+ * the stage; a list row never does, however its chrome flags read), so
+ * the pane never has to guess its place from chrome props — `solo`
+ * means "no maximize button" on a list row and "the whole stage" on a
+ * grid pane, and only the stage knows which layout it is rendering. */
+export type PaneFramePlace = Pick<PaneFrameFacts, "selected" | "fullBleed">;
 
 /**
  * The single home of the frame priority ladder ([`paneBody`] precedent —
@@ -74,10 +89,11 @@ export interface PaneFrameFacts {
  *   place; a rim repeating them at the screen's edge is noise. So a
  *   full-bleed pane with no attention wears no frame at all.
  *
- * The visibility rule is here too, not in the caller: which facts a
- * surface truthfully states is the surface's business, and what those
- * facts wear is this ladder's. (It spent an MVP cut in the views as
- * `selected && !focused && !solo` — the full-bleed gate absorbed it.)
+ * Which surfaces state which facts is the surface's business (a list row
+ * has no selection border to state — see [`PaneFrameFacts.selected`]);
+ * what those facts wear is this ladder's. The MVP cut had spelled half
+ * the grid's rule in the views as `selected && !focused && !solo` — the
+ * full-bleed gate absorbed the `!focused && !solo` half of it.
  */
 export function paneFrame(facts: PaneFrameFacts): StatusFrame {
   const { activity, selected, fullBleed } = facts;
