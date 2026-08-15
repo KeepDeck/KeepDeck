@@ -202,17 +202,53 @@ describe("registerArtifactCommands", () => {
     expect(artifactPublish).not.toHaveBeenCalled();
   });
 
-  it("read parses a numeric version and rejects junk", async () => {
+  it("read parses a numeric version and rejects junk by NAME", async () => {
     vi.mocked(artifactRead).mockResolvedValue({ kind: "inline", content: "x" });
     const { run } = setup([pane()]);
     await run("artifact.read", { id: "x", version: "3" }, paneSource());
     expect(artifactRead).toHaveBeenCalledWith(
       expect.objectContaining({ slug: "x", version: 3 }),
     );
+    await expect(
+      run("artifact.read", { id: "x", version: "abc" }, paneSource()),
+    ).rejects.toThrow(/version must be a number/);
     await run("artifact.read", { id: "x" }, paneSource());
     expect(artifactRead).toHaveBeenLastCalledWith(
       expect.objectContaining({ version: undefined }),
     );
+  });
+
+  it("a remote pane's path arm is refused BY NAME, content passes", async () => {
+    const remotePane = {
+      ...pane({ id: "pane-remote" }),
+      remoteEndpoint: "ssh://host",
+    } as unknown as Workspace["panes"][number];
+    const { run } = setup([remotePane]);
+    await expect(
+      run(
+        "artifact.publish",
+        { title: "T", format: "html", path: "/repo/page.html" },
+        paneSource("pane-remote"),
+      ),
+    ).rejects.toThrow(/runs remotely.*local-only.*content/s);
+    await run(
+      "artifact.publish",
+      { title: "T", format: "html", content: "<p/>" },
+      paneSource("pane-remote"),
+    );
+    expect(artifactPublish).toHaveBeenCalled();
+  });
+
+  it("an over-length title is refused before the invoke", async () => {
+    const { run } = setup([pane()]);
+    await expect(
+      run(
+        "artifact.publish",
+        { title: "x".repeat(201), format: "html", content: "x" },
+        paneSource(),
+      ),
+    ).rejects.toThrow(/title must be ≤200/);
+    expect(artifactPublish).not.toHaveBeenCalled();
   });
 
   it("delete passes the workspace-scoped slug through", async () => {

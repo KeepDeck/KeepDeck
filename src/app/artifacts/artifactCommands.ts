@@ -65,6 +65,10 @@ interface CallerContext {
   paneId: string;
   label: string;
   cwd: string | null;
+  /** A remote pane: the path arm is structurally unavailable (the cwd is
+   * a remote path string Rust cannot canonicalize) — refused by NAME,
+   * not by a confusing ENOENT from the canonicalizer. */
+  remote: boolean;
 }
 
 /** Rungs 1-3 of the ladder. Returns the context, or throws the refusal.
@@ -87,6 +91,7 @@ function callerContext(
         paneId: found.id,
         label: pane.label,
         cwd: paneExecutionCwd(ws, found),
+        remote: found.remoteEndpoint !== undefined,
       };
     }
   }
@@ -154,6 +159,9 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
       const caller = callerContext(source, deps);
       const title = str(args, "title");
       if (!title) throw new Error("publish needs a title");
+      if (title.length > 200) {
+        throw new Error("title must be ≤200 chars");
+      }
       const format = str(args, "format");
       if (format !== "html" && format !== "md") {
         throw new Error(`unknown format ${JSON.stringify(String(args.format))} — expected html or md`);
@@ -163,8 +171,14 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
       if (!path && !content) {
         throw new Error("publish needs one of `path` or `content`");
       }
-      // Rung 2: a pane without a cwd keeps `content` and loses `path`,
-      // with the remedy said — never a silent refusal of the whole publish.
+      // Remote and no-cwd panes both lose the path arm — each with the
+      // refusal NAMING its own reason (an agent debugging a generic
+      // ENOENT never learns the arm is structurally unavailable).
+      if (path && caller.remote) {
+        throw new Error(
+          "this pane runs remotely — path publish is local-only; publish content instead",
+        );
+      }
       if (path && caller.cwd === null) {
         throw new Error(
           "path publish needs a pane cwd (this pane has none yet) — publish `content` instead",
@@ -244,10 +258,14 @@ function readCommand(deps: ArtifactCommandDeps): CommandSpec {
       const id = str(args, "id");
       if (!id) throw new Error("read needs an id");
       const versionText = str(args, "version");
+      if (versionText !== undefined && !/^\d+$/.test(versionText)) {
+        // Junk is not silence: an agent asking for version 'abc' meant
+        // SOMETHING — answering latest silently could review the wrong
+        // version (the teach-don't-guess discipline).
+        throw new Error("version must be a number — omit it for latest");
+      }
       const version =
-        versionText !== undefined && /^\d+$/.test(versionText)
-          ? Number(versionText)
-          : undefined;
+        versionText !== undefined ? Number(versionText) : undefined;
       return await artifactRead({
         workspaceId: caller.workspaceId,
         slug: id,
