@@ -41,6 +41,7 @@ describe("the role catalog", () => {
     for (const id of ["impl", "reviewer", "tester"]) {
       expect(roleById(id)?.standing, id).toBe("reports");
     }
+    expect(roleById("peer")?.standing).toBe("peer");
   });
 
   it("has no two roles under one name", () => {

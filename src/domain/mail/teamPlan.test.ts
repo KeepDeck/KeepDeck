@@ -132,6 +132,41 @@ describe("planTeam", () => {
     expect(twoHeads.ok).toBe(false);
   });
 
+  it("accepts a flat team of peers, where nobody leads", () => {
+    // The second team shape: equals only. No lead to demand — the peer
+    // charter names nobody to take direction from.
+    const ws = workspace([pane("pane-1"), pane("pane-2")]);
+    const result = planTeam(
+      ws,
+      draft({
+        members: [
+          { paneId: "pane-1", role: "peer-1" },
+          { paneId: "pane-2", role: "peer-2" },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("refuses to mix peers with led roles, either way around", () => {
+    // "An equal under a boss" is a contradiction in the roster itself: the
+    // peer charter says nobody outranks it, the worker charters name a lead.
+    const ws = workspace([pane("pane-1"), pane("pane-2")]);
+    for (const other of ["lead", "impl-1"]) {
+      const result = planTeam(
+        ws,
+        draft({
+          members: [
+            { paneId: "pane-1", role: "peer-1" },
+            { paneId: "pane-2", role: other },
+          ],
+        }),
+      );
+      expect(result.ok, other).toBe(false);
+      if (!result.ok) expect(result.message).toContain("flat");
+    }
+  });
+
   it("refuses to take a pane that already belongs to another team", () => {
     // One team per pane. Poaching strands the team left behind: its members
     // stay briefed to address a role that reaches nobody. The dialog declines

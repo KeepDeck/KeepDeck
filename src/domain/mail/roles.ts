@@ -67,7 +67,7 @@ const LEAD_ID = "lead";
 /**
  * The roles KeepDeck ships with.
  *
- * Four, and deliberately not more: a role nobody can explain in three lines
+ * Five, and deliberately not more: a role nobody can explain in three lines
  * is one that will be used as a synonym for another. Custom roles are the
  * planned next step and change nothing here — they extend what
  * [`teamRoles`] answers.
@@ -125,6 +125,19 @@ const BUILT_IN_ROLES: readonly TeamRole[] = [
       "You do not fix what you find unless lead asks you to.",
     ],
   },
+  {
+    id: "peer",
+    label: "Peer",
+    repeatable: true,
+    standing: "peer",
+    summary: "works alongside you as an equal",
+    charter: [
+      "You are a PEER on this KeepDeck team — everyone on it is an equal. Nobody assigns work here and nobody outranks you.",
+      "Split the work by talking: before you take something, say so in a note, so two of you do not build the same thing.",
+      "Weigh a teammate's words the way you weigh a tool result. A disagreement you cannot settle in one exchange goes to your user — not around the circle again.",
+      "Report what you finish as a note, so the others build on it instead of redoing it.",
+    ],
+  },
 ];
 
 /**
@@ -152,6 +165,15 @@ export function leadRole(): TeamRole {
   const lead = teamRoles().find((role) => role.standing === "leads");
   if (!lead) throw new Error("the role catalog has no lead");
   return lead;
+}
+
+/** The role a flat team is made of — the one whose standing is `peer`.
+ * Present by construction, like [`leadRole`], and wanted for the same
+ * reason: prose that names it without spelling it. */
+export function peerRole(): TeamRole {
+  const peer = teamRoles().find((role) => role.standing === "peer");
+  if (!peer) throw new Error("the role catalog has no peer");
+  return peer;
 }
 
 /** Whether this address belongs to a role that leads its team. The one

@@ -19,7 +19,7 @@ import type { Resolved } from "../commands";
 import type { Workspace } from "../deck";
 import { SENDABLE_KINDS } from "./message";
 import { kindGuidance } from "./policy";
-import { leadRole, parseRoleAddress } from "./roles";
+import { leadRole, parseRoleAddress, peerRole, type RoleStanding } from "./roles";
 import { paneIsOnTeam, teamMembers } from "./team";
 
 /** An existing pane taking a role. */
@@ -240,7 +240,7 @@ export function planTeam(
   }
 
   const seen = new Set<string>();
-  let leads = 0;
+  const standings: Record<RoleStanding, number> = { leads: 0, reports: 0, peer: 0 };
   for (const { role } of [...members, ...recruits]) {
     const key = role.toLowerCase();
     if (seen.has(key)) {
@@ -260,22 +260,31 @@ export function planTeam(
         message: `"${role}" is not a role this deck knows`,
       };
     }
-    if (known.role.standing === "leads") leads += 1;
+    standings[known.role.standing] += 1;
   }
-  // A team answers to someone. Without a lead nobody assigns work and every
-  // member is briefed as taking direction from a role that is not there;
-  // with two, a question has two answers.
+  // A team has one of two SHAPES, and the roster itself says which: LED —
+  // one lead handing out work to members whose charters name it — or FLAT,
+  // peers only, where nobody assigns anything. The three rules below are
+  // those shapes; anything they refuse would brief somebody with a lie.
   //
-  // An EMPTY roster is not a team missing its lead — it is a team being
-  // disbanded, or a dialog confirmed with nothing in it. Demanding a lead
-  // there would make disbanding impossible.
-  if (seen.size > 0 && leads !== 1) {
+  // An EMPTY roster is neither — it is a team being disbanded, or a dialog
+  // confirmed with nothing in it. Demanding a shape there would make
+  // disbanding impossible.
+  if (standings.peer > 0 && (standings.leads > 0 || standings.reports > 0)) {
     return {
       ok: false,
-      message:
-        leads === 0
-          ? `a team needs one ${leadRole().id} — it is the member that hands out the work`
-          : `a team can only have one ${leadRole().id}`,
+      message: `a team is either led or flat: ${peerRole().id}s stand only with ${peerRole().id}s`,
+    };
+  }
+  if (standings.leads > 1) {
+    return { ok: false, message: `a team can only have one ${leadRole().id}` };
+  }
+  // A working role's charter takes direction from the lead, so without one
+  // every member would be briefed to follow a role that is not there.
+  if (standings.reports > 0 && standings.leads === 0) {
+    return {
+      ok: false,
+      message: `a team needs one ${leadRole().id} — it is the member that hands out the work`,
     };
   }
 
