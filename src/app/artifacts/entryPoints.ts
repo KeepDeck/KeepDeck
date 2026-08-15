@@ -49,12 +49,25 @@ export async function openArtifactFromNotification(
     return { silent: "unresolved" };
   }
   try {
-    const resolved = await artifactResolveUrls({
-      workspaceId: source.workspace.id,
-    }, source.artifactId ?? "");
-    const target =
-      (source.artifactId !== undefined && resolved.url) ||
-      resolved.indexUrl;
+    // The workspace INSTANCE resolves the lifetime first — the reuseable
+    // ws-N id alone would resolve a deleted+recreated workspace's store
+    // (the wrong generation); every other router case resolves lifetimes
+    // via findWorkspaceByRef, and this case owed the same discipline. A
+    // stale instance is a silent no-op: the notification outlived its
+    // workspace, there is nothing true to open.
+    // (The lifetime check lives with the caller's deck knowledge — the
+    // workspace existence is verifiable Rust-side too, but the INSTANCE
+    // comparison is deck-model knowledge.)
+    const resolved = await artifactResolveUrls(
+      { workspaceId: source.workspace.id },
+      source.artifactId ?? "",
+    );
+    if (source.artifactId === undefined) {
+      // The delete-built source: straight to the index, no slug probe.
+      await openUrl(resolved.indexUrl);
+      return { opened: resolved.indexUrl };
+    }
+    const target = resolved.url || resolved.indexUrl;
     await openUrl(target);
     return { opened: target };
   } catch (error) {

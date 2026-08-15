@@ -25,7 +25,7 @@
 //! units. Reviewers may ask for the split.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,6 +38,9 @@ use crate::artifacts::token::{mint_token, token_eq};
 
 const HEAD_CAP: usize = 8 * 1024;
 const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
+/// Write bound for every socket op (set once at accept; inherited by
+/// clones) — the value the SSE path already used per-subscriber.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const KEEPALIVE_TICK: Duration = Duration::from_secs(15);
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 const ACCEPT_FAILURE_LIMIT: u32 = 10;
@@ -52,6 +55,18 @@ struct SubEntry {
     write: TcpStream,
     /// A `?v=`-pinned tab: never yanked to latest (§5's reviewer rule).
     pinned: Option<u64>,
+    /// The artifact TOKEN this subscription was minted against. Delete
+    /// → resurrect reuses the (ws,slug) KEY with a FRESH token; without
+    /// the tie, stale tabs of the dead artifact would receive the NEW
+    /// artifact's version events, reload, and 404 into a silent dead
+    /// end. Broadcasts and the tick compare tokens before writing; a
+    /// mismatch is a dead tab of a dead artifact → bye.
+    token: String,
+    /// Consecutive keepalive failures. ONE strike used to prune — a tab
+    /// whose machine slept two seconds was silently unsubscribed
+    /// forever. The second consecutive failure prunes: transient
+    /// hiccup survives, a gone peer doesn't linger.
+    strikes: u32,
 }
 
 /// Everything the threads share. `Arc`-held by DisplayServer, the accept
@@ -170,9 +185,24 @@ impl DisplayServer {
     /// Broadcast a `version` event to an artifact's UNPINNED subscribers
     /// — the publish tail calls this AFTER the store mutex releases.
     pub fn broadcast_version(&self, ws: &str, slug: &str, version: u64) {
+        // The CURRENT artifact's token — re-read per broadcast (the
+        // no-cache rule): entries minted against a DIFFERENT token are
+        // tabs of a dead generation (delete → resurrect reused the key);
+        // they get bye, never the new artifact's events.
+        let live_token = manifest_for(&self.shared.root, ws, slug)
+            .ok()
+            .flatten()
+            .map(|m| m.token);
         let mut registry = self.shared.subs.lock().expect("subs poisoned");
         if let Some(entries) = registry.get_mut(&(ws.to_string(), slug.to_string())) {
             entries.retain(|entry| {
+                if let Some(token) = &live_token {
+                    if &entry.token != token {
+                        let _ = write_event(&entry.write, "bye", "artifact replaced");
+                        let _ = entry.write.shutdown(std::net::Shutdown::Both);
+                        return false;
+                    }
+                }
                 if entry.pinned.is_some() {
                     return true; // pinned: never yanked, stays subscribed
                 }
@@ -275,21 +305,38 @@ fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
 
 struct Request {
     path: String,
-    query_v: Option<String>,
+    /// The `?v=` pin, parsed ONCE here — u64, saturating: every consumer
+    /// gets the same value, and an overflowing pin (25 nines) is a 404
+    /// rather than a silent fall-back-to-latest (the no-oracle rule: a
+    /// digit-shaped v that fails u64 parse once answered 200-latest on
+    /// VALID pairs — a token-guessing oracle).
+    query_v: Option<u64>,
 }
 
 fn read_request(stream: &mut TcpStream) -> Result<Request, u16> {
     let Ok(()) = stream.set_read_timeout(Some(HEAD_TIMEOUT)) else {
         return Err(400);
     };
+    // SO_SNDTIMEO here, on the ACCEPTED socket: socket options are
+    // inherited by every try_clone (the mechanism the SSE path already
+    // relies on) — one set covers the head read, every body write, and
+    // the stored subscriber clone. A stalled peer errors instead of
+    // pinning the connection thread forever.
+    let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
     let cloned = match stream.try_clone() {
         Ok(c) => c,
         Err(_) => return Err(400),
     };
-    let mut reader = BufReader::new(cloned);
+    // Bounded from the FIRST byte: read_line buffers an entire line
+    // before any cap check, so a peer streaming bytes with no newline
+    // would grow memory unbounded — Take enforces the 8 KiB cap DURING
+    // the read, not after it.
+    let mut reader = BufReader::new(cloned.take(HEAD_CAP as u64 + 1));
     let mut request_line = String::new();
-    if reader.read_line(&mut request_line).is_err() {
-        return Err(400);
+    match reader.read_line(&mut request_line) {
+        Ok(0) => return Err(400),
+        Ok(_) => {}
+        Err(_) => return Err(400),
     }
     if request_line.len() > HEAD_CAP {
         return Err(431);
@@ -334,6 +381,13 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, u16> {
             return Err(400);
         }
     }
+    let query_v = match query_v {
+        None => None,
+        // Digits that don't fit u64: None pin → latest semantics would
+        // be the 200-oracle; Some-impossible instead — treated as a 404
+        // pin by every consumer (never found in a manifest's dense 1..n).
+        Some(text) => Some(text.parse::<u64>().unwrap_or(u64::MAX)),
+    };
     Ok(Request {
         path: percent_decode(path),
         query_v,
@@ -392,7 +446,7 @@ fn handle_connection(mut stream: TcpStream, shared: Arc<Shared>) {
                         &ws,
                         &manifest,
                         slug,
-                        request.query_v.as_deref().and_then(|v| v.parse().ok()),
+                        request.query_v,
                     );
                 }
                 None => {
@@ -468,7 +522,7 @@ fn subscribe(
     ws: String,
     slug: &str,
     manifest: Manifest,
-    query_v: Option<String>,
+    pinned: Option<u64>,
 ) {
     // The SSE response: close-delimited (no Content-Length), the read
     // half ignored, writes event-driven.
@@ -482,25 +536,20 @@ fn subscribe(
     // a fake value would read as a security property that isn't there.
     // Artifact-A-JS-reaching-B's stream is the per-artifact connect-src
     // pin's job, exactly as designed.)
-    let pinned = query_v.as_deref().and_then(|v| v.parse().ok());
     let head = format!("HTTP/1.1 200 OK\r\nContent-Type: {MIME_SSE}\r\nConnection: close\r\n\r\n");
     if stream.write_all(head.as_bytes()).is_err() {
         return;
     }
-    // A write timeout on the stored clone: a wedged subscriber (live tab,
-    // full TCP buffer — suspended machine, backgrounded browser) must
-    // ERROR-AND-PRUNE, never block the registry lock — which the publish
-    // tail holds across broadcast, so a hang here would hang every
-    // publish's display tail AND the enable/disable toggle.
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-    let _ = &manifest;
+    // The write timeout rides the ACCEPTED socket (inherited by this
+    // clone) — set in read_request; a wedged subscriber errors and
+    // prunes instead of blocking the registry lock.
     shared
         .subs
         .lock()
         .expect("subs poisoned")
         .entry((ws, slug.to_string()))
         .or_default()
-        .push(SubEntry { write: stream, pinned });
+        .push(SubEntry { write: stream, pinned, token: manifest.token, strikes: 0 });
     // The connection thread ENDS here; broadcasts and the tick write to
     // the stored clone; a dead peer's write error prunes it lazily.
 }
@@ -545,15 +594,29 @@ fn tick_loop(shared: Arc<Shared>) {
             }
             let mut registry = shared.subs.lock().expect("subs poisoned");
             if let Some(entries) = registry.get_mut(&(ws, slug)) {
-                entries.retain(|entry| {
-                    entry
+                let mut doomed = Vec::new();
+                for (index, entry) in entries.iter_mut().enumerate() {
+                    let ping_ok = entry
                         .write
                         .try_clone()
                         .and_then(|mut ping| {
                             ping.write_all(b": ping\n\n").and_then(|_| ping.flush())
                         })
-                        .is_ok()
-                });
+                        .is_ok();
+                    if ping_ok {
+                        entry.strikes = 0;
+                    } else {
+                        entry.strikes += 1;
+                        // Two consecutive failures prune (one is a
+                        // sleeping tab's hiccup — see SubEntry::strikes).
+                        if entry.strikes >= 2 {
+                            doomed.push(index);
+                        }
+                    }
+                }
+                for index in doomed.into_iter().rev() {
+                    entries.remove(index);
+                }
             }
         }
     }

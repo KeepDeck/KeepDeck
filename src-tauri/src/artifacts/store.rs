@@ -362,21 +362,35 @@ impl ArtifactsStore {
                 .ok_or_else(|| StoreError::new(format!("{slug} has no version {n}")))?;
             let path = artifact_dir(root, workspace_id, slug)
                 .join(format!("v{}.{ext}", n, ext = manifest.format.extension()));
+            // Size BEFORE read: a planted multi-GB version file would
+            // allocate its whole body before the cap check — metadata is
+            // one stat, the read only happens for a legal size.
+            let size = fs::metadata(&path).map_err(|e| match e.kind() {
+                ErrorKind::NotFound => StoreError::new(format!(
+                    "version {n} of {slug} is unavailable — its file is absent"
+                )),
+                e => StoreError::new(format!("stat version {n} of {slug} failed: {e}")),
+            })?;
+            if !size.is_file() {
+                return Err(StoreError::new(format!(
+                    "version {n} of {slug} is not a file"
+                )));
+            }
+            if size.len() as usize > CONTENT_CAP_BYTES {
+                return Ok(ReadResult::OverCap {
+                    slug: slug.to_string(),
+                    version: n,
+                    size: size.len(),
+                    title: manifest.title,
+                    note: "this version exceeds the inline cap — open it in the browser or export it".into(),
+                });
+            }
             let bytes = fs::read(&path).map_err(|e| match e.kind() {
                 ErrorKind::NotFound => StoreError::new(format!(
                     "version {n} of {slug} is unavailable — its file is absent"
                 )),
                 e => StoreError::new(format!("reading version {n} of {slug} failed: {e}")),
             })?;
-            if bytes.len() > CONTENT_CAP_BYTES as usize {
-                return Ok(ReadResult::OverCap {
-                    slug: slug.to_string(),
-                    version: n,
-                    size: bytes.len() as u64,
-                    title: manifest.title,
-                    note: "this version exceeds the inline cap — open it in the browser or export it".into(),
-                });
-            }
             Ok(ReadResult::Inline {
                 slug: slug.to_string(),
                 version: n,
@@ -485,6 +499,14 @@ pub fn read_version_bytes(
 ) -> Option<Vec<u8>> {
     let path = artifact_dir(root, ws, slug)
         .join(format!("v{}.{ext}", n, ext = manifest.format.extension()));
+    // Cap-check via metadata BEFORE reading: the serve path draws the
+    // same planted-huge-file line the inline read does (the FILE cap
+    // bounds it here; a manifest claiming such a version is already
+    // inconsistent, but the disk is untrusted).
+    let meta = fs::metadata(&path).ok()?;
+    if !meta.is_file() || meta.len() as usize > FILE_CAP_BYTES {
+        return None;
+    }
     fs::read(path).ok()
 }
 
@@ -656,16 +678,20 @@ fn load_manifest(
     }
     match serde_json::from_slice::<Manifest>(&bytes) {
         Ok(manifest) => {
-            // STRICT SHAPE: version numbers dense from 1, and never empty —
-            // a hand-edited `versions: []` would list as a phantom count-0
-            // artifact; both are the same hand-edit class, both quarantine.
+            // STRICT SHAPE: version numbers dense from 1, never empty,
+            // and the TOKEN must be the mint shape (32 lowercase hex) —
+            // the token interpolates into CSP headers and URL segments;
+            // a hand-edited `abc\r\nSet-Cookie:…` is a response-splitting
+            // injection, not a token.
             let dense = manifest
                 .versions
                 .iter()
                 .enumerate()
                 .all(|(index, version)| version.n == index as u64 + 1);
-            if !dense || manifest.versions.is_empty() {
-                quarantine(&dir, slug, "version numbers not dense from 1 (or none)");
+            let token_shaped = manifest.token.len() == 32
+                && manifest.token.chars().all(|c| c.is_ascii_hexdigit());
+            if !dense || manifest.versions.is_empty() || !token_shaped {
+                quarantine(&dir, slug, "strict-shape violation (versions or token)");
                 return Ok(None);
             }
             Ok(Some(manifest))
@@ -681,14 +707,25 @@ fn load_manifest(
 /// serving garbage. Best-effort: a failed rename only logs — the artifact
 /// keeps 404ing either way (the manifest stays unloadable), and nothing
 /// about a quarantine may crash a caller.
+/// Quarantine's own mutex: quarantine is a MUTATION reached from
+/// lock-free read paths (list/read/serve-side manifest_for), and an
+/// unguarded rename could interleave with a guarded publish's
+/// dir-create — publish Ok, artifact instantly 404s. Ordering: taken
+/// INSIDE the data guard where one holds it, alone where not — never
+/// both, so no cycle exists.
+static QUARANTINE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn quarantine(dir: &Path, slug: &str, why: &str) {
+    let _guard = QUARANTINE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut aside = dir.as_os_str().to_os_string();
     aside.push(format!(".{}.quarantined", std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)));
     let aside = PathBuf::from(aside);
-    log::error!("artifacts: quarantining {slug:?} ({why})");
+    log::error!("artifacts: quarantining {slug:?} ({why}) → {}", aside.display());
     if let Err(e) = fs::rename(dir, &aside) {
         log::error!("artifacts: quarantine rename failed for {slug:?}: {e}");
     }
@@ -845,7 +882,17 @@ fn enforce_and_read(
             "path publish needs a pane cwd — publish `content` instead, or run inside a KeepDeck pane",
         ));
     };
-    let canonical = fs::canonicalize(declared)
+    // RELATIVE paths join the boundary FIRST: canonicalizing a relative
+    // path resolves against the RUST PROCESS's cwd, which is neither the
+    // pane's nor predictable — "./page.html" would resolve outside the
+    // boundary and be refused with a confusing 'outside'. The boundary
+    // is guaranteed Some here, so joining is total.
+    let resolved = if declared.is_absolute() {
+        declared.to_path_buf()
+    } else {
+        boundary.join(declared)
+    };
+    let canonical = fs::canonicalize(&resolved)
         .map_err(|e| StoreError::new(format!("resolving {path:?} failed: {e}")))?;
     let boundary_canonical = fs::canonicalize(boundary)
         .map_err(|e| StoreError::new(format!("resolving the pane cwd failed: {e}")))?;

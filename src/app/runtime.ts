@@ -149,6 +149,12 @@ export function createAppRuntime(
   // the artifacts setting AND the CONFIRMED mcp socket (the registry IS
   // the MCP projection; the tools exist only while both hold). The
   // disposer pattern makes re-registration idempotent on either edge.
+  // The enable's settled state: `null` = unknown/unsettled, `true` =
+  // confirmed by the backend, `false` = the last transition FAILED
+  // (contention, fault). The registration gate consumes this — a failed
+  // enable must RETRACT the tools even while the setting reads On,
+  // or the toggle advertises artifact tools that every call refuses.
+  let artifactsEnableOk: boolean | null = null;
   const artifactsPolicy = createArtifactsPolicy(
     {
       artifacts: () => getSettings()?.artifacts ?? null,
@@ -160,20 +166,25 @@ export function createAppRuntime(
       // refusal ("owned by another KeepDeck process") would otherwise be
       // dropped entirely — the toggle reads On while the store is
       // claimed elsewhere, and the only symptom is every publish
-      // refusing. The log is the MVP floor; the ExperimentalSection
-      // surface is a graduation polish (the mcpStatus.error precedent).
+      // refusing. The log is the floor; the gate retraction (below) is
+      // the behavior; the ExperimentalSection surface is a graduation
+      // polish (the mcpStatus.error precedent).
+      artifactsEnableOk = transition.ok;
       if (!transition.ok) {
         log.warn(
           "web:artifacts",
           `artifacts ${transition.desired ? "enable" : "disable"} failed: ${transition.detail}`,
         );
       }
+      reconcileArtifactCommands();
     },
   );
   let disposeArtifactCommands: (() => void) | null = null;
   const reconcileArtifactCommands = () => {
     const shouldRun =
-      (getSettings()?.artifacts ?? false) && mcp.status().socket !== null;
+      (getSettings()?.artifacts ?? false) &&
+      artifactsEnableOk === true &&
+      mcp.status().socket !== null;
     if (shouldRun && disposeArtifactCommands === null) {
       disposeArtifactCommands = registerArtifactCommands(
         commands,
