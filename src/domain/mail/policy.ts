@@ -157,12 +157,20 @@ export function isResponse(kind: MailKind): boolean {
  */
 export function kindGuidance(kinds: readonly MailKind[]): string {
   const named = (chosen: readonly MailKind[]) => chosen.join(" and ");
+  // Written when both sides always held a pair; the flat-team filter can
+  // leave ONE kind on a side, and "question interrupt it" read as a typo
+  // in every briefing that carried it — so the verbs agree with their
+  // subject.
+  const one = (chosen: readonly MailKind[], single: string, plural: string) =>
+    chosen.length === 1 ? single : plural;
+  const asks = kinds.filter(awaitsAnswer);
+  const rest = kinds.filter((kind) => !awaitsAnswer(kind));
   // Both halves say "while it is working", because that is the only case the
   // kind decides. An IDLE teammate is nudged for anything — it will reach no
   // turn boundary on its own, so waiting for one would mean never arriving.
   // Said without that clause, this promised a sender that notes are free,
   // and idle is the ordinary state of a teammate between tasks.
-  return `while a teammate is working, ${named(kinds.filter(awaitsAnswer))} interrupt it and cost it a turn, and ${named(kinds.filter((kind) => !awaitsAnswer(kind)))} wait for the turn boundary it is already heading for. A teammate that is idle is roused for any of them, because nothing else will bring it back.`;
+  return `while a teammate is working, ${named(asks)} ${one(asks, "interrupts", "interrupt")} it and ${one(asks, "costs", "cost")} it a turn, and ${named(rest)} ${one(rest, "waits", "wait")} for the turn boundary it is already heading for. A teammate that is idle is roused for any of them, because nothing else will bring it back.`;
 }
 export type MailVerdict =
   /** Push the message itself into the pane's terminal. Only for an agent

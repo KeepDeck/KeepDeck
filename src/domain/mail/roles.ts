@@ -15,9 +15,11 @@
  *
  * THIS FILE IS THE ONLY PLACE THAT KNOWS ROLE NAMES. Nothing else may spell
  * `"lead"` — not a validation, not a briefing, not a dialog default. That is
- * what keeps the catalog replaceable: the built-in list below is meant to
- * grow a second source later (a file, a settings surface), and every consumer
- * already reads it through [`teamRoles`] rather than reaching for a literal.
+ * what keeps the catalog replaceable — and replaced it is: the user's own
+ * records (`catalog.ts`, kept as files by the role catalog manager, edited
+ * in Settings → Team roles) merge over the built-ins and arrive through
+ * [`configureRoleCatalog`], while every consumer reads the result through
+ * [`teamRoles`] rather than reaching for a literal.
  */
 
 /**
@@ -68,9 +70,8 @@ const LEAD_ID = "lead";
  * The roles KeepDeck ships with.
  *
  * Five, and deliberately not more: a role nobody can explain in three lines
- * is one that will be used as a synonym for another. Custom roles are the
- * planned next step and change nothing here — they extend what
- * [`teamRoles`] answers.
+ * is one that will be used as a synonym for another. The user's own roles
+ * arrive through [`configureRoleCatalog`] and change nothing here.
  */
 const BUILT_IN_ROLES: readonly TeamRole[] = [
   {
@@ -251,8 +252,18 @@ export function parseRoleAddress(
  * that knows role names, and the first to fall out of step with the catalog.
  */
 export function defaultRoleFor(taken: Iterable<string>): TeamRole {
+  const held = [...taken];
+  // A roster of peers is a FLAT team being built, and offering it the lead
+  // is offering it a refusal — peers stand only with peers. It grows with
+  // another peer.
+  if (
+    held.length > 0 &&
+    held.every((address) => parseRoleAddress(address)?.role.standing === "peer")
+  ) {
+    return peerRole();
+  }
   const lead = leadRole();
-  if (mintRoleAddress(lead, taken)) return lead;
+  if (mintRoleAddress(lead, held)) return lead;
   return teamRoles().find((role) => role.repeatable) ?? lead;
 }
 

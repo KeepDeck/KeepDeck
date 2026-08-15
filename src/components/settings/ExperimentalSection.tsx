@@ -36,12 +36,15 @@ import { writeText } from "../../ipc/clipboard";
  * true whether or not this dialog is open, so the MCP owner looks it up once
  * per settled transition instead of this row re-fetching on every mount.
  */
-/** The roles on offer, read from the catalog rather than listed here: a
- * second place that spelt them would be the first to fall out of step. */
-const roleSummary = teamRoles().map((role) => role.label).join(", ");
-
 export function ExperimentalSection() {
   const settings = useSettings();
+  // The roles on offer, read from the catalog rather than listed here — and
+  // read PER RENDER, not at import: as a module constant this was frozen
+  // before the user's catalog had even loaded, which is precisely the
+  // falling-out-of-step it existed to prevent.
+  const roleSummary = teamRoles()
+    .map((role) => role.label)
+    .join(", ");
   const remoteAgents =
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
   const mcpServer = settings?.mcpServer ?? DEFAULT_SETTINGS.mcpServer;

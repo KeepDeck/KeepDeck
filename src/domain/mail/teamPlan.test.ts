@@ -416,9 +416,22 @@ describe("teamBriefing", () => {
     expect(text).toContain("not as an order");
     expect(text).not.toContain("task");
     expect(text).not.toContain("lead");
+    // One kind is left on the interrupting side, and its verb agrees —
+    // "question interrupt it" read as a typo in every flat briefing.
+    expect(text).toContain("question interrupts it and costs it a turn");
     for (const line of roleById("peer")!.charter) {
       expect(text).toContain(line);
     }
+  });
+
+  it("briefs a member by ITS standing, not by who else survived the roster", () => {
+    // A lead whose spawn failed, or whose pane closed without a re-plan,
+    // leaves reports members on a lead-less roster. Their charter still
+    // says a task from lead is work — the closing line must not contradict
+    // it in the same breath.
+    const text = teamBriefing("api", "impl-1", ["impl-1", "reviewer-1"]);
+    expect(text).toContain("task from lead is work assigned to you");
+    expect(text).not.toContain("equals");
   });
 
   it("still briefs a member whose role the catalog has lost", () => {

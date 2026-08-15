@@ -62,6 +62,18 @@ describe("mergeRoleCatalog", () => {
     expect(problems[0]).toContain("impl");
   });
 
+  it("keeps a built-in's text edit even when the record restates its own standing", () => {
+    // A faithful hand copy of `"standing": "leads"` beside new texts must
+    // lose the semantics, never the texts it rode in with.
+    const { roles, problems } = mergeRoleCatalog(
+      stored({ lead: { ...docs(), label: "Captain", standing: "leads" } }),
+    );
+    const lead = roles.find((role) => role.id === "lead")!;
+    expect(lead.label).toBe("Captain");
+    expect(lead.standing).toBe("leads");
+    expect(problems).toHaveLength(1);
+  });
+
   it("adds a role of the user's own — a repeatable working role by default", () => {
     const { roles, problems } = mergeRoleCatalog(stored({ docs: docs() }));
     const role = roles.find((candidate) => candidate.id === "docs")!;

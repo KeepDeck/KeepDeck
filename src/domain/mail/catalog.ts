@@ -148,16 +148,31 @@ export function mergeRoleCatalog(stored: ReadonlyMap<string, unknown>): {
       roles.push(base);
       continue;
     }
-    const read = readStoredRole(record);
+    // Semantics on a built-in's record are IGNORED, never fatal — stripped
+    // before the read, because the reader's standing check exists for
+    // CUSTOM records, where "leads" must be refused. Left in, a hand edit
+    // that faithfully copied `"standing": "leads"` beside its new texts
+    // lost the texts it rode in with.
+    const bare =
+      typeof record === "object" && record !== null && !Array.isArray(record)
+        ? (() => {
+            const { repeatable, standing, ...texts } = record as Record<string, unknown>;
+            return {
+              texts: texts as unknown,
+              hadSemantics: repeatable !== undefined || standing !== undefined,
+            };
+          })()
+        : { texts: record, hadSemantics: false };
+    const read = readStoredRole(bare.texts);
     if (!read.ok) {
       problems.push(`${base.id}: ${read.problem} — using the built-in texts`);
       roles.push(base);
       continue;
     }
-    // Texts land; semantics do not. Only a hand edit can put these fields
-    // on a built-in's record — the form never offers them — so the note
-    // tells that person what happened rather than silently shrugging.
-    if (read.role.repeatable !== undefined || read.role.standing !== undefined) {
+    // Only a hand edit can put these fields on a built-in's record — the
+    // form never offers them — so the note tells that person what happened
+    // rather than silently shrugging.
+    if (bare.hadSemantics) {
       problems.push(
         `${base.id}: repeatable and standing are the deck's to decide for a built-in role — texts applied, the rest ignored`,
       );

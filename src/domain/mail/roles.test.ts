@@ -113,6 +113,13 @@ describe("mintRoleAddress", () => {
 });
 
 describe("defaultRoleFor", () => {
+  it("grows a roster of peers with another peer, not with a refusal", () => {
+    // Offering the lead to a flat team offers it the shape rule's own "no":
+    // peers stand only with peers.
+    expect(defaultRoleFor(["peer-1"]).id).toBe("peer");
+    expect(defaultRoleFor(["peer-1", "peer-2"]).id).toBe("peer");
+  });
+
   it("fills the lead first, then a repeatable role", () => {
     // A team needs exactly one lead and it is the first thing anybody fills;
     // after that, more of the same singleton would only be refused.

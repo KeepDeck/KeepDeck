@@ -280,9 +280,12 @@ export function registerMailCommands(
         {
           name: "role",
           type: "string",
+          // Composed at REGISTRATION, so the enumeration is a snapshot; the
+          // trailing clause is what keeps the sentence true after the user
+          // edits the catalog mid-session.
           description: `The role it takes, which is also how teammates address it — one of ${teamRoles()
             .map((role) => (role.repeatable ? `${role.id}-<n>` : role.id))
-            .join(", ")}; omit to remove`,
+            .join(", ")}, plus any role added in Settings → Team roles; omit to remove`,
         },
       ],
       /**
