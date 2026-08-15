@@ -3,12 +3,12 @@ import { createWorkspaceInstance } from "../workspaceInstance";
 import {
   addNotification,
   BANNER_COOLDOWN_MS,
+  bannerCooldownKey,
   bannerVerdict,
   clearNotifications,
   markAllRead,
   markRead,
   NOTIFICATIONS_CAP,
-  retractByTag,
   unreadCount,
   type Notification,
 } from "./notifications";
@@ -76,18 +76,58 @@ describe("addNotification", () => {
   });
 });
 
-describe("retractByTag", () => {
-  it("withdraws the tag's slot — read or not — and leaves the rest", () => {
-    const answered = make({ tag: "pane:1:activity", readAt: 5 });
-    const other = make({ tag: "pane:2:activity" });
-    const untagged = make();
-    const next = retractByTag([answered, other, untagged], "pane:1:activity");
-    expect(next).toEqual([other, untagged]);
+describe("bannerCooldownKey", () => {
+  const otherPane = {
+    type: "pane",
+    workspace: { id: "ws-9", instance: ws1 },
+    paneId: "pane-9",
+  } as const;
+
+  it("a tag names the unit; the source is ignored beneath it", () => {
+    expect(bannerCooldownKey({ tag: "x", source: make().source })).toBe(
+      `tag:x`,
+    );
   });
 
-  it("is a same-reference no-op when the tag holds no slot", () => {
-    const items = [make({ tag: "pane:2:activity" }), make()];
-    expect(retractByTag(items, "pane:1:activity")).toBe(items);
+  it("an untagged pane entry cools on its pane; panes never share", () => {
+    const source = make().source;
+    expect(bannerCooldownKey({ source })).toBe("pane:pane-1");
+    expect(bannerCooldownKey({ source: otherPane })).toBe("pane:pane-9");
+    expect(bannerCooldownKey({ source })).not.toBe(
+      bannerCooldownKey({ source: otherPane }),
+    );
+    // The pane ALONE names the unit — its workspace is not part of the
+    // key (pane ids are minted from one deck-wide sequence).
+    const relocated = {
+      type: "pane",
+      workspace: { id: "ws-2", instance: ws1 },
+      paneId: "pane-1",
+    } as const;
+    expect(bannerCooldownKey({ source: relocated })).toBe(
+      bannerCooldownKey({ source }),
+    );
+  });
+
+  it("every other source kind has its own unit", () => {
+    expect(
+      bannerCooldownKey({ source: { type: "plugin", pluginId: "git" } }),
+    ).toBe("plugin:git");
+    expect(bannerCooldownKey({ source: { type: "app" } })).toBe("app");
+    expect(bannerCooldownKey({ source: { type: "stats" } })).toBe("stats");
+    // A plugin is ONE cooling unit no matter which workspace or dock tab
+    // its entries point at — the same granularity the mute feature uses.
+    expect(
+      bannerCooldownKey({
+        source: {
+          type: "plugin",
+          pluginId: "git",
+          workspace: { id: "ws-1", instance: ws1 },
+          dockTab: "changes",
+        },
+      }),
+    ).toBe(
+      bannerCooldownKey({ source: { type: "plugin", pluginId: "git" } }),
+    );
   });
 });
 

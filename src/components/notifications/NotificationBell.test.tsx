@@ -110,6 +110,36 @@ describe("NotificationBell", () => {
     expect(warning.querySelector(".bell__dot--warning")).not.toBeNull();
   });
 
+  it("stamps entries with the exact time today, the plain date when older", () => {
+    vi.useFakeTimers();
+    // An entry from the 15th, read from the 19th: older than today.
+    vi.setSystemTime(new Date(2026, 7, 15, 12, 0));
+    try {
+      act(() => {
+        notify({ title: "older", source: paneSource });
+      });
+      vi.setSystemTime(new Date(2026, 7, 19, 12, 0));
+      act(() => {
+        notify({ title: "today", source: paneSource });
+      });
+      act(() => bellButton().click());
+      // Newest first: today's entry leads with its clock time.
+      const ages = [
+        ...document.querySelectorAll<HTMLElement>(".bell__age"),
+      ].map((el) => el.textContent);
+      expect(ages).toEqual(["12:00", "15.08"]);
+      // The relative age rides along as the tooltip.
+      const older = [...document.querySelectorAll(".bell__item")].find(
+        (item) => item.textContent?.includes("older"),
+      )!;
+      expect(older.querySelector(".bell__age")?.getAttribute("title")).toBe(
+        "4d ago",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("clicking an entry marks it read, closes the panel and navigates", () => {
     act(() => {
       notify({ title: "crash", source: paneSource });

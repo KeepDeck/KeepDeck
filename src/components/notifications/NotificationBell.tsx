@@ -1,9 +1,9 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BellIcon } from "@keepdeck/ui-kit/icons";
 import type { NotificationCenter } from "../../app/notificationCenter";
 import { useNotifications } from "../../app/useNotifications";
 import { unreadCount, type Notification } from "../../domain/notifications";
-import { formatAge } from "../../domain/usage";
+import { formatAge, formatTimestamp } from "../../domain/usage";
 import { isBehindModalLayer } from "../../ui/inertBackground";
 
 interface NotificationBellProps {
@@ -27,15 +27,6 @@ export function NotificationBell({ center, onOpen }: NotificationBellProps) {
   const rootRef = useRef<HTMLSpanElement>(null);
   const bellButtonRef = useRef<HTMLButtonElement>(null);
   const unread = unreadCount(notifications);
-
-  // The coarse ages ("5m") drift while the panel stays open — a slow tick
-  // re-renders them; nothing else in the panel depends on wall time.
-  const [, tick] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
-    if (!open) return;
-    const timer = setInterval(tick, 30_000);
-    return () => clearInterval(timer);
-  }, [open]);
 
   // Light-dismiss: any pointer press outside the bell (or Escape) closes the
   // panel — the same manners as a native menu. But a dialog can open over an
@@ -147,7 +138,12 @@ export function NotificationBell({ center, onOpen }: NotificationBellProps) {
                         <span className="bell__body">{n.body}</span>
                       )}
                     </span>
-                    <span className="bell__age">{formatAge(n.at, now, "bare")}</span>
+                    <span
+                      className="bell__age"
+                      title={formatAge(n.at, now, "ago")}
+                    >
+                      {formatTimestamp(n.at, now)}
+                    </span>
                   </button>
                 </li>
               ))}

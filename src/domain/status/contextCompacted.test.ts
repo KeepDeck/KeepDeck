@@ -64,7 +64,8 @@ describe("a context rebuild", () => {
 
   it("does not answer a standing wait", () => {
     // A rebuild is not the user's answer. Clearing the wait here would
-    // retract a notification the question behind it still deserves.
+    // end the phase while the question behind it still stands — the pane
+    // would read "working" with nobody working on it.
     const waiting = status({
       state: "waiting",
       since: 100,

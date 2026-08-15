@@ -47,7 +47,6 @@ let {
   markAllNotificationsRead,
   markNotificationRead,
   notify,
-  retractNotification,
   setSourceVisibilityProbe,
   subscribeNotifications,
 }: NotificationCenter = createNotificationCenter();
@@ -60,7 +59,6 @@ describe("notificationCenter", () => {
       markAllNotificationsRead,
       markNotificationRead,
       notify,
-      retractNotification,
       setSourceVisibilityProbe,
       subscribeNotifications,
     } = createNotificationCenter());
@@ -134,12 +132,30 @@ describe("notificationCenter", () => {
     expect(notifyIpc.sendSystemNotification).not.toHaveBeenCalled();
   });
 
-  it("suppresses the banner when the source is on screen in a focused window", () => {
+  it("an event watched at its source lands in history already read", () => {
     setWindowFocusForTest(true);
     setSourceVisibilityProbe((source) => source.type === "pane");
     notify({ title: "t", source: paneSource });
-    expect(getNotifications()).toHaveLength(1); // still recorded
+    // Still recorded — history is history — but watched events are not
+    // NEWS: per-event entries from a pane the user is staring at must not
+    // grow the unread badge.
+    expect(getNotifications()).toHaveLength(1);
+    expect(getNotifications()[0].readAt).toBeDefined();
     expect(notifyIpc.sendSystemNotification).not.toHaveBeenCalled();
+
+    // Unwatched (window unfocused): the identical event is unread again.
+    setWindowFocusForTest(false);
+    notify({ title: "t2", source: paneSource });
+    expect(getNotifications()[0].title).toBe("t2");
+    expect(getNotifications()[0].readAt).toBeUndefined();
+  });
+
+  it("watched events land read in app-only mode too — the fact is mode-independent", () => {
+    withNotificationPrefs({ mode: "app" });
+    setWindowFocusForTest(true);
+    setSourceVisibilityProbe(() => true);
+    notify({ title: "t", source: paneSource });
+    expect(getNotifications()[0].readAt).toBeDefined();
   });
 
   it("banners when focused but the source is off screen", () => {
@@ -176,50 +192,30 @@ describe("notificationCenter", () => {
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(2);
   });
 
-  it("retracting removes the tag's entry; the banner cooldown survives", () => {
-    notify({ title: "needs approval", source: paneSource, tag: "x" });
-    expect(getNotifications()).toHaveLength(1);
-    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
-
-    retractNotification("x");
-    expect(getNotifications()).toHaveLength(0);
-
-    // An agent whose permissions auto-resolve flaps ask→answer→ask faster
-    // than a human reads — the next ask inside the window must NOT hammer
-    // the OS again. The center entry still lands; only the banner waits.
-    vi.advanceTimersByTime(1_000);
-    notify({ title: "needs approval again", source: paneSource, tag: "x" });
-    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
-    expect(getNotifications()).toHaveLength(1);
-
-    // Out of the window it is a fresh question and banners normally.
-    vi.advanceTimersByTime(10_000);
-    notify({ title: "and again", source: paneSource, tag: "x" });
-    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(2);
-  });
-
-  it("retracting an unknown tag changes nothing and stays silent", () => {
-    notify({ title: "kept", source: paneSource, tag: "y" });
-    const listener = vi.fn();
-    const unsubscribe = subscribeNotifications(listener);
-    retractNotification("unknown");
-    expect(getNotifications()).toHaveLength(1);
-    expect(listener).not.toHaveBeenCalled();
-    unsubscribe();
-  });
-
-  it("the cooldown is keyed per tag; untagged notifications never share one", () => {
+  it("the cooldown is keyed per tag, or per source when untagged", () => {
     notify({ title: "a", source: paneSource, tag: "tag-a" });
     vi.advanceTimersByTime(1_000);
     // A different tag inside tag-a's window still banners…
     notify({ title: "b", source: paneSource, tag: "tag-b" });
-    // …and untagged ones always do, even back to back.
+    // …and so does a DIFFERENT untagged source…
+    notify({ title: "c", source: { type: "app" } });
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(3);
+    // …but untagged entries from ONE source share its cooldown: a pane
+    // emitting a stream of separate history entries must not banner per
+    // entry — the entry still lands, only the banner waits.
     notify({ title: "u1", source: paneSource });
     notify({ title: "u2", source: paneSource });
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(4);
+    expect(getNotifications().map((n) => n.title)).toEqual([
+      "u2",
+      "u1",
+      "c",
+      "b",
+      "a",
+    ]);
   });
 
-  it("the cooldown memory is bounded: the coldest tag is evicted, not leaked", () => {
+  it("the cooldown memory is bounded: the coldest key is evicted, not leaked", () => {
     notify({ title: "first", source: paneSource, tag: "tag-first" });
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
     // 512 fresh tags push "tag-first" out of the bounded map…

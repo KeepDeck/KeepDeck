@@ -66,10 +66,36 @@ export interface Notification {
  * never matter for memory. Oldest entries fall off first. */
 export const NOTIFICATIONS_CAP = 200;
 
-/** Minimum quiet time between system banners for the same tag: a source
- * flapping faster than this keeps updating the center entry but stops
- * hammering the OS. */
+/** Minimum quiet time between system banners for the same flapping unit:
+ * a source re-announcing faster than this keeps landing in the center but
+ * stops hammering the OS. */
 export const BANNER_COOLDOWN_MS = 5_000;
+
+/**
+ * The unit the banner cooldown lives on — decoupled from the list's
+ * replace key on purpose. A tagged entry cools on its tag (a tagged series
+ * is one voice); an UNTAGGED one cools on its source, so a pane emitting
+ * a stream of separate history entries must not banner per entry. Keys are
+ * opaque strings compared for identity only.
+ */
+export function bannerCooldownKey(
+  notification: Pick<Notification, "tag" | "source">,
+): string {
+  if (notification.tag !== undefined) return `tag:${notification.tag}`;
+  const { source } = notification;
+  switch (source.type) {
+    case "pane":
+      // Pane ids are minted from one deck-wide sequence, unique for the
+      // app's lifetime — the pane alone names the flapping unit.
+      return `pane:${source.paneId}`;
+    case "plugin":
+      return `plugin:${source.pluginId}`;
+    case "stats":
+      return "stats";
+    case "app":
+      return "app";
+  }
+}
 
 /**
  * Add `next` to the list (newest first). A same-tag predecessor is removed —
@@ -85,20 +111,6 @@ export function addNotification(
       ? items
       : items.filter((n) => n.tag !== next.tag);
   return [next, ...kept].slice(0, NOTIFICATIONS_CAP);
-}
-
-/**
- * Withdraw a tag's notification: the event it announced has been answered
- * (an approval prompt the user resolved in the pane), so keeping it —
- * even as a read entry — would report a wait that no longer exists.
- * Same-reference no-op when the tag holds no slot.
- */
-export function retractByTag(
-  items: readonly Notification[],
-  tag: string,
-): readonly Notification[] {
-  const kept = items.filter((n) => n.tag !== tag);
-  return kept.length === items.length ? items : kept;
 }
 
 /** Mark one notification read. Returns the same array when nothing changed
@@ -149,6 +161,19 @@ export interface BannerContext {
 }
 
 /**
+ * Whether the user is looking at the notification's source surface right
+ * now — the one suppression the banner decision has, and the same fact
+ * that makes an entry land already read: an event watched where it
+ * happened is history, not news, and must not grow the unread badge.
+ * Callers resolve `sourceVisible`; pass `false` when unknown.
+ */
+export function seenInPlace(
+  ctx: Pick<BannerContext, "windowFocused" | "sourceVisible">,
+): boolean {
+  return ctx.windowFocused && ctx.sourceVisible;
+}
+
+/**
  * Whether a notification earns a system banner. Two suppressions only:
  * the source is literally on screen (the pane already shows its own card —
  * a banner would point at what the user is looking at), or the same tag
@@ -162,7 +187,7 @@ export type BannerVerdict = "banner" | "seen-in-place" | "cooldown";
  * this time. Callers must consume the verdict, never re-derive a reason
  * from the context. */
 export function bannerVerdict(ctx: BannerContext): BannerVerdict {
-  if (ctx.windowFocused && ctx.sourceVisible) return "seen-in-place";
+  if (seenInPlace(ctx)) return "seen-in-place";
   if (
     ctx.lastBannerAt !== undefined &&
     ctx.now - ctx.lastBannerAt < BANNER_COOLDOWN_MS

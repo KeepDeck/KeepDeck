@@ -14,8 +14,12 @@ import { normalizeClaudeStatus } from "../../plugins/claude/src/status";
 
 const center = vi.hoisted(() => ({
   notify: vi.fn(),
-  retractNotification: vi.fn(),
 }));
+
+/** The input of the notify call #i — for assertions on the WHOLE shape
+ * (objectContaining cannot see a key that must be ABSENT). */
+const callArg = (i: number): Record<string, unknown> | undefined =>
+  center.notify.mock.calls[i]?.[0] as Record<string, unknown> | undefined;
 vi.mock("./notificationCenter", () => center);
 
 const settings = vi.hoisted(() => ({
@@ -216,7 +220,6 @@ describe("activity notifications", () => {
 
   beforeEach(() => {
     center.notify.mockClear();
-    center.retractNotification.mockClear();
     // The factory's whole point: each test builds its own tracker.
     tracker = createAgentStatusTracker();
     tracker.registerNormalizer("claude", edgeNormalizer);
@@ -231,7 +234,7 @@ describe("activity notifications", () => {
   const edge = (e: Record<string, unknown>) =>
     tracker.report("pane-1", { agent: "claude", edge: e });
 
-  it("announces a wait once; a re-assert is silent, a changed question replaces", () => {
+  it("announces a wait once; a re-assert is silent, a changed question is its own entry", () => {
     edge({ kind: "waiting", at: 100, reason: "permission" });
     expect(center.notify).toHaveBeenCalledWith({
       title: "Claude 1 — needs approval",
@@ -242,21 +245,20 @@ describe("activity notifications", () => {
         workspace: { id: "ws-1", instance: workspaceInstance },
         paneId: "pane-1",
       },
-      tag: "pane:pane-1:activity",
     });
     // Same question again (claude's idle nudge repeats): nothing to say.
     edge({ kind: "waiting", at: 200, reason: "permission" });
     expect(center.notify).toHaveBeenCalledTimes(1);
-    // A DIFFERENT question re-announces under the same tag, so the bell's
-    // text stops lying about which prompt is up (replace, not stack).
+    // A DIFFERENT question announces as its own dated entry — the history
+    // keeps both questions, so no tag and no replacement.
     edge({ kind: "waiting", at: 300, reason: "question" });
     expect(center.notify).toHaveBeenCalledTimes(2);
     expect(center.notify).toHaveBeenLastCalledWith(
       expect.objectContaining({
         title: "Claude 1 — needs your input",
-        tag: "pane:pane-1:activity",
       }),
     );
+    expect(callArg(1)?.tag).toBeUndefined();
   });
 
   it("announces a finished turn, but never one the user cut themselves", () => {
@@ -266,9 +268,11 @@ describe("activity notifications", () => {
       expect.objectContaining({
         title: "Claude 1 finished",
         body: "Alpha",
-        tag: "pane:pane-1:activity",
       }),
     );
+    // Every activity branch appends history — none of them may carry a
+    // tag, or the entries would start replacing each other again.
+    expect(callArg(0)?.tag).toBeUndefined();
 
     center.notify.mockClear();
     edge({ kind: "turn-start", at: 300 });
@@ -281,58 +285,40 @@ describe("activity notifications", () => {
     expect(center.notify).not.toHaveBeenCalled();
   });
 
-  it("retracts an answered wait — resumed turn or the user's own interrupt", () => {
+  it("an answered wait announces nothing — the dated entry stands as history", () => {
     edge({ kind: "waiting", at: 100, reason: "permission" });
     expect(center.notify).toHaveBeenCalledTimes(1);
+    // Resumed turn: the wait is a past fact now, not a lie to withdraw.
     edge({ kind: "resumed", at: 200 });
-    expect(center.retractNotification).toHaveBeenCalledWith(
-      "pane:pane-1:activity",
-    );
-    // Answering announced nothing new.
     expect(center.notify).toHaveBeenCalledTimes(1);
 
-    center.retractNotification.mockClear();
+    // The user's own interrupt cutting a wait is equally silent.
     edge({ kind: "waiting", at: 300, reason: "question" });
     edge({ kind: "interrupted", at: 400 });
-    expect(center.retractNotification).toHaveBeenCalledWith(
-      "pane:pane-1:activity",
-    );
+    expect(center.notify).toHaveBeenCalledTimes(2);
   });
 
-  it("a pane leaving the store withdraws its standing wait — and only a wait", () => {
+  it("a pane leaving the store announces nothing — its entries are history", () => {
     edge({ kind: "waiting", at: 100, reason: "permission" });
     expect(center.notify).toHaveBeenCalledTimes(1);
-    // The pane's process retires (suspend/close/crash): its activity is
-    // cleared, and the standing "needs approval" must go with it.
+    // The pane's process retires (suspend/close/crash): nothing to say; the
+    // standing entries keep their dates.
     tracker.clear("pane-1");
-    expect(center.retractNotification).toHaveBeenCalledWith(
-      "pane:pane-1:activity",
-    );
+    expect(center.notify).toHaveBeenCalledTimes(1);
 
-    // A finished pane's entry is history — history may stand.
-    center.retractNotification.mockClear();
-    edge({ kind: "turn-start", at: 200 });
-    edge({ kind: "turn-end", at: 300 });
-    tracker.clear("pane-1");
-    expect(center.retractNotification).not.toHaveBeenCalled();
-  });
-
-  it("retention sweeps withdraw waits the same way a clear does", () => {
-    edge({ kind: "waiting", at: 100, reason: "permission" });
+    // Retention sweeps behave the same way.
+    edge({ kind: "waiting", at: 200, reason: "permission" });
     tracker.retain(new Set(["some-other-pane"]));
-    expect(center.retractNotification).toHaveBeenCalledWith(
-      "pane:pane-1:activity",
-    );
+    expect(center.notify).toHaveBeenCalledTimes(2);
   });
 
-  it("a wait that ends in an announcement replaces, never retracts", () => {
+  it("a wait that ends in an announcement adds an entry, never withdraws one", () => {
     edge({ kind: "waiting", at: 100, reason: "permission" });
     edge({ kind: "turn-end", at: 200 });
-    expect(center.retractNotification).not.toHaveBeenCalled();
+    expect(center.notify).toHaveBeenCalledTimes(2);
     expect(center.notify).toHaveBeenLastCalledWith(
       expect.objectContaining({
         title: "Claude 1 finished",
-        tag: "pane:pane-1:activity",
       }),
     );
   });
@@ -353,6 +339,7 @@ describe("activity notifications", () => {
         severity: "error",
       }),
     );
+    expect(callArg(0)?.tag).toBeUndefined();
   });
 
   it("stays silent for a pane the deck no longer names", () => {
@@ -380,7 +367,6 @@ describe("claude background agents, replayed end to end", () => {
 
   beforeEach(() => {
     center.notify.mockClear();
-    center.retractNotification.mockClear();
     tracker = createAgentStatusTracker();
     tracker.registerNormalizer("claude", normalizeClaudeStatus);
     stop = initActivityNotifications(tracker, () => ({
