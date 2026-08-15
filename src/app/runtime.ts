@@ -36,7 +36,7 @@ import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
 import { registerArtifactCommands } from "./artifacts/artifactCommands";
 import { announceArtifact } from "./artifacts/producers";
-import { artifactsDisable, artifactsEnable } from "../ipc/artifacts";
+import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc/artifacts";
 import { createPaneAttribution } from "./paneAttribution";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
@@ -315,6 +315,9 @@ export function createAppRuntime(
     worktrees,
     mcpAccess: (target) => mcp.access(target),
     lifecycle,
+    // Workspace deletion drops its artifact store — the deck model is the
+    // only knower of the live workspace set (Rust cannot derive it).
+    dropArtifacts: (wsId) => artifactDropWorkspace(wsId),
   });
   const application = createApplicationController({
     deck: deckStore,

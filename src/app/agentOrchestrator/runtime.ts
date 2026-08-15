@@ -188,6 +188,7 @@ export function createAgentOrchestratorRuntime(
     worktrees,
     isBlocked: runView.isBlocked,
     lifecycle,
+    dropArtifacts: deps.dropArtifacts,
   });
   const restart = createAgentOrchestratorRestart({
     deck,

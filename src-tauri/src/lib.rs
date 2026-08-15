@@ -165,6 +165,7 @@ pub fn run() {
             artifacts::artifact_read,
             artifacts::artifact_delete,
             artifacts::artifact_resolve_urls,
+            artifacts::artifact_drop_workspace,
             bridge::bridge_nudge,
             bridge::bridge_pane_dir,
             bridge::bridge_reply,

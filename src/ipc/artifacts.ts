@@ -70,3 +70,10 @@ export async function artifactResolveUrls(
 ): Promise<{ url: string | null; indexUrl: string }> {
   return await invoke("artifact_resolve_urls", { payload, slug });
 }
+
+/** Drop a closing workspace's whole artifact store. Idempotent; called
+ * from workspace deletion (the deck model is the only knower of the
+ * live workspace set). */
+export async function artifactDropWorkspace(wsId: string): Promise<void> {
+  await invoke("artifact_drop_workspace", { wsId });
+}

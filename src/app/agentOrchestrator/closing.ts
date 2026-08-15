@@ -27,6 +27,12 @@ interface ClosingDeps {
    * to. The question, not the map it is answered from. */
   isBlocked(paneId: string): boolean;
   lifecycle: PaneLifecyclePort;
+  /** Drop the workspace's artifact store when the workspace closes (the
+   * live workspace set is deck-model knowledge Rust cannot derive —
+   * without this call, a deleted workspace's artifacts accumulate
+   * forever). Optional so non-app tests need not stub it; failure only
+   * logs: the deck teardown must not abort on a store hiccup. */
+  dropArtifacts?: (wsId: string) => Promise<void>;
 }
 
 export interface AgentOrchestratorClosing {
@@ -50,6 +56,7 @@ export function createAgentOrchestratorClosing({
   worktrees,
   isBlocked,
   lifecycle,
+  dropArtifacts,
 }: ClosingDeps): AgentOrchestratorClosing {
   const suspending = new Set<string>();
 
@@ -106,6 +113,16 @@ export function createAgentOrchestratorClosing({
       actions.closeAgent(request.wsId, request.paneId);
     } else {
       actions.closeWorkspace(request.wsId);
+      if (dropArtifacts) {
+        try {
+          await dropArtifacts(request.wsId);
+        } catch (error) {
+          log.warn(
+            "web:orchestrator",
+            `artifact store drop failed for ${request.wsId}: ${error}`,
+          );
+        }
+      }
     }
     await Promise.allSettled(paneIds.map((paneId) => sessions.close(paneId)));
     return doomed.length === 0 ? [] : worktrees.remove(doomed);
