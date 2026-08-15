@@ -550,7 +550,7 @@ export function TeamDialog({
               ))}
               {/* Shown, not hidden: these agents have not vanished, they
                   are spoken for — and saying so once per TEAM answers it,
-                  in words ("on team") rather than a bare quoted name. One
+                  with the word "Team" naming what the quotes hold. One
                   compact card per team: a head with the name and the
                   count, then the members in a dense grid whose cells
                   truncate — a large team grows in rows of a grid, never
@@ -563,7 +563,7 @@ export function TeamDialog({
                 >
                   <div className="team__pool-team-head">
                     <span className="team__pool-team-name">
-                      on team “{group.team}”
+                      Team “{group.team}”
                     </span>
                     <span className="team__pool-team-count">
                       {group.members.length}{" "}

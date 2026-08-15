@@ -540,7 +540,7 @@ describe("TeamDialog", () => {
     // Listed, and where it is said out loud: the agent has not vanished, it
     // is spoken for. Hiding it would send somebody looking for it.
     expect(document.querySelector(".team__pool-team")!.textContent).toContain(
-      "on team “web”",
+      "Team “web”",
     );
     expect(adds()).toHaveLength(0);
     expect(roles()).toHaveLength(0);
