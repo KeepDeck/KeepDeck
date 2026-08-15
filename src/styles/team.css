@@ -130,8 +130,9 @@
   color: #6b7280;
 }
 
-/* A pane already answering to a different team. A fact, not a problem —
-   taking it simply moves it — so it is stated, not warned about. */
+/* A quiet aside on a roster row — today the "not in the catalog" marker
+   for a role the settings deleted under a live member. A fact, not a
+   problem, so it is stated, not warned about. */
 .team__row-note {
   flex: none;
   font-size: 12px;
@@ -221,6 +222,15 @@
   gap: 8px;
   font-size: 12px;
   color: #6b7280;
+}
+
+/* The name gives way before the count does — an unbounded team name
+   ellipses inside the head instead of pushing the card open. */
+.team__pool-team-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .team__pool-team-count {

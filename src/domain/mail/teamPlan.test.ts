@@ -262,6 +262,9 @@ describe("planTeam", () => {
     expect(result.ok && result.value.released).toEqual(["pane-2"]);
     // And the one that stayed moves to the new name.
     expect(result.ok && result.value.name).toBe("platform");
+    // The plan says what the released member actually HELD, so a farewell
+    // can name the team it was on rather than the name it was changed to.
+    expect(result.ok && result.value.formerName).toBe("api");
   });
 
   it("disbands without demanding a lead for the empty roster it leaves", () => {

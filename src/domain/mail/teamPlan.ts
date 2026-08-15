@@ -63,6 +63,11 @@ export interface TeamPlan {
   /** Panes leaving the team — everyone holding its name that the draft
    * dropped. */
   released: string[];
+  /** The name those released members actually HELD, when the plan renames
+   * the team in the same breath — a farewell must name the team somebody
+   * was on, never the name it was being changed to. Absent when the two
+   * agree. */
+  formerName?: string;
   recruits: TeamRecruitDraft[];
 }
 
@@ -317,7 +322,18 @@ export function planTeam(
 
   // Never any: settling a roster is an edit. Ending an agent is asked for
   // separately, by the one gesture that means it.
-  return { ok: true, value: { name, members, released, recruits } };
+  const renamed =
+    editing !== null && editing.trim().toLowerCase() !== name.toLowerCase();
+  return {
+    ok: true,
+    value: {
+      name,
+      members,
+      released,
+      recruits,
+      ...(renamed ? { formerName: editing.trim() } : {}),
+    },
+  };
 }
 
 /**

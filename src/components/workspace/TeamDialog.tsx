@@ -15,6 +15,7 @@ import {
   planDisband,
   planTeam,
   teamMembers,
+  teamNamesIn,
   roleById,
   teamBriefing,
   teamPlanIsEmpty,
@@ -42,7 +43,9 @@ interface TeamDialogProps {
   /** Live agent activity, as the tray reads it — a port rather than a
    * context reach, so a test host without a status lane simply shows no
    * dots. The subscription lives per row, because only that row re-renders
-   * when its pane's activity moves. */
+   * when its pane's activity moves. `of` must answer a STABLE reference
+   * between changes: it feeds useSyncExternalStore, which re-renders
+   * forever on a fresh object per read. */
   activity?: {
     subscribe(listener: () => void): () => void;
     of(paneId: string): PaneActivity | undefined;
@@ -142,9 +145,6 @@ export function TeamDialog({
    * dialog opens: the destructive reading of a control has to be chosen
    * again each time, never inherited from the last team somebody ended. */
   const [closeOnDisband, setCloseOnDisband] = useState(false);
-  // Escape closes it, like every other dialog here. Nothing has happened
-  // yet when it does: the whole point of settling a team as one plan is
-  // that leaving mid-edit changes nothing.
   /** The roster row whose briefing is open in a notice over this dialog —
    * null when none is. */
   const [briefFor, setBriefFor] = useState<string | null>(null);
@@ -152,9 +152,6 @@ export function TeamDialog({
    * the question is asked in its own dialog, not by a control in the
    * footer. */
   const [disbanding, setDisbanding] = useState(false);
-  // While anything is stacked over this dialog, Escape is the top
-  // surface's to claim — the hook declines, or one press would close both.
-  useEscape(onCancel, briefFor === null && !disbanding);
 
   const canRecruit = useMemo(
     () => selectableAgents(agents).filter((agent) => agentSupportsNew(agents, agent.id)),
@@ -172,18 +169,35 @@ export function TeamDialog({
    * it, and an empty picker is the honest rendering of "no role yet". */
   const roleIdOf = (address: string) => parseRoleAddress(address)?.role.id ?? "";
 
+  // Entries whose pane left the WORKSPACE while the dialog was open (an
+  // agent closed over MCP) are dropped from the draft and the roster both.
+  // Carried with `pane: null`, they wore the recruit branch — a dashed
+  // card with a dead agent picker, claiming an agent was about to start.
+  const liveRoles = [...roles].filter(([paneId]) =>
+    workspace.panes.some((candidate) => candidate.id === paneId),
+  );
   const draft = {
     name,
-    members: [...roles].map(([paneId, role]) => ({ paneId, role })),
+    members: liveRoles.map(([paneId, role]) => ({ paneId, role })),
     recruits,
   };
   // `editing` matters beyond seeding the form: who has LEFT is a question
   // about the team as it stands, so a rename must not make the members it
   // dropped invisible.
   const planned = planTeam(workspace, draft, editing);
+  // "+ Team" is ALWAYS a new team; a name an existing team holds would not
+  // create one — planTeam would settle it as an EDIT of that team against
+  // this near-empty draft, silently releasing every member the draft does
+  // not hold. A create must not become an eviction, so it is refused in
+  // words instead.
+  const nameTaken =
+    editing === null &&
+    teamNamesIn(workspace).some(
+      (existing) => existing.toLowerCase() === name.trim().toLowerCase(),
+    );
   // Nothing to do is not an error, but it is not a confirmable form either:
   // a dialog that dispatches a no-op teaches people it did something.
-  const valid = planned.ok && !teamPlanIsEmpty(planned.value);
+  const valid = planned.ok && !teamPlanIsEmpty(planned.value) && !nameTaken;
 
   /** Every address the roster holds, apart from one row's own — what a fresh
    * address has to avoid. */
@@ -238,13 +252,13 @@ export function TeamDialog({
    * reading it they are all members — the difference is only that some do
    * not exist yet. */
   const roster = [
-    ...[...roles].map(([paneId, role]) => {
-      const pane = workspace.panes.find((candidate) => candidate.id === paneId);
+    ...liveRoles.map(([paneId, role]) => {
+      const pane = workspace.panes.find((candidate) => candidate.id === paneId)!;
       return {
         key: paneId,
         role,
-        pane: pane ?? null,
-        label: pane ? titleOf(pane) : paneId,
+        pane: pane as Pane | null,
+        label: titleOf(pane),
         agentType: "",
         yolo: false,
         setRole: (next: string) => setRole(paneId, next),
@@ -315,6 +329,14 @@ export function TeamDialog({
   // simply closes it.
   const briefRow = roster.find((row) => row.key === briefFor) ?? null;
 
+  // Escape closes the dialog, like every other one here — nothing has
+  // happened yet, since settling a team as one plan is what makes leaving
+  // mid-edit free. While anything is STACKED over it, Escape is the top
+  // surface's to claim, and the guard reads the same value the notice
+  // renders from (briefRow, never the raw key) — so a stale key can never
+  // leave the dialog deaf with nothing on screen.
+  useEscape(onCancel, briefRow === null && !disbanding);
+
   // What the roster itself says the team's shape is. The label reads it
   // back, so a person assembling a flat team watches the deck agree — and
   // a mixed or unknown roster claims nothing, because planTeam is about to
@@ -362,8 +384,7 @@ export function TeamDialog({
         {/* THE TEAM — a roster of roles, which is what a team IS. The role
             leads each row because it is the address teammates use and the
             column that has to be scanned for duplicates; who fills it comes
-            second. Rows stay in the order they were added, so the first one
-            is the lead and reads like one. */}
+            second. */}
         <span className="form__label">{shapeLabel}</span>
         {roster.length === 0 ? (
           <p className="form__desc team__empty">
@@ -593,13 +614,18 @@ export function TeamDialog({
           </>
         )}
 
-        {touched && !planned.ok && (
+        {touched && (nameTaken || !planned.ok) && (
           // Its own style, not the git hint's: that one is green, and a
           // refusal rendered in the colour of a positive result is read as
           // one. Directly above the actions, where the disabled button that
           // it explains actually is.
           <p className="form__error team__error" role="alert">
-            ⚠ {planned.message}
+            ⚠{" "}
+            {nameTaken
+              ? `a team called “${name.trim()}” already exists — open it from an agent's badge to edit it`
+              : planned.ok
+                ? ""
+                : planned.message}
           </p>
         )}
 
@@ -609,15 +635,6 @@ export function TeamDialog({
             // roster and confirm — but only as a side effect of emptying a
             // list, which is not a thing anyone would think to try. Ending
             // a team is a deliberate act and deserves to be sayable.
-            //
-            // By default it takes the roles away and NOTHING else: the
-            // agents keep running, keep their panes and keep their work.
-            // Ending them is the other thing people actually want here —
-            // the team is over, so are its agents — and closing four panes
-            // by hand afterwards is busywork. So it is offered, but it is
-            // ASKED FOR: the tick arms it, and the button then says what it
-            // will do, because a destructive act must never be reachable by
-            // the same click as an organisational one.
             <button
               // Ending the team is not an edit, so it is not one of the
               // form's verdict buttons: one quiet door at the far left,
@@ -667,7 +684,7 @@ export function TeamDialog({
         // roles come off and nothing else.
         <ConfirmDialog
           title={`Disband “${editing}”?`}
-          message={`Every agent comes off “${editing}” and its roles stop reaching anyone. The agents keep running and keep their work.`}
+          message={`Every agent comes off “${editing}” and its roles stop reaching anyone. Unless you also close them below, the agents keep running and keep their work.`}
           confirmLabel="Disband"
           cancelLabel="Cancel"
           destructive
@@ -676,7 +693,13 @@ export function TeamDialog({
             // gesture used to build its plan by hand, which made the
             // destructive path the one path that passed no check.
             const disband = planDisband(workspace, editing);
-            if (!disband.ok) return;
+            if (!disband.ok) {
+              // The team can vanish under an open dialog (an agent-driven
+              // disband over MCP). A dead red button is the one thing this
+              // confirm must not be — closing it says the moment passed.
+              setDisbanding(false);
+              return;
+            }
             setDisbanding(false);
             onConfirm(disband.value, closeOnDisband ? disband.value.released : []);
           }}

@@ -622,8 +622,43 @@ describe("TeamDialog", () => {
     const ws = workspace([pane("pane-1")]);
     open(ws);
     type(nameField(), "api");
-    expect(document.querySelector(".team__row-note")).toBeNull();
+    expect(document.querySelector(".team__pool-team")).toBeNull();
     act(() => adds()[0].click());
     expect(roles()).toEqual(["lead"]);
+  });
+
+  it("refuses to create a team under a name an existing team holds", () => {
+    // planTeam would settle that as an EDIT of the existing team against
+    // this near-empty draft, silently releasing every member the draft
+    // does not hold — a create must not become an eviction.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2"),
+    ]);
+    open(ws);
+    type(nameField(), "API");
+    act(() => adds()[0].click());
+    expect(submit().disabled).toBe(true);
+    expect(document.querySelector(".team__error")!.textContent).toContain(
+      "already exists",
+    );
+  });
+
+  it("drops a roster entry whose pane left the workspace", () => {
+    // An agent closed over MCP while the dialog is open: the deck prop
+    // moves under the dialog's own roles state. Rendered with a null pane,
+    // the entry wore the recruit branch — a dashed card with a dead agent
+    // picker claiming an agent was about to start.
+    open(
+      workspace([
+        pane("pane-1", { name: "api", role: "lead" }),
+        pane("pane-2", { name: "api", role: "impl-1" }),
+      ]),
+      "api",
+    );
+    expect(roles()).toEqual(["lead", "impl-1"]);
+    open(workspace([pane("pane-1", { name: "api", role: "lead" })]), "api");
+    expect(roles()).toEqual(["lead"]);
+    expect(document.querySelector(".team__row-agent")).toBeNull();
   });
 });
