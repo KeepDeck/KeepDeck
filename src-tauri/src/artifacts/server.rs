@@ -207,6 +207,11 @@ fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
     use std::os::fd::AsRawFd as _;
     let mut failures = 0u32;
     loop {
+        // Stop() may race a poll iteration: the dead-flag check here is
+        // the exit when the wake pair is already dropped (fd -1 ignored).
+        if shared.dead.load(Ordering::SeqCst) {
+            return;
+        }
         let mut fds = [
             libc::pollfd {
                 fd: listener.as_raw_fd(),
@@ -339,14 +344,15 @@ fn percent_decode(input: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() + 1 && i + 2 < bytes.len() + 1 {
+        // Decode-BEFORE-split: a %2f becomes a separator, so encoding
+        // cannot smuggle extra structure INTO a segment — routes only
+        // match literal shapes.
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
             let hex = |b: u8| (b as char).to_digit(16);
-            if i + 2 < bytes.len() {
-                if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                    out.push((hi * 16 + lo) as u8);
-                    i += 3;
-                    continue;
-                }
+            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
             }
         }
         out.push(bytes[i]);
@@ -465,17 +471,22 @@ fn subscribe(
 ) {
     // The SSE response: close-delimited (no Content-Length), the read
     // half ignored, writes event-driven.
+    // NO immediate event on subscribe: the page CANNOT know its own
+    // version (artifact bytes serve VERBATIM — no chrome injection), so
+    // the skill's snippet contract is "reload on ANY version event" — an
+    // immediate version would loop page→subscribe→reload forever. The
+    // fresh tab already holds latest content from its GET; the first
+    // event it needs is the NEXT version.
+    // (No ACAO header: absent ACAO already blocks cross-origin reads;
+    // a fake value would read as a security property that isn't there.
+    // Artifact-A-JS-reaching-B's stream is the per-artifact connect-src
+    // pin's job, exactly as designed.)
     let pinned = query_v.as_deref().and_then(|v| v.parse().ok());
-    let mut head = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {MIME_SSE}\r\nConnection: close\r\n"
-    );
-    head.push_str("Access-Control-Allow-Origin: none\r\n\r\n");
+    let head = format!("HTTP/1.1 200 OK\r\nContent-Type: {MIME_SSE}\r\nConnection: close\r\n\r\n");
     if stream.write_all(head.as_bytes()).is_err() {
         return;
     }
-    // An immediate event names the CURRENT version — a fresh subscriber
-    // learns where "latest" is without a page reload.
-    let _ = write_event(&stream, "version", &latest_of(&manifest).to_string());
+    let _ = &manifest;
     shared
         .subs
         .lock()
@@ -487,13 +498,16 @@ fn subscribe(
     // the stored clone; a dead peer's write error prunes it lazily.
 }
 
-fn latest_of(manifest: &Manifest) -> u64 {
-    manifest.versions.last().map(|v| v.n).unwrap_or(0)
-}
+// (latest_of died with the immediate-version event — the subscriber's
+// first event is now always the NEXT version.)
 
 /// ONE keepalive tick thread per server (B4): walks the registry every
 /// 15s — a manifest re-read per distinct artifact doubles as the
 /// rm-the-dir backstop (gone → bye + close); alive → `: ping`.
+/// NO unwrap anywhere in this loop: a panicking tick thread would take
+/// the whole backstop with it silently (keepalive stops, rm-detection
+/// stops, no restart) — exactly the silent-stale-tab failure F-E exists
+/// to prevent, entered through our own thread.
 fn tick_loop(shared: Arc<Shared>) {
     loop {
         std::thread::sleep(KEEPALIVE_TICK);
@@ -525,8 +539,13 @@ fn tick_loop(shared: Arc<Shared>) {
             let mut registry = shared.subs.lock().expect("subs poisoned");
             if let Some(entries) = registry.get_mut(&(ws, slug)) {
                 entries.retain(|entry| {
-                    let mut ping = entry.write.try_clone().unwrap();
-                    ping.write_all(b": ping\n\n").and_then(|_| ping.flush()).is_ok()
+                    entry
+                        .write
+                        .try_clone()
+                        .and_then(|mut ping| {
+                            ping.write_all(b": ping\n\n").and_then(|_| ping.flush())
+                        })
+                        .is_ok()
                 });
             }
         }
@@ -669,7 +688,7 @@ mod tests {
     }
 
     #[test]
-    fn sse_subscriber_gets_the_current_version_then_live_updates() {
+    fn sse_subscriber_gets_live_updates_and_no_unsolicited_version() {
         let (server, store, _root, _dir) = fixture("sse");
         let token = publish(&store, "live", b"v1");
         let mut sub = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
@@ -678,11 +697,10 @@ mod tests {
         )
         .unwrap();
         std::thread::sleep(Duration::from_millis(150));
-        // A republish broadcasts version 2 to the open subscriber. The
-        // test drives the broadcast directly — the artifact_publish
-        // command's tail (mod.rs) does exactly this call after the store
-        // commit; its wiring is the slice-6 integration's subject.
-        publish(&store, "live", b"v2");
+        // NO unsolicited version event: the fresh subscriber already
+        // holds latest from its GET — an immediate version would loop
+        // page→subscribe→reload forever with the snippet contract
+        // (D5-1's regression pin).
         server.broadcast_version("ws-1", "live", 2);
         let mut stream = sub.try_clone().unwrap();
         let _ = stream.shutdown(std::net::Shutdown::Write);
@@ -691,9 +709,96 @@ mod tests {
         let _ = sub.read_to_end(&mut raw);
         let text = String::from_utf8_lossy(&raw).into_owned();
         assert!(text.starts_with("HTTP/1.1 200"), "{text}");
-        assert!(text.contains("event: version\ndata: 1"), "current on subscribe:\n{text}");
         assert!(text.contains("event: version\ndata: 2"), "live update:\n{text}");
+        let events: usize = text.matches("event: version").count();
+        assert_eq!(events, 1, "exactly the live update, nothing unsolicited:\n{text}");
         server.stop();
+    }
+
+    #[test]
+    fn a_pinned_tab_receives_nothing_on_republish_while_the_sibling_updates() {
+        let (server, store, _root, _dir) = fixture("pinned");
+        let token = publish(&store, "pin", b"v1");
+        let mut pinned = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        pinned
+            .write_all(
+                format!("GET /a/{token}/pin/events?v=1 HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
+            )
+            .unwrap();
+        let mut sibling = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        sibling
+            .write_all(
+                format!("GET /a/{token}/pin/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
+            )
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+        server.broadcast_version("ws-1", "pin", 2);
+        std::thread::sleep(Duration::from_millis(300));
+        let _ = pinned.shutdown(std::net::Shutdown::Write);
+        let _ = sibling.shutdown(std::net::Shutdown::Write);
+        let mut pinned_bytes = Vec::new();
+        pinned
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let _ = pinned.read_to_end(&mut pinned_bytes);
+        let pinned_text = String::from_utf8_lossy(&pinned_bytes).into_owned();
+        assert!(
+            !pinned_text.contains("event: version"),
+            "pinned stays untouched:\n{pinned_text}"
+        );
+        let mut sibling_bytes = Vec::new();
+        sibling
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let _ = sibling.read_to_end(&mut sibling_bytes);
+        let sibling_text = String::from_utf8_lossy(&sibling_bytes).into_owned();
+        assert!(sibling_text.contains("event: version\ndata: 2"), "{sibling_text}");
+        server.stop();
+    }
+
+    #[test]
+    fn the_keepalive_tick_detects_an_external_rm() {
+        let (server, store, root, dir) = fixture("rm");
+        let token = publish(&store, "gone-later", b"v1");
+        let mut sub = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        sub.write_all(
+            format!("GET /a/{token}/gone-later/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(150));
+        // The external rm: outside the server, outside the store.
+        std::fs::remove_dir_all(root.join("ws/ws-1/gone-later")).unwrap();
+        let _ = dir;
+        let mut raw = Vec::new();
+        sub.set_read_timeout(Some(KEEPALIVE_TICK + Duration::from_secs(5)))
+            .unwrap();
+        let _ = sub.read_to_end(&mut raw);
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        assert!(
+            text.contains("event: bye\ndata: artifact gone"),
+            "tick backstop fired:\n{text}"
+        );
+        server.stop();
+    }
+
+    #[test]
+    fn enable_is_idempotent_the_port_survives() {
+        // Double-enable returns the SAME port — the McpServer promise
+        // the lifecycle shape claims to mirror (the store's own enable
+        // is idempotent; the SERVER must not rebind).
+        let (server, store, root, dir) = fixture("idem");
+        let first = server.port();
+        store.disable();
+        store.enable(&root).unwrap();
+        assert_eq!(server.port(), first);
+        // And two INDEPENDENT servers (separate instances) get different
+        // ephemeral ports — the kernel's guarantee, asserted so a future
+        // fixed-port change trips it knowingly.
+        let (server2, _store2, _root2, dir2) = fixture("idem2");
+        assert_ne!(server.port(), server2.port());
+        let _ = (dir, dir2);
+        server.stop();
+        server2.stop();
     }
 
     #[test]

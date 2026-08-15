@@ -27,27 +27,42 @@ pub(super) fn escape_html(input: &str) -> String {
 }
 
 /// Render one md document to an HTML BODY fragment (the template in
-/// serve.rs wraps it). The whole subset, one pass, line-oriented with a
-/// two-state machine (paragraph accumulation vs block constructs).
+/// serve.rs wraps it). The whole subset, one pass, line-oriented with
+/// block-run state (paragraph accumulation, fenced code, and CONSECUTIVE
+/// table rows wrapping into one `<table>` — bare `<tr>` outside a table
+/// element renders as nothing in a browser).
 pub(super) fn render_markdown(source: &str) -> String {
     let mut out = String::new();
     let mut paragraph: Vec<String> = Vec::new();
     let mut in_fence = false;
     let mut fence: Vec<String> = Vec::new();
+    let mut in_table = false;
 
-    let flush_paragraph = |paragraph: &mut Vec<String>, out: &mut String| {
-        if !paragraph.is_empty() {
-            out.push_str("<p>");
-            out.push_str(&inline(&paragraph.join(" ")));
-            out.push_str("</p>\n");
-            paragraph.clear();
-        }
-    };
+    macro_rules! flush_paragraph {
+        () => {
+            if !paragraph.is_empty() {
+                out.push_str("<p>");
+                out.push_str(&inline(&paragraph.join(" ")));
+                out.push_str("</p>\n");
+                paragraph.clear();
+            }
+        };
+    }
+    macro_rules! flush_table {
+        () => {
+            #[allow(unused_assignments)]
+            if in_table {
+                out.push_str("</table>\n");
+                in_table = false;
+            }
+        };
+    }
 
     for raw in source.lines() {
         let line = raw.trim_end_matches('\r');
         if in_fence {
             if line.trim_start().starts_with("```") {
+                flush_table!();
                 out.push_str("<pre><code>");
                 out.push_str(&escape_html(&fence.join("\n")));
                 out.push_str("</code></pre>\n");
@@ -59,39 +74,45 @@ pub(super) fn render_markdown(source: &str) -> String {
             continue;
         }
         if line.trim_start().starts_with("```") {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             in_fence = true;
             continue;
         }
         let trimmed = line.trim();
         if trimmed.is_empty() {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             continue;
         }
         // Headings.
         if let Some(rest) = trimmed.strip_prefix("#### ") {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             out.push_str("<h4>");
             out.push_str(&inline(rest));
             out.push_str("</h4>\n");
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("### ") {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             out.push_str("<h3>");
             out.push_str(&inline(rest));
             out.push_str("</h3>\n");
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("## ") {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             out.push_str("<h2>");
             out.push_str(&inline(rest));
             out.push_str("</h2>\n");
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("# ") {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             out.push_str("<h1>");
             out.push_str(&inline(rest));
             out.push_str("</h1>\n");
@@ -99,44 +120,52 @@ pub(super) fn render_markdown(source: &str) -> String {
         }
         // hr.
         if trimmed == "---" || trimmed == "***" {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             out.push_str("<hr/>\n");
             continue;
         }
-        // Blockquote (consecutive lines join).
+        // Blockquote.
         if let Some(rest) = trimmed.strip_prefix('>') {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             let rest = rest.strip_prefix(' ').unwrap_or(rest);
             out.push_str("<blockquote>");
             out.push_str(&inline(rest));
             out.push_str("</blockquote>\n");
             continue;
         }
-        // List items (consecutive items join into one list per run —
-        // simplified: each item is its own <li> under a fresh <ul>/<ol>).
+        // List items.
         if let Some(rest) = trimmed.strip_prefix("- ") {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             out.push_str("<ul><li>");
             out.push_str(&inline(rest));
             out.push_str("</li></ul>\n");
             continue;
         }
         if let Some(rest) = ordered_item(trimmed) {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
+            flush_table!();
             out.push_str("<ol><li>");
             out.push_str(&inline(rest));
             out.push_str("</li></ol>\n");
             continue;
         }
-        // Table row (header/separator/body all become a plain table).
+        // Table row (header/separator/body): consecutive rows share one
+        // <table>; the separator row is structure, not content.
         if trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() > 1 {
-            flush_paragraph(&mut paragraph, &mut out);
+            flush_paragraph!();
             let cells: Vec<&str> = trimmed[1..trimmed.len() - 1]
                 .split('|')
                 .map(str::trim)
                 .collect();
-            if cells.iter().all(|c| c.starts_with('-') && c.ends_with('-')) {
-                continue; // separator row — structure, not content
+            if cells.iter().all(|c| c.starts_with('-') && c.ends_with('-') && !c.is_empty()) {
+                continue;
+            }
+            if !in_table {
+                out.push_str("<table>");
+                in_table = true;
             }
             out.push_str("<tr>");
             for cell in cells {
@@ -148,9 +177,11 @@ pub(super) fn render_markdown(source: &str) -> String {
             continue;
         }
         // Otherwise: paragraph text.
+        flush_table!();
         paragraph.push(escape_html(trimmed));
     }
-    flush_paragraph(&mut paragraph, &mut out);
+    flush_paragraph!();
+    flush_table!();
     if in_fence {
         // Unterminated fence: render what accumulated, escaped.
         out.push_str("<pre><code>");
@@ -253,6 +284,11 @@ mod tests {
     #[test]
     fn tables_render_cells_and_skip_separators() {
         let html = render_markdown("| a | b |\n| --- | --- |\n| 1 | 2 |\n");
+        // CONSECUTIVE rows wrap in ONE <table> — bare <tr> outside a
+        // table element renders as nothing (D5-2's pin).
+        assert!(html.contains("<table>"), "{html}");
+        assert!(html.contains("</table>"), "{html}");
+        assert_eq!(html.matches("<table>").count(), 1, "one table, {html}");
         assert!(html.contains("<td>a</td>"));
         assert!(html.contains("<td>2</td>"));
         assert!(!html.contains("<td>-</td>"));
