@@ -24,6 +24,18 @@ const worktreeIpc = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/worktree", () => worktreeIpc);
 
+// The dialog declares its index-freshness need through the runtime; pin the
+// manager at the context seam (the real one lives in createAppRuntime and is
+// referentially stable for the app's lifetime — the effect deps rely on it).
+const sessionIndex = vi.hoisted(() => ({
+  ensureFresh: vi.fn(),
+  snapshot: () => ({ scanning: false, revision: 0 }),
+  subscribe: () => () => {},
+}));
+vi.mock("../../app/runtimeContext", () => ({
+  useAppRuntime: () => ({ sessionIndex }),
+}));
+
 // The dialog pulls the agent catalog via useAgents; pin one agent at the
 // hook seam (the real hook would bootstrap the real plugin system). The
 // YOLO support flag is swappable per test — the toggle's visibility gates
@@ -123,6 +135,7 @@ describe("AgentDialog worktree location flow", () => {
     confirmed = [];
     catalog.supportsResume = true;
     catalog.supportsFork = true;
+    sessionIndex.ensureFresh.mockClear();
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -539,6 +552,7 @@ describe("AgentDialog start-from session picker", () => {
     confirmed = [];
     catalog.supportsResume = true;
     catalog.supportsFork = true;
+    sessionIndex.ensureFresh.mockClear();
     worktreeIpc.probeWorktree.mockImplementation((path: string) =>
       Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
     );
@@ -680,6 +694,21 @@ describe("AgentDialog start-from session picker", () => {
     expect(modes).toContain("New session");
     expect(modes).not.toContain("Resume");
     expect(modes).toContain("Fork");
+  });
+
+  it("declares the index need on open and again per agent switch — the manager decides the rest", async () => {
+    await mount();
+    expect(sessionIndex.ensureFresh).toHaveBeenCalledExactlyOnceWith("claude");
+
+    act(() => modeBtn("Fork").click()); // any section change…
+    expect(sessionIndex.ensureFresh).toHaveBeenCalledTimes(1); // …rescans nothing
+
+    const codex = [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+      (b) => b.textContent === "Codex",
+    );
+    if (codex) act(() => codex.click());
+    expect(sessionIndex.ensureFresh).toHaveBeenCalledTimes(codex ? 2 : 1);
+    if (codex) expect(sessionIndex.ensureFresh).toHaveBeenLastCalledWith("codex");
   });
 });
 

@@ -24,6 +24,7 @@ import {
 import { baseName } from "../../domain/deck";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
+import { useAppRuntime } from "../../app/runtimeContext";
 import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
 import { useEscape } from "../../ui/useEscape";
 import { useScrollPaging } from "../../ui/useScrollPaging";
@@ -228,6 +229,17 @@ export function AgentDialog({
     searchSessionsPage(sessionQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startMode, agentType, sessionQuery]);
+
+  // The picker reads the INDEX, which nothing refreshed unless the history
+  // browser was visited. DECLARE the need for the selected agent's store —
+  // when the scan runs is the sessionIndexManager's call (it waits for
+  // plugin registration on its own). Fires on open and on every agent
+  // switch; typing never rescans.
+  const { sessionIndex } = useAppRuntime();
+  useEffect(() => {
+    sessionIndex.ensureFresh(agentType);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionIndex, agentType]);
 
   // Prefill the Name from a session title while the field is UNTOUCHED (name
   // still equals the last prefill); a hand-edited name stays the user's. The

@@ -1,10 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentHistory } from "@keepdeck/plugin-api";
 import { createSessionIndexManager } from "./sessionIndexManager";
+
+/** An opaque stand-in for a plugin history surface — the manager only
+ * forwards it to scanAgentHistories (mocked), never calls it. */
+const history = (marker: string) => ({ marker }) as unknown as AgentHistory;
 
 /** A registry fake with a manual change signal: `set` swaps the
  * contributions and fires the subscribers, like the plugin registry does
  * when a plugin registers late. */
-function fakeRegistry(contributions: Array<{ entry: { id: string; history?: object } }>) {
+function fakeRegistry(
+  contributions: Array<{ entry: { id: string; history?: AgentHistory } }>,
+) {
   const listeners = new Set<() => void>();
   let list = contributions;
   return {
@@ -25,8 +32,8 @@ function fakeRegistry(contributions: Array<{ entry: { id: string; history?: obje
 }
 
 const CONTRIBUTIONS = [
-  { entry: { id: "claude", history: { read: "claude-history" } } },
-  { entry: { id: "codex", history: { read: "codex-history" } } },
+  { entry: { id: "claude", history: history("claude") } },
+  { entry: { id: "codex", history: history("codex") } },
   { entry: { id: "kimi" } }, // a history-less contribution is never a source
 ];
 
@@ -91,7 +98,7 @@ describe("sessionIndexManager scope", () => {
     const manager = createSessionIndexManager(registry);
     manager.ensureFresh("codex");
     expect(sourcesOf(0)).toEqual([
-      { agentId: "codex", history: { read: "codex-history" } },
+      { agentId: "codex", history: history("codex") },
     ]);
   });
 });
@@ -191,7 +198,7 @@ describe("sessionIndexManager readiness", () => {
     manager.ensureFresh("claude");
     expect(scans.scanAgentHistories).not.toHaveBeenCalled();
 
-    set([{ entry: { id: "claude", history: { read: "claude-history" } } }]);
+    set([{ entry: { id: "claude", history: history("claude") } }]);
     expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
     expect(sourcesOf(0).map((s) => s.agentId)).toEqual(["claude"]);
   });
@@ -223,7 +230,7 @@ describe("sessionIndexManager dispose", () => {
     manager.dispose();
 
     manager.ensureFresh();
-    set([{ entry: { id: "claude", history: {} } }]);
+    set([{ entry: { id: "claude", history: history("claude") } }]);
     expect(scans.scanAgentHistories).not.toHaveBeenCalled();
   });
 });

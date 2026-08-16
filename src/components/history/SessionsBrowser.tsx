@@ -75,12 +75,12 @@ export function SessionsBrowser({
   // newer row's header (the search path has searchSeq; this is its twin).
   const viewSeq = useRef(0);
 
-  // The scan waits for plugin activation (the registry is empty until
-  // then), re-firing when readiness lands; the listing itself is the hook's
-  // job — it ran the initial search once, and a second browser mount must
-  // not reset a query another instance is showing.
+  // The browser DECLARES its need for a fresh index; when the scan runs is
+  // the sessionIndexManager's call (it also waits for plugin registration
+  // on its own — this gate mirrors the surface's own readiness shape). The
+  // listing itself refreshes per index revision inside the hook.
   useEffect(() => {
-    if (ready) api.scan();
+    if (ready) api.ensureFresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 

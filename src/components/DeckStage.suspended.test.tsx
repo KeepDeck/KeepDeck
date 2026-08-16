@@ -84,7 +84,7 @@ const browser = {
   scanning: false,
   search: vi.fn(),
   loadMore: vi.fn(),
-  scan: vi.fn(),
+  ensureFresh: vi.fn(),
   transcript: vi.fn(() => Promise.resolve([])),
 };
 

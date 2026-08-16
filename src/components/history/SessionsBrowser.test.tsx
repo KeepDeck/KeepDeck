@@ -79,7 +79,7 @@ const api = (
   scanning: false,
   search: vi.fn(),
   loadMore: vi.fn(),
-  scan: vi.fn(),
+  ensureFresh: vi.fn(),
   transcript: vi.fn(() =>
     Promise.resolve([{ role: "user" as const, text: "hello" }]),
   ),
@@ -134,7 +134,7 @@ describe("SessionsBrowser", () => {
       ),
     );
 
-  it("scans on mount, searches as you type, and hands resume/fork the record", async () => {
+  it("declares the index need on mount, searches as you type, and hands resume/fork the record", async () => {
     const a = api([hit()]);
     const onResume = vi.fn();
     const onFork = vi.fn();
@@ -151,7 +151,7 @@ describe("SessionsBrowser", () => {
         }),
       ),
     );
-    expect(a.scan).toHaveBeenCalledTimes(1);
+    expect(a.ensureFresh).toHaveBeenCalledTimes(1);
 
     const input = document.querySelector<HTMLInputElement>(".browser__search")!;
     act(() => {
@@ -173,7 +173,7 @@ describe("SessionsBrowser", () => {
     expect(onFork).toHaveBeenCalledTimes(1);
   });
 
-  it("waits for plugin activation before scanning — an empty registry must not count as scanned", async () => {
+  it("waits for the catalog before declaring the index need", async () => {
     const a = api([]);
     const props = {
       api: a,
@@ -186,12 +186,12 @@ describe("SessionsBrowser", () => {
     await act(async () =>
       root.render(createElement(SessionsBrowser, { ...props, ready: false })),
     );
-    expect(a.scan).not.toHaveBeenCalled();
+    expect(a.ensureFresh).not.toHaveBeenCalled();
 
     await act(async () =>
       root.render(createElement(SessionsBrowser, { ...props, ready: true })),
     );
-    expect(a.scan).toHaveBeenCalledTimes(1);
+    expect(a.ensureFresh).toHaveBeenCalledTimes(1);
   });
 
   it("Resume is blocked for a pathless or deleted directory — Fork stays", async () => {
