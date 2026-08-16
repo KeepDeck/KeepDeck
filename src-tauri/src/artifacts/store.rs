@@ -1289,8 +1289,9 @@ mod tests {
     #[serde(rename_all = "camelCase")]
     struct GoldenExpect {
         kind: String,
-        // Read when kind == "append" (the next-version assertion); the
-        // other arms carry nulls the runner never touches.
+        // Both ride the fixture JSON's shape (read on their arms —
+        // append asserts slug/next_version, error asserts the needle);
+        // the fields keep a fixture edit parse-failing loudly.
         #[allow(dead_code)]
         slug: Option<String>,
         #[allow(dead_code)]
