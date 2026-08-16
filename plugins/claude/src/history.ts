@@ -20,6 +20,35 @@ function errOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** A store file whose NAME is not a session id: the CLI moves a colliding
+ * task file aside as `<id>.orphaned-<epoch>-<hex>.jsonl`. The enumeration
+ * derives the id from the filename, so such a row would carry an address
+ * that never existed. Dropped BY NAME, in BOTH enumeration paths — a
+ * partial-listing walk must not let the garbage ride the older road. */
+function isOrphanedStoreFile(name: string): boolean {
+  return fileIsTranscript(name) && name.includes(".orphaned-");
+}
+
+/** Whether a store filename is a session transcript at all. */
+function fileIsTranscript(name: string): boolean {
+  return name.endsWith(".jsonl");
+}
+
+/** The head of a BACKGROUND TASK's store file: the CLI copies the parent
+ * conversation's context into the task's own file, so it LOOKS like a
+ * session — same shape, a title, hundreds of parent records — but it is a
+ * transfer copy, not a second conversation (measured: 354 of 365 messages
+ * verbatim from the parent). The tell is in the FIRST records: a task
+ * opens with `agent-name`, an ordinary session opens with `mode`/
+ * `permission-mode` and never carries `agent-name` in its head. Checked
+ * on the describe() head read that happens anyway — the enumeration
+ * itself never reads file contents. */
+const TASK_HEAD_MARK = '"type":"agent-name"';
+
+function isBackgroundTaskCopy(head: string): boolean {
+  return head.includes(TASK_HEAD_MARK);
+}
+
 /** A transcript line's message text, whatever shape the content took. */
 function textOf(message: unknown): string {
   if (typeof message !== "object" || message === null) return "";
@@ -176,7 +205,12 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
         // the scanner's per-agent catch: logged, no upsert, no prune.
         const files = await ctx.services.fs.readDir(slug.path);
         for (const file of files) {
-          if (file.kind !== "file" || !file.name.endsWith(".jsonl")) continue;
+          if (
+            file.kind !== "file" ||
+            !fileIsTranscript(file.name) ||
+            isOrphanedStoreFile(file.name)
+          )
+            continue;
           stubs.push({
             sessionId: file.name.slice(0, -".jsonl".length),
             ref: file.path,
@@ -227,7 +261,12 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
           continue;
         }
         for (const file of files) {
-          if (file.kind !== "file" || !file.name.endsWith(".jsonl")) continue;
+          if (
+            file.kind !== "file" ||
+            !fileIsTranscript(file.name) ||
+            isOrphanedStoreFile(file.name)
+          )
+            continue;
           stubs.push({
             sessionId: file.name.slice(0, -".jsonl".length),
             ref: file.path,
@@ -239,6 +278,18 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       return { stubs, complete };
     },
     async describe(ref) {
+      // The background-task copy is excluded HERE, on the head read this
+      // function performs anyway: its name is an ordinary uuid, so only
+      // the contents can tell it from a session. The throw lands in the
+      // scanner's per-session skip: logged, never indexed. Re-attempted
+      // on later scans (a skipped row never enters the index, so it always
+      // reads as new) — accepted: task files are few and static.
+      const head = await read(ref, 64 * 1024);
+      if (isBackgroundTaskCopy(head.text ?? "")) {
+        throw new Error(
+          `claude: ${ref} is a background task's context copy, not a session — excluded`,
+        );
+      }
       // cwd sits on the first lines — a 64KB head covers it. Titles first
       // try claude's own per-project sessions-index.json (firstPrompt),
       // which spares the full read; only when the index lacks a usable
@@ -249,7 +300,6 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       // store's own summary line — the summary lives megabytes into the
       // transcript, and finding it would cost exactly the full read the
       // index fast path exists to avoid.
-      const head = await read(ref, 64 * 1024);
       const cwd = cwdOf(head.text ?? "") ?? "";
       const fromIndex = await indexedTitle(ref);
       const forkedAt = await forkedAtOf(ref);

@@ -140,6 +140,82 @@ describe("scanAgentHistories × real plugins", () => {
     expect(prunes).toEqual([]);
   });
 
+  it("claude: a full re-scan of a real-shaped store brings no task copy and no orphaned row", async () => {
+    // The order-of-work regression: a schema bump wipes the index and the
+    // next full scan must not plant rows that were never sessions — a
+    // task's context copy (excluded at describe) and an orphaned file
+    // (dropped by name in both enumeration paths) — while the ordinary
+    // conversation lands.
+    const transcript = [
+      JSON.stringify({ type: "mode", mode: "normal", sessionId: "u" }),
+      JSON.stringify({
+        type: "user",
+        cwd: "/repo",
+        message: { role: "user", content: "fix the auth bug" },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "text", text: "on it" }] },
+      }),
+    ].join("\n");
+    const taskCopy = [
+      JSON.stringify({ type: "ai-title", aiTitle: "Fix the build", sessionId: "t" }),
+      JSON.stringify({ type: "agent-name", agentName: "Fix the build", sessionId: "t" }),
+    ].join("\n");
+    const { mock, upserts, prunes } = ops([]);
+    await scanAgentHistories(
+      [
+        {
+          agentId: "claude",
+          history: claudeHistory(
+            fsCtx(
+              {
+                "/h/p/-repo/u.jsonl": transcript,
+                "/h/p/-repo/t.jsonl": taskCopy,
+              },
+              {
+                "~/.claude/projects": [
+                  { name: "-repo", path: "/h/p/-repo", kind: "dir" },
+                ],
+                "/h/p/-repo": [
+                  { name: "u.jsonl", path: "/h/p/-repo/u.jsonl", kind: "file", size: 2, mtime: 5 },
+                  { name: "t.jsonl", path: "/h/p/-repo/t.jsonl", kind: "file", size: 2, mtime: 6 },
+                  {
+                    name: "u2.orphaned-1786650822694-a024affe.jsonl",
+                    path: "/h/p/-repo/u2.orphaned-1786650822694-a024affe.jsonl",
+                    kind: "file",
+                    size: 3,
+                    mtime: 7,
+                  },
+                ],
+              },
+            ),
+          ),
+        },
+      ],
+      mock,
+    );
+    expect(upserts).toEqual([
+      {
+        sessionId: "u",
+        reference: "/h/p/-repo/u.jsonl",
+        cwd: "/repo",
+        title: "fix the auth bug",
+        transcriptPath: "/h/p/-repo/u.jsonl",
+        forkedAt: null,
+        mtime: 5,
+        size: 2,
+        content: "fix the auth bug\non it",
+      },
+    ]);
+    // The prune's live set DOES carry the task copy's ref — by name it is
+    // indistinguishable from a session, and the exclusion happens at
+    // describe — but a ref absent from the index deletes nothing. What
+    // matters is the UPSERT side: only the real conversation entered the
+    // index, so the re-scan planted no row that was never a session.
+    expect(prunes).toEqual([["/h/p/-repo/u.jsonl", "/h/p/-repo/t.jsonl"]]);
+  });
+
   it("opencode: the untouched plugin rides the legacy branch — indexes and prunes exactly as before", async () => {
     // opencode has no listing(); enumerate() must send it down list(),
     // whose successful read has always meant "complete enough to prune".

@@ -143,6 +143,87 @@ describe("claude history", () => {
     expect(answer.stubs).toEqual(await history.list());
   });
 
+  it("an orphaned store file is dropped BY NAME in BOTH enumeration paths", async () => {
+    // The CLI moves a colliding task file aside as <id>.orphaned-…jsonl;
+    // the enumeration derives the id from the filename, so keeping the
+    // row would index an address that never existed. Both roads drop it —
+    // a partial walk must not let the garbage ride the older one.
+    const dirs = {
+      "~/.claude/projects": [
+        { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
+      ],
+      "/h/p/-repo-a": [
+        { name: "u1.jsonl", path: "/h/p/-repo-a/u1.jsonl", kind: "file", size: 9, mtime: 5 },
+        {
+          name: "u2.orphaned-1786650822694-a024affe.jsonl",
+          path: "/h/p/-repo-a/u2.orphaned-1786650822694-a024affe.jsonl",
+          kind: "file",
+          size: 3,
+          mtime: 1,
+        },
+      ],
+    };
+    const history = claudeHistory(ctx({}, dirs));
+    expect(await history.list()).toEqual([
+      { sessionId: "u1", ref: "/h/p/-repo-a/u1.jsonl", mtime: 5, size: 9 },
+    ]);
+    const answer = await history.listing!();
+    expect(answer.stubs).toEqual([
+      { sessionId: "u1", ref: "/h/p/-repo-a/u1.jsonl", mtime: 5, size: 9 },
+    ]);
+    expect(answer.complete).toBe(true);
+  });
+
+  it("the name filter touches only the orphaned suffix — unusual ids stay", async () => {
+    // The drop is BY NAME and the name grammar is claude's, not ours: any
+    // .jsonl without the orphaned marker is a session row as far as the
+    // enumeration is concerned, whatever its id looks like.
+    const dirs = {
+      "~/.claude/projects": [
+        { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
+      ],
+      "/h/p/-repo-a": [
+        { name: "weird ID.jsonl", path: "/h/p/-repo-a/weird ID.jsonl", kind: "file", size: 1, mtime: 1 },
+        { name: "UPPER-Case.jsonl", path: "/h/p/-repo-a/UPPER-Case.jsonl", kind: "file", size: 1, mtime: 2 },
+      ],
+    };
+    const history = claudeHistory(ctx({}, dirs));
+    expect((await history.list()).map((s) => s.sessionId).sort()).toEqual([
+      "UPPER-Case",
+      "weird ID",
+    ]);
+  });
+
+  it("a background task's context copy is excluded at describe — an ordinary session is not", async () => {
+    // A task's store file LOOKS like a session (its own uuid name, a
+    // title, hundreds of records) but the records are a verbatim transfer
+    // of the parent conversation. The tell is the head: a task opens with
+    // `agent-name`, an ordinary session never carries it in its head.
+    const taskHead = [
+      JSON.stringify({ type: "ai-title", aiTitle: "Fix the build", sessionId: "t" }),
+      JSON.stringify({ type: "agent-name", agentName: "Fix the build", sessionId: "t" }),
+      JSON.stringify({ type: "last-prompt", sessionId: "t" }),
+    ].join("\n");
+    const task = claudeHistory(ctx({ "/t.jsonl": taskHead }, {}));
+    await expect(task.describe("/t.jsonl")).rejects.toThrow(
+      "background task's context copy",
+    );
+
+    const sessionHead = [
+      JSON.stringify({ type: "mode", mode: "normal", sessionId: "u" }),
+      JSON.stringify({ type: "permission-mode", permissionMode: "default", sessionId: "u" }),
+      JSON.stringify({
+        type: "user",
+        cwd: "/repo",
+        message: { role: "user", content: "fix the auth bug" },
+      }),
+    ].join("\n");
+    const session = claudeHistory(ctx({ "/u.jsonl": sessionHead }, {}));
+    await expect(session.describe("/u.jsonl")).resolves.toMatchObject({
+      title: "fix the auth bug",
+    });
+  });
+
   it("describe pulls cwd from the lines and titles by the first REAL user turn — skill/tag preambles don't name a conversation", async () => {
     const history = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
     expect(await history.describe("/f.jsonl")).toEqual({
