@@ -114,6 +114,7 @@ export async function scanAgentHistories(
                 cwd: facts.cwd,
                 title: facts.title ?? null,
                 transcriptPath: facts.transcriptPath ?? null,
+                forkedAt: facts.forkedAt ?? null,
                 mtime: stub.mtime,
                 size: stub.size,
                 content: content.slice(0, CONTENT_CAP),

@@ -129,6 +129,7 @@ describe("scanAgentHistories × real plugins", () => {
         cwd: "/repo",
         title: "fix the auth bug",
         transcriptPath: "/h/p/-repo/u.jsonl",
+        forkedAt: null,
         mtime: 5,
         size: 2,
         content: "fix the auth bug\non it",

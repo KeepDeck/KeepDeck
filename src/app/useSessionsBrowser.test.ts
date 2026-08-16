@@ -57,6 +57,7 @@ const mkHits = (from: number, count: number): SearchHit[] =>
     cwd: "/repo",
     title: null,
     transcriptPath: null,
+    forkedAt: null,
     mtime: 1000 - (from + i),
     snippet: null,
   }));

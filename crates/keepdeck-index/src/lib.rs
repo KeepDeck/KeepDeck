@@ -14,7 +14,7 @@ use std::path::Path;
 /// Bump on ANY schema change — the opener wipes and recreates. Also the
 /// lever for content-derivation fixes (e.g. title heuristics): stamped rows
 /// never refresh while their file is unchanged, a rebuild re-derives all.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// One indexed session (an upsert row). `content` is the extracted
 /// searchable text (user+assistant turns), plugin-provided.
@@ -29,6 +29,10 @@ pub struct IndexRow {
     /// The transcript file, when the plugin knows one — carried explicitly
     /// so consumers never have to guess it from the ref's shape.
     pub transcript_path: Option<String>,
+    /// When this row is a FORK: the moment the copy was branched off
+    /// (epoch ms, from the store's own fork marker). A fork shares the
+    /// source's title, so without this the two are indistinguishable.
+    pub forked_at: Option<i64>,
     pub mtime: i64,
     pub size: i64,
     pub content: String,
@@ -51,6 +55,8 @@ pub struct SearchHit {
     pub cwd: String,
     pub title: Option<String>,
     pub transcript_path: Option<String>,
+    /// The fork marker — see [`IndexRow::forked_at`].
+    pub forked_at: Option<i64>,
     pub mtime: i64,
     /// FTS snippet with `[` `]` highlight markers, when content matched.
     pub snippet: Option<String>,
@@ -94,6 +100,7 @@ impl SessionIndex {
                     cwd TEXT NOT NULL,
                     title TEXT,
                     transcript_path TEXT,
+                    forked_at INTEGER,
                     mtime INTEGER NOT NULL,
                     size INTEGER NOT NULL,
                     PRIMARY KEY (agent, session_id)
@@ -134,8 +141,8 @@ impl SessionIndex {
             .map_err(|e| e.to_string())?;
             tx.execute(
                 "INSERT OR REPLACE INTO sessions
-                 (agent, session_id, ref, cwd, title, transcript_path, mtime, size)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 (agent, session_id, ref, cwd, title, transcript_path, forked_at, mtime, size)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     row.agent,
                     row.session_id,
@@ -143,6 +150,7 @@ impl SessionIndex {
                     row.cwd,
                     row.title,
                     row.transcript_path,
+                    row.forked_at,
                     row.mtime,
                     row.size
                 ],
@@ -257,7 +265,7 @@ impl SessionIndex {
         let agent_clause = if agent.is_some() { " AND agent = ?A" } else { "" };
         if q.is_empty() {
             let sql = format!(
-                "SELECT agent, session_id, ref, cwd, title, transcript_path, mtime
+                "SELECT agent, session_id, ref, cwd, title, transcript_path, forked_at, mtime
                  FROM sessions WHERE 1=1{}
                  ORDER BY mtime DESC LIMIT ?1 OFFSET ?2",
                 agent_clause.replace("?A", "?3"),
@@ -271,7 +279,8 @@ impl SessionIndex {
                     cwd: r.get(3)?,
                     title: r.get(4)?,
                     transcript_path: r.get(5)?,
-                    mtime: r.get(6)?,
+                    forked_at: r.get(6)?,
+                    mtime: r.get(7)?,
                     snippet: None,
                 })
             };
@@ -296,17 +305,17 @@ impl SessionIndex {
         let (fts_query, like) = Self::match_terms(q);
         let sql = format!(
             "SELECT agent, session_id, ref, cwd, title, transcript_path,
-                    mtime, MAX(snip) AS snippet
+                    forked_at, mtime, MAX(snip) AS snippet
              FROM (
                 SELECT s.agent, s.session_id, s.ref, s.cwd, s.title,
-                       s.transcript_path, s.mtime,
+                       s.transcript_path, s.forked_at, s.mtime,
                        snippet(fts, 0, '[', ']', '…', 12) AS snip
                 FROM fts JOIN sessions s
                   ON s.agent = fts.agent AND s.session_id = fts.session_id
                 WHERE fts MATCH ?1{a1}
                 UNION
                 SELECT agent, session_id, ref, cwd, title, transcript_path,
-                       mtime, NULL
+                       forked_at, mtime, NULL
                 FROM sessions WHERE title LIKE ?2 ESCAPE '\\'{a2}
              )
              GROUP BY agent, session_id
@@ -323,8 +332,9 @@ impl SessionIndex {
                 cwd: r.get(3)?,
                 title: r.get(4)?,
                 transcript_path: r.get(5)?,
-                mtime: r.get(6)?,
-                snippet: r.get(7)?,
+                forked_at: r.get(6)?,
+                mtime: r.get(7)?,
+                snippet: r.get(8)?,
             })
         };
         let rows = match agent {
@@ -395,6 +405,7 @@ mod tests {
             cwd: "/repo".into(),
             title: Some(format!("title {id}")),
             transcript_path: Some(format!("/store/{id}")),
+            forked_at: None,
             mtime,
             size: 10,
             content: content.into(),
@@ -449,6 +460,39 @@ mod tests {
         let newest_first: Vec<String> = (0..7).rev().map(|i| format!("s{i}")).collect();
         assert_eq!(walk("paged"), newest_first);
         assert_eq!(walk(""), newest_first);
+    }
+
+    #[test]
+    fn the_fork_marker_travels_to_hits_on_both_query_paths() {
+        // A fork shares the source's title, so the marker is the ONLY thing
+        // that tells the two rows apart in a listing — it must survive the
+        // upsert and surface on the empty-query (newest) path AND the
+        // FTS/title path alike.
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let source = row("claude", "src", 5, "fix the auth bug");
+        let mut fork = row("claude", "copy", 6, "fix the auth bug");
+        fork.forked_at = Some(1_786_900_000_000);
+        index.upsert(&[source, fork]).unwrap();
+
+        let newest = index.search("", 10, 0, None).unwrap();
+        let marked = newest
+            .iter()
+            .find(|h| h.session_id == "copy")
+            .expect("fork row present");
+        assert_eq!(marked.forked_at, Some(1_786_900_000_000));
+        let original = newest
+            .iter()
+            .find(|h| h.session_id == "src")
+            .expect("source row present");
+        assert_eq!(original.forked_at, None);
+
+        let matched = index.search("auth", 10, 0, None).unwrap();
+        let marked = matched
+            .iter()
+            .find(|h| h.session_id == "copy")
+            .expect("fork matches content");
+        assert_eq!(marked.forked_at, Some(1_786_900_000_000));
     }
 
     #[test]
