@@ -312,6 +312,17 @@ mod tests {
         (guard, dir)
     }
 
+    /// Drop the env override on scope exit: a leaked KEEPDECK_HOME
+    /// pointing into a deleted TempDir would poison every later
+    /// skills_root() call in this test binary — the next test author
+    /// should never inherit a silently-broken home.
+    struct HomeRestore;
+    impl Drop for HomeRestore {
+        fn drop(&mut self) {
+            std::env::remove_var("KEEPDECK_HOME");
+        }
+    }
+
     #[test]
     fn tier_entries_materialize_identically_command_included() {
         // The F-R1 pin: a bundled skill produces ALL views AND the
@@ -353,11 +364,25 @@ mod tests {
             "the command's description is the constant's own (frontmatter lifted verbatim, quoting intact): {command}"
         );
         assert!(command.contains("skills/probe/SKILL.md"));
+        // The byte pin: the staged SKILL.md IS the constant's bytes —
+        // drift between the tier and any view is a contract break.
+        for dir in [
+            PathBuf::from(&views.claude_plugin_dir).join("skills"),
+            PathBuf::from(&views.skills_dir),
+            PathBuf::from(&views.opencode_config_dir).join("skills"),
+        ] {
+            let staged = std::fs::read(dir.join("probe").join(library::SKILL_FILE)).unwrap();
+            assert_eq!(
+                staged,
+                tier[0].content.as_bytes(),
+                "staged bytes == constant bytes"
+            );
+        }
     }
 
     #[test]
     fn the_three_refusal_arms_rust_side() {
-        let (_guard, _home) = isolated_home("arms");
+        let (_guard, _home) = (isolated_home("arms").0, HomeRestore);
         std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
         let global_dir = skills_root().unwrap().join("library").join("global");
 
@@ -411,7 +436,7 @@ mod tests {
 
     #[test]
     fn the_rename_matrix_for_bundled_names() {
-        let (_guard, _home) = isolated_home("rename");
+        let (_guard, _home) = (isolated_home("rename").0, HomeRestore);
         std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
         let global_dir = skills_root().unwrap().join("library").join("global");
         library::save(&global_dir, "mine", "content").unwrap();
