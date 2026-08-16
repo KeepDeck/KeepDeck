@@ -57,13 +57,10 @@ describe("createAppRuntime", () => {
     // The dispose chain must actually REACH the owner — a dispose that
     // exists only on the manager would be test-only API.
     const original = runtime.sessionIndex.dispose.bind(runtime.sessionIndex);
-    let disposed = false;
-    runtime.sessionIndex.dispose = () => {
-      disposed = true;
-      original();
-    };
+    const spy = vi.fn(original);
+    runtime.sessionIndex.dispose = spy;
     runtime.dispose();
-    expect(disposed).toBe(true);
+    expect(spy).toHaveBeenCalledOnce();
 
     // After teardown the owner ignores needs: no throw, no state move.
     runtime.sessionIndex.ensureFresh("claude");
