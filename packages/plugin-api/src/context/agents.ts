@@ -253,6 +253,14 @@ export interface AgentTranscriptEntry {
 export interface AgentHistory {
   /** Enumerate the whole store — stat-level, no content reads. */
   list(): Promise<AgentSessionStub[]>;
+  /** Enumerate the whole store WITH an integrity signal: `complete` is
+   * false when any part of the store could not be read — an unreadable
+   * directory is skipped and named in the log, never fatal to the walk.
+   * The host prunes ONLY on `complete === true`; a plugin without this
+   * method keeps the legacy `list()` contract, whose successful read has
+   * always meant "complete enough to prune". Two honest contracts, not
+   * an old one and its replacement. */
+  listing?(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }>;
   /** The facts worth indexing, for one (new/changed) session. */
   describe(ref: string): Promise<AgentSessionFacts>;
   /** The searchable text (user+assistant turns) — feeds the FTS index. */
