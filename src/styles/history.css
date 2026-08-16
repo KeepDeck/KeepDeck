@@ -300,6 +300,13 @@
   color: #d6d9df;
 }
 
+/* The fork badge: a copy shares its source's title, so the badge is the
+   only difference the eye can catch. */
+.browser__fork {
+  font-size: 11px;
+  color: #8b93a3;
+}
+
 .browser__snippet {
   max-width: 100%;
   overflow: hidden;

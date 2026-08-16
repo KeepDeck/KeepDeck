@@ -144,6 +144,20 @@ export interface AgentPaneProps {
    * card names the session it will resume, and a flag beside the id would be
    * a second source for the same fact. */
   resumeSessionId?: string | null;
+  /** The pane's refused resume holds a LIVE outside session: the binding
+   * stayed, and this note is the card's offer — open the CLI's manager
+   * screen in this terminal, fork a copy, or leave it. Distinct from
+   * `idle`/`stopped`: the conversation is alive, just not ours to resume. */
+  occupied?: { registry: "live" | "unknown"; name: string | null } | null;
+  /** Open the agent's own session-manager screen in this pane (the
+   * occupied card's first choice). */
+  onOpenManager?(): void;
+  /** Fork the live session into a copy in the same directory (the
+   * occupied card's default for observability — a copy keeps reporting,
+   * a manager window does not). */
+  onForkOccupied?(): void;
+  /** Stop offering the choice; the pane stays visible and bound. */
+  onDismissOccupied?(): void;
   /** Manually restart an exited agent, either from its binding or fresh. */
   /** Answers what it did. NOT optional-returning: a caller that resolved with
    * nothing would leave the card promising a restart that stood down, which is
@@ -196,6 +210,10 @@ export function AgentPane({
   onExited,
   onSpawnFailed,
   resumeSessionId,
+  occupied,
+  onOpenManager,
+  onForkOccupied,
+  onDismissOccupied,
   onRestart,
   onStartFresh,
   onResume,
@@ -377,7 +395,54 @@ export function AgentPane({
           // pane that must not have one.
           unreachableBody(body)
         )}
-        {ended && !idle && !unavailableAgent && (
+        {occupied && ended && (
+          // The conversation this pane is bound to is ALIVE — held by an
+          // outside process. The binding stays; the person chooses. Same
+          // card shape as the ordinary exit (title, explanation, action
+          // buttons), a different reason and different choices.
+          <div className="pane__exit" role="status">
+            <span className="pane__exit-title">
+              {occupied.registry === "live"
+                ? "This conversation runs in the background"
+                : "This conversation may still run in the background"}
+            </span>
+            <span className="pane__exit-sub pane__exit-detail">
+              {occupied.registry === "live"
+                ? occupied.name
+                  ? `“${occupied.name}” is held by a live agent outside this pane.`
+                  : "It is held by a live agent outside this pane."
+                : "Its agent could not be reached to say either way — nothing was erased."}
+            </span>
+            <div className="pane__exit-actions">
+              <button
+                type="button"
+                className="pane__exit-action pane__exit-action--primary"
+                onClick={onForkOccupied}
+              >
+                Fork a copy
+              </button>
+              {onOpenManager && (
+                <button
+                  type="button"
+                  className="pane__exit-action pane__exit-action--secondary"
+                  onClick={onOpenManager}
+                >
+                  Open in terminal
+                </button>
+              )}
+              {onDismissOccupied && (
+                <button
+                  type="button"
+                  className="pane__exit-action pane__exit-action--secondary"
+                  onClick={onDismissOccupied}
+                >
+                  Leave it
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {!occupied && ended && !idle && !unavailableAgent && (
           <div className="pane__exit" role="status">
             <span className="pane__exit-title">
               {ended.kind === "failed" ? "Agent didn't start" : "Agent exited"}

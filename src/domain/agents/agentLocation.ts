@@ -157,8 +157,15 @@ export type SessionStartMode = "new" | "resume" | "fork";
 
 /** Why a listed session can't be RESUMED (forking stays possible — it is
  * exactly the escape hatch for these): its directory is gone, it never
- * recorded one, or a pane already owns the binding. */
-export type ResumeBlock = "dir-gone" | "no-cwd" | "claimed" | null;
+ * recorded one, a pane already owns the binding — or an OUTSIDE process
+ * holds it, which unlike the others is not dead: it can be forked right
+ * away and reached through the CLI's own manager screen. */
+export type ResumeBlock =
+  | "dir-gone"
+  | "no-cwd"
+  | "claimed"
+  | "busy-outside"
+  | null;
 
 /** Whether Create is allowed for the "Start from" choice. New sessions
  * always pass; continuing needs a picked session, and resume additionally a
@@ -181,6 +188,10 @@ export interface SessionPickRow {
   handle: SessionHandle;
   /** Store mtime (ms) — the row's recency stamp. */
   mtime: number;
+  /** The store's fork marker (epoch ms), when this row is a COPY — the
+   * copy shares its source's title, so the badge is what tells them
+   * apart in the list. `null`/absent on an original. */
+  forkedAt?: number | null;
 }
 
 /** What the "+ Agent" dialog returns for one new agent. */

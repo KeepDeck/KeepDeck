@@ -113,6 +113,10 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   gitHeads: new Map(),
   idleBlocked: {},
   wakeFailed: {},
+  occupiedPanes: {},
+  onOpenOccupiedManager: () => {},
+  onForkOccupied: () => {},
+  onDismissOccupied: () => {},
   specByPane: {
     "pane-1": { command: "codex", args: [], env: [] },
     "pane-2": { command: "codex", args: [], env: [] },

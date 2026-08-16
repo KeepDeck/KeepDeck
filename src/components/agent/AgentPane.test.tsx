@@ -127,6 +127,80 @@ function PaneUnderTest(
 // A death recorded by one test is not a fact about the next one.
 afterEach(() => sessions.put({ kind: "none" }));
 
+describe("AgentPane — the occupied-session card", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const mount = (overrides: Record<string, unknown> = {}) => {
+    act(() =>
+      root.render(
+        createElement(PaneUnderTest, { ...baseProps, ...overrides }),
+      ),
+    );
+    act(() => sessions.put({ kind: "exited", code: 1 }));
+  };
+
+  const card = () => document.querySelector(".pane__exit");
+  const buttons = () =>
+    Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".pane__exit-action"),
+    );
+
+  it("a LIVE registry answer names the background conversation and offers all three choices", () => {
+    const onOpenManager = vi.fn();
+    const onForkOccupied = vi.fn();
+    const onDismissOccupied = vi.fn();
+    mount({
+      occupied: { registry: "live", name: "Fix the build" },
+      onOpenManager,
+      onForkOccupied,
+      onDismissOccupied,
+    });
+    expect(card()?.textContent).toContain("runs in the background");
+    expect(card()?.textContent).toContain("Fix the build");
+    // Fork is the PRIMARY choice — a copy keeps reporting to the deck; a
+    // manager window is somebody else's process.
+    expect(buttons()[0]?.textContent).toBe("Fork a copy");
+    expect(buttons().map((b) => b.textContent)).toEqual([
+      "Fork a copy",
+      "Open in terminal",
+      "Leave it",
+    ]);
+    act(() => buttons()[1]!.click());
+    expect(onOpenManager).toHaveBeenCalledTimes(1);
+    act(() => buttons()[0]!.click());
+    expect(onForkOccupied).toHaveBeenCalledTimes(1);
+    act(() => buttons()[2]!.click());
+    expect(onDismissOccupied).toHaveBeenCalledTimes(1);
+  });
+
+  it("an UNKNOWN answer is worded honestly — and still erases nothing", () => {
+    mount({ occupied: { registry: "unknown", name: null } });
+    expect(card()?.textContent).toContain("may still run in the background");
+    expect(card()?.textContent).toContain("could not be reached");
+  });
+
+  it("no occupied note: the ordinary exit card with its restart choices", () => {
+    mount({ onRestart: vi.fn() });
+    expect(card()?.textContent).toContain("Agent exited");
+    expect(
+      buttons().map((b) => b.textContent).some((t) => t === "Restart agent"),
+    ).toBe(true);
+  });
+});
+
 describe("AgentPane — header badges", () => {
   let host: HTMLElement;
   let root: Root;

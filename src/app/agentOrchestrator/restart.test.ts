@@ -14,6 +14,7 @@ import {
   dropPaneSpawnSpec,
   gate,
   ipc,
+  liveRegistry,
   peekPaneSpawnSpec,
   plans,
   pty,
@@ -36,6 +37,9 @@ describe("agent orchestrator —restarting an exited agent", () => {
     lifecycle.retire.mockClear();
     skillsAsked.mockClear();
     gate.build = null;
+    // Each test states its own registry answer; the default is "no
+    // capability to ask" — the legacy behavior.
+    liveRegistry.answer = null;
     ipc.probeWorktree.mockReset().mockResolvedValue({
       exists: true,
       isWorktree: false,
@@ -502,6 +506,109 @@ describe("agent orchestrator —restarting an exited agent", () => {
       agentRun.recoverRejectedResume("ws-1", "pane-1", 1);
     });
     expect(pty.closed).toEqual(["pane-1"]);
+  });
+
+  it("a LIVE registry answer keeps the binding and offers the choice instead", async () => {
+    // The refused session is held by a background agent: erasing the
+    // binding would lose a conversation that is alive right now.
+    seed();
+    plans.specs.set("pane-1", {
+      args: ["resume", "session-old"],
+      env: [],
+      resumeOf: "session-old",
+      resumeOrigin: "restore",
+      postbackMark: 0,
+    });
+    liveRegistry.answer = "live";
+    act(() => {
+      agentRun.recoverRejectedResume("ws-1", "pane-1", 1);
+    });
+    await act(async () => {});
+    // Nothing wiped, nothing closed: the pane stays exited, bound, and its
+    // card carries the occupied note.
+    expect(pane().session).toEqual({
+      id: "session-old",
+      boundAt: "2026-07-11T00:00:00Z",
+    });
+    expect(pty.closed).toEqual([]);
+    expect(agentRun.occupied["pane-1"]).toEqual({
+      registry: "live",
+      name: null,
+    });
+  });
+
+  it("an UNANSWERED registry keeps the binding too — with the honest mark", async () => {
+    // Erasing on a failed question is the exact harm this recovery exists
+    // to prevent; the note says UNKNOWN so the card words it so.
+    seed();
+    plans.specs.set("pane-1", {
+      args: ["resume", "session-old"],
+      env: [],
+      resumeOf: "session-old",
+      resumeOrigin: "restore",
+      postbackMark: 0,
+    });
+    liveRegistry.answer = "unknown";
+    act(() => {
+      agentRun.recoverRejectedResume("ws-1", "pane-1", 1);
+    });
+    await act(async () => {});
+    expect(pane().session).toBeDefined();
+    expect(agentRun.occupied["pane-1"]?.registry).toBe("unknown");
+  });
+
+  it("an ABSENT registry answer earns ONE quiet retry, not an immediate wipe", async () => {
+    // The registry speaks about liveness: an agent that finished between
+    // the refusal and the question vanishes from it while the conversation
+    // became fully resumable. The retry re-runs the ordinary resume path
+    // and its plan carries the retry mark.
+    seed();
+    plans.specs.set("pane-1", {
+      args: ["resume", "session-old"],
+      env: [],
+      resumeOf: "session-old",
+      resumeOrigin: "restore",
+      postbackMark: 0,
+    });
+    liveRegistry.answer = "absent";
+    act(() => {
+      agentRun.recoverRejectedResume("ws-1", "pane-1", 1);
+    });
+    await act(async () => {});
+    expect(pane().session).toBeDefined(); // NOT wiped
+    expect(buildResumeSpec).toHaveBeenCalledWith(
+      expect.anything(),
+      "codex",
+      expect.objectContaining({ paneId: "pane-1" }),
+      expect.anything(),
+      "session-old",
+      "restore",
+      true, // the retry mark — its own silent death is the second
+    );
+    expect(pty.closed).toEqual(["pane-1"]);
+    expect(epoch()).toBe(1);
+  });
+
+  it("a retried resume that dies silently TOO falls back to the legacy wipe", async () => {
+    // The retry marks its own plan; the same predicate recognizes its
+    // death, and the rule reads the mark: second silent death = truly gone.
+    seed();
+    plans.specs.set("pane-1", {
+      args: ["resume", "session-old"],
+      env: [],
+      resumeOf: "session-old",
+      resumeOrigin: "restore",
+      resumeRetry: true,
+      postbackMark: 0,
+    });
+    liveRegistry.answer = "absent";
+    act(() => {
+      agentRun.recoverRejectedResume("ws-1", "pane-1", 1);
+    });
+    await act(async () => {});
+    expect(pane().session).toBeUndefined();
+    expect(pty.closed).toEqual(["pane-1"]);
+    expect(buildResumeSpec).not.toHaveBeenCalled();
   });
   it("keeps the promise it makes the caller — respawns even off screen", async () => {
     // It answers `true`, which is how App knows this exit is a respawn and not

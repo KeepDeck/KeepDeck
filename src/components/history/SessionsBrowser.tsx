@@ -305,6 +305,13 @@ export function SessionsBrowser({
               >
                 <span className="browser__name">
                   {hit.title ?? hit.sessionId}
+                  {hit.forkedAt !== null && (
+                    // A fork shares its source's title — the badge is the
+                    // only thing telling the two rows apart in this list.
+                    <span className="browser__fork">
+                      {" "}copy · {formatAge(hit.forkedAt, now)}
+                    </span>
+                  )}
                 </span>
                 {hit.snippet !== null && (
                   <span className="browser__snippet">{hit.snippet}</span>

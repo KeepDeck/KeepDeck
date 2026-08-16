@@ -207,6 +207,7 @@ describe("AgentDialog worktree location flow", () => {
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
         }),
@@ -459,6 +460,7 @@ describe("AgentDialog agent picker", () => {
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
         }),
@@ -507,6 +509,7 @@ describe("AgentDialog YOLO toggle", () => {
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
         }),
@@ -600,7 +603,7 @@ describe("AgentDialog start-from session picker", () => {
     catalog.extraAgents = [];
   });
 
-  const mount = () =>
+  const mount = (overrides: Record<string, unknown> = {}) =>
     act(async () =>
       root.render(
         createElement(AgentDialog, {
@@ -618,11 +621,14 @@ describe("AgentDialog start-from session picker", () => {
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: SESSIONS, total: SESSIONS.length }),
           sessionClaim: (id: string) => (id === "s-claimed" ? ("running" as const) : null),
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
+          ...overrides,
         }),
       ),
     );
+
 
   const modeBtn = (label: string) =>
     [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
@@ -683,6 +689,57 @@ describe("AgentDialog start-from session picker", () => {
     act(() => gone.click());
     expect(createBtn().disabled).toBe(true);
     expect(errorText()).toContain("directory is gone");
+  });
+
+  it("an OUTSIDE-held row blocks resume with its own wording — and stays forkable", async () => {
+    // The registry answer lands as a SECOND WAVE (opening is never delayed
+    // by a CLI spawn): rows render first, the busy marking arrives after.
+    await mount({
+      liveOutside: async () => ({ ok: true, ids: new Set(["s-live"]) }),
+    });
+    act(() => modeBtn("Resume").click());
+    await settleSessions();
+
+    const busy = rows()[0];
+    expect(busy.className).toContain("form__session--busy");
+    expect(busy.textContent).toContain("running in the background");
+    act(() => busy.click());
+    expect(createBtn().disabled).toBe(true);
+    expect(errorText()).toContain("running in the background");
+
+    // The same row is NOT blocked in fork mode — a busy session is exactly
+    // what forking is the escape hatch for.
+    act(() => modeBtn("Fork").click());
+    await settleSessions();
+    const forkRow = rows()[0];
+    expect(forkRow.className).not.toContain("form__session--blocked");
+  });
+
+  it("a fork badge tells a copy from its same-titled source", async () => {
+    await mount({
+      searchSessions: async () => ({
+        rows: [
+          {
+            handle: { agent: "claude", sessionId: "src", cwd: "/repo/wt", title: "auth bug" },
+            mtime: 3,
+            forkedAt: null,
+          },
+          {
+            handle: { agent: "claude", sessionId: "copy", cwd: "/repo/wt", title: "auth bug" },
+            mtime: 2,
+            forkedAt: 1752900000000,
+          },
+        ],
+        total: 2,
+      }),
+    });
+    act(() => modeBtn("Resume").click());
+    await settleSessions();
+    const names = rows().map(
+      (r) => r.querySelector(".form__session-name")!.textContent ?? "",
+    );
+    expect(names[0]).not.toContain("copy");
+    expect(names[1]).toContain("copy ·");
   });
 
   it("Fork keeps the location free and takes exactly the sessions resume refuses", async () => {
@@ -810,6 +867,7 @@ describe("AgentDialog start-from paging", () => {
           pickFolder: async () => null,
           searchSessions,
           sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
         }),
@@ -863,6 +921,7 @@ describe("AgentDialog start-from paging", () => {
           pickFolder: async () => null,
           searchSessions,
           sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
         }),
@@ -953,6 +1012,7 @@ describe("AgentDialog cross-agent pick guard", () => {
             total: CLAUDE_SESSIONS.length,
           }),
           sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
         }),
@@ -1057,13 +1117,14 @@ describe("remote gating (Experimental setting)", () => {
           suggestedPath: "",
           suggestedBranch: "",
           probePath: async () => MISSING,
-          listBranches: async () => [],
+          listBranches: async () => ["main"],
           branchForPath: async () => null,
           occupancyAt: () => null,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
         }),
@@ -1111,7 +1172,8 @@ describe("remote gating (Experimental setting)", () => {
           pickFolder: async () => null,
           searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
-          onConfirm: (r) => confirmed.push(r),
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
+          onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
         }),
       ),
@@ -1242,6 +1304,7 @@ describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
           pickFolder: async () => null,
           searchSessions,
           sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
           onConfirm: () => {},
           onCancel: () => {},
         }),
