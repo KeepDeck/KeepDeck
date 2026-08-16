@@ -433,6 +433,36 @@ describe("claude fork.plan", () => {
     expect(copies).toEqual([]); // zero writes on refusal
   });
 
+  it("branching in place skips the copy SILENTLY — the file already sits where it would land", async () => {
+    // The fork card never chooses a directory, so source dir = target dir
+    // is the card's NORMAL shape, not an error. The copy would be a
+    // same-file copy (which the host refuses loudly for everyone else) —
+    // only the plugin knows this one is legitimate, so only it may skip.
+    const copies: [string, string][] = [];
+    const agent = activate(SESSION_HOOK, copies);
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      {
+        ...forkInput,
+        // Same slug as the transcript's own dir → target === source.
+        cwd: "/old/worktree",
+      },
+      out,
+    );
+    expect(copies).toEqual([]);
+    expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
+  });
+
+  it("spawn.plan in manager mode opens the CLI's own session screen, bare", async () => {
+    // Not a KeepDeck conversation: no reporter args, no skills, no yolo —
+    // the session behind the screen belongs to the process that owns it,
+    // and this pane is only its terminal.
+    const agent = activate(SESSION_HOOK);
+    const out = output();
+    await agent.hooks["spawn.plan"]!({ ...input, manager: true, yolo: true }, out);
+    expect(out.args).toEqual(["agents"]);
+  });
+
   it("contributes its mail renderer, which is what puts it on the labelled channel", () => {
     // Asserted by IDENTITY, not by "something is defined": the deck decides
     // whether a pane is worth holding mail for by looking for exactly this

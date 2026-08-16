@@ -278,4 +278,49 @@ describe("claude history", () => {
     // The real conversation survives the filter.
     expect(page.map((e) => e.text)).toContain("fix the auth bug");
   });
+
+  it("a fork's sidecar names the branch moment; an original inherits nothing", async () => {
+    // The store marks a copy in a .meta.json sidecar beside the transcript
+    // (isFork: true). The sidecar carries no timestamp of its own — its
+    // mtime IS the branch moment (the file is born at the fork).
+    const forked = claudeHistory(
+      ctx(
+        {
+          "/p/-repo/copy.jsonl": LINES,
+          "/p/-repo/copy.meta.json": JSON.stringify({
+            isFork: true,
+            parentAgentId: "orig",
+          }),
+        },
+        {
+          "/p/-repo": [
+            { name: "copy.meta.json", path: "/p/-repo/copy.meta.json", kind: "file", mtime: 1752900000000 },
+          ],
+        },
+      ),
+    );
+    await expect(forked.describe("/p/-repo/copy.jsonl")).resolves.toMatchObject({
+      title: "fix the auth bug",
+      forkedAt: 1752900000000,
+    });
+
+    // An original — no sidecar at all, or one that does not claim isFork —
+    // must never inherit a copy's badge.
+    const plain = claudeHistory(ctx({ "/p/-repo/u.jsonl": LINES }, {}));
+    await expect(plain.describe("/p/-repo/u.jsonl")).resolves.not.toHaveProperty(
+      "forkedAt",
+    );
+    const unmarked = claudeHistory(
+      ctx(
+        {
+          "/p/-repo/u.jsonl": LINES,
+          "/p/-repo/u.meta.json": JSON.stringify({ agentType: "general" }),
+        },
+        {},
+      ),
+    );
+    await expect(unmarked.describe("/p/-repo/u.jsonl")).resolves.not.toHaveProperty(
+      "forkedAt",
+    );
+  });
 });

@@ -134,6 +134,30 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       return undefined; // no index / foreign shape — full read decides
     }
   };
+  /** The store's own fork marker, when this transcript is a COPY: claude
+   * keeps a `.meta.json` sidecar beside the transcript with `isFork` (and
+   * lineage ids we do not need). The marker's MOMENT is the sidecar's
+   * mtime — the file is created at the branch point; its content carries
+   * no timestamp of its own (verified against the CLI's own schema).
+   * `undefined` = not a fork, or no readable marker: an original must
+   * never inherit a copy's badge. */
+  const forkedAtOf = async (ref: string): Promise<number | undefined> => {
+    if (!ref.endsWith(".jsonl")) return undefined;
+    const dir = ref.slice(0, ref.lastIndexOf("/"));
+    try {
+      const sidecar = `${ref.slice(0, -".jsonl".length)}.meta.json`;
+      const file = await read(sidecar, 64 * 1024);
+      const parsed = JSON.parse(file.text ?? "") as { isFork?: unknown };
+      if (parsed.isFork !== true) return undefined;
+      // readFile carries no mtime — the DIRECTORY listing does, one entry
+      // per file, and the sidecar was just proven to exist by the read.
+      const entries = await ctx.services.fs.readDir(dir);
+      const entry = entries.find((e) => e.path === sidecar);
+      return entry?.mtime;
+    } catch {
+      return undefined; // no sidecar / foreign shape — an original, then
+    }
+  };
   return {
     async list(): Promise<AgentSessionStub[]> {
       const stubs: AgentSessionStub[] = [];
@@ -228,8 +252,14 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       const head = await read(ref, 64 * 1024);
       const cwd = cwdOf(head.text ?? "") ?? "";
       const fromIndex = await indexedTitle(ref);
+      const forkedAt = await forkedAtOf(ref);
       if (fromIndex !== undefined) {
-        return { cwd, title: fromIndex, transcriptPath: ref };
+        return {
+          cwd,
+          title: fromIndex,
+          transcriptPath: ref,
+          ...(forkedAt !== undefined && { forkedAt }),
+        };
       }
       const file = await read(ref, 8 * 1024 * 1024);
       const text = file.text ?? "";
@@ -237,6 +267,7 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
         cwd: cwd || (cwdOf(text) ?? ""),
         title: summaryOf(text) ?? titleOf(parseTurns(text)),
         transcriptPath: ref,
+        ...(forkedAt !== undefined && { forkedAt }),
       };
     },
     async content(ref) {

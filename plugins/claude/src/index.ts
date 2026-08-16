@@ -29,6 +29,7 @@ import {
 } from "./status";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
+import { claudeLiveSessions } from "./liveSessions";
 
 /** Quote a path for a shell command line (single quotes, `'\''` escaping) —
  * KeepDeck.app can live under a path with spaces. */
@@ -206,8 +207,18 @@ const plugin: KeepDeckPlugin = {
       },
       status: { normalize: normalizeClaudeStatus, renderMail: renderClaudeMail },
       history: claudeHistory(ctx),
+      liveSessions: claudeLiveSessions(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
+          // Manager mode: the CLI's own live-session screen — the one
+          // place a background-owned conversation can be attached to. It
+          // is not a KeepDeck conversation: no reporter args, no skills,
+          // no yolo — the session (if any) belongs to the process behind
+          // the screen, and this pane is just its terminal.
+          if (input.manager) {
+            output.args = ["agents"];
+            return;
+          }
           output.args = [
             ...(await hookArgs(ctx.resources)),
             ...skillsArgs(input.skills),
@@ -257,7 +268,15 @@ const plugin: KeepDeckPlugin = {
           }
           const projectsRoot = source.slice(0, at + marker.length - 1);
           const target = `${projectsRoot}/${projectSlug(input.cwd)}/${input.sessionId}.jsonl`;
-          await ctx.services.fsWrite.copyFile(source, target);
+          // Branching IN PLACE (target dir = source dir) skips the copy
+          // SILENTLY: it is a legitimate request — the fork card never
+          // chooses a directory — and the file already sits exactly where
+          // the copy would land. The HOST side refuses a same-file copy
+          // loudly (it cannot know the intent); only the plugin knows this
+          // one is not a mistake, so only the plugin may skip it.
+          if (target !== source) {
+            await ctx.services.fsWrite.copyFile(source, target);
+          }
           output.args = [
             ...(await hookArgs(ctx.resources)),
             ...skillsArgs(input.skills),
