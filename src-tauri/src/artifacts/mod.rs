@@ -44,7 +44,7 @@ impl ArtifactsState {
     /// by skills staging as its bundled-tier gate — content obeys the
     /// same gate as its tools. Read-only bool, nothing more (the toggle
     /// story lives in the artifacts lane).
-    pub fn is_claimed(&self) -> bool {
+    pub(crate) fn is_claimed(&self) -> bool {
         self.root.lock().expect("artifacts root poisoned").is_some()
     }
 }
