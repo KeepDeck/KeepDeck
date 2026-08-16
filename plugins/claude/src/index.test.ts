@@ -369,16 +369,20 @@ describe("claude fork.plan", () => {
     });
   });
 
-  it("rejects without a recorded transcript path — no guessing, no surgery", async () => {
+  it("derives the transcript path from the recorded cwd when none was delivered", async () => {
+    // The occupied-resume card's fork carries no transcript path — the
+    // plugin owns the store layout and derives it. For the card's
+    // same-directory fork the derived path merely proves target ===
+    // source: nothing is read, nothing is copied.
     const copies: [string, string][] = [];
     const agent = activate(null, copies);
-    await expect(
-      agent.hooks["fork.plan"]!(
-        { ...input, sessionId: "uuid-1", sourceCwd: "/x" },
-        output(),
-      ),
-    ).rejects.toThrow("no recorded transcript path");
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, sessionId: "uuid-1", sourceCwd: "/old/worktree", cwd: "/old/worktree" },
+      out,
+    );
     expect(copies).toEqual([]);
+    expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
   });
 
   it("rejects an unexpected store layout loudly instead of copying blind", async () => {

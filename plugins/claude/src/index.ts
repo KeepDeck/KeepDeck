@@ -192,6 +192,10 @@ export function projectSlug(cwd: string): string {
   return slug;
 }
 
+/** The store root this plugin reads (history.ts owns the same constant for
+ * discovery); a fork's derived transcript path starts here. */
+const PROJECTS_ROOT = "~/.claude/projects";
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -243,22 +247,25 @@ const plugin: KeepDeckPlugin = {
          * where it was (no duplicate-id ambiguity). The copy lands inside
          * `~/.claude/projects` only — exactly the manifest's fsWrite scope. */
         "fork.plan": async (input, output) => {
-          const source = input.transcriptPath;
-          if (!source) {
-            // Without the reporter-delivered path there is nothing safe to
-            // copy — guessing the source slug would be store archaeology.
-            throw new Error(
-              `claude fork of ${input.sessionId}: no recorded transcript path`,
-            );
-          }
+          // The transcript path arrives recorded (the reporter delivered
+          // it) or is DERIVED from the session's own recorded cwd — the
+          // store layout is deterministic (`projects/<slug(cwd)>/<id>.jsonl`)
+          // and this plugin owns that layout knowledge. Derivation is not
+          // archaeology when the cwd is known; guessing WITHOUT one was.
+          // A derived path is used as-is for a cross-directory copy and,
+          // for the same-directory fork the resume card offers, merely
+          // proves target === source — nothing is read or written.
+          const source =
+            input.transcriptPath ??
+            `${PROJECTS_ROOT}/${projectSlug(input.sourceCwd)}/${input.sessionId}.jsonl`;
           if (!/\.jsonl$/.test(source)) {
             throw new Error(
               `claude fork of ${input.sessionId}: transcript is not a .jsonl (${source})`,
             );
           }
-          // The projects root comes from the transcript itself — no home
-          // lookup, and a layout change breaks LOUDLY here instead of
-          // copying into a wrong tree.
+          // The projects root comes from the transcript itself when there
+          // is one — no home lookup; a layout change breaks LOUDLY here
+          // instead of copying into a wrong tree.
           const marker = "/projects/";
           const at = source.lastIndexOf(marker);
           if (at < 0) {

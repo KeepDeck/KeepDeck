@@ -389,7 +389,13 @@ export function Probe() {
           close: pty.close,
           runOnce: pty.runOnce,
         },
-        plugins: {} as SpawnPluginAccess,
+        plugins: {
+          // The registry seam recovery now asks (live sessions): an empty
+          // agent registry answers "no capability" — the legacy behavior —
+          // without the seam itself throwing on an empty double.
+          pluginHost: { getInstalled: () => [] },
+          pluginRegistries: { agents: { list: () => [] } },
+        } as unknown as SpawnPluginAccess,
         probe: ipc.probeWorktree,
         mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
         lifecycle,
