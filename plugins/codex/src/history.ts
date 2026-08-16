@@ -14,6 +14,11 @@ import {
  */
 const ROOT = "~/.codex/sessions";
 
+/** The log line needs a string; whatever the fs layer threw becomes one. */
+function errOf(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 interface ParsedTurn {
   role: "user" | "assistant";
   text: string;
@@ -76,6 +81,44 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
     }
     return out;
   };
+  /** The partial-tolerant twin of `walk` above: a read refusal anywhere
+   * below the root skips that subtree, names it in the log, and keeps
+   * walking — the skip lives INSIDE the recursion, so every depth is
+   * covered by the same line. Returns whether the walk was complete. */
+  const walkPartial = async (
+    path: string,
+    stubs: AgentSessionStub[],
+  ): Promise<boolean> => {
+    let entries;
+    try {
+      entries = await ctx.services.fs.readDir(path);
+    } catch (e) {
+      // A partial answer must be a NAMED one — this subtree stays
+      // invisible to the index until it reads again, and silent
+      // degradation is the one mode this contract forbids.
+      ctx.log.warn(
+        `codex: partial listing — ${path} unreadable (${errOf(e)})`,
+      );
+      return false;
+    }
+    let complete = true;
+    for (const entry of entries) {
+      if (entry.kind === "dir") {
+        const seenAll = await walkPartial(entry.path, stubs);
+        complete = seenAll && complete;
+        continue;
+      }
+      const match = entry.kind === "file" ? FILE_UUID.exec(entry.name) : null;
+      if (!match) continue;
+      stubs.push({
+        sessionId: match[1],
+        ref: entry.path,
+        mtime: entry.mtime ?? 0,
+        size: entry.size ?? 0,
+      });
+    }
+    return complete;
+  };
   return {
     async list() {
       try {
@@ -84,6 +127,25 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
         return [];
       }
       return walk(ROOT);
+    },
+    /** See `walkPartial`; the root is probed apart so a root refusal can
+     * never look like an empty store — [] with complete:true reads as
+     * "every session deleted" and the host's prune would wipe this
+     * agent's whole index. (Accepted cost, named in the contract: the fs
+     * layer reports "no store" and "unreadable root" identically, so a
+     * genuinely deleted store stops being pruned.) */
+    async listing(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }> {
+      try {
+        await ctx.services.fs.readDir(ROOT);
+      } catch (e) {
+        ctx.log.warn(
+          `codex: store root unreadable (${errOf(e)}) — nothing enumerated`,
+        );
+        return { stubs: [], complete: false };
+      }
+      const stubs: AgentSessionStub[] = [];
+      const complete = await walkPartial(ROOT, stubs);
+      return { stubs, complete };
     },
     async describe(ref) {
       const head = await ctx.services.fs.readFile(ref, { maxBytes: 256 * 1024 });
