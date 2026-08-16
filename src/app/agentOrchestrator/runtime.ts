@@ -474,7 +474,6 @@ export function createAgentOrchestratorRuntime(
     restart: restart.restart,
     recoverRejectedResume: restart.recoverRejectedResume,
     retryPlanBuild: restart.retryPlanBuild,
-    openOccupiedManager: restart.openOccupiedManager,
     forkOccupiedSession: restart.forkOccupiedSession,
     dismissOccupied: restart.dismissOccupied,
     resumeSession: continuations.resumeSession,

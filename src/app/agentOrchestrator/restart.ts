@@ -30,8 +30,6 @@ import {
   resumeDiedSilently,
   type SpawnPluginAccess,
 } from "../spawnSpecs";
-import { buildAndCache } from "../spawnSpecs/cache";
-import { buildPlan, findAgent } from "../spawnSpecs/plan";
 
 interface RestartTarget {
   workspace: WorkspaceRef;
@@ -77,7 +75,6 @@ export interface AgentOrchestratorRestart {
   restart: AgentOrchestrator["restart"];
   recoverRejectedResume: AgentOrchestrator["recoverRejectedResume"];
   retryPlanBuild: AgentOrchestrator["retryPlanBuild"];
-  openOccupiedManager: AgentOrchestrator["openOccupiedManager"];
   forkOccupiedSession: AgentOrchestrator["forkOccupiedSession"];
   dismissOccupied: AgentOrchestrator["dismissOccupied"];
   owns(paneId: string): boolean;
@@ -355,52 +352,6 @@ export function createAgentOrchestratorRestart({
     return true;
   };
 
-  const openOccupiedManager: AgentOrchestrator["openOccupiedManager"] =
-    async (wsId, paneId) => {
-      if (restarting.has(paneId)) return;
-      const target = targetOf(wsId, paneId);
-      const note = occupiedNote(paneId);
-      const context = spawnContext.get();
-      if (!target || !note || !context) return;
-      restarting.add(paneId);
-      try {
-        // An ordinary spawn plan with the manager note — not a fourth plan
-        // kind: the manager screen has no session to carry semantics for.
-        // Built straight through the agent's spawn.plan, so the plugin
-        // decides what "its manager" means.
-        const agent = findAgent(plugins, target.agentType);
-        if (!agent) return;
-        dropPaneSpawnSpec(paneId);
-        await buildAndCache(paneId, () =>
-          buildPlan(
-            plugins,
-            agent,
-            {
-              paneId,
-              workspace: target.workspace,
-              cwd: target.cwd,
-              branch: target.branch,
-              yolo: target.yolo,
-              stagedSkills: skillsAsk(target.workspace),
-              mcpAccess,
-              manager: true,
-            },
-            context,
-          ),
-        );
-        // The choice was taken; the pane may close the screen again, and
-        // its exit lands on the ordinary card (with the occupied note
-        // restored by the next refused resume).
-        if (clearNotes(paneId)) publish();
-        lifecycle.retire(paneId);
-        await sessions.close(paneId);
-        if (targetOf(target.workspace, paneId)) bumpEpoch(paneId);
-      } finally {
-        restarting.delete(paneId);
-        schedule();
-      }
-    };
-
   const forkOccupiedSession: AgentOrchestrator["forkOccupiedSession"] =
     async (wsId, paneId) => {
       const target = targetOf(wsId, paneId);
@@ -438,7 +389,6 @@ export function createAgentOrchestratorRestart({
     restart,
     recoverRejectedResume,
     retryPlanBuild,
-    openOccupiedManager,
     forkOccupiedSession,
     dismissOccupied,
     owns: (paneId) => restarting.has(paneId),

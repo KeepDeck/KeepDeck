@@ -158,31 +158,26 @@ describe("AgentPane — the occupied-session card", () => {
       document.querySelectorAll<HTMLButtonElement>(".pane__exit-action"),
     );
 
-  it("a LIVE registry answer names the background conversation and offers all three choices", () => {
-    const onOpenManager = vi.fn();
-    const onForkOccupied = vi.fn();
+  it("a LIVE registry answer names the background conversation and offers both choices", () => {    const onForkOccupied = vi.fn();
     const onDismissOccupied = vi.fn();
     mount({
       occupied: { registry: "live", name: "Fix the build" },
-      onOpenManager,
       onForkOccupied,
       onDismissOccupied,
     });
     expect(card()?.textContent).toContain("runs in the background");
     expect(card()?.textContent).toContain("Fix the build");
-    // Fork is the PRIMARY choice — a copy keeps reporting to the deck; a
-    // manager window is somebody else's process.
-    expect(buttons()[0]?.textContent).toBe("Fork a copy");
+    // Two choices, fork primary (a copy keeps reporting to the deck). The
+    // connect-through-the-CLI's-screen button is gone by demolition — its
+    // absence is pinned here so it cannot silently return.
     expect(buttons().map((b) => b.textContent)).toEqual([
       "Fork a copy",
-      "Open in terminal",
       "Leave it",
     ]);
-    act(() => buttons()[1]!.click());
-    expect(onOpenManager).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).not.toContain("Open in terminal");
     act(() => buttons()[0]!.click());
     expect(onForkOccupied).toHaveBeenCalledTimes(1);
-    act(() => buttons()[2]!.click());
+    act(() => buttons()[1]!.click());
     expect(onDismissOccupied).toHaveBeenCalledTimes(1);
   });
 

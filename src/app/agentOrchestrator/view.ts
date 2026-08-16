@@ -34,9 +34,9 @@ export interface RunViewStore {
   /** A manual wake refused, with the reason its card shows. */
   markWakeFailed(paneId: string, why: string): void;
   /** The pane's refused resume turned out to be a LIVE outside session:
-   * the binding stays and the card offers the choice (manager, fork,
-   * dismiss). `registry` names whether the registry PROVED it live or
-   * merely failed to answer — the card words the difference. */
+   * the binding stays and the card offers the choice (fork, dismiss).
+   * `registry` names whether the registry PROVED it live or merely failed
+   * to answer — the card words the difference. */
   markOccupied(paneId: string, note: OccupiedNote): void;
   blockedDir(paneId: string): string | null;
   /** Whether this pane's directory is gone — the question the suspend refusal

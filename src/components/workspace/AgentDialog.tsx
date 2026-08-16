@@ -327,7 +327,7 @@ export function AgentDialog({
       case "claimed":
         return "already in a pane";
       case "busy-outside":
-        return "running in the background — fork a copy or open it in the manager";
+        return "running in the background — fork a copy to continue here";
       case "dir-gone":
         return "directory is gone — fork instead";
       case null:

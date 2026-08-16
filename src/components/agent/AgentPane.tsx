@@ -145,16 +145,12 @@ export interface AgentPaneProps {
    * a second source for the same fact. */
   resumeSessionId?: string | null;
   /** The pane's refused resume holds a LIVE outside session: the binding
-   * stayed, and this note is the card's offer — open the CLI's manager
-   * screen in this terminal, fork a copy, or leave it. Distinct from
-   * `idle`/`stopped`: the conversation is alive, just not ours to resume. */
+   * stayed, and this note is the card's offer — fork a copy, or leave it.
+   * Distinct from `idle`/`stopped`: the conversation is alive, just not
+   * ours to resume. */
   occupied?: { registry: "live" | "unknown"; name: string | null } | null;
-  /** Open the agent's own session-manager screen in this pane (the
-   * occupied card's first choice). */
-  onOpenManager?(): void;
   /** Fork the live session into a copy in the same directory (the
-   * occupied card's default for observability — a copy keeps reporting,
-   * a manager window does not). */
+   * occupied card's primary: a copy keeps reporting to the deck). */
   onForkOccupied?(): void;
   /** Stop offering the choice; the pane stays visible and bound. */
   onDismissOccupied?(): void;
@@ -211,7 +207,6 @@ export function AgentPane({
   onSpawnFailed,
   resumeSessionId,
   occupied,
-  onOpenManager,
   onForkOccupied,
   onDismissOccupied,
   onRestart,
@@ -421,15 +416,6 @@ export function AgentPane({
               >
                 Fork a copy
               </button>
-              {onOpenManager && (
-                <button
-                  type="button"
-                  className="pane__exit-action pane__exit-action--secondary"
-                  onClick={onOpenManager}
-                >
-                  Open in terminal
-                </button>
-              )}
               {onDismissOccupied && (
                 <button
                   type="button"

@@ -327,9 +327,6 @@ function App() {
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}
             occupiedPanes={runView.occupied}
-            onOpenOccupiedManager={(wsId, paneId) => {
-              void orchestrator.openOccupiedManager(wsId, paneId);
-            }}
             onForkOccupied={(wsId, paneId) => {
               void orchestrator.forkOccupiedSession(wsId, paneId).catch((e: unknown) =>
                 pushAlert("Could not fork the session", describeError(e)),

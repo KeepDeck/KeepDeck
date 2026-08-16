@@ -26,7 +26,7 @@ export type LiveRegistryAnswer = "live" | "absent" | "unknown";
  * ONE decision this module owns for that exit. */
 export type RejectedResumeAction =
   /** Held by an outside process: the binding stays, the pane offers the
-   * person a choice (open in the CLI's manager, fork a copy, leave it). */
+   * person a choice (fork a copy, leave it). */
   | { kind: "keep"; registry: "live" | "unknown" }
   /** Not in the registry — but the registry speaks about LIVENESS, not
    * existence: an agent that finished between the refusal and the query

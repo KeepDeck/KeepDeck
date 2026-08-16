@@ -703,6 +703,11 @@ describe("AgentDialog start-from session picker", () => {
     const busy = rows()[0];
     expect(busy.className).toContain("form__session--busy");
     expect(busy.textContent).toContain("running in the background");
+    // DEMOLITION, both halves: the reason must no longer point at the
+    // CLI's manager screen — and must still SAY something (fork remains
+    // the way out, so the text names it).
+    expect(busy.textContent).not.toContain("manager");
+    expect(busy.textContent).toContain("fork a copy");
     act(() => busy.click());
     expect(createBtn().disabled).toBe(true);
     expect(errorText()).toContain("running in the background");

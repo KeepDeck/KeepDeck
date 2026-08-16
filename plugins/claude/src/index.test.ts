@@ -457,14 +457,15 @@ describe("claude fork.plan", () => {
     expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
   });
 
-  it("spawn.plan in manager mode opens the CLI's own session screen, bare", async () => {
-    // Not a KeepDeck conversation: no reporter args, no skills, no yolo —
-    // the session behind the screen belongs to the process that owns it,
-    // and this pane is only its terminal.
+  it("spawn.plan never emits the CLI's agents screen — the connect path is gone", async () => {
+    // DEMOLITION, the absence half: no spawn input may open the CLI's own
+    // agent screen anymore. The ordinary shape is pinned by the suite
+    // around; this pins that its argv vocabulary has no such entry.
     const agent = activate(SESSION_HOOK);
     const out = output();
-    await agent.hooks["spawn.plan"]!({ ...input, manager: true, yolo: true }, out);
-    expect(out.args).toEqual(["agents"]);
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, out);
+    expect(out.args).not.toContain("agents");
+    expect(out.args).toContain("--dangerously-skip-permissions");
   });
 
   it("contributes its mail renderer, which is what puts it on the labelled channel", () => {

@@ -214,15 +214,6 @@ const plugin: KeepDeckPlugin = {
       liveSessions: claudeLiveSessions(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
-          // Manager mode: the CLI's own live-session screen — the one
-          // place a background-owned conversation can be attached to. It
-          // is not a KeepDeck conversation: no reporter args, no skills,
-          // no yolo — the session (if any) belongs to the process behind
-          // the screen, and this pane is just its terminal.
-          if (input.manager) {
-            output.args = ["agents"];
-            return;
-          }
           output.args = [
             ...(await hookArgs(ctx.resources)),
             ...skillsArgs(input.skills),

@@ -52,9 +52,6 @@ export interface AgentOrchestrator {
   ): boolean;
   /** Retry a failed spawn-plan build. */
   retryPlanBuild(paneId: string): void;
-  /** Re-run the pane whose refused resume turned out to be live, opening
-   * the agent's own session-manager screen in this pane's terminal. */
-  openOccupiedManager(wsId: string, paneId: string): Promise<void>;
   /** Fork the live session a refused-resume card holds into a copy in the
    * SAME directory (the card never chooses one) — a new pane, the binding
    * untouched. */

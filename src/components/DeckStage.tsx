@@ -113,14 +113,12 @@ interface DeckStageProps {
    * different conversation. */
   wakeFailed: Record<string, string>;
   /** Panes whose refused resume holds a LIVE outside session: paneId → the
-   * note their cards offer a choice on (open in the CLI's manager, fork a
-   * copy, leave it). The binding is intact; nothing was erased. */
+   * note their cards offer a choice on (fork a copy, leave it). The binding
+   * is intact; nothing was erased. */
   occupiedPanes: Record<
     string,
     { registry: "live" | "unknown"; name: string | null }
   >;
-  /** Open the agent's session-manager screen in the pane (occupied card). */
-  onOpenOccupiedManager(wsId: string, paneId: string): void;
   /** Fork the occupied card's live session into a copy (same directory). */
   onForkOccupied(wsId: string, paneId: string): void;
   /** Stop offering the occupied choice (pane stays visible and bound). */
@@ -206,7 +204,6 @@ export function DeckStage({
   idleBlocked,
   wakeFailed,
   occupiedPanes,
-  onOpenOccupiedManager,
   onForkOccupied,
   onDismissOccupied,
   specByPane,
@@ -524,7 +521,6 @@ export function DeckStage({
               wakeError={wakeFailed[pane.id] ?? null}
               blockedDir={idleBlocked[pane.id] ?? null}
               occupied={occupiedPanes[pane.id] ?? null}
-              onOpenManager={() => onOpenOccupiedManager(ws.id, pane.id)}
               onForkOccupied={() => onForkOccupied(ws.id, pane.id)}
               onDismissOccupied={() => onDismissOccupied(pane.id)}
               provisioning={pane.provisioning}

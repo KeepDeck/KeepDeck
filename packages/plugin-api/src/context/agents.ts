@@ -152,14 +152,6 @@ export interface SpawnPlanInput {
    * than API 27); a supporting agent's `spawn.plan` reads `kind`/`endpoint`
    * to emit its remote-client argv. A non-remote agent ignores it. */
   target?: SpawnTarget;
-  /** Manager mode: the pane should open the CLI's own live-session manager
-   * screen instead of a conversation — the way to reach (and attach to) a
-   * conversation owned by a live background agent, which no resume flag
-   * can. Deliberately a NOTE on the ordinary spawn plan, not a fourth plan
-   * kind: plans carry session semantics (the answer mark, the binding,
-   * whose resume this is) and a manager screen has no session to carry. A
-   * hook swaps its args accordingly; a non-supporting agent ignores it. */
-  manager?: boolean;
 }
 
 /** One skills library rendered in each CLI's injection dialect — staged

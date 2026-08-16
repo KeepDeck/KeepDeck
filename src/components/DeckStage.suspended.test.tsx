@@ -114,7 +114,6 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   idleBlocked: {},
   wakeFailed: {},
   occupiedPanes: {},
-  onOpenOccupiedManager: () => {},
   onForkOccupied: () => {},
   onDismissOccupied: () => {},
   specByPane: {
