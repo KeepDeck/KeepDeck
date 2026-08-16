@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentDialog } from "./AgentDialog";
+import { createSessionIndexManager } from "../../app/sessionIndexManager";
 import type {
   AgentDialogResult,
   Occupancy,
@@ -27,13 +28,28 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 // The dialog declares its index-freshness need through the runtime; pin the
 // manager at the context seam (the real one lives in createAppRuntime and is
 // referentially stable for the app's lifetime — the effect deps rely on it).
-const sessionIndex = vi.hoisted(() => ({
-  ensureFresh: vi.fn(),
-  snapshot: () => ({ scanning: false, revision: 0 }),
-  subscribe: () => () => {},
+// `ref` lets the integration suite swap in a REAL manager; everyone else
+// gets the inert stub.
+const sessionIndex = vi.hoisted(() => {
+  // Identity-stable on purpose — the dialog reads it through
+  // useSyncExternalStore, and a fresh object per call is the loop the
+  // UsageChips lesson warns about (bites the stub, not just the real thing).
+  const snapshot = { scanning: false, revision: 0 };
+  return {
+    ensureFresh: vi.fn(),
+    snapshot: () => snapshot,
+    subscribe: () => () => {},
+  };
+});
+const sessionIndexRef = vi.hoisted(() => ({
+  current: sessionIndex as unknown as {
+    ensureFresh: (agent?: string) => void;
+    snapshot: () => { scanning: boolean; revision: number };
+    subscribe: (listener: () => void) => () => void;
+  },
 }));
 vi.mock("../../app/runtimeContext", () => ({
-  useAppRuntime: () => ({ sessionIndex }),
+  useAppRuntime: () => ({ sessionIndex: sessionIndexRef.current }),
 }));
 
 // The dialog pulls the agent catalog via useAgents; pin one agent at the
@@ -1101,5 +1117,185 @@ describe("remote gating (Experimental setting)", () => {
     });
     expect(confirmed).toHaveLength(1);
     expect(confirmed[0].remoteEndpoint).toBe("ws://vps:4500");
+  });
+});
+
+describe("AgentDialog picker ↔ sessionIndexManager (integration)", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  // The scan seam: batchy — one landed batch fires immediately, the pass
+  // settles only when `finish()` says so (the long first catch-up shape).
+  const scans = vi.hoisted(() => ({
+    scanAgentHistories: vi.fn((..._args: unknown[]) => Promise.resolve()),
+  }));
+  vi.mock("../../app/historyScan", () => scans);
+
+  const asHistory = (marker: string) =>
+    ({ marker }) as unknown as import("@keepdeck/plugin-api").AgentHistory;
+
+  /** The registry the real manager subscribes to: claude + codex stores. */
+  const makeRegistry = () => {
+    const listeners = new Set<() => void>();
+    const contributions = [
+      { entry: { id: "claude", history: asHistory("claude") } },
+      { entry: { id: "codex", history: asHistory("codex") } },
+    ];
+    return {
+      list: () => contributions,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
+  };
+
+  const rows = (n: number): SessionPickRow[] =>
+    Array.from({ length: n }, (_, i) => ({
+      handle: { agent: "claude", sessionId: `s-${i}`, cwd: "/repo", title: `t${i}` },
+      mtime: 100 - i,
+    }));
+
+  let landBatch!: () => void;
+  let finishScan!: () => void;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    catalog.supportsResume = true;
+    catalog.supportsFork = true;
+    scans.scanAgentHistories.mockReset();
+    // A pass that neither batches nor settles until the test drives it —
+    // the long first catch-up shape, observed from outside.
+    scans.scanAgentHistories.mockImplementation(
+      (...args: unknown[]) =>
+        new Promise<void>((resolve) => {
+          landBatch = () => (args[2] as (() => void) | undefined)?.();
+          finishScan = resolve;
+        }),
+    );
+    sessionIndexRef.current = createSessionIndexManager(makeRegistry());
+    catalog.extraAgents = [
+      {
+        id: "codex",
+        label: "Codex",
+        icon: { viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z", color: "#fff" }] },
+        command: "codex",
+        features: [
+          { id: "session.new", label: "New sessions" },
+          { id: "session.resume", label: "Resume" },
+          { id: "session.fork", label: "Fork" },
+          { id: "session.history", label: "History" },
+        ],
+        installed: true,
+        path: null,
+      },
+    ];
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+    sessionIndexRef.current = sessionIndex;
+    catalog.extraAgents = [];
+  });
+
+  const mount = (searchSessions: ReturnType<typeof vi.fn>) =>
+    act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          remoteEnabled: false,
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions,
+          sessionClaim: () => null,
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+  const modeBtn = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+      (b) => b.textContent === label,
+    )!;
+
+  const settle = async () => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    await act(async () => {});
+  };
+
+  it("declares the need, scans the selected store, and fills the listing as batches land", async () => {
+    const searchSessions = vi.fn(
+      async (_a: string, _q: string, _l: number, _o: number) =>
+        ({ rows: rows(2), total: 2 }) as const,
+    );
+    await mount(searchSessions);
+    act(() => modeBtn("Fork").click());
+
+    // The declaration ran the scan for the SELECTED agent's store only.
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
+    const sources = scans.scanAgentHistories.mock.calls[0][0] as Array<{
+      agentId: string;
+    }>;
+    expect(sources.map((s) => s.agentId)).toEqual(["claude"]);
+
+    // The mount query lists once…
+    await settle();
+    expect(searchSessions).toHaveBeenCalledTimes(1);
+
+    // …then every landed batch and the settle bump the revision, and each
+    // bump re-reads the listing's page-zero span without collapsing it.
+    await act(async () => landBatch());
+    await act(async () => {});
+    expect(searchSessions).toHaveBeenCalledTimes(2);
+
+    await act(async () => finishScan());
+    await act(async () => {});
+    expect(searchSessions).toHaveBeenCalledTimes(3);
+    const last = searchSessions.mock.calls[searchSessions.mock.calls.length - 1];
+    const [, , limit] = last;
+    expect(limit).toBeGreaterThanOrEqual(50);
+  });
+
+  it("switching agents chains the new store's scan behind the running one", async () => {
+    const searchSessions = vi.fn(
+      async () => ({ rows: [] as SessionPickRow[], total: 0 }),
+    );
+    await mount(searchSessions);
+    act(() => modeBtn("Fork").click());
+    await settle();
+
+    const codex = [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+      (b) => b.textContent === "Codex",
+    );
+    act(() => codex!.click());
+    await act(async () => {});
+    // The claude pass is still running and does not cover codex — the need
+    // chains, it must not fire a concurrent second scan.
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
+
+    await act(async () => finishScan());
+    await act(async () => {});
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(2);
+    const sources = scans.scanAgentHistories.mock.calls[1][0] as Array<{
+      agentId: string;
+    }>;
+    expect(sources.map((s) => s.agentId)).toEqual(["codex"]);
   });
 });

@@ -45,4 +45,31 @@ describe("createAppRuntime", () => {
     first.dispose();
     second.dispose();
   });
+
+  it("exposes the session index owner and tears it down with the runtime", () => {
+    const runtime = createAppRuntime(backend());
+    // Fresh owner: idle, nothing scanned.
+    expect(runtime.sessionIndex.snapshot()).toEqual({
+      scanning: false,
+      revision: 0,
+    });
+
+    // The dispose chain must actually REACH the owner — a dispose that
+    // exists only on the manager would be test-only API.
+    const original = runtime.sessionIndex.dispose.bind(runtime.sessionIndex);
+    let disposed = false;
+    runtime.sessionIndex.dispose = () => {
+      disposed = true;
+      original();
+    };
+    runtime.dispose();
+    expect(disposed).toBe(true);
+
+    // After teardown the owner ignores needs: no throw, no state move.
+    runtime.sessionIndex.ensureFresh("claude");
+    expect(runtime.sessionIndex.snapshot()).toEqual({
+      scanning: false,
+      revision: 0,
+    });
+  });
 });

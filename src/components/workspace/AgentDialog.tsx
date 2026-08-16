@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   agentRemoteSchemes,
   agentSessionCapabilities,
@@ -240,6 +240,22 @@ export function AgentDialog({
     sessionIndex.ensureFresh(agentType);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionIndex, agentType]);
+
+  // The declared scan lands in BATCHES — the picker's listing re-reads its
+  // page-zero span on every revision bump so a long first catch-up fills
+  // the list while it runs (the browser's twin, same snapshot). The FIRST
+  // observation only records the baseline: the mount query above already
+  // lists, and a re-fetch before any rows landed would be a duplicate.
+  const index = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
+  const lastRevision = useRef<number | null>(null);
+  const { refresh: refreshSessions } = pagedSessions;
+  useEffect(() => {
+    const first = lastRevision.current === null;
+    lastRevision.current = index.revision;
+    if (first || startMode === "new") return;
+    refreshSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index.revision]);
 
   // Prefill the Name from a session title while the field is UNTOUCHED (name
   // still equals the last prefill); a hand-edited name stays the user's. The
