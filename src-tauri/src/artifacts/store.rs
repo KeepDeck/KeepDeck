@@ -1269,6 +1269,10 @@ mod tests {
     #[derive(serde::Deserialize, Debug)]
     #[serde(rename_all = "camelCase")]
     struct GoldenExisting {
+        // `slug` exists so a fixture edit that changes it still parses
+        // (fail-loud, not fail-silent); the runner keys off `format` +
+        // `version_count`.
+        #[allow(dead_code)]
         slug: String,
         format: String,
         version_count: u64,
@@ -1285,7 +1289,11 @@ mod tests {
     #[serde(rename_all = "camelCase")]
     struct GoldenExpect {
         kind: String,
+        // Read when kind == "append" (the next-version assertion); the
+        // other arms carry nulls the runner never touches.
+        #[allow(dead_code)]
         slug: Option<String>,
+        #[allow(dead_code)]
         next_version: Option<u64>,
         error_contains: Option<String>,
     }

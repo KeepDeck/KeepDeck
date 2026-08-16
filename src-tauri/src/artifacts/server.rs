@@ -658,7 +658,7 @@ mod tests {
     use crate::artifacts::store::{
         ArtifactFormat, ArtifactsStore, PublishIdentity, PublishRequest,
     };
-    use std::io::Read as _;
+    // `Read` rides the file's own `use std::io::{...}` — no test re-import.
     use std::os::fd::AsRawFd as _;
 
     /// A live server over a real store root in a temp dir.
@@ -788,7 +788,7 @@ mod tests {
         // page→subscribe→reload forever with the snippet contract
         // (D5-1's regression pin).
         broadcast_version_on(&server.shared_arc(), "ws-1", "live", 2);
-        let mut stream = sub.try_clone().unwrap();
+        let stream = sub.try_clone().unwrap();
         let _ = stream.shutdown(std::net::Shutdown::Write);
         let mut raw = Vec::new();
         sub.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
