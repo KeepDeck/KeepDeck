@@ -264,6 +264,15 @@
   overflow-y: auto;
 }
 
+/* Popover rows are uniform: the popover is already sized to the WIDEST hidden
+   chip (popoverWidth in MinimizedTray), so a chip that kept its natural width
+   would read as a ragged stack of pills. Fill the row instead — the restore
+   button's margin-left: auto keeps the content left and the action right.
+   Must out-specify the chip's own `width: max-content`. */
+.minimized-overflow__list .minimized--chip {
+  width: 100%;
+}
+
 /* Full details stay out of the compact geometry. The 600 ms hover intent is
    owned by MinimizedItem; this layer also opens immediately for keyboard focus. */
 .minimized-tooltip {
