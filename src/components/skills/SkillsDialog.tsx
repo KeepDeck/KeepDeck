@@ -11,6 +11,7 @@ import {
 } from "../../domain/skills";
 import type { LibrarySkill } from "../../app/skillsLibrary";
 import { useSkillsLibrary } from "../../app/useSkills";
+import { SkillViewer } from "./SkillViewer";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -30,9 +31,13 @@ interface SkillsDialogProps {
   canClose?: boolean;
 }
 
-/** Which stored skill the editor shows, or the create form for a scope. */
+/** Which stored skill the editor shows, or the create form for a scope.
+ * The view mode is the read-only BUNDLED row: the write machine (submit,
+ * rename, delete, dirty tracking, the confirms) never sees a bundled
+ * skill BY CONSTRUCTION — no gating branches inside it. */
 type Selection =
   | { mode: "edit"; scope: SkillScope; name: string }
+  | { mode: "view"; name: string }
   | { mode: "create"; scope: SkillScope };
 
 const EMPTY_FORM: SkillDraft = {
@@ -123,6 +128,18 @@ export function SkillsDialog({
         items: all.filter((s) => sameSkillScope(s.scope, scope)),
       });
     }
+    // The bundled tier LAST (user content outranks app content on the
+    // user's machine) — rows render from the list, both a user-global
+    // and the bundled same-name row visible side by side (namespaces at
+    // rest; resolution-by-name lives in staging alone).
+    const bundled = all.filter((s) => s.scope.kind === "bundled");
+    if (bundled.length > 0) {
+      built.push({
+        label: "Bundled",
+        scope: { kind: "bundled" },
+        items: bundled,
+      });
+    }
     return built;
     // On the FIELDS, not the object: `activeWs` is built as a fresh literal by the
     // caller on every App render — and App re-renders on agent output, git head
@@ -169,6 +186,16 @@ export function SkillsDialog({
     // already applies "the directory name wins over the frontmatter's";
     // re-asserting `name` here was that rule stated a second time, in the one
     // place that would keep the old answer when it changed.
+    if (skill.scope.kind === "bundled") {
+      // The read-only tier: view mode, never the edit machine. The form
+      // still receives the draft (the viewer projects it), but the write
+      // machinery keys on selection.mode and so never fires for a view.
+      setSelection({ mode: "view", name: skill.name });
+      setForm(skillDraftOf(skill));
+      setDirty(false);
+      setNameTouched(false);
+      return;
+    }
     setSelection({ mode: "edit", scope: skill.scope, name: skill.name });
     setForm(skillDraftOf(skill));
     setDirty(false);
@@ -262,9 +289,11 @@ export function SkillsDialog({
 
   const creating = selection?.mode === "create";
   // Taken = another skill in this scope holds the name. Keeping your OWN
-  // name is not a collision — that's just an ordinary save.
+  // name is not a collision — that's just an ordinary save. A bundled row
+  // (view mode) never authors anything — no name is judged.
   const nameTaken =
     selection !== null &&
+    selection.mode !== "view" &&
     !(selection.mode === "edit" && selection.name === form.name) &&
     skillAt(selection.scope, form.name) !== undefined;
   // The name is judged only where it is being AUTHORED — a create, or an edit
@@ -275,7 +304,9 @@ export function SkillsDialog({
   // a kebab-case complaint under a name the user was not editing — one rule,
   // two doors, opposite answers.
   const authoringName =
-    selection !== null && (selection.mode === "create" || selection.name !== form.name);
+    selection !== null &&
+    selection.mode !== "view" &&
+    (selection.mode === "create" || selection.name !== form.name);
   // ONE verdict, like the description's, rendered by the gate AND the hint
   // below. Derived separately they drifted: an emptied Name field disabled Save
   // while the message stayed hidden, because "empty" counted as invalid at the
@@ -327,6 +358,9 @@ export function SkillsDialog({
   };
 
   const performSubmit = async (selection: Selection) => {
+    // A view selection never reaches the write machine (openSkill routes
+    // bundled rows there; this guard is the type-level backstop).
+    if (selection.mode === "view") return;
     const scope = selection.scope;
     // `draftSource` catches typing during the awaits (newer keystrokes were NOT
     // saved and must stay dirty); `stillOurs` catches navigation.
@@ -411,11 +445,16 @@ export function SkillsDialog({
             }
             busy={deletingNow}
             isActive={(skill) =>
-              selection?.mode === "edit" && sameSkillRef(selection, skill)
+              (selection?.mode === "edit" && sameSkillRef(selection, skill)) ||
+              (selection?.mode === "view" && selection.name === skill.name)
             }
-            onOpen={(skill) =>
-              navigate({ mode: "edit", scope: skill.scope, name: skill.name })
-            }
+            onOpen={(skill) => {
+              if (skill.scope.kind === "bundled") {
+                navigate({ mode: "view", name: skill.name });
+                return;
+              }
+              navigate({ mode: "edit", scope: skill.scope, name: skill.name });
+            }}
             onCreate={(scope) => navigate({ mode: "create", scope })}
           />
 
@@ -448,6 +487,8 @@ export function SkillsDialog({
                   </>
                 )}
               </div>
+            ) : selection.mode === "view" ? (
+              <SkillViewer draft={form} />
             ) : (
               <SkillEditor
                 // NOT keyed per selection. That remounted the editor whenever

@@ -176,6 +176,15 @@ export function createAppRuntime(
           `artifacts ${transition.desired ? "enable" : "disable"} failed: ${transition.detail}`,
         );
       }
+      // Every claim flip changes the bundled skills staging gate — the
+      // tier's arming follows the claim, and the staging memo only
+      // invalidates on skill writes, so without this a flip leaves panes
+      // spawned after it on the PRE-flip views. TDZ-safe: report fires
+      // only from the policy's chain microtasks and createAppRuntime is
+      // synchronous — `worktrees` (bound later) exists before any report
+      // can run. Bare invalidate is verified sufficient: a cleared memo
+      // is a miss, the miss re-runs stageSkills.
+      worktrees.invalidateSkills();
       reconcileArtifactCommands();
     },
   );

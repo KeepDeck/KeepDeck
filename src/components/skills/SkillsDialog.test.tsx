@@ -782,4 +782,47 @@ describe("SkillsDialog", () => {
     act(() => button("Discard")!.click());
     expect(closed).toBe(1);
   });
+  // Reusing the parent describe's harness (root/mount/row helpers are in
+// scope via the closure — declared at module level).
+it("renders the Bundled group LAST with both same-name rows visible (namespaces at rest)", async () => {
+  lib.skills = [
+    skill("artifacts"),
+    { scope: { kind: "bundled" }, name: "artifacts", content: skill("artifacts").content },
+  ];
+  await mount();
+  const labels = Array.from(
+    document.querySelectorAll(".skills__group-label"),
+  ).map((el) => el.textContent);
+  expect(labels).toEqual(["Global", "My project", "Bundled"]);
+  // The UNION: both rows present — the user's and the shipped one.
+  expect(document.querySelectorAll(".skills__item")).toHaveLength(2);
+});
+
+it("a bundled row opens the read-only viewer — no Save, no Delete, never dirty", async () => {
+  lib.skills = [
+    { scope: { kind: "bundled" }, name: "artifacts", content: skill("artifacts").content },
+  ];
+  await mount();
+  await act(async () => {
+    row("artifacts")!.click();
+  });
+  // The viewer (selectable copy text + the ships-with note), not the form.
+  expect(document.querySelector(".skill-viewer")).not.toBeNull();
+  expect(
+    document.querySelector(".skill-viewer__note")?.textContent,
+  ).toContain("copy any part");
+  // The write machine is absent — no body textarea, no Save button.
+  expect(document.querySelector("#skill-body")).toBeNull();
+  expect(button("Save")).toBeUndefined();
+});
+
+it("the bundled group carries no + New button (the teaching is the affordance)", async () => {
+  lib.skills = [
+    { scope: { kind: "bundled" }, name: "artifacts", content: skill("artifacts").content },
+  ];
+  await mount();
+  // Global keeps its create affordance; Bundled does not.
+  expect(buttonByTitle("New global skill")).toBeDefined();
+  expect(buttonByTitle("New bundled skill")).toBeNull();
+});
 });
