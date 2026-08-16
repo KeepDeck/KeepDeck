@@ -568,6 +568,25 @@ describe("AgentDialog start-from session picker", () => {
     confirmed = [];
     catalog.supportsResume = true;
     catalog.supportsFork = true;
+    // A second agent, so the declaration test can actually SWITCH — without
+    // it the Codex button doesn't exist and the switch assertion silently
+    // no-ops (a green test proving nothing).
+    catalog.extraAgents = [
+      {
+        id: "codex",
+        label: "Codex",
+        icon: { viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z", color: "#fff" }] },
+        command: "codex",
+        features: [
+          { id: "session.new", label: "New sessions" },
+          { id: "session.resume", label: "Resume" },
+          { id: "session.fork", label: "Fork" },
+          { id: "session.history", label: "History" },
+        ],
+        installed: true,
+        path: null,
+      },
+    ];
     sessionIndex.ensureFresh.mockClear();
     worktreeIpc.probeWorktree.mockImplementation((path: string) =>
       Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
@@ -578,6 +597,7 @@ describe("AgentDialog start-from session picker", () => {
     vi.useRealTimers();
     catalog.supportsResume = true;
     catalog.supportsFork = true;
+    catalog.extraAgents = [];
   });
 
   const mount = () =>
@@ -719,12 +739,12 @@ describe("AgentDialog start-from session picker", () => {
     act(() => modeBtn("Fork").click()); // any section change…
     expect(sessionIndex.ensureFresh).toHaveBeenCalledTimes(1); // …rescans nothing
 
-    const codex = [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
-      (b) => b.textContent === "Codex",
-    );
-    if (codex) act(() => codex.click());
-    expect(sessionIndex.ensureFresh).toHaveBeenCalledTimes(codex ? 2 : 1);
-    if (codex) expect(sessionIndex.ensureFresh).toHaveBeenLastCalledWith("codex");
+    const codex = [
+      ...document.querySelectorAll<HTMLButtonElement>(".form__type"),
+    ].find((b) => b.textContent === "Codex")!;
+    act(() => codex.click());
+    expect(sessionIndex.ensureFresh).toHaveBeenCalledTimes(2);
+    expect(sessionIndex.ensureFresh).toHaveBeenLastCalledWith("codex");
   });
 });
 
