@@ -296,3 +296,14 @@
   word-break: break-word;
   overflow-wrap: anywhere;
 }
+
+.skill-viewer__hint {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid #3a3320;
+  border-radius: 8px;
+  background: #1f1a0e;
+  color: #d4b962;
+  font-size: 12px;
+  line-height: 1.5;
+}

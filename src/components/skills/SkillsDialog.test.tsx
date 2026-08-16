@@ -9,6 +9,7 @@ import {
   type SkillScope,
 } from "../../domain/skills";
 import type { LibrarySkill } from "../../app/skillsLibrary";
+import type { Settings } from "../../domain/settings";
 import type { SkillsEditorState } from "../../app/useSkills";
 import { SkillsDialog } from "./SkillsDialog";
 
@@ -65,6 +66,13 @@ const lib = vi.hoisted(
 );
 vi.mock("../../app/useSkills", () => ({ useSkillsLibrary: () => lib }));
 
+// The settings singleton the SkillViewer's unlock hint reads (the hint
+// keys on the artifacts SETTING, by the design's divergence ruling).
+const settingsState = vi.hoisted(() => ({ current: null as Settings | null }));
+vi.mock("../../app/useSettings", () => ({
+  useSettings: () => settingsState.current,
+}));
+
 const skill = (
   name: string,
   scope: "global" | "workspace" = "global",
@@ -115,6 +123,7 @@ describe("SkillsDialog", () => {
     // implementations above with ones that leave the list untouched, i.e. put the
     // double back in a state the real hook cannot be in. A case that wants a
     // failure says so with `mockResolvedValueOnce`.
+    settingsState.current = null;
     lib.clearError.mockClear();
     lib.save.mockClear();
     lib.rename.mockClear();
@@ -816,7 +825,47 @@ it("a bundled row opens the read-only viewer — no Save, no Delete, never dirty
   expect(button("Save")).toBeUndefined();
 });
 
-it("the bundled group carries no + New button (the teaching is the affordance)", async () => {
+it("the unlock hint shows while the artifacts setting is off, absent while on", async () => {
+    // The both-ways pin §J named: the hint keys on the SETTING (not the
+    // claim — the design's owned divergence), and unknown (null) hides it.
+    lib.skills = [
+      { scope: { kind: "bundled" }, name: "artifacts", content: skill("artifacts").content },
+    ];
+    await mount();
+    await act(async () => {
+      row("artifacts")!.click();
+    });
+
+    // Setting OFF (a re-render with a changed snapshot flips the hint).
+    settingsState.current = { artifacts: false } as Settings;
+    await act(async () => {
+      root.render(
+        createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
+      );
+    });
+    const hint = document.querySelector(".skill-viewer__hint");
+    expect(hint?.textContent).toContain("artifacts experiment");
+
+    // Setting ON: absent.
+    settingsState.current = { artifacts: true } as Settings;
+    await act(async () => {
+      root.render(
+        createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
+      );
+    });
+    expect(document.querySelector(".skill-viewer__hint")).toBeNull();
+
+    // Boot-unknown (null): no hint on unknown.
+    settingsState.current = null;
+    await act(async () => {
+      root.render(
+        createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
+      );
+    });
+    expect(document.querySelector(".skill-viewer__hint")).toBeNull();
+  });
+
+  it("the bundled group carries no + New button (the teaching is the affordance)", async () => {
   lib.skills = [
     { scope: { kind: "bundled" }, name: "artifacts", content: skill("artifacts").content },
   ];
