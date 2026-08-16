@@ -382,7 +382,8 @@ mod tests {
 
     #[test]
     fn the_three_refusal_arms_rust_side() {
-        let (_guard, _home) = (isolated_home("arms").0, HomeRestore);
+        let (_guard, _dir) = isolated_home("arms");
+        let _restore = HomeRestore;
         std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
         let global_dir = skills_root().unwrap().join("library").join("global");
 
@@ -436,7 +437,8 @@ mod tests {
 
     #[test]
     fn the_rename_matrix_for_bundled_names() {
-        let (_guard, _home) = (isolated_home("rename").0, HomeRestore);
+        let (_guard, _dir) = isolated_home("rename");
+        let _restore = HomeRestore;
         std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
         let global_dir = skills_root().unwrap().join("library").join("global");
         library::save(&global_dir, "mine", "content").unwrap();
