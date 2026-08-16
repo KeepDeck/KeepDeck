@@ -144,7 +144,10 @@ fn md_page(title: &str, source: &str) -> String {
 /// CLOSES the source once — EventSource silently reconnects forever on
 /// server death, which is the silent-staleness the goodbye exists to
 /// prevent.
-const LIVE_REFRESH_SNIPPET: &str = "<script>\n(()=>{const note=()=>{const n=document.createElement(\"div\");\nn.setAttribute(\"style\",\"background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999\");\nn.textContent=\"This page's server went away — republish or reopen from the agent's message.\";\ndocument.body.appendChild(n);};\nconst es=new EventSource(location.pathname+\"/events\"+location.search);\nes.addEventListener(\"version\",()=>location.reload());\nes.addEventListener(\"bye\",()=>{es.close();note();});\nes.addEventListener(\"error\",()=>{es.close();note();});})();\n</script>";
+/// pub(crate): a CROSS-MODULE contract — the skills tier's bundled
+/// artifacts skill teaches this exact snippet, and the module test
+/// pins the two against each other so neither drifts alone.
+pub(crate) const LIVE_REFRESH_SNIPPET: &str = "<script>\n(()=>{const note=()=>{const n=document.createElement(\"div\");\nn.setAttribute(\"style\",\"background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999\");\nn.textContent=\"This page's server went away — republish or reopen from the agent's message.\";\ndocument.body.appendChild(n);};\nconst es=new EventSource(location.pathname+\"/events\"+location.search);\nes.addEventListener(\"version\",()=>location.reload());\nes.addEventListener(\"bye\",()=>{es.close();note();});\nes.addEventListener(\"error\",()=>{es.close();note();});})();\n</script>";
 
 /// The EXPORT variant of the md page: same template, NO snippet (the
 /// URL is dead outside the session — a live-refresh script pointing at

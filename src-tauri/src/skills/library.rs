@@ -14,6 +14,8 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
+use super::bundled::BundledSkill;
+
 /// One library skill on the wire (mirrors the TS `StoredSkill`, camelCase).
 /// Content rides along — skills are small and the list IS the read path.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -57,7 +59,7 @@ pub(super) fn scope_dir(root: &Path, scope: &str, ws_id: Option<&str>) -> Result
     }
 }
 
-pub(super) fn list(root: &Path) -> io::Result<Vec<SkillDto>> {
+pub(super) fn list(root: &Path, tier: &[BundledSkill]) -> io::Result<Vec<SkillDto>> {
     let mut out = Vec::new();
     let library = root.join("library");
     for (name, content) in scope_skills(&library.join("global"))? {
@@ -78,6 +80,19 @@ pub(super) fn list(root: &Path) -> io::Result<Vec<SkillDto>> {
                 content,
             });
         }
+    }
+    // The bundled tier walks LAST (user content outranks app content) and
+    // BOTH rows always show: sections are NAMESPACES AT REST — a same-name
+    // library row does NOT hide the bundled one (the copy-source text must
+    // stay reachable exactly when the user has customized). Resolution by
+    // name happens only in staging, never in this list.
+    for skill in tier {
+        out.push(SkillDto {
+            scope: "bundled".into(),
+            ws_id: None,
+            name: skill.name.to_string(),
+            content: skill.content.to_string(),
+        });
     }
     Ok(out)
 }
@@ -189,7 +204,7 @@ mod tests {
         fs::create_dir_all(&hostile).unwrap();
         fs::write(hostile.join(SKILL_FILE), "hand made").unwrap();
 
-        let names: Vec<String> = list(&root).unwrap().into_iter().map(|s| s.name).collect();
+        let names: Vec<String> = list(&root, &[]).unwrap().into_iter().map(|s| s.name).collect();
 
         assert_eq!(names, vec!["my.skill".to_string(), "review".to_string()]);
         // And a write against it refuses in words the user can act on.
@@ -203,7 +218,7 @@ mod tests {
         save(&global(&root), "review", "global review").unwrap();
         save(&global(&root), "deploy", "global deploy").unwrap();
 
-        let all = list(&root).unwrap();
+        let all = list(&root, &[]).unwrap();
         let brief: Vec<(&str, Option<&str>, &str)> = all
             .iter()
             .map(|s| (s.scope.as_str(), s.ws_id.as_deref(), s.name.as_str()))
@@ -263,10 +278,10 @@ mod tests {
         let (_tmp, root) = root();
         save(&global(&root), "review", "v1").unwrap();
         save(&global(&root), "review", "v2").unwrap();
-        assert_eq!(list(&root).unwrap()[0].content, "v2");
+        assert_eq!(list(&root, &[]).unwrap()[0].content, "v2");
 
         delete(&global(&root), "review").unwrap();
-        assert!(list(&root).unwrap().is_empty());
+        assert!(list(&root, &[]).unwrap().is_empty());
         delete(&global(&root), "review").unwrap(); // missing is fine
     }
 
@@ -281,10 +296,10 @@ mod tests {
 
         let err = create(&global(&root), "review", "clobber").unwrap_err();
         assert!(err.to_string().contains("already exists"), "{err}");
-        assert_eq!(list(&root).unwrap()[0].content, "original");
+        assert_eq!(list(&root, &[]).unwrap()[0].content, "original");
 
         save(&global(&root), "review", "edited").unwrap();
-        assert_eq!(list(&root).unwrap()[0].content, "edited");
+        assert_eq!(list(&root, &[]).unwrap()[0].content, "edited");
     }
 
     #[test]

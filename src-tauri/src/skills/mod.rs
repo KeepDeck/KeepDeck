@@ -23,6 +23,7 @@
 //! language sides).
 
 mod arming;
+mod bundled;
 mod library;
 mod opencode;
 mod staging;
@@ -41,7 +42,7 @@ pub use staging::{SkillStagingDto, SkillsLocks};
 /// alphabetical — a deterministic order the UI can render as-is.
 #[tauri::command(async)]
 pub fn skills_list() -> Result<Vec<SkillDto>, String> {
-    library::list(&skills_root()?).map_err(|e| e.to_string())
+    library::list(&skills_root()?, bundled::BUNDLED).map_err(|e| e.to_string())
 }
 
 /// Write one skill's `SKILL.md` (content is composed and validated by the
@@ -94,12 +95,18 @@ pub fn skills_rename(
 #[tauri::command(async)]
 pub fn skills_stage(
     locks: tauri::State<'_, SkillsLocks>,
+    artifacts: tauri::State<'_, crate::artifacts::ArtifactsState>,
     ws_id: String,
     roots: Vec<String>,
 ) -> Result<Option<SkillStagingDto>, String> {
     let root = skills_root()?;
     library::require_safe(&ws_id, "workspace id")?;
-    staging::stage(&locks, &root, &ws_id, &roots).map_err(|e| e.to_string())
+    // The SOLE artifacts-importing site in skills (the glue): the claim
+    // probe resolves to a plain bool here, and staging logic downstream
+    // stays artifacts-free — content obeys the same gate as its tools.
+    let claimed = artifacts.is_claimed();
+    staging::stage(&locks, &root, &ws_id, &roots, bundled::BUNDLED, claimed)
+        .map_err(|e| e.to_string())
 }
 
 /// Remove KeepDeck's `.agents/skills` symlinks from the given spawn cwds —
@@ -183,8 +190,8 @@ mod tests {
         save(&global(&root), "review", "x").unwrap();
         let roots = vec![shared.to_string_lossy().into_owned()];
         let locks = SkillsLocks::default();
-        staging::stage(&locks, &root, "ws-live", &roots).unwrap().unwrap();
-        staging::stage(&locks, &root, "ws-dead", &roots).unwrap().unwrap();
+        staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
+        staging::stage(&locks, &root, "ws-dead", &roots, &[], false).unwrap().unwrap();
 
         // ws-dead crashed; ws-live still runs panes in the shared cwd. The
         // LINK survives (symlink_metadata, not exists(): the shared link
@@ -196,7 +203,7 @@ mod tests {
         assert!(armed_manifest(&root, "ws-live").exists());
 
         // And ws-live's next stage re-aims the surviving link at ITS view.
-        let views = staging::stage(&locks, &root, "ws-live", &roots).unwrap().unwrap();
+        let views = staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
         assert_eq!(
             fs::read_link(shared.join(".agents").join("skills")).unwrap(),
             PathBuf::from(&views.skills_dir),
@@ -209,7 +216,7 @@ mod tests {
         let wt = fake_worktree(root.parent().unwrap());
         save(&global(&root), "review", "x").unwrap();
         let roots = vec![wt.to_string_lossy().into_owned()];
-        staging::stage(&SkillsLocks::default(), &root, "ws-9", &roots).unwrap().unwrap();
+        staging::stage(&SkillsLocks::default(), &root, "ws-9", &roots, &[], false).unwrap().unwrap();
         assert!(wt.join(".agents").join("skills").exists());
 
         // Boot after a crash: ws-9 is not in the restored deck.
