@@ -146,50 +146,49 @@ pub(super) fn stage(
         // the arm is UNCONDITIONAL (create dest + write, no copy_dir,
         // no present/rollback dance — wiring it into the vanish contract
         // would add a rollback path that can never fire).
-        let (dir, content): (&Path, &str) = match source {
-            Source::Library { dir, content } => (dir, content),
-            Source::Bundled(content) => {
-                let views = [
-                    claude_plugin.join("skills"),
-                    tmp.join("skills"),
-                    opencode_tmp.clone(),
-                ];
-                for view in &views {
-                    let dest = view.join(name);
-                    fs::create_dir_all(&dest)?;
-                    write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
-                }
-                continue;
-            }
-        };
         let views = [
             claude_plugin.join("skills"),
             tmp.join("skills"),
             opencode_tmp.clone(),
         ];
-        let mut present = true;
-        for view in &views {
-            let dest = view.join(name);
-            if !copy_dir(dir, &dest)? {
-                present = false;
-                break;
+        let content: &str = match source {
+            Source::Library { dir, content } => {
+                let mut present = true;
+                for view in &views {
+                    let dest = view.join(name);
+                    if !copy_dir(dir, &dest)? {
+                        present = false;
+                        break;
+                    }
+                    // The staged SKILL.md is written from the content read at
+                    // collection time — the same bytes the generated command's
+                    // description came from. A save racing this loop can no longer
+                    // make the staged file and its command diverge.
+                    write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
+                }
+                if !present {
+                    for view in &views {
+                        let _ = fs::remove_dir_all(view.join(name));
+                    }
+                    continue;
+                }
+                content
             }
-            // The staged SKILL.md is written from the content read at
-            // collection time — the same bytes the generated command's
-            // description came from. A save racing this loop can no longer
-            // make the staged file and its command diverge.
-            write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
-        }
-        if !present {
-            for view in &views {
-                let _ = fs::remove_dir_all(view.join(name));
+            Source::Bundled(content) => {
+                for view in &views {
+                    let dest = view.join(name);
+                    fs::create_dir_all(&dest)?;
+                    write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
+                }
+                content
             }
-            continue;
-        }
-        // The user-facing half of the opencode view: a /name command whose
-        // palette description is the skill's own, pointing the agent at the
-        // staged SKILL.md (the command file must not go stale on edits, so
-        // it references rather than inlines).
+        };
+        // The user-facing half of the opencode view — BOTH arms reach it
+        // (bundled entries materialize IDENTICALLY to library ones): a
+        // /name command whose palette description is the skill's own,
+        // pointing the agent at the staged SKILL.md (the command file
+        // must not go stale on edits, so it references rather than
+        // inlines).
         let staged_skill = opencode_dir.join("skills").join(name).join(SKILL_FILE);
         let command = opencode::command(name, content, &staged_skill);
         write_atomic(
