@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { codexHistory, parseRollout } from "./history";
 
@@ -42,8 +42,13 @@ const LINES = [
   }),
 ].join("\n");
 
-function ctx(files: Record<string, string>, dirs: Record<string, unknown[]>) {
+function ctx(
+  files: Record<string, string>,
+  dirs: Record<string, unknown[]>,
+  warn: (message: string) => void = vi.fn(),
+) {
   return {
+    log: { warn, info: vi.fn(), error: vi.fn() },
     services: {
       fs: {
         readDir: async (path: string) => {
@@ -97,6 +102,59 @@ describe("codex history", () => {
       }),
     );
     await expect(history.list()).rejects.toThrow();
+  });
+
+  it("listing() walks past an unreadable partition at ANY depth — the skip lives inside the recursion", async () => {
+    const warn = vi.fn();
+    const name = "rollout-2026-07-19T16-27-47-019f7af4-f57f-7dc3-ac52-6e1bb90dceec.jsonl";
+    const history = codexHistory(
+      ctx(
+        {},
+        {
+          "~/.codex/sessions": [{ name: "2026", path: "/s/2026", kind: "dir" }],
+          "/s/2026": [
+            { name: "07", path: "/s/2026/07", kind: "dir" },
+            { name: "08", path: "/s/2026/08", kind: "dir" },
+          ],
+          "/s/2026/07": [{ name: "19", path: "/s/2026/07/19", kind: "dir" }],
+          "/s/2026/07/19": [
+            { name, path: `/s/2026/07/19/${name}`, kind: "file", size: 3, mtime: 7 },
+          ],
+          // "/s/2026/08" deliberately absent → readDir throws at depth 2.
+        },
+        warn,
+      ),
+    );
+    const answer = await history.listing!();
+    expect(answer.complete).toBe(false);
+    expect(answer.stubs.map((s) => s.sessionId)).toEqual([
+      "019f7af4-f57f-7dc3-ac52-6e1bb90dceec",
+    ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("/s/2026/08");
+  });
+
+  it("listing() on an unreadable root answers nothing-read and incomplete — never an empty store", async () => {
+    const warn = vi.fn();
+    const history = codexHistory(ctx({}, {}, warn));
+    expect(await history.listing!()).toEqual({ stubs: [], complete: false });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("listing() on a readable tree answers complete, with list()'s exact stubs", async () => {
+    const name = "rollout-2026-07-19T16-27-47-019f7af4-f57f-7dc3-ac52-6e1bb90dceec.jsonl";
+    const dirs = {
+      "~/.codex/sessions": [{ name: "2026", path: "/s/2026", kind: "dir" }],
+      "/s/2026": [{ name: "07", path: "/s/2026/07", kind: "dir" }],
+      "/s/2026/07": [{ name: "19", path: "/s/2026/07/19", kind: "dir" }],
+      "/s/2026/07/19": [
+        { name, path: `/s/2026/07/19/${name}`, kind: "file", size: 3, mtime: 7 },
+      ],
+    };
+    const history = codexHistory(ctx({}, dirs));
+    const answer = await history.listing!();
+    expect(answer.complete).toBe(true);
+    expect(answer.stubs).toEqual(await history.list());
   });
 
   it("describe reads the session_meta cwd; titles skip instruction blobs", async () => {

@@ -331,6 +331,64 @@ describe("agent history over the RPC seam", () => {
     disposed.dispatch.dispose();
     await expect(content).rejects.toThrow("disposed");
   });
+
+  it("listing is proxied only under the guest's hasListing declaration", async () => {
+    // No declaration → no method: the host must never ask a realm for a
+    // method it never claimed — old guests throw on the unknown name, which
+    // is this contract's own freeze, reborn for the whole external tier.
+    const silent = harness();
+    await silent.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasHistory: true },
+    ]);
+    expect(silent.agent().history!.listing).toBeUndefined();
+
+    const declared = harness();
+    await declared.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasHistory: true, hasListing: true },
+    ]);
+    const asking = declared.agent().history!.listing!();
+    expect(declared.pushes[0].payload).toEqual({
+      agentId: "gemini",
+      method: "listing",
+      args: [],
+    } satisfies WireAgentHistoryCall);
+    await declared.dispatch.call("agents.historyResult", [
+      Number(declared.pushes[0].channel.slice("history:".length)),
+      {
+        ok: true,
+        value: {
+          stubs: [
+            { sessionId: "session-1", ref: "/store/session-1", mtime: 42, size: 7 },
+          ],
+          complete: false,
+        },
+      },
+    ]);
+    await expect(asking).resolves.toEqual({
+      stubs: [
+        { sessionId: "session-1", ref: "/store/session-1", mtime: 42, size: 7 },
+      ],
+      complete: false,
+    });
+  });
+
+  it("a listing answer with a non-boolean complete fails the boundary", async () => {
+    // The realm's word may never turn junk into a prune permit: anything
+    // but a literal boolean complete rejects as malformed.
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasHistory: true, hasListing: true },
+    ]);
+    const asking = h.agent().history!.listing!();
+    await h.dispatch.call("agents.historyResult", [
+      Number(h.pushes[0].channel.slice("history:".length)),
+      { ok: true, value: { stubs: [], complete: "yes" } },
+    ]);
+    await expect(asking).rejects.toThrow("malformed");
+  });
 });
 
 /** Harness over the file-open surface: `openers.register` proxies the realm's

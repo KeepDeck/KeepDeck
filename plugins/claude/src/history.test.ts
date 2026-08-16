@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { claudeHistory } from "./history";
 
@@ -31,8 +31,13 @@ const LINES = [
   }),
 ].join("\n");
 
-function ctx(files: Record<string, string>, dirs: Record<string, unknown[]>) {
+function ctx(
+  files: Record<string, string>,
+  dirs: Record<string, unknown[]>,
+  warn: (message: string) => void = vi.fn(),
+) {
   return {
+    log: { warn, info: vi.fn(), error: vi.fn() },
     services: {
       fs: {
         readDir: async (path: string) => {
@@ -84,6 +89,58 @@ describe("claude history", () => {
       }),
     );
     await expect(history.list()).rejects.toThrow();
+  });
+
+  it("listing() walks past an unreadable project dir: what read is indexed, the dir is named, the answer is incomplete", async () => {
+    const warn = vi.fn();
+    const history = claudeHistory(
+      ctx(
+        {},
+        {
+          "~/.claude/projects": [
+            { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
+            { name: "-repo-b", path: "/h/p/-repo-b", kind: "dir" },
+          ],
+          "/h/p/-repo-a": [
+            { name: "u1.jsonl", path: "/h/p/-repo-a/u1.jsonl", kind: "file", size: 9, mtime: 5 },
+          ],
+          // "/h/p/-repo-b" deliberately absent → readDir throws mid-walk.
+        },
+        warn,
+      ),
+    );
+    expect(await history.listing!()).toEqual({
+      stubs: [
+        { sessionId: "u1", ref: "/h/p/-repo-a/u1.jsonl", mtime: 5, size: 9 },
+      ],
+      complete: false,
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("/h/p/-repo-b");
+  });
+
+  it("listing() on an unreadable root answers nothing-read and incomplete — never an empty store", async () => {
+    // [] with complete:true would read as "every session deleted" and the
+    // host's prune would wipe the agent's whole index.
+    const warn = vi.fn();
+    const history = claudeHistory(ctx({}, {}, warn));
+    expect(await history.listing!()).toEqual({ stubs: [], complete: false });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("listing() on a readable store answers complete, with list()'s exact stubs", async () => {
+    const dirs = {
+      "~/.claude/projects": [
+        { name: "-repo-a", path: "/h/p/-repo-a", kind: "dir" },
+      ],
+      "/h/p/-repo-a": [
+        { name: "u1.jsonl", path: "/h/p/-repo-a/u1.jsonl", kind: "file", size: 9, mtime: 5 },
+      ],
+    };
+    const history = claudeHistory(ctx({}, dirs));
+    const answer = await history.listing!();
+    expect(answer.complete).toBe(true);
+    expect(answer.stubs).toEqual(await history.list());
   });
 
   it("describe pulls cwd from the lines and titles by the first REAL user turn — skill/tag preambles don't name a conversation", async () => {

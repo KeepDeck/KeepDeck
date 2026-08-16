@@ -243,6 +243,92 @@ describe("agent registration payload", () => {
       value: { cwd: "/repo", title: "session-ref" },
     });
   });
+
+  it("declares hasListing iff the history object really has the method, and serves listing requests", async () => {
+    // The wire flag is the host's ONLY basis for exposing `listing` in its
+    // proxy — a false declaration gets an old-guest realm asked for a
+    // method it throws on, so the flag tracks the object, not optimism.
+    const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
+    const rpc = { call } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    const listing = vi.fn(async () => ({ stubs: [], complete: false }));
+    bundle.ctx.agents.register({
+      id: "codex",
+      label: "Codex",
+      detect: { bin: "codex" },
+      hooks: {},
+      history: {
+        list: async () => [],
+        describe: async () => ({ cwd: "/repo" }),
+        content: async () => "",
+        transcript: async () => [],
+        listing,
+      },
+    });
+    bundle.ctx.agents.register({
+      id: "old",
+      label: "Old Guest",
+      detect: { bin: "old" },
+      hooks: {},
+      history: {
+        list: async () => [],
+        describe: async () => ({ cwd: "/repo" }),
+        content: async () => "",
+        transcript: async () => [],
+      },
+    });
+    await bundle.registrationsSettled();
+
+    const payloads = call.mock.calls
+      .filter(([path]) => path === "agents.register")
+      .map(([, payload]) => (payload as [number, Record<string, unknown>])[1]);
+    expect(payloads[0].hasListing).toBe(true);
+    expect(payloads[1]).not.toHaveProperty("hasListing");
+
+    bundle.dispatchEvent("history:17", {
+      agentId: "codex",
+      method: "listing",
+      args: [],
+    });
+    await vi.waitFor(() =>
+      expect(
+        call.mock.calls.find(
+          ([path, args]) =>
+            path === "agents.historyResult" && (args as unknown[])[0] === 17,
+        ),
+      ).toBeDefined(),
+    );
+    expect(listing).toHaveBeenCalledTimes(1);
+    const answered = call.mock.calls.find(
+      ([path, args]) =>
+        path === "agents.historyResult" && (args as unknown[])[0] === 17,
+    );
+    expect((answered![1] as unknown[])[1]).toEqual({
+      ok: true,
+      value: { stubs: [], complete: false },
+    });
+
+    // Asked despite no declaration (a lying host): a FAILURE reply, never a
+    // crash — exactly the refusal the host's list() fallback listens for.
+    bundle.dispatchEvent("history:18", {
+      agentId: "old",
+      method: "listing",
+      args: [],
+    });
+    await vi.waitFor(() =>
+      expect(
+        call.mock.calls.find(
+          ([path, args]) =>
+            path === "agents.historyResult" && (args as unknown[])[0] === 18,
+        ),
+      ).toBeDefined(),
+    );
+    const refused = call.mock.calls.find(
+      ([path, args]) =>
+        path === "agents.historyResult" && (args as unknown[])[0] === 18,
+    );
+    expect(((refused![1] as unknown[])[1] as { ok: boolean }).ok).toBe(false);
+  });
 });
 
 describe("remote download streams", () => {
