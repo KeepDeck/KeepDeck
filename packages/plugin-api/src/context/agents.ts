@@ -44,6 +44,16 @@ export interface AgentContribution {
   /** Read-only discovery over this agent's session store ([F8] browser).
    * Absent = the agent's sessions don't appear in the global search. */
   history?: AgentHistory;
+  /** Which of this agent's sessions are LIVE right now — held by a process
+   * (an interactive run elsewhere, a background agent owned by the CLI's
+   * daemon), not by one of our panes. A snapshot, not a watch: the host
+   * asks before acting on a resume refusal and when a picker opens.
+   *
+   * The QUESTION here is about live processes, not about the store — which
+   * is why this is a sibling of `usage`/`status`/`history` and not a
+   * history method. Absent = the agent cannot say, and a refused resume
+   * keeps its old meaning. */
+  liveSessions?: AgentLiveSessions;
   /** @deprecated API 30+ plugins declare `target.remote` and its schemes once
    * in the manifest. Retained only for legacy plugin execution. */
   remote?: AgentRemote;
@@ -142,6 +152,14 @@ export interface SpawnPlanInput {
    * than API 27); a supporting agent's `spawn.plan` reads `kind`/`endpoint`
    * to emit its remote-client argv. A non-remote agent ignores it. */
   target?: SpawnTarget;
+  /** Manager mode: the pane should open the CLI's own live-session manager
+   * screen instead of a conversation — the way to reach (and attach to) a
+   * conversation owned by a live background agent, which no resume flag
+   * can. Deliberately a NOTE on the ordinary spawn plan, not a fourth plan
+   * kind: plans carry session semantics (the answer mark, the binding,
+   * whose resume this is) and a manager screen has no session to carry. A
+   * hook swaps its args accordingly; a non-supporting agent ignores it. */
+  manager?: boolean;
 }
 
 /** One skills library rendered in each CLI's injection dialect — staged
@@ -239,6 +257,11 @@ export interface AgentSessionFacts {
   /** The session's transcript file, when the store has one — carried
    * explicitly so consumers never infer it from the ref's shape. */
   transcriptPath?: string;
+  /** When this session is a FORK: the moment the copy was branched off
+   * (epoch ms), read from the store's own fork marker. The fork shares the
+   * source's title (the first turn is the same), so without this the two
+   * are indistinguishable in any listing. Absent on an original. */
+  forkedAt?: number;
 }
 
 export interface AgentTranscriptEntry {
@@ -246,12 +269,38 @@ export interface AgentTranscriptEntry {
   text: string;
 }
 
+/** One live session held by a process OUTSIDE our panes — the CLI's own
+ * interactive run or a background agent of its daemon. Identity is the
+ * SESSION (the id a resume would refuse), and the rest is what a person
+ * needs to recognize the conversation: its kind, its name, its state. */
+export interface AgentLiveSession {
+  /** The agent's own session id — the resume key this entry makes refuse. */
+  sessionId: string;
+  /** How the process holds it — the CLI's own vocabulary
+   * (e.g. "interactive" | "background"). */
+  kind: string;
+  /** The conversation's name, when the CLI knows one. */
+  name?: string;
+  /** The CLI's own liveness state (e.g. "working" | "blocked" | "done"),
+   * when it reports one. */
+  state?: string;
+}
+
+/** A snapshot of the agent's live sessions — see
+ * `AgentContribution.liveSessions`. */
+export interface AgentLiveSessions {
+  /** Every session currently held by an outside process. Refusing (a broken
+   * CLI, a dead daemon, a timeout) is a legitimate answer the caller treats
+   * as UNKNOWN — never as an empty list, which would read as "nothing is
+   * live" and green-light exactly the action it must not take. */
+  list(): Promise<AgentLiveSession[]>;
+}
+
 /** Read-only discovery over the agent's own store ([F8] global browser):
  * the plugin enumerates and parses (its format, its capability — fs or
  * sqliteReadonly); the host diffs, indexes and searches. Every method is
  * read-only by construction. */
-export interface AgentHistory {
-  /** Enumerate the whole store — stat-level, no content reads. */
+export interface AgentHistory {  /** Enumerate the whole store — stat-level, no content reads. */
   list(): Promise<AgentSessionStub[]>;
   /** Enumerate the whole store WITH an integrity signal: `complete` is
    * false when any part of the store could not be read — an unreadable
