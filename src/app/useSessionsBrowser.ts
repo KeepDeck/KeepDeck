@@ -31,8 +31,10 @@ export interface SessionsBrowserApi {
    * level: sessions are re-read when the (ref, mtime, size) fingerprint the
    * plugin's `list()` reports differs from the index — an in-place rewrite
    * preserving both stamps would be missed until either moves. Safe to call
-   * on browser mount. */
-  scan(): void;
+   * on browser mount. With `agent`, scans only that agent's store — the
+   * spawn-dialog picker's scope; `onProgress` then also fires for the CALLER
+   * (per landed batch and at settle) alongside this hook's own refresh. */
+  scan(agent?: string, onProgress?: () => void): void;
   /** One transcript page, via the owning plugin (live parse — the index
    * never renders transcripts). */
   transcript(
@@ -60,27 +62,53 @@ export function useSessionsBrowser(): SessionsBrowserApi {
   );
   const { refresh } = paged;
   const [scanning, setScanning] = useState(false);
-  const scanningRef = useRef(false);
+  const scanRef = useRef<Promise<void> | null>(null);
+  // Lets `scan` chain a request behind the running one without self-refering
+  // to its own useCallback; assigned during render like `deckRef` in
+  // useAgentDialog.
+  const scanFnRef = useRef<(agent?: string, onProgress?: () => void) => void>(
+    () => {},
+  );
 
-  const scan = useCallback(() => {
-    if (scanningRef.current) return;
-    scanningRef.current = true;
-    setScanning(true);
-    const sources = plugins.pluginRegistries.agents
-      .list()
-      .flatMap((c) =>
-        c.entry.history
-          ? [{ agentId: c.entry.id, history: c.entry.history }]
-          : [],
-      );
-    void scanAgentHistories(sources, undefined, refresh)
-      .catch((e) => log.warn("web:history", `scan failed: ${describeError(e)}`))
-      .finally(() => {
-        scanningRef.current = false;
-        setScanning(false);
+  const scan = useCallback(
+    (agent?: string, onProgress?: () => void) => {
+      const settle = () => onProgress?.();
+      const running = scanRef.current;
+      if (running) {
+        // Don't drop a request the running scan may not cover: a picker's
+        // single-agent scan can't stand in for the browser's full sweep (or a
+        // picker switched to another agent). Run this request once the
+        // running one settles — a then-current scan re-chains the same way.
+        void running.then(
+          () => scanFnRef.current(agent, onProgress),
+          () => scanFnRef.current(agent, onProgress),
+        );
+        return;
+      }
+      setScanning(true);
+      const sources = plugins.pluginRegistries.agents
+        .list()
+        .flatMap((c) =>
+          c.entry.history
+            ? [{ agentId: c.entry.id, history: c.entry.history }]
+            : [],
+        )
+        .filter((s) => agent === undefined || s.agentId === agent);
+      scanRef.current = scanAgentHistories(sources, undefined, () => {
         refresh();
-      });
-  }, [plugins, refresh]);
+        settle();
+      })
+        .catch((e) => log.warn("web:history", `scan failed: ${describeError(e)}`))
+        .finally(() => {
+          scanRef.current = null;
+          setScanning(false);
+          refresh();
+          settle();
+        });
+    },
+    [plugins, refresh],
+  );
+  scanFnRef.current = scan;
 
   // The initial listing runs ONCE here, not on browser mount — a second
   // empty workspace mounting the browser must not clobber a shared query
