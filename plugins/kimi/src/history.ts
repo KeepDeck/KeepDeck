@@ -3,6 +3,7 @@ import {
   type AgentHistory,
   type AgentSessionStub,
   type AgentTranscriptEntry,
+  type FsEntry,
   type PluginContext,
 } from "@keepdeck/plugin-api";
 
@@ -87,7 +88,49 @@ export function parseWire(jsonl: string): ParsedTurn[] {
 
 const WIRE_SUFFIX = "/agents/main/wire.jsonl";
 
+/** The log line needs a string; whatever the fs layer threw becomes one. */
+function errOf(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export function kimiHistory(ctx: PluginContext): AgentHistory {
+  /** Stubs for one working dir's `session_*` folders — shared by both
+   * enumeration contracts; they differ only in what a WORKING-DIR read
+   * refusal means, everything inside a read session list is common. */
+  const stubsOfSessions = async (
+    sessions: FsEntry[],
+  ): Promise<AgentSessionStub[]> => {
+    const stubs: AgentSessionStub[] = [];
+    for (const session of sessions) {
+      if (session.kind !== "dir" || !session.name.startsWith("session_"))
+        continue;
+      // This catch STAYS: a session dir without agents/main is a normal
+      // shape (created, never spawned), and the fs service reports
+      // absent and unreadable with one message — nothing to tell apart.
+      //
+      // PRUNE HAZARD, named rather than fixed: under the complete-
+      // listing semantics a session whose agents/main went UNREADABLE
+      // also lands in this catch — it falls out of the stubs while the
+      // walk stays "complete", and the host's prune then deletes it
+      // from the index. Marking every such session incomplete would
+      // all but disable pruning here (a never-spawned session is a
+      // routine shape), so the catch keeps its old meaning and the
+      // hazard is this comment. Fixing it needs the fs contract to
+      // distinguish absence from unreadability.
+      const main = await ctx.services.fs
+        .readDir(`${session.path}/agents/main`)
+        .catch(() => []);
+      const wire = main.find((f) => f.name === "wire.jsonl");
+      if (!wire) continue; // never messaged — nothing to index
+      stubs.push({
+        sessionId: session.name,
+        ref: wire.path,
+        mtime: wire.mtime ?? 0,
+        size: wire.size ?? 0,
+      });
+    }
+    return stubs;
+  };
   return {
     async list(): Promise<AgentSessionStub[]> {
       const stubs: AgentSessionStub[] = [];
@@ -104,25 +147,48 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
         // deleted" and the index prune acts on it. The scanner's per-agent
         // catch logs it and prunes nothing.
         const sessions = await ctx.services.fs.readDir(wd.path);
-        for (const session of sessions) {
-          if (session.kind !== "dir" || !session.name.startsWith("session_")) continue;
-          // This catch STAYS: a session dir without agents/main is a normal
-          // shape (created, never spawned), and the fs service reports
-          // absent and unreadable with one message — nothing to tell apart.
-          const main = await ctx.services.fs
-            .readDir(`${session.path}/agents/main`)
-            .catch(() => []);
-          const wire = main.find((f) => f.name === "wire.jsonl");
-          if (!wire) continue; // never messaged — nothing to index
-          stubs.push({
-            sessionId: session.name,
-            ref: wire.path,
-            mtime: wire.mtime ?? 0,
-            size: wire.size ?? 0,
-          });
-        }
+        stubs.push(...(await stubsOfSessions(sessions)));
       }
       return stubs;
+    },
+    /** The partial-tolerant twin of `list()` above: an unreadable
+     * working-dir folder is skipped, named in the log, and the answer
+     * says so with `complete: false` — the host then indexes what it
+     * got and prunes nothing. The session-level agents/main catch (and
+     * its named hazard) is shared via `stubsOfSessions`. */
+    async listing(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }> {
+      const stubs: AgentSessionStub[] = [];
+      let wdDirs;
+      try {
+        wdDirs = await ctx.services.fs.readDir(ROOT);
+      } catch (e) {
+        // A root refusal is NOT an empty store: [] with complete:true
+        // would read as "every session deleted" and the host's prune
+        // would wipe this agent's whole index. Nothing read, incomplete.
+        ctx.log.warn(
+          `kimi: store root unreadable (${errOf(e)}) — nothing enumerated`,
+        );
+        return { stubs, complete: false };
+      }
+      let complete = true;
+      for (const wd of wdDirs) {
+        if (wd.kind !== "dir" || !wd.name.startsWith("wd_")) continue;
+        let sessions;
+        try {
+          sessions = await ctx.services.fs.readDir(wd.path);
+        } catch (e) {
+          // A partial answer must be a NAMED one — this folder stays
+          // invisible to the index until it reads again, and silent
+          // degradation is the one mode this contract forbids.
+          complete = false;
+          ctx.log.warn(
+            `kimi: partial listing — ${wd.path} unreadable (${errOf(e)})`,
+          );
+          continue;
+        }
+        stubs.push(...(await stubsOfSessions(sessions)));
+      }
+      return { stubs, complete };
     },
     async describe(ref) {
       const sessionDir = ref.endsWith(WIRE_SUFFIX)
