@@ -77,6 +77,11 @@ export interface SpawnPlan {
   /** Host bookkeeping: the recorded session this plan tries to RESUME. Set
    * only on resume plans — the resume-failure detector keys off it. */
   resumeOf?: string;
+  /** Host bookkeeping: this plan IS the one quiet retry a refused boot
+   * restore earned (the registry said "absent"). Its own silent death is
+   * then the SECOND — and the legacy fresh fallback fires without another
+   * registry question. */
+  resumeRetry?: boolean;
   /** Host bookkeeping: the source session cloned by a FORK plan. */
   forkOf?: string;
   /** The first accepted local session binding emitted by that fork. Keeping
