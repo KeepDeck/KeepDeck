@@ -446,7 +446,12 @@ export function SkillsDialog({
             busy={deletingNow}
             isActive={(skill) =>
               (selection?.mode === "edit" && sameSkillRef(selection, skill)) ||
-              (selection?.mode === "view" && selection.name === skill.name)
+              // View mode names a BUNDLED row: scope-checked, because in the
+              // day-one union (a user-global `artifacts` beside the bundled
+              // one) a name-only match highlights both rows.
+              (selection?.mode === "view" &&
+                skill.scope.kind === "bundled" &&
+                selection.name === skill.name)
             }
             onOpen={(skill) => {
               if (skill.scope.kind === "bundled") {

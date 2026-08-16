@@ -825,6 +825,30 @@ it("a bundled row opens the read-only viewer — no Save, no Delete, never dirty
   expect(button("Save")).toBeUndefined();
 });
 
+it("opening the BUNDLED row in the union highlights exactly one row", async () => {
+    // The day-one union: a user-global artifacts AND the bundled one.
+    // View-mode matching is scope-checked — a name-only match would
+    // highlight both rows at once.
+    lib.skills = [
+      skill("artifacts"),
+      { scope: { kind: "bundled" }, name: "artifacts", content: skill("artifacts").content },
+    ];
+    await mount();
+    // Open the BUNDLED row (the last one carrying the name).
+    const rows = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".skills__item"),
+    );
+    const bundledRow = rows.reverse().find(
+      (b) => b.querySelector(".skills__item-name")?.textContent === "artifacts",
+    )!;
+    await act(async () => {
+      bundledRow.click();
+    });
+    expect(document.querySelector(".skill-viewer")).not.toBeNull();
+    const active = document.querySelectorAll(".skills__item--active");
+    expect(active).toHaveLength(1);
+  });
+
 it("the unlock hint shows while the artifacts setting is off, absent while on", async () => {
     // The both-ways pin §J named: the hint keys on the SETTING (not the
     // claim — the design's owned divergence), and unknown (null) hides it.
