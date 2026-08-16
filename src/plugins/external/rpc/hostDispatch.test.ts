@@ -389,6 +389,56 @@ describe("agent history over the RPC seam", () => {
     ]);
     await expect(asking).rejects.toThrow("malformed");
   });
+
+  it("liveSessions is proxied only under the guest's hasLiveSessions declaration", async () => {
+    // No declaration → no capability at all: the host must never ask a
+    // realm for a call it never claimed — the same refusal freeze the
+    // listing negotiation prevents, on its own channel.
+    const silent = harness();
+    await silent.dispatch.call("agents.register", [1, entry]);
+    expect(silent.agent().liveSessions).toBeUndefined();
+
+    const declared = harness();
+    await declared.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasLiveSessions: true },
+    ]);
+    const asking = declared.agent().liveSessions!.list();
+    expect(declared.pushes[0].channel).toMatch(/^livesessions:\d+$/);
+    expect(declared.pushes[0].payload).toEqual({ agentId: "gemini" });
+    await declared.dispatch.call("agents.liveResult", [
+      Number(declared.pushes[0].channel.slice("livesessions:".length)),
+      {
+        ok: true,
+        value: [
+          {
+            sessionId: "session-1",
+            kind: "background",
+            name: "Fix the build",
+            state: "working",
+            pid: 42,
+          },
+        ],
+      },
+    ]);
+    await expect(asking).resolves.toEqual([
+      { sessionId: "session-1", kind: "background", name: "Fix the build", state: "working" },
+    ]);
+  });
+
+  it("a live-sessions answer with junk rows fails the whole boundary", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasLiveSessions: true },
+    ]);
+    const asking = h.agent().liveSessions!.list();
+    await h.dispatch.call("agents.liveResult", [
+      Number(h.pushes[0].channel.slice("livesessions:".length)),
+      { ok: true, value: [{ sessionId: 7, kind: "background" }] },
+    ]);
+    await expect(asking).rejects.toThrow("malformed");
+  });
 });
 
 /** Harness over the file-open surface: `openers.register` proxies the realm's

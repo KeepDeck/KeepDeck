@@ -4,6 +4,7 @@ import type {
   AgentHooks,
   AgentIcon,
   AgentIconPath,
+  AgentLiveSession,
   AgentSessionFacts,
   AgentSessionStub,
   AgentTranscriptEntry,
@@ -29,9 +30,11 @@ import {
   fswatchChannel,
   historyChannel,
   hookChannel,
+  livesessionsChannel,
   openChannel,
   speechLevelChannel,
   type WireAgentHistoryCall,
+  type WireAgentLiveSessionsCall,
   type WireHookCall,
   type WireOpenCall,
   type WireSpawnPlanOutput,
@@ -149,6 +152,38 @@ export function createHostDispatch(
       });
       const call: WireAgentHistoryCall = { agentId, method, args };
       push(historyChannel(id), call);
+    });
+  }
+
+  // Live-sessions queries ride their OWN correlated request shape (not the
+  // history one): a different question asked of a different capability, and
+  // keeping the channels apart is what keeps the history method union a
+  // promise every guest can honor.
+  const LIVE_TIMEOUT_MS = 10_000;
+  let nextLiveId = 1;
+  const pendingLive = new Map<
+    number,
+    (result: { ok: true; value: unknown } | { ok: false; error: string }) => void
+  >();
+
+  function callLiveSessions(agentId: string): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const id = nextLiveId++;
+      const timer = setTimeout(() => {
+        if (pendingLive.delete(id))
+          reject(
+            new Error(
+              `agent live-sessions timed out after ${LIVE_TIMEOUT_MS}ms`,
+            ),
+          );
+      }, LIVE_TIMEOUT_MS);
+      pendingLive.set(id, (result) => {
+        clearTimeout(timer);
+        if (!result.ok) return reject(new Error(result.error));
+        resolve(result.value);
+      });
+      const call: WireAgentLiveSessionsCall = { agentId };
+      push(livesessionsChannel(id), call);
     });
   }
 
@@ -359,11 +394,13 @@ export function createHostDispatch(
         hookNames,
         hasHistory,
         hasListing,
+        hasLiveSessions,
         usage,
       } = entry as Omit<AgentContribution, "hooks" | "history"> & {
         hookNames?: string[];
         hasHistory?: boolean;
         hasListing?: boolean;
+        hasLiveSessions?: boolean;
       };
       // Usage contributions cannot cross this boundary yet: the store calls
       // `normalize` SYNCHRONOUSLY per report, and a cross-realm proxy is
@@ -429,6 +466,17 @@ export function createHostDispatch(
                 ),
             }
           : undefined;
+      // Live-sessions capability, negotiated exactly like `listing`: the
+      // wire flag is the ONLY basis for exposing the proxy, because a
+      // standing one would get every old guest asked for a call it throws
+      // on — this tier's own refusal freeze, reborn.
+      const liveSessions =
+        hasLiveSessions === true
+          ? {
+              list: async () =>
+                requireLiveResult(await callLiveSessions(id), sanitizeLiveSessions),
+            }
+          : undefined;
       retain(
         regId as number,
         ctx.agents.register({
@@ -441,6 +489,7 @@ export function createHostDispatch(
           ...(supportsYolo === true && { supportsYolo: true }),
           hooks,
           ...(history && { history }),
+          ...(liveSessions && { liveSessions }),
         }),
       );
     },
@@ -454,6 +503,12 @@ export function createHostDispatch(
       const settle = pendingHistory.get(id as number);
       if (!settle) return;
       pendingHistory.delete(id as number);
+      settle(asRealmResult(result, (v) => ({ ok: true, value: v.value })));
+    },
+    "agents.liveResult": ([id, result]) => {
+      const settle = pendingLive.get(id as number);
+      if (!settle) return;
+      pendingLive.delete(id as number);
       settle(asRealmResult(result, (v) => ({ ok: true, value: v.value })));
     },
 
@@ -660,6 +715,10 @@ export function createHostDispatch(
         settle({ ok: false, error: "plugin bridge disposed" });
       }
       pendingHistory.clear();
+      for (const settle of pendingLive.values()) {
+        settle({ ok: false, error: "plugin bridge disposed" });
+      }
+      pendingLive.clear();
       for (const settle of pendingOpens.values()) {
         settle({ ok: false, error: "plugin bridge disposed" });
       }
@@ -825,6 +884,39 @@ function sanitizeHistoryListing(
   const stubs = sanitizeHistoryList(v.stubs);
   if (stubs === null) return null;
   return { stubs, complete: v.complete };
+}
+
+/** A realm's live-sessions answer — rebuilt from known fields only, like
+ * every other reply that crosses this boundary. Junk rows fail the WHOLE
+ * answer (never a half-invented registry), and the optional strings drop
+ * rather than pass through: a hostile realm's word about live processes
+ * only ever gets to be plain data. */
+function sanitizeLiveSessions(value: unknown): AgentLiveSession[] | null {
+  if (!Array.isArray(value)) return null;
+  const result: AgentLiveSession[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return null;
+    const v = item as Record<string, unknown>;
+    if (typeof v.sessionId !== "string" || typeof v.kind !== "string")
+      return null;
+    result.push({
+      sessionId: v.sessionId,
+      kind: v.kind,
+      ...(typeof v.name === "string" ? { name: v.name } : {}),
+      ...(typeof v.state === "string" ? { state: v.state } : {}),
+    });
+  }
+  return result;
+}
+
+function requireLiveResult<T>(
+  value: unknown,
+  sanitize: (value: unknown) => T | null,
+): T {
+  const result = sanitize(value);
+  if (result === null)
+    throw new Error("agent live-sessions returned malformed data");
+  return result;
 }
 
 function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {

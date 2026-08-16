@@ -6,6 +6,8 @@ export type {
   AgentIcon,
   AgentHistory,
   AgentIconPath,
+  AgentLiveSession,
+  AgentLiveSessions,
   AgentRemote,
   AgentSessionFacts,
   AgentSessionStub,

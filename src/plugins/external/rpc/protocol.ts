@@ -109,6 +109,7 @@ export type EventChannel =
   | `download:${string}`
   | `hook:${string}`
   | `history:${string}`
+  | `livesessions:${string}`
   | `open:${string}`;
 
 /** The three deck-lifecycle channels a guest may subscribe to by name via
@@ -162,6 +163,15 @@ export function historyChannel(id: number): `history:${string}` {
   return `history:${id}`;
 }
 
+/** The push channel for ONE live-sessions query (host→guest) — its own
+ * channel, deliberately NOT the history one: the closed union of history
+ * method names is a promise every guest understands each name, and a
+ * live-registry question (about processes, not the store) must not lean
+ * on it. */
+export function livesessionsChannel(id: number): `livesessions:${string}` {
+  return `livesessions:${id}`;
+}
+
 /** The push channel for ONE file-open invocation (host→guest) — the same
  * request/response shape as agent hooks. The host mints the id and pushes a
  * `WireOpenCall`; the guest runs the plugin's handler and answers with an
@@ -211,6 +221,12 @@ export interface WireAgentHistoryCall {
   agentId: string;
   method: "list" | "listing" | "describe" | "content" | "transcript";
   args: unknown[];
+}
+
+/** One live-sessions query into an external agent (host→guest) — which of
+ * the agent's sessions are held by an outside process RIGHT NOW. */
+export interface WireAgentLiveSessionsCall {
+  agentId: string;
 }
 
 // ---------------------------------------------------------------- open bodies

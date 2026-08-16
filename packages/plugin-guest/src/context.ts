@@ -1,5 +1,6 @@
 import type {
   AgentHistory,
+  AgentLiveSession,
   AgentHooks,
   CommandInfo,
   CommandResult,
@@ -23,6 +24,7 @@ import { describeError } from "./errors";
 import type { GuestRpc } from "./rpc";
 import {
   type WireAgentHistoryCall,
+  type WireAgentLiveSessionsCall,
   speechLevelChannel,
   type WireHookCall,
   type WireOpenCall,
@@ -157,6 +159,12 @@ export function buildGuestContext(
   // `hook:<id>` per invocation and we answer with `agents.hookResult`.
   const agentHooks = new Map<string, AgentHooks>();
   const agentHistories = new Map<string, AgentHistory>();
+  // Live-session registries stay HERE for the same reason histories do: the
+  // host pushes `livesessions:<id>` and we answer over the wire.
+  const agentLive = new Map<
+    string,
+    { list(): Promise<AgentLiveSession[]> }
+  >();
   // File-open handlers likewise: identity crosses as data, the open()
   // callback stays here; the host pushes `open:<id>` and we answer with
   // `openers.openResult`.
@@ -418,6 +426,10 @@ export function buildGuestContext(
         }
         agentHooks.set(agent.id, agent.hooks);
         if (agent.history) agentHistories.set(agent.id, agent.history);
+        // The wire flag must track the OBJECT, not optimism: a false
+        // declaration gets an old-guest host asking for a call this realm
+        // would have to refuse.
+        if (agent.liveSessions) agentLive.set(agent.id, agent.liveSessions);
         return registerRemote(
           "agents.register",
           {
@@ -436,10 +448,12 @@ export function buildGuestContext(
             ...(typeof agent.history?.listing === "function" && {
               hasListing: true,
             }),
+            ...(agent.liveSessions !== undefined && { hasLiveSessions: true }),
           },
           () => {
             agentHooks.delete(agent.id);
             agentHistories.delete(agent.id);
+            agentLive.delete(agent.id);
           },
         );
       },
@@ -733,6 +747,31 @@ export function buildGuestContext(
     }
   }
 
+  /** Run one host-requested live-sessions query and post the answer back. */
+  async function runLiveSessions(
+    callId: number,
+    payload: unknown,
+  ): Promise<void> {
+    const { agentId } = payload as WireAgentLiveSessionsCall;
+    try {
+      const live = agentLive.get(agentId);
+      if (!live) {
+        throw new Error(`agent "${agentId}" declared no live-sessions capability`);
+      }
+      const value = await live.list();
+      void rpc
+        .call("agents.liveResult", [callId, { ok: true, value }])
+        .catch(noop);
+    } catch (error) {
+      void rpc
+        .call("agents.liveResult", [
+          callId,
+          { ok: false, error: describeError(error) },
+        ])
+        .catch(noop);
+    }
+  }
+
   /** Run one host-requested file-open and post the boolean verdict back. */
   async function runOpen(callId: number, payload: unknown): Promise<void> {
     const { handlerId, request } = payload as WireOpenCall;
@@ -756,6 +795,10 @@ export function buildGuestContext(
   function dispatchEvent(channel: string, payload: unknown): void {
     if (channel.startsWith("history:")) {
       void runHistory(Number(channel.slice("history:".length)), payload);
+      return;
+    }
+    if (channel.startsWith("livesessions:")) {
+      void runLiveSessions(Number(channel.slice("livesessions:".length)), payload);
       return;
     }
     if (channel.startsWith("hook:")) {
