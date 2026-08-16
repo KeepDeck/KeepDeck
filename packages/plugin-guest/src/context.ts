@@ -429,6 +429,13 @@ export function buildGuestContext(
             ...(agent.supportsYolo === true && { supportsYolo: true }),
             hookNames: Object.keys(agent.hooks),
             ...(agent.history !== undefined && { hasHistory: true }),
+            // Declared IFF the method really sits on the object — the
+            // wire flag is the host's ONLY basis for exposing `listing`
+            // in its proxy, and a standing proxy would get every old
+            // guest asked for a method it throws on.
+            ...(typeof agent.history?.listing === "function" && {
+              hasListing: true,
+            }),
           },
           () => {
             agentHooks.delete(agent.id);
@@ -689,6 +696,14 @@ export function buildGuestContext(
       switch (method) {
         case "list":
           value = await history.list();
+          break;
+        case "listing":
+          if (!history.listing) {
+            throw new Error(
+              `agent "${agentId}" declared no listing capability`,
+            );
+          }
+          value = await history.listing();
           break;
         case "describe":
           value = await history.describe(args[0] as string);

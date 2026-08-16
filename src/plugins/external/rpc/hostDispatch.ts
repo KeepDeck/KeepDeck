@@ -358,10 +358,12 @@ export function createHostDispatch(
         supportsYolo,
         hookNames,
         hasHistory,
+        hasListing,
         usage,
       } = entry as Omit<AgentContribution, "hooks" | "history"> & {
         hookNames?: string[];
         hasHistory?: boolean;
+        hasListing?: boolean;
       };
       // Usage contributions cannot cross this boundary yet: the store calls
       // `normalize` SYNCHRONOUSLY per report, and a cross-realm proxy is
@@ -393,6 +395,20 @@ export function createHostDispatch(
                   await callHistory(id, "list", []),
                   sanitizeHistoryList,
                 ),
+              // Exposed ONLY on the guest's wire declaration, never
+              // unconditionally like the four above: a standing proxy
+              // would make `typeof listing === "function"` true for EVERY
+              // external plugin, including old guests that throw on the
+              // unknown method — this contract's own bug, reborn for the
+              // whole external tier.
+              ...(hasListing === true && {
+                listing: async () =>
+                  requireHistoryResult(
+                    "listing",
+                    await callHistory(id, "listing", []),
+                    sanitizeHistoryListing,
+                  ),
+              }),
               describe: async (ref) =>
                 requireHistoryResult(
                   "describe",
@@ -795,6 +811,20 @@ function sanitizeHistoryList(value: unknown): AgentSessionStub[] | null {
     });
   }
   return result;
+}
+
+/** A realm's `listing()` answer — the list sanitizer's shape plus the
+ * integrity flag, which must be a LITERAL boolean: a hostile realm's
+ * "complete": "yes" must fail the boundary, not read as a prune permit. */
+function sanitizeHistoryListing(
+  value: unknown,
+): { stubs: AgentSessionStub[]; complete: boolean } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.complete !== "boolean") return null;
+  const stubs = sanitizeHistoryList(v.stubs);
+  if (stubs === null) return null;
+  return { stubs, complete: v.complete };
 }
 
 function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {

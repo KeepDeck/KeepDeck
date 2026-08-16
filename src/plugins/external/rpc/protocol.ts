@@ -202,10 +202,14 @@ export interface WireHookCall {
   output: WireSpawnPlanOutput;
 }
 
-/** One read-only call into an external agent's session history provider. */
+/** One read-only call into an external agent's session history provider.
+ * The method names are a CLOSED union: the guest dispatches by name, so
+ * a name here is a promise every guest understands — `listing` joined
+ * only when capability negotiation (the `hasListing` registration flag)
+ * started shipping, and old guests must never be asked for it. */
 export interface WireAgentHistoryCall {
   agentId: string;
-  method: "list" | "describe" | "content" | "transcript";
+  method: "list" | "listing" | "describe" | "content" | "transcript";
   args: unknown[];
 }
 
