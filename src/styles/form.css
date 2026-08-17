@@ -366,13 +366,6 @@
   opacity: 0.8;
 }
 
-/* The fork badge: a copy shares its source's title, so the badge is the
-   only difference the eye can catch. */
-.form__session-fork {
-  font-size: 11px;
-  color: var(--muted, #8b93a3);
-}
-
 .form__session-name {
   overflow: hidden;
   text-overflow: ellipsis;

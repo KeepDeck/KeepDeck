@@ -21,10 +21,6 @@ export interface IndexRowInput {
   cwd: string;
   title?: string | null;
   transcriptPath?: string | null;
-  /** The store's own fork marker (epoch ms), when this session is a copy —
-   * a copy shares the source's title, so the marker is what tells them
-   * apart in a listing. */
-  forkedAt?: number | null;
   mtime: number;
   size: number;
   content: string;
@@ -38,8 +34,6 @@ export interface SearchHit {
   cwd: string;
   title: string | null;
   transcriptPath: string | null;
-  /** The store's own fork marker (epoch ms) — null on an original. */
-  forkedAt: number | null;
   mtime: number;
   /** FTS snippet with [ ] highlight markers, when content matched. */
   snippet: string | null;

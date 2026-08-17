@@ -39,7 +39,6 @@ const hit = (over: Partial<SearchHit> = {}): SearchHit => ({
   cwd: "/repo/wt",
   title: "auth bug",
   transcriptPath: "/store/u-1.jsonl",
-  forkedAt: null,
   mtime: 1752900000000,
   snippet: "the [auth] bug",
   ...over,

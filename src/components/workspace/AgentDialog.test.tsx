@@ -720,19 +720,21 @@ describe("AgentDialog start-from session picker", () => {
     expect(forkRow.className).not.toContain("form__session--blocked");
   });
 
-  it("a fork badge tells a copy from its same-titled source", async () => {
+  it("same-titled rows render side by side — there is no fork badge to tell a copy by", async () => {
+    // The `.meta.json` fork marker this badge rode on was subagent
+    // machinery that never exists at session level; the badge is gone and
+    // the honest state is: two rows, one title, nothing pretending to
+    // distinguish them.
     await mount({
       searchSessions: async () => ({
         rows: [
           {
             handle: { agent: "claude", sessionId: "src", cwd: "/repo/wt", title: "auth bug" },
             mtime: 3,
-            forkedAt: null,
           },
           {
             handle: { agent: "claude", sessionId: "copy", cwd: "/repo/wt", title: "auth bug" },
             mtime: 2,
-            forkedAt: 1752900000000,
           },
         ],
         total: 2,
@@ -743,8 +745,8 @@ describe("AgentDialog start-from session picker", () => {
     const names = rows().map(
       (r) => r.querySelector(".form__session-name")!.textContent ?? "",
     );
-    expect(names[0]).not.toContain("copy");
-    expect(names[1]).toContain("copy ·");
+    expect(names[0]).toBe("auth bug");
+    expect(names[1]).toBe("auth bug");
   });
 
   it("Fork keeps the location free and takes exactly the sessions resume refuses", async () => {

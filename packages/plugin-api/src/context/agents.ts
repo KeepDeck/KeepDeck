@@ -249,11 +249,6 @@ export interface AgentSessionFacts {
   /** The session's transcript file, when the store has one — carried
    * explicitly so consumers never infer it from the ref's shape. */
   transcriptPath?: string;
-  /** When this session is a FORK: the moment the copy was branched off
-   * (epoch ms), read from the store's own fork marker. The fork shares the
-   * source's title (the first turn is the same), so without this the two
-   * are indistinguishable in any listing. Absent on an original. */
-  forkedAt?: number;
 }
 
 export interface AgentTranscriptEntry {

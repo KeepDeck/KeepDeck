@@ -284,9 +284,6 @@ describe("agent history over the RPC seam", () => {
           cwd: "/repo",
           title: "Session",
           transcriptPath: "/transcript",
-          // The fork marker rides along — the boundary's whitelist is the
-          // field's second home (it vanishes silently without this one).
-          forkedAt: 1752900000000,
         },
       },
     ]);
@@ -294,7 +291,6 @@ describe("agent history over the RPC seam", () => {
       cwd: "/repo",
       title: "Session",
       transcriptPath: "/transcript",
-      forkedAt: 1752900000000,
     });
 
     const content = history.content("/store/session-1");
@@ -330,19 +326,19 @@ describe("agent history over the RPC seam", () => {
     ]);
     await expect(listing).rejects.toThrow("malformed");
 
-    // A non-number forkedAt fails the boundary the same way — a marker that
-    // isn't a moment must never badge a row as a copy.
-    const badFork = harness();
-    await badFork.dispatch.call("agents.register", [
+    // An unknown extra field in facts drops at the boundary — the answer
+    // is rebuilt from known fields only, never passed through.
+    const junkField = harness();
+    await junkField.dispatch.call("agents.register", [
       1,
       { ...entry, hasHistory: true },
     ]);
-    const describing = badFork.agent().history!.describe("/store/s");
-    await badFork.dispatch.call("agents.historyResult", [
-      Number(badFork.pushes[0].channel.slice("history:".length)),
+    const describing = junkField.agent().history!.describe("/store/s");
+    await junkField.dispatch.call("agents.historyResult", [
+      Number(junkField.pushes[0].channel.slice("history:".length)),
       { ok: true, value: { cwd: "/repo", forkedAt: "yes" } },
     ]);
-    await expect(describing).rejects.toThrow("malformed");
+    await expect(describing).resolves.toEqual({ cwd: "/repo" });
 
     const disposed = harness();
     await disposed.dispatch.call("agents.register", [

@@ -42,8 +42,6 @@ pub struct IndexRowDto {
     pub title: Option<String>,
     #[serde(default)]
     pub transcript_path: Option<String>,
-    #[serde(default)]
-    pub forked_at: Option<i64>,
     pub mtime: i64,
     pub size: i64,
     pub content: String,
@@ -58,7 +56,6 @@ pub struct SearchHitDto {
     pub cwd: String,
     pub title: Option<String>,
     pub transcript_path: Option<String>,
-    pub forked_at: Option<i64>,
     pub mtime: i64,
     pub snippet: Option<String>,
 }
@@ -99,7 +96,6 @@ pub fn index_upsert(
                 cwd: r.cwd,
                 title: r.title,
                 transcript_path: r.transcript_path,
-                forked_at: r.forked_at,
                 mtime: r.mtime,
                 size: r.size,
                 content: r.content,
@@ -152,7 +148,6 @@ pub fn index_search(
                      cwd,
                      title,
                      transcript_path,
-                     forked_at,
                      mtime,
                      snippet,
                  }| SearchHitDto {
@@ -162,7 +157,6 @@ pub fn index_search(
                     cwd,
                     title,
                     transcript_path,
-                    forked_at,
                     mtime,
                     snippet,
                 },

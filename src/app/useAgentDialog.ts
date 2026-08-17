@@ -280,7 +280,6 @@ export function useAgentDialog(
       rows: page.hits.map((hit) => ({
         handle: handleFromHit(hit),
         mtime: hit.mtime,
-        forkedAt: hit.forkedAt,
       })),
       total: page.total,
     };

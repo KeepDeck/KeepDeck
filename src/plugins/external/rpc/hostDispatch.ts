@@ -925,12 +925,7 @@ function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {
   if (
     typeof v.cwd !== "string" ||
     (v.title !== undefined && typeof v.title !== "string") ||
-    (v.transcriptPath !== undefined &&
-      typeof v.transcriptPath !== "string") ||
-    // The fork marker must be a LITERAL finite number — a hostile realm's
-    // "forkedAt": "yes" must fail the boundary, not badge a row as a copy.
-    (v.forkedAt !== undefined &&
-      (typeof v.forkedAt !== "number" || !Number.isFinite(v.forkedAt)))
+    (v.transcriptPath !== undefined && typeof v.transcriptPath !== "string")
   )
     return null;
   return {
@@ -939,7 +934,6 @@ function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {
     ...(typeof v.transcriptPath === "string"
       ? { transcriptPath: v.transcriptPath }
       : {}),
-    ...(typeof v.forkedAt === "number" ? { forkedAt: v.forkedAt } : {}),
   };
 }
 

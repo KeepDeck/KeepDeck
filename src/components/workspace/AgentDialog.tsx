@@ -658,13 +658,6 @@ export function AgentDialog({
                     >
                       <span className="form__session-name">
                         {row.handle.title ?? row.handle.sessionId}
-                        {row.forkedAt != null && (
-                          // A fork shares its source's title — the badge is
-                          // the only thing telling the two rows apart.
-                          <span className="form__session-fork">
-                            {" "}copy · {formatAge(row.forkedAt, Date.now())}
-                          </span>
-                        )}
                       </span>
                       <span className="form__session-meta">
                         {baseName(row.handle.cwd) || "no directory"} ·{" "}

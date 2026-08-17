@@ -188,10 +188,6 @@ export interface SessionPickRow {
   handle: SessionHandle;
   /** Store mtime (ms) — the row's recency stamp. */
   mtime: number;
-  /** The store's fork marker (epoch ms), when this row is a COPY — the
-   * copy shares its source's title, so the badge is what tells them
-   * apart in the list. `null`/absent on an original. */
-  forkedAt?: number | null;
 }
 
 /** What the "+ Agent" dialog returns for one new agent. */
