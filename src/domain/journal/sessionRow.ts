@@ -54,10 +54,7 @@ export function rowOfJoined(joined: JoinedRow): UnifiedSessionRow {
     branch: record.branch,
     liveness: record.state === "live" ? "live" : "closed",
     status: joined.status,
-    when:
-      Date.parse(
-        record.state === "closed" ? record.endedAt : record.boundAt,
-      ) || null,
+    when: joined.when,
     snippet: null,
     handle: record,
   };

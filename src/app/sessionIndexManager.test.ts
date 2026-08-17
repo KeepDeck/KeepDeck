@@ -113,12 +113,23 @@ describe("sessionIndexManager revision and scanning", () => {
     const settle = batchyScan();
     manager.ensureFresh();
     // scanning=true fired, then the batch tick bumped the revision.
-    expect(manager.snapshot()).toEqual({ scanning: true, revision: 1 });
+    expect(manager.snapshot()).toEqual({
+      scanning: true,
+      revision: 1,
+      scannedAgents: new Set(),
+    });
     expect(listener).toHaveBeenCalledTimes(2);
 
     settle();
     await flush();
-    expect(manager.snapshot()).toEqual({ scanning: false, revision: 2 });
+    // The settle publishes the scan's participants — claude and codex
+    // have history, kimi is not a source — the file-erased verdict's
+    // precondition.
+    expect(manager.snapshot()).toEqual({
+      scanning: false,
+      revision: 2,
+      scannedAgents: new Set(["claude", "codex"]),
+    });
   });
 
   it("the snapshot is identity-stable between changes", async () => {

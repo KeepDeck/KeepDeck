@@ -102,7 +102,7 @@ describe("useJournalEnrichment", () => {
     act(() => api.declare([KEYS.own]));
     await act(async () => {});
     await act(async () =>
-      resolvers[2]([{ status: "hit", reference: "/store/s-1", title: "late" }]),
+      resolvers[2]([{ status: "hit", reference: "/store/s-1", title: "late", mtime: 9 }]),
     );
     expect(api.pending).toBe(false);
   });
@@ -126,7 +126,7 @@ describe("useJournalEnrichment", () => {
     // duplicate-run guard left the queue empty.
     await act(async () =>
       resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: null },
+        { status: "hit", reference: "/store/s-1", title: null, mtime: 9 },
         { status: "absent" },
       ]),
     );
@@ -146,7 +146,7 @@ describe("useJournalEnrichment", () => {
 
     await act(async () =>
       resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: "the real title" },
+        { status: "hit", reference: "/store/s-1", title: "the real title", mtime: 9 },
         { status: "foreign", agents: ["kimi"] },
         { status: "absent" },
       ]),
@@ -155,6 +155,7 @@ describe("useJournalEnrichment", () => {
       kind: "hit",
       reference: "/store/s-1",
       title: "the real title",
+      mtime: 9,
     });
     expect(api.entries.get(rowKeyOf(KEYS.foreign))).toEqual({
       kind: "foreign",
@@ -184,7 +185,7 @@ describe("useJournalEnrichment", () => {
     await act(async () => {});
     await act(async () =>
       resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: null },
+        { status: "hit", reference: "/store/s-1", title: null, mtime: 9 },
         { status: "absent" },
       ]),
     );
@@ -196,12 +197,13 @@ describe("useJournalEnrichment", () => {
 
     // The batch delivered the previously-absent session: it turns hit.
     await act(async () =>
-      resolvers[1]([{ status: "hit", reference: "/store/nope", title: "late arrival" }]),
+      resolvers[1]([{ status: "hit", reference: "/store/nope", title: "late arrival", mtime: 9 }]),
     );
     expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({
       kind: "hit",
       reference: "/store/nope",
       title: "late arrival",
+      mtime: 9,
     });
 
     // The next bump finds only hits — no ask at all.
@@ -278,7 +280,7 @@ describe("useJournalEnrichment", () => {
     // And it answers under the CURRENT revision: pending finally rests.
     await act(async () =>
       resolvers[1]([
-        { status: "hit", reference: "/store/s-1", title: "burst title" },
+        { status: "hit", reference: "/store/s-1", title: "burst title", mtime: 9 },
         { status: "absent" },
       ]),
     );
@@ -305,7 +307,7 @@ describe("useJournalEnrichment", () => {
     expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
     await act(async () =>
       resolvers[1]([
-        { status: "hit", reference: "/store/s-1", title: "burst title" },
+        { status: "hit", reference: "/store/s-1", title: "burst title", mtime: 9 },
         { status: "absent" },
       ]),
     );
@@ -328,7 +330,7 @@ describe("useJournalEnrichment", () => {
 
     await act(async () =>
       resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: null },
+        { status: "hit", reference: "/store/s-1", title: null, mtime: 9 },
         { status: "absent" },
       ]),
     );
@@ -341,8 +343,8 @@ describe("useJournalEnrichment", () => {
     ]);
     await act(async () =>
       resolvers[1]([
-        { status: "hit", reference: "/store/nope", title: "late" },
-        { status: "hit", reference: "/store/new", title: "newest" },
+        { status: "hit", reference: "/store/nope", title: "late", mtime: 9 },
+        { status: "hit", reference: "/store/new", title: "newest", mtime: 9 },
       ]),
     );
     expect(api.entries.size).toBe(3);
@@ -375,6 +377,7 @@ describe("useJournalEnrichment", () => {
       api.entries.get(rowKeyOf({ agent: "claude", sessionId: "s-1" })),
       "Claude Code",
       false,
+      true,
     );
     expect(before.status).toBe("nothing-to-read");
 
@@ -383,7 +386,7 @@ describe("useJournalEnrichment", () => {
     await rerender();
     await act(async () =>
       resolvers[1]([
-        { status: "hit", reference: "/store/s-1", title: "fix the auth bug" },
+        { status: "hit", reference: "/store/s-1", title: "fix the auth bug", mtime: 9 },
       ]),
     );
     const after = joinJournalRow(
@@ -391,6 +394,7 @@ describe("useJournalEnrichment", () => {
       api.entries.get(rowKeyOf({ agent: "claude", sessionId: "s-1" })),
       "Claude Code",
       false,
+      true,
     );
     expect(after.title).toBe("fix the auth bug");
     expect(after.read).toEqual({ source: "index", reference: "/store/s-1" });

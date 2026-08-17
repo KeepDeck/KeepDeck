@@ -16,6 +16,11 @@ export interface SessionIndexSnapshot {
    * subscribes to: a first-ever scan fills the list batch by batch instead
    * of showing emptiness until the end. */
   revision: number;
+  /** The agents whose stores the LAST SETTLED scan walked — the
+   * `file-erased` verdict's precondition. An agent absent here was never
+   * looked at, and its absence from the index proves nothing. Empty
+   * until the first scan settles. */
+  scannedAgents: ReadonlySet<string>;
 }
 
 /** The agent-contribution registry as this owner needs it: history-bearing
@@ -68,7 +73,11 @@ function mergeNeeds(a: Need | null, b: Need): Need {
 export function createSessionIndexManager(
   registry: SessionIndexRegistry,
 ): SessionIndexManager {
-  let snapshot: SessionIndexSnapshot = { scanning: false, revision: 0 };
+  let snapshot: SessionIndexSnapshot = {
+    scanning: false,
+    revision: 0,
+    scannedAgents: new Set(),
+  };
   const listeners = new Set<() => void>();
   /** The pass currently running; null when idle. */
   let running: Need | null = null;
@@ -100,17 +109,30 @@ export function createSessionIndexManager(
   /** The ONE way the snapshot moves: adopt the next state and notify — but
    * only when something actually changed. Forgetting this test is how
    * `useSyncExternalStore` loops (the UsageChips lesson). */
-  function publish(next: SessionIndexSnapshot): void {
-    if (next.scanning === snapshot.scanning && next.revision === snapshot.revision)
+  function publish(
+    next: Omit<SessionIndexSnapshot, "scannedAgents"> & {
+      scannedAgents?: ReadonlySet<string>;
+    },
+  ): void {
+    const merged: SessionIndexSnapshot = {
+      ...next,
+      scannedAgents: next.scannedAgents ?? snapshot.scannedAgents,
+    };
+    if (
+      merged.scanning === snapshot.scanning &&
+      merged.revision === snapshot.revision &&
+      merged.scannedAgents === snapshot.scannedAgents
+    )
       return;
-    snapshot = next;
+    snapshot = merged;
     for (const listener of [...listeners]) listener();
   }
 
   function run(need: Need): void {
     running = need;
+    const sources = sourcesOf(need.agent);
     publish({ scanning: true, revision: snapshot.revision });
-    void scanAgentHistories(sourcesOf(need.agent), undefined, () => {
+    void scanAgentHistories(sources, undefined, () => {
       // A batch landed: bump the revision so subscribed listings refresh
       // while the scan is still filling the index.
       publish({ scanning: true, revision: snapshot.revision + 1 });
@@ -120,7 +142,20 @@ export function createSessionIndexManager(
       )
       .finally(() => {
         running = null;
-        publish({ scanning: false, revision: snapshot.revision + 1 });
+        // The settled scan's participants — the verdict precondition. A
+        // REFUSED pass keeps the previous set: its stores were not walked
+        // to a conclusion, and "we tried" is not "we looked".
+        publish({
+          scanning: false,
+          revision: snapshot.revision + 1,
+          ...(sources.length > 0
+            ? {
+                scannedAgents: new Set(
+                  sources.map((source) => source.agentId),
+                ),
+              }
+            : {}),
+        });
         const next = queued;
         queued = null;
         if (next !== null && !disposed) run(next);

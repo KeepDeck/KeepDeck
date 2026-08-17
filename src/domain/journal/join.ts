@@ -13,10 +13,12 @@ import type { SessionRecord } from "./sessionLog";
  * What the index answered for one (agent, sessionId) key — structural, so
  * the ipc layer's `IndexLookupAnswer` maps onto it without this domain
  * importing ipc. `undefined` = no answer yet (ask pending, or never
- * fired) — which is NOT an absence and must never read as one.
+ * fired) — which is NOT an absence and must never read as one. A `hit`
+ * carries the store's last-activity stamp (mtime) — the axis half for
+ * rows the index knows.
  */
 export type JoinEntry =
-  | { kind: "hit"; reference: string; title: string | null }
+  | { kind: "hit"; reference: string; title: string | null; mtime: number }
   | { kind: "foreign"; agents: readonly string[] }
   | { kind: "absent" }
   | { kind: "error" };
@@ -31,6 +33,10 @@ export type RowStatus =
    * an absent answer predates a change still in flight (a scan, a
    * revision-bumped re-ask). */
   | "indexing"
+  /** The journal path EXISTS, the index (settled) does not know the
+   * session, and the agent's store was scanned — the transcript file is
+   * erased, said BEFORE the click. */
+  | "file-erased"
   /** Definitive: no journal path, no index row, index settled — but the
    * conversation ran here. */
   | "nothing-to-read"
@@ -60,6 +66,10 @@ export interface JoinedRow {
   readLinks: string[];
   /** The status chip, or null when the row needs none. */
   status: RowStatus | null;
+  /** The composite time mark (epoch ms): the conversation's LAST MOVE
+   * when the index knows the session, the journal's own mark (bound /
+   * closed) otherwise. */
+  when: number | null;
 }
 
 export function joinJournalRow(
@@ -72,6 +82,11 @@ export function joinJournalRow(
    * enrichment table's own pending flag), so the domain stays the one
    * place that decides what an answer MEANS. */
   answerMayChange: boolean,
+  /** Whether THIS AGENT's store participated in the settled scan — the
+   * `file-erased` verdict's second boundary. Composed by the caller; an
+   * agent that never scanned owes no verdict (absence proves nothing
+   * about a store nobody looked at). */
+  scannedAgent: boolean,
 ): JoinedRow {
   // The wrong-owner guard outranks everything, the journal path included:
   // that path is the record's claim, and the claim is what's broken —
@@ -84,6 +99,7 @@ export function joinJournalRow(
       read: null,
       readLinks: [],
       status: "wrong-owner",
+      when: Date.parse(record.state === "closed" ? record.endedAt : record.boundAt) || null,
     };
   }
   const title =
@@ -103,22 +119,42 @@ export function joinJournalRow(
   const readLinks: string[] = [];
   if (journalPath !== undefined) readLinks.push(journalPath);
   if (indexRef !== undefined && indexRef !== journalPath) readLinks.push(indexRef);
-  // A read link makes the row need no status — regardless of what the
-  // index said or failed to say, the row opens. Only link-less rows
-  // paint one, and an absent answer is definitive ONLY while no answer
-  // may still change (a landed batch can add the session); pending and
-  // failed asks are their own states, never "nothing to read".
-  const status =
-    read !== null
-      ? null
-      : entry?.kind === "absent"
+  // THE COMPOSITE TIME AXIS: the last move in the conversation when the
+  // index knows the session (its mtime IS that moment), the journal's own
+  // mark otherwise — the user chose the conversation over the pane, and
+  // rows the index doesn't know still keep a place on the axis instead of
+  // sinking to the end.
+  const when =
+    entry?.kind === "hit"
+      ? entry.mtime
+      : (Date.parse(
+          record.state === "closed" ? record.endedAt : record.boundAt,
+        ) || null);
+  // A read link needs no status — except ONE case, and it is a NEW branch:
+  // the row HAS a journal path, the index (settled) does NOT know the
+  // session, and the agent's store PARTICIPATED in that scan — then the
+  // file the path names is erased, and the row can say so BEFORE the
+  // click. Everything else about a readable row stays statusless.
+  // `scannedAgent` (who participated) is the second boundary: an agent
+  // whose store never scanned owes no verdict — absence proves nothing
+  // about a store nobody looked at.
+  let status: RowStatus | null;
+  if (read !== null) {
+    status =
+      entry?.kind === "absent" && !answerMayChange && scannedAgent
+        ? "file-erased"
+        : null;
+  } else {
+    status =
+      entry?.kind === "absent"
         ? answerMayChange
           ? "indexing"
           : "nothing-to-read"
         : entry?.kind === "error"
           ? "index-error"
           : "indexing";
-  return { record, title, read, readLinks, status };
+  }
+  return { record, title, read, readLinks, status, when };
 }
 
 /** The record's own title when it says something the fallback row

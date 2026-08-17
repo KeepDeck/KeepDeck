@@ -110,10 +110,14 @@ pub struct SessionIndex {
 /// join key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LookupAnswer {
-    /// The exact row: its read handle (the plugin's opaque ref) and title.
+    /// The exact row: its read handle (the plugin's opaque ref), title,
+    /// and the store's last-activity stamp — the composite time axis's
+    /// half for rows the index knows (the journal knows only when the
+    /// pane bound or closed, which is a different moment entirely).
     Hit {
         reference: String,
         title: Option<String>,
+        mtime: i64,
     },
     /// The requester's (agent, session_id) key found nothing, but the id is
     /// NOT unknown — it exists under DIFFERENT agent(s). The signature of
@@ -520,7 +524,7 @@ impl SessionIndex {
             .collect::<Vec<_>>()
             .join(", ");
         let sql = format!(
-            "SELECT agent, session_id, ref, title FROM sessions
+            "SELECT agent, session_id, ref, title, mtime FROM sessions
              WHERE session_id IN ({placeholders})"
         );
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -531,6 +535,7 @@ impl SessionIndex {
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
                     r.get::<_, Option<String>>(3)?,
+                    r.get::<_, i64>(4)?,
                 ))
             })
             .map_err(|e| e.to_string())?
@@ -539,12 +544,12 @@ impl SessionIndex {
         // Both views of the answer: the exact (agent, id) row, and which
         // agents hold an id at all.
         use std::collections::HashMap;
-        let mut exact: HashMap<(&str, &str), (&str, Option<&str>)> = HashMap::new();
+        let mut exact: HashMap<(&str, &str), (&str, Option<&str>, i64)> = HashMap::new();
         let mut holders: HashMap<&str, Vec<&str>> = HashMap::new();
-        for (agent, session_id, reference, title) in &rows {
+        for (agent, session_id, reference, title, mtime) in &rows {
             exact.insert(
                 (agent.as_str(), session_id.as_str()),
-                (reference.as_str(), title.as_deref()),
+                (reference.as_str(), title.as_deref(), *mtime),
             );
             holders.entry(session_id.as_str()).or_default().push(agent.as_str());
         }
@@ -552,9 +557,10 @@ impl SessionIndex {
             .iter()
             .map(|(agent, session_id)| {
                 match exact.get(&(agent.as_str(), session_id.as_str())) {
-                    Some((reference, title)) => LookupAnswer::Hit {
+                    Some((reference, title, mtime)) => LookupAnswer::Hit {
                         reference: reference.to_string(),
                         title: title.map(str::to_string),
+                        mtime: *mtime,
                     },
                     None => match holders.get(session_id.as_str()) {
                         // The requester's own agent, if present, was matched by
@@ -707,6 +713,7 @@ mod tests {
                 LookupAnswer::Hit {
                     reference: "/store/a".into(),
                     title: Some("title a".into()),
+                    mtime: 1,
                 },
                 LookupAnswer::Foreign {
                     agents: vec!["kimi".into()],
@@ -715,6 +722,7 @@ mod tests {
                 LookupAnswer::Hit {
                     reference: "/store/a".into(),
                     title: Some("title a".into()),
+                    mtime: 1,
                 },
             ]
         );
@@ -725,6 +733,7 @@ mod tests {
             vec![LookupAnswer::Hit {
                 reference: "/store/kimi-9".into(),
                 title: Some("title kimi-9".into()),
+                mtime: 2,
             }],
         );
         // Same id under TWO agents: the other one is named, both orders.
@@ -742,6 +751,7 @@ mod tests {
             vec![LookupAnswer::Hit {
                 reference: "/store/kimi-9".into(),
                 title: Some("title kimi-9".into()),
+                mtime: 2,
             }],
         );
     }
@@ -769,6 +779,7 @@ mod tests {
             LookupAnswer::Hit {
                 reference: "/store/a".into(),
                 title: Some("title a".into()),
+                mtime: 1,
             },
         );
     }

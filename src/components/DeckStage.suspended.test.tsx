@@ -76,6 +76,7 @@ const callbacks = {
 const browser = {
   scanning: false,
   revision: 1,
+  scannedAgents: new Set<string>(),
   enrichment: {
     entries: new Map(),
     pending: false,

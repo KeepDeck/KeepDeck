@@ -88,9 +88,10 @@ export interface IndexLookupKey {
 
 /** The index's exact answer for one key, `status`-tagged. `foreign` is the
  * recorded-ownership-is-wrong signature: the id exists — under other
- * agent(s) than the journal claims. */
+ * agent(s) than the journal claims. A `hit` carries the store's
+ * last-activity stamp — the composite time axis's half. */
 export type IndexLookupAnswer =
-  | { status: "hit"; reference: string; title: string | null }
+  | { status: "hit"; reference: string; title: string | null; mtime: number }
   | { status: "foreign"; agents: string[] }
   | { status: "absent" };
 

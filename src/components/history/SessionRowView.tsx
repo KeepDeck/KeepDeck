@@ -34,7 +34,13 @@ const STATUS_CHIP: Record<
     title:
       "The index could not be asked — not a verdict on the session; what was already known still stands",
   },
-  // 'read failed' is deliberately NOT here: unlike the four above it is
+  "file-erased": {
+    label: "file erased",
+    tone: "error",
+    title:
+      "The transcript file behind this row's recorded path is gone — the agent's store cleans up after itself. Said before the click; a retry is still legitimate if the file came back",
+  },
+  // 'read failed' is deliberately NOT here: unlike the states above it is
   // a REACTION to an attempt, not a state knowable in advance. Probing
   // files ahead of the click would cost a stat per row per panel open,
   // to predict a case that announces itself on the first open.

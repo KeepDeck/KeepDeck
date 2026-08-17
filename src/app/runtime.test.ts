@@ -52,6 +52,7 @@ describe("createAppRuntime", () => {
     expect(runtime.sessionIndex.snapshot()).toEqual({
       scanning: false,
       revision: 0,
+      scannedAgents: new Set(),
     });
 
     // The dispose chain must actually REACH the owner — a dispose that
@@ -67,6 +68,7 @@ describe("createAppRuntime", () => {
     expect(runtime.sessionIndex.snapshot()).toEqual({
       scanning: false,
       revision: 0,
+      scannedAgents: new Set(),
     });
   });
 });

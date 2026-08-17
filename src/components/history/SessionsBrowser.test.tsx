@@ -96,6 +96,7 @@ const api = (
   query: "",
   firstPagePending: false,
   scanning: false,
+  scannedAgents: new Set<string>(),
   enrichment: {
     entries: new Map(Object.entries(entries)),
     pending: false,
@@ -556,7 +557,7 @@ describe("SessionsBrowser journal section", () => {
 
   it("a journal row OPENS on its joined read link — the journal path first, the index's reference in its absence", async () => {
     const a = api([], {}, {
-      "claude:s-2": { kind: "hit", reference: "/store/s-2", title: "from the index" },
+      "claude:s-2": { kind: "hit", reference: "/store/s-2", title: "from the index", mtime: 7 },
     });
     await mount(a, [
       closed({ title: "own title", transcriptPath: "/journal/s-1.jsonl" }),
@@ -578,7 +579,7 @@ describe("SessionsBrowser journal section", () => {
 
   it("the journal path wins over the index's link when both exist — the union is not a replacement", async () => {
     const a = api([], {}, {
-      "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "index title" },
+      "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "index title", mtime: 7 },
     });
     await mount(a, [closed({ title: "own", transcriptPath: "/journal/s-1.jsonl" })]);
     await act(async () =>
@@ -719,7 +720,7 @@ describe("SessionsBrowser journal join", () => {
           api: api(
             [],
             { scanning: false },
-            { "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "the late title" } },
+            { "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "the late title", mtime: 7 } },
           ),
           agents: [CAPABLE_AGENT],
           ready: true,
@@ -756,10 +757,10 @@ describe("SessionsBrowser journal join", () => {
   it("the joined title: a nameless row takes the index's, a meaningful own name keeps itself, an agent-label title yields", async () => {
     await mount(
       api([], {}, {
-        "claude:nameless": { kind: "hit", reference: "/r/n", title: "from the index" },
-        "claude:named": { kind: "hit", reference: "/r/x", title: "index version" },
+        "claude:nameless": { kind: "hit", reference: "/r/n", title: "from the index", mtime: 7 },
+        "claude:named": { kind: "hit", reference: "/r/x", title: "index version", mtime: 7 },
         // The label-equal title IS the "Claude Code" complaint.
-        "claude:labelled": { kind: "hit", reference: "/r/l", title: "the real one" },
+        "claude:labelled": { kind: "hit", reference: "/r/l", title: "the real one", mtime: 7 },
       }),
       [
         closed({ sessionId: "nameless" }),
@@ -848,7 +849,7 @@ describe("SessionsBrowser journal join", () => {
     // its own title — the list must stay [first, second] with both rows
     // present; enrichment is paint, not placement.
     await mount(
-      api([], {}, { "claude:s-2": { kind: "hit", reference: "/r/2", title: "landed title" } }),
+      api([], {}, { "claude:s-2": { kind: "hit", reference: "/r/2", title: "landed title", mtime: 7 } }),
       [closed({ title: "first" }), closed({ sessionId: "s-2" })],
     );
     const rows = topRows();
@@ -863,8 +864,8 @@ describe("SessionsBrowser journal join", () => {
     // the hazard. Here one api feeds two browsers with disjoint journals;
     // the keyed table paints each list's own rows only.
     const shared = api([], {}, {
-      "claude:a": { kind: "hit", reference: "/r/a", title: "alpha title" },
-      "codex:b": { kind: "hit", reference: "/r/b", title: "beta title" },
+      "claude:a": { kind: "hit", reference: "/r/a", title: "alpha title", mtime: 7 },
+      "codex:b": { kind: "hit", reference: "/r/b", title: "beta title", mtime: 7 },
     });
     const agents: AgentInfo[] = [
       CAPABLE_AGENT,
@@ -954,7 +955,7 @@ describe("SessionsBrowser journal join", () => {
 
   it("one session id in two workspaces' journals: both rows get the title and keep their own branch", async () => {
     const shared = api([], {}, {
-      "claude:s-1": { kind: "hit", reference: "/r/1", title: "the shared truth" },
+      "claude:s-1": { kind: "hit", reference: "/r/1", title: "the shared truth", mtime: 7 },
     });
     await act(async () =>
       root.render(
@@ -1024,7 +1025,7 @@ describe("SessionsBrowser journal join", () => {
     // the open. The refusal is named as itself — on the viewer and on the
     // row — and the row keeps its place and its open affordance.
     const a = api([], {}, {
-      "claude:s-1": { kind: "hit", reference: "/vanished/s-1.jsonl", title: "gone file" },
+      "claude:s-1": { kind: "hit", reference: "/vanished/s-1.jsonl", title: "gone file", mtime: 7 },
     });
     a.transcript = vi.fn(() => Promise.reject(new Error("no such file")));
     await mount(a, [closed({ sessionId: "s-1" })]);
@@ -1047,7 +1048,7 @@ describe("SessionsBrowser journal join", () => {
     // when both refused.
     const calls: string[] = [];
     const a = api([], {}, {
-      "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "the index knows" },
+      "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "the index knows", mtime: 7 },
     });
     a.transcript = vi.fn((_agent: string, ref: string) => {
       calls.push(ref);
@@ -1073,7 +1074,7 @@ describe("SessionsBrowser journal join", () => {
   it("BOTH links dead: the mark appears, the row stays, both attempts made", async () => {
     const calls: string[] = [];
     const a = api([], {}, {
-      "claude:s-1": { kind: "hit", reference: "/store/dead-too", title: "both dead" },
+      "claude:s-1": { kind: "hit", reference: "/store/dead-too", title: "both dead", mtime: 7 },
     });
     a.transcript = vi.fn((_agent: string, ref: string) => {
       calls.push(ref);
@@ -1100,7 +1101,7 @@ describe("SessionsBrowser journal join", () => {
     // fixed the link) reads cleanly and clears the mark.
     let dead = true;
     const a = api([], {}, {
-      "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "flaky" },
+      "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "flaky", mtime: 7 },
     });
     a.transcript = vi.fn(() =>
       dead

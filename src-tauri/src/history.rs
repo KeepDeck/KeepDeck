@@ -132,6 +132,7 @@ pub enum LookupAnswerDto {
     Hit {
         reference: String,
         title: Option<String>,
+        mtime: i64,
     },
     Foreign {
         agents: Vec<String>,
@@ -157,8 +158,8 @@ pub fn index_lookup(
                 answers
                     .into_iter()
                     .map(|answer| match answer {
-                        LookupAnswer::Hit { reference, title } => {
-                            LookupAnswerDto::Hit { reference, title }
+                        LookupAnswer::Hit { reference, title, mtime } => {
+                            LookupAnswerDto::Hit { reference, title, mtime }
                         }
                         LookupAnswer::Foreign { agents } => LookupAnswerDto::Foreign { agents },
                         LookupAnswer::Absent => LookupAnswerDto::Absent,

@@ -308,6 +308,10 @@ export function SessionsBrowser({
         // the re-ask, so this composed flag is what keeps that boundary
         // frame honest.
         api.scanning || api.enrichment.pending,
+        // The file-erased verdict's precondition: THIS agent's store was
+        // walked by the settled scan. An unscanned agent's absence from
+        // the index proves nothing.
+        api.scannedAgents.has(row.agent),
       ),
     );
   });

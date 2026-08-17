@@ -88,11 +88,11 @@ const kimi = recordingCtx({
 });
 
 const sessionIndex = vi.hoisted(() => {
-  let snapshot = { scanning: false, revision: 1 };
+  let snapshot = { scanning: false, revision: 1, scannedAgents: new Set(["claude", "kimi"]) };
   const listeners = new Set<() => void>();
   return {
-    set(next: { scanning: boolean; revision: number }) {
-      snapshot = next;
+    set(next: { scanning: boolean; revision: number; scannedAgents?: Set<string> }) {
+      snapshot = { ...snapshot, ...next };
       for (const listener of [...listeners]) listener();
     },
     sessionIndex: {
@@ -266,6 +266,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
       status: "hit",
       reference: CLAUDE_INDEX_ONLY,
       title: "named by the index",
+      mtime: 5,
     };
     await mount([record({ sessionId: "s-i" })]);
 

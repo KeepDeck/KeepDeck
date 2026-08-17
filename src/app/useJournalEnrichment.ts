@@ -207,6 +207,7 @@ export function useJournalEnrichment(
               kind: "hit",
               reference: answer.reference,
               title: answer.title,
+              mtime: answer.mtime,
             });
           } else if (answer.status === "foreign") {
             next.set(id, { kind: "foreign", agents: answer.agents });
