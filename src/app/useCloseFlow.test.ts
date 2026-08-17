@@ -29,12 +29,15 @@ import type { CloseRequest } from "./agentOrchestrator";
 const closeAgents = vi.fn<(request: CloseRequest) => Promise<string[]>>(() =>
   Promise.resolve([]),
 );
-/** The registry ask, faked at the seam: most tests leave it answered
- * "none" (an ordinary close — the warning must NOT appear), and the
- * background tests aim it per test. */
-const backgroundCarrier = vi.fn<
-  (agentType: string, sessionId: string) => Promise<"background" | "none" | "unknown" | null>
->(async () => "none");
+/** The registry ask, faked at the seam: most tests leave it answering
+ * "none" per entry (an ordinary close — the warning must NOT appear), and
+ * the background tests aim it per test. The REAL seam batches one query
+ * per distinct agent; the fake mirrors its contract. */
+const backgroundCarriers = vi.fn<
+  (
+    entries: { agentType: string; sessionId: string }[],
+  ) => Promise<("background" | "none" | "unknown" | null)[]>
+>(async (entries) => entries.map(() => "none"));
 /** The last close this test asked for. */
 const requested = () => closeAgents.mock.calls[0][0];
 
@@ -81,7 +84,7 @@ function Probe() {
     blockedPanes,
     suspendAgent,
     closeAgents,
-    backgroundCarrier,
+    backgroundCarriers,
   });
   return null;
 }
@@ -123,8 +126,8 @@ describe("useCloseFlow", () => {
   beforeEach(() => {
     closeAgents.mockClear();
     suspendAgent.mockClear();
-    backgroundCarrier.mockReset();
-    backgroundCarrier.mockResolvedValue("none");
+    backgroundCarriers.mockReset();
+    backgroundCarriers.mockResolvedValue(["none"]);
     probes.probeWorktree.mockReset();
     probes.probeWorktree.mockResolvedValue(probed(true));
     runtimeHeads = new Map();
@@ -157,8 +160,10 @@ describe("useCloseFlow", () => {
     const wsId = seed();
     bindSession();
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
-    expect(backgroundCarrier).toHaveBeenCalledTimes(1);
-    expect(backgroundCarrier).toHaveBeenCalledWith("claude", "s-1");
+    expect(backgroundCarriers).toHaveBeenCalledTimes(1);
+    expect(backgroundCarriers).toHaveBeenCalledWith([
+      { agentType: "claude", sessionId: "s-1" },
+    ]);
     // The plain sentence, unchanged — the suspend offer was always there
     // for a live pane; what must NOT appear is any background note.
     expect(flow.closeMessage).toContain("Its terminal session will be ended.");
@@ -166,7 +171,7 @@ describe("useCloseFlow", () => {
   });
 
   it("a background carrier warns that closing removes the pane, not the work", async () => {
-    backgroundCarrier.mockResolvedValueOnce("background");
+    backgroundCarriers.mockResolvedValueOnce(["background"]);
     const wsId = seed();
     bindSession();
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
@@ -177,7 +182,7 @@ describe("useCloseFlow", () => {
   });
 
   it("an unreachable registry warns too — skipping on a failed question returns the harm whole", async () => {
-    backgroundCarrier.mockResolvedValueOnce("unknown");
+    backgroundCarriers.mockResolvedValueOnce(["unknown"]);
     const wsId = seed();
     bindSession();
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
@@ -186,7 +191,7 @@ describe("useCloseFlow", () => {
   });
 
   it("an agent with no live registry is never asked — no background mechanism to warn about", async () => {
-    backgroundCarrier.mockResolvedValueOnce(null);
+    backgroundCarriers.mockResolvedValueOnce([null]);
     const wsId = seed();
     bindSession();
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
@@ -199,7 +204,7 @@ describe("useCloseFlow", () => {
     const wsId = seed();
     act(() => deck.addAgentPane("ws-1", { id: "pane-3", agentType: "claude" }));
     await act(async () => flow.requestCloseAgent(wsId, "pane-3", "Agent 3"));
-    expect(backgroundCarrier).not.toHaveBeenCalled();
+    expect(backgroundCarriers).not.toHaveBeenCalled();
     expect(flow.closeMessage).not.toContain("background");
   });
 
@@ -276,6 +281,43 @@ describe("useCloseFlow", () => {
       deleteWorktrees: false,
       worktrees: [],
     });
+  });
+
+  it("a workspace with NO carried pane keeps its sentence to the character", async () => {
+    // The warning's area, workspace half: an all-ordinary workspace must
+    // say exactly what it always said — one extra word would be noise on
+    // every close, and a missing word is the harm itself.
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    // Two panes hold sessions by seed + binding here; the exact old text.
+    expect(flow.closeMessage).toBe(
+      "This ends 2 agents and their sessions.",
+    );
+  });
+
+  it("a workspace with ONE carried pane warns — the work survives the sweep", async () => {
+    // A workspace close is the gesture furthest from the individual pane;
+    // a carried conversation in it survives exactly as it survives a
+    // single pane's close, and the person must hear that up front.
+    backgroundCarriers.mockResolvedValueOnce(["background"]);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).toContain(
+      "At least one conversation is carried by a background agent",
+    );
+    expect(flow.closeMessage).toContain("not the work");
+    // The ordinary sentence still carries its count.
+    expect(flow.closeMessage).toContain("This ends 2 agents");
+  });
+
+  it("a workspace where any ask failed warns too — the asymmetry holds per pane", async () => {
+    backgroundCarriers.mockResolvedValueOnce(["none", "unknown"]);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).toContain("may still be carried");
   });
 
   it("uses the observed current branch when discarding an owned worktree", async () => {
@@ -717,6 +759,7 @@ describe("closeMessageFor", () => {
     id: "ws-1",
     name: "ws",
     count,
+    carriedByBackground: "none",
     targets: [],
     pendingPanes: [],
   });

@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentContribution } from "@keepdeck/plugin-api";
 import {
   askBackgroundCarrier,
+  askBackgroundCarriers,
   askLiveRegistry,
   liveOutsideSessions,
 } from "./liveSessions";
@@ -111,5 +112,60 @@ describe("askBackgroundCarrier", () => {
     await expect(askBackgroundCarrier(broken, "claude", "s")).resolves.toBe(
       "unknown",
     );
+  });
+});
+
+describe("askBackgroundCarriers (the batch a workspace close asks with)", () => {
+  it("ONE registry query per distinct agent, answers aligned to entries", async () => {
+    // N panes of one CLI must cost one spawn, not N — a workspace close
+    // would otherwise fan out a CLI army per pane.
+    const list = vi.fn(async () => [
+      { sessionId: "s-1", kind: "background" },
+      { sessionId: "s-2", kind: "interactive" },
+    ]);
+    const live = pluginsWith({ list });
+    const answers = await askBackgroundCarriers(live, [
+      { agentType: "claude", sessionId: "s-1" },
+      { agentType: "claude", sessionId: "s-2" },
+      { agentType: "claude", sessionId: "s-3" },
+    ]);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(answers).toEqual(["background", "none", "none"]);
+  });
+
+  it("a refusing agent answers unknown for ITS entries only — the others keep their truth", async () => {
+    const plugins = {
+      pluginRegistries: {
+        agents: {
+          list: () => [
+            {
+              entry: {
+                id: "claude",
+                liveSessions: {
+                  list: async () => {
+                    throw new Error("daemon down");
+                  },
+                },
+              },
+              pluginId: "p",
+            },
+            {
+              entry: {
+                id: "codex",
+                liveSessions: {
+                  list: async () => [{ sessionId: "c-1", kind: "background" }],
+                },
+              },
+              pluginId: "p",
+            },
+          ],
+        },
+      },
+    } as unknown as SpawnPluginAccess;
+    const answers = await askBackgroundCarriers(plugins, [
+      { agentType: "claude", sessionId: "s-1" },
+      { agentType: "codex", sessionId: "c-1" },
+    ]);
+    expect(answers).toEqual(["unknown", "background"]);
   });
 });

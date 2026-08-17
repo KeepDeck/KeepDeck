@@ -8,6 +8,7 @@
  * uses, and the mistake step one of this work fixed.
  */
 import type { LiveRegistryAnswer } from "../domain/agents";
+import type { AgentLiveSession } from "@keepdeck/plugin-api";
 import type { SpawnPluginAccess } from "./spawnSpecs";
 import { findAgent } from "./spawnSpecs/plan";
 
@@ -84,4 +85,45 @@ export async function askBackgroundCarrier(
   } catch {
     return "unknown";
   }
+}
+
+/** The batch form a workspace close asks with: one carrier answer per
+ * entry, ONE registry query per DISTINCT agent (the list is per-agent — N
+ * panes of one CLI cost one spawn, not N). A refusing registry answers
+ * "unknown" for every entry of that agent: the asymmetry rule, per pane. */
+export async function askBackgroundCarriers(
+  plugins: SpawnPluginAccess,
+  entries: { agentType: string; sessionId: string }[],
+): Promise<BackgroundCarrier[]> {
+  const rowsByAgent = new Map<
+    string,
+    Promise<{ agentType: string; ok: boolean; rows?: AgentLiveSession[] }>
+  >();
+  for (const agentType of new Set(entries.map((e) => e.agentType))) {
+    rowsByAgent.set(
+      agentType,
+      (async () => {
+        const live = findAgent(plugins, agentType)?.entry.liveSessions;
+        if (!live) return { agentType, ok: true };
+        try {
+          return { agentType, ok: true, rows: await live.list() };
+        } catch {
+          return { agentType, ok: false };
+        }
+      })(),
+    );
+  }
+  return Promise.all(
+    entries.map(async ({ agentType, sessionId }) => {
+      const answer = (await rowsByAgent.get(agentType)!) as {
+        ok: boolean;
+        rows?: AgentLiveSession[];
+      };
+      if (!answer.ok) return "unknown";
+      const held = answer.rows?.find(
+        (row) => row.sessionId === sessionId && row.kind === "background",
+      );
+      return held ? "background" : "none";
+    }),
+  );
 }

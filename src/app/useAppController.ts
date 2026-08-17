@@ -9,7 +9,7 @@ import { useAgentDialog } from "./useAgentDialog";
 import { useAgentRunView } from "./useAgentRunView";
 import { useAgents } from "./useAgents";
 import { useAppRuntime } from "./runtimeContext";
-import { askBackgroundCarrier } from "./liveSessions";
+import { askBackgroundCarriers } from "./liveSessions";
 import { useCloseFlow } from "./useCloseFlow";
 import { commands } from "./commandRegistry";
 import { createTeamFlow } from "./mail";
@@ -166,11 +166,11 @@ export function useAppController() {
     blockedPanes: runView.blocked,
     suspendAgent: orchestrator.suspend,
     closeAgents: orchestrator.close,
-    // The registry ask the close sentence needs — the same seam every
-    // live-session question goes through, so the view layer never touches
-    // a plugin.
-    backgroundCarrier: (agentType, sessionId) =>
-      askBackgroundCarrier({ pluginHost, pluginRegistries }, agentType, sessionId),
+    // The registry ask the close sentence needs — batched (one query per
+    // distinct agent), the same seam every live-session question goes
+    // through, so the view layer never touches a plugin.
+    backgroundCarriers: (entries) =>
+      askBackgroundCarriers({ pluginHost, pluginRegistries }, entries),
   });
   const transactions = [
     agentFlow.dialog,
