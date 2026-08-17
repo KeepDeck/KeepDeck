@@ -83,8 +83,6 @@ interface DeckStageProps {
   /** The empty-workspace count picker chose `count` agents. */
   /** The session journal's folded records — the empty-workspace history. */
   journal: JournalRecords;
-  /** Forget one journal row (the history list's ×). */
-  onDeleteJournalRecord(wsId: string, sessionId: string): void;
   /** Resume a journal record into a new pane of its workspace. */
   onResumeSession(wsId: string, record: SessionHandle): void;
   /** Open the fork-target dialog for a journal record. */
@@ -189,7 +187,6 @@ export function DeckStage({
   unavailableAgentReasons,
   gitHeads,
   journal,
-  onDeleteJournalRecord,
   onResumeSession,
   onForkSession,
   browser,
@@ -242,7 +239,6 @@ export function DeckStage({
                   agents={agents}
                   ready={agentsReady}
                   rows={journalRows(journal, ws.id)}
-                  onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
                   onResume={(record) => onResumeSession(ws.id, record)}
                   onFork={(record) => onForkSession(ws.id, record)}
                 />

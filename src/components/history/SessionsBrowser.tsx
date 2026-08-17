@@ -30,9 +30,6 @@ interface SessionsBrowserProps {
   /** The agent plugins finished activating — before that a scan would see
    * an empty registry and "successfully" index zero stores. */
   ready: boolean;
-  /** Forget one journal record — journal metadata only, the agent store is
-   * untouched. */
-  onDelete(sessionId: string): void;
   onResume(record: SessionHandle): void;
   onFork(record: SessionHandle): void;
 }
@@ -98,7 +95,8 @@ const STATUS_CHIP: Record<
 /**
  * The empty-workspace sessions surface ([F8]): ONE list with the search bar
  * on top. The workspace's own journal pins first — the sessions that ran here,
- * with their lifecycle affordances (live/closed dot, branch, forget). Below a
+ * with their lifecycle affordances (live/closed dot, branch, resume,
+ * fork). Below a
  * divider, every other session of every agent store, searchable by content
  * and title. Search hits only the Rust index; opening a hit row reads the
  * transcript live through the owning plugin (a journal row has no store
@@ -110,7 +108,6 @@ export function SessionsBrowser({
   agents,
   rows,
   ready,
-  onDelete,
   onResume,
   onFork,
 }: SessionsBrowserProps) {
@@ -452,18 +449,12 @@ export function SessionsBrowser({
                   Fork
                 </button>
               )}
-              <button
-                type="button"
-                className="history__delete"
-                aria-label="Forget session"
-                title="Forget this session"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(row.sessionId);
-                }}
-              >
-                ×
-              </button>
+              {/* No "forget" affordance, by design: the top block is the
+               * journal of what ran HERE — a row with a problem carries a
+               * status, never a way out of the list (the user's own rule
+               * against filtering by hand). The "deleted" journal EVENT
+               * still folds on load; the app just no longer generates
+               * one. */}
             </li>
           );
         })}

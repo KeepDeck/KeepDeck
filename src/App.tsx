@@ -303,7 +303,6 @@ function App() {
             unavailableAgentReasons={unavailableReasons}
             gitHeads={gitHeads}
             journal={deck.journal.records}
-            onDeleteJournalRecord={deck.deleteJournalRecord}
             onResumeSession={(wsId, record) =>
               void orchestrator.resumeSession(wsId, record).catch((e: unknown) =>
                 pushAlert("Could not resume the session", describeError(e)),

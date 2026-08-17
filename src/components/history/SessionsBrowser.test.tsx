@@ -124,7 +124,7 @@ describe("SessionsBrowser", () => {
   const mount = (
     a: SessionsBrowserApi,
     rows: SessionRecord[] = [],
-    callbacks: { onDelete?: unknown; onResume?: unknown; onFork?: unknown } = {},
+    callbacks: { onResume?: unknown; onFork?: unknown } = {},
   ) =>
     act(async () =>
       root.render(
@@ -133,7 +133,6 @@ describe("SessionsBrowser", () => {
           agents: [CAPABLE_AGENT],
           ready: true,
           rows,
-          onDelete: (callbacks.onDelete as (id: string) => void) ?? vi.fn(),
           onResume: (callbacks.onResume as (r: never) => void) ?? vi.fn(),
           onFork: (callbacks.onFork as (r: never) => void) ?? vi.fn(),
         }),
@@ -151,7 +150,6 @@ describe("SessionsBrowser", () => {
           agents: [CAPABLE_AGENT],
           ready: true,
           rows: [],
-          onDelete: vi.fn(),
           onResume,
           onFork,
         }),
@@ -185,7 +183,6 @@ describe("SessionsBrowser", () => {
       api: a,
       agents: [CAPABLE_AGENT],
       rows: [],
-      onDelete: vi.fn(),
       onResume: vi.fn(),
       onFork: vi.fn(),
     };
@@ -264,7 +261,6 @@ describe("SessionsBrowser", () => {
           agents: [CAPABLE_AGENT],
           ready: true,
           rows: [],
-          onDelete: vi.fn(),
           onResume,
           onFork: vi.fn(),
         }),
@@ -311,7 +307,6 @@ describe("SessionsBrowser", () => {
           ],
           ready: true,
           rows: [closed()],
-          onDelete: vi.fn(),
           onResume: vi.fn(),
           onFork: vi.fn(),
         }),
@@ -391,7 +386,6 @@ describe("SessionsBrowser journal section", () => {
   const mount = (
     a: SessionsBrowserApi,
     rows: SessionRecord[],
-    onDelete = vi.fn(),
     onResume = vi.fn(),
     onFork = vi.fn(),
   ) => {
@@ -402,13 +396,12 @@ describe("SessionsBrowser journal section", () => {
           agents: [CAPABLE_AGENT],
           ready: true,
           rows,
-          onDelete,
           onResume,
           onFork,
         }),
       ),
     );
-    return { ...result, onDelete, onResume, onFork };
+    return { ...result, onResume, onFork };
   };
 
   it("journal rows pin first, before the hits, with branch chip and state dot", async () => {
@@ -460,13 +453,15 @@ describe("SessionsBrowser journal section", () => {
     expect(opens[0].textContent).toContain("s-2");
   });
 
-  it("the × forgets exactly that journal session", async () => {
-    const onDelete = vi.fn();
-    await mount(api([]), [closed(), closed({ sessionId: "s-2" })], onDelete);
-    const buttons = document.querySelectorAll<HTMLButtonElement>(".history__delete");
-    expect(buttons).toHaveLength(2);
-    act(() => buttons[1].click());
-    expect(onDelete).toHaveBeenCalledExactlyOnceWith("s-2");
+  it("the × is gone — a journal row has no way out of the list", async () => {
+    // The "forget" glyph promised deletion it never performed (the
+    // conversation stayed on disk and in All sessions), and it let the
+    // journal of WHAT RAN HERE be edited by hand — silence is the
+    // filtering this step forbids. Wrong-owner rows answer with their
+    // status instead.
+    await mount(api([]), [closed(), closed({ sessionId: "s-2" })]);
+    expect(document.querySelector(".history__delete")).toBeNull();
+    expect(document.querySelectorAll(".browser__journal")).toHaveLength(2);
   });
 
   it("a live journal row offers no Resume; a gone dir blocks it — Fork stays", async () => {
@@ -477,7 +472,6 @@ describe("SessionsBrowser journal section", () => {
     await mount(
       api([]),
       [closed({ title: "auth bug" }), live(), closed({ sessionId: "s-3", cwd: "/gone" })],
-      vi.fn(),
       onResume,
     );
     await act(async () => {});
@@ -593,7 +587,6 @@ describe("SessionsBrowser journal join", () => {
           agents,
           ready: true,
           rows,
-          onDelete: vi.fn(),
           onResume: vi.fn(),
           onFork: vi.fn(),
         }),
@@ -665,7 +658,6 @@ describe("SessionsBrowser journal join", () => {
           agents: [CAPABLE_AGENT],
           ready: true,
           rows: [closed({ sessionId: "s-1" })],
-          onDelete: vi.fn(),
           onResume: vi.fn(),
           onFork: vi.fn(),
         }),
@@ -734,7 +726,6 @@ describe("SessionsBrowser journal join", () => {
               transcriptPath: "/.kimi-code/sessions/kimi-9",
             }),
           ],
-          onDelete: vi.fn(),
           onResume,
           onFork,
         }),
@@ -752,8 +743,8 @@ describe("SessionsBrowser journal join", () => {
     expect(a.transcript).not.toHaveBeenCalled();
     expect(onResume).not.toHaveBeenCalled();
     expect(onFork).not.toHaveBeenCalled();
-    // Forgetting the record stays possible — it is journal metadata.
-    expect(row.querySelector(".history__delete")).not.toBeNull();
+    // And no way out of the list either — the × is gone for every row,
+    // a wrong-owner one included: its answer is the status, not an exit.
   });
 
   it("a failed first ask is named as itself, and a journal-path row stays readable through it", async () => {
@@ -817,7 +808,6 @@ describe("SessionsBrowser journal join", () => {
             agents,
             ready: true,
             rows: [closed({ sessionId: "a" })],
-            onDelete: vi.fn(),
             onResume: vi.fn(),
             onFork: vi.fn(),
           }),
@@ -829,7 +819,6 @@ describe("SessionsBrowser journal join", () => {
             rows: [
               closed({ agent: "codex" as never, sessionId: "b", branch: "kd/ws/2" }),
             ],
-            onDelete: vi.fn(),
             onResume: vi.fn(),
             onFork: vi.fn(),
           }),
@@ -858,7 +847,6 @@ describe("SessionsBrowser journal join", () => {
             agents: [CAPABLE_AGENT],
             ready: true,
             rows: [closed({ branch: "kd/ws/1" })],
-            onDelete: vi.fn(),
             onResume: vi.fn(),
             onFork: vi.fn(),
           }),
@@ -868,7 +856,6 @@ describe("SessionsBrowser journal join", () => {
             agents: [CAPABLE_AGENT],
             ready: true,
             rows: [closed({ branch: "kd/ws/2" })],
-            onDelete: vi.fn(),
             onResume: vi.fn(),
             onFork: vi.fn(),
           }),
@@ -899,7 +886,6 @@ describe("SessionsBrowser journal join", () => {
           agents: [CAPABLE_AGENT],
           ready: true,
           rows: [closed(), closed({ sessionId: "s-2" }), closed({ sessionId: "s-3" })],
-          onDelete: vi.fn(),
           onResume: vi.fn(),
           onFork: vi.fn(),
         }),

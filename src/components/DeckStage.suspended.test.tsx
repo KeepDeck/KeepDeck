@@ -55,7 +55,6 @@ const workspaces = [
 ];
 
 const callbacks = {
-  onDeleteJournalRecord: vi.fn(),
   onResumeSession: vi.fn(),
   onForkSession: vi.fn(),
   onSelectPane: vi.fn(),

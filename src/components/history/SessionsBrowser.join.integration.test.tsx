@@ -175,7 +175,6 @@ function Harness({ rows }: { rows: SessionRecord[] }) {
     agents: AGENTS,
     ready: true,
     rows,
-    onDelete: vi.fn(),
     onResume: vi.fn(),
     onFork: vi.fn(),
   });

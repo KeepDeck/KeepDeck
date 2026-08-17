@@ -76,10 +76,4 @@ export type DeckAction =
       value: unknown;
     }
   | { type: "hydrateJournal"; records: JournalRecords; at: string }
-  | {
-      type: "deleteJournalRecord";
-      wsId: string;
-      sessionId: string;
-      at: string;
-    }
   | { type: "journalFlushed"; count: number };

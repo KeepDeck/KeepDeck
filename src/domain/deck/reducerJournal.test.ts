@@ -290,19 +290,11 @@ describe("deckReducer journal", () => {
     ).toBe(true);
   });
 
-  it("deletes one record and flushes the journal outbox", () => {
+  it("flushes the journal outbox", () => {
     const bound = boundState();
-    const deleted = deckReducer(bound, {
-      type: "deleteJournalRecord",
-      wsId: "ws-1",
-      sessionId: "s-1",
-      at: AT,
-    });
-    expect(deleted.journal.records).toEqual({});
-    expect(deleted.journal.tail).toHaveLength(2);
-    const flushed = deckReducer(deleted, {
+    const flushed = deckReducer(bound, {
       type: "journalFlushed",
-      count: 2,
+      count: bound.journal.tail.length,
     });
     expect(flushed.journal.tail).toEqual([]);
     expect(
