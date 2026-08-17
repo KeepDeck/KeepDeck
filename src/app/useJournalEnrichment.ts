@@ -47,6 +47,14 @@ export function useJournalEnrichment(
   scanning: boolean,
 ): {
   entries: ReadonlyMap<string, JoinEntry>;
+  /** The table may still change: an ask is in flight, or the index has
+   * moved (revision bumped) since the last answer landed — a re-ask is
+   * due. The join treats an `absent` as PROVISIONAL while true; only
+   * scan-settled AND answered-under-the-current-revision is a verdict.
+   * Render-pure by design: it must already hold in the FIRST render
+   * after a scan-end publish, which lands `scanning:false` and the
+   * revision bump together — before any effect can fire the re-ask. */
+  pending: boolean;
   declare(keys: ReadonlyArray<RowKey>): void;
 } {
   /** Every key any mounted list has declared — the union; lists unmount
@@ -74,6 +82,14 @@ export function useJournalEnrichment(
    * means the index moved under an in-flight ask — its answer may already
    * be stale data, so the same-set skip never applies across one. */
   const askEnvRef = useRef<{ revision: number; scanning: boolean } | null>(null);
+  /** An ask is in flight right now. */
+  const [askInFlight, setAskInFlight] = useState(false);
+  /** The revision the last LANDED ask fired under — null before any
+   * landing. `pending` = in flight OR answered under an older revision:
+   * the second half is what holds at the scan-end boundary frame, where
+   * the publish flipped `scanning` and bumped the revision in one
+   * re-render and the re-ask effect has not run yet. */
+  const [answeredAt, setAnsweredAt] = useState<number | null>(null);
 
   const declare = useCallback((keys: ReadonlyArray<RowKey>) => {
     const declared = declaredRef.current;
@@ -128,6 +144,8 @@ export function useJournalEnrichment(
     const mine = ++askSeq.current;
     inflightRef.current = new Set(ids);
     askEnvRef.current = { revision, scanning };
+    const firedRevision = revision;
+    setAskInFlight(true);
 
     /** Fold one landed ask into the table. A refusal (`failed`) keeps
      * every prior answer verbatim — never an erasure, never a downgrade —
@@ -168,15 +186,23 @@ export function useJournalEnrichment(
       .then((answers) => {
         if (askSeq.current !== mine) return;
         inflightRef.current = new Set();
+        setAskInFlight(false);
+        setAnsweredAt(firedRevision);
         apply(answers, false);
       })
       .catch((e: unknown) => {
         if (askSeq.current !== mine) return;
         inflightRef.current = new Set();
+        setAskInFlight(false);
+        setAnsweredAt(firedRevision);
         log.warn("web:history", `journal join lookup failed: ${describeError(e)}`);
         apply(null, true);
       });
   }, [revision, scanning, declaredTick]);
 
-  return { entries, declare };
+  return {
+    entries,
+    pending: askInFlight || answeredAt !== revision,
+    declare,
+  };
 }

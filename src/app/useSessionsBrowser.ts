@@ -29,6 +29,10 @@ export interface SessionsBrowserApi {
    * writes another workspace's. */
   enrichment: {
     entries: ReadonlyMap<string, JoinEntry>;
+    /** The table may still change (an ask in flight, or the index moved
+     * since the last landing) — the join keeps `absent` provisional
+     * while true, so a scan's end never flashes "nothing to read". */
+    pending: boolean;
     /** Declare the keys this list's journal rows need. Idempotent,
      * union across lists; triggers the shared batched ask. */
     declare(keys: ReadonlyArray<RowKey>): void;

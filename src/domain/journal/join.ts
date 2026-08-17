@@ -28,7 +28,8 @@ export type RowStatus =
    * journal transcriptPath belongs to the wrong plugin. */
   | "wrong-owner"
   /** Temporary: no definitive answer yet — the ask is pending/unfired, or
-   * an absent answer predates a scan still in flight. */
+   * an absent answer predates a change still in flight (a scan, a
+   * revision-bumped re-ask). */
   | "indexing"
   /** Definitive: no journal path, no index row, index settled — but the
    * conversation ran here. */
@@ -57,7 +58,12 @@ export function joinJournalRow(
   record: SessionRecord,
   entry: JoinEntry | undefined,
   agentLabel: string | undefined,
-  scanning: boolean,
+  /** The row's index answer MAY STILL CHANGE — a scan in flight, or a
+   * re-ask due/in flight after a revision bump. An `absent` entry is a
+   * VERDICT only while false; the caller composes it (scan state OR the
+   * enrichment table's own pending flag), so the domain stays the one
+   * place that decides what an answer MEANS. */
+  answerMayChange: boolean,
 ): JoinedRow {
   // The wrong-owner guard outranks everything, the journal path included:
   // that path is the record's claim, and the claim is what's broken —
@@ -82,14 +88,14 @@ export function joinJournalRow(
         : null;
   // A read link makes the row need no status — regardless of what the
   // index said or failed to say, the row opens. Only link-less rows
-  // paint one, and an absent answer is definitive ONLY while no scan is
-  // in flight (batches still landing can add the session); pending and
+  // paint one, and an absent answer is definitive ONLY while no answer
+  // may still change (a landed batch can add the session); pending and
   // failed asks are their own states, never "nothing to read".
   const status =
     read !== null
       ? null
       : entry?.kind === "absent"
-        ? scanning
+        ? answerMayChange
           ? "indexing"
           : "nothing-to-read"
         : entry?.kind === "error"

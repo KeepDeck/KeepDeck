@@ -132,6 +132,7 @@ const browser = {
   scanning: false,
   enrichment: {
     entries: new Map(),
+    pending: false,
     declare: vi.fn(),
   },
   search: vi.fn(),

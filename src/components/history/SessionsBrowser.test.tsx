@@ -80,6 +80,7 @@ const api = (
   scanning: false,
   enrichment: {
     entries: new Map(Object.entries(entries)),
+    pending: false,
     declare: vi.fn(),
   },
   search: vi.fn(),
@@ -628,6 +629,54 @@ describe("SessionsBrowser journal join", () => {
     expect(chipOf(document.querySelector(".browser__journal")!)?.textContent).toBe(
       "nothing to read",
     );
+  });
+
+  it("scan ENDED, the last answer still owed: NOT 'nothing to read' — the hit lands and the title paints", async () => {
+    // peer-1's review catch: the scan-end publish flips scanning:false
+    // and bumps the revision in ONE re-render, so the re-ask is still
+    // owed when the row repaints. The absent entry is provisional until
+    // the table answers under the CURRENT revision — asserted
+    // synchronously, exactly like the first-paint pin, because this is
+    // the same class of lie one frame later.
+    const owedFrame = api(
+      [],
+      { scanning: false },
+      { "claude:s-1": { kind: "absent" } },
+    );
+    owedFrame.enrichment = {
+      ...owedFrame.enrichment,
+      pending: true,
+    };
+    await mount(owedFrame, [closed({ sessionId: "s-1" })]);
+    const row = document.querySelector(".browser__journal")!;
+    expect(chipOf(row)?.textContent).toBe("indexing…");
+    expect(document.body.textContent).not.toContain("nothing to read");
+
+    // The revision-bumped re-ask lands a hit: the title paints, the chip
+    // goes, the row opens.
+    await act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: api(
+            [],
+            { scanning: false },
+            { "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "the late title" } },
+          ),
+          agents: [CAPABLE_AGENT],
+          ready: true,
+          rows: [closed({ sessionId: "s-1" })],
+          onDelete: vi.fn(),
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+    const landed = document.querySelector(".browser__journal")!;
+    expect(landed.textContent).toContain("the late title");
+    expect(chipOf(landed)).toBeNull();
+    expect(
+      landed.querySelector<HTMLButtonElement>(".history__name--open"),
+    ).not.toBeNull();
   });
 
   it("a row with nothing to read STAYS in the list — no case removes a row", async () => {

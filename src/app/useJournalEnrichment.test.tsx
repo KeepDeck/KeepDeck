@@ -75,6 +75,38 @@ describe("useJournalEnrichment", () => {
     expect(api.entries.size).toBe(0);
   });
 
+  it("pending spans the scan-end gap: revision bumped, the re-ask's answer still owed", async () => {
+    // The manager's settle publishes scanning:false and the revision bump
+    // in ONE snapshot; the re-ask effect runs after the render it causes.
+    // `pending` must already be true in that render — answered-under-an-
+    // older-revision is render-pure, it does not wait for the effect.
+    await mount(); // revision 1
+    act(() => api.declare([KEYS.unknown]));
+    await act(async () => {});
+    await act(async () => resolvers[0]([{ status: "absent" }]));
+    expect(api.pending).toBe(false); // answered under the current revision
+
+    revision += 1; // the scan settled — one publish, both fields
+    await rerender();
+    expect(api.pending).toBe(true); // the re-ask is owed/in flight
+
+    // The re-ask lands ABSENT again under the new revision: a settled
+    // verdict is still reachable — pending false exactly once the
+    // CURRENT revision has answered.
+    await act(async () => resolvers[1]([{ status: "absent" }]));
+    expect(api.pending).toBe(false);
+    expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({ kind: "absent" });
+
+    // And a hit landing under a bump ends the provisional state too —
+    // a fresh key, since hits are never re-asked.
+    act(() => api.declare([KEYS.own]));
+    await act(async () => {});
+    await act(async () =>
+      resolvers[2]([{ status: "hit", reference: "/store/s-1", title: "late" }]),
+    );
+    expect(api.pending).toBe(false);
+  });
+
   it("a declaration landing in the SAME commit as the mount fires ONE ask, not two", async () => {
     // The real mount path: the declaring list is a CHILD of the hook's
     // owner, so the declared ref is populated before the effect's tick

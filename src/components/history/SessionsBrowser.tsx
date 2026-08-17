@@ -291,7 +291,13 @@ export function SessionsBrowser({
             row,
             api.enrichment.entries.get(rowKeyOf(row)),
             agent?.label,
-            api.scanning,
+            // "The answer may still change": the scan state OR the
+            // enrichment table's own pending (an ask in flight, or a
+            // revision-bumped re-ask still owed) — the scan-end publish
+            // flips scanning and bumps the revision in ONE re-render,
+            // before any effect can fire the re-ask, so this composed
+            // flag is what keeps that boundary frame honest.
+            api.scanning || api.enrichment.pending,
           );
           const openable = joined.read !== null && canReadHistory;
           // A wrong-owner row is visible but continuation would feed the
