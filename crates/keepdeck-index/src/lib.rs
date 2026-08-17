@@ -366,13 +366,25 @@ impl SessionIndex {
     /// enumeration of the table), answers aligned to the input order; an
     /// id found under other agents is [`LookupAnswer::Foreign`], the
     /// recorded-ownership-is-wrong signature.
+    ///
+    /// LOAD-BEARING FORM: the seek is by `session_id` ALONE (over the
+    /// `sessions_by_sid` secondary index), never by the primary
+    /// (agent, session_id) pair — a corrupted record's agent is exactly
+    /// the field that is WRONG, so a primary-pair seek would never see
+    /// the true holder and `Foreign` could never fire. That rewrite
+    /// looks like an optimization and fails QUIETLY in the hit paths;
+    /// the Foreign assertions in this crate's tests are what makes it
+    /// loud. The index is not an accelerator for this query — it is
+    /// what keeps the only correct query form off a full table scan.
     pub fn lookup(&self, keys: &[(String, String)]) -> Result<Vec<LookupAnswer>, String> {
         if keys.is_empty() {
             return Ok(Vec::new());
         }
         // One IN over the DISTINCT ids — a key set spans agents (one
-        // workspace's journal holds several CLIs' rows), so the pair can't
-        // be sought directly in a single statement.
+        // workspace's journal holds several CLIs' rows), so the pair
+        // can't be sought in a single statement. See the doc comment:
+        // seeking by session_id alone is the Foreign branch's
+        // correctness condition, not a batching convenience.
         let mut ids: Vec<&str> = Vec::with_capacity(keys.len());
         for (_, session_id) in keys {
             if !ids.contains(&session_id.as_str()) {
