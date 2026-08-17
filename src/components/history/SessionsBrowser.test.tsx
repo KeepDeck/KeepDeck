@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { SearchHit } from "../../ipc/history";
 import type { AgentInfo } from "../../domain/agents";
-import type { SessionRecord } from "../../domain/journal";
+import type { JoinEntry, SessionRecord } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
 
@@ -69,6 +69,7 @@ const live = (over: Partial<SessionRecord> = {}): SessionRecord =>
 const api = (
   hits: SearchHit[],
   over: Partial<SessionsBrowserApi> = {},
+  entries: Record<string, JoinEntry> = {},
 ): SessionsBrowserApi => ({
   hits,
   total: hits.length,
@@ -78,7 +79,7 @@ const api = (
   error: null,
   scanning: false,
   enrichment: {
-    entries: new Map(),
+    entries: new Map(Object.entries(entries)),
     declare: vi.fn(),
   },
   search: vi.fn(),
@@ -493,14 +494,42 @@ describe("SessionsBrowser journal section", () => {
     );
   });
 
-  it("journal rows don't open the transcript viewer — they have no store reference", async () => {
-    const a = api([]);
-    await mount(a, [closed({ title: "auth bug" })]);
-    await act(async () =>
-      document.querySelector<HTMLLIElement>(".browser__journal")!.click(),
+  it("a journal row OPENS on its joined read link — the journal path first, the index's reference in its absence", async () => {
+    const a = api([], {}, {
+      "claude:s-2": { kind: "hit", reference: "/store/s-2", title: "from the index" },
+    });
+    await mount(a, [
+      closed({ title: "own title", transcriptPath: "/journal/s-1.jsonl" }),
+      closed({ sessionId: "s-2" }),
+    ]);
+    const openButtons = document.querySelectorAll<HTMLButtonElement>(
+      ".browser__journal .history__name--open",
     );
-    expect(a.transcript).not.toHaveBeenCalled();
-    expect(document.querySelector(".browser__viewer")).toBeNull();
+    expect(openButtons).toHaveLength(2);
+
+    await act(async () => openButtons[0].click());
+    // A row with its own transcript path reads BY THAT PATH.
+    expect(a.transcript).toHaveBeenNthCalledWith(1, "claude", "/journal/s-1.jsonl", 0, 50);
+
+    // A row without one reads by the index's reference.
+    await act(async () => openButtons[1].click());
+    expect(a.transcript).toHaveBeenNthCalledWith(2, "claude", "/store/s-2", 0, 50);
+  });
+
+  it("the journal path wins over the index's link when both exist — the union is not a replacement", async () => {
+    const a = api([], {}, {
+      "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "index title" },
+    });
+    await mount(a, [closed({ title: "own", transcriptPath: "/journal/s-1.jsonl" })]);
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+    );
+    expect(a.transcript).toHaveBeenCalledExactlyOnceWith(
+      "claude",
+      "/journal/s-1.jsonl",
+      0,
+      50,
+    );
   });
 
   it("empty journal and no hits shows the + Agent hint; hits without a journal need no divider", async () => {
@@ -536,5 +565,322 @@ describe("SessionsBrowser journal section", () => {
     expect(document.body.textContent).toContain("auth bug");
     // And the misleading "No sessions match" is not shown alongside it.
     expect(document.body.textContent).not.toContain("No sessions match");
+  });
+});
+
+describe("SessionsBrowser journal join", () => {
+  let root: Root;
+  beforeEach(() => {
+    worktreeIpc.probeWorktree.mockClear();
+    worktreeIpc.probeWorktree.mockImplementation(() =>
+      Promise.resolve({ exists: true, isWorktree: false, branch: null }),
+    );
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const mount = (
+    a: SessionsBrowserApi,
+    rows: SessionRecord[],
+    agents: AgentInfo[] = [CAPABLE_AGENT],
+  ) =>
+    act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents,
+          ready: true,
+          rows,
+          onDelete: vi.fn(),
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+
+  const chipOf = (row: Element) => row.querySelector(".history__status");
+
+  it("an indexless pathless row does NOT flash 'nothing to read' on the FIRST paint", async () => {
+    // The trap: the scan flag starts OFF and the ask goes out only after
+    // the first render — deriving one from the other makes every row lie
+    // for one frame. Checked synchronously, before any await.
+    const a = api([], { scanning: false }, {});
+    await mount(a, [closed({ sessionId: "bare" })]);
+    const chip = chipOf(document.querySelector(".browser__journal")!);
+    expect(chip?.textContent).toBe("indexing…");
+    expect(document.body.textContent).not.toContain("nothing to read");
+  });
+
+  it("'indexing' yields to 'nothing to read' only once the scan has settled", async () => {
+    await mount(
+      api([], { scanning: true }, { "claude:s-1": { kind: "absent" } }),
+      [closed()],
+    );
+    expect(chipOf(document.querySelector(".browser__journal")!)?.textContent).toBe(
+      "indexing…",
+    );
+
+    await mount(
+      api([], { scanning: false }, { "claude:s-1": { kind: "absent" } }),
+      [closed()],
+    );
+    expect(chipOf(document.querySelector(".browser__journal")!)?.textContent).toBe(
+      "nothing to read",
+    );
+  });
+
+  it("a row with nothing to read STAYS in the list — no case removes a row", async () => {
+    await mount(
+      api([], { scanning: false }, { "claude:s-1": { kind: "absent" } }),
+      [closed({ title: "ran here" })],
+    );
+    const row = document.querySelector(".browser__journal")!;
+    expect(row.textContent).toContain("ran here");
+    expect(chipOf(row)?.textContent).toBe("nothing to read");
+    // Not openable: no open button, no row click.
+    expect(row.querySelector(".history__name--open")).toBeNull();
+    await act(async () => (row as HTMLLIElement).click());
+  });
+
+  it("the joined title: a nameless row takes the index's, a meaningful own name keeps itself, an agent-label title yields", async () => {
+    await mount(
+      api([], {}, {
+        "claude:nameless": { kind: "hit", reference: "/r/n", title: "from the index" },
+        "claude:named": { kind: "hit", reference: "/r/x", title: "index version" },
+        // The label-equal title IS the "Claude Code" complaint.
+        "claude:labelled": { kind: "hit", reference: "/r/l", title: "the real one" },
+      }),
+      [
+        closed({ sessionId: "nameless" }),
+        closed({ sessionId: "named", title: "own meaningful title" }),
+        closed({ sessionId: "labelled", title: CAPABLE_AGENT.label }),
+      ],
+    );
+    const rows = document.querySelectorAll(".browser__journal");
+    expect(rows[0].textContent).toContain("from the index");
+    expect(rows[1].textContent).toContain("own meaningful title");
+    expect(rows[2].textContent).toContain("the real one");
+    expect(rows[2].textContent).not.toContain("Claude Code");
+  });
+
+  it("a wrong-owner row is visible, named by what it knows, and NEVER opens or continues", async () => {
+    const a = api([], {}, {
+      // The three corrupted records: journal says claude, path leads into
+      // the kimi store, the id lives under kimi.
+      "claude:kimi-9": { kind: "foreign", agents: ["kimi"] },
+    });
+    const onResume = vi.fn();
+    const onFork = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: [CAPABLE_AGENT],
+          ready: true,
+          rows: [
+            closed({
+              sessionId: "kimi-9",
+              title: "probe",
+              transcriptPath: "/.kimi-code/sessions/kimi-9",
+            }),
+          ],
+          onDelete: vi.fn(),
+          onResume,
+          onFork,
+        }),
+      ),
+    );
+    const row = document.querySelector(".browser__journal")!;
+    expect(row.textContent).toContain("probe");
+    expect(chipOf(row)?.textContent).toBe("wrong agent");
+    expect(row.querySelector(".history__name--open")).toBeNull();
+    expect(row.querySelector(".history__resume")).toBeNull();
+    expect(row.querySelector(".history__fork")).toBeNull();
+    // The kimi path never reaches any plugin: not by row click, and the
+    // continuation affordances are gone outright.
+    await act(async () => (row as HTMLLIElement).click());
+    expect(a.transcript).not.toHaveBeenCalled();
+    expect(onResume).not.toHaveBeenCalled();
+    expect(onFork).not.toHaveBeenCalled();
+    // Forgetting the record stays possible — it is journal metadata.
+    expect(row.querySelector(".history__delete")).not.toBeNull();
+  });
+
+  it("a failed first ask is named as itself, and a journal-path row stays readable through it", async () => {
+    const a = api([], {}, {
+      "claude:pathless": { kind: "error" },
+      "claude:withpath": { kind: "error" },
+    });
+    await mount(a, [
+      closed({ sessionId: "pathless" }),
+      closed({ sessionId: "withpath", transcriptPath: "/journal/withpath.jsonl" }),
+    ]);
+    const rows = document.querySelectorAll(".browser__journal");
+    expect(chipOf(rows[0])?.textContent).toBe("index unreachable");
+    expect(chipOf(rows[1])).toBeNull();
+    await act(async () =>
+      (
+        rows[1].querySelector<HTMLButtonElement>(".history__name--open")!
+      ).click(),
+    );
+    expect(a.transcript).toHaveBeenCalledExactlyOnceWith(
+      "claude",
+      "/journal/withpath.jsonl",
+      0,
+      50,
+    );
+  });
+
+  it("a landed title paints its OWN row: order and composition never move", async () => {
+    // Second row (nameless until the answer lands) enriched, first keeps
+    // its own title — the list must stay [first, second] with both rows
+    // present; enrichment is paint, not placement.
+    await mount(
+      api([], {}, { "claude:s-2": { kind: "hit", reference: "/r/2", title: "landed title" } }),
+      [closed({ title: "first" }), closed({ sessionId: "s-2" })],
+    );
+    const rows = document.querySelectorAll(".browser__journal");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("first");
+    expect(rows[1].textContent).toContain("landed title");
+    expect(rows[0].textContent).not.toContain("landed title");
+  });
+
+  it("two lists over one shared api: answers land per row, each list enriches its own", async () => {
+    // The shared-cell regression: hidden lists with other rows used to be
+    // the hazard. Here one api feeds two browsers with disjoint journals;
+    // the keyed table paints each list's own rows only.
+    const shared = api([], {}, {
+      "claude:a": { kind: "hit", reference: "/r/a", title: "alpha title" },
+      "codex:b": { kind: "hit", reference: "/r/b", title: "beta title" },
+    });
+    const agents: AgentInfo[] = [
+      CAPABLE_AGENT,
+      { ...CAPABLE_AGENT, id: "codex", label: "Codex" },
+    ];
+    await act(async () =>
+      root.render(
+        createElement("div", null, [
+          createElement(SessionsBrowser, {
+            key: "ws-1",
+            api: shared,
+            agents,
+            ready: true,
+            rows: [closed({ sessionId: "a" })],
+            onDelete: vi.fn(),
+            onResume: vi.fn(),
+            onFork: vi.fn(),
+          }),
+          createElement(SessionsBrowser, {
+            key: "ws-2",
+            api: shared,
+            agents,
+            ready: true,
+            rows: [
+              closed({ agent: "codex" as never, sessionId: "b", branch: "kd/ws/2" }),
+            ],
+            onDelete: vi.fn(),
+            onResume: vi.fn(),
+            onFork: vi.fn(),
+          }),
+        ]),
+      ),
+    );
+    // Same key shape as the app: two INDEPENDENT lists in one document.
+    const lists = document.querySelectorAll(".browser__list");
+    expect(lists).toHaveLength(2);
+    expect(lists[0].textContent).toContain("alpha title");
+    expect(lists[0].textContent).not.toContain("beta title");
+    expect(lists[1].textContent).toContain("beta title");
+    expect(lists[1].textContent).not.toContain("alpha title");
+  });
+
+  it("one session id in two workspaces' journals: both rows get the title and keep their own branch", async () => {
+    const shared = api([], {}, {
+      "claude:s-1": { kind: "hit", reference: "/r/1", title: "the shared truth" },
+    });
+    await act(async () =>
+      root.render(
+        createElement("div", null, [
+          createElement(SessionsBrowser, {
+            key: "ws-1",
+            api: shared,
+            agents: [CAPABLE_AGENT],
+            ready: true,
+            rows: [closed({ branch: "kd/ws/1" })],
+            onDelete: vi.fn(),
+            onResume: vi.fn(),
+            onFork: vi.fn(),
+          }),
+          createElement(SessionsBrowser, {
+            key: "ws-2",
+            api: shared,
+            agents: [CAPABLE_AGENT],
+            ready: true,
+            rows: [closed({ branch: "kd/ws/2" })],
+            onDelete: vi.fn(),
+            onResume: vi.fn(),
+            onFork: vi.fn(),
+          }),
+        ]),
+      ),
+    );
+    const rows = document.querySelectorAll(".browser__journal");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.textContent).toContain("the shared truth");
+    }
+    expect(rows[0].querySelector(".history__chip")?.textContent).toBe("kd/ws/1");
+    expect(rows[1].querySelector(".history__chip")?.textContent).toBe("kd/ws/2");
+  });
+
+  it("the row declares its keys to the shared table on mount and as the journal grows", async () => {
+    const a = api([]);
+    await mount(a, [closed(), closed({ sessionId: "s-2" })]);
+    expect(a.enrichment.declare).toHaveBeenCalledExactlyOnceWith([
+      { agent: "claude", sessionId: "s-1" },
+      { agent: "claude", sessionId: "s-2" },
+    ]);
+
+    await act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: [CAPABLE_AGENT],
+          ready: true,
+          rows: [closed(), closed({ sessionId: "s-2" }), closed({ sessionId: "s-3" })],
+          onDelete: vi.fn(),
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+    expect(a.enrichment.declare).toHaveBeenLastCalledWith([
+      { agent: "claude", sessionId: "s-1" },
+      { agent: "claude", sessionId: "s-2" },
+      { agent: "claude", sessionId: "s-3" },
+    ]);
+  });
+
+  it("the index gave the link and the READ fell: a status on the row, the list unchanged, never 'nothing to read'", async () => {
+    // The transcript file vanished between the scan that indexed it and
+    // the open. The refusal is named as itself — on the viewer and on the
+    // row — and the row keeps its place and its open affordance.
+    const a = api([], {}, {
+      "claude:s-1": { kind: "hit", reference: "/vanished/s-1.jsonl", title: "gone file" },
+    });
+    a.transcript = vi.fn(() => Promise.reject(new Error("no such file")));
+    await mount(a, [closed({ sessionId: "s-1" })]);
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+    );
+    const row = document.querySelector(".browser__journal")!;
+    expect(row.textContent).toContain("gone file"); // still there, still titled
+    expect(chipOf(row)?.textContent).toBe("read failed");
+    expect(document.body.textContent).not.toContain("nothing to read");
+    expect(document.querySelector(".browser__viewer")?.textContent).toContain(
+      "Read failed: no such file",
+    );
   });
 });

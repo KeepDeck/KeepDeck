@@ -15,6 +15,7 @@ vi.mock("../ipc/log", () => ({
 }));
 
 import { useJournalEnrichment, rowKeyOf } from "./useJournalEnrichment";
+import { joinJournalRow } from "../domain/journal";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -226,5 +227,54 @@ describe("useJournalEnrichment", () => {
       reference: "/store/s-1",
       title: "newest",
     });
+  });
+
+  it("end to end: rows titled with the agent's LABEL get their real names once the rescan lands", async () => {
+    // The shape the step doc measured: a fresh index (schema wipe) answers
+    // absent for everything; the rescan's landed batches bump the revision
+    // and the re-ask turns the label-titled rows into titled ones. Store
+    // and join composed over the real journal-record shape.
+    const labelTitled = {
+      agent: "claude",
+      sessionId: "s-1",
+      cwd: "/repo",
+      title: "Claude Code", // the label, frozen into the journal
+      boundAt: "2026-07-19T10:00:00.000Z",
+      state: "closed" as const,
+      endedAt: "2026-07-19T11:00:00.000Z",
+    };
+    revision = 1;
+    await mount();
+    act(() => api.declare([{ agent: "claude", sessionId: "s-1" }]));
+    await act(async () => {});
+    await act(async () => resolvers[0]([{ status: "absent" }]));
+
+    // Before the scan lands, the join shows the label — the only name the
+    // record itself has — and keeps looking for the index's answer.
+    const before = joinJournalRow(
+      labelTitled,
+      api.entries.get(rowKeyOf({ agent: "claude", sessionId: "s-1" })),
+      "Claude Code",
+      false,
+    );
+    expect(before.status).toBe("nothing-to-read");
+
+    // The rescan lands the row: revision bump, re-ask, a titled hit.
+    revision += 1;
+    await rerender();
+    await act(async () =>
+      resolvers[1]([
+        { status: "hit", reference: "/store/s-1", title: "fix the auth bug" },
+      ]),
+    );
+    const after = joinJournalRow(
+      labelTitled,
+      api.entries.get(rowKeyOf({ agent: "claude", sessionId: "s-1" })),
+      "Claude Code",
+      false,
+    );
+    expect(after.title).toBe("fix the auth bug");
+    expect(after.read).toEqual({ source: "index", reference: "/store/s-1" });
+    expect(after.status).toBeNull();
   });
 });

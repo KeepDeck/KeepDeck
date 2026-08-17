@@ -228,14 +228,48 @@
   min-height: 0;
 }
 
-/* Only HIT rows are clickable (they open the transcript) — journal rows and
- * status rows (the section label, empty placeholder, loading tail) are not. */
+/* Hit rows are clickable (they open the transcript) and so is a journal
+ * row THE JOIN GAVE A READ LINK — the rest of the journal section and the
+ * status rows (the section label, empty placeholder, loading tail) are
+ * not. */
 .browser__list .history__row:not(.browser__empty):not(.browser__more):not(.browser__journal) {
   cursor: pointer;
 }
 
 .browser__list .history__row:not(.browser__empty):not(.browser__more):not(.browser__journal):hover {
   background-color: #131926;
+}
+
+.browser__list .history__row.browser__journal--open {
+  cursor: pointer;
+}
+
+.browser__list .history__row.browser__journal--open:hover {
+  background-color: #131926;
+}
+
+/* A journal row's name as its open button — same reset as the hits'
+ * browser__open, single-line shape (the journal name is a flexing row
+ * child, not a column like the hits'). */
+.history__name--open {
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.history__name--open:hover,
+.history__name--open:focus-visible {
+  color: #e8ebf0;
+}
+
+/* The joined row's status chip — the visible stand-in for everything that
+ * keeps a row in the list but unopenable. */
+.history__status {
+  flex: none;
 }
 
 /* The label between the pinned journal rows and the global hits. */
