@@ -57,13 +57,27 @@ export interface SearchPage {
   total: number;
 }
 
+/** Directory membership carried IN a search: the workspace block asks
+ * `only`, the global block `except`. Exact cwd paths both ways — the
+ * workspace-directory rule lives in the webview's domain. */
+export type IndexFolderScope =
+  | { mode: "only"; dirs: string[] }
+  | { mode: "except"; dirs: string[] };
+
 export function indexSearch(
   query: string,
   limit: number,
   offset: number,
   agent?: string,
+  folders?: IndexFolderScope,
 ): Promise<SearchPage> {
-  return invoke("index_search", { query, limit, offset, agent: agent ?? null });
+  return invoke("index_search", {
+    query,
+    limit,
+    offset,
+    agent: agent ?? null,
+    folders: folders ?? null,
+  });
 }
 
 /** One (agent, session_id) join key — the journal row's targeted ask. */

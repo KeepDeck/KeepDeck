@@ -6,7 +6,9 @@
 
 use std::sync::Mutex;
 
-use keepdeck_index::{IndexRow, IndexedRef, LookupAnswer, SearchHit, SessionIndex};
+use keepdeck_index::{
+    FolderScope, IndexRow, IndexedRef, LookupAnswer, SearchHit, SessionIndex,
+};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -175,8 +177,28 @@ pub struct SearchPageDto {
     pub total: i64,
 }
 
+/// Directory membership carried IN a search: the workspace block asks
+/// `only`, the global block `except`. Exact cwd paths both ways.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "mode", rename_all = "lowercase")]
+pub enum FolderScopeDto {
+    Only { dirs: Vec<String> },
+    Except { dirs: Vec<String> },
+}
+
+impl From<FolderScopeDto> for FolderScope {
+    fn from(dto: FolderScopeDto) -> Self {
+        match dto {
+            FolderScopeDto::Only { dirs } => FolderScope::Only(dirs),
+            FolderScopeDto::Except { dirs } => FolderScope::Except(dirs),
+        }
+    }
+}
+
 /// Search the index (empty query = newest sessions), one page at a time.
-/// `agent` narrows to one CLI's sessions (the spawn-dialog picker).
+/// `agent` narrows to one CLI's sessions (the spawn-dialog picker);
+/// `folders` splits the store by directory membership so each sessions
+/// block pages over its own set, fetching nothing it will throw away.
 #[tauri::command(async)]
 pub fn index_search(
     state: State<'_, HistoryIndex>,
@@ -184,12 +206,15 @@ pub fn index_search(
     limit: usize,
     offset: usize,
     agent: Option<String>,
+    folders: Option<FolderScopeDto>,
 ) -> Result<SearchPageDto, String> {
     with_index(&state, |index| {
         let agent = agent.as_deref();
-        let total = index.search_total(&query, agent)?;
+        let scope = folders.map(FolderScope::from);
+        let scope_ref = scope.as_ref();
+        let total = index.search_total(&query, agent, scope_ref)?;
         let hits = index
-            .search(&query, limit, offset, agent)?
+            .search(&query, limit, offset, agent, scope_ref)?
             .into_iter()
             .map(
                 |SearchHit {

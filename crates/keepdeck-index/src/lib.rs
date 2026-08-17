@@ -56,6 +56,52 @@ pub struct SearchHit {
     pub snippet: Option<String>,
 }
 
+/// Directory-based membership, carried IN the query itself: the sessions
+/// browser's top block asks for the workspace's folders (`Only`), the
+/// bottom block asks for everything but them (`Except`). Exact paths both
+/// ways — the workspace-directory rule lives in the webview's domain; to
+/// this crate a folder is an opaque cwd string.
+#[derive(Debug, Clone)]
+pub enum FolderScope {
+    Only(Vec<String>),
+    Except(Vec<String>),
+}
+
+impl FolderScope {
+    fn dirs(&self) -> &[String] {
+        match self {
+            FolderScope::Only(dirs) | FolderScope::Except(dirs) => dirs,
+        }
+    }
+
+    fn is_except(&self) -> bool {
+        matches!(self, FolderScope::Except(_))
+    }
+
+    /// The SQL fragment for one table alias (`prefix` empty, or `s.` in the
+    /// FTS arm). Returns the clause and how many bind values it owns,
+    /// numbered from `first`. `Except` with NO folders is no clause at all
+    /// (nothing is excluded); `Only` with NO folders matches nothing —
+    /// unreachable from a real workspace (its own folder is always in the
+    /// set), and `1=0` keeps that honest if a caller ever sends it.
+    fn clause(&self, prefix: &str, first: usize) -> (String, usize) {
+        let dirs = self.dirs();
+        if dirs.is_empty() {
+            return if self.is_except() {
+                (String::new(), 0)
+            } else {
+                (" AND 1=0".to_string(), 0)
+            };
+        }
+        let placeholders = (0..dirs.len())
+            .map(|i| format!("?{}", first + i))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let op = if self.is_except() { "NOT IN" } else { "IN" };
+        (format!(" AND {prefix}cwd {op} ({placeholders})"), dirs.len())
+    }
+}
+
 pub struct SessionIndex {
     conn: Connection,
 }
@@ -212,41 +258,82 @@ impl SessionIndex {
     }
 
     /// How many sessions match — the "shown X of N" denominator. Same
-    /// matching as [`search`] (agent filter, FTS ∪ title-LIKE), no paging.
-    pub fn search_total(&self, query: &str, agent: Option<&str>) -> Result<i64, String> {
+    /// matching as [`search`] (agent filter, folder scope, FTS ∪
+    /// title-LIKE), no paging: the counter and the page come from ONE
+    /// query shape, or the count would describe a different set.
+    pub fn search_total(
+        &self,
+        query: &str,
+        agent: Option<&str>,
+        folders: Option<&FolderScope>,
+    ) -> Result<i64, String> {
+        use rusqlite::types::Value as SqlValue;
         let q = query.trim();
         let agent_clause = if agent.is_some() { " AND agent = ?A" } else { "" };
         if q.is_empty() {
+            // The folder bind values follow the agent's (when present) —
+            // numbered right after whatever came before, or SQLite counts
+            // a gap the values cannot fill.
+            let folder_first = 1 + usize::from(agent.is_some());
+            let folder_sql = match folders {
+                Some(scope) => scope.clause("", folder_first).0,
+                None => String::new(),
+            };
             let sql = format!(
-                "SELECT COUNT(*) FROM sessions WHERE 1=1{}",
+                "SELECT COUNT(*) FROM sessions WHERE 1=1{}{}",
                 agent_clause.replace("?A", "?1"),
+                folder_sql,
             );
             let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
-            let total = match agent {
-                Some(a) => stmt.query_row(params![a], |r| r.get(0)),
-                None => stmt.query_row([], |r| r.get(0)),
-            };
-            return total.map_err(|e| e.to_string());
+            let mut values: Vec<SqlValue> = Vec::new();
+            if let Some(a) = agent {
+                values.push(SqlValue::Text(a.to_string()));
+            }
+            if let Some(scope) = folders {
+                values.extend(scope.dirs().iter().cloned().map(SqlValue::Text));
+            }
+            let total = stmt
+                .query_row(rusqlite::params_from_iter(values), |r| r.get(0))
+                .map_err(|e| e.to_string())?;
+            return Ok(total);
         }
         let (fts_query, like) = Self::match_terms(q);
+        let folder_first = 3 + usize::from(agent.is_some());
+        let folder_sql_s = match folders {
+            Some(scope) => scope.clause("s.", folder_first).0,
+            None => String::new(),
+        };
+        let folder_sql = match folders {
+            Some(scope) => scope.clause("", folder_first).0,
+            None => String::new(),
+        };
         let sql = format!(
             "SELECT COUNT(*) FROM (
                 SELECT s.agent, s.session_id FROM fts JOIN sessions s
                   ON s.agent = fts.agent AND s.session_id = fts.session_id
-                WHERE fts MATCH ?1{a1}
+                WHERE fts MATCH ?1{a1}{f1}
                 UNION
                 SELECT agent, session_id FROM sessions
-                WHERE title LIKE ?2 ESCAPE '\\'{a2}
+                WHERE title LIKE ?2 ESCAPE '\\'{a2}{f2}
              )",
             a1 = agent_clause.replace("?A", "?3").replace("agent =", "s.agent ="),
             a2 = agent_clause.replace("?A", "?3"),
+            f1 = folder_sql_s,
+            f2 = folder_sql,
         );
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
-        let total = match agent {
-            Some(a) => stmt.query_row(params![fts_query, like, a], |r| r.get(0)),
-            None => stmt.query_row(params![fts_query, like], |r| r.get(0)),
-        };
-        total.map_err(|e| e.to_string())
+        let mut values: Vec<SqlValue> =
+            vec![SqlValue::Text(fts_query), SqlValue::Text(like)];
+        if let Some(a) = agent {
+            values.push(SqlValue::Text(a.to_string()));
+        }
+        if let Some(scope) = folders {
+            values.extend(scope.dirs().iter().cloned().map(SqlValue::Text));
+        }
+        let total = stmt
+            .query_row(rusqlite::params_from_iter(values), |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        Ok(total)
     }
 
     fn match_terms(q: &str) -> (String, String) {
@@ -263,22 +350,36 @@ impl SessionIndex {
     /// everything newest-first (the browser's initial view); `offset` pages
     /// through the FULL match set (no cap — paging replaced the old
     /// truncation); `agent` narrows to one CLI's sessions (the spawn-dialog
-    /// picker). Content matches carry a snippet.
+    /// picker); `folders` carries directory membership INTO the query (the
+    /// top block's `Only`, the bottom's `Except`) so pages arrive already
+    /// sorted by block and nothing is fetched to be thrown away. Content
+    /// matches carry a snippet.
     pub fn search(
         &self,
         query: &str,
         limit: usize,
         offset: usize,
         agent: Option<&str>,
+        folders: Option<&FolderScope>,
     ) -> Result<Vec<SearchHit>, String> {
+        use rusqlite::types::Value as SqlValue;
         let q = query.trim();
         let agent_clause = if agent.is_some() { " AND agent = ?A" } else { "" };
         if q.is_empty() {
+            // Bind values in index order: limit, offset, agent (when
+            // present), then the folders — the clause numbers itself right
+            // after whichever came last.
+            let folder_first = 3 + usize::from(agent.is_some());
+            let folder_sql = match folders {
+                Some(scope) => scope.clause("", folder_first).0,
+                None => String::new(),
+            };
             let sql = format!(
                 "SELECT agent, session_id, ref, cwd, title, transcript_path, mtime
-                 FROM sessions WHERE 1=1{}
+                 FROM sessions WHERE 1=1{}{}
                  ORDER BY mtime DESC LIMIT ?1 OFFSET ?2",
                 agent_clause.replace("?A", "?3"),
+                folder_sql,
             );
             let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
             let map = |r: &rusqlite::Row<'_>| {
@@ -293,16 +394,20 @@ impl SessionIndex {
                     snippet: None,
                 })
             };
-            let rows = match agent {
-                Some(a) => stmt
-                    .query_map(params![limit as i64, offset as i64, a], map)
-                    .map_err(|e| e.to_string())?
-                    .collect::<Result<Vec<_>, _>>(),
-                None => stmt
-                    .query_map(params![limit as i64, offset as i64], map)
-                    .map_err(|e| e.to_string())?
-                    .collect::<Result<Vec<_>, _>>(),
-            };
+            let mut values: Vec<SqlValue> = vec![
+                SqlValue::Integer(limit as i64),
+                SqlValue::Integer(offset as i64),
+            ];
+            if let Some(a) = agent {
+                values.push(SqlValue::Text(a.to_string()));
+            }
+            if let Some(scope) = folders {
+                values.extend(scope.dirs().iter().cloned().map(SqlValue::Text));
+            }
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(values), map)
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>();
             return rows.map_err(|e| e.to_string());
         }
         // FTS5 prefix query over content, unioned with a LIKE over titles —
@@ -310,8 +415,20 @@ impl SessionIndex {
         // into the MATCH grammar. The UNION would emit a double-matching
         // session twice (differing snippet column), so pagination dedups in
         // SQL: group by session, keep MAX(snip) (the non-NULL content hit),
-        // then page with LIMIT/OFFSET over the deduped set.
+        // then page with LIMIT/OFFSET over the deduped set. The folder
+        // clause guards BOTH arms — a content hit in a foreign folder is as
+        // foreign as a title one; the folder bind values are shared by
+        // number (?6..) across the arms.
         let (fts_query, like) = Self::match_terms(q);
+        let folder_first = 5 + usize::from(agent.is_some());
+        let folder_sql_s = match folders {
+            Some(scope) => scope.clause("s.", folder_first).0,
+            None => String::new(),
+        };
+        let folder_sql = match folders {
+            Some(scope) => scope.clause("", folder_first).0,
+            None => String::new(),
+        };
         let sql = format!(
             "SELECT agent, session_id, ref, cwd, title, transcript_path,
                     mtime, MAX(snip) AS snippet
@@ -321,16 +438,18 @@ impl SessionIndex {
                        snippet(fts, 0, '[', ']', '…', 12) AS snip
                 FROM fts JOIN sessions s
                   ON s.agent = fts.agent AND s.session_id = fts.session_id
-                WHERE fts MATCH ?1{a1}
+                WHERE fts MATCH ?1{a1}{f1}
                 UNION
                 SELECT agent, session_id, ref, cwd, title, transcript_path,
                        mtime, NULL
-                FROM sessions WHERE title LIKE ?2 ESCAPE '\\'{a2}
+                FROM sessions WHERE title LIKE ?2 ESCAPE '\\'{a2}{f2}
              )
              GROUP BY agent, session_id
              ORDER BY mtime DESC LIMIT ?3 OFFSET ?4",
             a1 = agent_clause.replace("?A", "?5").replace("agent =", "s.agent ="),
             a2 = agent_clause.replace("?A", "?5"),
+            f1 = folder_sql_s,
+            f2 = folder_sql,
         );
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
         let map = |r: &rusqlite::Row<'_>| {
@@ -345,19 +464,22 @@ impl SessionIndex {
                 snippet: r.get(7)?,
             })
         };
-        let rows = match agent {
-            Some(a) => stmt
-                .query_map(
-                    params![fts_query, like, limit as i64, offset as i64, a],
-                    map,
-                )
-                .map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>(),
-            None => stmt
-                .query_map(params![fts_query, like, limit as i64, offset as i64], map)
-                .map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>(),
-        };
+        let mut values: Vec<SqlValue> = vec![
+            SqlValue::Text(fts_query),
+            SqlValue::Text(like),
+            SqlValue::Integer(limit as i64),
+            SqlValue::Integer(offset as i64),
+        ];
+        if let Some(a) = agent {
+            values.push(SqlValue::Text(a.to_string()));
+        }
+        if let Some(scope) = folders {
+            values.extend(scope.dirs().iter().cloned().map(SqlValue::Text));
+        }
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(values), map)
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>();
         rows.map_err(|e| e.to_string())
     }
 
@@ -518,7 +640,7 @@ mod tests {
             })
             .collect();
         index.upsert(&rows).unwrap();
-        let hits = index.search("shared", 5, 0, None).unwrap();
+        let hits = index.search("shared", 5, 0, None, None).unwrap();
         assert_eq!(hits.len(), 5); // not ~limit/2
     }
 
@@ -541,7 +663,7 @@ mod tests {
             let mut seen = Vec::new();
             let mut offset = 0;
             loop {
-                let page = index.search(query, 3, offset, None).unwrap();
+                let page = index.search(query, 3, offset, None, None).unwrap();
                 if page.is_empty() {
                     break;
                 }
@@ -652,6 +774,96 @@ mod tests {
     }
 
     #[test]
+    fn folder_scope_splits_the_store_both_ways_on_both_query_paths() {
+        // Membership rides IN the query: Only picks the workspace's exact
+        // folders, Except is its complement — on the empty-query path AND
+        // the FTS/title path alike, and the totals agree with the pages.
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let mut in_ws = row("claude", "a", 3, "the auth bug lives here");
+        in_ws.cwd = "/wt/kd-x-1".into();
+        let mut other_ws = row("claude", "b", 2, "the auth bug lives here");
+        other_ws.cwd = "/wt/kd-x-2".into();
+        let mut global = row("codex", "c", 1, "unrelated work");
+        global.cwd = "/elsewhere".into();
+        index.upsert(&[in_ws, other_ws, global]).unwrap();
+
+        let scope = FolderScope::Only(vec!["/wt/kd-x-1".into(), "/gone".into()]);
+        let top = index.search("", 10, 0, None, Some(&scope)).unwrap();
+        assert_eq!(
+            top.iter().map(|h| h.session_id.as_str()).collect::<Vec<_>>(),
+            ["a"],
+        );
+        // The content path honors the same scope — a content hit in a
+        // foreign folder is as foreign as a title one.
+        let top_hit = index.search("auth", 10, 0, None, Some(&scope)).unwrap();
+        assert_eq!(
+            top_hit.iter().map(|h| h.session_id.as_str()).collect::<Vec<_>>(),
+            ["a"],
+        );
+        assert_eq!(index.search_total("", None, Some(&scope)).unwrap(), 1);
+        assert_eq!(index.search_total("auth", None, Some(&scope)).unwrap(), 1);
+
+        let bottom = FolderScope::Except(vec!["/wt/kd-x-1".into(), "/gone".into()]);
+        let rest = index.search("", 10, 0, None, Some(&bottom)).unwrap();
+        assert_eq!(
+            rest.iter().map(|h| h.session_id.as_str()).collect::<Vec<_>>(),
+            ["b", "c"],
+        );
+        let rest_hit = index.search("auth", 10, 0, None, Some(&bottom)).unwrap();
+        assert_eq!(
+            rest_hit.iter().map(|h| h.session_id.as_str()).collect::<Vec<_>>(),
+            ["b"],
+        );
+        assert_eq!(index.search_total("auth", None, Some(&bottom)).unwrap(), 1);
+    }
+
+    #[test]
+    fn folder_scope_membership_is_exact_and_edges_are_honest() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let mut r = row("claude", "s1", 1, "x");
+        r.cwd = "/wt/kd-KeepDeck-12".into();
+        index.upsert(&[r]).unwrap();
+
+        // Exact paths, not stems: the sibling does not match.
+        let stem = FolderScope::Only(vec!["/wt/kd-KeepDeck-1".into()]);
+        assert_eq!(index.search("", 10, 0, None, Some(&stem)).unwrap().len(), 0);
+
+        // Except with NO folders excludes nothing — the global block's
+        // degenerate case. Only with NO folders matches nothing (a real
+        // workspace always carries its own folder; kept honest anyway).
+        let no_except = FolderScope::Except(vec![]);
+        assert_eq!(index.search_total("", None, Some(&no_except)).unwrap(), 1);
+        let no_only = FolderScope::Only(vec![]);
+        assert_eq!(index.search_total("", None, Some(&no_only)).unwrap(), 0);
+    }
+
+    #[test]
+    fn folder_scope_composes_with_the_agent_filter() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let mut mine = row("claude", "a", 2, "token");
+        mine.cwd = "/mine".into();
+        let mut foreign_agent = row("kimi", "b", 1, "token");
+        foreign_agent.cwd = "/mine".into();
+        index.upsert(&[mine, foreign_agent]).unwrap();
+
+        let scope = FolderScope::Only(vec!["/mine".into()]);
+        let hits = index
+            .search("token", 10, 0, Some("claude"), Some(&scope))
+            .unwrap();
+        assert_eq!(
+            hits.iter().map(|h| h.session_id.as_str()).collect::<Vec<_>>(),
+            ["a"],
+        );
+        assert_eq!(
+            index.search_total("token", Some("claude"), Some(&scope)).unwrap(),
+            1,
+        );
+    }
+
+    #[test]
     fn agent_filter_narrows_search_and_total() {
         let dir = tempfile::tempdir().unwrap();
         let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
@@ -663,22 +875,22 @@ mod tests {
             ])
             .unwrap();
 
-        let all = index.search("", 10, 0, Some("claude")).unwrap();
+        let all = index.search("", 10, 0, Some("claude"), None).unwrap();
         assert_eq!(
             all.iter().map(|h| h.session_id.as_str()).collect::<Vec<_>>(),
             ["a", "c"],
         );
-        let hits = index.search("shared", 10, 0, Some("claude")).unwrap();
+        let hits = index.search("shared", 10, 0, Some("claude"), None).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].session_id, "a");
         // Title-only matches obey the filter too (the LIKE arm).
-        let title = index.search("title b", 10, 0, Some("claude")).unwrap();
+        let title = index.search("title b", 10, 0, Some("claude"), None).unwrap();
         assert!(title.is_empty());
 
-        assert_eq!(index.search_total("", None).unwrap(), 3);
-        assert_eq!(index.search_total("", Some("claude")).unwrap(), 2);
-        assert_eq!(index.search_total("shared", None).unwrap(), 2);
-        assert_eq!(index.search_total("shared", Some("codex")).unwrap(), 1);
+        assert_eq!(index.search_total("", None, None).unwrap(), 3);
+        assert_eq!(index.search_total("", Some("claude"), None).unwrap(), 2);
+        assert_eq!(index.search_total("shared", None, None).unwrap(), 2);
+        assert_eq!(index.search_total("shared", Some("codex"), None).unwrap(), 1);
     }
 
     #[test]
@@ -688,7 +900,7 @@ mod tests {
         let mut r = row("claude", "s1", 1, "shared token");
         r.title = Some("shared".into());
         index.upsert(&[r]).unwrap();
-        assert_eq!(index.search_total("shared", None).unwrap(), 1);
+        assert_eq!(index.search_total("shared", None, None).unwrap(), 1);
     }
 
     #[test]
@@ -702,16 +914,16 @@ mod tests {
             ])
             .unwrap();
 
-        let all = index.search("", 10, 0, None).unwrap();
+        let all = index.search("", 10, 0, None, None).unwrap();
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].session_id, "a"); // newest first
 
-        let hits = index.search("token refr", 10, 0, None).unwrap();
+        let hits = index.search("token refr", 10, 0, None, None).unwrap();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].snippet.as_deref().unwrap().contains("[token]"));
 
         // Title match without a content match still surfaces.
-        let title = index.search("title b", 10, 0, None).unwrap();
+        let title = index.search("title b", 10, 0, None, None).unwrap();
         assert_eq!(title.len(), 1);
         assert_eq!(title[0].session_id, "b");
     }
@@ -726,7 +938,7 @@ mod tests {
 
         let dropped = index.prune("claude", &["/store/a".into()]).unwrap();
         assert_eq!(dropped, 1);
-        assert_eq!(index.search("", 10, 0, None).unwrap().len(), 1);
+        assert_eq!(index.search("", 10, 0, None, None).unwrap().len(), 1);
     }
 
     #[test]
@@ -742,7 +954,7 @@ mod tests {
             conn.execute_batch("PRAGMA user_version = 999;").unwrap();
         }
         let index = SessionIndex::open(&path).unwrap();
-        assert_eq!(index.search("", 10, 0, None).unwrap().len(), 0); // rebuilt empty
+        assert_eq!(index.search("", 10, 0, None, None).unwrap().len(), 0); // rebuilt empty
     }
 
     #[test]
