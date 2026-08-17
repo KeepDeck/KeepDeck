@@ -15,3 +15,9 @@ export {
   type SessionRecord,
   type SessionRecordBase,
 } from "./sessionLog";
+export {
+  joinJournalRow,
+  type JoinEntry,
+  type JoinedRow,
+  type RowStatus,
+} from "./join";
