@@ -932,4 +932,89 @@ describe("SessionsBrowser journal join", () => {
       "Read failed: no such file",
     );
   });
+
+  it("the journal path is DEAD but the index link lives: the row OPENS on the second, no failure mark", async () => {
+    // The union is a fallback, not a display priority: a journal path is a
+    // record of the past, the index link reflects the last scan — a moved
+    // file can leave the second live. One attempt per source, mark only
+    // when both refused.
+    const calls: string[] = [];
+    const a = api([], {}, {
+      "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "the index knows" },
+    });
+    a.transcript = vi.fn((_agent: string, ref: string) => {
+      calls.push(ref);
+      return ref === "/journal/dead.jsonl"
+        ? Promise.reject(new Error("no such file"))
+        : Promise.resolve([{ role: "user" as const, text: "read by the spare link" }]);
+    });
+    await mount(a, [
+      closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" }),
+    ]);
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+    );
+    // Tried in union order: journal first, the index link second.
+    expect(calls).toEqual(["/journal/dead.jsonl", "/store/s-1"]);
+    const row = document.querySelector(".browser__journal")!;
+    expect(chipOf(row)).toBeNull(); // no failure mark — a link read
+    expect(document.querySelector(".browser__turn--user")?.textContent).toBe(
+      "read by the spare link",
+    );
+  });
+
+  it("BOTH links dead: the mark appears, the row stays, both attempts made", async () => {
+    const calls: string[] = [];
+    const a = api([], {}, {
+      "claude:s-1": { kind: "hit", reference: "/store/dead-too", title: "both dead" },
+    });
+    a.transcript = vi.fn((_agent: string, ref: string) => {
+      calls.push(ref);
+      return Promise.reject(new Error("no such file"));
+    });
+    await mount(a, [
+      closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" }),
+    ]);
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+    );
+    expect(calls).toEqual(["/journal/dead.jsonl", "/store/dead-too"]);
+    const row = document.querySelector(".browser__journal")!;
+    expect(row.textContent).toContain("both dead");
+    expect(chipOf(row)?.textContent).toBe("read failed");
+    expect(document.querySelector(".browser__viewer")?.textContent).toContain(
+      "Read failed: no such file",
+    );
+  });
+
+  it("a retry after a both-links failure goes through the union again — the mark retires on success", async () => {
+    // The mark is a reaction, not a verdict: the row keeps its open
+    // affordance and a later click (the file came back, or the scan
+    // fixed the link) reads cleanly and clears the mark.
+    let dead = true;
+    const a = api([], {}, {
+      "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "flaky" },
+    });
+    a.transcript = vi.fn(() =>
+      dead
+        ? Promise.reject(new Error("no such file"))
+        : Promise.resolve([{ role: "user" as const, text: "back again" }]),
+    );
+    await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" })]);
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+    );
+    expect(
+      chipOf(document.querySelector(".browser__journal")!)?.textContent ?? "",
+    ).toBe("read failed");
+
+    dead = false;
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+    );
+    expect(chipOf(document.querySelector(".browser__journal")!)).toBeNull();
+    expect(document.querySelector(".browser__turn--user")?.textContent).toBe(
+      "back again",
+    );
+  });
 });

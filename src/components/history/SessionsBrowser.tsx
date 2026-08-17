@@ -53,6 +53,12 @@ interface ViewerTarget {
   sessionId: string;
   reference: string;
   title: string | null;
+  /** The row's read links in try order (the join's union: journal path
+   * first, the index's reference as the spare), plus how many have
+   * already refused. A failed page zero advances one link; the LAST
+   * link's failure is the row's failure. Singleton for hit rows. */
+  fallbacks: string[];
+  tried: number;
 }
 
 /** The journal row's status chip — the visible stand-in for everything
@@ -83,6 +89,10 @@ const STATUS_CHIP: Record<
     title:
       "The index could not be asked — not a verdict on the session; what was already known still stands",
   },
+  // 'read failed' is deliberately NOT here: unlike the four above it is
+  // a REACTION to an attempt, not a state knowable in advance. Probing
+  // files ahead of the click would cost a stat per row per panel open,
+  // to predict a case that announces itself on the first open.
 };
 
 /**
@@ -149,6 +159,11 @@ export function SessionsBrowser({
   const nearEnd = (el: HTMLElement) =>
     el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END;
 
+  /** One transcript read of `target` at `from`. A page-zero refusal falls
+   * through to the row's NEXT read link (the union is a real fallback, not
+   * a display priority): the journal path is a record of the past, the
+   * index link reflects the last scan — a moved file can leave the second
+   * live. The failure mark lands only when the LAST link refused too. */
   const loadMore = (target: ViewerTarget, from: number) => {
     const seq = viewSeq.current;
     const limit = from === 0 ? FIRST_TURNS : NEXT_TURNS;
@@ -159,24 +174,44 @@ export function SessionsBrowser({
         if (viewSeq.current !== seq) return; // another row opened meanwhile
         setEntries((current) => (from === 0 ? page : [...current, ...page]));
         setExhausted(page.length < limit);
-        // A good page retires the row's failure mark — the link reads.
-        setReadFailed((current) => {
-          if (!current.has(target.reference)) return current;
-          const next = new Set(current);
-          next.delete(target.reference);
-          return next;
-        });
+        // A good page retires the row's failure mark — a link reads.
+        for (const link of target.fallbacks) {
+          setReadFailed((current) => {
+            if (!current.has(link)) return current;
+            const next = new Set(current);
+            next.delete(link);
+            return next;
+          });
+        }
       })
       .catch((e: unknown) => {
         if (viewSeq.current !== seq) return;
-        // The read itself fell — typically the transcript file vanished
-        // between the scan that indexed it and this open. Named as itself,
-        // on the viewer AND on the row; the row keeps its place. Exhausted
-        // stops the viewer's fill-the-viewport effect from re-requesting a
-        // link that just refused — a retry comes from a fresh open.
+        const next = target.fallbacks[target.tried + 1];
+        if (from === 0 && next !== undefined) {
+          // The refusal itself is not yet the row's verdict — a link of
+          // the union remains untried. Advance one and retry page zero;
+          // the viewer stays on the same row, so no state is reset.
+          // `tried` advances monotonically: each refusal moves the cursor
+          // past the link that refused, so the walk terminates on the
+          // last link however many fall.
+          loadMore({ ...target, reference: next, tried: target.tried + 1 }, 0);
+          return;
+        }
+        // The read fell on the LAST link — typically the transcript file
+        // vanished between the scan that indexed it and this open. Named
+        // as itself, on the viewer AND on the row; the row keeps its
+        // place. The mark is the ROW's verdict, so it lands on every link
+        // of the union: the first link alone must not read as alive when
+        // its spare just refused too. Exhausted stops the viewer's fill-
+        // the-viewport effect from re-requesting a link that just
+        // refused — a retry comes from a fresh open.
         setViewerError(e instanceof Error ? e.message : String(e));
         setExhausted(true);
-        setReadFailed((current) => new Set(current).add(target.reference));
+        setReadFailed((current) => {
+          const next = new Set(current);
+          for (const link of target.fallbacks) next.add(link);
+          return next;
+        });
       })
       .finally(() => {
         if (viewSeq.current === seq) setLoadingPage(false);
@@ -210,7 +245,10 @@ export function SessionsBrowser({
   };
 
   /** A journal row opens on its JOINED read link — the journal's own
-   * transcript path first, the index's reference in its absence. */
+   * transcript path first, the index's reference in its absence — and a
+   * refused read falls through the join's union: the shown link first
+   * (a click retries exactly what the row displays), the other side of
+   * the union next. A hit row has one link by construction. */
   const openJournal = (joined: JoinedRow) => {
     if (joined.read === null) return;
     openViewer({
@@ -218,6 +256,8 @@ export function SessionsBrowser({
       sessionId: joined.record.sessionId,
       reference: joined.read.reference,
       title: joined.title ?? null,
+      fallbacks: joined.readLinks,
+      tried: 0,
     });
   };
 
@@ -372,7 +412,7 @@ export function SessionsBrowser({
                   label={statusChip.label}
                 />
               )}
-              {joined.read !== null && readFailed.has(joined.read.reference) && (
+              {joined.readLinks.some((link) => readFailed.has(link)) && (
                 <Chip
                   size="inline"
                   tone="error"
@@ -453,6 +493,8 @@ export function SessionsBrowser({
                         sessionId: hit.sessionId,
                         reference: hit.reference,
                         title: hit.title,
+                        fallbacks: [hit.reference],
+                        tried: 0,
                       })
                   : undefined
               }

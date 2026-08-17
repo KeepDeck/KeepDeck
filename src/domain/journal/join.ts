@@ -50,6 +50,12 @@ export interface JoinedRow {
    * the two sources overlap only halfway, and dropping the journal's
    * would switch off rows that read fine today. */
   read: { source: "journal" | "index"; reference: string } | null;
+  /** BOTH sides of the read-link union that exist — the journal's path
+   * and the index's reference, in try order (journal first). `read` is
+   * what a row SHOWS; this is everything a read may fall through to when
+   * the shown one refuses — the union is a fallback, not a display
+   * priority. Empty when neither source has anything. */
+  readLinks: string[];
   /** The status chip, or null when the row needs none. */
   status: RowStatus | null;
 }
@@ -74,18 +80,27 @@ export function joinJournalRow(
       record,
       title: meaningfulTitle(record, agentLabel),
       read: null,
+      readLinks: [],
       status: "wrong-owner",
     };
   }
   const title =
     meaningfulTitle(record, agentLabel) ??
     (entry?.kind === "hit" ? (entry.title ?? undefined) : undefined);
+  const journalPath = record.transcriptPath;
+  const indexRef = entry?.kind === "hit" ? entry.reference : undefined;
   const read =
-    record.transcriptPath !== undefined
-      ? { source: "journal" as const, reference: record.transcriptPath }
-      : entry?.kind === "hit"
-        ? { source: "index" as const, reference: entry.reference }
+    journalPath !== undefined
+      ? { source: "journal" as const, reference: journalPath }
+      : indexRef !== undefined
+        ? { source: "index" as const, reference: indexRef }
         : null;
+  // The union in TRY order, deduped: the journal path first, the index's
+  // reference as the spare (identical links count once). `read` above is
+  // what the row shows; this is what a refused read falls through to.
+  const readLinks: string[] = [];
+  if (journalPath !== undefined) readLinks.push(journalPath);
+  if (indexRef !== undefined && indexRef !== journalPath) readLinks.push(indexRef);
   // A read link makes the row need no status — regardless of what the
   // index said or failed to say, the row opens. Only link-less rows
   // paint one, and an absent answer is definitive ONLY while no answer
@@ -101,7 +116,7 @@ export function joinJournalRow(
         : entry?.kind === "error"
           ? "index-error"
           : "indexing";
-  return { record, title, read, status };
+  return { record, title, read, readLinks, status };
 }
 
 /** The record's own title when it says something the fallback row
