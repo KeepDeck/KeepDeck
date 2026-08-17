@@ -140,12 +140,15 @@ describe("scanAgentHistories × real plugins", () => {
     expect(prunes).toEqual([]);
   });
 
-  it("claude: a full re-scan of a real-shaped store brings no task copy and no orphaned row", async () => {
-    // The order-of-work regression: a schema bump wipes the index and the
-    // next full scan must not plant rows that were never sessions — a
-    // task's context copy (excluded at describe) and an orphaned file
-    // (dropped by name in both enumeration paths) — while the ordinary
-    // conversation lands.
+  it("claude: a full re-scan drops the orphaned row and indexes the agent-run conversations alike", async () => {
+    // The order-of-work regression for the NAME filter: a schema bump
+    // wipes the index and the next full scan must not plant the row whose
+    // name is not an id. The agent-run transcript (agent-name in its head
+    // — a marker once misread as "task copy") IS indexed: hiding on that
+    // marker erased real five-day conversations. A genuine task's
+    // transfer copy would also ride along as an extra row — a named,
+    // accepted flaw; the only true discriminator is cross-file verbatim
+    // comparison, out of scope here.
     const transcript = [
       JSON.stringify({ type: "mode", mode: "normal", sessionId: "u" }),
       JSON.stringify({
@@ -158,9 +161,14 @@ describe("scanAgentHistories × real plugins", () => {
         message: { role: "assistant", content: [{ type: "text", text: "on it" }] },
       }),
     ].join("\n");
-    const taskCopy = [
-      JSON.stringify({ type: "ai-title", aiTitle: "Fix the build", sessionId: "t" }),
-      JSON.stringify({ type: "agent-name", agentName: "Fix the build", sessionId: "t" }),
+    const agentRun = [
+      JSON.stringify({ type: "ai-title", aiTitle: "kernel work", sessionId: "t" }),
+      JSON.stringify({ type: "agent-name", agentName: "kernel work", sessionId: "t" }),
+      JSON.stringify({
+        type: "user",
+        cwd: "/repo",
+        message: { role: "user", content: "fix the audio stutter" },
+      }),
     ].join("\n");
     const { mock, upserts, prunes } = ops([]);
     await scanAgentHistories(
@@ -171,7 +179,7 @@ describe("scanAgentHistories × real plugins", () => {
             fsCtx(
               {
                 "/h/p/-repo/u.jsonl": transcript,
-                "/h/p/-repo/t.jsonl": taskCopy,
+                "/h/p/-repo/t.jsonl": agentRun,
               },
               {
                 "~/.claude/projects": [
@@ -207,13 +215,23 @@ describe("scanAgentHistories × real plugins", () => {
         size: 2,
         content: "fix the auth bug\non it",
       },
+      {
+        sessionId: "t",
+        reference: "/h/p/-repo/t.jsonl",
+        cwd: "/repo",
+        title: "fix the audio stutter",
+        transcriptPath: "/h/p/-repo/t.jsonl",
+        forkedAt: null,
+        mtime: 6,
+        size: 2,
+        content: "fix the audio stutter",
+      },
     ]);
-    // The prune's live set DOES carry the task copy's ref — by name it is
-    // indistinguishable from a session, and the exclusion happens at
-    // describe — but a ref absent from the index deletes nothing. What
-    // matters is the UPSERT side: only the real conversation entered the
-    // index, so the re-scan planted no row that was never a session.
-    expect(prunes).toEqual([["/h/p/-repo/u.jsonl", "/h/p/-repo/t.jsonl"]]);
+    // The live set carries both real transcripts' refs; the orphaned name
+    // never enters anything.
+    expect(prunes).toEqual([
+      ["/h/p/-repo/u.jsonl", "/h/p/-repo/t.jsonl"],
+    ]);
   });
 
   it("opencode: the untouched plugin rides the legacy branch — indexes and prunes exactly as before", async () => {

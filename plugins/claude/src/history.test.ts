@@ -194,33 +194,35 @@ describe("claude history", () => {
     ]);
   });
 
-  it("a background task's context copy is excluded at describe — an ordinary session is not", async () => {
-    // A task's store file LOOKS like a session (its own uuid name, a
-    // title, hundreds of records) but the records are a verbatim transfer
-    // of the parent conversation. The tell is the head: a task opens with
-    // `agent-name`, an ordinary session never carries it in its head.
-    const taskHead = [
-      JSON.stringify({ type: "ai-title", aiTitle: "Fix the build", sessionId: "t" }),
-      JSON.stringify({ type: "agent-name", agentName: "Fix the build", sessionId: "t" }),
-      JSON.stringify({ type: "last-prompt", sessionId: "t" }),
-    ].join("\n");
-    const task = claudeHistory(ctx({ "/t.jsonl": taskHead }, {}));
-    await expect(task.describe("/t.jsonl")).rejects.toThrow(
-      "background task's context copy",
-    );
-
-    const sessionHead = [
+  it("a transcript with agent-name in its head and HUMAN turns is described — it is a conversation, not a task copy", async () => {
+    // GUARD against a rejected marker: `agent-name` in the first records
+    // was once read as "background task's context copy" and used to hide
+    // files. Measurement killed it: a five-day 58MB conversation of a
+    // person who ALSO had background work carries the same head — the
+    // marker says "this conversation was agent-run", not "this file is a
+    // copy". Hiding on it erased real conversations forever. A task's
+    // transfer copy does stay in the list as an extra row (a named,
+    // accepted flaw); the only true discriminator is cross-file verbatim
+    // comparison, deliberately out of scope.
+    const agentRunHead = [
+      JSON.stringify({ type: "ai-title", aiTitle: "kernel work", sessionId: "u" }),
+      JSON.stringify({ type: "agent-name", agentName: "kernel work", sessionId: "u" }),
       JSON.stringify({ type: "mode", mode: "normal", sessionId: "u" }),
       JSON.stringify({ type: "permission-mode", permissionMode: "default", sessionId: "u" }),
       JSON.stringify({
         type: "user",
         cwd: "/repo",
-        message: { role: "user", content: "fix the auth bug" },
+        message: { role: "user", content: "fix the audio stutter" },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "text", text: "on it" }] },
       }),
     ].join("\n");
-    const session = claudeHistory(ctx({ "/u.jsonl": sessionHead }, {}));
-    await expect(session.describe("/u.jsonl")).resolves.toMatchObject({
-      title: "fix the auth bug",
+    const history = claudeHistory(ctx({ "/u.jsonl": agentRunHead }, {}));
+    await expect(history.describe("/u.jsonl")).resolves.toMatchObject({
+      cwd: "/repo",
+      title: "fix the audio stutter",
     });
   });
 
