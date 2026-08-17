@@ -254,6 +254,7 @@ export function SessionsBrowser({
         // frame honest.
         api.scanning || api.enrichment.pending,
       ),
+      agent?.label,
     );
   });
   // Dedupe against the VISIBLE top rows, not the full journal: a session
@@ -301,7 +302,7 @@ export function SessionsBrowser({
             key={`${row.agent}:${row.sessionId}`}
             row={row}
             agents={agents}
-            dirMissing={!dirPresent(presence, row.cwd)}
+            dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
             readFailed={row.readLinks.some((link) => readFailed.has(link))}
             now={now}
             onOpen={openRow}
@@ -317,7 +318,7 @@ export function SessionsBrowser({
             key={`${row.agent}:${row.sessionId}`}
             row={row}
             agents={agents}
-            dirMissing={!dirPresent(presence, row.cwd)}
+            dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
             readFailed={row.readLinks.some((link) => readFailed.has(link))}
             now={now}
             onOpen={openRow}

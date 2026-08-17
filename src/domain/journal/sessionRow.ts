@@ -20,6 +20,11 @@ export interface UnifiedSessionRow {
   cwd: string;
   /** Display title, source preference already resolved upstream. */
   title: string | undefined;
+  /** The source's OWN no-title fallback — resolved in the mapping, not
+   * the component: an index hit falls back to its session id (a shelf of
+   * nameless hits must not collapse into a wall of identical agent
+   * labels), a journal row to the agent label (the pane-title habit). */
+  nameFallback: string;
   /** The read link the row SHOWS — the fallback chain's first link. */
   read: { source: "journal" | "index"; reference: string } | null;
   /** The full read-link chain (a refused read falls through it). */
@@ -41,14 +46,20 @@ export interface UnifiedSessionRow {
 }
 
 /** A journal-bound row as a unified row — the join's output, re-shaped;
- * nothing re-decided here. */
-export function rowOfJoined(joined: JoinedRow): UnifiedSessionRow {
+ * nothing re-decided here. `nameFallback` is the no-title display name:
+ * the caller passes the agent's LABEL when it knows one (the pane-title
+ * habit), the agent id otherwise. */
+export function rowOfJoined(
+  joined: JoinedRow,
+  nameFallback?: string,
+): UnifiedSessionRow {
   const record = joined.record;
   return {
     agent: record.agent,
     sessionId: record.sessionId,
     cwd: record.cwd,
     title: joined.title,
+    nameFallback: nameFallback ?? record.agent,
     read: joined.read,
     readLinks: joined.readLinks,
     branch: record.branch,
@@ -80,6 +91,7 @@ export function rowOfHit(hit: {
     sessionId: hit.sessionId,
     cwd: hit.cwd,
     title: hit.title ?? undefined,
+    nameFallback: hit.sessionId,
     read: { source: "index", reference: hit.reference },
     readLinks: [hit.reference],
     branch: undefined,

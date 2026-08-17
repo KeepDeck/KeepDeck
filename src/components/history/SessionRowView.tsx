@@ -42,7 +42,10 @@ const STATUS_CHIP: Record<
 export interface SessionRowViewProps {
   row: UnifiedSessionRow;
   agents: AgentInfo[];
-  /** The row's directory no longer exists — blocks Resume in place. */
+  /** The row's NONEMPTY directory no longer exists — blocks Resume in
+   * place and paints the chip. An EMPTY cwd is a different absence (no
+   * recorded directory): Resume is blocked there too, but nothing is
+   * claimed "gone" — there is no path to have vanished. */
   dirMissing: boolean;
   /** The row's last read by link fell — named on the row, as itself. */
   readFailed: boolean;
@@ -82,7 +85,9 @@ export function SessionRowView({
   const wrongOwner = row.status === "wrong-owner";
   const openable = row.read !== null && canReadHistory && !wrongOwner;
   const statusChip = row.status === null ? null : STATUS_CHIP[row.status];
-  const name = row.title ?? agent?.label ?? row.agent;
+  // The no-title fallback is the SOURCE's choice (see nameFallback): hits
+  // show their session id, journal rows the agent label.
+  const name = row.title ?? row.nameFallback;
 
   return (
     <li
@@ -172,7 +177,7 @@ export function SessionRowView({
         <button
           type="button"
           className="history__resume"
-          disabled={dirMissing}
+          disabled={dirMissing || row.cwd === ""}
           title={
             dirMissing
               ? "The session's directory no longer exists"

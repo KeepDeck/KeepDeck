@@ -1091,6 +1091,20 @@ describe("unified row guard — both blocks, one markup", () => {
   const rowOf = (hostIndex: number) =>
     document.querySelectorAll(".browser__list > .history__row")[hostIndex]!;
 
+  const mount = (a: SessionsBrowserApi, rows: SessionRecord[]) =>
+    act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: [CAPABLE_AGENT],
+          ready: true,
+          rows,
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+
   /** The named skeleton: these cells and their ORDER are the requirement.
    * Extracted per name — glyph, name, folder, time, actions — so the
    * comparison cannot pass on accidental overall equality while a cell
@@ -1218,5 +1232,43 @@ describe("unified row guard — both blocks, one markup", () => {
       return clone;
     };
     expect(lift(fromJournal).outerHTML).toBe(lift(fromIndex).outerHTML);
+  });
+
+  it("two NAMELESS hits stay distinguishable — the session id, not a wall of agent labels", async () => {
+    // The one-row refactor regressed this: the component fell back to the
+    // agent label for every source, and a shelf of nameless hits of one
+    // agent collapsed into identical rows. The fallback is the SOURCE's
+    // choice — hits show their session id.
+    await mount(
+      api([hit({ sessionId: "zz-1", title: null }), hit({ sessionId: "zz-2", title: null })]),
+      [],
+    );
+    const rows = bottomRows();
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("zz-1");
+    expect(rows[1].textContent).toContain("zz-2");
+    expect(rows[0].textContent).not.toContain(CAPABLE_AGENT.label);
+  });
+
+  it("an EMPTY cwd is absence, not disappearance: no 'dir gone' chip, Resume blocked with its own words", async () => {
+    await mount(api([hit({ sessionId: "no-dir", cwd: "" })]), []);
+    const row = bottomRows()[0];
+    expect(row.querySelector(".history__missing")).toBeNull();
+    const resume = row.querySelector<HTMLButtonElement>(".history__resume")!;
+    expect(resume.disabled).toBe(true);
+    expect(resume.title).toBe("The session has no recorded directory");
+    // The chip appears only for a NONEMPTY path that is gone.
+    await act(async () => root.unmount());
+    document.body.innerHTML = "<div id='host2'></div>";
+    root = createRoot(document.getElementById("host2")!);
+    worktreeIpc.probeWorktree.mockImplementation((path: string) =>
+      Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
+    );
+    await mount(api([hit({ sessionId: "gone-dir", cwd: "/gone" })]), []);
+    const goneRow = bottomRows()[0];
+    expect(goneRow.querySelector(".history__missing")?.textContent).toBe("dir gone");
+    expect(
+      goneRow.querySelector<HTMLButtonElement>(".history__resume")!.disabled,
+    ).toBe(true);
   });
 });
