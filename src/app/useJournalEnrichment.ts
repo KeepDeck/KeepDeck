@@ -81,7 +81,13 @@ export function useJournalEnrichment(
   const [chaseTick, chaseMore] = useReducer((n: number) => n + 1, 0);
   /** An ask is in flight — the single-flight invariant. At most one ask
    * exists at any moment, so no landing can be foreign and no generation
-   * counter is needed to sort them. */
+   * counter is needed to sort them. ACCEPTED TRADE: a promise that never
+   * settles AT ALL (the bridge can do that) wedges the seam for good —
+   * nothing fires again and rows stay "indexing…" until restart. That is
+   * the deliberate price of no queue: the visible failure is the most
+   * benign of the five states, never lost data or a false verdict, and
+   * journal-path rows keep opening regardless. Success and refusal both
+   * land; only the third outcome hangs — see `landed`, the one exit. */
   const flyingRef = useRef(false);
   /** A change arrived while an ask was flying: ONE catch-up pass is owed
    * after the landing — however many changes piled up, the queue holds a
