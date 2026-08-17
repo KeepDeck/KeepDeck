@@ -18,6 +18,12 @@ import type { BackgroundCarrier } from "./liveSessions";
 import type { CloseRequest } from "./agentOrchestrator";
 import type { Deck } from "./useDeck";
 
+/** The late-painted carrier line: set only when the registry's answer
+ * WARNS ("background" proven, or the ask failed = "unknown"). A "none"
+ * answer never sets it — the ordinary close's text stays untouched to the
+ * character and the dialog does not even re-render. */
+export type CarrierNote = { kind: "background" } | { kind: "unknown" };
+
 /** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
  * workspace. Closing tears down live PTY session(s) immediately, so both are
  * confirmed before they run. `targets` is the worktrees the close could also
@@ -58,11 +64,6 @@ export type ClosingTarget = {
       id: string;
       name: string;
       count: number;
-      /** Folded carrier answer for the workspace's BOUND panes, frozen at
-       * open like the agent branch's facts: "background" when any pane's
-       * conversation is carried, "unknown" when any registry ask failed
-       * (the asymmetry rule, per pane), "none" otherwise. */
-      carriedByBackground: Exclude<BackgroundCarrier, "none"> | "none";
     }
 );
 
@@ -95,27 +96,15 @@ export interface ClosingPaneFacts {
   stopped: boolean;
   /** Suspend is on offer. */
   canSuspend: boolean;
-  /** The pane's conversation is carried by a BACKGROUND process: closing
-   * removes the pane, never the work — a fact the sentence must say. The
-   * three values of a registry ask: proven, failed-to-ask, not asked
-   * (no session to ask about, or the agent has no background mechanism). */
-  carriedByBackground: Exclude<BackgroundCarrier, "none"> | "none";
 }
 
 /** Read the pane's facts as one set, so no caller can take half of them. */
-function paneFactsOf(
-  pane: Pane | undefined,
-  blocked: boolean,
-  carriedByBackground: BackgroundCarrier,
-): ClosingPaneFacts {
+function paneFactsOf(pane: Pane | undefined, blocked: boolean): ClosingPaneFacts {
   return {
     provisioning: !!pane?.provisioning,
     rising: !!pane && paneWakesAutomatically(pane),
     stopped: !!pane && idleReadsAsStopped(pane.idle, blocked),
     canSuspend: !!pane && paneSuspendBlock(pane, blocked) === null,
-    // "none" folds into the ordinary sentences: a registry that answered
-    // and found nothing is exactly yesterday's close.
-    carriedByBackground: carriedByBackground ?? "none",
   };
 }
 
@@ -135,20 +124,26 @@ export function closeMessageFor(
    * The only fact this cannot take from the snapshot, because a workspace
    * close is about panes it does not name individually. */
   runningAgents: number,
+  /** The late-arriving carrier line, painted when the registry answers —
+   * null until then (and forever, on an ordinary "none"). */
+  carrier: CarrierNote | null = null,
 ): string {
   if (!closing) return "";
+  // The carrier note's text, per branch: one conversation vs at least one.
+  // An unreachable registry warns too — skipping the warning on a failed
+  // question returns the harm whole.
+  const note =
+    carrier === null
+      ? ""
+      : carrier.kind === "background"
+        ? closing.kind === "agent"
+          ? "\nIts conversation is carried by a background agent — closing removes the pane, not the work. To stop the work, use the CLI's own agents screen."
+          : "\nAt least one conversation is carried by a background agent — closing removes the panes, not the work. To stop it, use the CLI's own agents screen."
+        : closing.kind === "agent"
+          ? "\nIts conversation may still be carried by a background agent (the live registry could not be reached) — closing removes the pane, not any work in progress."
+          : "\nAt least one conversation may still be carried by a background agent (the live registry could not be reached) — closing removes the panes, not any work in progress.";
   if (closing.kind === "workspace") {
-    // The same honesty the agent branch owes, in the plural: a workspace
-    // close is the place a person is LEAST informed (one gesture, many
-    // panes, none named), and a carried conversation survives it exactly
-    // as it survives a single pane's close.
-    const carrierNote =
-      closing.carriedByBackground === "background"
-        ? "\nAt least one conversation is carried by a background agent — closing removes the panes, not the work. To stop it, use the CLI's own agents screen."
-        : closing.carriedByBackground === "unknown"
-          ? "\nAt least one conversation may still be carried by a background agent (the live registry could not be reached) — closing removes the panes, not any work in progress."
-          : "";
-    if (closing.count === 0) return "This workspace has no agents." + carrierNote;
+    if (closing.count === 0) return "This workspace has no agents." + note;
     // Only the agents that actually HOLD a session are counted as losing one.
     // "Stopped" is not the word for all of them — a pane on its way up has no
     // session YET, and one mid-create has never had one — so the none-running
@@ -159,36 +154,22 @@ export function closeMessageFor(
         (closing.count === 1
           ? "This ends no session; closing removes 1 agent."
           : `This ends no sessions; closing removes ${closing.count} agents.`) +
-        carrierNote
+        note
       );
     }
     return (
       (runningAgents === 1
         ? "This ends 1 agent and its session."
-        : `This ends ${runningAgents} agents and their sessions.`) + carrierNote
+        : `This ends ${runningAgents} agents and their sessions.`) + note
     );
   }
   const facts = closing.pane;
   // Never ran: no session to end, and nothing to suspend.
   if (facts.provisioning) return "Its worktree is still being created.";
-  // The conversation is carried by a background process — true whether the
-  // pane runs (the shell is a window onto work someone else does) or reads
-  // as stopped (the work outlived the shell). Closing removes the pane and
-  // never the work, and the person must hear that BEFORE the pane is gone:
-  // stopping the work from KeepDeck is deliberately impossible (a foreign
-  // process is not ours to kill), and the sentence names the CLI's own way.
-  // An unreachable registry warns too — skipping the warning on a failed
-  // question returns the harm whole.
-  const carrierNote =
-    facts.carriedByBackground === "background"
-      ? "\nIts conversation is carried by a background agent — closing removes the pane, not the work. To stop the work, use the CLI's own agents screen."
-      : facts.carriedByBackground === "unknown"
-        ? "\nIts conversation may still be carried by a background agent (the live registry could not be reached) — closing removes the pane, not any work in progress."
-        : "";
   // A stopped pane has no session to end, and saying so would contradict the
   // card the user is looking at. Whether the worktree survives is the
   // checkbox's business, not this sentence's.
-  if (facts.stopped) return "It is stopped; closing removes the pane." + carrierNote;
+  if (facts.stopped) return "It is stopped; closing removes the pane." + note;
   // Mutually exclusive with the branch above by construction: a stopped pane
   // is exactly the one `paneSuspendBlock` refuses.
   const alternative = facts.canSuspend
@@ -202,7 +183,7 @@ export function closeMessageFor(
   const opening = facts.rising
     ? "It is starting up; closing removes the pane."
     : "Its terminal session will be ended.";
-  return opening + alternative + carrierNote;
+  return opening + alternative + note;
 }
 
 /**
@@ -262,11 +243,18 @@ export function useCloseFlow(
     backgroundCarriers,
   } = deps;
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
+  // The late-painted carrier line (see `CarrierNote`). Set ONLY by the ask
+  // of the dialog that is still current; cleared whenever a dialog opens,
+  // is confirmed, or is cancelled.
+  const [carrier, setCarrier] = useState<CarrierNote | null>(null);
   // Opt-in: also delete the closing target's worktree(s) + branch(es). Reset
   // each time the dialog opens so the destructive choice is never sticky.
   const [deleteWorktree, setDeleteWorktree] = useState(false);
-  // Close requests are numbered: target probing is async, and a slower
-  // earlier request must not open its dialog over a newer one's.
+  // Dialog generation: bumped by every open, confirm and cancel. The open
+  // flow keys its probe on it, and an in-flight registry ask keys its
+  // LATE PAINT on it — an answer arriving after the dialog is gone (or
+  // after a newer one opened) drops instead of writing into a dialog it
+  // was never asked for.
   const requestSeq = useRef(0);
   // The dialog's facts are read when it OPENS, which is after the probe —
   // a render later than the click, so the render-time values are stale by
@@ -275,6 +263,56 @@ export function useCloseFlow(
   deckRef.current = deck;
   const blockedRef = useRef(blockedPanes);
   blockedRef.current = blockedPanes;
+
+  /** Fire the registry ask for the dialog of `seq`, painting the carrier
+   * line when — and only when — the answer warns. A "none" answer paints
+   * nothing: the ordinary close neither re-renders nor changes a
+   * character. */
+  const askCarriers = (
+    seq: number,
+    entries: { agentType: string; sessionId: string }[],
+  ) => {
+    if (entries.length === 0) return;
+    void backgroundCarriers(entries)
+      .then((answers) => {
+        if (seq !== requestSeq.current) return; // dialog gone or replaced
+        const kind = answers.includes("background")
+          ? "background"
+          : answers.includes("unknown")
+            ? "unknown"
+            : null;
+        if (kind) setCarrier({ kind });
+      })
+      .catch(() => {
+        if (seq === requestSeq.current) setCarrier({ kind: "unknown" });
+      });
+  };
+
+  /** Open the confirm dialog once the candidate worktrees are probed. A
+   * close with no candidates skips the probe and opens synchronously. The
+   * REGISTRY ask is deliberately not part of this wait — the dialog opens
+   * on the base facts alone and the carrier line paints when the answer
+   * lands. */
+  const park = (
+    candidates: WorktreeTarget[],
+    make: (targets: WorktreeTarget[]) => ClosingTarget,
+    ask: (seq: number) => void,
+  ) => {
+    const seq = ++requestSeq.current;
+    setCarrier(null);
+    ask(seq);
+    const open = (targets: WorktreeTarget[]) => {
+      setDeleteWorktree(false);
+      setClosing(make(targets));
+    };
+    if (candidates.length === 0) {
+      open([]);
+      return;
+    }
+    void liveTargets(candidates).then((targets) => {
+      if (seq === requestSeq.current) open(targets);
+    });
+  };
 
   /**
    * The closing panes whose worktree create is genuinely STILL OUT — no `cwd`
@@ -297,30 +335,15 @@ export function useCloseFlow(
     const pendingPanes = pendingCreates(
       ws?.panes.filter((pane) => pane.id === paneId) ?? [],
     );
-    // The registry ask runs BESIDE the worktree probe, and the dialog opens
-    // when both have landed — the facts travel as one frozen set (see
-    // `ClosingTarget.pane`). A pane with no session binding has nothing to
-    // ask about; an agent with no live registry answers null (no background
-    // mechanism) and the ask is skipped, not defaulted to "unknown".
+    // The registry ask fires in flight and its answer PAINTS the carrier
+    // line when it lands; the dialog does not wait for it (the standing
+    // rule: opens stay instant). A pane with no session binding has
+    // nothing to ask about.
     const paneNow = findPane(deckRef.current.workspaces, wsId, paneId);
     const sessionId = paneNow?.session?.id ?? null;
-    const carrier: Promise<BackgroundCarrier> =
-      sessionId && paneNow
-        ? backgroundCarriers([
-            { agentType: paneAgentType(paneNow), sessionId },
-          ])
-          .then((answers) => answers[0] ?? null)
-          .catch(() => "unknown" as const)
-        : Promise.resolve(null);
-    const seq = ++requestSeq.current;
-    const candidates = ws ? worktreeTargets(ws, paneId, gitPositions) : [];
-    void Promise.all([
-      candidates.length > 0 ? liveTargets(candidates) : Promise.resolve([]),
-      carrier,
-    ]).then(([targets, carriedByBackground]) => {
-      if (seq !== requestSeq.current) return;
-      setDeleteWorktree(false);
-      setClosing({
+    park(
+      ws ? worktreeTargets(ws, paneId, gitPositions) : [],
+      (targets) => ({
         kind: "agent",
         wsId,
         paneId,
@@ -328,12 +351,18 @@ export function useCloseFlow(
         pane: paneFactsOf(
           findPane(deckRef.current.workspaces, wsId, paneId),
           paneId in blockedRef.current,
-          carriedByBackground,
         ),
         targets,
         pendingPanes,
-      });
-    });
+      }),
+      (seq) => {
+        if (paneNow && sessionId) {
+          askCarriers(seq, [
+            { agentType: paneAgentType(paneNow), sessionId },
+          ]);
+        }
+      },
+    );
   };
 
   const requestCloseWorkspace = (id: string) => {
@@ -342,49 +371,34 @@ export function useCloseFlow(
     const pendingPanes = pendingCreates(ws.panes);
     // One carrier ask per DISTINCT agent over the workspace's BOUND panes
     // (a stopped pane's conversation can be carried too — the same rule as
-    // the agent branch), running beside the worktree probe so the dialog
-    // owes no second wait. Folded per the asymmetry rule: any "background"
-    // wins, then any "unknown", else "none".
+    // the agent branch), folded by `askCarriers` per the asymmetry rule:
+    // any "background" wins, then any "unknown", else nothing at all.
     const entries = ws.panes
       .filter((pane) => pane.session?.id)
       .map((pane) => ({
         agentType: paneAgentType(pane),
         sessionId: pane.session!.id,
       }));
-    const carriers: Promise<Exclude<BackgroundCarrier, "none"> | "none"> =
-      entries.length > 0
-        ? backgroundCarriers(entries)
-            .then((answers) =>
-              answers.includes("background")
-                ? "background"
-                : answers.includes("unknown")
-                  ? "unknown"
-                  : "none",
-            )
-            .catch(() => "unknown" as const)
-        : Promise.resolve("none");
-    const seq = ++requestSeq.current;
-    const candidates = worktreeTargets(ws, undefined, gitPositions);
-    void Promise.all([
-      candidates.length > 0 ? liveTargets(candidates) : Promise.resolve([]),
-      carriers,
-    ]).then(([targets, carriedByBackground]) => {
-      if (seq !== requestSeq.current) return;
-      setDeleteWorktree(false);
-      setClosing({
+    park(
+      worktreeTargets(ws, undefined, gitPositions),
+      (targets) => ({
         kind: "workspace",
         id,
         name: ws.name,
         count: ws.panes.length,
-        carriedByBackground,
         targets,
         pendingPanes,
-      });
-    });
+      }),
+      (seq) => askCarriers(seq, entries),
+    );
   };
 
   const confirmClose = () => {
     if (!closing) return;
+    // The dialog is gone: retire its generation so a straggling registry
+    // answer cannot paint into whatever opens next.
+    requestSeq.current++;
+    setCarrier(null);
     // The destructive choice is settled here and nowhere later: what the
     // dialog offered, against the box the user actually ticked.
     // The DECISION travels separately from the list. This list was frozen when
@@ -419,7 +433,14 @@ export function useCloseFlow(
     });
   };
 
-  const cancelClose = () => setClosing(null);
+  const cancelClose = () => {
+    if (!closing) return;
+    // Same retirement as confirming: the dialog is gone, its in-flight
+    // ask must not paint anywhere.
+    requestSeq.current++;
+    setCarrier(null);
+    setClosing(null);
+  };
 
   /** Whether the dialog offers suspending instead of closing at all — from
    * the snapshot it opened with, so the button row cannot reshuffle
@@ -444,7 +465,11 @@ export function useCloseFlow(
     return (ws?.panes ?? []).filter(paneHasProcess).length;
   };
 
-  const closeMessage = closeMessageFor(closing, runningAgentsOf(closing));
+  const closeMessage = closeMessageFor(
+    closing,
+    runningAgentsOf(closing),
+    carrier,
+  );
 
   /** How many worktrees the delete offer covers — the ones that exist plus the
    * creates still out. The dialog gates its checkbox on this rather than on

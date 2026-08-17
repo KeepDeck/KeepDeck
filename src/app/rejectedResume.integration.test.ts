@@ -131,7 +131,7 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     ]);
     const carried = await askBackgroundCarrier(plugins, "claude", "c5b109c5");
     expect(carried).toBe("background");
-    // The sentence a close dialog would freeze for that pane.
+    // The sentence a close dialog would paint once the answer lands.
     const message = closeMessageFor(
       {
         kind: "agent",
@@ -143,12 +143,12 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
           rising: false,
           stopped: false,
           canSuspend: true,
-          carriedByBackground: carried ?? "none",
         },
         targets: [],
         pendingPanes: [],
       },
       0,
+      carried === "background" ? { kind: "background" } : null,
     );
     expect(message).toContain("carried by a background agent");
     expect(message).toContain("not the work");

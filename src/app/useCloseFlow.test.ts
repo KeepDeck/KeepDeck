@@ -38,6 +38,29 @@ const backgroundCarriers = vi.fn<
     entries: { agentType: string; sessionId: string }[],
   ) => Promise<("background" | "none" | "unknown" | null)[]>
 >(async (entries) => entries.map(() => "none"));
+
+/** A controllable in-flight ask for the late-paint tests: the dialog opens
+ * before `resolve` fires — exactly what the standing instant-open rule
+ * demands of the first frame. */
+function deferredCarriers() {
+  let settled = false;
+  let resolve!: (
+    value: ("background" | "none" | "unknown" | null)[],
+  ) => void;
+  const promise = new Promise<("background" | "none" | "unknown" | null)[]>(
+    (res) => {
+      resolve = (value) => {
+        settled = true;
+        res(value);
+      };
+    },
+  );
+  return {
+    promise: () => promise,
+    settled: () => settled,
+    resolve,
+  };
+}
 /** The last close this test asked for. */
 const requested = () => closeAgents.mock.calls[0][0];
 
@@ -153,32 +176,43 @@ describe("useCloseFlow", () => {
     });
   });
 
-  it("an ordinary close asks the registry and changes NOTHING when it answers none", async () => {
-    // The warning's area, held from widening: an agent whose registry says
-    // no background carrier keeps the exact sentence it always had — one
-    // dialog, one question, no extra step for the common case.
+  it("opens WITHOUT the registry: full base text while the ask is still in flight, and 'none' never changes a character", async () => {
+    // The standing rule — dialog opens stay instant — plus the warning's
+    // area held from widening: the registry's ~0.25s must gate nothing,
+    // and its ordinary answer must not so much as re-render the sentence.
+    const ask = deferredCarriers();
+    backgroundCarriers.mockImplementationOnce(ask.promise);
     const wsId = seed();
     bindSession();
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
-    expect(backgroundCarriers).toHaveBeenCalledTimes(1);
+    // First frame: the dialog is HERE, its text full and meaningful, no
+    // placeholder, no waiting state — the ask has not answered yet.
+    expect(ask.settled()).toBe(false);
+    expect(flow.closeMessage).toContain("Its terminal session will be ended.");
+    expect(flow.closeMessage).not.toContain("background");
+
+    const before = flow.closeMessage;
+    await act(async () => ask.resolve(["none"]));
     expect(backgroundCarriers).toHaveBeenCalledWith([
       { agentType: "claude", sessionId: "s-1" },
     ]);
-    // The plain sentence, unchanged — the suspend offer was always there
-    // for a live pane; what must NOT appear is any background note.
-    expect(flow.closeMessage).toContain("Its terminal session will be ended.");
-    expect(flow.closeMessage).not.toContain("background");
+    expect(flow.closeMessage).toBe(before);
   });
 
-  it("a background carrier warns that closing removes the pane, not the work", async () => {
-    backgroundCarriers.mockResolvedValueOnce(["background"]);
+  it("a background carrier PAINTS the warning line when the answer lands", async () => {
+    const ask = deferredCarriers();
+    backgroundCarriers.mockImplementationOnce(ask.promise);
     const wsId = seed();
     bindSession();
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).not.toContain("carried");
+    await act(async () => ask.resolve(["background"]));
     expect(flow.closeMessage).toContain("carried by a background agent");
     expect(flow.closeMessage).toContain("not the work");
     // Stopping the work is not ours to do; the sentence says whose it is.
     expect(flow.closeMessage).toContain("agents screen");
+    // The base sentence is still there — the line is ADDITIVE.
+    expect(flow.closeMessage).toContain("Its terminal session will be ended.");
   });
 
   it("an unreachable registry warns too — skipping on a failed question returns the harm whole", async () => {
@@ -190,12 +224,41 @@ describe("useCloseFlow", () => {
     expect(flow.closeMessage).toContain("could not be reached");
   });
 
+  it("a REJECTED ask paints the cautious line — a broken registry is unknown, not none", async () => {
+    backgroundCarriers.mockRejectedValueOnce(new Error("spawn failed"));
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).toContain("may still be carried");
+  });
+
   it("an agent with no live registry is never asked — no background mechanism to warn about", async () => {
     backgroundCarriers.mockResolvedValueOnce([null]);
     const wsId = seed();
     bindSession();
     await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     expect(flow.closeMessage).not.toContain("background");
+  });
+
+  it("an answer arriving AFTER the dialog is gone paints nothing anywhere", async () => {
+    // The classic of the late-paint pattern: cancel (or confirm) while the
+    // ask is in flight, then let it land. Nothing may throw, and the next
+    // dialog must open clean — no straggler line from a dead generation.
+    const ask = deferredCarriers();
+    backgroundCarriers.mockImplementationOnce(ask.promise);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    act(() => flow.cancelClose());
+    await act(async () => {
+      ask.resolve(["background"]);
+    });
+    expect(flow.closing).toBeNull();
+    expect(flow.closeMessage).toBe("");
+
+    backgroundCarriers.mockResolvedValueOnce(["none"]);
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).not.toContain("carried");
   });
 
   it("a pane with no session binding asks nothing and closes ordinarily", async () => {
@@ -296,14 +359,17 @@ describe("useCloseFlow", () => {
     );
   });
 
-  it("a workspace with ONE carried pane warns — the work survives the sweep", async () => {
+  it("a workspace with ONE carried pane warns — painted when the answer lands", async () => {
     // A workspace close is the gesture furthest from the individual pane;
     // a carried conversation in it survives exactly as it survives a
     // single pane's close, and the person must hear that up front.
-    backgroundCarriers.mockResolvedValueOnce(["background"]);
+    const ask = deferredCarriers();
+    backgroundCarriers.mockImplementationOnce(ask.promise);
     const wsId = seed();
     bindSession();
     await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).not.toContain("carried");
+    await act(async () => ask.resolve(["none", "background"]));
     expect(flow.closeMessage).toContain(
       "At least one conversation is carried by a background agent",
     );
@@ -744,7 +810,6 @@ describe("closeMessageFor", () => {
       rising: false,
       stopped: false,
       canSuspend: false,
-      carriedByBackground: "none",
       ...pane,
     },
     targets: Array.from({ length: targets }, (_, i) => ({
@@ -759,7 +824,6 @@ describe("closeMessageFor", () => {
     id: "ws-1",
     name: "ws",
     count,
-    carriedByBackground: "none",
     targets: [],
     pendingPanes: [],
   });
