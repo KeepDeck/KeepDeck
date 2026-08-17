@@ -66,17 +66,32 @@ const live = (over: Partial<SessionRecord> = {}): SessionRecord =>
     ...over,
   }) as SessionRecord;
 
+const blockOf = (
+  hits: SearchHit[],
+  over: {
+    total?: number;
+    hasMore?: boolean;
+    loadingMore?: boolean;
+    error?: string | null;
+  } = {},
+) => ({
+  hits,
+  total: hits.length,
+  hasMore: false,
+  loadingMore: false,
+  error: null,
+  loadMore: vi.fn(),
+  ...over,
+});
+
 const api = (
   hits: SearchHit[],
   over: Partial<SessionsBrowserApi> = {},
   entries: Record<string, JoinEntry> = {},
 ): SessionsBrowserApi => ({
-  hits,
-  total: hits.length,
-  hasMore: false,
-  loadingMore: false,
+  top: blockOf([]),
+  bottom: blockOf(hits),
   query: "",
-  error: null,
   scanning: false,
   enrichment: {
     entries: new Map(Object.entries(entries)),
@@ -84,7 +99,6 @@ const api = (
     declare: vi.fn(),
   },
   search: vi.fn(),
-  loadMore: vi.fn(),
   ensureFresh: vi.fn(),
   transcript: vi.fn(() =>
     Promise.resolve([{ role: "user" as const, text: "hello" }]),
@@ -349,18 +363,33 @@ describe("SessionsBrowser", () => {
   });
 
   it("shows the paging counter: partial as 'X of N', complete as the plain total", async () => {
-    await mount(api([hit()], { total: 123, hasMore: true }));
-    expect(document.querySelector(".browser__count")?.textContent).toBe("1 of 123");
+    // The GLOBAL block's counter rides the divider; the workspace block's
+    // rides the meta area — each from its own response.
+    await mount(
+      api([hit()], { bottom: blockOf([hit()], { total: 123, hasMore: true }) }),
+      [closed({ title: "pinned" })],
+    );
+    expect(document.querySelector(".browser__section-count")?.textContent).toBe(
+      " · 1 of 123",
+    );
 
-    await mount(api([hit()], { total: 1 }));
-    expect(document.querySelector(".browser__count")?.textContent).toBe("1");
+    await act(async () => root.unmount());
+    document.body.innerHTML = "<div id='host2'></div>";
+    root = createRoot(document.getElementById("host2")!);
+    await mount(
+      api([hit()], { bottom: blockOf([hit()], { total: 1 }) }),
+      [closed({ title: "pinned" })],
+    );
+    expect(document.querySelector(".browser__section-count")?.textContent).toBe(
+      " · 1",
+    );
   });
 
   it("pulls the next page while the list is shorter than its viewport — scroll alone can't fire there", async () => {
-    const a = api([hit()], { total: 123, hasMore: true });
+    const a = api([hit()], { bottom: blockOf([hit()], { total: 123, hasMore: true }) });
     await mount(a);
     // happy-dom's zero-height layout IS the unfilled-viewport case.
-    expect(a.loadMore).toHaveBeenCalled();
+    expect(a.bottom.loadMore).toHaveBeenCalled();
   });
 
   it("an empty transcript reads as empty, not as loading forever", async () => {
@@ -375,7 +404,9 @@ describe("SessionsBrowser", () => {
   });
 
   it("a loading page shows a spinner as the list/viewer tail, not an empty stall", async () => {
-    const a = api([hit()], { total: 123, hasMore: true, loadingMore: true });
+    const a = api([hit()], {
+      bottom: blockOf([hit()], { total: 123, hasMore: true, loadingMore: true }),
+    });
     a.transcript = vi.fn(
       () => new Promise<AgentTranscriptEntry[]>(() => {}), // never resolves
     );
@@ -445,9 +476,10 @@ describe("SessionsBrowser journal section", () => {
     expect(rows[2].textContent).toContain("other session");
     // A hit row knows no liveness — no dot cell at all, honestly.
     expect(rows[2].querySelector(".history__state")).toBeNull();
-    // The divider sits between the pinned rows and the hits.
+    // The divider sits between the pinned rows and the hits, carrying
+    // the global block's own counter.
     const divider = document.querySelector(".browser__section");
-    expect(divider?.textContent).toBe("All sessions");
+    expect(divider?.textContent).toContain("All sessions");
   });
 
   it("a hit already pinned in the journal is not duplicated below", async () => {
@@ -582,9 +614,10 @@ describe("SessionsBrowser journal section", () => {
     // also requires the journal to be empty, so a workspace WITH journal
     // rows would show a failed search as a quietly shorter list — the wrong
     // answer with no indication anywhere.
-    await mount(api([], { query: "auth", error: "index unavailable" }), [
-      closed({ title: "auth bug" }),
-    ]);
+    await mount(
+      api([], { bottom: blockOf([], { error: "index unavailable" }), query: "auth" }),
+      [closed({ title: "auth bug" })],
+    );
     expect(document.body.textContent).toContain("Search failed: index unavailable");
     // The journal section is still there — the failure didn't eat the page.
     expect(document.body.textContent).toContain("auth bug");
@@ -867,6 +900,53 @@ describe("SessionsBrowser journal join", () => {
     expect(lists[0].textContent).not.toContain("beta title");
     expect(lists[1].textContent).toContain("beta title");
     expect(lists[1].textContent).not.toContain("alpha title");
+  });
+
+  it("a journal record whose index twin has an EMPTY cwd: top shows it, the bottom has NO twin", async () => {
+    // Twelve live rows hit exactly this: their index rows carry no cwd,
+    // never match any Only-set, and would fall through to Except —
+    // doubling a row the top block already shows. The dedup is by
+    // journal KEY, wherever the twin's cwd falls (or doesn't).
+    const a = api([], {
+      top: blockOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
+      bottom: blockOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
+    });
+    await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/s-1.jsonl" })]);
+    const all = listRows();
+    expect(all).toHaveLength(1); // once, not twice
+    expect(topRows()).toHaveLength(1);
+    expect(bottomRows()).toHaveLength(0);
+  });
+
+  it("a journal record with its folder OUTSIDE the workspace set: top by binding fact, no twin below", async () => {
+    // Guards the rule, not today's data: with the widest factory the
+    // folder is usually IN the set by construction — but binding is a
+    // recorded FACT, and no directory filter may unseat it.
+    const a = api([], {
+      top: blockOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
+      bottom: blockOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
+    });
+    await mount(a, [closed({ sessionId: "s-1", cwd: "/foreign" })]);
+    expect(listRows()).toHaveLength(1);
+    expect(topRows()).toHaveLength(1);
+    expect(bottomRows()).toHaveLength(0);
+  });
+
+  it("the top block is a UNION: a workspace-folder hit the journal lacks rides TOP", async () => {
+    const a = api([], {
+      top: blockOf([hit({ sessionId: "w-1", title: "folder hit" })]),
+      bottom: blockOf([hit({ sessionId: "g-1", title: "global hit" })]),
+    });
+    await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/s-1.jsonl" })]);
+    const top = topRows();
+    expect(top).toHaveLength(2); // the bound record AND the folder hit
+    expect(top[0].querySelector(".history__state")).not.toBeNull(); // bound first
+    expect(top[0].textContent).toContain("s-1"); // nameless → its session id
+    expect(top[1].querySelector(".history__state")).toBeNull(); // the hit
+    expect(top[1].textContent).toContain("folder hit");
+    const bottom = bottomRows();
+    expect(bottom).toHaveLength(1);
+    expect(bottom[0].textContent).toContain("global hit");
   });
 
   it("one session id in two workspaces' journals: both rows get the title and keep their own branch", async () => {

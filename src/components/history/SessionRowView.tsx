@@ -4,6 +4,7 @@ import { formatAge } from "../../domain/usage/format";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
 import { baseName } from "../../domain/deck";
+import type { RefObject } from "react";
 
 /** The journal row's status chip — the visible stand-in for everything
  * that keeps a row unopenable. Plain rows carry no chip at all. */
@@ -51,6 +52,8 @@ export interface SessionRowViewProps {
   readFailed: boolean;
   /** One clock for the whole list — ages don't tick mid-render. */
   now: number;
+  /** The workspace block's LAST row carries the block's paging anchor. */
+  rowRef?: RefObject<HTMLLIElement | null>;
   onOpen(row: UnifiedSessionRow): void;
   onResume(row: UnifiedSessionRow): void;
   onFork(row: UnifiedSessionRow): void;
@@ -70,6 +73,7 @@ export function SessionRowView({
   dirMissing,
   readFailed,
   now,
+  rowRef,
   onOpen,
   onResume,
   onFork,
@@ -96,6 +100,7 @@ export function SessionRowView({
   return (
     <li
       key={`${row.agent}:${row.sessionId}`}
+      ref={rowRef}
       className={`history__row${openable ? " history__row--open" : ""}`}
       // The WHOLE row opens the transcript — aiming at the text alone is a
       // hidden hit-target. The action buttons stop the bubble; the inner

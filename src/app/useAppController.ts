@@ -26,7 +26,7 @@ import { useWorkspaceFrames } from "./useWorkspaceFrames";
 import { workspaceForNotification } from "./notificationNavigation";
 import { usePaneDrag } from "./usePaneDrag";
 import { usePersistence } from "./usePersistence";
-import { useSessionsBrowser } from "./useSessionsBrowser";
+import { useBrowserSharedSeam } from "./useSessionsBrowser";
 import { useSettings } from "./useSettings";
 import { useSpawnContext } from "./useSpawnContext";
 import { suspendRefusalText } from "./suspendOutcome";
@@ -82,7 +82,7 @@ export function useAppController() {
   const spawnCtx = useSpawnContext(runtime.spawnContext);
   const orchestrator = runtime.orchestrator;
   const runView = useAgentRunView(orchestrator);
-  const sessionsBrowser = useSessionsBrowser();
+  const browserShared = useBrowserSharedSeam();
   const [forkDialog, setForkDialog] = useState<{
     wsId: string;
     record: SessionHandle;
@@ -435,7 +435,7 @@ export function useAppController() {
     railCollapsed,
     railWorkspaces,
     runView,
-    sessionsBrowser,
+    browserShared,
     setCreating,
     setForkDialog,
     setFrozenAck,

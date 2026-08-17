@@ -32,8 +32,12 @@ import {
   type JournalRecords,
   type SessionHandle,
 } from "../domain/journal";
-import { SessionsBrowser } from "./history/SessionsBrowser";
-import type { SessionsBrowserApi } from "../app/useSessionsBrowser";
+import {
+  withHistoricalDirectories,
+  workspaceDirectories,
+} from "../domain/deck/roots";
+import { WorkspaceSessionsBrowser } from "./history/SessionsBrowser";
+import type { BrowserSharedSeam } from "../app/useSessionsBrowser";
 import type { RestartOutcome } from "../app/agentOrchestrator";
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
@@ -87,8 +91,10 @@ interface DeckStageProps {
   onResumeSession(wsId: string, record: SessionHandle): void;
   /** Open the fork-target dialog for a journal record. */
   onForkSession(wsId: string, record: SessionHandle): void;
-  /** The global sessions browser's engine (search/scan/transcript). */
-  browser: SessionsBrowserApi;
+  /** The browser seam's shared half (keyed enrichment + freshness +
+   * transcript dispatch) — one instance app-wide; each browser builds its
+   * own folder-scoped engines on top of it. */
+  browserShared: BrowserSharedSeam;
   onSelectPane(wsId: string, paneId: string): void;
   onToggleFocus(wsId: string, paneId: string): void;
   /** Minimize a pane out of the grid, or restore it (grid layout only). */
@@ -189,7 +195,7 @@ export function DeckStage({
   journal,
   onResumeSession,
   onForkSession,
-  browser,
+  browserShared,
   onSelectPane,
   onToggleFocus,
   onToggleMinimize,
@@ -223,6 +229,15 @@ export function DeckStage({
         const isActive = ws.id === activeId;
 
         if (ws.panes.length === 0) {
+          // The workspace's directory set — own folder ∪ pane folders ∪
+          // folders from its journal history (the user's chosen widest
+          // rule): what its sessions block asks the index for, and what
+          // the global block excludes.
+          const rows = journalRows(journal, ws.id);
+          const dirs = withHistoricalDirectories(
+            workspaceDirectories(ws),
+            rows.map((r) => r.cwd),
+          );
           return (
             <div
               key={ws.id}
@@ -234,11 +249,12 @@ export function DeckStage({
               }}
             >
               <div className="deck__setup-col">
-                <SessionsBrowser
-                  api={browser}
+                <WorkspaceSessionsBrowser
+                  shared={browserShared}
+                  dirs={dirs}
                   agents={agents}
                   ready={agentsReady}
-                  rows={journalRows(journal, ws.id)}
+                  rows={rows}
                   onResume={(record) => onResumeSession(ws.id, record)}
                   onFork={(record) => onForkSession(ws.id, record)}
                 />

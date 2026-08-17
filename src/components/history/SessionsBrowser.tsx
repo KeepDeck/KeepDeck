@@ -12,6 +12,7 @@ import {
   type UnifiedSessionRow,
 } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
+import { useSessionsBrowser, type BrowserSharedSeam } from "../../app/useSessionsBrowser";
 import { rowKeyOf } from "../../app/useJournalEnrichment";
 import { BackIcon } from "../../ui/icons";
 import { useScrollPaging, NEAR_END } from "../../ui/useScrollPaging";
@@ -27,6 +28,34 @@ interface SessionsBrowserProps {
   ready: boolean;
   onResume(record: SessionHandle): void;
   onFork(record: SessionHandle): void;
+}
+
+/** The component DeckStage mounts: one browser per empty workspace, its
+ * engines scoped to that workspace's directories, over the ONE shared
+ * seam (keyed enrichment, freshness, transcript dispatch). */
+export function WorkspaceSessionsBrowser({
+  shared,
+  dirs,
+  agents,
+  rows,
+  ready,
+  onResume,
+  onFork,
+}: Omit<SessionsBrowserProps, "api"> & {
+  shared: BrowserSharedSeam;
+  dirs: ReadonlySet<string>;
+}) {
+  const api = useSessionsBrowser(dirs, shared);
+  return (
+    <SessionsBrowser
+      api={api}
+      agents={agents}
+      rows={rows}
+      ready={ready}
+      onResume={onResume}
+      onFork={onFork}
+    />
+  );
 }
 
 /** The domain's hit→handle mapping under this file's historical name (the
@@ -86,7 +115,8 @@ export function SessionsBrowser({
   // Resume needs a live original directory — same gate for both blocks.
   const presence = useDirPresence([
     ...rows.map((row) => row.cwd),
-    ...api.hits.map((hit) => hit.cwd),
+    ...api.top.hits.map((hit) => hit.cwd),
+    ...api.bottom.hits.map((hit) => hit.cwd),
   ]);
   // Orders transcript responses: a stale page must never render under a
   // newer row's header (the search path has searchSeq; this is its twin).
@@ -109,10 +139,33 @@ export function SessionsBrowser({
     declare(rows.map((row) => ({ agent: row.agent, sessionId: row.sessionId })));
   }, [declare, rows]);
 
-  // Lazy paging of the hits list, scroll-driven (the shared engine also feeds
-  // the spawn dialog's picker).
+  // Lazy paging, scroll-driven, for BOTH blocks: the global block pages
+  // when the list nears its end (the shared engine also feeds the spawn
+  // dialog's picker); the workspace block pages when its LAST row nears
+  // the viewport's bottom — the divider may sit far above the list's end
+  // once the global block has loaded pages of its own.
   const listRef = useRef<HTMLUListElement | null>(null);
-  const maybeLoadHits = useScrollPaging(listRef, api, api.hits.length);
+  const maybeLoadHits = useScrollPaging(listRef, api.bottom, api.bottom.hits.length);
+  const lastTopRef = useRef<HTMLLIElement | null>(null);
+  const maybeLoadTop = useCallback(() => {
+    const list = listRef.current;
+    const last = lastTopRef.current;
+    // loadMore itself guards the in-flight and exhausted states.
+    if (!list || !last || !api.top.hasMore) return;
+    if (last.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom < NEAR_END) {
+      api.top.loadMore();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api.top.hasMore, api.top.loadMore]);
+  useEffect(() => {
+    maybeLoadTop();
+    // Re-check after each landed page, like the shared pager's count.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maybeLoadTop, api.top.hits.length]);
+  const onListScroll = () => {
+    maybeLoadHits();
+    maybeLoadTop();
+  };
   const nearEnd = (el: HTMLElement) =>
     el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END;
 
@@ -223,11 +276,13 @@ export function SessionsBrowser({
   };
 
   // The journal section under an active query: the index search matches
-  // CONTENT the client never sees, so the pinned section filters on what it
-  // has — title, directory, branch, session id. Deliberately the JOURNAL's
-  // fields, not the joined title: enrichment paints cells, it never
-  // decides composition — a title arriving late must not make a filtered
-  // row vanish or appear.
+  // CONTENT the client never sees, so the pinned part of the top block
+  // filters on what it has — title, directory, branch, session id.
+  // Deliberately the JOURNAL's fields, not the joined title: enrichment
+  // paints cells, it never decides composition — a title arriving late
+  // must not make a filtered row vanish or appear. (The top block's INDEX
+  // half searches by content with everything else — the union keeps both
+  // kinds findable.)
   const query = api.query.trim().toLowerCase();
   const journalFiltered =
     query === ""
@@ -237,9 +292,9 @@ export function SessionsBrowser({
             (field) => field !== undefined && field.toLowerCase().includes(query),
           ),
         );
-  // The top block's unified rows — the join against the shared enrichment
+  // The top block's journal half — the join against the shared enrichment
   // table, then the row shape both blocks render.
-  const topRows = journalFiltered.map((row) => {
+  const journalPart = journalFiltered.map((row) => {
     const agent = agents.find((a) => a.id === row.agent);
     return rowOfJoined(
       joinJournalRow(
@@ -256,12 +311,28 @@ export function SessionsBrowser({
       ),
     );
   });
-  // Dedupe against the VISIBLE top rows, not the full journal: a session
-  // the query hid from the pinned section (its match is content-only) must
-  // still show below with its snippet, not vanish entirely.
-  const pinned = new Set(topRows.map((row) => `${row.agent}:${row.sessionId}`));
-  const bottomRows = api.hits
-    .filter((hit) => !pinned.has(`${hit.agent}:${hit.sessionId}`))
+  // The VISIBLE journal keys — the dedup base for BOTH index halves: an
+  // index row the journal already shows is the top block's by binding
+  // FACT, wherever its (possibly EMPTY) cwd falls. Visible, not full: a
+  // journal row the query hid (its match is content-only) must still be
+  // findable through its index hit, not vanish from both blocks.
+  const journalKeys = new Set(
+    journalFiltered.map((row) => `${row.agent}:${row.sessionId}`),
+  );
+  // The top block's index half: workspace-folder hits the journal doesn't
+  // already carry (those are rendered by the journal half above — same
+  // block, no twins).
+  const topIndexPart = api.top.hits
+    .filter((hit) => !journalKeys.has(`${hit.agent}:${hit.sessionId}`))
+    .map(rowOfHit);
+  const topRows = [...journalPart, ...topIndexPart];
+  // The global block: everything but the workspace's folders, minus what
+  // the visible journal already shows (a hit with an EMPTY cwd never
+  // matches any Only-set and would otherwise fall through to Except —
+  // doubling a row the top block already shows; the journal keys catch it
+  // regardless of cwd).
+  const bottomRows = api.bottom.hits
+    .filter((hit) => !journalKeys.has(`${hit.agent}:${hit.sessionId}`))
     .map(rowOfHit);
   const emptyList = topRows.length === 0 && bottomRows.length === 0;
 
@@ -277,16 +348,19 @@ export function SessionsBrowser({
           onChange={(e) => api.search(e.target.value)}
         />
         <span className="browser__meta">
-          {api.scanning && api.hits.length > 0 && (
+          {api.scanning && (api.top.hits.length > 0 || api.bottom.hits.length > 0) && (
             // Inside the field, so a background rescan neither shifts layout
             // nor duplicates the empty-list placeholder.
             <span className="browser__scanning">indexing…</span>
           )}
-          {api.total > 0 && (
+          {api.top.total > 0 && (
+            // The workspace block's counter — its numerator is what IT
+            // shows (journal rows + its own pages), its denominator what
+            // IT can show; both from its own answer.
             <span className="browser__count">
-              {api.hasMore
-                ? `${api.hits.length} of ${api.total}`
-                : `${api.total}`}
+              {topRows.length === api.top.total && !api.top.hasMore
+                ? `${api.top.total}`
+                : `${topRows.length} of ${api.top.total}`}
             </span>
           )}
         </span>
@@ -294,9 +368,9 @@ export function SessionsBrowser({
       <ul
         className="history__list browser__list"
         ref={listRef}
-        onScroll={maybeLoadHits}
+        onScroll={onListScroll}
       >
-        {topRows.map((row) => (
+        {topRows.map((row, at) => (
           <SessionRowView
             key={`${row.agent}:${row.sessionId}`}
             row={row}
@@ -307,11 +381,31 @@ export function SessionsBrowser({
             onOpen={openRow}
             onResume={onResumeByHandle(onResume)}
             onFork={onForkByHandle(onFork)}
+            // The workspace block's own paging anchor: its LAST row.
+            rowRef={at === topRows.length - 1 ? lastTopRef : undefined}
           />
         ))}
-        {topRows.length > 0 && bottomRows.length > 0 && (
-          <li className="browser__section">All sessions</li>
+        {api.top.loadingMore && (
+          <li
+            className="history__row browser__more"
+            aria-label="Loading more workspace sessions"
+          >
+            <span className="browser__spinner" />
+          </li>
         )}
+        {topRows.length > 0 &&
+          (bottomRows.length > 0 || api.bottom.total > 0) && (
+            <li className="browser__section">
+              All sessions
+              {api.bottom.total > 0 && (
+                <span className="browser__section-count">
+                  {api.bottom.hasMore
+                    ? ` · ${api.bottom.hits.length} of ${api.bottom.total}`
+                    : ` · ${api.bottom.total}`}
+                </span>
+              )}
+            </li>
+          )}
         {bottomRows.map((row) => (
           <SessionRowView
             key={`${row.agent}:${row.sessionId}`}
@@ -325,7 +419,7 @@ export function SessionsBrowser({
             onFork={onForkByHandle(onFork)}
           />
         ))}
-        {api.loadingMore && (
+        {api.bottom.loadingMore && (
           <li className="history__row browser__more" aria-label="Loading more sessions">
             <span className="browser__spinner" />
           </li>
@@ -335,12 +429,17 @@ export function SessionsBrowser({
             empty-state gate: that gate also requires the journal to be
             empty, and a workspace with journal rows would otherwise show a
             failed search as a quietly shorter list. */}
-        {api.error && (
+        {api.top.error && (
           <li className="history__row browser__empty">
-            Search failed: {api.error}
+            Workspace search failed: {api.top.error}
           </li>
         )}
-        {emptyList && !api.error && (
+        {api.bottom.error && (
+          <li className="history__row browser__empty">
+            Search failed: {api.bottom.error}
+          </li>
+        )}
+        {emptyList && !api.top.error && !api.bottom.error && (
           <li className="history__row browser__empty">
             {api.scanning
               ? "Indexing the stores…"

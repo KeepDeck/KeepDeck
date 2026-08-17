@@ -2,73 +2,66 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SearchHit, SearchPage } from "../ipc/history";
+import type { IndexFolderScope, SearchHit, SearchPage } from "../ipc/history";
 
 const ipc = vi.hoisted(() => ({
-  indexSearch: vi.fn<(...args: unknown[]) => Promise<SearchPage>>(),
+  indexSearch: vi.fn<
+    (
+      query: string,
+      limit: number,
+      offset: number,
+      agent: undefined,
+      folders?: IndexFolderScope,
+    ) => Promise<SearchPage>
+  >(),
 }));
 vi.mock("../ipc/history", () => ({ indexSearch: ipc.indexSearch }));
 
-// The runtime's sessionIndexManager fake: a controllable REVISION. The hook
-// subscribes through useSyncExternalStore; `bump()` simulates a landed scan
-// batch (revision +1, listeners fired).
-const index = vi.hoisted(() => {
-  let snapshot = { scanning: false, revision: 0 };
-  const listeners = new Set<() => void>();
-  return {
-    ensureFresh: vi.fn(),
-    bump() {
-      // A NEW object only on the change itself — the identity-stability
-      // contract useSyncExternalStore lives on (the UsageChips lesson).
-      snapshot = { scanning: false, revision: snapshot.revision + 1 };
-      for (const listener of [...listeners]) listener();
-    },
-    sessionIndex: {
-      ensureFresh: (...args: unknown[]) => index.ensureFresh(...args),
-      snapshot: () => snapshot,
-      subscribe: (listener: () => void) => {
-        listeners.add(listener);
-        return () => {
-          listeners.delete(listener);
-        };
-      },
-    },
-  };
-});
-
-vi.mock("./runtimeContext", () => ({
-  useAppRuntime: () => ({
-    plugins: { pluginRegistries: { agents: { list: () => [] } } },
-    sessionIndex: index.sessionIndex,
-  }),
-}));
-
-import { useSessionsBrowser } from "./useSessionsBrowser";
-import { FIRST_PAGE, NEXT_PAGE } from "./usePagedSessionSearch";
+import {
+  useSessionsBrowser,
+  type BrowserSharedSeam,
+  type SessionsBrowserApi,
+} from "./useSessionsBrowser";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
+
+/** The shared seam's stand-in: fixed revision/scanning, a keyed table the
+ * tests may pre-fill, and recording declares. */
+const sharedOf = (over: Partial<BrowserSharedSeam> = {}): BrowserSharedSeam => ({
+  scanning: false,
+  revision: 1,
+  enrichment: {
+    entries: new Map(),
+    pending: false,
+    declare: vi.fn(),
+  },
+  ensureFresh: vi.fn(),
+  transcript: vi.fn(() => Promise.resolve([])),
+  ...over,
+});
 
 const mkHits = (from: number, count: number): SearchHit[] =>
   Array.from({ length: count }, (_, i) => ({
     agent: "claude",
     sessionId: `s-${from + i}`,
     reference: `/store/s-${from + i}`,
-    cwd: "/repo",
+    cwd: "/wt/kd-x",
     title: null,
     transcriptPath: null,
     mtime: 1000 - (from + i),
     snippet: null,
   }));
 
-let api: ReturnType<typeof useSessionsBrowser>;
+let api: SessionsBrowserApi;
+let shared: BrowserSharedSeam;
 
-function Probe() {
-  api = useSessionsBrowser();
+function Probe({ dirs }: { dirs?: ReadonlySet<string> }) {
+  api = useSessionsBrowser(dirs ?? new Set(["/wt/kd-x", "/gone"]), shared);
   return null;
 }
 
-describe("useSessionsBrowser paging", () => {
+describe("useSessionsBrowser — two folder-scoped engines", () => {
   let root: Root;
   /** Pending indexSearch resolutions, in call order. */
   let resolvers: ((page: SearchPage) => void)[];
@@ -82,94 +75,146 @@ describe("useSessionsBrowser paging", () => {
           resolvers.push(resolve);
         }),
     );
-    index.ensureFresh.mockClear();
+    shared = sharedOf();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
-
   afterEach(() => act(() => root.unmount()));
 
-  const mount = () => act(() => root.render(createElement(Probe)));
+  const mount = (dirs?: ReadonlySet<string>) =>
+    act(async () => root.render(createElement(Probe, { dirs })));
+  const rerender = (dirs?: ReadonlySet<string>) =>
+    act(async () => root.render(createElement(Probe, { dirs })));
 
-  it("lists page zero once on mount: first page 50, full total exposed", async () => {
-    await mount();
-    expect(ipc.indexSearch).toHaveBeenCalledExactlyOnceWith("", FIRST_PAGE, 0);
-    await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 123 }));
-    expect(api.hits).toHaveLength(50);
-    expect(api.total).toBe(123);
-    expect(api.hasMore).toBe(true);
-  });
+  /** The n-th fired call's folder scope — THE assertion this suite exists
+   * for: membership rides in the query itself. */
+  const scopeOfCall = (n: number): IndexFolderScope | undefined =>
+    ipc.indexSearch.mock.calls[n]?.[4];
 
-  it("loadMore appends the next 20 at the loaded offset; a double-fire is one request", async () => {
-    await mount();
-    await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 123 }));
-
-    act(() => {
-      api.loadMore();
-      api.loadMore(); // in flight — must not double-request
-    });
+  it("the two asks carry Only and Except of the SAME directory set", async () => {
+    await mount(new Set(["/wt/kd-x"]));
+    // Two asks fire on mount — top first, bottom second (engine order).
     expect(ipc.indexSearch).toHaveBeenCalledTimes(2);
-    expect(ipc.indexSearch).toHaveBeenLastCalledWith("", NEXT_PAGE, 50);
-
-    await act(async () => resolvers[1]({ hits: mkHits(50, 20), total: 123 }));
-    expect(api.hits).toHaveLength(70);
-    expect(api.hits[50].sessionId).toBe("s-50"); // appended, not replaced
-    expect(api.hasMore).toBe(true);
+    expect(scopeOfCall(0)).toEqual({ mode: "only", dirs: ["/wt/kd-x"] });
+    expect(scopeOfCall(1)).toEqual({ mode: "except", dirs: ["/wt/kd-x"] });
   });
 
-  it("loadMore is a no-op once everything is loaded", async () => {
+  it("each block pages ITS OWN engine; one text searches both", async () => {
     await mount();
-    await act(async () => resolvers[0]({ hits: mkHits(0, 3), total: 3 }));
-    act(() => api.loadMore());
-    expect(ipc.indexSearch).toHaveBeenCalledTimes(1);
-    expect(api.hasMore).toBe(false);
-  });
+    await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 123 }));
+    await act(async () => resolvers[1]({ hits: mkHits(0, 30), total: 456 }));
 
-  it("a page landing after the query changed is dropped — no foreign rows under a new query", async () => {
+    act(() => api.bottom.loadMore());
+    expect(ipc.indexSearch).toHaveBeenLastCalledWith(
+      "",
+      20,
+      30,
+      undefined,
+      { mode: "except", dirs: ["/wt/kd-x", "/gone"] },
+    );
+    act(() => api.top.loadMore());
+    expect(ipc.indexSearch).toHaveBeenLastCalledWith(
+      "",
+      20,
+      50,
+      undefined,
+      { mode: "only", dirs: ["/wt/kd-x", "/gone"] },
+    );
+
+    // A typed query drives BOTH engines' page zero, one text.
+    ipc.indexSearch.mockClear();
+    resolvers.length = 0;
     vi.useFakeTimers();
     try {
-      await mount();
-      await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 123 }));
-
-      act(() => api.loadMore()); // page two, response delayed
       act(() => api.search("auth"));
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(150); // debounce fires
+        await vi.advanceTimersByTimeAsync(150);
       });
-      expect(ipc.indexSearch).toHaveBeenLastCalledWith("auth", FIRST_PAGE, 0);
-
-      // The STALE page-two response lands after the query changed.
-      await act(async () => resolvers[1]({ hits: mkHits(50, 20), total: 123 }));
-      expect(api.hits).toHaveLength(50); // untouched
-
-      await act(async () => resolvers[2]({ hits: mkHits(0, 5), total: 5 }));
-      expect(api.hits).toHaveLength(5);
-      expect(api.total).toBe(5);
+      expect(ipc.indexSearch).toHaveBeenCalledTimes(2);
+      expect(ipc.indexSearch.mock.calls[0]?.[0]).toBe("auth");
+      expect(ipc.indexSearch.mock.calls[1]?.[0]).toBe("auth");
+      expect(scopeOfCall(0)?.mode).toBe("only");
+      expect(scopeOfCall(1)?.mode).toBe("except");
+      expect(api.query).toBe("auth");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("an index revision bump re-fetches the loaded span — pages the user walked must not collapse", async () => {
+  it("a revision bump refreshes BOTH blocks; a stale page never lands", async () => {
     await mount();
-    await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 123 }));
-    act(() => api.loadMore());
-    await act(async () => resolvers[1]({ hits: mkHits(50, 20), total: 123 }));
-    expect(api.hits).toHaveLength(70);
+    // Page zeros land.
+    await act(async () => resolvers[0]({ hits: mkHits(0, 3), total: 3 }));
+    await act(async () => resolvers[1]({ hits: mkHits(10, 4), total: 4 }));
+    expect(api.top.total).toBe(3);
+    expect(api.bottom.total).toBe(4);
 
-    // A scan batch landed in the index (the manager bumped its revision).
-    await act(async () => index.bump());
-    expect(ipc.indexSearch).toHaveBeenLastCalledWith("", 70, 0);
-    await act(async () => resolvers[2]({ hits: mkHits(0, 70), total: 124 }));
-    expect(api.hits).toHaveLength(70);
-    expect(api.total).toBe(124);
+    // The index moved: both engines re-ask page zero under the new
+    // generation; the STALE bottom page (fired pre-bump) must not land.
+    shared = sharedOf({ revision: 2 });
+    await rerender();
+    expect(ipc.indexSearch).toHaveBeenCalledTimes(4);
+    await act(async () => resolvers[3]({ hits: mkHits(20, 5), total: 5 }));
+    expect(api.bottom.total).toBe(5);
+    await act(async () => resolvers[2]({ hits: mkHits(30, 9), total: 999 }));
+    expect(api.bottom.total).toBe(5); // the stale answer changed nothing
   });
 
-  it("ensureFresh delegates to the manager — the hook owns no scan policy", async () => {
+  it("a page arriving after its query changed is dropped — per engine", async () => {
+    vi.useFakeTimers();
+    try {
+      await mount();
+      await act(async () => resolvers[0]({ hits: mkHits(0, 2), total: 2 }));
+      await act(async () => resolvers[1]({ hits: mkHits(5, 2), total: 2 }));
+
+      act(() => api.search("auth"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150);
+      });
+      // The OLD bottom page lands after the new query was asked: dropped.
+      await act(async () => resolvers[1]({ hits: mkHits(50, 20), total: 20 }));
+      expect(api.bottom.hits).toHaveLength(2); // untouched, still the old rows
+      // The new query's page zeros: top fired first (resolvers[2]), the
+      // bottom's is the third pending resolution.
+      await act(async () => resolvers[2]({ hits: mkHits(60, 5), total: 5 }));
+      expect(api.top.hits).toHaveLength(5);
+      await act(async () => resolvers[3]({ hits: mkHits(70, 6), total: 6 }));
+      expect(api.bottom.hits).toHaveLength(6);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shared seam fields pass through — scanning, enrichment, ensureFresh", async () => {
+    const ensureFresh = vi.fn();
+    shared = sharedOf({
+      scanning: true,
+      revision: 7,
+      ensureFresh,
+      enrichment: {
+        entries: new Map([["claude:s-1", { kind: "absent" as const }]]),
+        pending: true,
+        declare: vi.fn(),
+      },
+    });
     await mount();
-    act(() => api.ensureFresh("codex"));
+    expect(api.scanning).toBe(true);
+    expect(api.enrichment.pending).toBe(true);
+    expect(
+      api.enrichment.entries.get("claude:s-1"),
+    ).toEqual({ kind: "absent" });
     act(() => api.ensureFresh());
-    expect(index.ensureFresh).toHaveBeenNthCalledWith(1, "codex");
-    expect(index.ensureFresh).toHaveBeenNthCalledWith(2, undefined);
+    expect(ensureFresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("pages arrive FULL from each block's own query — nothing fetched to throw away", async () => {
+    // The counter invariant's other half: numerator and denominator come
+    // from the block's own response — asserted by the totals being the
+    // ENGINE's answer, not a locally filtered count.
+    await mount();
+    await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 500 }));
+    expect(api.top.hits).toHaveLength(50);
+    expect(api.top.total).toBe(500);
+    expect(api.top.hasMore).toBe(true);
   });
 });

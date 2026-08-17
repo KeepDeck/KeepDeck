@@ -95,7 +95,7 @@ function App() {
     railCollapsed,
     railWorkspaces,
     runView,
-    sessionsBrowser,
+    browserShared,
     setCreating,
     setForkDialog,
     teamDialog,
@@ -309,7 +309,7 @@ function App() {
               )
             }
             onForkSession={(wsId, record) => setForkDialog({ wsId, record })}
-            browser={sessionsBrowser}
+            browserShared={browserShared}
             onSelectPane={deck.selectPane}
             onToggleFocus={paneViewActions.toggleMaximize}
             onToggleMinimize={deck.toggleMinimize}

@@ -124,7 +124,10 @@ vi.mock("../../app/runtimeContext", () => ({
   }),
 }));
 
-import { useSessionsBrowser } from "../../app/useSessionsBrowser";
+import {
+  useBrowserSharedSeam,
+  useSessionsBrowser,
+} from "../../app/useSessionsBrowser";
 import { SessionsBrowser } from "./SessionsBrowser";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -164,12 +167,13 @@ const record = (over: Partial<SessionRecord>): SessionRecord =>
     ...over,
   }) as SessionRecord;
 
-/** The component the app actually renders: ONE owner of the hook chain,
- * passing its api down to the real browser. Mounting the hook and the
- * browser as separate siblings would hand the browser a DEAD hook's api
- * on every tree change. */
+/** The component the app actually renders: the REAL shared seam (keyed
+ * enrichment over the runtime fake, real transcript dispatch through the
+ * real plugin registries) plus the per-browser engines — one owner, so a
+ * tree change never hands the browser a dead hook's api. */
 function Harness({ rows }: { rows: SessionRecord[] }) {
-  const browserApi = useSessionsBrowser();
+  const shared = useBrowserSharedSeam();
+  const browserApi = useSessionsBrowser(new Set(["/repo"]), shared);
   return createElement(SessionsBrowser, {
     api: browserApi,
     agents: AGENTS,

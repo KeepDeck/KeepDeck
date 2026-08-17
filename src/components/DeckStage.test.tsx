@@ -122,27 +122,20 @@ const callbacks = {
 };
 
 const browser = {
-  hits: [],
-  total: 0,
-  hasMore: false,
-  loadingMore: false,
-  query: "",
-  error: null,
   scanning: false,
+  revision: 1,
   enrichment: {
     entries: new Map(),
     pending: false,
     declare: vi.fn(),
   },
-  search: vi.fn(),
-  loadMore: vi.fn(),
   ensureFresh: vi.fn(),
   transcript: vi.fn(() => Promise.resolve([])),
 };
 
 const props = (overrides: Record<string, unknown> = {}) => ({
   journal: {},
-  browser,
+  browserShared: browser,
   workspaces,
   activeId: "ws-1",
   viewByWs: {},

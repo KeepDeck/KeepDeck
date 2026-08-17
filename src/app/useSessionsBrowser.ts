@@ -1,32 +1,40 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
-import { indexSearch, type SearchHit } from "../ipc/history";
+import {
+  indexSearch,
+  type IndexFolderScope,
+  type SearchHit,
+} from "../ipc/history";
 import type { JoinEntry } from "../domain/journal";
 import { useAppRuntime } from "./runtimeContext";
 import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
 import { usePagedSessionSearch } from "./usePagedSessionSearch";
 
-export interface SessionsBrowserApi {
-  /** Loaded pages of hits for the current query, in match order. */
+/** One block's search state: its own pages, its own totals — the numerator
+ * and the denominator of a block's counter come from ITS response, never
+ * stitched together from two. */
+export interface BlockApi {
   hits: SearchHit[];
-  /** Full match count for the query — the "shown X of N" denominator. */
   total: number;
-  /** More matches exist beyond the loaded pages. */
   hasMore: boolean;
-  /** A `loadMore` page is in flight (guards the scroll sentinel). */
   loadingMore: boolean;
-  /** The query the hits answer — lives HERE so every empty-workspace mount
-   * of the browser shows box and results in agreement (hits are shared;
-   * per-instance query state desynced them). */
-  query: string;
-  /** Page zero failed for the current query — `hits` is empty, not stale.
-   * The browser names it instead of claiming "No sessions match". */
   error: string | null;
+  loadMore(): void;
+}
+
+/** The SHARED half of the browser seam — ONE instance for the whole app
+ * (built in the controller): the journal join's keyed answer table and
+ * the freshness wiring. Single-instance is the load-bearing part: several
+ * browsers stay mounted (hidden, not unmounted), and a keyed table shared
+ * across them is what keeps answers landing on rows, never on "the last
+ * response". The per-workspace halves (the folder-scoped engines) live in
+ * each browser — membership in the query made them workspace-shaped BY
+ * DESIGN. */
+export interface BrowserSharedSeam {
   scanning: boolean;
-  /** The journal rows' shared enrichment table — the index's answer per
-   * "agent:sessionId" key, ONE keyed table for every mounted list (see
-   * [`useJournalEnrichment`]). A list reads its rows' entries and never
-   * writes another workspace's. */
+  /** The index's revision as the seam sees it — per-browser refresh
+   * effects key on it WITHOUT each browser subscribing twice. */
+  revision: number;
   enrichment: {
     entries: ReadonlyMap<string, JoinEntry>;
     /** The table may still change (an ask in flight, or the index moved
@@ -37,14 +45,9 @@ export interface SessionsBrowserApi {
      * union across lists; triggers the shared batched ask. */
     declare(keys: ReadonlyArray<RowKey>): void;
   };
-  /** Run the debounced search; called on every keystroke. Resets paging. */
-  search(query: string): void;
-  /** Append the next page for the current query. */
-  loadMore(): void;
-  /** Declare the need for a fresh index — every agent's store (no agent)
-   * or one agent's. The sessionIndexManager owns when a scan actually
-   * runs; this listing refreshes per revision on its own. */
-  ensureFresh(agent?: string): void;
+  /** Declare the need for a fresh index; the sessionIndexManager owns
+   * when a scan actually runs. */
+  ensureFresh(): void;
   /** One transcript page, via the owning plugin (live parse — the index
    * never renders transcripts). */
   transcript(
@@ -55,67 +58,148 @@ export interface SessionsBrowserApi {
   ): Promise<AgentTranscriptEntry[]>;
 }
 
-/** The global sessions browser's engine ([F8]): search-as-you-type hits the
- * Rust index only; transcripts go through the agent plugins. Paging is the
- * shared engine, scoped to ALL agents (no `agent` filter). Index freshness
- * is NOT this hook's to manage — it subscribes to the runtime's
- * sessionIndexManager and refreshes on every revision bump. */
-export function useSessionsBrowser(): SessionsBrowserApi {
+export interface SessionsBrowserApi {
+  /** The workspace block: index hits from the workspace's OWN folders. */
+  top: BlockApi;
+  /** The global block: index hits from everywhere BUT those folders. */
+  bottom: BlockApi;
+  /** The query both blocks answer — per browser: the box a workspace
+   * shows is its own, and the blocks' results are workspace-shaped
+   * anyway. */
+  query: string;
+  scanning: boolean;
+  /** The journal rows' shared enrichment table — see
+   * [`BrowserSharedSeam.enrichment`]. */
+  enrichment: BrowserSharedSeam["enrichment"];
+  /** Run the debounced search on BOTH blocks; resets each block's paging. */
+  search(query: string): void;
+  ensureFresh(): void;
+  transcript(
+    agent: string,
+    ref: string,
+    offset: number,
+    limit: number,
+  ): Promise<AgentTranscriptEntry[]>;
+}
+
+/** The shared seam's single owner: mount ONCE in the controller. */
+export function useBrowserSharedSeam(): BrowserSharedSeam {
   const { plugins, sessionIndex } = useAppRuntime();
-  const paged = usePagedSessionSearch<SearchHit>(
-    useCallback(
-      (query, limit, offset) =>
-        indexSearch(query, limit, offset).then((page) => ({
-          rows: page.hits,
-          total: page.total,
-        })),
-      [],
-    ),
-  );
-  const { refresh } = paged;
   const index = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
-  // The journal join's answer table rides the same single-instance seam:
-  // every mounted list shares it, keyed by row — one ask per change, never
-  // one cell per "last response".
   const enrichment = useJournalEnrichment(index.revision, index.scanning);
-
-  // The listing re-reads page zero on every index REVISION: the mount fire
-  // is the initial listing, and later bumps are landed scan batches — a
-  // first-ever scan fills the list while it runs instead of after it. Runs
-  // ONCE here, not on browser mount — a second empty workspace mounting the
-  // browser must not clobber a shared query another instance is mid-typing.
-  useEffect(() => {
-    refresh();
-  }, [index.revision, refresh]);
-
   const ensureFresh = useCallback(
     (agent?: string) => sessionIndex.ensureFresh(agent),
     [sessionIndex],
   );
-
   const transcript = useCallback(
     async (agent: string, ref: string, offset: number, limit: number) => {
       const contribution = plugins.pluginRegistries.agents
         .list()
         .find((c) => c.entry.id === agent);
       if (!contribution?.entry.history) return [];
-      return contribution.entry.history.transcript(ref, { offset, limit });
+      return (
+        contribution.entry.history as {
+          transcript(
+            ref: string,
+            page: { offset: number; limit: number },
+          ): Promise<AgentTranscriptEntry[]>;
+        }
+      ).transcript(ref, { offset, limit });
     },
     [plugins],
   );
-
   return {
-    hits: paged.rows,
-    total: paged.total,
-    hasMore: paged.hasMore,
-    loadingMore: paged.loadingMore,
-    query: paged.query,
-    error: paged.error,
     scanning: index.scanning,
+    revision: index.revision,
     enrichment,
-    search: paged.search,
-    loadMore: paged.loadMore,
     ensureFresh,
     transcript,
+  };
+}
+
+/** The per-browser half: two folder-scoped engines over ONE query text.
+ * `dirs` is the workspace's directory set as the webview's domain computes
+ * it (own folder ∪ pane folders ∪ folders from its journal history) —
+ * the top block asks Only, the bottom Except, so membership rides in the
+ * queries and each block pages over its own set, fetching nothing it will
+ * throw away. */
+export function useSessionsBrowser(
+  dirs: ReadonlySet<string>,
+  shared: BrowserSharedSeam,
+): SessionsBrowserApi {
+  const dirList = [...dirs];
+  const scopeKey = dirList.join("\n");
+  const scopeOf = useCallback(
+    (mode: "only" | "except"): IndexFolderScope => ({
+      mode,
+      dirs: scopeKey === "" ? [] : scopeKey.split("\n"),
+    }),
+    [scopeKey],
+  );
+  const top = usePagedSessionSearch<SearchHit>(
+    useCallback(
+      (query, limit, offset) =>
+        indexSearch(query, limit, offset, undefined, scopeOf("only")).then(
+          (page) => ({ rows: page.hits, total: page.total }),
+        ),
+      [scopeOf],
+    ),
+  );
+  const bottom = usePagedSessionSearch<SearchHit>(
+    useCallback(
+      (query, limit, offset) =>
+        indexSearch(query, limit, offset, undefined, scopeOf("except")).then(
+          (page) => ({ rows: page.hits, total: page.total }),
+        ),
+      [scopeOf],
+    ),
+  );
+  const { refresh: refreshTop } = top;
+  const { refresh: refreshBottom } = bottom;
+  const { scanning } = shared;
+
+  // Each block re-reads page zero on every index REVISION: the mount fire
+  // is the initial listing, and later bumps are landed scan batches — a
+  // first-ever scan fills the blocks while it runs instead of after it
+  // (the filling-while-scanning the user chose).
+  useEffect(() => {
+    refreshTop();
+    refreshBottom();
+  }, [shared.revision, refreshTop, refreshBottom]);
+
+  const search = useCallback(
+    (query: string) => {
+      // One text, two asks — the blocks' query states are set
+      // synchronously and identically by their engines, so the box and
+      // both results always agree on what was typed.
+      top.search(query);
+      bottom.search(query);
+    },
+    [top, bottom],
+  );
+
+  return {
+    top: {
+      hits: top.rows,
+      total: top.total,
+      hasMore: top.hasMore,
+      loadingMore: top.loadingMore,
+      error: top.error,
+      loadMore: top.loadMore,
+    },
+    bottom: {
+      hits: bottom.rows,
+      total: bottom.total,
+      hasMore: bottom.hasMore,
+      loadingMore: bottom.loadingMore,
+      error: bottom.error,
+      loadMore: bottom.loadMore,
+    },
+    query: top.query,
+    scanning,
+    enrichment: shared.enrichment,
+    search,
+    ensureFresh: shared.ensureFresh,
+    transcript: shared.transcript,
   };
 }
