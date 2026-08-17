@@ -60,6 +60,23 @@ pub struct SessionIndex {
     conn: Connection,
 }
 
+/// One answer to a targeted (agent, session_id) lookup — the journal row's
+/// join key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LookupAnswer {
+    /// The exact row: its read handle (the plugin's opaque ref) and title.
+    Hit {
+        reference: String,
+        title: Option<String>,
+    },
+    /// The requester's (agent, session_id) key found nothing, but the id is
+    /// NOT unknown — it exists under DIFFERENT agent(s). The signature of
+    /// a journal record whose agent attribution is wrong.
+    Foreign { agents: Vec<String> },
+    /// No row under any agent carries the id.
+    Absent,
+}
+
 impl SessionIndex {
     /// Open (or create) the index at `path`. A version mismatch or an
     /// unreadable file wipes and recreates — disposable by contract.
@@ -343,6 +360,80 @@ impl SessionIndex {
         };
         rows.map_err(|e| e.to_string())
     }
+
+    /// Answer each (agent, session_id) key EXACTLY — the journal join's
+    /// targeted ask. One query restricted to the requested ids (never an
+    /// enumeration of the table), answers aligned to the input order; an
+    /// id found under other agents is [`LookupAnswer::Foreign`], the
+    /// recorded-ownership-is-wrong signature.
+    pub fn lookup(&self, keys: &[(String, String)]) -> Result<Vec<LookupAnswer>, String> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        // One IN over the DISTINCT ids — a key set spans agents (one
+        // workspace's journal holds several CLIs' rows), so the pair can't
+        // be sought directly in a single statement.
+        let mut ids: Vec<&str> = Vec::with_capacity(keys.len());
+        for (_, session_id) in keys {
+            if !ids.contains(&session_id.as_str()) {
+                ids.push(session_id);
+            }
+        }
+        let placeholders = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT agent, session_id, ref, title FROM sessions
+             WHERE session_id IN ({placeholders})"
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(ids.iter()), |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        // Both views of the answer: the exact (agent, id) row, and which
+        // agents hold an id at all.
+        use std::collections::HashMap;
+        let mut exact: HashMap<(&str, &str), (&str, Option<&str>)> = HashMap::new();
+        let mut holders: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (agent, session_id, reference, title) in &rows {
+            exact.insert(
+                (agent.as_str(), session_id.as_str()),
+                (reference.as_str(), title.as_deref()),
+            );
+            holders.entry(session_id.as_str()).or_default().push(agent.as_str());
+        }
+        Ok(keys
+            .iter()
+            .map(|(agent, session_id)| {
+                match exact.get(&(agent.as_str(), session_id.as_str())) {
+                    Some((reference, title)) => LookupAnswer::Hit {
+                        reference: reference.to_string(),
+                        title: title.map(str::to_string),
+                    },
+                    None => match holders.get(session_id.as_str()) {
+                        // The requester's own agent, if present, was matched by
+                        // the exact arm above; whatever remains is foreign.
+                        Some(agents) => LookupAnswer::Foreign {
+                            agents: agents.iter().map(|a| a.to_string()).collect(),
+                        },
+                        None => LookupAnswer::Absent,
+                    },
+                }
+            })
+            .collect())
+    }
 }
 
 /// A read-only, containment-checked query against an AGENT's own SQLite
@@ -450,6 +541,102 @@ mod tests {
         let newest_first: Vec<String> = (0..7).rev().map(|i| format!("s{i}")).collect();
         assert_eq!(walk("paged"), newest_first);
         assert_eq!(walk(""), newest_first);
+    }
+
+    #[test]
+    fn lookup_answers_each_key_exactly_in_input_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        index
+            .upsert(&[
+                row("claude", "a", 1, "x"),
+                row("kimi", "kimi-9", 2, "y"),
+                row("codex", "c", 3, "z"),
+            ])
+            .unwrap();
+
+        // A mixed batch across agents: a hit, the misattributed id (the
+        // journal said claude; the index holds it under kimi), an unknown
+        // id, and the same hit asked again — answers stay aligned to the
+        // ASK order, duplicates included.
+        let answers = index
+            .lookup(&[
+                ("claude".into(), "a".into()),
+                ("claude".into(), "kimi-9".into()),
+                ("claude".into(), "nope".into()),
+                ("claude".into(), "a".into()),
+            ])
+            .unwrap();
+        assert_eq!(
+            answers,
+            vec![
+                LookupAnswer::Hit {
+                    reference: "/store/a".into(),
+                    title: Some("title a".into()),
+                },
+                LookupAnswer::Foreign {
+                    agents: vec!["kimi".into()],
+                },
+                LookupAnswer::Absent,
+                LookupAnswer::Hit {
+                    reference: "/store/a".into(),
+                    title: Some("title a".into()),
+                },
+            ]
+        );
+        // The foreign arm must not fire for a key whose OWN agent holds the
+        // row: same id, right agent — a plain hit, not a self-accusation.
+        assert_eq!(
+            index.lookup(&[("kimi".into(), "kimi-9".into())]).unwrap(),
+            vec![LookupAnswer::Hit {
+                reference: "/store/kimi-9".into(),
+                title: Some("title kimi-9".into()),
+            }],
+        );
+        // Same id under TWO agents: the other one is named, both orders.
+        index
+            .upsert(&[row("opencode", "kimi-9", 4, "w")])
+            .unwrap();
+        assert_eq!(
+            index.lookup(&[("claude".into(), "kimi-9".into())]).unwrap(),
+            vec![LookupAnswer::Foreign {
+                agents: vec!["kimi".into(), "opencode".into()],
+            }],
+        );
+        assert_eq!(
+            index.lookup(&[("kimi".into(), "kimi-9".into())]).unwrap(),
+            vec![LookupAnswer::Hit {
+                reference: "/store/kimi-9".into(),
+                title: Some("title kimi-9".into()),
+            }],
+        );
+    }
+
+    #[test]
+    fn lookup_of_no_keys_asks_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        assert_eq!(index.lookup(&[]).unwrap(), Vec::<LookupAnswer>::new());
+    }
+
+    #[test]
+    fn lookup_leaves_sessions_the_ask_never_named_alone() {
+        // The ask is keyed, not an enumeration: rows whose ids were not in
+        // the batch contribute nothing to the answer, whatever their agent.
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        index
+            .upsert(&[row("claude", "a", 1, "x"), row("codex", "b", 2, "y")])
+            .unwrap();
+        let answers = index.lookup(&[("claude".into(), "a".into())]).unwrap();
+        assert_eq!(answers.len(), 1);
+        assert_eq!(
+            answers[0],
+            LookupAnswer::Hit {
+                reference: "/store/a".into(),
+                title: Some("title a".into()),
+            },
+        );
     }
 
     #[test]

@@ -6,7 +6,7 @@
 
 use std::sync::Mutex;
 
-use keepdeck_index::{IndexRow, IndexedRef, SearchHit, SessionIndex};
+use keepdeck_index::{IndexRow, IndexedRef, LookupAnswer, SearchHit, SessionIndex};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -113,6 +113,57 @@ pub fn index_prune(
     live: Vec<String>,
 ) -> Result<usize, String> {
     with_index(&state, |index| index.prune(&agent, &live))
+}
+
+/// One (agent, session_id) join key — the journal row's targeted ask.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LookupKeyDto {
+    pub agent: String,
+    pub session_id: String,
+}
+
+/// The index's exact answer for one key, `status`-tagged on the wire.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase", tag = "status")]
+pub enum LookupAnswerDto {
+    Hit {
+        reference: String,
+        title: Option<String>,
+    },
+    Foreign {
+        agents: Vec<String>,
+    },
+    Absent,
+}
+
+/// Answer (agent, session_id) keys exactly — the journal join's targeted
+/// ask; answers align to the input order.
+#[tauri::command(async)]
+pub fn index_lookup(
+    state: State<'_, HistoryIndex>,
+    keys: Vec<LookupKeyDto>,
+) -> Result<Vec<LookupAnswerDto>, String> {
+    with_index(&state, |index| {
+        let keys: Vec<(String, String)> = keys
+            .into_iter()
+            .map(|k| (k.agent, k.session_id))
+            .collect();
+        index
+            .lookup(&keys)
+            .map(|answers| {
+                answers
+                    .into_iter()
+                    .map(|answer| match answer {
+                        LookupAnswer::Hit { reference, title } => {
+                            LookupAnswerDto::Hit { reference, title }
+                        }
+                        LookupAnswer::Foreign { agents } => LookupAnswerDto::Foreign { agents },
+                        LookupAnswer::Absent => LookupAnswerDto::Absent,
+                    })
+                    .collect()
+            })
+    })
 }
 
 /// One page of hits plus the full match count — fetched together, under one

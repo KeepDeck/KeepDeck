@@ -66,6 +66,26 @@ export function indexSearch(
   return invoke("index_search", { query, limit, offset, agent: agent ?? null });
 }
 
+/** One (agent, session_id) join key — the journal row's targeted ask. */
+export interface IndexLookupKey {
+  agent: string;
+  sessionId: string;
+}
+
+/** The index's exact answer for one key, `status`-tagged. `foreign` is the
+ * recorded-ownership-is-wrong signature: the id exists — under other
+ * agent(s) than the journal claims. */
+export type IndexLookupAnswer =
+  | { status: "hit"; reference: string; title: string | null }
+  | { status: "foreign"; agents: string[] }
+  | { status: "absent" };
+
+/** Answer (agent, session_id) keys exactly — hits by key, never by
+ * enumerating the table; answers align to the input order. */
+export function indexLookup(keys: IndexLookupKey[]): Promise<IndexLookupAnswer[]> {
+  return invoke("index_lookup", { keys });
+}
+
 /** The `sqliteReadonly` capability's backend (containment-checked in Rust). */
 export function pluginsSqliteQuery(
   dbPath: string,
