@@ -1243,7 +1243,8 @@ describe("unified row guard — both blocks, one markup", () => {
       api([hit({ sessionId: "zz-1", title: null }), hit({ sessionId: "zz-2", title: null })]),
       [],
     );
-    const rows = bottomRows();
+    // No journal rows → no divider → every row IS the bottom block.
+    const rows = listRows();
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain("zz-1");
     expect(rows[1].textContent).toContain("zz-2");
@@ -1252,7 +1253,7 @@ describe("unified row guard — both blocks, one markup", () => {
 
   it("an EMPTY cwd is absence, not disappearance: no 'dir gone' chip, Resume blocked with its own words", async () => {
     await mount(api([hit({ sessionId: "no-dir", cwd: "" })]), []);
-    const row = bottomRows()[0];
+    const row = listRows()[0];
     expect(row.querySelector(".history__missing")).toBeNull();
     const resume = row.querySelector<HTMLButtonElement>(".history__resume")!;
     expect(resume.disabled).toBe(true);
@@ -1265,7 +1266,7 @@ describe("unified row guard — both blocks, one markup", () => {
       Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
     );
     await mount(api([hit({ sessionId: "gone-dir", cwd: "/gone" })]), []);
-    const goneRow = bottomRows()[0];
+    const goneRow = listRows()[0];
     expect(goneRow.querySelector(".history__missing")?.textContent).toBe("dir gone");
     expect(
       goneRow.querySelector<HTMLButtonElement>(".history__resume")!.disabled,
