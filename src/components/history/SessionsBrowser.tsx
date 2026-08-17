@@ -348,10 +348,16 @@ export function SessionsBrowser({
           onChange={(e) => api.search(e.target.value)}
         />
         <span className="browser__meta">
-          {api.scanning && (api.top.hits.length > 0 || api.bottom.hits.length > 0) && (
-            // Inside the field, so a background rescan neither shifts layout
-            // nor duplicates the empty-list placeholder.
-            <span className="browser__scanning">indexing…</span>
+          {(api.firstPagePending || (api.scanning && (api.top.hits.length > 0 || api.bottom.hits.length > 0))) && (
+            // One slot, one message — two at once would be porridge. The
+            // SEARCH pending wins over the ambient indexing note: it
+            // answers what the user just did (typed and is waiting on
+            // THEIR results), while indexing is background state that
+            // outlives the wait. Inside the field, so neither shifts
+            // layout nor duplicates the empty-list placeholder.
+            <span className={api.firstPagePending ? "browser__searching" : "browser__scanning"}>
+              {api.firstPagePending ? "searching…" : "indexing…"}
+            </span>
           )}
           {api.top.total > 0 && (
             // The workspace block's counter — its numerator is what IT

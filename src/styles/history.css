@@ -194,7 +194,8 @@
   pointer-events: none;
 }
 
-.browser__scanning {
+.browser__scanning,
+.browser__searching {
   font-size: 11px;
   color: #6b7280;
 }

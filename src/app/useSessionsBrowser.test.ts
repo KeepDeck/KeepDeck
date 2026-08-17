@@ -217,4 +217,68 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
     expect(api.top.total).toBe(500);
     expect(api.top.hasMore).toBe(true);
   });
+
+  it("the first-page flag: true while either block's page zero rides, gone when both land", async () => {
+    // Binary, no machine timings — fake timers hold the debounce, the
+    // pending resolvers hold the flight. The ask is visible work, not a
+    // freeze: old rows STAY while the new ones ride (nothing is cleared
+    // until the new answer lands), and the flag says why.
+    vi.useFakeTimers();
+    try {
+      await mount();
+      await act(async () => resolvers[0]({ hits: mkHits(0, 2), total: 2 }));
+      await act(async () => resolvers[1]({ hits: mkHits(5, 2), total: 2 }));
+      expect(api.firstPagePending).toBe(false);
+
+      act(() => api.search("auth"));
+      // During the debounce: still the old answer, no pending yet.
+      expect(api.firstPagePending).toBe(false);
+      expect(api.bottom.hits).toHaveLength(2); // old rows intact
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150); // the debounce fires BOTH asks
+      });
+      // Neither resolved: pending is TRUE, old rows still shown.
+      expect(api.firstPagePending).toBe(true);
+      expect(api.bottom.hits).toHaveLength(2);
+
+      // The TOP block's new page lands: still pending — the bottom's
+      // page zero rides.
+      await act(async () => resolvers[2]({ hits: mkHits(60, 5), total: 5 }));
+      expect(api.firstPagePending).toBe(true);
+
+      // The bottom's lands too: gone.
+      await act(async () => resolvers[3]({ hits: mkHits(70, 6), total: 6 }));
+      expect(api.firstPagePending).toBe(false);
+      expect(api.bottom.hits).toHaveLength(6); // the new answer replaced old
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a STALE landing never clears the newer ask's flag — the old generations disease", async () => {
+    vi.useFakeTimers();
+    try {
+      await mount();
+      await act(async () => resolvers[0]({ hits: mkHits(0, 2), total: 2 }));
+      await act(async () => resolvers[1]({ hits: mkHits(5, 2), total: 2 }));
+
+      act(() => api.search("auth"));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150);
+      });
+      expect(api.firstPagePending).toBe(true);
+
+      // The PREVIOUS query's page lands late: it must not settle anything.
+      await act(async () => resolvers[1]({ hits: mkHits(50, 20), total: 20 }));
+      expect(api.firstPagePending).toBe(true);
+      expect(api.bottom.hits).toHaveLength(2); // and must not paint
+
+      // The current generation lands: the flag clears.
+      await act(async () => resolvers[2]({ hits: mkHits(60, 5), total: 5 }));
+      await act(async () => resolvers[3]({ hits: mkHits(70, 6), total: 6 }));
+      expect(api.firstPagePending).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

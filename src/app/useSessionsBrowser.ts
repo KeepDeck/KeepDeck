@@ -18,6 +18,9 @@ export interface BlockApi {
   total: number;
   hasMore: boolean;
   loadingMore: boolean;
+  /** Page zero of this block's current query is in flight — its OWN
+   * pending, for per-block needs; the list-level flag composes both. */
+  firstPagePending: boolean;
   error: string | null;
   loadMore(): void;
 }
@@ -67,6 +70,11 @@ export interface SessionsBrowserApi {
    * shows is its own, and the blocks' results are workspace-shaped
    * anyway. */
   query: string;
+  /** Results of the CURRENT query are still riding: true while EITHER
+   * block's first page is in flight — with two scoped queries, "the
+   * results I asked for" is both of them, and a flag per block would
+   * flicker apart over one shared search box. */
+  firstPagePending: boolean;
   scanning: boolean;
   /** The journal rows' shared enrichment table — see
    * [`BrowserSharedSeam.enrichment`]. */
@@ -184,6 +192,7 @@ export function useSessionsBrowser(
       total: top.total,
       hasMore: top.hasMore,
       loadingMore: top.loadingMore,
+      firstPagePending: top.firstPagePending,
       error: top.error,
       loadMore: top.loadMore,
     },
@@ -192,10 +201,12 @@ export function useSessionsBrowser(
       total: bottom.total,
       hasMore: bottom.hasMore,
       loadingMore: bottom.loadingMore,
+      firstPagePending: bottom.firstPagePending,
       error: bottom.error,
       loadMore: bottom.loadMore,
     },
     query: top.query,
+    firstPagePending: top.firstPagePending || bottom.firstPagePending,
     scanning,
     enrichment: shared.enrichment,
     search,

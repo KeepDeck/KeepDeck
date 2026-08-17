@@ -72,6 +72,7 @@ const blockOf = (
     total?: number;
     hasMore?: boolean;
     loadingMore?: boolean;
+    firstPagePending?: boolean;
     error?: string | null;
   } = {},
 ) => ({
@@ -79,6 +80,7 @@ const blockOf = (
   total: hits.length,
   hasMore: false,
   loadingMore: false,
+  firstPagePending: false,
   error: null,
   loadMore: vi.fn(),
   ...over,
@@ -92,6 +94,7 @@ const api = (
   top: blockOf([]),
   bottom: blockOf(hits),
   query: "",
+  firstPagePending: false,
   scanning: false,
   enrichment: {
     entries: new Map(Object.entries(entries)),

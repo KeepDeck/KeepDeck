@@ -30,12 +30,19 @@ export interface PagedSearch<T> {
   hasMore: boolean;
   /** A `loadMore` page is in flight (guards the scroll sentinel). */
   loadingMore: boolean;
+  /** Page zero of the current query is IN FLIGHT. True from the moment
+   * the fetch fires (the debounce settling) until ITS generation lands —
+   * a STALE landing never clears a newer ask's flag. This is what makes
+   * a ~1s index query read as visible work instead of a freeze: the old
+   * rows stay on screen (nothing is cleared until the new answer lands)
+   * and the pending flag says why. */
+  firstPagePending: boolean;
   /** The query the rows answer. */
   query: string;
   /** Page zero failed for the current query — `rows` is empty, not stale.
    * Cleared by the next landing (a retype, a refresh, a scan refresh). */
   error: string | null;
-  /** Run the debounced search; resets paging to page zero. */
+  /** Run the debounced search; called on every keystroke. Resets paging. */
   search(query: string): void;
   /** Append the next page for the current query. */
   loadMore(): void;
@@ -69,6 +76,7 @@ export function usePagedSessionSearch<T>(
   const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [firstPagePending, setFirstPagePending] = useState(false);
 
   const queryRef = useRef("");
   const rowsRef = useRef<T[]>([]);
@@ -104,11 +112,15 @@ export function usePagedSessionSearch<T>(
     (q: string, atLeast = 0) => {
       // The caller (`search`/`refresh`) has already advanced the generation.
       const seq = searchSeq.current;
+      // The ask is live NOW — render-pure enough: the flag's whole job is
+      // to cover the flight, and only this generation's landing clears it.
+      setFirstPagePending(true);
       void fetchRef
         .current(q, Math.max(FIRST_PAGE, atLeast), 0)
         .then((page) => {
           if (searchSeq.current !== seq) return;
           loadedSeqRef.current = seq;
+          setFirstPagePending(false);
           setError(null);
           apply(page.rows, page.total);
         })
@@ -121,6 +133,7 @@ export function usePagedSessionSearch<T>(
           // guard (loaded !== requested) then refused forever: dead paging
           // as a side effect of the guard working as designed.
           loadedSeqRef.current = seq;
+          setFirstPagePending(false);
           // What the failure MEANS depends on what it was refreshing.
           // `atLeast > 0` is a background refresh of a span the user already
           // walked: the rows on screen are a real, correctly-labelled answer
@@ -204,6 +217,7 @@ export function usePagedSessionSearch<T>(
     total,
     hasMore: rows.length < total,
     loadingMore,
+    firstPagePending,
     query,
     error,
     search,
