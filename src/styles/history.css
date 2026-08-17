@@ -248,16 +248,21 @@
   background-color: #131926;
 }
 
-/* A journal row's name as its open button — same reset as the hits'
- * browser__open, single-line shape (the journal name is a flexing row
- * child, not a column like the hits'). */
+/* A journal row's name as its open button. The reset touches ONLY what
+ * the browser imposes on <button> — the element itself declares its size
+ * and color in `.history__name` above, and a `font: inherit` shorthand
+ * here would erase both (an equal-specificity rule below wins), painting
+ * the openable row in the row's inherited default while its plain
+ * neighbors keep 13px: the "alien font" the user caught. Family/weight/
+ * line-height ARE ours to neutralize — the base rule sets none of them. */
 .history__name--open {
   border: none;
   background: none;
   padding: 0;
   text-align: left;
-  font: inherit;
-  color: inherit;
+  font-family: inherit;
+  font-weight: inherit;
+  line-height: inherit;
   cursor: pointer;
 }
 
