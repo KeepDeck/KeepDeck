@@ -107,24 +107,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.history__delete {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: #6b7280;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.history__delete:hover {
-  background-color: #1c2230;
-  color: #c5c8c6;
-}
-
 .history__resume,
 .history__fork {
   flex: none;
