@@ -54,3 +54,34 @@ export async function liveOutsideSessions(
     return { ok: false };
   }
 }
+
+/** Whether a session is carried by a BACKGROUND process right now — the
+ * one fact the close flow needs: closing the pane kills the shell, not
+ * the work, and the person deserves to know before the pane is gone.
+ *
+ * The registry answers with the CONVERSATION's id on the carrier's row
+ * (a background worker holds the main session's sessionId with
+ * kind "background"), so the question is a row lookup, not a join.
+ * `null` is "no capability to ask" — the agent has no background
+ * mechanism, an ordinary close; "unknown" (the registry refused to
+ * answer) warns like a positive answer: skipping the warning on a failed
+ * question returns the harm whole. */
+export type BackgroundCarrier = "background" | "none" | "unknown" | null;
+
+export async function askBackgroundCarrier(
+  plugins: SpawnPluginAccess,
+  agentType: string,
+  sessionId: string,
+): Promise<BackgroundCarrier> {
+  const live = findAgent(plugins, agentType)?.entry.liveSessions;
+  if (!live) return null;
+  try {
+    const rows = await live.list();
+    const held = rows.find(
+      (row) => row.sessionId === sessionId && row.kind === "background",
+    );
+    return held ? "background" : "none";
+  } catch {
+    return "unknown";
+  }
+}

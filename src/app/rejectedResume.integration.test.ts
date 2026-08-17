@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginContext, PluginSessionEvent } from "@keepdeck/plugin-api";
 import { claudeLiveSessions } from "../../plugins/claude/src/liveSessions";
-import { askLiveRegistry } from "./liveSessions";
+import {
+  askBackgroundCarrier,
+  askLiveRegistry,
+} from "./liveSessions";
 import { decideRejectedResume } from "../domain/agents";
+import { closeMessageFor } from "./useCloseFlow";
 import type { SpawnPluginAccess } from "./spawnSpecs";
 
 /**
@@ -105,5 +109,57 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     expect(decideRejectedResume(answer, false)).toEqual({
       kind: "legacy-fresh",
     });
+  });
+
+  it("the close-flow carrier fact rides the same real registry", async () => {
+    // The `agents --json` shape verbatim: a background worker holds the
+    // MAIN conversation's sessionId with kind "background" — the exact row
+    // the close warning keys on. Through the real plugin, the real seam,
+    // and into the real sentence.
+    const { plugins } = claudeWithAgentsJson([
+      {
+        pid: 65464,
+        id: "0ad021f5",
+        cwd: "/repo",
+        kind: "background",
+        startedAt: 1786886054594,
+        sessionId: "c5b109c5",
+        name: "Fix animation stuttering",
+        status: "idle",
+        state: "done",
+      },
+    ]);
+    const carried = await askBackgroundCarrier(plugins, "claude", "c5b109c5");
+    expect(carried).toBe("background");
+    // The sentence a close dialog would freeze for that pane.
+    const message = closeMessageFor(
+      {
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        label: "Agent 1",
+        pane: {
+          provisioning: false,
+          rising: false,
+          stopped: false,
+          canSuspend: true,
+          carriedByBackground: carried ?? "none",
+        },
+        targets: [],
+        pendingPanes: [],
+      },
+      0,
+    );
+    expect(message).toContain("carried by a background agent");
+    expect(message).toContain("not the work");
+
+    // And the interactive row — the pane holding its own conversation —
+    // stays an ordinary close through the same real registry.
+    const { plugins: plain } = claudeWithAgentsJson([
+      { pid: 91348, cwd: "/repo", kind: "interactive", startedAt: 1, sessionId: "c5b109c5", name: "s", status: "idle" },
+    ]);
+    await expect(
+      askBackgroundCarrier(plain, "claude", "c5b109c5"),
+    ).resolves.toBe("none");
   });
 });

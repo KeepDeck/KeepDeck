@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AgentContribution } from "@keepdeck/plugin-api";
-import { askLiveRegistry, liveOutsideSessions } from "./liveSessions";
+import {
+  askBackgroundCarrier,
+  askLiveRegistry,
+  liveOutsideSessions,
+} from "./liveSessions";
 import type { SpawnPluginAccess } from "./spawnSpecs";
 
 const pluginsWith = (
@@ -69,5 +73,43 @@ describe("liveOutsideSessions", () => {
     await expect(liveOutsideSessions(broken, "claude")).resolves.toEqual({
       ok: false,
     });
+  });
+});
+
+describe("askBackgroundCarrier", () => {
+  it("a row holding the session with kind background is THE carrier answer", async () => {
+    // The registry answers with the CONVERSATION's id on the carrier's
+    // row — the close-flow question is a row lookup, not a join.
+    const carried = pluginsWith({
+      list: async () => [
+        { sessionId: "s-1", kind: "background" },
+        { sessionId: "s-2", kind: "interactive" },
+      ],
+    });
+    await expect(askBackgroundCarrier(carried, "claude", "s-1")).resolves.toBe(
+      "background",
+    );
+    // A pane holding its own INTERACTIVE row is not carried — the work
+    // lives in this pane, and an ordinary close ends it.
+    await expect(askBackgroundCarrier(carried, "claude", "s-2")).resolves.toBe(
+      "none",
+    );
+    await expect(askBackgroundCarrier(carried, "claude", "s-3")).resolves.toBe(
+      "none",
+    );
+  });
+
+  it("no capability is null (no mechanism, no warning); a refusal is unknown (warn)", async () => {
+    await expect(askBackgroundCarrier(pluginsWith(), "claude", "s")).resolves.toBe(
+      null,
+    );
+    const broken = pluginsWith({
+      list: async () => {
+        throw new Error("agents --json exited with 2");
+      },
+    });
+    await expect(askBackgroundCarrier(broken, "claude", "s")).resolves.toBe(
+      "unknown",
+    );
   });
 });
