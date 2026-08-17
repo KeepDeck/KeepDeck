@@ -240,6 +240,26 @@ describe("useCloseFlow", () => {
     expect(flow.closeMessage).not.toContain("background");
   });
 
+  it("a null answer (no capability to ask) keeps the sentence to the character — the none-guard's twin", async () => {
+    // Two quiet branches after the fix: "none" (the registry CLAIMED not
+    // carried) and null (nobody was asked — the agent has no background
+    // mechanism). Both must hold the ordinary sentence exactly; if the
+    // null branch ever regresses into an assertion ("none" painted as a
+    // claim) or a stray line, it will surface here, not in whatever
+    // future step makes the distinction load-bearing again. The twin of
+    // the none-guard: pinned TO THE CHARACTER, not by substring.
+    backgroundCarriers.mockResolvedValueOnce([null]);
+    const wsId = seed();
+    bindSession();
+    const before = (() => {
+      // The same dialog without any ask at all — the reference sentence.
+      return "Its terminal session will be ended.\nSuspending stops the agent instead, keeping the pane and its session.";
+    })();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).toBe(before);
+    expect(flow.closeMessage).not.toContain("background");
+  });
+
   it("an answer arriving AFTER the dialog is gone paints nothing anywhere", async () => {
     // The classic of the late-paint pattern: cancel (or confirm) while the
     // ask is in flight, then let it land. Nothing may throw, and the next

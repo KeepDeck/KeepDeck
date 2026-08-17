@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import * as liveSessionsSeam from "./liveSessions";
 import type { AgentContribution } from "@keepdeck/plugin-api";
 import {
-  askBackgroundCarrier,
   askBackgroundCarriers,
   askLiveRegistry,
   liveOutsideSessions,
@@ -77,7 +77,7 @@ describe("liveOutsideSessions", () => {
   });
 });
 
-describe("askBackgroundCarrier", () => {
+describe("askBackgroundCarriers — the seam's one entry, single-entry cases", () => {
   it("a row holding the session with kind background is THE carrier answer", async () => {
     // The registry answers with the CONVERSATION's id on the carrier's
     // row — the close-flow question is a row lookup, not a join.
@@ -87,31 +87,45 @@ describe("askBackgroundCarrier", () => {
         { sessionId: "s-2", kind: "interactive" },
       ],
     });
-    await expect(askBackgroundCarrier(carried, "claude", "s-1")).resolves.toBe(
-      "background",
-    );
+    await expect(
+      askBackgroundCarriers(carried, [{ agentType: "claude", sessionId: "s-1" }]),
+    ).resolves.toEqual(["background"]);
     // A pane holding its own INTERACTIVE row is not carried — the work
     // lives in this pane, and an ordinary close ends it.
-    await expect(askBackgroundCarrier(carried, "claude", "s-2")).resolves.toBe(
-      "none",
-    );
-    await expect(askBackgroundCarrier(carried, "claude", "s-3")).resolves.toBe(
-      "none",
-    );
+    await expect(
+      askBackgroundCarriers(carried, [{ agentType: "claude", sessionId: "s-2" }]),
+    ).resolves.toEqual(["none"]);
+    await expect(
+      askBackgroundCarriers(carried, [{ agentType: "claude", sessionId: "s-3" }]),
+    ).resolves.toEqual(["none"]);
   });
 
-  it("no capability is null (no mechanism, no warning); a refusal is unknown (warn)", async () => {
-    await expect(askBackgroundCarrier(pluginsWith(), "claude", "s")).resolves.toBe(
-      null,
-    );
+  it("no capability is null, never none — a question never asked is not an answer", async () => {
+    // The C1 line, load-bearing here too: only the registry's own CLAIM
+    // of "not carried" may read as "none". An agent without the
+    // capability answers null for its entries — the batch must not
+    // launder that into an assertion.
+    await expect(
+      askBackgroundCarriers(pluginsWith(), [
+        { agentType: "claude", sessionId: "s" },
+      ]),
+    ).resolves.toEqual([null]);
     const broken = pluginsWith({
       list: async () => {
         throw new Error("agents --json exited with 2");
       },
     });
-    await expect(askBackgroundCarrier(broken, "claude", "s")).resolves.toBe(
-      "unknown",
-    );
+    await expect(
+      askBackgroundCarriers(broken, [{ agentType: "claude", sessionId: "s" }]),
+    ).resolves.toEqual(["unknown"]);
+  });
+
+  it("the seam exports no single-entry twin — one entry, one path", async () => {
+    // The dead-surface rule, applied to ourselves: an exported helper no
+    // production caller invokes is exactly what this step demolished
+    // elsewhere. The singular form once lived here; its return would be a
+    // regression of that rule, pinned by its absence.
+    expect("askBackgroundCarrier" in liveSessionsSeam).toBe(false);
   });
 });
 

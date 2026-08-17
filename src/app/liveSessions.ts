@@ -66,61 +66,47 @@ export async function liveOutsideSessions(
  * `null` is "no capability to ask" — the agent has no background
  * mechanism, an ordinary close; "unknown" (the registry refused to
  * answer) warns like a positive answer: skipping the warning on a failed
- * question returns the harm whole. */
+ * question returns the harm whole. The line between null and "none" is
+ * load-bearing (the C1 rule): only the registry's own CLAIM of "not
+ * carried" may read as "none" — a question never asked must never
+ * masquerade as an answer. */
 export type BackgroundCarrier = "background" | "none" | "unknown" | null;
 
-export async function askBackgroundCarrier(
-  plugins: SpawnPluginAccess,
-  agentType: string,
-  sessionId: string,
-): Promise<BackgroundCarrier> {
-  const live = findAgent(plugins, agentType)?.entry.liveSessions;
-  if (!live) return null;
-  try {
-    const rows = await live.list();
-    const held = rows.find(
-      (row) => row.sessionId === sessionId && row.kind === "background",
-    );
-    return held ? "background" : "none";
-  } catch {
-    return "unknown";
-  }
-}
-
-/** The batch form a workspace close asks with: one carrier answer per
+/** The batch form the close dialogs ask with: one carrier answer per
  * entry, ONE registry query per DISTINCT agent (the list is per-agent — N
  * panes of one CLI cost one spawn, not N). A refusing registry answers
- * "unknown" for every entry of that agent: the asymmetry rule, per pane. */
+ * "unknown" for every entry of that agent; an agent without the
+ * capability answers `null` for its entries — the question was never
+ * asked, which is not "none". */
 export async function askBackgroundCarriers(
   plugins: SpawnPluginAccess,
   entries: { agentType: string; sessionId: string }[],
 ): Promise<BackgroundCarrier[]> {
-  const rowsByAgent = new Map<
-    string,
-    Promise<{ agentType: string; ok: boolean; rows?: AgentLiveSession[] }>
-  >();
+  type PerAgent =
+    | { kind: "answered"; rows: AgentLiveSession[] }
+    | { kind: "failed" }
+    | { kind: "no-capability" };
+  const rowsByAgent = new Map<string, Promise<PerAgent>>();
   for (const agentType of new Set(entries.map((e) => e.agentType))) {
     rowsByAgent.set(
       agentType,
       (async () => {
         const live = findAgent(plugins, agentType)?.entry.liveSessions;
-        if (!live) return { agentType, ok: true };
+        if (!live) return { kind: "no-capability" } as PerAgent;
         try {
-          return { agentType, ok: true, rows: await live.list() };
+          return { kind: "answered", rows: await live.list() } as PerAgent;
         } catch {
-          return { agentType, ok: false };
+          return { kind: "failed" } as PerAgent;
         }
       })(),
     );
   }
   return Promise.all(
     entries.map(async ({ agentType, sessionId }) => {
-      const answer = (await rowsByAgent.get(agentType)!) as {
-        ok: boolean;
-        rows?: AgentLiveSession[];
-      };
-      if (!answer.ok) return "unknown";
-      const held = answer.rows?.find(
+      const answer = await rowsByAgent.get(agentType)!;
+      if (answer.kind === "no-capability") return null;
+      if (answer.kind === "failed") return "unknown";
+      const held = answer.rows.find(
         (row) => row.sessionId === sessionId && row.kind === "background",
       );
       return held ? "background" : "none";

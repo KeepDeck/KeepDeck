@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PluginContext, PluginSessionEvent } from "@keepdeck/plugin-api";
 import { claudeLiveSessions } from "../../plugins/claude/src/liveSessions";
 import {
-  askBackgroundCarrier,
+  askBackgroundCarriers,
   askLiveRegistry,
 } from "./liveSessions";
 import { decideRejectedResume } from "../domain/agents";
@@ -129,7 +129,9 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
         state: "done",
       },
     ]);
-    const carried = await askBackgroundCarrier(plugins, "claude", "c5b109c5");
+    const [carried] = await askBackgroundCarriers(plugins, [
+      { agentType: "claude", sessionId: "c5b109c5" },
+    ]);
     expect(carried).toBe("background");
     // The sentence a close dialog would paint once the answer lands.
     const message = closeMessageFor(
@@ -159,7 +161,9 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
       { pid: 91348, cwd: "/repo", kind: "interactive", startedAt: 1, sessionId: "c5b109c5", name: "s", status: "idle" },
     ]);
     await expect(
-      askBackgroundCarrier(plain, "claude", "c5b109c5"),
-    ).resolves.toBe("none");
+      askBackgroundCarriers(plain, [
+        { agentType: "claude", sessionId: "c5b109c5" },
+      ]),
+    ).resolves.toEqual(["none"]);
   });
 });
