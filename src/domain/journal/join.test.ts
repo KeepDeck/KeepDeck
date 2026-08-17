@@ -145,27 +145,6 @@ describe("joinJournalRow", () => {
     );
   });
 
-  it("a stale hit keeps its read link and title, and says it is last-known", () => {
-    const joined = joinJournalRow(
-      record(),
-      { kind: "hit", reference: "/store/s-1", title: "kept title", stale: true },
-      LABEL,
-      false,
-    );
-    expect(joined.read).toEqual({ source: "index", reference: "/store/s-1" });
-    expect(joined.title).toBe("kept title");
-    expect(joined.status).toBeNull();
-    expect(joined.stale).toBe(true);
-    // A journal-sourced read is index-independent — never stale-marked.
-    const journalRead = joinJournalRow(
-      record({ transcriptPath: "/journal/s-1.jsonl" }),
-      { kind: "hit", reference: "/store/s-1", title: null, stale: true },
-      LABEL,
-      false,
-    );
-    expect(journalRead.stale).toBe(false);
-  });
-
   it("an empty answer set is not an input here — but empty answers resolve per-row, and the empty journal is the caller's", () => {
     // The join is per-row pure: "empty index" is every entry absent (or
     // unanswered), "empty journal" is zero rows to join — neither needs

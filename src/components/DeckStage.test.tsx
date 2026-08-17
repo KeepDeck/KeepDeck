@@ -130,6 +130,10 @@ const browser = {
   query: "",
   error: null,
   scanning: false,
+  enrichment: {
+    entries: new Map(),
+    declare: vi.fn(),
+  },
   search: vi.fn(),
   loadMore: vi.fn(),
   ensureFresh: vi.fn(),

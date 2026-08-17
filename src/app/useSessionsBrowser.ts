@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import { indexSearch, type SearchHit } from "../ipc/history";
+import type { JoinEntry } from "../domain/journal";
 import { useAppRuntime } from "./runtimeContext";
+import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
 import { usePagedSessionSearch } from "./usePagedSessionSearch";
 
 export interface SessionsBrowserApi {
@@ -21,6 +23,16 @@ export interface SessionsBrowserApi {
    * The browser names it instead of claiming "No sessions match". */
   error: string | null;
   scanning: boolean;
+  /** The journal rows' shared enrichment table — the index's answer per
+   * "agent:sessionId" key, ONE keyed table for every mounted list (see
+   * [`useJournalEnrichment`]). A list reads its rows' entries and never
+   * writes another workspace's. */
+  enrichment: {
+    entries: ReadonlyMap<string, JoinEntry>;
+    /** Declare the keys this list's journal rows need. Idempotent,
+     * union across lists; triggers the shared batched ask. */
+    declare(keys: ReadonlyArray<RowKey>): void;
+  };
   /** Run the debounced search; called on every keystroke. Resets paging. */
   search(query: string): void;
   /** Append the next page for the current query. */
@@ -58,6 +70,10 @@ export function useSessionsBrowser(): SessionsBrowserApi {
   );
   const { refresh } = paged;
   const index = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
+  // The journal join's answer table rides the same single-instance seam:
+  // every mounted list shares it, keyed by row — one ask per change, never
+  // one cell per "last response".
+  const enrichment = useJournalEnrichment(index.revision, index.scanning);
 
   // The listing re-reads page zero on every index REVISION: the mount fire
   // is the initial listing, and later bumps are landed scan batches — a
@@ -92,6 +108,7 @@ export function useSessionsBrowser(): SessionsBrowserApi {
     query: paged.query,
     error: paged.error,
     scanning: index.scanning,
+    enrichment,
     search: paged.search,
     loadMore: paged.loadMore,
     ensureFresh,

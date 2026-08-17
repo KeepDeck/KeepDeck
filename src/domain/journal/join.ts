@@ -14,12 +14,9 @@ import type { SessionRecord } from "./sessionLog";
  * the ipc layer's `IndexLookupAnswer` maps onto it without this domain
  * importing ipc. `undefined` = no answer yet (ask pending, or never
  * fired) — which is NOT an absence and must never read as one.
- *
- * `hit.stale` marks an answer a LATER ask failed to refresh: kept by the
- * never-degrade rule, flagged so the row can say so.
  */
 export type JoinEntry =
-  | { kind: "hit"; reference: string; title: string | null; stale?: boolean }
+  | { kind: "hit"; reference: string; title: string | null }
   | { kind: "foreign"; agents: readonly string[] }
   | { kind: "absent" }
   | { kind: "error" };
@@ -54,9 +51,6 @@ export interface JoinedRow {
   read: { source: "journal" | "index"; reference: string } | null;
   /** The status chip, or null when the row needs none. */
   status: RowStatus | null;
-  /** The read link comes from an index answer a later ask could not
-   * refresh — shown, and named as last-known. */
-  stale: boolean;
 }
 
 export function joinJournalRow(
@@ -75,7 +69,6 @@ export function joinJournalRow(
       title: meaningfulTitle(record, agentLabel),
       read: null,
       status: "wrong-owner",
-      stale: false,
     };
   }
   const title =
@@ -102,13 +95,7 @@ export function joinJournalRow(
         : entry?.kind === "error"
           ? "index-error"
           : "indexing";
-  return {
-    record,
-    title,
-    read,
-    status,
-    stale: read?.source === "index" && entry?.kind === "hit" && entry.stale === true,
-  };
+  return { record, title, read, status };
 }
 
 /** The record's own title when it says something the fallback row
