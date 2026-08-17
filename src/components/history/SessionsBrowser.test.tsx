@@ -1225,11 +1225,10 @@ describe("unified row guard — both blocks, one markup", () => {
    * branch, a bound row has one chip MORE). */
   const canonicalOf = (row: Element): string[] => {
     const order = orderOf(row).filter((m) => m !== "state" && m !== "statuschip");
-    const chipAt = order.indexOf("chip");
     // Drop the LAST chip (the branch) when two render — cwd stays first.
-    const chips = order.filter((m) => m === "chip").length;
-    if (chips > 1) order.splice(order.lastIndexOf("chip"), 1);
-    void chipAt;
+    if (order.filter((m) => m === "chip").length > 1) {
+      order.splice(order.lastIndexOf("chip"), 1);
+    }
     return order;
   };
 
@@ -1368,7 +1367,7 @@ describe("unified row guard — both blocks, one markup", () => {
     const top = topRows();
     expect(top).toHaveLength(1);
     expect(top[0].textContent).toContain("zz-9");
-    // No journal rows → no divider → every row IS the bottom block.
+    // The divider renders (a journal row exists); the hit rows below it.
     const rows = listRows();
     expect(rows).toHaveLength(3);
     const hitRows = rows.filter((r) =>

@@ -41,9 +41,11 @@ export type RowStatus =
 export interface JoinedRow {
   record: SessionRecord;
   /** Display title: the record's own MEANINGFUL title, else the index's.
-   * Undefined when neither has one — the caller falls back to the agent
-   * label, then the agent id. A title EQUAL to the agent's label is not a
-   * name; it is the fallback that got frozen into the journal. */
+   * Undefined when neither has one — the row then shows its SESSION ID
+   * (the component's one fallback, both blocks alike: the last prop must
+   * DISTINGUISH, and the agent is already the glyph). A title EQUAL to
+   * the agent's label is not a name; it is the fallback that got frozen
+   * into the journal. */
   title: string | undefined;
   /** The read link when one exists — the handle the owning plugin's
    * `transcript()` takes. The journal's own path WINS over the index's:
