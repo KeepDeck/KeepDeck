@@ -111,7 +111,8 @@ describe("useJournalEnrichment", () => {
     // The real mount path: the declaring list is a CHILD of the hook's
     // owner, so the declared ref is populated before the effect's tick
     // re-run — caught live by the real-pair integration suite. The same
-    // in-flight ask must not be fired twice.
+    // in-flight ask must not be fired twice — nor queue a chase for
+    // itself.
     revision = 1;
     await mount();
     // Simulate the child-in-same-commit declare: ref mutated, then the
@@ -121,35 +122,16 @@ describe("useJournalEnrichment", () => {
     expect(ipc.indexLookup).toHaveBeenCalledTimes(1);
     expect(ipc.indexLookup).toHaveBeenCalledWith([KEYS.own, KEYS.unknown]);
 
-    // A PARTIAL overlap still fires, carrying the FULL owed set — the
-    // newer ask supersedes the older landing, so nothing may be dropped
-    // from it.
-    act(() => api.declare([{ agent: "codex", sessionId: "new" }]));
-    await act(async () => {});
-    expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
-    expect(ipc.indexLookup).toHaveBeenLastCalledWith([
-      KEYS.own,
-      KEYS.unknown,
-      { agent: "codex", sessionId: "new" },
-    ]);
-
-    // The superseded first landing applies nothing; the second answers
-    // everything it carried.
-    await act(async () =>
-      resolvers[1]([
-        { status: "hit", reference: "/store/s-1", title: null },
-        { status: "absent" },
-        { status: "hit", reference: "/store/new", title: "late" },
-      ]),
-    );
-    expect(api.entries.size).toBe(3);
+    // The landing with NO queued chase fires nothing further — the
+    // duplicate-run guard left the queue empty.
     await act(async () =>
       resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: "STALE" },
+        { status: "hit", reference: "/store/s-1", title: null },
         { status: "absent" },
       ]),
     );
-    expect(api.entries.get(rowKeyOf(KEYS.own))).not.toMatchObject({ title: "STALE" });
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(1);
+    expect(api.entries.size).toBe(2);
   });
 
   it("one batched ask covers every declared key; answers land per key", async () => {
@@ -260,50 +242,110 @@ describe("useJournalEnrichment", () => {
     expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({ kind: "absent" });
   });
 
-  it("an answer landing after a newer ask applies nothing", async () => {
-    await mount();
-    act(() => api.declare([KEYS.own]));
+  it("a burst of bumps while one ask flies: one in flight, ONE catch-up after, the same table as sequential — pending never dips", async () => {
+    // peer-4 measured the pre-coalescing seam piling ten concurrent asks
+    // on a synthetic burst. The requirement: at most one ask in flight,
+    // exactly one catch-up pass after its landing (full set of that
+    // moment), and `pending` must not dip between the landing and the
+    // catch-up — that dip is the aa332ad2 lie's little sibling.
+    await mount(); // revision 1
+    act(() => api.declare([KEYS.own, KEYS.unknown]));
     await act(async () => {});
-    // The first ask is in flight; a revision bump supersedes it.
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(1); // the one flight
+
+    // The burst: five rapid revisions while the ask hangs.
+    for (let bump = 0; bump < 5; bump += 1) {
+      revision += 1;
+      await rerender();
+      expect(ipc.indexLookup).toHaveBeenCalledTimes(1); // never a second
+      expect(api.pending).toBe(true); // ...and the verdict stays withheld
+    }
+
+    // The flight lands under revision 1 — stale data, harmless: the
+    // catch-up is already owed. THIS frame is the dangerous one: the
+    // landing published answeredAt=1 against revision 6.
+    await act(async () =>
+      resolvers[0]([
+        { status: "absent" },
+        { status: "absent" },
+      ]),
+    );
+    expect(api.pending).toBe(true); // answered-under-older-revision holds
+
+    // The catch-up fires ONCE, with the full still-owed set.
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
+    expect(ipc.indexLookup).toHaveBeenLastCalledWith([KEYS.own, KEYS.unknown]);
+    // And it answers under the CURRENT revision: pending finally rests.
+    await act(async () =>
+      resolvers[1]([
+        { status: "hit", reference: "/store/s-1", title: "burst title" },
+        { status: "absent" },
+      ]),
+    );
+    expect(api.pending).toBe(false);
+    const burstFinal = new Map(api.entries);
+
+    // Equivalence: the same landings driven sequentially, one ask per
+    // bump, must produce the same table.
+    await act(async () => root.unmount());
+    ipc.indexLookup.mockClear();
+    resolvers.length = 0;
+    rejecters.length = 0;
+    revision = 1;
+    document.body.innerHTML = "<div id='host2'></div>";
+    root = createRoot(document.getElementById("host2")!);
+    await mount();
+    act(() => api.declare([KEYS.own, KEYS.unknown]));
+    await act(async () => {});
+    await act(async () =>
+      resolvers[0]([{ status: "absent" }, { status: "absent" }]),
+    );
     revision += 1;
     await rerender();
     expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
-
-    // The STALE landing arrives last: it must not apply.
     await act(async () =>
-      resolvers[1]([{ status: "hit", reference: "/fresh", title: "newest" }]),
+      resolvers[1]([
+        { status: "hit", reference: "/store/s-1", title: "burst title" },
+        { status: "absent" },
+      ]),
     );
-    await act(async () =>
-      resolvers[0]([{ status: "hit", reference: "/stale", title: "oldest" }]),
-    );
-    expect(api.entries.get(rowKeyOf(KEYS.own))).toEqual({
-      kind: "hit",
-      reference: "/fresh",
-      title: "newest",
-    });
+    expect(api.pending).toBe(false);
+    expect(api.entries).toEqual(burstFinal);
   });
 
-  it("a superseded landing dropped mid-scan does not clobber the table either", async () => {
-    // Superseded answers apply nothing — including a superseded FAILURE:
-    // a refusal from an ask a newer one replaced must not error-mark keys
-    // the newer ask is still answering.
+  it("a mid-flight declaration joins the CATCH-UP, not a second flight", async () => {
+    // A new key declared while an ask flies must not fire alongside it —
+    // the catch-up carries the full set, so the new key is answered with
+    // everything else still owed.
     await mount();
-    act(() => api.declare([KEYS.own]));
+    act(() => api.declare([KEYS.own, KEYS.unknown]));
     await act(async () => {});
-    revision += 1;
-    await rerender();
-    expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(1);
 
-    await act(async () => rejecters[0](new Error("old ask failed")));
-    expect(api.entries.size).toBe(0);
+    act(() => api.declare([{ agent: "codex", sessionId: "new" }]));
+    await act(async () => {});
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(1); // queued, not fired
+
     await act(async () =>
-      resolvers[1]([{ status: "hit", reference: "/store/s-1", title: "newest" }]),
+      resolvers[0]([
+        { status: "hit", reference: "/store/s-1", title: null },
+        { status: "absent" },
+      ]),
     );
-    expect(api.entries.get(rowKeyOf(KEYS.own))).toEqual({
-      kind: "hit",
-      reference: "/store/s-1",
-      title: "newest",
-    });
+    // The catch-up: the FULL still-owed set — the landed hit drops out,
+    // the absent and the newcomer stay in.
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
+    expect(ipc.indexLookup).toHaveBeenLastCalledWith([
+      KEYS.unknown,
+      { agent: "codex", sessionId: "new" },
+    ]);
+    await act(async () =>
+      resolvers[1]([
+        { status: "hit", reference: "/store/nope", title: "late" },
+        { status: "hit", reference: "/store/new", title: "newest" },
+      ]),
+    );
+    expect(api.entries.size).toBe(3);
   });
 
   it("end to end: rows titled with the agent's LABEL get their real names once the rescan lands", async () => {

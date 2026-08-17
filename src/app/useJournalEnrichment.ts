@@ -22,11 +22,19 @@ export const rowKeyOf = (key: RowKey): string => `${key.agent}:${key.sessionId}`
  * (the list draws its rows from the journal; the table is a keyed cache
  * the rows read, never a source of rows).
  *
- * The ASK is shared and batched: one `index_lookup` per change (a new
- * declaration, an index revision bump), covering every declared key that
- * hasn't been answered `hit` — hits are stable, everything else
- * (unanswered, absent, foreign, errored) re-asks, so a scan's
- * landed batches fill titles in as they arrive. A scan rebuilds in
+ * The ASK is shared, batched and SINGLE-FLIGHT: one `index_lookup` per
+ * change (a new declaration, an index revision bump), covering every
+ * declared key that hasn't been answered `hit` — hits are stable,
+ * everything else (unanswered, absent, foreign, errored) re-asks, so a
+ * scan's landed batches fill titles in as they arrive. While an ask is
+ * in flight a change never fires a SECOND one: it queues exactly ONE
+ * catch-up pass, which fires after the landing with the FULL still-owed
+ * set of that moment — however many changes piled up mid-flight (peer-4
+ * measured a synthetic burst piling ten concurrent asks; the generation
+ * counter kept every one of them harmless, but the seam owed back-
+ * pressure, not just correctness). Single-flight also makes a foreign
+ * landing structurally impossible — at most one ask exists — which is
+ * why there is no generation counter to guard one. A scan rebuilds in
  * 16-session batches — a hundred-plus revision bumps — which is exactly
  * why the ask must be one shared fetch, not one per mounted list.
  *
@@ -68,21 +76,27 @@ export function useJournalEnrichment(
   /** Advances on every new declaration — the effect's only handle on a
    * change that is neither a revision bump nor a scan-state flip. */
   const [declaredTick, declareMore] = useReducer((n: number) => n + 1, 0);
-  /** The generation of the newest in-flight ask — a superseded landing
-   * applies nothing (the newer ask re-covers its keys). */
-  const askSeq = useRef(0);
-  /** Keys covered by the newest in-flight ask. The mount path fires the
-   * effect twice for ONE declaration (the declared ref mutates before the
-   * tick the effect re-runs on) — without the same-set guard every browser
-   * mount would put a duplicate ask in flight and throw the first answer
-   * away. A superseded ask's landing applies nothing, so any NEW ask
-   * always carries the FULL still-owed set. */
+  /** Advances when a landed ask owes its catch-up pass — the effect's
+   * handle on the coalescing seam's "exactly one behind" signal. */
+  const [chaseTick, chaseMore] = useReducer((n: number) => n + 1, 0);
+  /** An ask is in flight — the single-flight invariant. At most one ask
+   * exists at any moment, so no landing can be foreign and no generation
+   * counter is needed to sort them. */
+  const flyingRef = useRef(false);
+  /** A change arrived while an ask was flying: ONE catch-up pass is owed
+   * after the landing — however many changes piled up, the queue holds a
+   * flag, not a backlog. */
+  const reaskQueuedRef = useRef(false);
+  /** Keys covered by the in-flight ask. The mount path fires the effect
+   * twice for ONE declaration (the declared ref mutates before the tick
+   * the effect re-runs on) — the same-set check keeps the second run
+   * from queueing a spurious chase for the very ask already flying. */
   const inflightRef = useRef(new Set<string>());
-  /** The (revision, scanning) the newest ask fired under. A revision bump
-   * means the index moved under an in-flight ask — its answer may already
-   * be stale data, so the same-set skip never applies across one. */
+  /** The (revision, scanning) the in-flight ask fired under. A revision
+   * bump means the index moved under the ask — its answer may already be
+   * stale data, so the same-set skip never applies across one. */
   const askEnvRef = useRef<{ revision: number; scanning: boolean } | null>(null);
-  /** An ask is in flight right now. */
+  /** An ask is in flight right now (the rendered half of `flyingRef`). */
   const [askInFlight, setAskInFlight] = useState(false);
   /** The revision the last LANDED ask fired under — null before any
    * landing. `pending` = in flight OR answered under an older revision:
@@ -123,28 +137,35 @@ export function useJournalEnrichment(
       }
     }
     if (ids.length === 0) return;
-    // The mount path fires this effect twice for ONE declaration (the
-    // declared ref mutates before the tick the effect re-runs on). Skip
-    // only when the in-flight ask IS this ask UNDER THE SAME index state —
-    // a revision bump or a partial overlap must still fire, carrying the
-    // full set: the newer ask supersedes the older one's landing, so
-    // dropping an overlapping key here would leave it unanswered until
-    // the next change.
-    const inflight = inflightRef.current;
-    const env = askEnvRef.current;
-    const sameEnv =
-      env !== null && env.revision === revision && env.scanning === scanning;
-    if (
-      sameEnv &&
-      inflight.size === ids.length &&
-      ids.every((id) => inflight.has(id))
-    ) {
+    if (flyingRef.current) {
+      // An ask is in flight. The mount path fires this effect twice for
+      // ONE declaration: the second run must neither fire nor queue —
+      // the flying ask IS this ask. Anything genuinely different (a
+      // revision bump, a wider declaration) queues exactly ONE catch-up;
+      // a partial fire here would strand keys, because the catch-up
+      // replaces the flying ask's landing as the newest answer.
+      const inflight = inflightRef.current;
+      const env = askEnvRef.current;
+      const sameEnv =
+        env !== null && env.revision === revision && env.scanning === scanning;
+      if (
+        sameEnv &&
+        inflight.size === ids.length &&
+        ids.every((id) => inflight.has(id))
+      ) {
+        return;
+      }
+      reaskQueuedRef.current = true;
       return;
     }
-    const mine = ++askSeq.current;
+    const firedRevision = revision;
+    // Firing IS the catch-up when one was queued: the flag clears here,
+    // not in the landing, so changes arriving during this ask queue the
+    // next pass rather than being swallowed by the last one.
+    reaskQueuedRef.current = false;
+    flyingRef.current = true;
     inflightRef.current = new Set(ids);
     askEnvRef.current = { revision, scanning };
-    const firedRevision = revision;
     setAskInFlight(true);
 
     /** Fold one landed ask into the table. A refusal (`failed`) keeps
@@ -182,23 +203,33 @@ export function useJournalEnrichment(
       setEntries(next);
     };
 
-    void indexLookup(ask)
-      .then((answers) => {
-        if (askSeq.current !== mine) return;
-        inflightRef.current = new Set();
-        setAskInFlight(false);
-        setAnsweredAt(firedRevision);
-        apply(answers, false);
-      })
-      .catch((e: unknown) => {
-        if (askSeq.current !== mine) return;
-        inflightRef.current = new Set();
-        setAskInFlight(false);
-        setAnsweredAt(firedRevision);
+    /** The one landing path — single-flight makes it the only ask that
+     * could ever land. Retires the flight, records the revision it
+     * answered, and fires the owed catch-up pass (if any) by re-running
+     * the effect with the state of THIS moment. */
+    const landed = (
+      answers: Awaited<ReturnType<typeof indexLookup>> | null,
+      failed: boolean,
+    ): void => {
+      flyingRef.current = false;
+      inflightRef.current = new Set();
+      setAskInFlight(false);
+      setAnsweredAt(firedRevision);
+      apply(answers, failed);
+      if (reaskQueuedRef.current) {
+        reaskQueuedRef.current = false;
+        chaseMore();
+      }
+    };
+
+    void indexLookup(ask).then(
+      (answers) => landed(answers, false),
+      (e: unknown) => {
         log.warn("web:history", `journal join lookup failed: ${describeError(e)}`);
-        apply(null, true);
-      });
-  }, [revision, scanning, declaredTick]);
+        landed(null, true);
+      },
+    );
+  }, [revision, scanning, declaredTick, chaseTick]);
 
   return {
     entries,
