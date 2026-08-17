@@ -254,7 +254,6 @@ export function SessionsBrowser({
         // frame honest.
         api.scanning || api.enrichment.pending,
       ),
-      agent?.label,
     );
   });
   // Dedupe against the VISIBLE top rows, not the full journal: a session

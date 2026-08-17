@@ -85,9 +85,13 @@ export function SessionRowView({
   const wrongOwner = row.status === "wrong-owner";
   const openable = row.read !== null && canReadHistory && !wrongOwner;
   const statusChip = row.status === null ? null : STATUS_CHIP[row.status];
-  // The no-title fallback is the SOURCE's choice (see nameFallback): hits
-  // show their session id, journal rows the agent label.
-  const name = row.title ?? row.nameFallback;
+  // The no-title fallback must DISTINGUISH, not decorate: the agent is
+  // already the glyph on the left, and a label fallback makes neighbors
+  // twins — the very wall of identical rows this work began with. The
+  // session id is ugly but unique: rows stay tellable apart, and a row
+  // found once is found again by eye. (A title EQUAL to the agent label
+  // is treated as absent upstream, so nothing falls back into it either.)
+  const name = row.title ?? row.sessionId;
 
   return (
     <li

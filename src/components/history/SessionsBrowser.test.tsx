@@ -1119,6 +1119,37 @@ describe("unified row guard — both blocks, one markup", () => {
       .map((b) => b.textContent),
   });
 
+  /** The skeleton's ORDER as the direct children carry it — independent
+   * of both blocks, so a wrong reordering cannot pass as "equally wrong
+   * in both". Independent queries above cannot see order; this does. */
+  const orderOf = (row: Element) =>
+    [...row.children].map((el) => {
+      const c = (el as HTMLElement).classList;
+      if (c.contains("history__state")) return "state";
+      if (c.contains("history__glyph")) return "glyph";
+      if (c.contains("browser__open")) return "name";
+      if (c.contains("history__chip")) return "chip";
+      if (c.contains("history__when")) return "when";
+      if (c.contains("history__missing") || c.contains("history__status"))
+        return "statuschip";
+      if (c.contains("history__resume")) return "resume";
+      if (c.contains("history__fork")) return "fork";
+      return "other";
+    });
+
+  /** The canonical skeleton sequence with the may-be-absent cells removed
+   * (state, status chips) and the branch chip folded (a hit has no
+   * branch, a bound row has one chip MORE). */
+  const canonicalOf = (row: Element): string[] => {
+    const order = orderOf(row).filter((m) => m !== "state" && m !== "statuschip");
+    const chipAt = order.indexOf("chip");
+    // Drop the LAST chip (the branch) when two render — cwd stays first.
+    const chips = order.filter((m) => m === "chip").length;
+    if (chips > 1) order.splice(order.lastIndexOf("chip"), 1);
+    void chipAt;
+    return order;
+  };
+
   it("identical data renders identically through BOTH sources — serialization compared, not eyeballed", async () => {
     // The same session as a journal record and as an index hit: title,
     // directory, read link, time all matched (the hit's mtime IS the
@@ -1223,6 +1254,12 @@ describe("unified row guard — both blocks, one markup", () => {
     expect(journalChips).toHaveLength(2);
     expect(indexChips).toHaveLength(1);
     expect(journalChips[0].textContent).toBe(indexChips[0].textContent);
+    // The ORDER guard, independent of any block: both rows' canonical
+    // sequences equal the same named order — glyph, name, chips, time,
+    // actions — not merely each other.
+    const CANONICAL = ["glyph", "name", "chip", "when", "resume", "fork"];
+    expect(canonicalOf(fromJournal)).toEqual(CANONICAL);
+    expect(canonicalOf(fromIndex)).toEqual(CANONICAL);
     // With the may-be-absent cells lifted out, the skeletons coincide.
     const lift = (row: Element) => {
       const clone = row.cloneNode(true) as Element;
@@ -1235,19 +1272,29 @@ describe("unified row guard — both blocks, one markup", () => {
   });
 
   it("two NAMELESS hits stay distinguishable — the session id, not a wall of agent labels", async () => {
-    // The one-row refactor regressed this: the component fell back to the
-    // agent label for every source, and a shelf of nameless hits of one
-    // agent collapsed into identical rows. The fallback is the SOURCE's
-    // choice — hits show their session id.
+    // The fallback must DISTINGUISH in BOTH blocks: the agent is already
+    // the glyph, and a label fallback makes neighbors twins — the wall of
+    // identical rows this whole work began with. The session id is ugly
+    // but unique; the label fallback is gone from both sources' chains.
     await mount(
       api([hit({ sessionId: "zz-1", title: null }), hit({ sessionId: "zz-2", title: null })]),
-      [],
+      [closed({ sessionId: "zz-9", title: undefined })],
     );
+    // No journal rows? There IS one — the top block's nameless record
+    // shows its id too, not the agent label.
+    const top = topRows();
+    expect(top).toHaveLength(1);
+    expect(top[0].textContent).toContain("zz-9");
     // No journal rows → no divider → every row IS the bottom block.
     const rows = listRows();
-    expect(rows).toHaveLength(2);
-    expect(rows[0].textContent).toContain("zz-1");
-    expect(rows[1].textContent).toContain("zz-2");
+    expect(rows).toHaveLength(3);
+    const hitRows = rows.filter((r) =>
+      r.textContent?.includes("zz-"),
+    );
+    expect(hitRows).toHaveLength(3);
+    expect(rows[0].textContent).toContain("zz-9");
+    expect(rows[1].textContent).toContain("zz-1");
+    expect(rows[2].textContent).toContain("zz-2");
     expect(rows[0].textContent).not.toContain(CAPABLE_AGENT.label);
   });
 
