@@ -81,13 +81,23 @@ export function useJournalEnrichment(
   const [chaseTick, chaseMore] = useReducer((n: number) => n + 1, 0);
   /** An ask is in flight — the single-flight invariant. At most one ask
    * exists at any moment, so no landing can be foreign and no generation
-   * counter is needed to sort them. ACCEPTED TRADE: a promise that never
-   * settles AT ALL (the bridge can do that) wedges the seam for good —
-   * nothing fires again and rows stay "indexing…" until restart. That is
-   * the deliberate price of no queue: the visible failure is the most
-   * benign of the five states, never lost data or a false verdict, and
-   * journal-path rows keep opening regardless. Success and refusal both
-   * land; only the third outcome hangs — see `landed`, the one exit. */
+   * counter is needed to sort them.
+   *
+   * ACCEPTED TRADE, stated with its history (a review pass prompted
+   * checking what predated this design): a never-settling ask — the
+   * bridge into another process can do that — is an OLD risk; the
+   * generations design did not cancel one either. What single-flight
+   * changed is the CONSEQUENCE, not the risk. Before, a hung ask was
+   * harmless litter: the next change still fired a fresh ask (the old
+   * skip matched only the SAME index state), so the seam recovered on
+   * the very next bump. Single-flight spends exactly that recovery to
+   * buy no pile-up: a hung ask now wedges the one queued catch-up
+   * behind it — nothing fires again, rows stay "indexing…" until
+   * restart. The wedge stays benign: the mildest of the five states,
+   * never lost data or a false verdict, and journal-path rows keep
+   * opening. Success and refusal both land; only the third outcome
+   * hangs — see `landed`, the one exit. A timer was weighed and
+   * declined (median ask 0.16ms; machinery against a hypothesis). */
   const flyingRef = useRef(false);
   /** A change arrived while an ask was flying: ONE catch-up pass is owed
    * after the landing — however many changes piled up, the queue holds a
