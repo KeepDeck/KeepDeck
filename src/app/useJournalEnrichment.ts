@@ -63,6 +63,17 @@ export function useJournalEnrichment(
   /** The generation of the newest in-flight ask — a superseded landing
    * applies nothing (the newer ask re-covers its keys). */
   const askSeq = useRef(0);
+  /** Keys covered by the newest in-flight ask. The mount path fires the
+   * effect twice for ONE declaration (the declared ref mutates before the
+   * tick the effect re-runs on) — without the same-set guard every browser
+   * mount would put a duplicate ask in flight and throw the first answer
+   * away. A superseded ask's landing applies nothing, so any NEW ask
+   * always carries the FULL still-owed set. */
+  const inflightRef = useRef(new Set<string>());
+  /** The (revision, scanning) the newest ask fired under. A revision bump
+   * means the index moved under an in-flight ask — its answer may already
+   * be stale data, so the same-set skip never applies across one. */
+  const askEnvRef = useRef<{ revision: number; scanning: boolean } | null>(null);
 
   const declare = useCallback((keys: ReadonlyArray<RowKey>) => {
     const declared = declaredRef.current;
@@ -85,14 +96,38 @@ export function useJournalEnrichment(
     const declared = declaredRef.current;
     const known = entriesRef.current;
     const ask: RowKey[] = [];
+    const ids: string[] = [];
     for (const [id, key] of declared) {
       const entry = known.get(id);
       // Hits are stable and never re-asked; everything else still owes
       // an answer that a landed batch may change.
-      if (entry === undefined || entry.kind !== "hit") ask.push(key);
+      if (entry === undefined || entry.kind !== "hit") {
+        ask.push(key);
+        ids.push(id);
+      }
     }
-    if (ask.length === 0) return;
+    if (ids.length === 0) return;
+    // The mount path fires this effect twice for ONE declaration (the
+    // declared ref mutates before the tick the effect re-runs on). Skip
+    // only when the in-flight ask IS this ask UNDER THE SAME index state —
+    // a revision bump or a partial overlap must still fire, carrying the
+    // full set: the newer ask supersedes the older one's landing, so
+    // dropping an overlapping key here would leave it unanswered until
+    // the next change.
+    const inflight = inflightRef.current;
+    const env = askEnvRef.current;
+    const sameEnv =
+      env !== null && env.revision === revision && env.scanning === scanning;
+    if (
+      sameEnv &&
+      inflight.size === ids.length &&
+      ids.every((id) => inflight.has(id))
+    ) {
+      return;
+    }
     const mine = ++askSeq.current;
+    inflightRef.current = new Set(ids);
+    askEnvRef.current = { revision, scanning };
 
     /** Fold one landed ask into the table. A refusal (`failed`) keeps
      * every prior answer verbatim — never an erasure, never a downgrade —
@@ -132,10 +167,12 @@ export function useJournalEnrichment(
     void indexLookup(ask)
       .then((answers) => {
         if (askSeq.current !== mine) return;
+        inflightRef.current = new Set();
         apply(answers, false);
       })
       .catch((e: unknown) => {
         if (askSeq.current !== mine) return;
+        inflightRef.current = new Set();
         log.warn("web:history", `journal join lookup failed: ${describeError(e)}`);
         apply(null, true);
       });

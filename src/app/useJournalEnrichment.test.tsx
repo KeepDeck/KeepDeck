@@ -75,6 +75,51 @@ describe("useJournalEnrichment", () => {
     expect(api.entries.size).toBe(0);
   });
 
+  it("a declaration landing in the SAME commit as the mount fires ONE ask, not two", async () => {
+    // The real mount path: the declaring list is a CHILD of the hook's
+    // owner, so the declared ref is populated before the effect's tick
+    // re-run — caught live by the real-pair integration suite. The same
+    // in-flight ask must not be fired twice.
+    revision = 1;
+    await mount();
+    // Simulate the child-in-same-commit declare: ref mutated, then the
+    // tick the effect re-runs on.
+    act(() => api.declare([KEYS.own, KEYS.unknown]));
+    await act(async () => {});
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(1);
+    expect(ipc.indexLookup).toHaveBeenCalledWith([KEYS.own, KEYS.unknown]);
+
+    // A PARTIAL overlap still fires, carrying the FULL owed set — the
+    // newer ask supersedes the older landing, so nothing may be dropped
+    // from it.
+    act(() => api.declare([{ agent: "codex", sessionId: "new" }]));
+    await act(async () => {});
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
+    expect(ipc.indexLookup).toHaveBeenLastCalledWith([
+      KEYS.own,
+      KEYS.unknown,
+      { agent: "codex", sessionId: "new" },
+    ]);
+
+    // The superseded first landing applies nothing; the second answers
+    // everything it carried.
+    await act(async () =>
+      resolvers[1]([
+        { status: "hit", reference: "/store/s-1", title: null },
+        { status: "absent" },
+        { status: "hit", reference: "/store/new", title: "late" },
+      ]),
+    );
+    expect(api.entries.size).toBe(3);
+    await act(async () =>
+      resolvers[0]([
+        { status: "hit", reference: "/store/s-1", title: "STALE" },
+        { status: "absent" },
+      ]),
+    );
+    expect(api.entries.get(rowKeyOf(KEYS.own))).not.toMatchObject({ title: "STALE" });
+  });
+
   it("one batched ask covers every declared key; answers land per key", async () => {
     await mount();
     act(() => api.declare([KEYS.own, KEYS.foreign, KEYS.unknown]));
