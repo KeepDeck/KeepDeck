@@ -222,10 +222,12 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
       { agent: "claude", sessionId: "kimi-9" },
     ]);
 
-    const row = document.querySelector(".browser__journal")!;
+    const row = document.querySelector(".history__row")!;
     expect(row.textContent).toContain("the corrupted record");
     expect(row.querySelector(".history__status")?.textContent).toBe("wrong agent");
-    expect(row.querySelector(".history__name--open")).toBeNull();
+    expect(
+      row.querySelector<HTMLButtonElement>(".browser__open")!.disabled,
+    ).toBe(true);
     expect(row.querySelector(".history__resume")).toBeNull();
     expect(row.querySelector(".history__fork")).toBeNull();
 
@@ -245,7 +247,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     ]);
 
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
     expect(claude.reads).toEqual([CLAUDE_JOURNAL_ONLY]); // the journal's path, via the real plugin
     expect(kimi.reads).toEqual([]);
@@ -264,14 +266,14 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     await mount([record({ sessionId: "s-i" })]);
 
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
     expect(claude.reads).toEqual([CLAUDE_INDEX_ONLY]); // the index's link, via the real plugin
     expect(document.querySelector(".browser__turn--user")?.textContent).toContain(
       "by the index link",
     );
     // The index's title painted the row.
-    expect(document.querySelector(".browser__journal")?.textContent).toContain(
+    expect(document.querySelector(".history__row")?.textContent).toContain(
       "named by the index",
     );
   });

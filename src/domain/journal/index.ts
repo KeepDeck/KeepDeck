@@ -21,3 +21,8 @@ export {
   type JoinedRow,
   type RowStatus,
 } from "./join";
+export {
+  rowOfHit,
+  rowOfJoined,
+  type UnifiedSessionRow,
+} from "./sessionRow";

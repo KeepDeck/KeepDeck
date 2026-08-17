@@ -210,47 +210,26 @@
   min-height: 0;
 }
 
-/* Hit rows are clickable (they open the transcript) and so is a journal
- * row THE JOIN GAVE A READ LINK — the rest of the journal section and the
- * status rows (the section label, empty placeholder, loading tail) are
- * not. */
-.browser__list .history__row:not(.browser__empty):not(.browser__more):not(.browser__journal) {
+/* Rows with a read link are clickable (they open the transcript); rows
+ * without one and the status rows (the section label, empty placeholder,
+ * loading tail) are not. One rule for BOTH blocks — the row component is
+ * one. */
+.browser__list .history__row.history__row--open {
   cursor: pointer;
 }
 
-.browser__list .history__row:not(.browser__empty):not(.browser__more):not(.browser__journal):hover {
+.browser__list .history__row.history__row--open:hover {
   background-color: #131926;
 }
 
-.browser__list .history__row.browser__journal--open {
-  cursor: pointer;
-}
-
-.browser__list .history__row.browser__journal--open:hover {
-  background-color: #131926;
-}
-
-/* A journal row's name as its open button. The reset touches ONLY what
- * the browser imposes on <button> — the element itself declares its size
- * and color in `.history__name` above, and a `font: inherit` shorthand
- * here would erase both (an equal-specificity rule below wins), painting
- * the openable row in the row's inherited default while its plain
- * neighbors keep 13px: the "alien font" the user caught. Family/weight/
- * line-height ARE ours to neutralize — the base rule sets none of them. */
-.history__name--open {
-  border: none;
-  background: none;
-  padding: 0;
-  text-align: left;
-  font-family: inherit;
-  font-weight: inherit;
-  line-height: inherit;
-  cursor: pointer;
-}
-
-.history__name--open:hover,
-.history__name--open:focus-visible {
-  color: #e8ebf0;
+/* The open button is the row's name cell for every row; disabled is
+ * simply not-openable (no read link, no history capability, wrong
+ * owner) — it must not look or feel pressable. Its typography lives on
+ * the .browser__name span inside, deliberately: a font shorthand on the
+ * button itself would fight that rule the same "alien font" way the
+ * journal name once did. */
+.browser__open:disabled {
+  cursor: default;
 }
 
 /* The joined row's status chip — the visible stand-in for everything that

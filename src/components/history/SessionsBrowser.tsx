@@ -1,26 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
-import {
-  agentSessionCapabilities,
-  type AgentInfo,
-} from "../../domain/agents";
+import type { AgentInfo } from "../../domain/agents";
 import {
   handleFromHit,
   joinJournalRow,
-  type JoinedRow,
-  type RowStatus,
+  rowOfHit,
+  rowOfJoined,
   type SessionHandle,
   type SessionRecord,
+  type UnifiedSessionRow,
 } from "../../domain/journal";
-import { formatAge } from "../../domain/usage/format";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { rowKeyOf } from "../../app/useJournalEnrichment";
-import { AgentGlyph } from "../../ui/AgentGlyph";
 import { BackIcon } from "../../ui/icons";
-import { Chip } from "../../ui/Chip";
 import { useScrollPaging, NEAR_END } from "../../ui/useScrollPaging";
-import { baseName } from "../../domain/deck";
+import { SessionRowView } from "./SessionRowView";
 
 interface SessionsBrowserProps {
   api: SessionsBrowserApi;
@@ -58,50 +53,15 @@ interface ViewerTarget {
   tried: number;
 }
 
-/** The journal row's status chip — the visible stand-in for everything
- * that keeps a row unopenable. Plain rows carry no chip at all. */
-const STATUS_CHIP: Record<
-  RowStatus,
-  { label: string; title: string; tone?: "error" }
-> = {
-  "wrong-owner": {
-    label: "wrong agent",
-    tone: "error",
-    title:
-      "This session id exists under another agent — the journal recorded the wrong one, so the row cannot be opened or continued here",
-  },
-  indexing: {
-    label: "indexing…",
-    title:
-      "The session index is still filling — the row's readability is decided when it answers",
-  },
-  "nothing-to-read": {
-    label: "nothing to read",
-    title:
-      "The conversation ran here, but no transcript survives in the journal or the index",
-  },
-  "index-error": {
-    label: "index unreachable",
-    tone: "error",
-    title:
-      "The index could not be asked — not a verdict on the session; what was already known still stands",
-  },
-  // 'read failed' is deliberately NOT here: unlike the four above it is
-  // a REACTION to an attempt, not a state knowable in advance. Probing
-  // files ahead of the click would cost a stat per row per panel open,
-  // to predict a case that announces itself on the first open.
-};
-
 /**
  * The empty-workspace sessions surface ([F8]): ONE list with the search bar
- * on top. The workspace's own journal pins first — the sessions that ran here,
- * with their lifecycle affordances (live/closed dot, branch, resume,
- * fork). Below a
- * divider, every other session of every agent store, searchable by content
- * and title. Search hits only the Rust index; opening a hit row reads the
- * transcript live through the owning plugin (a journal row has no store
- * reference, so it stays non-clickable). Resume runs in the session's
- * ORIGINAL directory; Fork picks a new home.
+ * on top. The workspace's own journal pins first — the sessions that ran
+ * here — below a divider every other session of every agent store,
+ * searchable by content and title. Both blocks render the SAME row
+ * component: the blocks differ by which side of the workspace boundary a
+ * session sits on, never by markup. Search hits only the Rust index;
+ * opening a row reads the transcript live through the owning plugin. Resume
+ * runs in the session's ORIGINAL directory; Fork picks a new home.
  */
 export function SessionsBrowser({
   api,
@@ -123,7 +83,7 @@ export function SessionsBrowser({
    * failure is named on the row, as itself and never as "nothing to
    * read". */
   const [readFailed, setReadFailed] = useState<ReadonlySet<string>>(new Set());
-  // Resume needs a live original directory — same gate for both sections.
+  // Resume needs a live original directory — same gate for both blocks.
   const presence = useDirPresence([
     ...rows.map((row) => row.cwd),
     ...api.hits.map((hit) => hit.cwd),
@@ -241,19 +201,17 @@ export function SessionsBrowser({
     loadMore(target, 0);
   };
 
-  /** A journal row opens on its JOINED read link — the journal's own
-   * transcript path first, the index's reference in its absence — and a
-   * refused read falls through the join's union: the shown link first
-   * (a click retries exactly what the row displays), the other side of
-   * the union next. A hit row has one link by construction. */
-  const openJournal = (joined: JoinedRow) => {
-    if (joined.read === null) return;
+  /** Any unified row opens on its read link — the shown link first (a
+   * click retries exactly what the row displays), the union chain behind
+   * it for the fall-through. */
+  const openRow = (row: UnifiedSessionRow) => {
+    if (row.read === null) return;
     openViewer({
-      agent: joined.record.agent,
-      sessionId: joined.record.sessionId,
-      reference: joined.read.reference,
-      title: joined.title ?? null,
-      fallbacks: joined.readLinks,
+      agent: row.agent,
+      sessionId: row.sessionId,
+      reference: row.read.reference,
+      title: row.title ?? null,
+      fallbacks: row.readLinks,
       tried: 0,
     });
   };
@@ -271,7 +229,7 @@ export function SessionsBrowser({
   // decides composition — a title arriving late must not make a filtered
   // row vanish or appear.
   const query = api.query.trim().toLowerCase();
-  const journalRows =
+  const journalFiltered =
     query === ""
       ? rows
       : rows.filter((row) =>
@@ -279,12 +237,33 @@ export function SessionsBrowser({
             (field) => field !== undefined && field.toLowerCase().includes(query),
           ),
         );
-  // Dedupe against the VISIBLE journal rows, not the full journal: a session
+  // The top block's unified rows — the join against the shared enrichment
+  // table, then the row shape both blocks render.
+  const topRows = journalFiltered.map((row) => {
+    const agent = agents.find((a) => a.id === row.agent);
+    return rowOfJoined(
+      joinJournalRow(
+        row,
+        api.enrichment.entries.get(rowKeyOf(row)),
+        agent?.label,
+        // "The answer may still change": the scan state OR the enrichment
+        // table's own pending (an ask in flight, or a revision-bumped
+        // re-ask still owed) — the scan-end publish flips scanning and
+        // bumps the revision in ONE re-render, before any effect can fire
+        // the re-ask, so this composed flag is what keeps that boundary
+        // frame honest.
+        api.scanning || api.enrichment.pending,
+      ),
+    );
+  });
+  // Dedupe against the VISIBLE top rows, not the full journal: a session
   // the query hid from the pinned section (its match is content-only) must
   // still show below with its snippet, not vanish entirely.
-  const pinned = new Set(journalRows.map((row) => `${row.agent}:${row.sessionId}`));
-  const hits = api.hits.filter((hit) => !pinned.has(`${hit.agent}:${hit.sessionId}`));
-  const emptyList = journalRows.length === 0 && hits.length === 0;
+  const pinned = new Set(topRows.map((row) => `${row.agent}:${row.sessionId}`));
+  const bottomRows = api.hits
+    .filter((hit) => !pinned.has(`${hit.agent}:${hit.sessionId}`))
+    .map(rowOfHit);
+  const emptyList = topRows.length === 0 && bottomRows.length === 0;
 
   const now = Date.now();
   return (
@@ -317,246 +296,35 @@ export function SessionsBrowser({
         ref={listRef}
         onScroll={maybeLoadHits}
       >
-        {journalRows.map((row) => {
-          const agent = agents.find((a) => a.id === row.agent);
-          const {
-            resume: supportsResume,
-            fork: supportsFork,
-            history: canReadHistory,
-          } = agentSessionCapabilities(agents, row.agent);
-          const joined = joinJournalRow(
-            row,
-            api.enrichment.entries.get(rowKeyOf(row)),
-            agent?.label,
-            // "The answer may still change": the scan state OR the
-            // enrichment table's own pending (an ask in flight, or a
-            // revision-bumped re-ask still owed) — the scan-end publish
-            // flips scanning and bumps the revision in ONE re-render,
-            // before any effect can fire the re-ask, so this composed
-            // flag is what keeps that boundary frame honest.
-            api.scanning || api.enrichment.pending,
-          );
-          const openable = joined.read !== null && canReadHistory;
-          // A wrong-owner row is visible but continuation would feed the
-          // wrong plugin — the affordances do not render at all.
-          const wrongOwner = joined.status === "wrong-owner";
-          const name = joined.title ?? agent?.label ?? row.agent;
-          const when = row.state === "closed" ? row.endedAt : row.boundAt;
-          const dirMissing = !dirPresent(presence, row.cwd);
-          const statusChip = joined.status === null ? null : STATUS_CHIP[joined.status];
-          return (
-            <li
-              key={`${row.agent}:${row.sessionId}`}
-              className={`history__row browser__journal${
-                openable ? " browser__journal--open" : ""
-              }`}
-              onClick={openable ? () => openJournal(joined) : undefined}
-            >
-              <span
-                className={`history__state${
-                  row.state === "live" ? " history__state--live" : ""
-                }`}
-                title={row.state === "live" ? "Running" : "Closed"}
-              />
-              <span className="history__glyph">
-                <AgentGlyph icon={agent?.icon} />
-              </span>
-              {openable ? (
-                // The name is the row's open button — same hit-target
-                // shape as the hits below, keyboard-reachable.
-                <button
-                  type="button"
-                  className="history__name history__name--open"
-                  title="Read this session"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openJournal(joined);
-                  }}
-                >
-                  {name}
-                </button>
-              ) : (
-                <span className="history__name" title={row.sessionId}>
-                  {name}
-                </span>
-              )}
-              {row.branch !== undefined && (
-                <Chip
-                  size="inline"
-                  className="history__chip"
-                  title={row.cwd}
-                  label={row.branch}
-                />
-              )}
-              <span className="history__when">
-                {formatAge(Date.parse(when), now)}
-              </span>
-              {dirMissing && (
-                <Chip
-                  size="inline"
-                  tone="error"
-                  className="history__missing"
-                  title={`${row.cwd} no longer exists — the session cannot resume in place`}
-                  label="dir gone"
-                />
-              )}
-              {statusChip !== null && (
-                <Chip
-                  size="inline"
-                  tone={statusChip.tone}
-                  className="history__status"
-                  title={statusChip.title}
-                  label={statusChip.label}
-                />
-              )}
-              {joined.readLinks.some((link) => readFailed.has(link)) && (
-                <Chip
-                  size="inline"
-                  tone="error"
-                  className="history__status"
-                  title="Reading this session failed — its transcript file disappeared between the scan and the open. This is not 'nothing to read': the row stays, and a retry is legitimate."
-                  label="read failed"
-                />
-              )}
-              {row.state === "closed" && supportsResume && !wrongOwner && (
-                <button
-                  type="button"
-                  className="history__resume"
-                  disabled={dirMissing}
-                  title={
-                    dirMissing
-                      ? "The session's directory no longer exists"
-                      : "Resume this session in a new pane"
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onResume(row);
-                  }}
-                >
-                  Resume
-                </button>
-              )}
-              {supportsFork && !wrongOwner && (
-                <button
-                  type="button"
-                  className="history__fork"
-                  title="Fork — a new conversation continuing from this session"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onFork(row);
-                  }}
-                >
-                  Fork
-                </button>
-              )}
-              {/* No "forget" affordance, by design: the top block is the
-               * journal of what ran HERE — a row with a problem carries a
-               * status, never a way out of the list (the user's own rule
-               * against filtering by hand). The "deleted" journal EVENT
-               * still folds on load; the app just no longer generates
-               * one. */}
-            </li>
-          );
-        })}
-        {journalRows.length > 0 && hits.length > 0 && (
+        {topRows.map((row) => (
+          <SessionRowView
+            key={`${row.agent}:${row.sessionId}`}
+            row={row}
+            agents={agents}
+            dirMissing={!dirPresent(presence, row.cwd)}
+            readFailed={row.readLinks.some((link) => readFailed.has(link))}
+            now={now}
+            onOpen={openRow}
+            onResume={onResumeByHandle(onResume)}
+            onFork={onForkByHandle(onFork)}
+          />
+        ))}
+        {topRows.length > 0 && bottomRows.length > 0 && (
           <li className="browser__section">All sessions</li>
         )}
-        {hits.map((hit) => {
-          const agent = agents.find((a) => a.id === hit.agent);
-          const {
-            history: canReadHistory,
-            resume: supportsResume,
-            fork: supportsFork,
-          } = agentSessionCapabilities(agents, hit.agent);
-          return (
-            <li
-              key={`${hit.agent}:${hit.sessionId}`}
-              className="history__row"
-              // The WHOLE row opens the transcript — aiming at the text
-              // alone is a hidden hit-target. The action buttons stop the
-              // bubble; the inner button stays for keyboard access (its
-              // synthesized click bubbles here too).
-              onClick={
-                canReadHistory
-                  ? () =>
-                      openViewer({
-                        agent: hit.agent,
-                        sessionId: hit.sessionId,
-                        reference: hit.reference,
-                        title: hit.title,
-                        fallbacks: [hit.reference],
-                        tried: 0,
-                      })
-                  : undefined
-              }
-            >
-              <span className="history__glyph">
-                <AgentGlyph icon={agent?.icon} />
-              </span>
-              <button
-                type="button"
-                className="browser__open"
-                disabled={!canReadHistory}
-                title={
-                  canReadHistory
-                    ? "Read this session"
-                    : "Session history is unavailable for this agent"
-                }
-              >
-                <span className="browser__name">
-                  {hit.title ?? hit.sessionId}
-                </span>
-                {hit.snippet !== null && (
-                  <span className="browser__snippet">{hit.snippet}</span>
-                )}
-              </button>
-              {hit.cwd !== "" && (
-                // No chip at all for a cwd-less session — an empty pill
-                // renders as a stray outline sliver.
-                <Chip
-                  size="inline"
-                  className="history__chip"
-                  title={hit.cwd}
-                  label={baseName(hit.cwd) || hit.cwd}
-                />
-              )}
-              <span className="history__when">{formatAge(hit.mtime, now)}</span>
-              {supportsResume && (
-                <button
-                  type="button"
-                  className="history__resume"
-                  disabled={!dirPresent(presence, hit.cwd)}
-                  title={
-                    hit.cwd === ""
-                      ? "The session has no recorded directory"
-                      : dirPresent(presence, hit.cwd)
-                        ? `Resume in ${hit.cwd}`
-                        : "The session's directory no longer exists — fork it instead"
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onResume(hitRecord(hit));
-                  }}
-                >
-                  Resume
-                </button>
-              )}
-              {supportsFork && (
-                <button
-                  type="button"
-                  className="history__fork"
-                  title="Fork — a new conversation continuing from this session"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onFork(hitRecord(hit));
-                  }}
-                >
-                  Fork
-                </button>
-              )}
-            </li>
-          );
-        })}
+        {bottomRows.map((row) => (
+          <SessionRowView
+            key={`${row.agent}:${row.sessionId}`}
+            row={row}
+            agents={agents}
+            dirMissing={!dirPresent(presence, row.cwd)}
+            readFailed={row.readLinks.some((link) => readFailed.has(link))}
+            now={now}
+            onOpen={openRow}
+            onResume={onResumeByHandle(onResume)}
+            onFork={onForkByHandle(onFork)}
+          />
+        ))}
         {api.loadingMore && (
           <li className="history__row browser__more" aria-label="Loading more sessions">
             <span className="browser__spinner" />
@@ -633,4 +401,18 @@ export function SessionsBrowser({
       )}
     </div>
   );
+}
+
+/** The row view hands back the whole row; the browser's callbacks take the
+ * handle — one adapter, defined once, not per row. */
+function onResumeByHandle(
+  onResume: (record: SessionHandle) => void,
+): (row: UnifiedSessionRow) => void {
+  return (row) => onResume(row.handle);
+}
+
+function onForkByHandle(
+  onFork: (record: SessionHandle) => void,
+): (row: UnifiedSessionRow) => void {
+  return (row) => onFork(row.handle);
 }

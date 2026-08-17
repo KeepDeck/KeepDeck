@@ -92,6 +92,30 @@ const api = (
   ...over,
 });
 
+/** Both blocks render ONE row component with ONE markup — a block is not
+ * a class anymore. The top block is the rows BEFORE the divider (or all
+ * rows when no divider renders); the bottom block, after it. */
+const listRows = (): Element[] => [
+  ...document.querySelectorAll(".browser__list > .history__row"),
+];
+const topRows = (): Element[] => {
+  const all = listRows();
+  const divider = document.querySelector(".browser__section");
+  if (!divider) return all;
+  return all.filter(
+    (row) => row.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+};
+const bottomRows = (): Element[] => {
+  const all = listRows();
+  const divider = document.querySelector(".browser__section");
+  if (!divider) return [];
+  return all.filter(
+    (row) => !(row.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING),
+  );
+};
+const topRow = (): Element => topRows()[0];
+
 describe("hitRecord", () => {
   it("carries the index's explicit transcript path; a null one stays absent", () => {
     // A handle, not a fabricated journal record: no state/boundAt/endedAt.
@@ -317,11 +341,9 @@ describe("SessionsBrowser", () => {
     expect(document.querySelector(".history__fork")).toBeNull();
     const open = document.querySelector<HTMLButtonElement>(".browser__open")!;
     expect(open.disabled).toBe(true);
-    await act(async () =>
-      document.querySelector<HTMLLIElement>(
-        ".history__row:not(.browser__journal)",
-      )!.click(),
-    );
+    // The HIT row (bottom block, past the divider) stays inert.
+    const hitRow = bottomRows()[0];
+    await act(async () => (hitRow as HTMLLIElement).click());
     expect(a.transcript).not.toHaveBeenCalled();
     expect(document.querySelector(".browser__viewer")).toBeNull();
   });
@@ -404,7 +426,7 @@ describe("SessionsBrowser journal section", () => {
     return { ...result, onResume, onFork };
   };
 
-  it("journal rows pin first, before the hits, with branch chip and state dot", async () => {
+  it("journal rows pin first, before the hits, with directory and branch chips and state dot", async () => {
     await mount(
       api([hit({ sessionId: "u-9", title: "other session" })]),
       [closed({ title: "auth bug", branch: "kd/ws/1" }), live()],
@@ -412,10 +434,17 @@ describe("SessionsBrowser journal section", () => {
     const rows = document.querySelectorAll(".history__row");
     expect(rows).toHaveLength(3);
     expect(rows[0].textContent).toContain("auth bug");
-    expect(rows[0].querySelector(".history__chip")?.textContent).toBe("kd/ws/1");
+    // Both chips render on a bound row: the directory (same chip as the
+    // hits' rows — one row shape) and the branch after it.
+    const chips = rows[0].querySelectorAll(".history__chip");
+    expect(chips).toHaveLength(2);
+    expect(chips[0].textContent).toBe("repo");
+    expect(chips[1].textContent).toBe("kd/ws/1");
     expect(rows[0].querySelector(".history__state--live")).toBeNull();
     expect(rows[1].querySelector(".history__state--live")).not.toBeNull();
     expect(rows[2].textContent).toContain("other session");
+    // A hit row knows no liveness — no dot cell at all, honestly.
+    expect(rows[2].querySelector(".history__state")).toBeNull();
     // The divider sits between the pinned rows and the hits.
     const divider = document.querySelector(".browser__section");
     expect(divider?.textContent).toBe("All sessions");
@@ -431,7 +460,8 @@ describe("SessionsBrowser journal section", () => {
     );
     const rows = document.querySelectorAll(".history__row");
     expect(rows).toHaveLength(2); // journal row + the one non-dup hit
-    expect(document.querySelectorAll(".browser__open")).toHaveLength(1);
+    expect(bottomRows()).toHaveLength(1);
+    expect(bottomRows()[0].textContent).toContain("other session");
   });
 
   it("an active query filters the pinned section client-side; content-only matches survive in the hits", async () => {
@@ -445,12 +475,12 @@ describe("SessionsBrowser journal section", () => {
       ),
       [closed({ title: "auth bug" }), closed({ sessionId: "s-2", title: "ci" })],
     );
-    const journal = document.querySelectorAll(".browser__journal");
+    const journal = topRows();
     expect(journal).toHaveLength(1);
     expect(journal[0].textContent).toContain("auth bug");
-    const opens = document.querySelectorAll(".browser__open");
-    expect(opens).toHaveLength(1);
-    expect(opens[0].textContent).toContain("s-2");
+    const below = bottomRows();
+    expect(below).toHaveLength(1);
+    expect(below[0].textContent).toContain("s-2");
   });
 
   it("the × is gone — a journal row has no way out of the list", async () => {
@@ -461,7 +491,7 @@ describe("SessionsBrowser journal section", () => {
     // status instead.
     await mount(api([]), [closed(), closed({ sessionId: "s-2" })]);
     expect(document.querySelector(".history__delete")).toBeNull();
-    expect(document.querySelectorAll(".browser__journal")).toHaveLength(2);
+    expect(topRows()).toHaveLength(2);
   });
 
   it("a live journal row offers no Resume; a gone dir blocks it — Fork stays", async () => {
@@ -497,8 +527,8 @@ describe("SessionsBrowser journal section", () => {
       closed({ title: "own title", transcriptPath: "/journal/s-1.jsonl" }),
       closed({ sessionId: "s-2" }),
     ]);
-    const openButtons = document.querySelectorAll<HTMLButtonElement>(
-      ".browser__journal .history__name--open",
+    const openButtons = topRows().map(
+      (row) => row.querySelector<HTMLButtonElement>(".browser__open")!,
     );
     expect(openButtons).toHaveLength(2);
 
@@ -517,7 +547,7 @@ describe("SessionsBrowser journal section", () => {
     });
     await mount(a, [closed({ title: "own", transcriptPath: "/journal/s-1.jsonl" })]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
     expect(a.transcript).toHaveBeenCalledExactlyOnceWith(
       "claude",
@@ -601,7 +631,7 @@ describe("SessionsBrowser journal join", () => {
     // for one frame. Checked synchronously, before any await.
     const a = api([], { scanning: false }, {});
     await mount(a, [closed({ sessionId: "bare" })]);
-    const chip = chipOf(document.querySelector(".browser__journal")!);
+    const chip = chipOf(topRow());
     expect(chip?.textContent).toBe("indexing…");
     expect(document.body.textContent).not.toContain("nothing to read");
   });
@@ -611,7 +641,7 @@ describe("SessionsBrowser journal join", () => {
       api([], { scanning: true }, { "claude:s-1": { kind: "absent" } }),
       [closed()],
     );
-    expect(chipOf(document.querySelector(".browser__journal")!)?.textContent).toBe(
+    expect(chipOf(topRow())?.textContent).toBe(
       "indexing…",
     );
 
@@ -619,7 +649,7 @@ describe("SessionsBrowser journal join", () => {
       api([], { scanning: false }, { "claude:s-1": { kind: "absent" } }),
       [closed()],
     );
-    expect(chipOf(document.querySelector(".browser__journal")!)?.textContent).toBe(
+    expect(chipOf(topRow())?.textContent).toBe(
       "nothing to read",
     );
   });
@@ -641,7 +671,7 @@ describe("SessionsBrowser journal join", () => {
       pending: true,
     };
     await mount(owedFrame, [closed({ sessionId: "s-1" })]);
-    const row = document.querySelector(".browser__journal")!;
+    const row = topRow();
     expect(chipOf(row)?.textContent).toBe("indexing…");
     expect(document.body.textContent).not.toContain("nothing to read");
 
@@ -663,11 +693,11 @@ describe("SessionsBrowser journal join", () => {
         }),
       ),
     );
-    const landed = document.querySelector(".browser__journal")!;
+    const landed = topRow();
     expect(landed.textContent).toContain("the late title");
     expect(chipOf(landed)).toBeNull();
     expect(
-      landed.querySelector<HTMLButtonElement>(".history__name--open"),
+      landed.querySelector<HTMLButtonElement>(".browser__open"),
     ).not.toBeNull();
   });
 
@@ -676,11 +706,14 @@ describe("SessionsBrowser journal join", () => {
       api([], { scanning: false }, { "claude:s-1": { kind: "absent" } }),
       [closed({ title: "ran here" })],
     );
-    const row = document.querySelector(".browser__journal")!;
+    const row = topRow();
     expect(row.textContent).toContain("ran here");
     expect(chipOf(row)?.textContent).toBe("nothing to read");
-    // Not openable: no open button, no row click.
-    expect(row.querySelector(".history__name--open")).toBeNull();
+    // Not openable: the name cell renders disabled, and the row carries
+    // no open affordance.
+    expect(
+      row.querySelector<HTMLButtonElement>(".browser__open")!.disabled,
+    ).toBe(true);
     await act(async () => (row as HTMLLIElement).click());
   });
 
@@ -698,7 +731,7 @@ describe("SessionsBrowser journal join", () => {
         closed({ sessionId: "labelled", title: CAPABLE_AGENT.label }),
       ],
     );
-    const rows = document.querySelectorAll(".browser__journal");
+    const rows = topRows();
     expect(rows[0].textContent).toContain("from the index");
     expect(rows[1].textContent).toContain("own meaningful title");
     expect(rows[2].textContent).toContain("the real one");
@@ -731,10 +764,12 @@ describe("SessionsBrowser journal join", () => {
         }),
       ),
     );
-    const row = document.querySelector(".browser__journal")!;
+    const row = topRow();
     expect(row.textContent).toContain("probe");
     expect(chipOf(row)?.textContent).toBe("wrong agent");
-    expect(row.querySelector(".history__name--open")).toBeNull();
+    expect(
+      row.querySelector<HTMLButtonElement>(".browser__open")!.disabled,
+    ).toBe(true);
     expect(row.querySelector(".history__resume")).toBeNull();
     expect(row.querySelector(".history__fork")).toBeNull();
     // The kimi path never reaches any plugin: not by row click, and the
@@ -756,12 +791,12 @@ describe("SessionsBrowser journal join", () => {
       closed({ sessionId: "pathless" }),
       closed({ sessionId: "withpath", transcriptPath: "/journal/withpath.jsonl" }),
     ]);
-    const rows = document.querySelectorAll(".browser__journal");
+    const rows = topRows();
     expect(chipOf(rows[0])?.textContent).toBe("index unreachable");
     expect(chipOf(rows[1])).toBeNull();
     await act(async () =>
       (
-        rows[1].querySelector<HTMLButtonElement>(".history__name--open")!
+        rows[1].querySelector<HTMLButtonElement>(".browser__open")!
       ).click(),
     );
     expect(a.transcript).toHaveBeenCalledExactlyOnceWith(
@@ -780,7 +815,7 @@ describe("SessionsBrowser journal join", () => {
       api([], {}, { "claude:s-2": { kind: "hit", reference: "/r/2", title: "landed title" } }),
       [closed({ title: "first" }), closed({ sessionId: "s-2" })],
     );
-    const rows = document.querySelectorAll(".browser__journal");
+    const rows = topRows();
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain("first");
     expect(rows[1].textContent).toContain("landed title");
@@ -862,13 +897,16 @@ describe("SessionsBrowser journal join", () => {
         ]),
       ),
     );
-    const rows = document.querySelectorAll(".browser__journal");
+    const rows = topRows();
     expect(rows).toHaveLength(2);
     for (const row of rows) {
       expect(row.textContent).toContain("the shared truth");
     }
-    expect(rows[0].querySelector(".history__chip")?.textContent).toBe("kd/ws/1");
-    expect(rows[1].querySelector(".history__chip")?.textContent).toBe("kd/ws/2");
+    // Directory chip first, the workspace's own branch behind it.
+    const chipsOf = (row: Element) =>
+      [...row.querySelectorAll(".history__chip")].map((c) => c.textContent);
+    expect(chipsOf(rows[0])).toEqual(["repo", "kd/ws/1"]);
+    expect(chipsOf(rows[1])).toEqual(["repo", "kd/ws/2"]);
   });
 
   it("the row declares its keys to the shared table on mount and as the journal grows", async () => {
@@ -908,9 +946,9 @@ describe("SessionsBrowser journal join", () => {
     a.transcript = vi.fn(() => Promise.reject(new Error("no such file")));
     await mount(a, [closed({ sessionId: "s-1" })]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
-    const row = document.querySelector(".browser__journal")!;
+    const row = topRow();
     expect(row.textContent).toContain("gone file"); // still there, still titled
     expect(chipOf(row)?.textContent).toBe("read failed");
     expect(document.body.textContent).not.toContain("nothing to read");
@@ -938,11 +976,11 @@ describe("SessionsBrowser journal join", () => {
       closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" }),
     ]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
     // Tried in union order: journal first, the index link second.
     expect(calls).toEqual(["/journal/dead.jsonl", "/store/s-1"]);
-    const row = document.querySelector(".browser__journal")!;
+    const row = topRow();
     expect(chipOf(row)).toBeNull(); // no failure mark — a link read
     expect(document.querySelector(".browser__turn--user")?.textContent).toBe(
       "read by the spare link",
@@ -962,10 +1000,10 @@ describe("SessionsBrowser journal join", () => {
       closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" }),
     ]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
     expect(calls).toEqual(["/journal/dead.jsonl", "/store/dead-too"]);
-    const row = document.querySelector(".browser__journal")!;
+    const row = topRow();
     expect(row.textContent).toContain("both dead");
     expect(chipOf(row)?.textContent).toBe("read failed");
     expect(document.querySelector(".browser__viewer")?.textContent).toContain(
@@ -988,19 +1026,197 @@ describe("SessionsBrowser journal join", () => {
     );
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" })]);
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
     expect(
-      chipOf(document.querySelector(".browser__journal")!)?.textContent ?? "",
+      chipOf(topRow())?.textContent ?? "",
     ).toBe("read failed");
 
     dead = false;
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".history__name--open")!.click(),
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
-    expect(chipOf(document.querySelector(".browser__journal")!)).toBeNull();
+    expect(chipOf(topRow())).toBeNull();
     expect(document.querySelector(".browser__turn--user")?.textContent).toBe(
       "back again",
     );
+  });
+});
+
+describe("unified row guard — both blocks, one markup", () => {
+  let root: Root;
+  beforeEach(() => {
+    worktreeIpc.probeWorktree.mockClear();
+    worktreeIpc.probeWorktree.mockImplementation(() =>
+      Promise.resolve({ exists: true, isWorktree: false, branch: null }),
+    );
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  /** Two browsers side by side: one fed ONLY by the JOURNAL source, one
+   * ONLY by the INDEX source, with values picked so the two rows say the
+   * SAME thing. The guard then serializes both rows and demands equality —
+   * the test does not know which markup is correct, only that the two
+   * blocks' must coincide. */
+  const mountTwoSources = (journal: SessionRecord[], hits: SearchHit[]) =>
+    act(async () =>
+      root.render(
+        createElement("div", null, [
+          createElement("div", { key: "from-journal" },
+            createElement(SessionsBrowser, {
+              api: api([]),
+              agents: [CAPABLE_AGENT],
+              ready: true,
+              rows: journal,
+              onResume: vi.fn(),
+              onFork: vi.fn(),
+            }),
+          ),
+          createElement("div", { key: "from-index" },
+            createElement(SessionsBrowser, {
+              api: api(hits),
+              agents: [CAPABLE_AGENT],
+              ready: true,
+              rows: [],
+              onResume: vi.fn(),
+              onFork: vi.fn(),
+            }),
+          ),
+        ]),
+      ),
+    );
+
+  const rowOf = (hostIndex: number) =>
+    document.querySelectorAll(".browser__list > .history__row")[hostIndex]!;
+
+  /** The named skeleton: these cells and their ORDER are the requirement.
+   * Extracted per name — glyph, name, folder, time, actions — so the
+   * comparison cannot pass on accidental overall equality while a cell
+   * moved. */
+  const skeletonOf = (row: Element) => ({
+    glyph: !!row.querySelector(".history__glyph"),
+    name: row.querySelector(".browser__name")?.textContent ?? null,
+    folder: row.querySelector(".history__chip")?.textContent ?? null,
+    time: row.querySelector(".history__when")?.textContent ?? null,
+    actions: [...row.querySelectorAll("button")]
+      .filter((b) => !b.className.includes("browser__open"))
+      .map((b) => b.textContent),
+  });
+
+  it("identical data renders identically through BOTH sources — serialization compared, not eyeballed", async () => {
+    // The same session as a journal record and as an index hit: title,
+    // directory, read link, time all matched (the hit's mtime IS the
+    // record's endedAt epoch). No branch, no snippet — the honest
+    // intersection both sources can speak.
+    const ENDED = "2026-07-19T11:00:00.000Z";
+    const record = closed({
+      sessionId: "s-1",
+      title: "the same conversation",
+      transcriptPath: "/store/s-1.jsonl",
+      endedAt: ENDED,
+      branch: undefined,
+    });
+    const asHit = hit({
+      sessionId: "s-1",
+      title: "the same conversation",
+      reference: "/store/s-1.jsonl",
+      transcriptPath: "/store/s-1.jsonl",
+      cwd: "/repo",
+      mtime: Date.parse(ENDED),
+      snippet: null,
+    });
+    // Browser 0 renders the row from the JOURNAL, browser 1 from the
+    // INDEX — each sees only its own source.
+    await act(async () =>
+      root.render(
+        createElement("div", null, [
+          createElement("div", { key: "j" },
+            createElement(SessionsBrowser, {
+              api: api([]),
+              agents: [CAPABLE_AGENT],
+              ready: true,
+              rows: [record],
+              onResume: vi.fn(),
+              onFork: vi.fn(),
+            }),
+          ),
+          createElement("div", { key: "i" },
+            createElement(SessionsBrowser, {
+              api: api([asHit]),
+              agents: [CAPABLE_AGENT],
+              ready: true,
+              rows: [],
+              onResume: vi.fn(),
+              onFork: vi.fn(),
+            }),
+          ),
+        ]),
+      ),
+    );
+    const fromJournal = rowOf(0);
+    const fromIndex = rowOf(1);
+    expect(skeletonOf(fromJournal)).toEqual(skeletonOf(fromIndex));
+    // And the FULL serialization with the may-be-absent cells lifted (the
+    // closed journal row renders its liveness dot; a hit cannot) — any
+    // OTHER markup divergence between the blocks fails here, whatever its
+    // name. The lift itself is audited by the next test.
+    const lift = (row: Element) => {
+      const clone = row.cloneNode(true) as Element;
+      clone.querySelectorAll(".history__state").forEach((n) => n.remove());
+      return clone;
+    };
+    expect(lift(fromJournal).outerHTML).toBe(lift(fromIndex).outerHTML);
+  });
+
+  it("source-only cells are MAY-BE-ABSENT, not different: liveness dot and branch chip", async () => {
+    // A bound row with a branch renders the dot and the second chip; a
+    // hit row renders NEITHER — and without them the skeleton is the same
+    // one the identity guard compared. The read link is matched on both
+    // sides so openability itself does not diverge.
+    const ENDED = "2026-07-19T11:00:00.000Z";
+    await mountTwoSources(
+      [
+        closed({
+          title: "t",
+          branch: "kd/ws/1",
+          endedAt: ENDED,
+          transcriptPath: "/store/u-1.jsonl",
+        }),
+      ],
+      [
+        hit({
+          sessionId: "s-1",
+          title: "t",
+          mtime: Date.parse(ENDED),
+          cwd: "/repo",
+          reference: "/store/u-1.jsonl",
+          transcriptPath: "/store/u-1.jsonl",
+          snippet: null,
+        }),
+      ],
+    );
+    const fromJournal = rowOf(0);
+    const fromIndex = rowOf(1);
+    // The dot exists only where liveness is known.
+    expect(fromJournal.querySelector(".history__state")).not.toBeNull();
+    expect(fromIndex.querySelector(".history__state")).toBeNull();
+    // The branch chip exists only where a branch was recorded — and it is
+    // the SECOND chip, the directory chip stays first.
+    const journalChips = fromJournal.querySelectorAll(".history__chip");
+    const indexChips = fromIndex.querySelectorAll(".history__chip");
+    expect(journalChips).toHaveLength(2);
+    expect(indexChips).toHaveLength(1);
+    expect(journalChips[0].textContent).toBe(indexChips[0].textContent);
+    // With the may-be-absent cells lifted out, the skeletons coincide.
+    const lift = (row: Element) => {
+      const clone = row.cloneNode(true) as Element;
+      clone.querySelectorAll(".history__state").forEach((n) => n.remove());
+      const chips = clone.querySelectorAll(".history__chip");
+      if (chips.length > 1) chips[chips.length - 1].remove();
+      return clone;
+    };
+    expect(lift(fromJournal).outerHTML).toBe(lift(fromIndex).outerHTML);
   });
 });
