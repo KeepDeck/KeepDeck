@@ -329,7 +329,18 @@ export function SessionsBrowser({
   const topIndexPart = api.top.hits
     .filter((hit) => !journalKeys.has(`${hit.agent}:${hit.sessionId}`))
     .map(rowOfHit);
-  const topRows = [...journalPart, ...topIndexPart];
+  // ONE axis for the whole block, as decided: the conversation's last
+  // move (the row's `when` — index mtime where known, the journal mark
+  // otherwise), newest first. Concatenating the two halves instead would
+  // leave journal rows standing by BINDING time under an axis that claims
+  // to be conversation time; and a row the index doesn't know keeps its
+  // journal-mark place among the mtime rows instead of sinking below
+  // them all. Stable sort: equal marks keep their half's order. The
+  // re-seating when a scan batch lands IS the accepted §07 price —
+  // insertion by time shifts what sits below, and the block says so.
+  const topRows = [...journalPart, ...topIndexPart].sort(
+    (a, b) => (b.when ?? -Infinity) - (a.when ?? -Infinity),
+  );
   // The global block: everything but the workspace's folders, minus what
   // the visible journal already shows (a hit with an EMPTY cwd never
   // matches any Only-set and would otherwise fall through to Except —

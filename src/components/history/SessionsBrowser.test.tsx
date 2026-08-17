@@ -541,15 +541,20 @@ describe("SessionsBrowser journal section", () => {
       onResume,
     );
     await act(async () => {});
-    const rows = document.querySelectorAll(".history__row");
+    // Rows by CONTENT, not position: the composite axis owns the order
+    // now, and equal time marks may re-seat.
+    const byText = (frag: string) =>
+      [...document.querySelectorAll(".history__row")].find((r) =>
+        r.textContent?.includes(frag),
+      )!;
     const resumeOf = (row: Element) =>
       row.querySelector<HTMLButtonElement>(".history__resume");
-    expect(resumeOf(rows[0])?.disabled).toBe(false);
-    expect(resumeOf(rows[1])).toBeNull(); // the live row has none
-    expect(rows[2].querySelector(".history__missing")).not.toBeNull();
-    expect(resumeOf(rows[2])?.disabled).toBe(true);
-    expect(rows[2].querySelector(".history__fork")).not.toBeNull();
-    act(() => resumeOf(rows[0])!.click());
+    expect(resumeOf(byText("auth bug"))?.disabled).toBe(false);
+    expect(resumeOf(byText("s-live"))).toBeNull(); // the live row has none
+    expect(byText("s-3").querySelector(".history__missing")).not.toBeNull();
+    expect(resumeOf(byText("s-3"))?.disabled).toBe(true);
+    expect(byText("s-3").querySelector(".history__fork")).not.toBeNull();
+    act(() => resumeOf(byText("auth bug"))!.click());
     expect(onResume).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ sessionId: "s-1", state: "closed" }),
     );
@@ -951,6 +956,65 @@ describe("SessionsBrowser journal join", () => {
     const bottom = bottomRows();
     expect(bottom).toHaveLength(1);
     expect(bottom[0].textContent).toContain("global hit");
+  });
+
+  it("the top block stands on ONE axis: conversation time, journal marks for the rest", async () => {
+    // An index row NEWER than every journal row sits ABOVE them; a
+    // journal row the index knows stands by its CONVERSATION time (the
+    // landed mtime), not its binding time; a row the index doesn't know
+    // keeps its journal-mark place among them instead of sinking below
+    // all index rows.
+    const a = api(
+      [],
+      { top: blockOf([hit({ sessionId: "h", title: "newest hit", mtime: 400_000 })]) },
+      {
+        "claude:k": { kind: "hit", reference: "/store/k", title: "known", mtime: 300_000 },
+      },
+    );
+    await mount(a, [
+      closed({
+        sessionId: "k",
+        title: "known",
+        transcriptPath: "/j/k",
+        // An ANCIENT binding — its landed mtime must outweigh it.
+        boundAt: new Date(1).toISOString(),
+        endedAt: new Date(1).toISOString(),
+      }),
+      closed({
+        sessionId: "u",
+        title: "unknown",
+        boundAt: new Date(1).toISOString(),
+        endedAt: new Date(200_000).toISOString(),
+      }),
+    ]);
+    const names = topRows().map((r) => r.textContent ?? "");
+    expect(names[0]).toContain("newest hit");
+    expect(names[1]).toContain("known");
+    expect(names[2]).toContain("unknown");
+  });
+
+  it("a late enrichment answer RE-SEATS its row — the accepted scan-time reorder, composition untouched", async () => {
+    // Two journal rows by their journal marks; then the index answer
+    // lands a recent conversation time for the older one — it moves up to
+    // its time place. Same rows, same keys: enrichment re-ordered, never
+    // composed (the §07 price the user accepted knowingly).
+    const rows = [
+      closed({ sessionId: "x", endedAt: new Date(100_000).toISOString() }),
+      closed({ sessionId: "y", endedAt: new Date(300_000).toISOString() }),
+    ];
+    await mount(api([], {}, {}), rows);
+    let names = topRows().map((r) => r.textContent ?? "");
+    expect(names[0]).toContain("y");
+    expect(names[1]).toContain("x");
+
+    await mount(
+      api([], {}, { "claude:x": { kind: "hit", reference: "/s/x", title: null, mtime: 500_000 } }),
+      rows,
+    );
+    names = topRows().map((r) => r.textContent ?? "");
+    expect(names[0]).toContain("x"); // re-seated by its landed time
+    expect(names[1]).toContain("y");
+    expect(topRows()).toHaveLength(2); // composition unchanged
   });
 
   it("one session id in two workspaces' journals: both rows get the title and keep their own branch", async () => {
