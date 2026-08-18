@@ -16,9 +16,28 @@ vi.mock("../ipc/log", () => ({
 
 import { useJournalEnrichment, rowKeyOf } from "./useJournalEnrichment";
 import { joinJournalRow } from "../domain/journal";
+import type { RowKey } from "./useJournalEnrichment";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
+
+/** A keyed answer fixture: every answer carries the key it answers —
+ * hit, absent, foreign alike. */
+const ans = (
+  key: RowKey,
+  status: "hit" | "absent",
+  over: { reference?: string; title?: string | null; mtime?: number } = {},
+): IndexLookupAnswer =>
+  status === "hit"
+    ? {
+        agent: key.agent,
+        sessionId: key.sessionId,
+        status: "hit",
+        reference: over.reference ?? `/store/${key.sessionId}`,
+        title: over.title ?? null,
+        mtime: over.mtime ?? 9,
+      }
+    : { agent: key.agent, sessionId: key.sessionId, status: "absent" };
 
 /** The hook under whatever (revision, scanning, invalidated) the test
  * currently drives. */
@@ -103,7 +122,7 @@ describe("useJournalEnrichment", () => {
 
     // The stale answer NOW lands as a hit.
     await act(async () =>
-      resolvers[0]([{ status: "hit", reference: "/store/nope", title: "stale", mtime: 9 }]),
+      resolvers[0]([ans(KEYS.unknown, "hit", { title: "stale" })]),
     );
     // THE assertion: the resurrected hit must not stand.
     expect(api.entries.get(rowKeyOf(KEYS.unknown))).not.toMatchObject({ kind: "hit" });
@@ -113,11 +132,141 @@ describe("useJournalEnrichment", () => {
     const lastCall =
       ipc.indexLookup.mock.calls[ipc.indexLookup.mock.calls.length - 1];
     expect(lastCall[0]).toEqual([KEYS.unknown]);
-    await act(async () => resolvers[1]([{ status: "absent" }]));
+    await act(async () => resolvers[1]([ans(KEYS.unknown, "absent")]));
     expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({ kind: "absent" });
   });
 
-  it("a PRUNED key's hit is devalued — the file-erased verdict's missing half", async () => {    // The full regression line: the session is known to the index (a
+  it("INVARIANT 1: answers arriving in a SHUFFLED order land on their own keys — never crossed", async () => {
+    // Two keys, both non-hits, one ask; the ask is answered with the
+    // answers deliberately SWAPPED relative to the request order. On
+    // positional code the entries cross wires — each key receives the
+    // other's truth. Keyed answers make the swap a no-op.
+    let invalidated: ReadonlySet<string> = new Set();
+    const render = () =>
+      act(async () =>
+        root.render(createElement(Probe, { revision, scanning, invalidated })),
+      );
+    revision = 1;
+    await render();
+    act(() => api.declare([KEYS.own, KEYS.unknown]));
+    await act(async () => {});
+    // Answers SWAPPED: unknown's absent first, own's hit second.
+    await act(async () =>
+      resolvers[0]([
+        ans(KEYS.unknown, "absent"),
+        ans(KEYS.own, "hit", { title: "mine" }),
+      ]),
+    );
+    expect(api.entries.get(rowKeyOf(KEYS.own))).toMatchObject({
+      kind: "hit",
+      title: "mine",
+    });
+    expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({ kind: "absent" });
+  });
+
+  it("INVARIANT 1: a racing landing drops exactly the invalidated keys — survivors keep THEIR answers, the dead stay dead", async () => {
+    // THREE keys in one ask, the invalidated one in the MIDDLE — the
+    // positional subtraction shifts answers left of every survivor past
+    // it. Survivors must keep their OWN answers; the invalidated key
+    // must not resurrect; the follow-up must take the dead key back.
+    let invalidated: ReadonlySet<string> = new Set();
+    const render = () =>
+      act(async () =>
+        root.render(createElement(Probe, { revision, scanning, invalidated })),
+      );
+    revision = 1;
+    await render();
+    act(() => api.declare([KEYS.own, KEYS.foreign, KEYS.unknown]));
+    await act(async () => {});
+
+    // The scan settles mid-flight: FOREIGN dies (the middle key).
+    revision += 1;
+    invalidated = new Set([rowKeyOf(KEYS.foreign)]);
+    await render();
+
+    // The stale answer lands — own=hit, foreign=hit (a lie now),
+    // unknown=absent, in ASK order.
+    await act(async () =>
+      resolvers[0]([
+        ans(KEYS.own, "hit", { title: "mine" }),
+        ans(KEYS.foreign, "hit", { title: "resurrected", reference: "/store/kimi-9" }),
+        ans(KEYS.unknown, "absent"),
+      ]),
+    );
+    // The survivor BEFORE the dropped position keeps ITS answer...
+    expect(api.entries.get(rowKeyOf(KEYS.own))).toMatchObject({
+      kind: "hit",
+      title: "mine",
+    });
+    // ...the dead one does not resurrect...
+    expect(api.entries.get(rowKeyOf(KEYS.foreign))).not.toMatchObject({
+      kind: "hit",
+    });
+    // ...and the survivor AFTER the dropped position keeps ITS answer —
+    // the positional shift would hand it the dead key's lie.
+    expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({ kind: "absent" });
+
+    // The follow-up re-covers the dead key (and whatever else the settle
+    // re-owes — the survivors' answers under the new revision; the dead
+    // one is IN, which is the point).
+    const lastCall =
+      ipc.indexLookup.mock.calls[ipc.indexLookup.mock.calls.length - 1];
+    expect(lastCall[0]).toEqual(
+      expect.arrayContaining([KEYS.foreign]),
+    );
+    await act(async () =>
+      resolvers[1]([
+        ans(KEYS.foreign, "hit", { title: "born again", reference: "/store/kimi-9" }),
+      ]),
+    );
+    expect(api.entries.get(rowKeyOf(KEYS.foreign))).toMatchObject({
+      kind: "hit",
+      title: "born again",
+    });
+  });
+
+  it("INVARIANT 2: a death in an EARLIER scan of the flight is still honored — not just the latest set", async () => {
+    // Two scans settle while one ask flies. The key dies in the FIRST;
+    // the second scan's invalidation set does NOT name it (replaced, not
+    // accumulated). Identity-of-current-set comparison passes the stale
+    // answer through — a generation check must reject it. Red on the
+    // current code: only the latest set is consulted.
+    let invalidated: ReadonlySet<string> = new Set();
+    const render = () =>
+      act(async () =>
+        root.render(createElement(Probe, { revision, scanning, invalidated })),
+      );
+    revision = 1;
+    await render();
+    act(() => api.declare([KEYS.unknown]));
+    await act(async () => {});
+
+    // Scan 1 settles mid-flight: unknown dies.
+    revision += 1;
+    invalidated = new Set([rowKeyOf(KEYS.unknown)]);
+    await render();
+
+    // Scan 2 settles too — its set is empty (replaced): identity moved
+    // again, and the death is no longer named by the CURRENT set.
+    revision += 1;
+    invalidated = new Set();
+    await render();
+
+    // The stale answer lands as a hit — flown before BOTH deaths.
+    await act(async () =>
+      resolvers[0]([ans(KEYS.unknown, "hit", { title: "stale" })]),
+    );
+    expect(api.entries.get(rowKeyOf(KEYS.unknown))).not.toMatchObject({ kind: "hit" });
+    // The key is still owed and re-asked.
+    const lastCall =
+      ipc.indexLookup.mock.calls[ipc.indexLookup.mock.calls.length - 1];
+    expect(lastCall[0]).toEqual([KEYS.unknown]);
+    await act(async () => resolvers[1]([ans(KEYS.unknown, "absent")]));
+    expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({ kind: "absent" });
+  });
+
+  it("a PRUNED key's hit is devalued — the file-erased verdict's missing half", async () => {
+    // The full regression line: the session is known to the index (a
     // hit) → the file is erased while the app runs → the prune names the
     // key → the hit is purged and re-asked → the domain sees the absence.
     let invalidated: ReadonlySet<string> = new Set();
@@ -130,9 +279,7 @@ describe("useJournalEnrichment", () => {
     act(() => api.declare([KEYS.own]));
     await act(async () => {});
     await act(async () =>
-      resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: "known", mtime: 9 },
-      ]),
+      resolvers[0]([ans(KEYS.own, "hit", { title: "known" })]),
     );
     expect(api.entries.get(rowKeyOf(KEYS.own))).toMatchObject({ kind: "hit" });
     expect(ipc.indexLookup).toHaveBeenCalledTimes(1);
@@ -148,7 +295,7 @@ describe("useJournalEnrichment", () => {
     expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
     expect(ipc.indexLookup).toHaveBeenLastCalledWith([KEYS.own]);
     // The index answers absence — the domain finally sees it.
-    await act(async () => resolvers[1]([{ status: "absent" }]));
+    await act(async () => resolvers[1]([ans(KEYS.own, "absent")]));
     expect(api.entries.get(rowKeyOf(KEYS.own))).toEqual({ kind: "absent" });
   });
 
@@ -170,7 +317,7 @@ describe("useJournalEnrichment", () => {
     await mount(); // revision 1
     act(() => api.declare([KEYS.unknown]));
     await act(async () => {});
-    await act(async () => resolvers[0]([{ status: "absent" }]));
+    await act(async () => resolvers[0]([ans(KEYS.unknown, "absent")]));
     expect(api.pending).toBe(false); // answered under the current revision
 
     revision += 1; // the scan settled — one publish, both fields
@@ -180,7 +327,7 @@ describe("useJournalEnrichment", () => {
     // The re-ask lands ABSENT again under the new revision: a settled
     // verdict is still reachable — pending false exactly once the
     // CURRENT revision has answered.
-    await act(async () => resolvers[1]([{ status: "absent" }]));
+    await act(async () => resolvers[1]([ans(KEYS.unknown, "absent")]));
     expect(api.pending).toBe(false);
     expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({ kind: "absent" });
 
@@ -189,7 +336,7 @@ describe("useJournalEnrichment", () => {
     act(() => api.declare([KEYS.own]));
     await act(async () => {});
     await act(async () =>
-      resolvers[2]([{ status: "hit", reference: "/store/s-1", title: "late", mtime: 9 }]),
+      resolvers[2]([ans(KEYS.own, "hit", { title: "late" })]),
     );
     expect(api.pending).toBe(false);
   });
@@ -212,10 +359,7 @@ describe("useJournalEnrichment", () => {
     // The landing with NO queued chase fires nothing further — the
     // duplicate-run guard left the queue empty.
     await act(async () =>
-      resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: null, mtime: 9 },
-        { status: "absent" },
-      ]),
+      resolvers[0]([ans(KEYS.own, "hit", { title: null }), ans(KEYS.unknown, "absent")]),
     );
     expect(ipc.indexLookup).toHaveBeenCalledTimes(1);
     expect(api.entries.size).toBe(2);
@@ -233,9 +377,14 @@ describe("useJournalEnrichment", () => {
 
     await act(async () =>
       resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: "the real title", mtime: 9 },
-        { status: "foreign", agents: ["kimi"] },
-        { status: "absent" },
+        ans(KEYS.own, "hit", { title: "the real title" }),
+        {
+          agent: KEYS.foreign.agent,
+          sessionId: KEYS.foreign.sessionId,
+          status: "foreign",
+          agents: ["kimi"],
+        },
+        ans(KEYS.unknown, "absent"),
       ]),
     );
     expect(api.entries.get(rowKeyOf(KEYS.own))).toEqual({
@@ -271,10 +420,7 @@ describe("useJournalEnrichment", () => {
     act(() => api.declare([KEYS.own, KEYS.unknown]));
     await act(async () => {});
     await act(async () =>
-      resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: null, mtime: 9 },
-        { status: "absent" },
-      ]),
+      resolvers[0]([ans(KEYS.own, "hit", { title: null }), ans(KEYS.unknown, "absent")]),
     );
 
     revision += 1; // a scan batch landed
@@ -284,7 +430,7 @@ describe("useJournalEnrichment", () => {
 
     // The batch delivered the previously-absent session: it turns hit.
     await act(async () =>
-      resolvers[1]([{ status: "hit", reference: "/store/nope", title: "late arrival", mtime: 9 }]),
+      resolvers[1]([ans(KEYS.unknown, "hit", { title: "late arrival", reference: "/store/nope" })]),
     );
     expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({
       kind: "hit",
@@ -316,8 +462,13 @@ describe("useJournalEnrichment", () => {
     await act(async () => {});
     await act(async () =>
       resolvers[0]([
-        { status: "foreign", agents: ["kimi"] },
-        { status: "absent" },
+        {
+          agent: KEYS.foreign.agent,
+          sessionId: KEYS.foreign.sessionId,
+          status: "foreign",
+          agents: ["kimi"],
+        },
+        ans(KEYS.unknown, "absent"),
       ]),
     );
 
@@ -354,10 +505,7 @@ describe("useJournalEnrichment", () => {
     // catch-up is already owed. THIS frame is the dangerous one: the
     // landing published answeredAt=1 against revision 6.
     await act(async () =>
-      resolvers[0]([
-        { status: "absent" },
-        { status: "absent" },
-      ]),
+      resolvers[0]([ans(KEYS.own, "absent"), ans(KEYS.unknown, "absent")]),
     );
     expect(api.pending).toBe(true); // answered-under-older-revision holds
 
@@ -367,8 +515,8 @@ describe("useJournalEnrichment", () => {
     // And it answers under the CURRENT revision: pending finally rests.
     await act(async () =>
       resolvers[1]([
-        { status: "hit", reference: "/store/s-1", title: "burst title", mtime: 9 },
-        { status: "absent" },
+        ans(KEYS.own, "hit", { title: "burst title" }),
+        ans(KEYS.unknown, "absent"),
       ]),
     );
     expect(api.pending).toBe(false);
@@ -387,15 +535,15 @@ describe("useJournalEnrichment", () => {
     act(() => api.declare([KEYS.own, KEYS.unknown]));
     await act(async () => {});
     await act(async () =>
-      resolvers[0]([{ status: "absent" }, { status: "absent" }]),
+      resolvers[0]([ans(KEYS.own, "absent"), ans(KEYS.unknown, "absent")]),
     );
     revision += 1;
     await rerender();
     expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
     await act(async () =>
       resolvers[1]([
-        { status: "hit", reference: "/store/s-1", title: "burst title", mtime: 9 },
-        { status: "absent" },
+        ans(KEYS.own, "hit", { title: "burst title" }),
+        ans(KEYS.unknown, "absent"),
       ]),
     );
     expect(api.pending).toBe(false);
@@ -416,10 +564,7 @@ describe("useJournalEnrichment", () => {
     expect(ipc.indexLookup).toHaveBeenCalledTimes(1); // queued, not fired
 
     await act(async () =>
-      resolvers[0]([
-        { status: "hit", reference: "/store/s-1", title: null, mtime: 9 },
-        { status: "absent" },
-      ]),
+      resolvers[0]([ans(KEYS.own, "hit", { title: null }), ans(KEYS.unknown, "absent")]),
     );
     // The catch-up: the FULL still-owed set — the landed hit drops out,
     // the absent and the newcomer stay in.
@@ -430,8 +575,8 @@ describe("useJournalEnrichment", () => {
     ]);
     await act(async () =>
       resolvers[1]([
-        { status: "hit", reference: "/store/nope", title: "late", mtime: 9 },
-        { status: "hit", reference: "/store/new", title: "newest", mtime: 9 },
+        ans(KEYS.unknown, "hit", { title: "late", reference: "/store/nope" }),
+        ans({ agent: "codex", sessionId: "new" }, "hit", { title: "newest" }),
       ]),
     );
     expect(api.entries.size).toBe(3);
@@ -455,7 +600,9 @@ describe("useJournalEnrichment", () => {
     await mount();
     act(() => api.declare([{ agent: "claude", sessionId: "s-1" }]));
     await act(async () => {});
-    await act(async () => resolvers[0]([{ status: "absent" }]));
+    await act(async () =>
+      resolvers[0]([ans({ agent: "claude", sessionId: "s-1" }, "absent")]),
+    );
 
     // Before the scan lands, the join shows the label — the only name the
     // record itself has — and keeps looking for the index's answer.
@@ -473,7 +620,11 @@ describe("useJournalEnrichment", () => {
     await rerender();
     await act(async () =>
       resolvers[1]([
-        { status: "hit", reference: "/store/s-1", title: "fix the auth bug", mtime: 9 },
+        ans(
+          { agent: "claude", sessionId: "s-1" },
+          "hit",
+          { title: "fix the auth bug" },
+        ),
       ]),
     );
     const after = joinJournalRow(

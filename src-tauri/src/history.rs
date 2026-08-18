@@ -7,7 +7,8 @@
 use std::sync::Mutex;
 
 use keepdeck_index::{
-    FolderScope, IndexRow, IndexedRef, LookupAnswer, SearchHit, SessionIndex,
+    FolderScope, IndexRow, IndexedRef, KeyedAnswer, LookupKind, SearchHit,
+    SessionIndex,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -142,28 +143,55 @@ pub struct LookupKeyDto {
     pub session_id: String,
 }
 
-/// The index's exact answer for one key, `status`-tagged on the wire.
+/// One keyed lookup answer on the wire: the question it answers rides
+/// WITH it, so belonging never depends on order or count. `status`
+/// distinguishes the kinds; the key is the ASKED pair (in the Foreign
+/// branch, deliberately not the agent that was found). Built by hand —
+/// serde's tag/flatten combination does not compose, and this shape is
+/// small and stable enough to own its mapping.
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase", tag = "status")]
-pub enum LookupAnswerDto {
-    Hit {
-        reference: String,
-        title: Option<String>,
-        mtime: i64,
-    },
-    Foreign {
-        agents: Vec<String>,
-    },
-    Absent,
+#[serde(rename_all = "camelCase")]
+pub struct KeyedAnswerDto {
+    pub agent: String,
+    pub session_id: String,
+    pub status: String,
+    pub reference: Option<String>,
+    pub title: Option<String>,
+    pub mtime: Option<i64>,
+    pub agents: Option<Vec<String>>,
+}
+
+impl From<KeyedAnswer> for KeyedAnswerDto {
+    fn from(KeyedAnswer { agent, session_id, kind }: KeyedAnswer) -> Self {
+        let (status, reference, title, mtime, agents) = match kind {
+            LookupKind::Hit { reference, title, mtime } => {
+                ("hit", Some(reference), title, Some(mtime), None)
+            }
+            LookupKind::Foreign { agents } => {
+                ("foreign", None, None, None, Some(agents))
+            }
+            LookupKind::Absent => ("absent", None, None, None, None),
+        };
+        KeyedAnswerDto {
+            agent,
+            session_id,
+            status: status.to_string(),
+            reference,
+            title,
+            mtime,
+            agents,
+        }
+    }
 }
 
 /// Answer (agent, session_id) keys exactly — the journal join's targeted
-/// ask; answers align to the input order.
+/// ask; every answer carries its own key. Duplicate keys are a contract
+/// violation and refuse loudly.
 #[tauri::command(async)]
 pub fn index_lookup(
     state: State<'_, HistoryIndex>,
     keys: Vec<LookupKeyDto>,
-) -> Result<Vec<LookupAnswerDto>, String> {
+) -> Result<Vec<KeyedAnswerDto>, String> {
     with_index(&state, |index| {
         let keys: Vec<(String, String)> = keys
             .into_iter()
@@ -171,18 +199,7 @@ pub fn index_lookup(
             .collect();
         index
             .lookup(&keys)
-            .map(|answers| {
-                answers
-                    .into_iter()
-                    .map(|answer| match answer {
-                        LookupAnswer::Hit { reference, title, mtime } => {
-                            LookupAnswerDto::Hit { reference, title, mtime }
-                        }
-                        LookupAnswer::Foreign { agents } => LookupAnswerDto::Foreign { agents },
-                        LookupAnswer::Absent => LookupAnswerDto::Absent,
-                    })
-                    .collect()
-            })
+            .map(|answers| answers.into_iter().map(KeyedAnswerDto::from).collect())
     })
 }
 

@@ -109,22 +109,39 @@ pub struct SessionIndex {
 /// One answer to a targeted (agent, session_id) lookup — the journal row's
 /// join key.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LookupAnswer {
+pub enum LookupKind {
     /// The exact row: its read handle (the plugin's opaque ref), title,
-    /// and the store's last-activity stamp — the composite time axis's
-    /// half for rows the index knows (the journal knows only when the
-    /// pane bound or closed, which is a different moment entirely).
+    /// and the store's last-activity stamp.
     Hit {
         reference: String,
         title: Option<String>,
         mtime: i64,
     },
-    /// The requester's (agent, session_id) key found nothing, but the id is
-    /// NOT unknown — it exists under DIFFERENT agent(s). The signature of
-    /// a journal record whose agent attribution is wrong.
+    /// The id exists under DIFFERENT agent(s) than asked — the signature
+    /// of a journal record whose agent attribution is wrong.
     Foreign { agents: Vec<String> },
     /// No row under any agent carries the id.
     Absent,
+}
+
+/// A keyed lookup answer: the question it answers rides WITH the answer,
+/// so belonging never depends on order or count. The key is the ASKED
+/// one — in the `Foreign` branch deliberately NOT the agent that was
+/// found (that is the branch's whole point).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyedAnswer {
+    pub agent: String,
+    pub session_id: String,
+    pub kind: LookupKind,
+}
+
+impl KeyedAnswer {
+    pub fn agent(&self) -> &str {
+        &self.agent
+    }
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
 }
 
 impl SessionIndex {
@@ -499,9 +516,11 @@ impl SessionIndex {
 
     /// Answer each (agent, session_id) key EXACTLY — the journal join's
     /// targeted ask. One query restricted to the requested ids (never an
-    /// enumeration of the table), answers aligned to the input order; an
-    /// id found under other agents is [`LookupAnswer::Foreign`], the
-    /// recorded-ownership-is-wrong signature.
+    /// enumeration of the table); an id found under other agents is the
+    /// `Foreign` kind, the recorded-ownership-is-wrong signature. Every
+    /// answer CARRIES ITS OWN KEY — belonging never depends on order or
+    /// count, and duplicates are rejected by contract (one question, one
+    /// truth; a by-key consumer must never face two).
     ///
     /// LOAD-BEARING FORM: the seek is by `session_id` ALONE (over the
     /// `sessions_by_sid` secondary index), never by the primary
@@ -512,9 +531,20 @@ impl SessionIndex {
     /// the Foreign assertions in this crate's tests are what makes it
     /// loud. The index is not an accelerator for this query — it is
     /// what keeps the only correct query form off a full table scan.
-    pub fn lookup(&self, keys: &[(String, String)]) -> Result<Vec<LookupAnswer>, String> {
+    pub fn lookup(&self, keys: &[(String, String)]) -> Result<Vec<KeyedAnswer>, String> {
         if keys.is_empty() {
             return Ok(Vec::new());
+        }
+        // One key, one question: duplicates would be two answers for one
+        // by-key consumer fold. The error names the caller, not the data.
+        {
+            use std::collections::HashSet;
+            let mut seen = HashSet::with_capacity(keys.len());
+            for (agent, session_id) in keys {
+                if !seen.insert((agent.as_str(), session_id.as_str())) {
+                    return Err(format!("duplicate lookup key: ({agent}, {session_id})"));
+                }
+            }
         }
         // One IN over the DISTINCT ids — a key set spans agents (one
         // workspace's journal holds several CLIs' rows), so the pair
@@ -566,8 +596,8 @@ impl SessionIndex {
         Ok(keys
             .iter()
             .map(|(agent, session_id)| {
-                match exact.get(&(agent.as_str(), session_id.as_str())) {
-                    Some((reference, title, mtime)) => LookupAnswer::Hit {
+                let kind = match exact.get(&(agent.as_str(), session_id.as_str())) {
+                    Some((reference, title, mtime)) => LookupKind::Hit {
                         reference: reference.to_string(),
                         title: title.map(str::to_string),
                         mtime: *mtime,
@@ -575,11 +605,18 @@ impl SessionIndex {
                     None => match holders.get(session_id.as_str()) {
                         // The requester's own agent, if present, was matched by
                         // the exact arm above; whatever remains is foreign.
-                        Some(agents) => LookupAnswer::Foreign {
+                        Some(agents) => LookupKind::Foreign {
                             agents: agents.iter().map(|a| a.to_string()).collect(),
                         },
-                        None => LookupAnswer::Absent,
+                        None => LookupKind::Absent,
                     },
+                };
+                // The key rides WITH its answer — the asked pair, not the
+                // found one (Foreign's whole point).
+                KeyedAnswer {
+                    agent: agent.clone(),
+                    session_id: session_id.clone(),
+                    kind,
                 }
             })
             .collect())
@@ -707,44 +744,55 @@ mod tests {
 
         // A mixed batch across agents: a hit, the misattributed id (the
         // journal said claude; the index holds it under kimi), an unknown
-        // id, and the same hit asked again — answers stay aligned to the
-        // ASK order, duplicates included.
+        // id. Each answer names ITS OWN asked key; duplicates are the
+        // caller's contract violation, not served.
         let answers = index
             .lookup(&[
                 ("claude".into(), "a".into()),
                 ("claude".into(), "kimi-9".into()),
                 ("claude".into(), "nope".into()),
-                ("claude".into(), "a".into()),
             ])
             .unwrap();
+        let keyed = |agent: &str, id: &str, kind: LookupKind| KeyedAnswer {
+            agent: agent.into(),
+            session_id: id.into(),
+            kind,
+        };
         assert_eq!(
             answers,
             vec![
-                LookupAnswer::Hit {
-                    reference: "/store/a".into(),
-                    title: Some("title a".into()),
-                    mtime: 1,
-                },
-                LookupAnswer::Foreign {
-                    agents: vec!["kimi".into()],
-                },
-                LookupAnswer::Absent,
-                LookupAnswer::Hit {
-                    reference: "/store/a".into(),
-                    title: Some("title a".into()),
-                    mtime: 1,
-                },
-            ]
+                keyed(
+                    "claude",
+                    "a",
+                    LookupKind::Hit {
+                        reference: "/store/a".into(),
+                        title: Some("title a".into()),
+                        mtime: 1,
+                    },
+                ),
+                keyed(
+                    "claude",
+                    "kimi-9",
+                    LookupKind::Foreign {
+                        agents: vec!["kimi".into()],
+                    },
+                ),
+                keyed("claude", "nope", LookupKind::Absent),
+            ],
         );
         // The foreign arm must not fire for a key whose OWN agent holds the
         // row: same id, right agent — a plain hit, not a self-accusation.
         assert_eq!(
             index.lookup(&[("kimi".into(), "kimi-9".into())]).unwrap(),
-            vec![LookupAnswer::Hit {
-                reference: "/store/kimi-9".into(),
-                title: Some("title kimi-9".into()),
-                mtime: 2,
-            }],
+            vec![keyed(
+                "kimi",
+                "kimi-9",
+                LookupKind::Hit {
+                    reference: "/store/kimi-9".into(),
+                    title: Some("title kimi-9".into()),
+                    mtime: 2,
+                },
+            )],
         );
         // Same id under TWO agents: the other one is named, both orders.
         index
@@ -752,17 +800,25 @@ mod tests {
             .unwrap();
         assert_eq!(
             index.lookup(&[("claude".into(), "kimi-9".into())]).unwrap(),
-            vec![LookupAnswer::Foreign {
-                agents: vec!["kimi".into(), "opencode".into()],
-            }],
+            vec![keyed(
+                "claude",
+                "kimi-9",
+                LookupKind::Foreign {
+                    agents: vec!["kimi".into(), "opencode".into()],
+                },
+            )],
         );
         assert_eq!(
             index.lookup(&[("kimi".into(), "kimi-9".into())]).unwrap(),
-            vec![LookupAnswer::Hit {
-                reference: "/store/kimi-9".into(),
-                title: Some("title kimi-9".into()),
-                mtime: 2,
-            }],
+            vec![keyed(
+                "kimi",
+                "kimi-9",
+                LookupKind::Hit {
+                    reference: "/store/kimi-9".into(),
+                    title: Some("title kimi-9".into()),
+                    mtime: 2,
+                },
+            )],
         );
     }
 
@@ -770,7 +826,7 @@ mod tests {
     fn lookup_of_no_keys_asks_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
-        assert_eq!(index.lookup(&[]).unwrap(), Vec::<LookupAnswer>::new());
+        assert_eq!(index.lookup(&[]).unwrap(), Vec::<KeyedAnswer>::new());
     }
 
     #[test]
@@ -786,10 +842,14 @@ mod tests {
         assert_eq!(answers.len(), 1);
         assert_eq!(
             answers[0],
-            LookupAnswer::Hit {
-                reference: "/store/a".into(),
-                title: Some("title a".into()),
-                mtime: 1,
+            KeyedAnswer {
+                agent: "claude".into(),
+                session_id: "a".into(),
+                kind: LookupKind::Hit {
+                    reference: "/store/a".into(),
+                    title: Some("title a".into()),
+                    mtime: 1,
+                },
             },
         );
     }
@@ -882,6 +942,56 @@ mod tests {
             index.search_total("token", Some("claude"), Some(&scope)).unwrap(),
             1,
         );
+    }
+
+    #[test]
+    fn lookup_answers_carry_their_own_keys_in_any_order() {
+        // INVARIANT: an answer belongs to its question by KEY, never by
+        // position. A batch asked in one order and (conceptually) served
+        // in another must never cross wires — and the ANSWER type itself
+        // must make crossing impossible by carrying the key it answers.
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let mut known = row("claude", "k1", 3, "x");
+        known.cwd = "/a".into();
+        let mut other = row("codex", "k2", 2, "y");
+        other.cwd = "/b".into();
+        index.upsert(&[known, other]).unwrap();
+
+        let answers = index
+            .lookup(&[
+                ("claude".into(), "k1".into()),
+                ("codex".into(), "k2".into()),
+            ])
+            .unwrap();
+        // Every variant names the key it answers — hit, foreign, absent
+        // alike; absence by key, not by position.
+        assert_eq!(answers[0].agent(), "claude");
+        assert_eq!(answers[0].session_id(), "k1");
+        assert_eq!(answers[1].agent(), "codex");
+        assert_eq!(answers[1].session_id(), "k2");
+        // The foreign branch answers by the ASKED agent, not the found
+        // one — the wrong-attribution signature.
+        let foreign = index
+            .lookup(&[("claude".into(), "k2".into())])
+            .unwrap();
+        assert_eq!(foreign[0].agent(), "claude");
+        assert_eq!(foreign[0].session_id(), "k2");
+    }
+
+    #[test]
+    fn lookup_rejects_duplicate_keys() {
+        // The contract forbids asking one key twice: with keyed answers,
+        // a duplicate would be two truths for one question, and the
+        // consumer's by-key fold would silently overwrite. Dedup by the
+        // caller is no substitute — the error names the caller.
+        let dir = tempfile::tempdir().unwrap();
+        let index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let result = index.lookup(&[
+            ("claude".into(), "a".into()),
+            ("claude".into(), "a".into()),
+        ]);
+        assert!(result.is_err());
     }
 
     #[test]

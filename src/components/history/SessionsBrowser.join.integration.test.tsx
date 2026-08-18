@@ -211,14 +211,26 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
   const answerBy: Record<string, IndexLookupAnswer> = {};
   const answerByKey = async (...raw: unknown[]): Promise<IndexLookupAnswer[]> => {
     const keys = raw[0] as { agent: string; sessionId: string }[];
-    return keys.map((k) => answerBy[`${k.agent}:${k.sessionId}`] ?? { status: "absent" });
+    return keys.map(
+      (k) =>
+        answerBy[`${k.agent}:${k.sessionId}`] ?? {
+          agent: k.agent,
+          sessionId: k.sessionId,
+          status: "absent",
+        },
+    );
   };
 
   it("the corrupted record: the kimi path NEVER reaches either real plugin — no open, no continuation", async () => {
     ipc.indexLookup.mockImplementation(answerByKey);
     // The journal claims claude; the transcript path leads into kimi's
     // store; the index holds the id under kimi.
-    answerBy["claude:kimi-9"] = { status: "foreign", agents: ["kimi"] };
+    answerBy["claude:kimi-9"] = {
+      agent: "claude",
+      sessionId: "kimi-9",
+      status: "foreign",
+      agents: ["kimi"],
+    };
     await mount([
       record({
         sessionId: "kimi-9",
@@ -250,7 +262,11 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
 
   it("a journal-path-only row reads through the REAL claude plugin", async () => {
     ipc.indexLookup.mockImplementation(answerByKey);
-    answerBy["claude:s-j"] = { status: "absent" }; // the index does not know it
+    answerBy["claude:s-j"] = {
+      agent: "claude",
+      sessionId: "s-j",
+      status: "absent",
+    }; // the index does not know it
     await mount([
       record({ sessionId: "s-j", title: "journal only", transcriptPath: CLAUDE_JOURNAL_ONLY }),
     ]);
@@ -268,6 +284,8 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
   it("an index-link-only row reads through the REAL claude plugin too", async () => {
     ipc.indexLookup.mockImplementation(answerByKey);
     answerBy["claude:s-i"] = {
+      agent: "claude",
+      sessionId: "s-i",
       status: "hit",
       reference: CLAUDE_INDEX_ONLY,
       title: "named by the index",

@@ -93,17 +93,23 @@ export interface IndexLookupKey {
   sessionId: string;
 }
 
-/** The index's exact answer for one key, `status`-tagged. `foreign` is the
- * recorded-ownership-is-wrong signature: the id exists — under other
- * agent(s) than the journal claims. A `hit` carries the store's
- * last-activity stamp — the composite time axis's half. */
-export type IndexLookupAnswer =
-  | { status: "hit"; reference: string; title: string | null; mtime: number }
-  | { status: "foreign"; agents: string[] }
-  | { status: "absent" };
+/** One keyed lookup answer: the question it answers rides WITH it, so
+ * belonging never depends on order or count. The key is the ASKED pair
+ * (in `foreign`, deliberately not the agent that was found — that is the
+ * branch's whole point). `absent` is absence BY KEY, not by position. */
+export interface IndexLookupAnswer {
+  agent: string;
+  sessionId: string;
+  status: "hit" | "foreign" | "absent";
+  reference?: string;
+  title?: string | null;
+  mtime?: number;
+  agents?: string[];
+}
 
 /** Answer (agent, session_id) keys exactly — hits by key, never by
- * enumerating the table; answers align to the input order. */
+ * enumerating the table; every answer carries its own key, duplicates
+ * are a contract violation and refuse loudly. */
 export function indexLookup(keys: IndexLookupKey[]): Promise<IndexLookupAnswer[]> {
   return invoke("index_lookup", { keys });
 }

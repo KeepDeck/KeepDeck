@@ -154,22 +154,30 @@ export function useJournalEnrichment(
   /** The last invalidation set the table already purged — identity
    * comparison, so an untouched set re-purges nothing. */
   const purgedRef = useRef<ReadonlySet<string>>(invalidated);
-  /** The CURRENT invalidation set, readable from a landing closure that
-   * was baked at takeoff — the mid-flight race check reads the newest
-   * identity, not the one the ask left with. */
-  const invalidatedRef = useRef<ReadonlySet<string>>(invalidated);
-  invalidatedRef.current = invalidated;
+  /** DEATH GENERATIONS: each key's death count. A purge that names a key
+   * bumps its generation — however many scans settle in one flight, each
+   * death is counted, never replaced. An ask records the generations at
+   * takeoff; a landing accepts an answer for a key only if its
+   * generation is UNCHANGED — an answer flown before any of its deaths
+   * cannot resurrect it, and the key stays owed until an answer born
+   * after its last death lands. */
+  const generationsRef = useRef(new Map<string, number>());
 
   useEffect(() => {
     // A purge lands FIRST in this effect's run: the pruned keys' hits are
-    // lies from this moment, and the ask this same run issues must not
-    // skip them as "already answered". A pass that dropped nothing keeps
-    // the set's identity — no purge, no needless churn.
+    // lies from this moment, the ask this same run issues must not skip
+    // them as "already answered", and each named key's DEATH GENERATION
+    // bumps — the accumulating memory invalidation sets never had. A pass
+    // that dropped nothing keeps the set's identity — no purge, no bump.
     if (invalidated !== purgedRef.current) {
       purgedRef.current = invalidated;
       if (invalidated.size > 0) {
         const next = new Map(entriesRef.current);
-        for (const key of invalidated) next.delete(key);
+        const generations = generationsRef.current;
+        for (const key of invalidated) {
+          next.delete(key);
+          generations.set(key, (generations.get(key) ?? 0) + 1);
+        }
         entriesRef.current = next;
         setEntries(next);
       }
@@ -196,9 +204,9 @@ export function useJournalEnrichment(
       // An ask is in flight. The mount path fires this effect twice for
       // ONE declaration: the second run must neither fire nor queue —
       // the flying ask IS this ask. Anything genuinely different (a
-      // revision bump, a wider declaration) queues exactly ONE catch-up;
-      // a partial fire here would strand keys, because the catch-up
-      // replaces the flying ask's landing as the newest answer.
+      // revision bump, a wider declaration, a death) queues exactly ONE
+      // catch-up; a partial fire here would strand keys, because the
+      // catch-up replaces the flying ask's landing as the newest answer.
       const inflight = inflightRef.current;
       const env = askEnvRef.current;
       const sameEnv =
@@ -224,15 +232,19 @@ export function useJournalEnrichment(
     flyingRef.current = true;
     inflightRef.current = new Set(ids);
     askEnvRef.current = { revision, scanning, invalidated };
-    // The invalidation identity AT TAKEOFF: a landing compares against
-    // the CURRENT set — if it moved, sessions were pruned mid-flight and
-    // the landing must drop this ask's keys for them (below).
-    const firedInvalidated = invalidated;
+    // The DEATH GENERATIONS at takeoff — per key, so any death during the
+    // flight (not merely the latest set's contents) disqualifies its
+    // answer. Answers carry their own keys; the landing folds BY KEY and
+    // simply does not take a disqualified key's answer — nothing is
+    // filtered positionally, ever.
+    const firedGenerations = new Map(generationsRef.current);
     setAskInFlight(true);
 
-    /** Fold one landed ask into the table. A refusal (`failed`) keeps
-     * every prior answer verbatim — never an erasure, never a downgrade —
-     * and names itself only where nothing was known. */
+    /** Fold one landed ask into the table, BY KEY. A refusal (`failed`)
+     * keeps every prior answer verbatim — never an erasure, never a
+     * downgrade — and names itself only where nothing was known. An
+     * answer whose key DIED mid-flight (generation moved) is not taken:
+     * the key stays owed and the catch-up re-covers it. */
     const apply = (
       answers: Awaited<ReturnType<typeof indexLookup>> | null,
       failed: boolean,
@@ -244,23 +256,27 @@ export function useJournalEnrichment(
           if (!next.has(id)) next.set(id, { kind: "error" });
         }
       } else if (answers !== null) {
-        ask.forEach((key, at) => {
-          const answer = answers[at];
-          if (answer === undefined) return;
-          const id = rowKeyOf(key);
+        // BY KEY, order-independent: an answer lands on the key it names,
+        // never on a position. Belonging is the answer's own.
+        const generations = generationsRef.current;
+        for (const answer of answers) {
+          const id = `${answer.agent}:${answer.sessionId}`;
+          if ((firedGenerations.get(id) ?? 0) !== (generations.get(id) ?? 0)) {
+            continue; // died mid-flight — its answer is not taken
+          }
           if (answer.status === "hit") {
             next.set(id, {
               kind: "hit",
-              reference: answer.reference,
-              title: answer.title,
-              mtime: answer.mtime,
+              reference: answer.reference ?? "",
+              title: answer.title ?? null,
+              mtime: answer.mtime ?? 0,
             });
           } else if (answer.status === "foreign") {
-            next.set(id, { kind: "foreign", agents: answer.agents });
+            next.set(id, { kind: "foreign", agents: answer.agents ?? [] });
           } else {
             next.set(id, { kind: "absent" });
           }
-        });
+        }
       }
       entriesRef.current = next;
       setEntries(next);
@@ -269,16 +285,9 @@ export function useJournalEnrichment(
     /** The one landing path — single-flight makes it the only ask that
      * could ever land. Retires the flight, records the revision it
      * answered, and fires the owed catch-up pass (if any) by re-running
-     * the effect with the state of THIS moment.
-     *
-     * MID-FLIGHT RACES: if the invalidation identity moved since takeoff,
-     * sessions were PRUNED while this ask flew. The answer still lands —
-     * it carries honest answers for every other key — but its entries for
-     * the CURRENTLY invalidated keys are dropped: a "hit" about a session
-     * the prune proved gone would resurrect it forever (the follow-up ask
-     * skips hits), and dropping the key leaves it answer-less so the very
-     * follow-up this landing fires re-covers it. The whole answer is
-     * never discarded — only the keys the invalidation names. */
+     * the effect with the state of THIS moment. Mid-flight deaths are
+     * resolved inside `apply` per key — the whole answer is never
+     * discarded, only the dead keys' entries are not taken. */
     const landed = (
       answers: Awaited<ReturnType<typeof indexLookup>> | null,
       failed: boolean,
@@ -287,18 +296,7 @@ export function useJournalEnrichment(
       inflightRef.current = new Set();
       setAskInFlight(false);
       setAnsweredAt(firedRevision);
-      const nowInvalidated = invalidatedRef.current;
-      if (!failed && answers !== null && nowInvalidated !== firedInvalidated) {
-        const kept = ask.filter(
-          (key) => !nowInvalidated.has(rowKeyOf(key)),
-        );
-        apply(
-          kept.map((_, at) => answers[at]),
-          false,
-        );
-      } else {
-        apply(answers, failed);
-      }
+      apply(answers, failed);
       if (reaskQueuedRef.current) {
         reaskQueuedRef.current = false;
         chaseMore();
