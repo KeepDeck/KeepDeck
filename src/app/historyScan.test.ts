@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentHistory } from "@keepdeck/plugin-api";
-import { scanAgentHistories, type ScanIndexOps } from "./historyScan";
+import {
+  scanAgentHistories,
+  type ScanIndexOps,
+  type ScanOutcomes,
+} from "./historyScan";
 
 vi.mock("../ipc/history", () => ({
   indexRefs: vi.fn(),
@@ -230,6 +234,75 @@ describe("scanAgentHistories", () => {
       mock,
     );
     expect(prunes).toEqual([]);
+  });
+
+  it("the per-agent outcome classifies the walk — proof is complete only", async () => {
+    const outcomesOf = async (
+      over: Partial<AgentHistory>,
+      stored: { reference: string; mtime: number; size: number }[] = [],
+    ): Promise<ScanOutcomes> => {
+      const { mock } = ops(stored);
+      return scanAgentHistories([{ agentId: "claude", history: history(over) }], mock);
+    };
+
+    // A clean full walk over a whole store: certified.
+    expect((await outcomesOf({})).get("claude")).toBe("complete");
+
+    // A describe/content refusal over a PROVEN file: the store holds it,
+    // the index never got it — certifying would arm a false verdict.
+    expect(
+      (
+        await outcomesOf({
+          describe: async () => {
+            throw new Error("read refused");
+          },
+        })
+      ).get("claude"),
+    ).toBe("partial");
+
+    // An incomplete listing walked something, not everything.
+    expect(
+      (
+        await outcomesOf({
+          list: async () => [],
+          listing: async () => ({ stubs: [], complete: false }),
+        })
+      ).get("claude"),
+    ).toBe("partial");
+
+    // The degraded legacy empty listing over a non-empty index: partial,
+    // never certified, never pruned.
+    expect(
+      (
+        await outcomesOf(
+          { list: async () => [] },
+          [{ reference: "/s/a", mtime: 5, size: 10 }],
+        )
+      ).get("claude"),
+    ).toBe("partial");
+
+    // The agent's whole pass refusing: failed — and the OTHER agent's
+    // outcome survives beside it.
+    const { mock } = ops([]);
+    const both = await scanAgentHistories(
+      [
+        { agentId: "claude", history: history() },
+        {
+          agentId: "codex",
+          history: history({
+            list: async () => {
+              throw new Error("store refused");
+            },
+            listing: async () => {
+              throw new Error("store refused");
+            },
+          }),
+        },
+      ],
+      mock,
+    );
+    expect(both.get("claude")).toBe("complete");
+    expect(both.get("codex")).toBe("failed");
   });
 
   it("a listing() refusal falls back to list(), not to skipping the agent", async () => {

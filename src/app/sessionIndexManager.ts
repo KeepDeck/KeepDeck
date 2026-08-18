@@ -1,6 +1,10 @@
 import type { AgentHistory } from "@keepdeck/plugin-api";
 import { describeError, log } from "../ipc/log";
-import { scanAgentHistories, type HistorySource } from "./historyScan";
+import {
+  scanAgentHistories,
+  type HistorySource,
+  type ScanOutcomes,
+} from "./historyScan";
 
 /** What a surface needs from the index: every agent's store (the global
  * browser) or one agent's (the spawn dialog's picker). `agent` undefined
@@ -132,30 +136,45 @@ export function createSessionIndexManager(
     running = need;
     const sources = sourcesOf(need.agent);
     publish({ scanning: true, revision: snapshot.revision });
+    // The outcomes the settling pass carries, staged by `.then` and
+    // applied by the SINGLE settle publish in `.finally` — two publishes
+    // would double-bump the revision.
+    let provenNow: Set<string> | null = null;
     void scanAgentHistories(sources, undefined, () => {
       // A batch landed: bump the revision so subscribed listings refresh
       // while the scan is still filling the index.
       publish({ scanning: true, revision: snapshot.revision + 1 });
     })
-      .catch((e: unknown) =>
-        log.warn("web:history", `scan failed: ${describeError(e)}`),
-      )
+      .then((outcomes: ScanOutcomes) => {
+        // ACCUMULATE, never replace: a narrow pass proves only its own
+        // agents, and proof from an earlier complete walk stands until
+        // contradicted — a new pass that says nothing about an agent
+        // (narrower scope, refusal, partial walk) does not unprove it.
+        // `complete` is the only certified outcome: a partial walk has
+        // proven its store's files EXIST while leaving rows unindexed —
+        // exactly the shape that would arm a false file-erased verdict.
+        const next = new Set(snapshot.scannedAgents);
+        for (const [agentId, outcome] of outcomes) {
+          if (outcome === "complete") next.add(agentId);
+        }
+        provenNow = next;
+      })
+      .catch((e: unknown) => {
+        log.warn("web:history", `scan failed: ${describeError(e)}`);
+      })
       .finally(() => {
         running = null;
-        // The settled scan's participants — the verdict precondition. A
-        // REFUSED pass keeps the previous set: its stores were not walked
-        // to a conclusion, and "we tried" is not "we looked".
-        publish({
-          scanning: false,
-          revision: snapshot.revision + 1,
-          ...(sources.length > 0
-            ? {
-                scannedAgents: new Set(
-                  sources.map((source) => source.agentId),
-                ),
-              }
-            : {}),
-        });
+        // A REFUSED pass carries no outcomes — the previous proofs stand
+        // untouched ("tried" is not "looked").
+        if (provenNow !== null) {
+          publish({
+            scanning: false,
+            revision: snapshot.revision + 1,
+            scannedAgents: provenNow,
+          });
+        } else {
+          publish({ scanning: false, revision: snapshot.revision + 1 });
+        }
         const next = queued;
         queued = null;
         if (next !== null && !disposed) run(next);

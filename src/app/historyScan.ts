@@ -43,6 +43,17 @@ interface Enumeration {
   legacy: boolean;
 }
 
+/** One agent's walk outcome — the scan PROOF the freshness owner
+ * accumulates. `complete` is the only certified result: everything the
+ * enumeration promised was read, indexed, and pruned. `partial` walked
+ * something but not to a conclusion (an unreadable store part, a
+ * degraded legacy empty listing, a session whose describe/content
+ * refused); `failed` is the whole agent's pass refusing. */
+export type AgentScanOutcome = "complete" | "partial" | "failed";
+
+/** Per-agent outcomes of one scan pass, keyed by agent id. */
+export type ScanOutcomes = Map<string, AgentScanOutcome>;
+
 /** Enumerate one agent's store: `listing()` when the plugin can report
  * its own partial state, else the legacy `list()` whose successful read
  * has always meant "complete enough to prune".
@@ -90,7 +101,8 @@ export async function scanAgentHistories(
    * pass still fires it: a picker refreshed with some sessions beats one
    * frozen on stale data. */
   onProgress?: () => void,
-): Promise<void> {
+): Promise<ScanOutcomes> {
+  const outcomes: ScanOutcomes = new Map();
   for (const { agentId, history } of sources) {
     try {
       const { stubs, complete, legacy } = await enumerate(agentId, history);
@@ -101,6 +113,7 @@ export async function scanAgentHistories(
         const seen = stored.get(stub.ref);
         return !seen || seen.mtime !== stub.mtime || seen.size !== stub.size;
       });
+      let refusedSessions = 0;
       for (let at = 0; at < changed.length; at += BATCH) {
         const batch = changed.slice(at, at + BATCH);
         const rows = await Promise.all(
@@ -119,6 +132,7 @@ export async function scanAgentHistories(
                 content: content.slice(0, CONTENT_CAP),
               };
             } catch (e) {
+              refusedSessions += 1;
               log.warn(
                 "web:history",
                 `${agentId} ${stub.sessionId}: skipped — ${describeError(e)}`,
@@ -148,6 +162,7 @@ export async function scanAgentHistories(
           "web:history",
           `${agentId}: empty listing over ${stored.size} indexed sessions — prune skipped (unreadable store?)`,
         );
+        outcomes.set(agentId, "partial");
         continue;
       }
       // A partial pass deletes nothing, and never silently: whatever the
@@ -155,6 +170,15 @@ export async function scanAgentHistories(
       // keeps visible for plugins that skip their own logging.
       if (!complete) {
         log.warn("web:history", `${agentId}: partial listing — nothing pruned`);
+        outcomes.set(agentId, "partial");
+        continue;
+      }
+      // A session whose describe/content refused was PROVEN to exist by
+      // the enumeration yet never made it into the index — certifying
+      // this pass complete would arm the file-erased verdict over a
+      // file the store demonstrably holds.
+      if (refusedSessions > 0) {
+        outcomes.set(agentId, "partial");
         continue;
       }
       const dropped = await ops.prune(
@@ -162,11 +186,14 @@ export async function scanAgentHistories(
         stubs.map((stub) => stub.ref),
       );
       if (dropped > 0) onProgress?.();
+      outcomes.set(agentId, "complete");
     } catch (e) {
       log.warn(
         "web:history",
         `${agentId} history scan failed: ${describeError(e)}`,
       );
+      outcomes.set(agentId, "failed");
     }
   }
+  return outcomes;
 }
