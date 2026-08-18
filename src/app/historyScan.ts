@@ -4,6 +4,7 @@ import {
   indexRefs,
   indexUpsert,
   type IndexRowInput,
+  type PrunedKey,
 } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
 
@@ -26,7 +27,6 @@ export interface ScanIndexOps {
   upsert: typeof indexUpsert;
   prune: typeof indexPrune;
 }
-
 export const defaultScanOps: ScanIndexOps = {
   refs: indexRefs,
   upsert: indexUpsert,
@@ -53,6 +53,13 @@ export type AgentScanOutcome = "complete" | "partial" | "failed";
 
 /** Per-agent outcomes of one scan pass, keyed by agent id. */
 export type ScanOutcomes = Map<string, AgentScanOutcome>;
+
+/** One scan pass's report: who walked how, and which sessions the index
+ * LOST (pruned) — the per-key invalidation signal for answer caches. */
+export interface ScanReport {
+  outcomes: ScanOutcomes;
+  dropped: PrunedKey[];
+}
 
 /** Enumerate one agent's store: `listing()` when the plugin can report
  * its own partial state, else the legacy `list()` whose successful read
@@ -101,8 +108,9 @@ export async function scanAgentHistories(
    * pass still fires it: a picker refreshed with some sessions beats one
    * frozen on stale data. */
   onProgress?: () => void,
-): Promise<ScanOutcomes> {
+): Promise<ScanReport> {
   const outcomes: ScanOutcomes = new Map();
+  const dropped: PrunedKey[] = [];
   for (const { agentId, history } of sources) {
     try {
       const { stubs, complete, legacy } = await enumerate(agentId, history);
@@ -181,11 +189,12 @@ export async function scanAgentHistories(
         outcomes.set(agentId, "partial");
         continue;
       }
-      const dropped = await ops.prune(
+      const droppedKeys = await ops.prune(
         agentId,
         stubs.map((stub) => stub.ref),
       );
-      if (dropped > 0) onProgress?.();
+      if (droppedKeys.length > 0) onProgress?.();
+      dropped.push(...droppedKeys);
       outcomes.set(agentId, "complete");
     } catch (e) {
       log.warn(
@@ -195,5 +204,5 @@ export async function scanAgentHistories(
       outcomes.set(agentId, "failed");
     }
   }
-  return outcomes;
+  return { outcomes, dropped };
 }

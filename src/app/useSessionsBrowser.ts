@@ -42,6 +42,10 @@ export interface BrowserSharedSeam {
    * `file-erased` verdict's precondition: an agent absent here was never
    * looked at, and its absence from the index proves nothing. */
   scannedAgents: ReadonlySet<string>;
+  /** The "agent:sessionId" keys the last settled scan PRUNED — sessions
+   * that were indexed and are not anymore. The enrichment cache devalues
+   * exactly these hits; identity moves only when something dropped. */
+  invalidated: ReadonlySet<string>;
   enrichment: {
     entries: ReadonlyMap<string, JoinEntry>;
     /** The table may still change (an ask in flight, or the index moved
@@ -101,7 +105,11 @@ export interface SessionsBrowserApi {
 export function useBrowserSharedSeam(): BrowserSharedSeam {
   const { plugins, sessionIndex } = useAppRuntime();
   const index = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
-  const enrichment = useJournalEnrichment(index.revision, index.scanning);
+  const enrichment = useJournalEnrichment(
+    index.revision,
+    index.scanning,
+    index.invalidated,
+  );
   const ensureFresh = useCallback(
     (agent?: string) => sessionIndex.ensureFresh(agent),
     [sessionIndex],
@@ -127,6 +135,7 @@ export function useBrowserSharedSeam(): BrowserSharedSeam {
     scanning: index.scanning,
     revision: index.revision,
     scannedAgents: index.scannedAgents,
+    invalidated: index.invalidated,
     enrichment,
     ensureFresh,
     transcript,

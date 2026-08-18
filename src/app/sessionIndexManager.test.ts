@@ -37,9 +37,17 @@ const CONTRIBUTIONS = [
   { entry: { id: "kimi" } }, // a history-less contribution is never a source
 ];
 
+/** The scan report shape the manager consumes (loosely typed — the
+ * manager is the contract's consumer, this is its stand-in). */
+type Report = {
+  outcomes: Map<string, string>;
+  dropped: Array<{ agent: string; sessionId: string }>;
+};
+
 const scans = vi.hoisted(() => ({
   scanAgentHistories: vi.fn(
-    (..._args: unknown[]) => Promise.resolve(new Map<string, string>()),
+    (..._args: unknown[]) =>
+      Promise.resolve({ outcomes: new Map<string, string>(), dropped: [] } as Report),
   ),
 }));
 vi.mock("./historyScan", () => scans);
@@ -49,8 +57,8 @@ function hangingScan() {
   let finish!: () => void;
   scans.scanAgentHistories.mockImplementationOnce(
     () =>
-      new Promise<Map<string, string>>((resolve) => {
-        finish = () => resolve(new Map());
+      new Promise<Report>((resolve) => {
+        finish = () => resolve({ outcomes: new Map(), dropped: [] });
       }),
   );
   return () => finish();
@@ -62,13 +70,16 @@ function batchyScan() {
   let finish!: () => void;
   scans.scanAgentHistories.mockImplementationOnce(
     (...args: unknown[]) =>
-      new Promise<Map<string, string>>((resolve) => {
+      new Promise<Report>((resolve) => {
         (args[2] as () => void)(); // a batch landed
         const sources = args[0] as Array<{ agentId: string }>;
         finish = () =>
-          resolve(
-            new Map(sources.map((s) => [s.agentId, "complete"] as const)),
-          );
+          resolve({
+            outcomes: new Map(
+              sources.map((s) => [s.agentId, "complete"] as const),
+            ),
+            dropped: [],
+          });
       }),
   );
   return () => finish();
@@ -82,7 +93,10 @@ const sourcesOf = (call: number) =>
 
 beforeEach(() => {
   scans.scanAgentHistories.mockReset();
-  scans.scanAgentHistories.mockResolvedValue(new Map<string, string>());
+  scans.scanAgentHistories.mockResolvedValue({
+    outcomes: new Map<string, string>(),
+    dropped: [],
+  } as Report);
 });
 
 /** Let a settled scan's `.catch`/`.finally` chain (and the chained `run`
@@ -124,6 +138,7 @@ describe("sessionIndexManager revision and scanning", () => {
       scanning: true,
       revision: 1,
       scannedAgents: new Set(),
+      invalidated: new Set(),
     });
     expect(listener).toHaveBeenCalledTimes(2);
 
@@ -136,6 +151,7 @@ describe("sessionIndexManager revision and scanning", () => {
       scanning: false,
       revision: 2,
       scannedAgents: new Set(["claude", "codex"]),
+      invalidated: new Set(),
     });
   });
 
@@ -240,18 +256,21 @@ describe("sessionIndexManager readiness", () => {
     expect(sourcesOf(0)).toEqual([]);
   });
 });
-
 describe("sessionIndexManager scan proof (E1 regressions)", () => {
   /** The per-agent outcomes the scanner contract carries: complete,
-   * partial, failed. Red on the current code: it replaces the set with
-   * every source unconditionally and reads no outcomes at all. */
-  const outcomes = (entries: Array<[string, string]>) => new Map(entries);
+   * partial, failed — wrapped in the pass report (outcomes + dropped
+   * keys). Red on the pre-E1 code: it replaced the set with every
+   * source unconditionally and read no outcomes at all. */
+  const report = (
+    entries: Array<[string, string]>,
+    dropped: Array<{ agent: string; sessionId: string }> = [],
+  ): Report => ({ outcomes: new Map(entries), dropped });
 
   it("a REFUSED pass keeps the previous proof — tried is not looked", async () => {
     const { registry } = fakeRegistry(CONTRIBUTIONS);
     const manager = createSessionIndexManager(registry);
     scans.scanAgentHistories.mockImplementationOnce(async () =>
-      outcomes([
+      report([
         ["claude", "complete"],
         ["codex", "complete"],
       ]),
@@ -282,7 +301,7 @@ describe("sessionIndexManager scan proof (E1 regressions)", () => {
     // The scan RESOLVES (the outer promise never sees the failure), but
     // codex's own walk refused — the contract says so.
     scans.scanAgentHistories.mockImplementationOnce(async () =>
-      outcomes([
+      report([
         ["claude", "complete"],
         ["codex", "failed"],
       ]),
@@ -296,7 +315,7 @@ describe("sessionIndexManager scan proof (E1 regressions)", () => {
     const { registry } = fakeRegistry(CONTRIBUTIONS);
     const manager = createSessionIndexManager(registry);
     scans.scanAgentHistories.mockImplementationOnce(async () =>
-      outcomes([
+      report([
         ["claude", "complete"],
         ["codex", "complete"],
       ]),
@@ -307,7 +326,7 @@ describe("sessionIndexManager scan proof (E1 regressions)", () => {
     // A narrow pass learned about codex only; claude's proof came from an
     // earlier complete walk and nothing since contradicted it.
     scans.scanAgentHistories.mockImplementationOnce(async () =>
-      outcomes([["codex", "complete"]]),
+      report([["codex", "complete"]]),
     );
     manager.ensureFresh("codex");
     await flush();
@@ -315,6 +334,34 @@ describe("sessionIndexManager scan proof (E1 regressions)", () => {
       "claude",
       "codex",
     ]);
+  });
+  it("a pass whose PRUNE dropped sessions names them — the cache may devalue exactly those hits", async () => {
+    // E2's red half, at the owner: the scan's outcome carries the keys
+    // the index LOST, so the enrichment cache can drop exactly those
+    // hits instead of trusting them forever. Absent this, a file erased
+    // while the app runs never reverts its hit to an absence.
+    const { registry } = fakeRegistry(CONTRIBUTIONS);
+    const manager = createSessionIndexManager(registry);
+    scans.scanAgentHistories.mockImplementationOnce(async () => ({
+      outcomes: new Map([
+        ["claude", "complete"],
+        ["codex", "complete"],
+      ]),
+      dropped: [{ agent: "claude", sessionId: "s-1" }],
+    }));
+    manager.ensureFresh();
+    await flush();
+    expect(manager.snapshot().invalidated?.has("claude:s-1")).toBe(true);
+    // And a pass with NOTHING dropped keeps the previous invalidation
+    // set's identity — no needless re-purge, no listener churn.
+    const before = manager.snapshot().invalidated;
+    scans.scanAgentHistories.mockImplementationOnce(async () => ({
+      outcomes: new Map([["claude", "complete"]]),
+      dropped: [],
+    }));
+    manager.ensureFresh("claude");
+    await flush();
+    expect(manager.snapshot().invalidated).toBe(before);
   });
 });
 

@@ -30,7 +30,7 @@ const ops = (stored: { reference: string; mtime: number; size: number }[]) => {
     }),
     prune: vi.fn(async (_agent, live) => {
       prunes.push(live);
-      return 0;
+      return [];
     }),
   };
   return { mock, upserts, prunes };

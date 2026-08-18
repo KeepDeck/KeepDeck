@@ -8,6 +8,11 @@ export type RowKey = IndexLookupKey;
 
 export const rowKeyOf = (key: RowKey): string => `${key.agent}:${key.sessionId}`;
 
+/** The stable EMPTY invalidation set — a fresh `new Set()` per call would
+ * give the default a new identity every render and fire the purge check
+ * for nothing. */
+const NO_INVALIDATION: ReadonlySet<string> = new Set();
+
 /**
  * The journal rows' shared enrichment table — the answer side of the
  * browser seam's join with the session index.
@@ -53,6 +58,12 @@ export const rowKeyOf = (key: RowKey): string => `${key.agent}:${key.sessionId}`
 export function useJournalEnrichment(
   revision: number,
   scanning: boolean,
+  /** The "agent:sessionId" keys the last settled scan PRUNED from the
+   * index — a hit on such a key outlived its session and is a lie. The
+   * set's IDENTITY moves only when a pass actually dropped something;
+   * each new identity purges its keys from the table, and the ask in
+   * the same effect run re-covers them (rowKeyOf format). */
+  invalidated: ReadonlySet<string> = NO_INVALIDATION,
 ): {
   entries: ReadonlyMap<string, JoinEntry>;
   /** The table may still change: an ask is in flight, or the index has
@@ -134,7 +145,24 @@ export function useJournalEnrichment(
     if (added) declareMore();
   }, []);
 
+  /** The last invalidation set the table already purged — identity
+   * comparison, so an untouched set re-purges nothing. */
+  const purgedRef = useRef<ReadonlySet<string>>(invalidated);
+
   useEffect(() => {
+    // A purge lands FIRST in this effect's run: the pruned keys' hits are
+    // lies from this moment, and the ask this same run issues must not
+    // skip them as "already answered". A pass that dropped nothing keeps
+    // the set's identity — no purge, no needless churn.
+    if (invalidated !== purgedRef.current) {
+      purgedRef.current = invalidated;
+      if (invalidated.size > 0) {
+        const next = new Map(entriesRef.current);
+        for (const key of invalidated) next.delete(key);
+        entriesRef.current = next;
+        setEntries(next);
+      }
+    }
     // Before any scan has run (and none in flight), the index cannot
     // answer honestly — see the header. Not an error, not an absence:
     // simply nothing asked yet.
@@ -246,7 +274,7 @@ export function useJournalEnrichment(
         landed(null, true);
       },
     );
-  }, [revision, scanning, declaredTick, chaseTick]);
+  }, [revision, scanning, declaredTick, chaseTick, invalidated]);
 
   return {
     entries,

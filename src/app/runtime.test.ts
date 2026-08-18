@@ -53,6 +53,7 @@ describe("createAppRuntime", () => {
       scanning: false,
       revision: 0,
       scannedAgents: new Set(),
+      invalidated: new Set(),
     });
 
     // The dispose chain must actually REACH the owner — a dispose that
@@ -69,6 +70,7 @@ describe("createAppRuntime", () => {
       scanning: false,
       revision: 0,
       scannedAgents: new Set(),
+      invalidated: new Set(),
     });
   });
 });

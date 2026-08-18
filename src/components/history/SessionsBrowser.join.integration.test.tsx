@@ -88,7 +88,12 @@ const kimi = recordingCtx({
 });
 
 const sessionIndex = vi.hoisted(() => {
-  let snapshot = { scanning: false, revision: 1, scannedAgents: new Set(["claude", "kimi"]) };
+  let snapshot = {
+    scanning: false,
+    revision: 1,
+    scannedAgents: new Set(["claude", "kimi"]),
+    invalidated: new Set<string>(),
+  };
   const listeners = new Set<() => void>();
   return {
     set(next: { scanning: boolean; revision: number; scannedAgents?: Set<string> }) {

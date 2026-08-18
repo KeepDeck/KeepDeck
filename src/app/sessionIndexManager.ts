@@ -3,7 +3,7 @@ import { describeError, log } from "../ipc/log";
 import {
   scanAgentHistories,
   type HistorySource,
-  type ScanOutcomes,
+  type ScanReport,
 } from "./historyScan";
 
 /** What a surface needs from the index: every agent's store (the global
@@ -20,11 +20,17 @@ export interface SessionIndexSnapshot {
    * subscribes to: a first-ever scan fills the list batch by batch instead
    * of showing emptiness until the end. */
   revision: number;
-  /** The agents whose stores the LAST SETTLED scan walked — the
-   * `file-erased` verdict's precondition. An agent absent here was never
-   * looked at, and its absence from the index proves nothing. Empty
-   * until the first scan settles. */
+  /** The agents whose stores the LAST SETTLED SCAN proved walked whole —
+   * the `file-erased` verdict's precondition. An agent absent here was
+   * never looked at (or not to a conclusion), and its absence from the
+   * index proves nothing. ACCUMULATED across passes: a narrow pass proves
+   * only its own agents, an earlier proof stands until contradicted. */
   scannedAgents: ReadonlySet<string>;
+  /** The "agent:sessionId" keys the last settled scan PRUNED from the
+   * index — sessions that WERE there and are not anymore. Per-key answer
+   * caches devalue exactly these (a hit that outlived its session is a
+   * lie); identity changes ONLY when a pass actually dropped something. */
+  invalidated: ReadonlySet<string>;
 }
 
 /** The agent-contribution registry as this owner needs it: history-bearing
@@ -81,6 +87,7 @@ export function createSessionIndexManager(
     scanning: false,
     revision: 0,
     scannedAgents: new Set(),
+    invalidated: new Set(),
   };
   const listeners = new Set<() => void>();
   /** The pass currently running; null when idle. */
@@ -114,18 +121,21 @@ export function createSessionIndexManager(
    * only when something actually changed. Forgetting this test is how
    * `useSyncExternalStore` loops (the UsageChips lesson). */
   function publish(
-    next: Omit<SessionIndexSnapshot, "scannedAgents"> & {
+    next: Omit<SessionIndexSnapshot, "scannedAgents" | "invalidated"> & {
       scannedAgents?: ReadonlySet<string>;
+      invalidated?: ReadonlySet<string>;
     },
   ): void {
     const merged: SessionIndexSnapshot = {
       ...next,
       scannedAgents: next.scannedAgents ?? snapshot.scannedAgents,
+      invalidated: next.invalidated ?? snapshot.invalidated,
     };
     if (
       merged.scanning === snapshot.scanning &&
       merged.revision === snapshot.revision &&
-      merged.scannedAgents === snapshot.scannedAgents
+      merged.scannedAgents === snapshot.scannedAgents &&
+      merged.invalidated === snapshot.invalidated
     )
       return;
     snapshot = merged;
@@ -140,12 +150,13 @@ export function createSessionIndexManager(
     // applied by the SINGLE settle publish in `.finally` — two publishes
     // would double-bump the revision.
     let provenNow: Set<string> | null = null;
+    let invalidNow: Set<string> | null = null;
     void scanAgentHistories(sources, undefined, () => {
       // A batch landed: bump the revision so subscribed listings refresh
       // while the scan is still filling the index.
       publish({ scanning: true, revision: snapshot.revision + 1 });
     })
-      .then((outcomes: ScanOutcomes) => {
+      .then((report: ScanReport) => {
         // ACCUMULATE, never replace: a narrow pass proves only its own
         // agents, and proof from an earlier complete walk stands until
         // contradicted — a new pass that says nothing about an agent
@@ -154,10 +165,18 @@ export function createSessionIndexManager(
         // proven its store's files EXIST while leaving rows unindexed —
         // exactly the shape that would arm a false file-erased verdict.
         const next = new Set(snapshot.scannedAgents);
-        for (const [agentId, outcome] of outcomes) {
+        for (const [agentId, outcome] of report.outcomes) {
           if (outcome === "complete") next.add(agentId);
         }
         provenNow = next;
+        // The pruned keys — REPLACED per pass (last answer wins): the
+        // caches devalue each list once, when it lands. Identity moves
+        // only when something actually dropped.
+        if (report.dropped.length > 0) {
+          invalidNow = new Set(
+            report.dropped.map((k) => `${k.agent}:${k.sessionId}`),
+          );
+        }
       })
       .catch((e: unknown) => {
         log.warn("web:history", `scan failed: ${describeError(e)}`);
@@ -166,11 +185,12 @@ export function createSessionIndexManager(
         running = null;
         // A REFUSED pass carries no outcomes — the previous proofs stand
         // untouched ("tried" is not "looked").
-        if (provenNow !== null) {
+        if (provenNow !== null || invalidNow !== null) {
           publish({
             scanning: false,
             revision: snapshot.revision + 1,
-            scannedAgents: provenNow,
+            ...(provenNow !== null ? { scannedAgents: provenNow } : {}),
+            ...(invalidNow !== null ? { invalidated: invalidNow } : {}),
           });
         } else {
           publish({ scanning: false, revision: snapshot.revision + 1 });

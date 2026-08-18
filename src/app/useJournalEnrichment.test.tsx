@@ -20,11 +20,20 @@ import { joinJournalRow } from "../domain/journal";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
-/** The hook under whatever (revision, scanning) the test currently drives. */
+/** The hook under whatever (revision, scanning, invalidated) the test
+ * currently drives. */
 let api: ReturnType<typeof useJournalEnrichment>;
 
-function Probe({ revision, scanning }: { revision: number; scanning: boolean }) {
-  api = useJournalEnrichment(revision, scanning);
+function Probe({
+  revision,
+  scanning,
+  invalidated,
+}: {
+  revision: number;
+  scanning: boolean;
+  invalidated?: ReadonlySet<string>;
+}) {
+  api = useJournalEnrichment(revision, scanning, invalidated);
   return null;
 }
 
@@ -64,6 +73,42 @@ describe("useJournalEnrichment", () => {
     foreign: { agent: "claude", sessionId: "kimi-9" },
     unknown: { agent: "claude", sessionId: "nope" },
   };
+
+  it("a PRUNED key's hit is devalued — the file-erased verdict's missing half", async () => {
+    // The full regression line: the session is known to the index (a
+    // hit) → the file is erased while the app runs → the prune names the
+    // key → the hit is purged and re-asked → the domain sees the absence.
+    let invalidated: ReadonlySet<string> = new Set();
+    const render = () =>
+      act(async () =>
+        root.render(createElement(Probe, { revision, scanning, invalidated })),
+      );
+    revision = 1;
+    await render();
+    act(() => api.declare([KEYS.own]));
+    await act(async () => {});
+    await act(async () =>
+      resolvers[0]([
+        { status: "hit", reference: "/store/s-1", title: "known", mtime: 9 },
+      ]),
+    );
+    expect(api.entries.get(rowKeyOf(KEYS.own))).toMatchObject({ kind: "hit" });
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(1);
+
+    // The next settled scan pruned the session: a NEW invalidation
+    // identity, same revision semantics as any settle.
+    revision += 1;
+    invalidated = new Set([rowKeyOf(KEYS.own)]);
+    await render();
+    // The hit is GONE from the table (not "still trusted"), and the key
+    // went back into the ask.
+    expect(api.entries.has(rowKeyOf(KEYS.own))).toBe(false);
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(2);
+    expect(ipc.indexLookup).toHaveBeenLastCalledWith([KEYS.own]);
+    // The index answers absence — the domain finally sees it.
+    await act(async () => resolvers[1]([{ status: "absent" }]));
+    expect(api.entries.get(rowKeyOf(KEYS.own))).toEqual({ kind: "absent" });
+  });
 
   it("asks nothing before any scan has run or started — 'not answered yet' is not an ask", async () => {
     revision = 0;

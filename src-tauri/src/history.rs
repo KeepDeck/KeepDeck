@@ -107,14 +107,31 @@ pub fn index_upsert(
     })
 }
 
-/// Drop an agent's sessions that vanished from its store.
+/// A session the prune DROPPED — the (agent, session_id) key whose cached
+/// answers are stale from this moment.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrunedKeyDto {
+    pub agent: String,
+    pub session_id: String,
+}
+
+/// Drop an agent's sessions that vanished from its store; returns the
+/// dropped keys so per-key caches can devalue exactly those.
 #[tauri::command(async)]
 pub fn index_prune(
     state: State<'_, HistoryIndex>,
     agent: String,
     live: Vec<String>,
-) -> Result<usize, String> {
-    with_index(&state, |index| index.prune(&agent, &live))
+) -> Result<Vec<PrunedKeyDto>, String> {
+    with_index(&state, |index| {
+        index.prune(&agent, &live).map(|dropped| {
+            dropped
+                .into_iter()
+                .map(|(agent, session_id)| PrunedKeyDto { agent, session_id })
+                .collect()
+        })
+    })
 }
 
 /// One (agent, session_id) join key — the journal row's targeted ask.

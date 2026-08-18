@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentHistory } from "@keepdeck/plugin-api";
 import {
   scanAgentHistories,
+  type AgentScanOutcome,
   type ScanIndexOps,
-  type ScanOutcomes,
 } from "./historyScan";
 
 vi.mock("../ipc/history", () => ({
@@ -32,17 +32,26 @@ const history = (over: Partial<AgentHistory> = {}): AgentHistory => ({
 const ops = (stored: { reference: string; mtime: number; size: number }[]) => {
   const upserts: unknown[] = [];
   const prunes: unknown[] = [];
+  const dropped: Array<{ agent: string; sessionId: string }> = [];
   const mock: ScanIndexOps = {
     refs: vi.fn(async () => stored),
     upsert: vi.fn(async (_agent, rows) => {
       upserts.push(...rows);
     }),
-    prune: vi.fn(async (_agent, live) => {
+    prune: vi.fn(async (agent: string, live: string[]) => {
       prunes.push(live);
-      return 0;
+      // Report every stored ref NOT in live as dropped — the double the
+      // real index returns.
+      const liveSet = new Set(live);
+      return stored
+        .filter((r) => !liveSet.has(r.reference))
+        .map((r) => ({
+          agent,
+          sessionId: r.reference.slice(r.reference.lastIndexOf("/") + 1),
+        }));
     }),
   };
-  return { mock, upserts, prunes };
+  return { mock, upserts, prunes, dropped };
 };
 
 const stub = (
@@ -237,48 +246,46 @@ describe("scanAgentHistories", () => {
   });
 
   it("the per-agent outcome classifies the walk — proof is complete only", async () => {
-    const outcomesOf = async (
+    const outcomeOf = async (
       over: Partial<AgentHistory>,
       stored: { reference: string; mtime: number; size: number }[] = [],
-    ): Promise<ScanOutcomes> => {
+    ): Promise<AgentScanOutcome | undefined> => {
       const { mock } = ops(stored);
-      return scanAgentHistories([{ agentId: "claude", history: history(over) }], mock);
+      const report = await scanAgentHistories(
+        [{ agentId: "claude", history: history(over) }],
+        mock,
+      );
+      return report.outcomes.get("claude");
     };
 
     // A clean full walk over a whole store: certified.
-    expect((await outcomesOf({})).get("claude")).toBe("complete");
+    expect(await outcomeOf({})).toBe("complete");
 
     // A describe/content refusal over a PROVEN file: the store holds it,
     // the index never got it — certifying would arm a false verdict.
     expect(
-      (
-        await outcomesOf({
-          describe: async () => {
-            throw new Error("read refused");
-          },
-        })
-      ).get("claude"),
+      await outcomeOf({
+        describe: async () => {
+          throw new Error("read refused");
+        },
+      }),
     ).toBe("partial");
 
     // An incomplete listing walked something, not everything.
     expect(
-      (
-        await outcomesOf({
-          list: async () => [],
-          listing: async () => ({ stubs: [], complete: false }),
-        })
-      ).get("claude"),
+      await outcomeOf({
+        list: async () => [],
+        listing: async () => ({ stubs: [], complete: false }),
+      }),
     ).toBe("partial");
 
     // The degraded legacy empty listing over a non-empty index: partial,
     // never certified, never pruned.
     expect(
-      (
-        await outcomesOf(
-          { list: async () => [] },
-          [{ reference: "/s/a", mtime: 5, size: 10 }],
-        )
-      ).get("claude"),
+      await outcomeOf(
+        { list: async () => [] },
+        [{ reference: "/s/a", mtime: 5, size: 10 }],
+      ),
     ).toBe("partial");
 
     // The agent's whole pass refusing: failed — and the OTHER agent's
@@ -301,8 +308,30 @@ describe("scanAgentHistories", () => {
       ],
       mock,
     );
-    expect(both.get("claude")).toBe("complete");
-    expect(both.get("codex")).toBe("failed");
+    expect(both.outcomes.get("claude")).toBe("complete");
+    expect(both.outcomes.get("codex")).toBe("failed");
+  });
+
+  it("pruned sessions ride the report as dropped keys — the cache's invalidation signal", async () => {
+    // The index holds a and b; the store now lists only a. Prune names
+    // exactly b — not a count, the KEY, so a per-key answer cache can
+    // devalue precisely what it lost.
+    const { mock } = ops([
+      { reference: "/s/a", mtime: 5, size: 10 },
+      { reference: "/s/b", mtime: 9, size: 20 },
+    ]);
+    const report = await scanAgentHistories(
+      [
+        {
+          agentId: "claude",
+          history: history({
+            list: async () => [{ sessionId: "a", ref: "/s/a", mtime: 5, size: 10 }],
+          }),
+        },
+      ],
+      mock,
+    );
+    expect(report.dropped).toEqual([{ agent: "claude", sessionId: "b" }]);
   });
 
   it("a listing() refusal falls back to list(), not to skipping the agent", async () => {

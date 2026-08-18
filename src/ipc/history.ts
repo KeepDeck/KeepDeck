@@ -47,7 +47,14 @@ export function indexUpsert(agent: string, rows: IndexRowInput[]): Promise<void>
   return invoke("index_upsert", { agent, rows });
 }
 
-export function indexPrune(agent: string, live: string[]): Promise<number> {
+/** A session the prune DROPPED — the key whose cached answers are stale
+ * from this moment. */
+export interface PrunedKey {
+  agent: string;
+  sessionId: string;
+}
+
+export function indexPrune(agent: string, live: string[]): Promise<PrunedKey[]> {
   return invoke("index_prune", { agent, live });
 }
 

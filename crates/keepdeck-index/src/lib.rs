@@ -226,8 +226,15 @@ impl SessionIndex {
     }
 
     /// Drop sessions of `agent` whose ref is NOT in `live` — gone from the
-    /// store (deleted/GC'd by the CLI).
-    pub fn prune(&mut self, agent: &str, live: &[String]) -> Result<usize, String> {
+    /// store (deleted/GC'd by the CLI). Returns the (agent, session_id)
+    /// keys it dropped: the caller's caches hold per-key answers that a
+    /// disappearance INVALIDATES, and this is the only place that knows
+    /// which keys those are.
+    pub fn prune(
+        &mut self,
+        agent: &str,
+        live: &[String],
+    ) -> Result<Vec<(String, String)>, String> {
         let tx = self.conn.transaction().map_err(|e| e.to_string())?;
         let stored: Vec<(String, String)> = {
             let mut stmt = tx
@@ -240,7 +247,7 @@ impl SessionIndex {
         };
         let live: std::collections::HashSet<&str> =
             live.iter().map(String::as_str).collect();
-        let mut dropped = 0;
+        let mut dropped: Vec<(String, String)> = Vec::new();
         for (session_id, reference) in stored {
             if live.contains(reference.as_str()) {
                 continue;
@@ -255,7 +262,10 @@ impl SessionIndex {
                 params![agent, session_id],
             )
             .map_err(|e| e.to_string())?;
-            dropped += 1;
+            // The dropped KEY, for the callers' per-key caches: an
+            // (agent, id) answer that says "hit" is stale from this
+            // moment, and only this place learned it.
+            dropped.push((agent.to_string(), session_id));
         }
         tx.commit().map_err(|e| e.to_string())?;
         Ok(dropped)
@@ -948,7 +958,7 @@ mod tests {
         assert_eq!(index.refs("codex").unwrap().len(), 0);
 
         let dropped = index.prune("claude", &["/store/a".into()]).unwrap();
-        assert_eq!(dropped, 1);
+        assert_eq!(dropped, vec![("claude".into(), "b".into())]);
         assert_eq!(index.search("", 10, 0, None, None).unwrap().len(), 1);
     }
 
