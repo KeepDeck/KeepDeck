@@ -258,7 +258,7 @@ mod tests {
         // The key carries the asked pair; the found owner rides only in
         // `agents`. The negative assertion is the anchor: a future
         // "optimization" that substitutes the owner into the key fails
-        // here first.
+        // here even if the exact JSON is weakened.
         let foreign = KeyedAnswerDto::from(KeyedAnswer {
             agent: "claude".into(),
             session_id: "kimi-9".into(),
