@@ -172,6 +172,26 @@ pub enum KeyedAnswerDto {
     },
 }
 
+impl From<KeyedAnswer> for KeyedAnswerDto {
+    /// The ONE place an answer's key meets its variant — production's
+    /// only path, and the guard's too: the Foreign branch carries the
+    /// ASKED agent, never the found owner (the wrong-attribution
+    /// signature; substituting the owner stays a valid DTO and a green
+    /// wire — only this mapping, pinned through this same impl, catches
+    /// it).
+    fn from(KeyedAnswer { agent, session_id, kind }: KeyedAnswer) -> Self {
+        match kind {
+            LookupKind::Hit { reference, title, mtime } => {
+                KeyedAnswerDto::Hit { agent, session_id, reference, title, mtime }
+            }
+            LookupKind::Foreign { agents } => {
+                KeyedAnswerDto::Foreign { agent, session_id, agents }
+            }
+            LookupKind::Absent => KeyedAnswerDto::Absent { agent, session_id },
+        }
+    }
+}
+
 /// Answer (agent, session_id) keys exactly — the journal join's targeted
 /// ask; every answer carries its own key. Duplicate keys are a contract
 /// violation and refuse loudly.
@@ -187,69 +207,80 @@ pub fn index_lookup(
             .collect();
         index
             .lookup(&keys)
-            .map(|answers| {
-                answers
-                    .into_iter()
-                    .map(|KeyedAnswer { agent, session_id, kind }| match kind {
-                        LookupKind::Hit { reference, title, mtime } => {
-                            KeyedAnswerDto::Hit { agent, session_id, reference, title, mtime }
-                        }
-                        LookupKind::Foreign { agents } => {
-                            KeyedAnswerDto::Foreign { agent, session_id, agents }
-                        }
-                        LookupKind::Absent => KeyedAnswerDto::Absent { agent, session_id },
-                    })
-                    .collect()
-            })
+            .map(|answers| answers.into_iter().map(KeyedAnswerDto::from).collect())
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use keepdeck_index::{KeyedAnswer, LookupKind};
 
-    /// The wire contract, pinned EXACTLY: what serde actually serializes
-    /// for each branch — the TS union is written against these strings.
-    /// `title: null` on a hit is deliberate (a title is present-and-none,
-    /// not absent); foreign and absent carry the KEY and nothing else —
-    /// no null fields leaking through.
+    /// The wire contract AND the mapping, pinned in one place: every case
+    /// builds a KeyedAnswer (the crate's own answer) and crosses the
+    /// production boundary — KeyedAnswerDto::from, the command's only
+    /// path — before serde serializes. No DTO is constructed directly:
+    /// the test cannot bypass the seam it guards. What is pinned: the
+    /// EXACT JSON per branch, and — for Foreign — that the ASKED agent
+    /// rides in the key while the found owner does NOT (substituting the
+    /// owner is a valid DTO with a green wire; only this mapping knows).
     #[test]
     fn keyed_answer_wire_json_is_exact_per_branch() {
-        let hit = KeyedAnswerDto::Hit {
+        let hit = KeyedAnswerDto::from(KeyedAnswer {
             agent: "claude".into(),
             session_id: "a".into(),
-            reference: "/cl/p/-repo/a.jsonl".into(),
-            title: Some("named by the index".into()),
-            mtime: 1_787_090_317_140,
-        };
+            kind: LookupKind::Hit {
+                reference: "/cl/p/-repo/a.jsonl".into(),
+                title: Some("named by the index".into()),
+                mtime: 1_787_090_317_140,
+            },
+        });
         assert_eq!(
             serde_json::to_string(&hit).unwrap(),
             r#"{"status":"hit","agent":"claude","sessionId":"a","reference":"/cl/p/-repo/a.jsonl","title":"named by the index","mtime":1787090317140}"#,
         );
-        let untitled = KeyedAnswerDto::Hit {
+        // A hit with no title: present-and-none, not absent — the field
+        // is on the wire as null while reference/mtime stay live.
+        let untitled = KeyedAnswerDto::from(KeyedAnswer {
             agent: "claude".into(),
             session_id: "untitled".into(),
-            reference: "/cl/p/-repo/u.jsonl".into(),
-            title: None,
-            mtime: 5,
-        };
+            kind: LookupKind::Hit {
+                reference: "/cl/p/-repo/u.jsonl".into(),
+                title: None,
+                mtime: 5,
+            },
+        });
         assert_eq!(
             serde_json::to_string(&untitled).unwrap(),
             r#"{"status":"hit","agent":"claude","sessionId":"untitled","reference":"/cl/p/-repo/u.jsonl","title":null,"mtime":5}"#,
         );
-        let foreign = KeyedAnswerDto::Foreign {
+        // Foreign: the id exists — under a DIFFERENT agent than asked.
+        // The key carries the asked pair; the found owner rides only in
+        // `agents`. The negative assertion is the anchor: a future
+        // "optimization" that substitutes the owner into the key fails
+        // here first.
+        let foreign = KeyedAnswerDto::from(KeyedAnswer {
             agent: "claude".into(),
             session_id: "kimi-9".into(),
-            agents: vec!["kimi".into()],
-        };
+            kind: LookupKind::Foreign { agents: vec!["kimi".into()] },
+        });
         assert_eq!(
             serde_json::to_string(&foreign).unwrap(),
             r#"{"status":"foreign","agent":"claude","sessionId":"kimi-9","agents":["kimi"]}"#,
         );
-        let absent = KeyedAnswerDto::Absent {
+        let KeyedAnswerDto::Foreign { agent, agents, .. } = &foreign else {
+            panic!("expected the foreign variant");
+        };
+        assert_ne!(
+            agent, &agents[0],
+            "the found owner must NOT ride in the key — the asked agent does",
+        );
+        // Absent: the key and nothing else — no null fields leaking.
+        let absent = KeyedAnswerDto::from(KeyedAnswer {
             agent: "claude".into(),
             session_id: "nope".into(),
-        };
+            kind: LookupKind::Absent,
+        });
         assert_eq!(
             serde_json::to_string(&absent).unwrap(),
             r#"{"status":"absent","agent":"claude","sessionId":"nope"}"#,
