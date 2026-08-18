@@ -119,10 +119,16 @@ export function useJournalEnrichment(
    * the effect re-runs on) — the same-set check keeps the second run
    * from queueing a spurious chase for the very ask already flying. */
   const inflightRef = useRef(new Set<string>());
-  /** The (revision, scanning) the in-flight ask fired under. A revision
-   * bump means the index moved under the ask — its answer may already be
-   * stale data, so the same-set skip never applies across one. */
-  const askEnvRef = useRef<{ revision: number; scanning: boolean } | null>(null);
+  /** The (revision, scanning, invalidated-identity) the in-flight ask
+   * fired under. A revision bump means the index moved under the ask;
+   * an INVALIDATION-identity bump means sessions were pruned since the
+   * ask left — and its "hit" answers about those keys are lies the
+   * landing must not write. */
+  const askEnvRef = useRef<{
+    revision: number;
+    scanning: boolean;
+    invalidated: ReadonlySet<string>;
+  } | null>(null);
   /** An ask is in flight right now (the rendered half of `flyingRef`). */
   const [askInFlight, setAskInFlight] = useState(false);
   /** The revision the last LANDED ask fired under — null before any
@@ -148,6 +154,11 @@ export function useJournalEnrichment(
   /** The last invalidation set the table already purged — identity
    * comparison, so an untouched set re-purges nothing. */
   const purgedRef = useRef<ReadonlySet<string>>(invalidated);
+  /** The CURRENT invalidation set, readable from a landing closure that
+   * was baked at takeoff — the mid-flight race check reads the newest
+   * identity, not the one the ask left with. */
+  const invalidatedRef = useRef<ReadonlySet<string>>(invalidated);
+  invalidatedRef.current = invalidated;
 
   useEffect(() => {
     // A purge lands FIRST in this effect's run: the pruned keys' hits are
@@ -191,7 +202,10 @@ export function useJournalEnrichment(
       const inflight = inflightRef.current;
       const env = askEnvRef.current;
       const sameEnv =
-        env !== null && env.revision === revision && env.scanning === scanning;
+        env !== null &&
+        env.revision === revision &&
+        env.scanning === scanning &&
+        env.invalidated === invalidated;
       if (
         sameEnv &&
         inflight.size === ids.length &&
@@ -209,7 +223,11 @@ export function useJournalEnrichment(
     reaskQueuedRef.current = false;
     flyingRef.current = true;
     inflightRef.current = new Set(ids);
-    askEnvRef.current = { revision, scanning };
+    askEnvRef.current = { revision, scanning, invalidated };
+    // The invalidation identity AT TAKEOFF: a landing compares against
+    // the CURRENT set — if it moved, sessions were pruned mid-flight and
+    // the landing must drop this ask's keys for them (below).
+    const firedInvalidated = invalidated;
     setAskInFlight(true);
 
     /** Fold one landed ask into the table. A refusal (`failed`) keeps
@@ -251,7 +269,16 @@ export function useJournalEnrichment(
     /** The one landing path — single-flight makes it the only ask that
      * could ever land. Retires the flight, records the revision it
      * answered, and fires the owed catch-up pass (if any) by re-running
-     * the effect with the state of THIS moment. */
+     * the effect with the state of THIS moment.
+     *
+     * MID-FLIGHT RACES: if the invalidation identity moved since takeoff,
+     * sessions were PRUNED while this ask flew. The answer still lands —
+     * it carries honest answers for every other key — but its entries for
+     * the CURRENTLY invalidated keys are dropped: a "hit" about a session
+     * the prune proved gone would resurrect it forever (the follow-up ask
+     * skips hits), and dropping the key leaves it answer-less so the very
+     * follow-up this landing fires re-covers it. The whole answer is
+     * never discarded — only the keys the invalidation names. */
     const landed = (
       answers: Awaited<ReturnType<typeof indexLookup>> | null,
       failed: boolean,
@@ -260,7 +287,18 @@ export function useJournalEnrichment(
       inflightRef.current = new Set();
       setAskInFlight(false);
       setAnsweredAt(firedRevision);
-      apply(answers, failed);
+      const nowInvalidated = invalidatedRef.current;
+      if (!failed && answers !== null && nowInvalidated !== firedInvalidated) {
+        const kept = ask.filter(
+          (key) => !nowInvalidated.has(rowKeyOf(key)),
+        );
+        apply(
+          kept.map((_, at) => answers[at]),
+          false,
+        );
+      } else {
+        apply(answers, failed);
+      }
       if (reaskQueuedRef.current) {
         reaskQueuedRef.current = false;
         chaseMore();

@@ -74,8 +74,50 @@ describe("useJournalEnrichment", () => {
     unknown: { agent: "claude", sessionId: "nope" },
   };
 
-  it("a PRUNED key's hit is devalued — the file-erased verdict's missing half", async () => {
-    // The full regression line: the session is known to the index (a
+  it("a RACING landing must not resurrect a pruned session: hit survives the invalidation it flew through", async () => {
+    // The mid-flight race: a key whose last answer was NOT a hit goes
+    // into an ask; while it flies, a scan prunes that very session and
+    // publishes the invalidation. The stale answer then lands saying
+    // "hit" — the map must NOT contain it, the follow-up ask must TAKE
+    // the key, and its absence must win. Red on the racing code: the
+    // landing wrote the hit unconditionally and the follow-up skipped
+    // it as "already a hit" — a false "the index knows this session"
+    // forever, despite a PROVEN deletion.
+    let invalidated: ReadonlySet<string> = new Set();
+    const render = () =>
+      act(async () =>
+        root.render(createElement(Probe, { revision, scanning, invalidated })),
+      );
+    revision = 1;
+    await render();
+    act(() => api.declare([KEYS.unknown]));
+    await act(async () => {});
+    // The ask is in flight (resolver 0 pending) — key's last answer was
+    // undefined, so it IS in the ask.
+
+    // The scan settles mid-flight: the session is pruned, the
+    // invalidation set gains a NEW identity.
+    revision += 1;
+    invalidated = new Set([rowKeyOf(KEYS.unknown)]);
+    await render();
+
+    // The stale answer NOW lands as a hit.
+    await act(async () =>
+      resolvers[0]([{ status: "hit", reference: "/store/nope", title: "stale", mtime: 9 }]),
+    );
+    // THE assertion: the resurrected hit must not stand.
+    expect(api.entries.get(rowKeyOf(KEYS.unknown))).not.toMatchObject({ kind: "hit" });
+
+    // And the follow-up ask must carry the key (not skip it as a hit);
+    // its absence then wins.
+    const lastCall =
+      ipc.indexLookup.mock.calls[ipc.indexLookup.mock.calls.length - 1];
+    expect(lastCall[0]).toEqual([KEYS.unknown]);
+    await act(async () => resolvers[1]([{ status: "absent" }]));
+    expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({ kind: "absent" });
+  });
+
+  it("a PRUNED key's hit is devalued — the file-erased verdict's missing half", async () => {    // The full regression line: the session is known to the index (a
     // hit) → the file is erased while the app runs → the prune names the
     // key → the hit is purged and re-asked → the domain sees the absence.
     let invalidated: ReadonlySet<string> = new Set();
