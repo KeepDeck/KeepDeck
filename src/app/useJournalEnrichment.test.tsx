@@ -225,12 +225,18 @@ describe("useJournalEnrichment", () => {
     });
   });
 
-  it("INVARIANT 2: a death in an EARLIER scan of the flight is still honored — not just the latest set", async () => {
-    // Two scans settle while one ask flies. The key dies in the FIRST;
-    // the second scan's invalidation set does NOT name it (replaced, not
-    // accumulated). Identity-of-current-set comparison passes the stale
-    // answer through — a generation check must reject it. Red on the
-    // current code: only the latest set is consulted.
+  it("INVARIANT 2: deaths in TWO successive scans of one flight — both stale answers rejected, both keys re-asked, fresh answers accepted", async () => {
+    // Two keys at DIFFERENT agents, one ask [A, B] flying. Scan 1 settles
+    // and prunes A's session; scan 2 settles and prunes B's — each scan
+    // names only its own death (the manager's replacement semantics, and
+    // cross-agent: one prune never names another agent's key). The stale
+    // answers for BOTH arrive after both deaths: both must be rejected,
+    // both keys must ride the follow-up, and answers BORN after the
+    // deaths must be taken. On bd7defe8 (identity-of-current-set, no
+    // generations) this fails: A's death fell out of the current set and
+    // its stale hit resurrects.
+    const KEY_A: RowKey = { agent: "claude", sessionId: "s-1" };
+    const KEY_B: RowKey = { agent: "codex", sessionId: "b-1" };
     let invalidated: ReadonlySet<string> = new Set();
     const render = () =>
       act(async () =>
@@ -238,31 +244,42 @@ describe("useJournalEnrichment", () => {
       );
     revision = 1;
     await render();
-    act(() => api.declare([KEYS.unknown]));
+    act(() => api.declare([KEY_A, KEY_B]));
     await act(async () => {});
+    expect(ipc.indexLookup).toHaveBeenLastCalledWith([KEY_A, KEY_B]);
 
-    // Scan 1 settles mid-flight: unknown dies.
+    // Scan 1 settles mid-flight: A dies.
     revision += 1;
-    invalidated = new Set([rowKeyOf(KEYS.unknown)]);
+    invalidated = new Set([rowKeyOf(KEY_A)]);
     await render();
 
-    // Scan 2 settles too — its set is empty (replaced): identity moved
-    // again, and the death is no longer named by the CURRENT set.
+    // Scan 2 settles mid-flight: B dies; A's death is NOT in this set.
     revision += 1;
-    invalidated = new Set();
+    invalidated = new Set([rowKeyOf(KEY_B)]);
     await render();
 
-    // The stale answer lands as a hit — flown before BOTH deaths.
+    // The stale answers for BOTH land — flown before both deaths.
     await act(async () =>
-      resolvers[0]([ans(KEYS.unknown, "hit", { title: "stale" })]),
+      resolvers[0]([
+        ans(KEY_A, "hit", { title: "stale A" }),
+        ans(KEY_B, "hit", { title: "stale B" }),
+      ]),
     );
-    expect(api.entries.get(rowKeyOf(KEYS.unknown))).not.toMatchObject({ kind: "hit" });
-    // The key is still owed and re-asked.
+    expect(api.entries.get(rowKeyOf(KEY_A))).not.toMatchObject({ kind: "hit" });
+    expect(api.entries.get(rowKeyOf(KEY_B))).not.toMatchObject({ kind: "hit" });
+
+    // The follow-up carries BOTH keys — each is owed until an answer
+    // born after its own death.
     const lastCall =
       ipc.indexLookup.mock.calls[ipc.indexLookup.mock.calls.length - 1];
-    expect(lastCall[0]).toEqual([KEYS.unknown]);
-    await act(async () => resolvers[1]([ans(KEYS.unknown, "absent")]));
-    expect(api.entries.get(rowKeyOf(KEYS.unknown))).toEqual({ kind: "absent" });
+    expect(lastCall[0]).toEqual(expect.arrayContaining([KEY_A, KEY_B]));
+
+    // Answers born after the deaths: accepted.
+    await act(async () =>
+      resolvers[1]([ans(KEY_A, "absent"), ans(KEY_B, "absent")]),
+    );
+    expect(api.entries.get(rowKeyOf(KEY_A))).toEqual({ kind: "absent" });
+    expect(api.entries.get(rowKeyOf(KEY_B))).toEqual({ kind: "absent" });
   });
 
   it("a PRUNED key's hit is devalued — the file-erased verdict's missing half", async () => {

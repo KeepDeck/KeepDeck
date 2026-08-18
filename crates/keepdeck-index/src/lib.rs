@@ -135,15 +135,6 @@ pub struct KeyedAnswer {
     pub kind: LookupKind,
 }
 
-impl KeyedAnswer {
-    pub fn agent(&self) -> &str {
-        &self.agent
-    }
-    pub fn session_id(&self) -> &str {
-        &self.session_id
-    }
-}
-
 impl SessionIndex {
     /// Open (or create) the index at `path`. A version mismatch or an
     /// unreadable file wipes and recreates — disposable by contract.
@@ -966,17 +957,17 @@ mod tests {
             .unwrap();
         // Every variant names the key it answers — hit, foreign, absent
         // alike; absence by key, not by position.
-        assert_eq!(answers[0].agent(), "claude");
-        assert_eq!(answers[0].session_id(), "k1");
-        assert_eq!(answers[1].agent(), "codex");
-        assert_eq!(answers[1].session_id(), "k2");
+        assert_eq!(answers[0].agent, "claude");
+        assert_eq!(answers[0].session_id, "k1");
+        assert_eq!(answers[1].agent, "codex");
+        assert_eq!(answers[1].session_id, "k2");
         // The foreign branch answers by the ASKED agent, not the found
         // one — the wrong-attribution signature.
         let foreign = index
             .lookup(&[("claude".into(), "k2".into())])
             .unwrap();
-        assert_eq!(foreign[0].agent(), "claude");
-        assert_eq!(foreign[0].session_id(), "k2");
+        assert_eq!(foreign[0].agent, "claude");
+        assert_eq!(foreign[0].session_id, "k2");
     }
 
     #[test]

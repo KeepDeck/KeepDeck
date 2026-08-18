@@ -144,44 +144,32 @@ pub struct LookupKeyDto {
 }
 
 /// One keyed lookup answer on the wire: the question it answers rides
-/// WITH it, so belonging never depends on order or count. `status`
-/// distinguishes the kinds; the key is the ASKED pair (in the Foreign
-/// branch, deliberately not the agent that was found). Built by hand —
-/// serde's tag/flatten combination does not compose, and this shape is
-/// small and stable enough to own its mapping.
+/// WITH it, so belonging never depends on order or count. The key is the
+/// ASKED pair (in the Foreign branch, deliberately not the agent that
+/// was found — that is the branch's whole point). A tagged enum — the
+/// key as each variant's own fields, no flatten (serde's tag/flatten do
+/// not compose; they never need to here). `rename_all` renames the
+/// VARIANTS; `rename_all_fields` the fields — without the latter the
+/// wire would silently carry `session_id` instead of `sessionId`.
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeyedAnswerDto {
-    pub agent: String,
-    pub session_id: String,
-    pub status: String,
-    pub reference: Option<String>,
-    pub title: Option<String>,
-    pub mtime: Option<i64>,
-    pub agents: Option<Vec<String>>,
-}
-
-impl From<KeyedAnswer> for KeyedAnswerDto {
-    fn from(KeyedAnswer { agent, session_id, kind }: KeyedAnswer) -> Self {
-        let (status, reference, title, mtime, agents) = match kind {
-            LookupKind::Hit { reference, title, mtime } => {
-                ("hit", Some(reference), title, Some(mtime), None)
-            }
-            LookupKind::Foreign { agents } => {
-                ("foreign", None, None, None, Some(agents))
-            }
-            LookupKind::Absent => ("absent", None, None, None, None),
-        };
-        KeyedAnswerDto {
-            agent,
-            session_id,
-            status: status.to_string(),
-            reference,
-            title,
-            mtime,
-            agents,
-        }
-    }
+#[serde(tag = "status", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum KeyedAnswerDto {
+    Hit {
+        agent: String,
+        session_id: String,
+        reference: String,
+        title: Option<String>,
+        mtime: i64,
+    },
+    Foreign {
+        agent: String,
+        session_id: String,
+        agents: Vec<String>,
+    },
+    Absent {
+        agent: String,
+        session_id: String,
+    },
 }
 
 /// Answer (agent, session_id) keys exactly — the journal join's targeted
@@ -199,8 +187,74 @@ pub fn index_lookup(
             .collect();
         index
             .lookup(&keys)
-            .map(|answers| answers.into_iter().map(KeyedAnswerDto::from).collect())
+            .map(|answers| {
+                answers
+                    .into_iter()
+                    .map(|KeyedAnswer { agent, session_id, kind }| match kind {
+                        LookupKind::Hit { reference, title, mtime } => {
+                            KeyedAnswerDto::Hit { agent, session_id, reference, title, mtime }
+                        }
+                        LookupKind::Foreign { agents } => {
+                            KeyedAnswerDto::Foreign { agent, session_id, agents }
+                        }
+                        LookupKind::Absent => KeyedAnswerDto::Absent { agent, session_id },
+                    })
+                    .collect()
+            })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The wire contract, pinned EXACTLY: what serde actually serializes
+    /// for each branch — the TS union is written against these strings.
+    /// `title: null` on a hit is deliberate (a title is present-and-none,
+    /// not absent); foreign and absent carry the KEY and nothing else —
+    /// no null fields leaking through.
+    #[test]
+    fn keyed_answer_wire_json_is_exact_per_branch() {
+        let hit = KeyedAnswerDto::Hit {
+            agent: "claude".into(),
+            session_id: "a".into(),
+            reference: "/cl/p/-repo/a.jsonl".into(),
+            title: Some("named by the index".into()),
+            mtime: 1_787_090_317_140,
+        };
+        assert_eq!(
+            serde_json::to_string(&hit).unwrap(),
+            r#"{"status":"hit","agent":"claude","sessionId":"a","reference":"/cl/p/-repo/a.jsonl","title":"named by the index","mtime":1787090317140}"#,
+        );
+        let untitled = KeyedAnswerDto::Hit {
+            agent: "claude".into(),
+            session_id: "untitled".into(),
+            reference: "/cl/p/-repo/u.jsonl".into(),
+            title: None,
+            mtime: 5,
+        };
+        assert_eq!(
+            serde_json::to_string(&untitled).unwrap(),
+            r#"{"status":"hit","agent":"claude","sessionId":"untitled","reference":"/cl/p/-repo/u.jsonl","title":null,"mtime":5}"#,
+        );
+        let foreign = KeyedAnswerDto::Foreign {
+            agent: "claude".into(),
+            session_id: "kimi-9".into(),
+            agents: vec!["kimi".into()],
+        };
+        assert_eq!(
+            serde_json::to_string(&foreign).unwrap(),
+            r#"{"status":"foreign","agent":"claude","sessionId":"kimi-9","agents":["kimi"]}"#,
+        );
+        let absent = KeyedAnswerDto::Absent {
+            agent: "claude".into(),
+            session_id: "nope".into(),
+        };
+        assert_eq!(
+            serde_json::to_string(&absent).unwrap(),
+            r#"{"status":"absent","agent":"claude","sessionId":"nope"}"#,
+        );
+    }
 }
 
 /// One page of hits plus the full match count — fetched together, under one

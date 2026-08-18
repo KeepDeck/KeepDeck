@@ -260,19 +260,19 @@ export function useJournalEnrichment(
         // never on a position. Belonging is the answer's own.
         const generations = generationsRef.current;
         for (const answer of answers) {
-          const id = `${answer.agent}:${answer.sessionId}`;
+          const id = rowKeyOf(answer);
           if ((firedGenerations.get(id) ?? 0) !== (generations.get(id) ?? 0)) {
             continue; // died mid-flight — its answer is not taken
           }
           if (answer.status === "hit") {
             next.set(id, {
               kind: "hit",
-              reference: answer.reference ?? "",
-              title: answer.title ?? null,
-              mtime: answer.mtime ?? 0,
+              reference: answer.reference,
+              title: answer.title,
+              mtime: answer.mtime,
             });
           } else if (answer.status === "foreign") {
-            next.set(id, { kind: "foreign", agents: answer.agents ?? [] });
+            next.set(id, { kind: "foreign", agents: answer.agents });
           } else {
             next.set(id, { kind: "absent" });
           }

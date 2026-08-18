@@ -96,16 +96,15 @@ export interface IndexLookupKey {
 /** One keyed lookup answer: the question it answers rides WITH it, so
  * belonging never depends on order or count. The key is the ASKED pair
  * (in `foreign`, deliberately not the agent that was found — that is the
- * branch's whole point). `absent` is absence BY KEY, not by position. */
-export interface IndexLookupAnswer {
-  agent: string;
-  sessionId: string;
-  status: "hit" | "foreign" | "absent";
-  reference?: string;
-  title?: string | null;
-  mtime?: number;
-  agents?: string[];
-}
+ * branch's whole point). `absent` is absence BY KEY. Narrows on `status`:
+ * `reference`/`mtime` exist ONLY on a hit — reading them outside the
+ * branch does not compile. `title` on a hit is present-and-nullable
+ * (an honest "no title"), a different thing from absent. */
+export type IndexLookupAnswer = IndexLookupKey & (
+  | { status: "hit"; reference: string; title: string | null; mtime: number }
+  | { status: "foreign"; agents: string[] }
+  | { status: "absent" }
+);
 
 /** Answer (agent, session_id) keys exactly — hits by key, never by
  * enumerating the table; every answer carries its own key, duplicates
