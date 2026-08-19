@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import {
   indexSearch,
@@ -152,14 +152,19 @@ export function useSessionsBrowser(
   dirs: ReadonlySet<string>,
   shared: BrowserSharedSeam,
 ): SessionsBrowserApi {
-  const dirList = [...dirs];
-  const scopeKey = dirList.join("\n");
+  // The dir LIST rides a memo keyed by the SET's identity: the set is
+  // identity-stable upstream (useWorkspaceScope), so an unchanged scope
+  // keeps one array and one scope callback — and a REAL scope change
+  // (the journal's late arrival) correctly makes both new. No
+  // string-join encoding: a newline is legal in a path, "\n"-joined
+  // dirs are ambiguous, and identity never needed the string anyway.
+  const dirList = useMemo(() => [...dirs], [dirs]);
   const scopeOf = useCallback(
     (mode: "only" | "except"): IndexFolderScope => ({
       mode,
-      dirs: scopeKey === "" ? [] : scopeKey.split("\n"),
+      dirs: dirList,
     }),
-    [scopeKey],
+    [dirList],
   );
   const top = usePagedSessionSearch<SearchHit>(
     useCallback(
@@ -206,16 +211,16 @@ export function useSessionsBrowser(
   // the old area through the unbumped generation. NOT identity-
   // stabilizing the set: that treats a different disease (spurious
   // rescopes) and would leave this one.
-  const scopeRef = useRef(scopeKey);
+  const scopeRef = useRef(dirs);
   useEffect(() => {
-    if (scopeRef.current === scopeKey) return;
-    scopeRef.current = scopeKey;
+    if (scopeRef.current === dirs) return;
+    scopeRef.current = dirs;
     resetTopTo(top.query);
     resetBottomTo(bottom.query);
     // The engine query states are read fresh inside; the callbacks only
     // need to be the engines' own stable ones.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey]);
+  }, [dirs]);
 
   const search = useCallback(
     (query: string) => {

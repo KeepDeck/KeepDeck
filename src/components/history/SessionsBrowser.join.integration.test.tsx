@@ -176,9 +176,14 @@ const record = (over: Partial<SessionRecord>): SessionRecord =>
  * enrichment over the runtime fake, real transcript dispatch through the
  * real plugin registries) plus the per-browser engines — one owner, so a
  * tree change never hands the browser a dead hook's api. */
+/** Identity-stable scope for the harness: the scope-change effect keys on
+ * the set's identity, so an inline `new Set` per render would read as a
+ * scope change on every render (the reset loop this test once wrote). */
+const HARNESS_DIRS: ReadonlySet<string> = new Set(["/repo"]);
+
 function Harness({ rows }: { rows: SessionRecord[] }) {
   const shared = useBrowserSharedSeam();
-  const browserApi = useSessionsBrowser(new Set(["/repo"]), shared);
+  const browserApi = useSessionsBrowser(HARNESS_DIRS, shared);
   return createElement(SessionsBrowser, {
     api: browserApi,
     agents: AGENTS,

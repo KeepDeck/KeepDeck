@@ -14,7 +14,10 @@ import type { Workspace } from "./workspaces";
 /** The directory a pane would run in right now. Provisioning panes without a
  * resolved `cwd` deliberately have none yet: falling back to the workspace cwd
  * would describe the wrong process location. */
-export function paneExecutionCwd(ws: Workspace, pane: Pane): string | null {
+export function paneExecutionCwd(
+  ws: Pick<Workspace, "cwd">,
+  pane: Pane,
+): string | null {
   if (pane.provisioning && !pane.cwd) return null;
   return pane.cwd ?? ws.cwd;
 }
@@ -68,7 +71,9 @@ export function gitWatchPaths(workspaces: Workspace[]): Set<string> {
  * `/wt/kd-KeepDeck-1` and `/wt/kd-KeepDeck-12` share a base and a stem and
  * are still two different folders.
  */
-export function workspaceDirectories(ws: Workspace): ReadonlySet<string> {
+export function workspaceDirectories(
+  ws: Pick<Workspace, "cwd"> & { panes: Workspace["panes"] },
+): ReadonlySet<string> {
   const dirs = new Set([ws.cwd]);
   for (const pane of ws.panes) {
     const path = paneExecutionCwd(ws, pane);
@@ -103,4 +108,20 @@ export function withHistoricalDirectories(
  */
 export function pathBelongsTo(dirs: ReadonlySet<string>, path: string): boolean {
   return path !== "" && dirs.has(path);
+}
+
+/**
+ * THE workspace-scope policy, named once: which directories make a
+ * session "ran here" — the user's chosen widest rule, the workspace's
+ * own folder ∪ its panes' folders ∪ the folders its journal history
+ * remembers. Own-plus-panes come from the deck's live state; the
+ * remembered folders are passed as bare paths (journal-agnostic, so
+ * this stays a pure function over data). This is the ONE address of the
+ * rule — callers pass its output to the folder-scoped index asks.
+ */
+export function workspaceScopeDirectories(
+  ws: Pick<Workspace, "cwd"> & { panes: Workspace["panes"] },
+  historicalCwds: ReadonlyArray<string>,
+): ReadonlySet<string> {
+  return withHistoricalDirectories(workspaceDirectories(ws), historicalCwds);
 }

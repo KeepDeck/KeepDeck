@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { AgentInfo, AgentRestartMode } from "../domain/agents";
 import type { SpawnPlan } from "../app/spawnSpecs";
 import {
@@ -32,13 +33,56 @@ import {
   type JournalRecords,
   type SessionHandle,
 } from "../domain/journal";
-import {
-  withHistoricalDirectories,
-  workspaceDirectories,
-} from "../domain/deck/roots";
+import { useWorkspaceScope } from "../app/useWorkspaceScope";
 import { WorkspaceSessionsBrowser } from "./history/SessionsBrowser";
 import type { BrowserSharedSeam } from "../app/useSessionsBrowser";
 import type { RestartOutcome } from "../app/agentOrchestrator";
+
+/** A pane-less workspace's sessions screen: the empty-deck browser with
+ * the workspace's scope set. A component of its own so the scope hook
+ * runs unconditionally per workspace (hooks in the map body would
+ * violate the rules of hooks); inside, the scope policy is ONE call —
+ * the rule lives in the domain, identity stability in the application
+ * hook. NOTE: this renders only for pane-less workspaces, so the pane
+ * source of the rule is empty here; the journal history is the one
+ * live source of scope movement on this screen. */
+function WorkspaceSessionsScreen({
+  ws,
+  journal,
+  browserShared,
+  agents,
+  agentsReady,
+  onResumeSession,
+  onForkSession,
+}: {
+  ws: Workspace;
+  journal: JournalRecords;
+  browserShared: BrowserSharedSeam;
+  agents: AgentInfo[];
+  agentsReady: boolean;
+  onResumeSession: (wsId: string, record: SessionHandle) => void;
+  onForkSession: (wsId: string, record: SessionHandle) => void;
+}) {
+  // Rows identity-stable per (journal, workspace): the scope hook's
+  // memos key on this array's identity, and a fresh array per render
+  // would re-key the scope every render — an infinite reset loop (the
+  // scope-change effect fires, clears the rows, re-renders, fresh array
+  // again). The journal object is state-stable upstream, so this memo
+  // moves only when the journal truly moves.
+  const rows = useMemo(() => journalRows(journal, ws.id), [journal, ws.id]);
+  const dirs = useWorkspaceScope(ws, rows);
+  return (
+    <WorkspaceSessionsBrowser
+      shared={browserShared}
+      dirs={dirs}
+      agents={agents}
+      ready={agentsReady}
+      rows={rows}
+      onResume={(record) => onResumeSession(ws.id, record)}
+      onFork={(record) => onForkSession(ws.id, record)}
+    />
+  );
+}
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
  * props (command, spec, cwd, badge) are the same everywhere. */
@@ -229,15 +273,6 @@ export function DeckStage({
         const isActive = ws.id === activeId;
 
         if (ws.panes.length === 0) {
-          // The workspace's directory set — own folder ∪ pane folders ∪
-          // folders from its journal history (the user's chosen widest
-          // rule): what its sessions block asks the index for, and what
-          // the global block excludes.
-          const rows = journalRows(journal, ws.id);
-          const dirs = withHistoricalDirectories(
-            workspaceDirectories(ws),
-            rows.map((r) => r.cwd),
-          );
           return (
             <div
               key={ws.id}
@@ -249,14 +284,14 @@ export function DeckStage({
               }}
             >
               <div className="deck__setup-col">
-                <WorkspaceSessionsBrowser
-                  shared={browserShared}
-                  dirs={dirs}
+                <WorkspaceSessionsScreen
+                  ws={ws}
+                  journal={journal}
+                  browserShared={browserShared}
                   agents={agents}
-                  ready={agentsReady}
-                  rows={rows}
-                  onResume={(record) => onResumeSession(ws.id, record)}
-                  onFork={(record) => onForkSession(ws.id, record)}
+                  agentsReady={agentsReady}
+                  onResumeSession={onResumeSession}
+                  onForkSession={onForkSession}
                 />
               </div>
             </div>

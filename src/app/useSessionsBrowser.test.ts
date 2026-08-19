@@ -58,8 +58,14 @@ const mkHits = (from: number, count: number): SearchHit[] =>
 let api: SessionsBrowserApi;
 let shared: BrowserSharedSeam;
 
+/** Module-level: the scope-change effect keys on the set's IDENTITY, so
+ * a default created per render would be a scope change on every render —
+ * an infinite reset loop (this test wrote that bug once; the constant is
+ * the invariant's mirror on the test side). */
+const DEFAULT_DIRS: ReadonlySet<string> = new Set(["/wt/kd-x", "/gone"]);
+
 function Probe({ dirs }: { dirs?: ReadonlySet<string> }) {
-  api = useSessionsBrowser(dirs ?? new Set(["/wt/kd-x", "/gone"]), shared);
+  api = useSessionsBrowser(dirs ?? DEFAULT_DIRS, shared);
   return null;
 }
 
