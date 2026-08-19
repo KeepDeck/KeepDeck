@@ -104,7 +104,7 @@ export function useJournalEnrichment(
    * skip matched only the SAME index state), so the seam recovered on
    * the very next bump. Single-flight spends exactly that recovery to
    * buy no pile-up: a hung ask now wedges the one queued catch-up
-   * behind it — nothing fires again, rows stay "indexing…" until
+   * behind it — nothing fires again, rows stay "Indexing…" until
    * restart. The wedge stays benign: the mildest of the five states,
    * never lost data or a false verdict, and journal-path rows keep
    * opening. Success and refusal both land; only the third outcome

@@ -754,7 +754,7 @@ describe("SessionsBrowser journal join", () => {
     const a = api([], { scanning: false }, {});
     await mount(a, [closed({ sessionId: "bare" })]);
     const chip = chipOf(topRow());
-    expect(chip?.textContent).toBe("indexing…");
+    expect(chip?.textContent).toBe("Indexing…");
     expect(document.body.textContent).not.toContain("nothing to read");
   });
 
@@ -764,7 +764,7 @@ describe("SessionsBrowser journal join", () => {
       [closed()],
     );
     expect(chipOf(topRow())?.textContent).toBe(
-      "indexing…",
+      "Indexing…",
     );
 
     await mount(
@@ -794,7 +794,7 @@ describe("SessionsBrowser journal join", () => {
     };
     await mount(owedFrame, [closed({ sessionId: "s-1" })]);
     const row = topRow();
-    expect(chipOf(row)?.textContent).toBe("indexing…");
+    expect(chipOf(row)?.textContent).toBe("Indexing…");
     expect(document.body.textContent).not.toContain("nothing to read");
 
     // The revision-bumped re-ask lands a hit: the title paints, the chip

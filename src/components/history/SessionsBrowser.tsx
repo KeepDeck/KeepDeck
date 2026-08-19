@@ -315,7 +315,7 @@ export function SessionsBrowser({
             // outlives the wait. Inside the field, so neither shifts
             // layout nor duplicates the empty-list placeholder.
             <span className={api.firstPagePending ? "browser__searching" : "browser__scanning"}>
-              {api.firstPagePending ? "searching…" : "indexing…"}
+              {api.firstPagePending ? "Searching…" : "Indexing…"}
             </span>
           )}
           {composed.top.total > 0 && (

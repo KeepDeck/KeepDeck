@@ -15,7 +15,7 @@ interface Need {
 }
 
 export interface SessionIndexSnapshot {
-  /** A scan is in flight — the browser's "indexing…" state. */
+  /** A scan is in flight — the browser's "Indexing…" state. */
   scanning: boolean;
   /** Monotonic counter, +1 per landed batch and per settle. What a listing
    * subscribes to: a first-ever scan fills the list batch by batch instead

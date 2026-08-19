@@ -20,7 +20,7 @@ const STATUS_CHIP: Record<
       "This session id exists under another agent — the journal recorded the wrong one, so the row cannot be opened or continued here",
   },
   indexing: {
-    label: "indexing…",
+    label: "Indexing…",
     title:
       "The session index is still filling — the row's readability is decided when it answers",
   },
