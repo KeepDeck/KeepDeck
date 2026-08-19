@@ -72,4 +72,18 @@ describe("useWorkspaceScope — a SEMANTIC version of the scope", () => {
     expect(dirs).not.toBe(first);
     expect([...dirs].sort()).toEqual(["/hist", "/new-folder", "/repo"]);
   });
+
+  it("the KEY rides the RULE's result: an empty journal cwd is dropped by both alike", async () => {
+    // The fingerprint is derived from workspaceScopeDirectories's OUTPUT,
+    // not a parallel formula over inputs — so whatever the rule drops,
+    // the key drops too. An empty cwd is the reachable case: the rule
+    // refuses it, and a scope that differs ONLY by it must keep the
+    // same identity (a parallel key over raw inputs would disagree and
+    // fire a spurious reset).
+    await render(ws({}), [record("/hist"), record("")]);
+    const first = dirs;
+    await render(ws({}), [record("/hist")]);
+    expect(dirs).toBe(first); // the empty cwd moved nothing
+    expect([...dirs].sort()).toEqual(["/hist", "/repo"]);
+  });
 });

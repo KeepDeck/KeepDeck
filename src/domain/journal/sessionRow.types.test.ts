@@ -18,8 +18,8 @@ import { describe, expect, it } from "vitest";
 // directives were UNUSED and tsc failed on TS2578; weaken the type back
 // and they redden the same way.
 //
-// З7's honesty note: excess-property checking fires on LITERALS only;
-// an object assembled through a variable slips past it. So З7 proves
+// G7's honesty note: excess-property checking fires on LITERALS only;
+// an object assembled through a variable slips past it. So G7 proves
 // "one cannot WRITE this as a literal", not "one cannot obtain it any
 // way at all".
 import type { BoundSessionRow, IndexSessionRow } from "./sessionRow";
@@ -64,7 +64,7 @@ const indexBase: IndexSessionRow = {
 };
 
 describe("UnifiedSessionRow union — compiler guards", () => {
-  it("З2: a BOUND row cannot carry UNKNOWN liveness — the dot is a bound fact, always known", () => {
+  it("G2: a BOUND row cannot carry UNKNOWN liveness — the dot is a bound fact, always known", () => {
     // CONTROL: the bound base (liveness closed) compiles cleanly.
     expect(boundBase.liveness).toBe("closed");
     // FORBIDDEN: null liveness on a bound row must not typecheck.
@@ -74,7 +74,7 @@ describe("UnifiedSessionRow union — compiler guards", () => {
     expect(forbidden).toBeDefined();
   });
 
-  it("З3: an INDEX row cannot carry a branch", () => {
+  it("G3: an INDEX row cannot carry a branch", () => {
     // CONTROL: the index base compiles cleanly, no branch in sight.
     expect(indexBase.read.reference).toBe("/store/s-1");
     // @ts-expect-error — ASSERTION: branch does not exist on an index row.
@@ -82,21 +82,21 @@ describe("UnifiedSessionRow union — compiler guards", () => {
     expect(forbidden).toBeDefined();
   });
 
-  it("З4: an INDEX row cannot carry liveness", () => {
+  it("G4: an INDEX row cannot carry liveness", () => {
     expect(indexBase.when).toBe(100);
     // @ts-expect-error — ASSERTION: liveness does not exist on an index row.
     const forbidden: IndexSessionRow = { ...indexBase, liveness: "closed" };
     expect(forbidden).toBeDefined();
   });
 
-  it("З5: a BOUND row cannot carry a snippet", () => {
+  it("G5: a BOUND row cannot carry a snippet", () => {
     expect(boundBase.branch).toBe("kd/ws/1");
     // @ts-expect-error — ASSERTION: snippet does not exist on a bound row.
     const forbidden: BoundSessionRow = { ...boundBase, snippet: "match" };
     expect(forbidden).toBeDefined();
   });
 
-  it("З7: a row cannot be written as a literal carrying BOTH sources' fields", () => {
+  it("G7: a row cannot be written as a literal carrying BOTH sources' fields", () => {
     expect(boundBase.handle.sessionId).toBe("s-1");
     // A WHOLE literal (no spread — excess-property checking fires on
     // literals only; see the header note): a bound row's fields plus the
@@ -122,14 +122,14 @@ describe("UnifiedSessionRow union — compiler guards", () => {
     expect(forbidden).toBeDefined();
   });
 
-  it("З8: an INDEX row cannot carry a status", () => {
+  it("G8: an INDEX row cannot carry a status", () => {
     expect(indexBase.snippet).toBeNull();
     // @ts-expect-error — ASSERTION: status does not exist on an index row.
     const forbidden: IndexSessionRow = { ...indexBase, status: "indexing" };
     expect(forbidden).toBeDefined();
   });
 
-  it("З9: an INDEX row cannot have a NULL read — it was found BY the link", () => {
+  it("G9: an INDEX row cannot have a NULL read — it was found BY the link", () => {
     expect(indexBase.read.reference).toBe("/store/s-1");
     // @ts-expect-error — ASSERTION: read on an index row is never null.
     const forbidden: IndexSessionRow = { ...indexBase, read: null };
