@@ -74,7 +74,7 @@ import { useEffect } from "react";
 import { useMemo } from "react";
 import { useSyncExternalStore } from "react";
 import { encodeJournalEvent } from "../../domain/journal/persist";
-import { journalRows } from "../../domain/journal";
+import { emptyJournal, journalRows } from "../../domain/journal";
 import type { SessionRecord } from "../../domain/journal";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { DeckState } from "../../domain/deck";
@@ -143,9 +143,12 @@ function mutablePersistence(initial: DeckPersistenceSnapshot): {
 
 /** The restored deck: ws-1 pane-less (the observed screen), ws-2 WITH a
  * pane — the shape witness 2 needs. Journal keys attach only to
- * RESTORED ids, so both ride the deck's hydrate action. Typed as the
- * FULL DeckState (no cast — the compiler names anything missing; the
- * hydrate action carries this state verbatim into the deck). */
+ * RESTORED ids, so both ride the deck's hydrate action. The journal
+ * slice is the EMPTY one — every record in this file arrives through
+ * the real chain (the owner's hydrate dispatch, the reducer's bound
+ * event), never pre-seeded here. Typed as the FULL DeckState with NO
+ * cast: the compiler names anything missing (a `as DeckState` on the
+ * literal would silence exactly that naming). */
 const RESTORED_DECK: DeckState = {
   workspaces: [
     {
@@ -166,8 +169,9 @@ const RESTORED_DECK: DeckState = {
     },
   ],
   activeId: "ws-1",
+  journal: emptyJournal,
   viewByWs: {},
-} as DeckState;
+};
 
 let api: ReturnType<typeof useSessionsBrowser>;
 let scopeDirs: ReadonlySet<string>;
@@ -388,6 +392,14 @@ describe("scope change on the REAL carrier", () => {
         ),
       ).toEqual(["s-h"]);
       expect([...scopeDirs].sort()).toEqual(["/repo", "/wt/hist"]);
+      // Negative half of the precondition: the foreign record does NOT
+      // exist yet — the store is clean of ws-2 BEFORE the event fires.
+      // The positive halves above say hydration has landed; this one
+      // pins the ORDER (an event fired before the settle would leave
+      // ws-2's record here already, and this line would name it).
+      expect(
+        harnessStore!.getSnapshot().journal.records["ws-2"],
+      ).toBeUndefined();
 
       // The widened page zero lands — rows on screen.
       const callsAfterHydrate = ipc.indexSearch.mock.calls.length;
