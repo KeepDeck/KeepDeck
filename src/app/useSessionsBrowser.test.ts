@@ -93,6 +93,70 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
   const scopeOfCall = (n: number): IndexFolderScope | undefined =>
     ipc.indexSearch.mock.calls[n]?.[4];
 
+  it("a SCOPE CHANGE starts a NEW page zero — old rows leave, pages don't splice onto them", async () => {
+    // The workspace's folder set grows while the browser is mounted (the
+    // journal arrives after the screen, on every cold start where it
+    // settles late). The ask's scope moves — and the change MUST read as
+    // a new question: fresh page zero under a new generation, old rows
+    // gone, the next page carrying offset 0 of the NEW area. On the
+    // current code the scope only re-bakes the fetcher: the generation
+    // never rises, the old rows stay on screen, and a later page arrives
+    // from the NEW area spliced at the OLD rows' length — a mixed list.
+    const OLD = new Set(["/wt/kd-x"]);
+    const NEW = new Set(["/wt/kd-x", "/wt/hist"]);
+
+    vi.useFakeTimers();
+    try {
+      await act(async () =>
+        vi.advanceTimersByTimeAsync(0).then(() =>
+          root.render(createElement(Probe, { dirs: OLD })),
+        ),
+      );
+      // Page zeros of the OLD scope land (top fires first, then bottom):
+      // 2 rows on screen in the bottom block.
+      await act(async () =>
+        resolvers[0]({ hits: [], total: 0 }),
+      );
+      await act(async () =>
+        resolvers[1]({ hits: mkHits(0, 2), total: 30 }),
+      );
+      expect(api.bottom.hits).toHaveLength(2);
+      expect(api.bottom.total).toBe(30);
+
+      // The scope GROWS (the journal settled) — and the change rides the
+      // debounced re-ask, so the timer must fire before its ask exists.
+      await act(async () =>
+        vi.advanceTimersByTimeAsync(0).then(() =>
+          root.render(createElement(Probe, { dirs: NEW })),
+        ),
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(150);
+      });
+
+      // The old rows must NOT remain under the new scope...
+      expect(api.bottom.hits).toHaveLength(0);
+      // ...and the next ask must be page ZERO of the new area — not an
+      // offset-2 fetch spliced onto the old rows.
+      const calls = ipc.indexSearch.mock.calls;
+      const last = calls[calls.length - 1];
+      expect(last[2]).toBe(0); // offset
+      expect(last[4]).toEqual({ mode: "except", dirs: [...NEW] });
+      // The landing under the new generation paints only the new area.
+      await act(async () =>
+        resolvers[resolvers.length - 1]({ hits: mkHits(50, 3), total: 3 }),
+      );
+      expect(api.bottom.hits.map((h) => h.sessionId)).toEqual([
+        "s-50",
+        "s-51",
+        "s-52",
+      ]);
+      expect(api.bottom.total).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("the two asks carry Only and Except of the SAME directory set", async () => {
     await mount(new Set(["/wt/kd-x"]));
     // Two asks fire on mount — top first, bottom second (engine order).

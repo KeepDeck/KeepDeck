@@ -44,6 +44,13 @@ export interface PagedSearch<T> {
   error: string | null;
   /** Run the debounced search; called on every keystroke. Resets paging. */
   search(query: string): void;
+  /** A new question whose old rows must leave the screen IMMEDIATELY —
+   * unlike `search` (a retype keeps the old results visible while the
+   * new ones ride). A scope change arrives here: the rows on screen
+   * answer an area nobody asks about anymore, and one debounce window of
+   * them is a mixed list in the making. Same generation mechanics as
+   * `search`, rows cleared in the same tick. */
+  resetTo(query: string): void;
   /** Append the next page for the current query. */
   loadMore(): void;
   /** Re-fetch page zero for the current query WITHOUT shrinking below what's
@@ -171,8 +178,17 @@ export function usePagedSessionSearch<T>(
     [runSearch, debounceMs, cancelPendingSearch],
   );
 
-  const loadMore = useCallback(() => {
-    if (loadingMoreRef.current) return;
+  /** `search`'s immediate-clear twin (see the interface doc): generation
+   * up, rows out, debounced page zero of `q` on the way. */
+  const resetTo = useCallback(
+    (q: string) => {
+      search(q);
+      apply([], 0);
+    },
+    [search, apply],
+  );
+
+  const loadMore = useCallback(() => {    if (loadingMoreRef.current) return;
     // The loaded rows must belong to the CURRENT generation. If a search is
     // pending, or its page zero hasn't landed yet, paging would append the new
     // request's page onto stale rows — wait for page zero instead.
@@ -221,6 +237,7 @@ export function usePagedSessionSearch<T>(
     query,
     error,
     search,
+    resetTo,
     loadMore,
     refresh,
   };

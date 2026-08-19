@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import {
   indexSearch,
@@ -181,6 +181,8 @@ export function useSessionsBrowser(
   );
   const { refresh: refreshTop } = top;
   const { refresh: refreshBottom } = bottom;
+  const { resetTo: resetTopTo } = top;
+  const { resetTo: resetBottomTo } = bottom;
   const { scanning } = shared;
 
   // Each block re-reads page zero on every index REVISION: the mount fire
@@ -191,6 +193,29 @@ export function useSessionsBrowser(
     refreshTop();
     refreshBottom();
   }, [shared.revision, refreshTop, refreshBottom]);
+
+  // A SCOPE CHANGE is a new QUESTION, not a refresh: the folder set the
+  // asks carry has moved, so the old rows answer an area nobody asks
+  // about anymore. `resetTo` starts a fresh page zero under a new
+  // generation AND clears the old rows in the same tick — they cannot
+  // survive even the debounce window, and a later page cannot splice
+  // onto them at their old length. Reachable on every cold start where
+  // the journal settles after the screen mounts (the empty-set window is
+  // {ws.cwd} until it does), and the narrow ask only needs to have been
+  // REQUESTED inside the window — a late landing would otherwise paint
+  // the old area through the unbumped generation. NOT identity-
+  // stabilizing the set: that treats a different disease (spurious
+  // rescopes) and would leave this one.
+  const scopeRef = useRef(scopeKey);
+  useEffect(() => {
+    if (scopeRef.current === scopeKey) return;
+    scopeRef.current = scopeKey;
+    resetTopTo(top.query);
+    resetBottomTo(bottom.query);
+    // The engine query states are read fresh inside; the callbacks only
+    // need to be the engines' own stable ones.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
   const search = useCallback(
     (query: string) => {
