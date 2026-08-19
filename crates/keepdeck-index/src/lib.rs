@@ -1381,15 +1381,21 @@ mod tests {
     }
 
     /// A timing MEASUREMENT on a realistic store, not an assertion —
-    /// run explicitly (`cargo test -p keepdeck-index -- --ignored
-    /// realistic_store_timing --nocapture`) and read the printed
-    /// numbers. "Acceptable by construction" is not a measurement:
-    /// this prints what the counter and the page actually cost on a
-    /// store shaped like a long-lived machine's (tens of thousands of
-    /// sessions, a few agents, several folders, content of real
-    /// length), for the empty query and a mid-frequency term, scoped
-    /// and unscoped. Identical harness on both sides of the
-    /// membership-core change.
+    /// run explicitly (`cargo test -p keepdeck-index --release -- --
+    /// ignored realistic_store_timing --nocapture`) and read the
+    /// printed table. The probes are a SERIES over the match count N,
+    /// not one point: the price this design exists to avoid grows
+    /// with MATCHES, not with store size, so a single-N timing proves
+    /// nothing. For each N the counter and the page are timed
+    /// SEPARATELY — the sum cannot separate "the counter started
+    /// paying for snippets" from "the page doing its work"; the
+    /// signal is t_total's slope against t_search's. Each point is
+    /// the MINIMUM of 7 repeats (the minimum is the stillest under
+    /// neighboring-process noise); each point's N is PROVEN by an
+    /// assert before it is timed. Store shape and mtimes are uniform
+    /// and distinct (see the builder); the same harness runs on both
+    /// sides of any change under test — the numbers answer "did it
+    /// get worse", never "is it fast enough".
     #[test]
     #[ignore]
     fn realistic_store_timing() {
@@ -1397,6 +1403,20 @@ mod tests {
         let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
         const SESSIONS: usize = 30_000;
         const WORDS: usize = 60;
+        const REPEATS: usize = 7;
+        /// The match-count series: disjoint session slices each carry
+        /// one marker term, so term "mN" matches exactly N sessions —
+        /// slice bounds are CUMULATIVE (1, 11, 111, 1111) so the
+        /// slice sizes are 1, 10, 100, 1000. The marker family
+        /// carries a trailing guard (…)q so no term is a PREFIX of
+        /// another — FTS queries are prefix matches ("mz1q"* would
+        /// otherwise also hit mz10q/mz100q/mz1000q).
+        const SERIES: [(usize, usize, &str); 4] = [
+            (1, 1, "mz1q"),
+            (11, 10, "mz10q"),
+            (111, 100, "mz100q"),
+            (1111, 1000, "mz1000q"),
+        ];
         let folder_of = |i: usize| match i % 5 {
             0 => "/wt/alpha",
             1 => "/wt/beta",
@@ -1411,16 +1431,17 @@ mod tests {
                     1 => "codex",
                     _ => "kimi",
                 };
-                // Every 7th session carries the needle term, so the
-                // hit set is realistic (thousands), not degenerate.
-                let content = if i % 7 == 0 {
-                    format!("session {i} discusses the needle cache invalidation problem in detail")
-                } else {
-                    (0..WORDS)
-                        .map(|w| format!("word{i}x{w}"))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                };
+                let marker = SERIES
+                    .iter()
+                    .find(|(bound, _, _)| i < *bound)
+                    .map(|(_, _, term)| *term);
+                let mut content = (0..WORDS)
+                    .map(|w| format!("word{i}x{w}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if let Some(term) = marker {
+                    content.push_str(&format!(" {term} marker"));
+                }
                 IndexRow {
                     agent: agent.into(),
                     session_id: format!("s{i}"),
@@ -1428,6 +1449,7 @@ mod tests {
                     cwd: folder_of(i).into(),
                     title: Some(format!("title {i}")),
                     transcript_path: Some(format!("/store/{agent}/s{i}")),
+                    // Uniform distinct integer mtimes across the store.
                     mtime: i as i64,
                     size: 1024,
                     content,
@@ -1438,49 +1460,40 @@ mod tests {
         for batch in rows.chunks(500) {
             index.upsert(batch).unwrap();
         }
-        println!("build: {} sessions in {:?}", SESSIONS, t0.elapsed());
+        println!(
+            "build: {} sessions in {:?} (uniform distinct mtimes)",
+            SESSIONS,
+            t0.elapsed()
+        );
+        println!(
+            "store: {SESSIONS} sessions, 3 agents, 5 folders, ~{WORDS} words/content"
+        );
 
-        let scope = FolderScope::Only(vec![
-            "/wt/alpha".into(),
-            "/wt/beta".into(),
-            "/wt/gamma".into(),
-            "/wt/delta".into(),
-        ]);
-        let mut measure = |label: &str, f: &dyn Fn() -> usize| {
-            // Warm one pass, then report five.
-            let _ = f();
-            let mut last = 0;
-            for _ in 0..5 {
+        let min_of = |f: &dyn Fn() -> usize| -> (std::time::Duration, usize) {
+            let _ = f(); // warm one pass, untimed
+            let mut best = std::time::Duration::MAX;
+            let mut rows = 0;
+            for _ in 0..REPEATS {
                 let t = std::time::Instant::now();
-                last = f();
-                println!("{label}: {:?} ({} rows)", t.elapsed(), last);
+                rows = f();
+                best = best.min(t.elapsed());
             }
+            (best, rows)
         };
         {
             let index = &index;
-            measure("total, empty query, agent+folders", &|| index
-                .search_total("", Some("claude"), Some(&scope))
-                .unwrap()
-                as usize);
-            measure("page, empty query, agent+folders", &|| index
-                .search("", 50, 0, Some("claude"), Some(&scope))
-                .unwrap()
-                .len());
-            measure("total, term, agent+folders", &|| index
-                .search_total("needle", Some("claude"), Some(&scope))
-                .unwrap()
-                as usize);
-            measure("page, term, agent+folders", &|| index
-                .search("needle", 50, 0, Some("claude"), Some(&scope))
-                .unwrap()
-                .len());
-            measure("total, term, unscoped", &|| index
-                .search_total("needle", None, None)
-                .unwrap() as usize);
-            measure("page, term, unscoped, page 3", &|| index
-                .search("needle", 50, 100, None, None)
-                .unwrap()
-                .len());
+            for (bound, n, term) in SERIES {
+                let _ = bound;
+                // The point IS N — proven, not assumed.
+                let actual = index.search_total(term, None, None).unwrap() as usize;
+                assert_eq!(actual, n, "series point {term} matched {actual}, wanted {n}");
+                let (t_total, _) = min_of(&|| index.search_total(term, None, None).unwrap() as usize);
+                let (t_search, rows) = min_of(&|| index.search(term, 50, 0, None, None).unwrap().len());
+                let ratio = t_search.as_secs_f64() / t_total.as_secs_f64();
+                println!(
+                    "N={n:>4}: t_total={t_total:?} t_search={t_search:?} (page {rows}) ratio t_search/t_total={ratio:.2}"
+                );
+            }
         }
     }
 }
