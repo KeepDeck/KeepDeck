@@ -275,11 +275,10 @@ export function SessionsBrowser({
   };
 
   // The blocks' composition lives in the domain (`composeSessionBlocks`)
-  // — one entry point owning the query predicate, the union, the dedup
-  // and the time axis; the view feeds it and draws what it returns. The
-  // counter fields are computed there too, but THIS commit still draws
-  // the old counters: the count's own repair is the next commit, kept
-  // separate so its red guards belong to it provably.
+  // — one entry point owning the query predicate, the union, the dedup,
+  // the time axis AND the counters (numerator the drawn rows,
+  // denominator what the block can draw, twins out): the view feeds it
+  // and draws what it returns, counters included.
   const composed = composeSessionBlocks({
     records: rows,
     query: api.query.trim(),

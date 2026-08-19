@@ -5,8 +5,8 @@ import { rowKeyOf } from "../domain/journal/sessionRow";
 import type { JoinEntry } from "../domain/journal";
 
 /** The join key of a journal row — same shape the index lookup takes.
- * The spelling itself lives in the domain (`blocks.ts`): it keys the
- * ROW, not the effect. */
+ * The spelling itself lives in the domain (`sessionRow.ts`, beside the
+ * row type it keys): it keys the ROW, not the effect. */
 export type RowKey = IndexLookupKey;
 
 /** The stable EMPTY invalidation set — a fresh `new Set()` per call would
