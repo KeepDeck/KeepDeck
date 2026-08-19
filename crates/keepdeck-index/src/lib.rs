@@ -1366,9 +1366,11 @@ mod tests {
             let page = index.search("token", 10, 0, None, None).unwrap();
             assert_eq!(ids(&page), expected);
             // K2: a snippet exists EXACTLY when the session matched by
-            // CONTENT — s-title found by title alone has none.
-            assert!(page[0].snippet.is_some());
-            assert!(page[1].snippet.is_some());
+            // CONTENT — s-title found by title alone has none — and
+            // the snippet is the MATCH's own highlighting, not just
+            // any text: the markers are the value.
+            assert!(page[0].snippet.as_deref().unwrap().contains("[token]"));
+            assert!(page[1].snippet.as_deref().unwrap().contains("[token]"));
             assert_eq!(page[2].snippet, None);
             assert_eq!(
                 index.search_total("token", None, None).unwrap(),

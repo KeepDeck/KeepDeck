@@ -164,9 +164,12 @@ describe("invalidation key seam (T6, end to end)", () => {
 
     // The scan settles with ONE dropped key — the manager's own pen
     // writes it into the snapshot (positive partner: the event
-    // happened, by material). The scan is also what removes the key
-    // FROM the index itself: the double's truth drops it with the
-    // settle, so the next ask honestly answers absent.
+    // happened, by material, in the manager's OWN spelling — this
+    // assert must not carry the consumer's pen, or it would hide the
+    // very divergence the test exists to catch). The scan is also
+    // what removes the key FROM the index itself: the double's truth
+    // drops it with the settle, so the next ask honestly answers
+    // absent.
     await act(async () => {
       indexTruth.delete("claude:s-doom");
       resolveScan({
@@ -175,7 +178,9 @@ describe("invalidation key seam (T6, end to end)", () => {
       });
     });
     await act(async () => {});
-    expect(manager.snapshot().invalidated.has("claude:s-doom")).toBe(true);
+    const emitted = manager.snapshot().invalidated;
+    expect(emitted.size).toBe(1);
+    expect([...emitted][0].endsWith("s-doom")).toBe(true);
 
     // THE SEAM: the purge deleted the record, and the proof is
     // behavioral — the key is re-asked (hits never are) and the
