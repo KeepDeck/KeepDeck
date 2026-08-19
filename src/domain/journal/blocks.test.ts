@@ -239,10 +239,19 @@ describe("composeSessionBlocks — T6: a late answer RE-SEATS its row, compositi
 });
 
 describe("composeSessionBlocks — the counters the composition itself returns", () => {
-  it("twin subtraction and the loaded floor are computed where the rule lives", () => {
-    // Loaded 10 over a shrunken engine total of 8, one twin among the
-    // loaded: the denominator floors at 10 (not 8 — the engine's type
-    // does not promise loaded ≤ total) and drops the twin.
+  // ── The loaded floor, SPLIT BY BLOCK ───────────────────────────────
+  // The engine does not promise loaded ≤ total (a shrinking total
+  // between pages reaches the state), so each block's denominator floors
+  // at its own max(raw, loaded). One witness per floor, inputs SEPARATED
+  // — the shrunken total rides ONE block per case and the other block
+  // carries nothing: removing either max must redden ITS case and ONLY
+  // its case (mutual non-redness is what proves the floors distinct —
+  // one shared-input test covering both is coverage in appearance).
+
+  it("the TOP's floor: shrunken total in the TOP block only", () => {
+    // 10 loaded over a shrunken total of 8, one twin among the loaded:
+    // drawn 10, denominator 1 + max(8, 10) − 1 twin = 10 — the numerator
+    // never overshoots. Without the TOP max: 1 + 8 − 1 = 8 under 10.
     const twins = [hit({ sessionId: "s-1", mtime: 5 })];
     const others = Array.from({ length: 9 }, (_, i) =>
       hit({ sessionId: `o-${i}`, mtime: 100 + i }),
@@ -250,10 +259,29 @@ describe("composeSessionBlocks — the counters the composition itself returns",
     const { top } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],
       topHits: [...twins, ...others],
-      topTotal: 8
+      topTotal: 8,
     });
     expect(top.shown).toBe(10); // journal 1 + kept 9
     expect(top.total).toBe(10); // 1 + max(8,10) − 1 twin
+  });
+
+  it("the BOTTOM's floor: shrunken total in the BOTTOM block only", () => {
+    // The mirror, isolated: 10 loaded over 8 in the bottom, one twin —
+    // drawn 9, denominator max(8, 10) − 1 = 9, EQUAL. Without the BOTTOM
+    // max: 8 − 1 = 7 under 9. The top block carries only the journal
+    // record (its floor computes 1 either way — this case must stay
+    // green when the TOP max is the one removed).
+    const { bottom } = compose({
+      records: [record({ transcriptPath: "/j/s-1" })],
+      bottomHits: [
+        hit({ sessionId: "s-1", mtime: 5, cwd: "" }),
+        ...Array.from({ length: 9 }, (_, i) => hit({ sessionId: `k-${i}`, mtime: 10 + i })),
+      ],
+      bottomTotal: 8,
+    });
+    expect(bottom.shown).toBe(9);
+    expect(bottom.total).toBe(9);
+    expect(bottom.shown).toBeLessThanOrEqual(bottom.total);
   });
 
   // ── C0: numerator ≤ denominator ALWAYS; equality at full load ──────
@@ -301,25 +329,6 @@ describe("composeSessionBlocks — the counters the composition itself returns",
     expect(bottom.shown).toBe(0);
     expect(bottom.total).toBe(8); // 9 − 1 twin
     expect(bottom.shown).toBeLessThan(bottom.total);
-  });
-
-  it("C0-lower: the bottom's max floor — a shrunken engine total under loaded hits", () => {
-    // The engine does not promise loaded ≤ total: a shrinking total
-    // between pages reaches 10 loaded over 8. With one twin among the
-    // loaded: drawn 9, denominator max(8, 10) − 1 = 9 — EQUAL, invariant
-    // intact. Without the LOWER max the total reads 8 − 1 = 7 and the
-    // numerator overshoots it — the very lie the floor exists for.
-    const { bottom } = compose({
-      records: [record({ transcriptPath: "/j/s-1" })],
-      bottomHits: [
-        hit({ sessionId: "s-1", mtime: 5, cwd: "" }),
-        ...Array.from({ length: 9 }, (_, i) => hit({ sessionId: `k-${i}`, mtime: 10 + i })),
-      ],
-      bottomTotal: 8
-    });
-    expect(bottom.shown).toBe(9);
-    expect(bottom.total).toBe(9);
-    expect(bottom.shown).toBeLessThanOrEqual(bottom.total);
   });
 
   it("C0b: as pages land at an UNCHANGED raw total, the denominator−numerator gap never grows — the twin arrives on the second page", () => {
