@@ -133,6 +133,7 @@ import {
   useBrowserSharedSeam,
   useSessionsBrowser,
 } from "../../app/useSessionsBrowser";
+import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { SessionsBrowser } from "./SessionsBrowser";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -218,7 +219,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     const keys = raw[0] as { agent: string; sessionId: string }[];
     return keys.map(
       (k) =>
-        answerBy[`${k.agent}:${k.sessionId}`] ?? {
+        answerBy[rowKeyOf(k)] ?? {
           agent: k.agent,
           sessionId: k.sessionId,
           status: "absent",

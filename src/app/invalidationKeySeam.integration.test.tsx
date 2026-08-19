@@ -1,18 +1,17 @@
 // @vitest-environment happy-dom
 /**
  * T6 of the characterization table — the KEY SEAM, end to end. The
- * manager writes the dropped keys with its OWN pen
- * (sessionIndexManager.ts: ``${agent}:${sessionId}``), and this
- * consumer deletes by those keys from a table filled through
- * `rowKeyOf` (useJournalEnrichment's declare/apply). Two separate
- * tests — "the manager emitted a set" and "the hook deletes a
- * hand-built set" — prove nothing about the SEAM: if the pens ever
- * diverge, the deletion misses in silence while every unit test
- * stays green. This test wires the REAL manager to the REAL hook
- * exactly as the production seam does (useSessionsBrowser's
- * useBrowserSharedSeam: useSyncExternalStore over the manager's
- * snapshot, its three fields into useJournalEnrichment) and lets a
- * scan's dropped key travel the whole wire.
+ * manager writes the dropped keys and this consumer deletes by them
+ * from a table filled through `rowKeyOf` — one spelling shared by
+ * both ends. Two separate tests — "the manager emitted a set" and
+ * "the hook deletes a hand-built set" — prove nothing about the SEAM:
+ * if a second pen ever appears on either end, the deletion misses in
+ * silence while every unit test stays green. This test wires the
+ * REAL manager to the REAL hook exactly as the production seam does
+ * (useSessionsBrowser's useBrowserSharedSeam: useSyncExternalStore
+ * over the manager's snapshot, its three fields into
+ * useJournalEnrichment) and lets a scan's dropped key travel the
+ * whole wire.
  *
  * Doubled modules sit at the chain's causal ends only: the scan
  * engine (historyScan — what the owner decides over) and the lookup
@@ -25,6 +24,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSessionIndexManager } from "./sessionIndexManager";
 import { useJournalEnrichment } from "./useJournalEnrichment";
+import { rowKeyOf } from "../domain/journal/sessionRow";
 import type { ScanReport } from "./historyScan";
 import type { SessionIndexManager } from "./sessionIndexManager";
 import type { AgentHistory } from "@keepdeck/plugin-api";
@@ -70,7 +70,7 @@ const indexTruth = new Map<string, IndexAnswer>();
 ipc.indexLookup.mockImplementation((...args: unknown[]) =>
   Promise.resolve(
     (args[0] as { agent: string; sessionId: string }[]).map((asked) => {
-      const answer = indexTruth.get(`${asked.agent}:${asked.sessionId}`);
+      const answer = indexTruth.get(rowKeyOf(asked));
       return answer ?? { ...asked, status: "absent" };
     }),
   ),

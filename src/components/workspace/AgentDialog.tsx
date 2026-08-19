@@ -22,6 +22,7 @@ import {
   type SessionStartMode,
 } from "../../domain/agents";
 import { baseName } from "../../domain/deck";
+import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
 import { useAppRuntime } from "../../app/runtimeContext";
@@ -648,7 +649,7 @@ export function AgentDialog({
                 const active =
                   validPick?.handle.sessionId === row.handle.sessionId;
                 return (
-                  <li key={`${row.handle.agent}:${row.handle.sessionId}`}>
+                  <li key={rowKeyOf(row.handle)}>
                     <button
                       type="button"
                       className={`form__session${active ? " form__session--active" : ""}${

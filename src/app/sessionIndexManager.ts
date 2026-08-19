@@ -1,5 +1,6 @@
 import type { AgentHistory } from "@keepdeck/plugin-api";
 import { describeError, log } from "../ipc/log";
+import { rowKeyOf } from "../domain/journal/sessionRow";
 import {
   scanAgentHistories,
   type HistorySource,
@@ -171,11 +172,12 @@ export function createSessionIndexManager(
         provenNow = next;
         // The pruned keys — REPLACED per pass (last answer wins): the
         // caches devalue each list once, when it lands. Identity moves
-        // only when something actually dropped.
+        // only when something actually dropped. `rowKeyOf` — the one
+        // spelling: consumers delete by these keys from tables filled
+        // through the same helper, and a second pen would miss in
+        // silence.
         if (report.dropped.length > 0) {
-          invalidNow = new Set(
-            report.dropped.map((k) => `${k.agent}:${k.sessionId}`),
-          );
+          invalidNow = new Set(report.dropped.map((k) => rowKeyOf(k)));
         }
       })
       .catch((e: unknown) => {

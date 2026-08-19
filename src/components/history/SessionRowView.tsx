@@ -1,5 +1,6 @@
 import { agentSessionCapabilities, type AgentInfo } from "../../domain/agents";
 import type { RowStatus, UnifiedSessionRow } from "../../domain/journal";
+import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
@@ -113,7 +114,7 @@ export function SessionRowView({
 
   return (
     <li
-      key={`${row.agent}:${row.sessionId}`}
+      key={rowKeyOf(row)}
       ref={rowRef}
       className={`history__row${openable ? " history__row--open" : ""}`}
       // The WHOLE row opens the transcript — aiming at the text alone is a
