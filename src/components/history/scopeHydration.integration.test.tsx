@@ -454,14 +454,17 @@ describe("scope change on the REAL carrier", () => {
         ),
       ).toEqual(["s-foreign"]);
 
-      // And it happened AFTER the hydration, proven by the append wire:
-      // the hydrated ws-1 record never rides it (hydrateJournal writes
-      // records, not the outbox), so the ws-2 bound event in the append
-      // log IS the event's own trace — and the positive precondition
-      // above (ws-1 already in the store BEFORE this event was fired)
-      // fixed the order: hydration first, event second. An event fired
-      // before the settle cannot satisfy that precondition — the ws-1
-      // record did not exist yet.
+      // The event's OWN TRACE on the append wire: the hydrated ws-1
+      // record never rides it (hydrateJournal writes records, not the
+      // outbox), so the ws-2 bound event in the append log can only be
+      // the live event's. What this wire does NOT prove is the order:
+      // the owner's drain is gated until hydration completes
+      // (journalPersistence.ts:50), so an event fired BEFORE the
+      // settle still appends AFTER it — the wire says "append after",
+      // not "event after". The order is pinned by the negative
+      // precondition above (no ws-2 record before the event), which an
+      // early-fired event breaks by leaving its record where that line
+      // looks.
       const appendedWs = ipc.appendJournal.mock.calls
         .map((c) => String(c[0]))
         .filter((line) => line.includes("ws-2"));
