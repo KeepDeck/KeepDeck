@@ -1095,4 +1095,205 @@ mod tests {
         assert_eq!(rows, vec![vec![Some("s1".into()), Some("hello".into())]]);
         assert!(query_readonly(&db, "DELETE FROM session", &[]).is_err());
     }
+
+    // ── Characterization table: TODAY's membership and identity, pinned
+    // BEFORE any core extraction. Honest name — these tests state what
+    // the current SQL does, not what a spec would want. Each row names
+    // its EXACT keys and total from THREE sources: the page, the
+    // counter, and a count derived from the FIXTURE'S OWN CONSTRUCTION
+    // (which rows carry the term where, in which folder, under which
+    // agent) — a broken core makes the first two lie together, so the
+    // third must not come from the database at all. All mtimes in a
+    // fixture are DISTINCT: with equal dates the expected order is
+    // undefined and the row would pass or fail by luck.
+    mod characterization {
+        use super::*;
+
+        fn ids(hits: &[SearchHit]) -> Vec<&str> {
+            hits.iter().map(|h| h.session_id.as_str()).collect()
+        }
+
+        #[test]
+        fn t1_empty_query_no_agent_no_folders() {
+            let dir = tempfile::tempdir().unwrap();
+            let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+            let rows = vec![
+                row("claude", "a", 40, "quiet"),
+                row("kimi", "b", 30, "quiet"),
+                row("codex", "e", 20, "quiet"),
+                row("claude", "d", 10, "quiet"),
+            ];
+            index.upsert(&rows).unwrap();
+            // By construction: an empty query matches EVERY row — the
+            // direct count is the fixture's own length.
+            assert_eq!(rows.len(), 4);
+            let expected = ["a", "b", "e", "d"]; // newest first
+            assert_eq!(ids(&index.search("", 10, 0, None, None).unwrap()), expected);
+            assert_eq!(
+                index.search_total("", None, None).unwrap(),
+                expected.len() as i64
+            );
+        }
+
+        #[test]
+        fn t2_search_query_no_agent_no_folders() {
+            let dir = tempfile::tempdir().unwrap();
+            let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+            let mut title_only = row("claude", "pc", 30, "silent work");
+            title_only.title = Some("token report".into());
+            let rows = vec![
+                row("claude", "pa", 50, "token early"),
+                row("kimi", "pb", 40, "token two"),
+                title_only,
+                row("codex", "pd", 20, "unrelated"), // neither arm matches
+            ];
+            index.upsert(&rows).unwrap();
+            // By construction: pa and pb carry "token" in CONTENT, pc in
+            // TITLE, pd in neither — three keys.
+            let expected = ["pa", "pb", "pc"];
+            assert_eq!(ids(&index.search("token", 10, 0, None, None).unwrap()), expected);
+            assert_eq!(
+                index.search_total("token", None, None).unwrap(),
+                expected.len() as i64
+            );
+        }
+
+        #[test]
+        fn t3_empty_query_with_agent_and_folders() {
+            let dir = tempfile::tempdir().unwrap();
+            let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+            let mut a = row("claude", "a", 40, "x");
+            a.cwd = "/mine".into();
+            let mut b = row("kimi", "b", 30, "x");
+            b.cwd = "/mine".into();
+            let mut c = row("claude", "c", 20, "x");
+            c.cwd = "/elsewhere".into();
+            let mut d = row("claude", "d", 10, "x");
+            d.cwd = "/mine".into();
+            index.upsert(&[a, b, c, d]).unwrap();
+            let scope = FolderScope::Only(vec!["/mine".into()]);
+            // By construction: claude AND /mine is a and d — b fails the
+            // agent, c the folder.
+            let expected = ["a", "d"];
+            assert_eq!(
+                ids(&index.search("", 10, 0, Some("claude"), Some(&scope)).unwrap()),
+                expected
+            );
+            assert_eq!(
+                index
+                    .search_total("", Some("claude"), Some(&scope))
+                    .unwrap(),
+                expected.len() as i64
+            );
+        }
+
+        #[test]
+        fn t4_title_match_under_folder_scope_snippet_null() {
+            let dir = tempfile::tempdir().unwrap();
+            let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+            let mut t1 = row("claude", "t1", 40, "morning notes");
+            t1.cwd = "/mine".into();
+            t1.title = Some("zephyr report".into());
+            let mut t2 = row("claude", "t2", 30, "evening notes");
+            t2.cwd = "/elsewhere".into();
+            t2.title = Some("zephyr elsewhere".into());
+            index.upsert(&[t1, t2]).unwrap();
+            let scope = FolderScope::Only(vec!["/mine".into()]);
+            // Positive partner for "zero content matches": the content
+            // arm is ALIVE in this fixture — a word that IS in t1's
+            // content finds it WITH a snippet. Without this, "zephyr
+            // hit nothing by content" could mean a dead arm. (Unscoped
+            // on purpose: the partner proves the FIXTURE's content is
+            // indexed and findable; the scoped behavior is asserted by
+            // the main line below.)
+            let alive = index.search("morning", 10, 0, None, None).unwrap();
+            assert_eq!(ids(&alive), ["t1"]);
+            assert!(alive[0].snippet.is_some());
+            // By construction: "zephyr" is in titles only; /mine holds
+            // t1 alone — one key, no snippet (K2: no content match, no
+            // snippet; K4 first half).
+            let page = index.search("zephyr", 10, 0, None, Some(&scope)).unwrap();
+            assert_eq!(ids(&page), ["t1"]);
+            assert_eq!(page[0].snippet, None);
+            assert_eq!(
+                index.search_total("zephyr", None, Some(&scope)).unwrap(),
+                1
+            );
+        }
+
+        #[test]
+        fn t5_search_with_agent_and_folders_double_match() {
+            let dir = tempfile::tempdir().unwrap();
+            let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+            let mut m1 = row("claude", "m1", 50, "token alpha");
+            m1.cwd = "/mine".into();
+            let mut m2 = row("claude", "m2", 40, "quiet work");
+            m2.cwd = "/mine".into();
+            m2.title = Some("token beta".into());
+            let mut m3 = row("claude", "m3", 30, "token gamma");
+            m3.cwd = "/mine".into();
+            m3.title = Some("token gamma too".into());
+            let mut m4 = row("kimi", "m4", 20, "token delta");
+            m4.cwd = "/mine".into();
+            let mut m5 = row("claude", "m5", 60, "token eps");
+            m5.cwd = "/elsewhere".into();
+            index.upsert(&[m1, m2, m3, m4, m5]).unwrap();
+            let scope = FolderScope::Only(vec!["/mine".into()]);
+            // By construction: claude AND /mine AND (content OR title
+            // "token") is m1 (content), m2 (title), m3 (both) — m4
+            // fails the agent, m5 the folder. The double-matching m3
+            // is ONE key.
+            let expected = ["m1", "m2", "m3"];
+            let page = index
+                .search("token", 10, 0, Some("claude"), Some(&scope))
+                .unwrap();
+            assert_eq!(ids(&page), expected);
+            let total = index
+                .search_total("token", Some("claude"), Some(&scope))
+                .unwrap();
+            assert_eq!(total, expected.len() as i64);
+            // The counter and the page describe the SAME set: same
+            // count, and K2 holds per key — content-found m1 carries a
+            // snippet, title-found m2 does not, double-found m3 does.
+            assert_eq!(page.len() as i64, total);
+            assert!(page[0].snippet.is_some());
+            assert_eq!(page[1].snippet, None);
+            assert!(page[2].snippet.is_some());
+        }
+
+        #[test]
+        fn t7_snippet_by_match_kind_double_match_is_one_key() {
+            let dir = tempfile::tempdir().unwrap();
+            let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+            let mut s_content = row("claude", "s-content", 50, "token early");
+            s_content.title = Some("plain day".into());
+            let mut s_double = row("claude", "s-double", 40, "token gamma");
+            s_double.title = Some("token gamma too".into());
+            let mut s_title = row("claude", "s-title", 30, "quiet");
+            s_title.title = Some("token beta".into());
+            let rows = vec![
+                s_content,
+                s_double,
+                s_title,
+                row("codex", "s-noise", 20, "unrelated"),
+            ];
+            index.upsert(&rows).unwrap();
+            // By construction: three keys match "token" — content-only,
+            // double, title-only — the union of two arms holds FOUR
+            // rows, the answer holds THREE (K4: a double match is one
+            // key).
+            let expected = ["s-content", "s-double", "s-title"];
+            let page = index.search("token", 10, 0, None, None).unwrap();
+            assert_eq!(ids(&page), expected);
+            // K2: a snippet exists EXACTLY when the session matched by
+            // CONTENT — s-title found by title alone has none.
+            assert!(page[0].snippet.is_some());
+            assert!(page[1].snippet.is_some());
+            assert_eq!(page[2].snippet, None);
+            assert_eq!(
+                index.search_total("token", None, None).unwrap(),
+                expected.len() as i64
+            );
+        }
+    }
 }
