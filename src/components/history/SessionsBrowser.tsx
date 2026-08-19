@@ -322,14 +322,18 @@ export function SessionsBrowser({
               {api.firstPagePending ? "searching…" : "indexing…"}
             </span>
           )}
-          {api.top.total > 0 && (
-            // The workspace block's counter — its numerator is what IT
-            // shows (journal rows + its own pages), its denominator what
-            // IT can show; both from its own answer.
+          {composed.top.total > 0 && (
+            // The workspace block's counter — both numbers from the
+            // COMPOSITION (journal rows in the denominator, loaded twins
+            // out of it): numerator what the block DRAWS, denominator
+            // what it can draw. Before full load the denominator is an
+            // UPPER BOUND — the gap to the numerator is index hits not
+            // yet loaded, some of which may yet prove twins; it is
+            // monotone to zero and exact at the end.
             <span className="browser__count">
-              {topRows.length === api.top.total && !api.top.hasMore
-                ? `${api.top.total}`
-                : `${topRows.length} of ${api.top.total}`}
+              {composed.top.shown === composed.top.total && !composed.top.hasMore
+                ? `${composed.top.total}`
+                : `${composed.top.shown} of ${composed.top.total}`}
             </span>
           )}
         </span>
@@ -363,14 +367,14 @@ export function SessionsBrowser({
           </li>
         )}
         {topRows.length > 0 &&
-          (bottomRows.length > 0 || api.bottom.total > 0) && (
+          (bottomRows.length > 0 || composed.bottom.total > 0) && (
             <li className="browser__section">
               All sessions
-              {api.bottom.total > 0 && (
+              {composed.bottom.total > 0 && (
                 <span className="browser__section-count">
-                  {api.bottom.hasMore
-                    ? ` · ${api.bottom.hits.length} of ${api.bottom.total}`
-                    : ` · ${api.bottom.total}`}
+                  {composed.bottom.hasMore
+                    ? ` · ${composed.bottom.shown} of ${composed.bottom.total}`
+                    : ` · ${composed.bottom.total}`}
                 </span>
               )}
             </li>

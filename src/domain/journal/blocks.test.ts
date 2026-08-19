@@ -262,6 +262,83 @@ describe("composeSessionBlocks — the counters the composition itself returns",
       topLoaded: 10,
     });
     expect(top.shown).toBe(10); // journal 1 + kept 9
-    expect(top.total).toBe(10); // max(8, 10) − 1 twin = 9... see C0
+    expect(top.total).toBe(10); // 1 + max(8,10) − 1 twin
+  });
+
+  // ── C0: numerator ≤ denominator ALWAYS; equality at full load ──────
+  // Twins in the inputs are load-bearing — without one, the inequality
+  // holds trivially under any implementation.
+
+  it("C0(i): a twin in the TOP — full load reaches equality", () => {
+    // Journal 1 + engine [twin, stranger] fully loaded (total 2):
+    // drawn 2, denominator 1 + 2 − 1 = 2 — EQUAL at full load.
+    const { top } = compose({
+      records: [record({ transcriptPath: "/j/s-1" })],
+      topHits: [hit({ sessionId: "s-1", mtime: 5 }), hit({ sessionId: "w-1", mtime: 6 })],
+      topTotal: 2,
+      topLoaded: 2,
+    });
+    expect(top.shown).toBe(2);
+    expect(top.total).toBe(2);
+    expect(top.shown).toBeLessThanOrEqual(top.total);
+  });
+
+  it("C0(ii): a twin in the BOTTOM (the empty-cwd shape) — inequality holds, equality at full load", () => {
+    const { bottom } = compose({
+      records: [record({ transcriptPath: "/j/s-1" })],
+      bottomHits: [
+        hit({ sessionId: "s-1", mtime: 5, cwd: "" }),
+        hit({ sessionId: "g-1", mtime: 6 }),
+      ],
+      bottomTotal: 2,
+      bottomLoaded: 2,
+    });
+    expect(bottom.shown).toBe(1);
+    expect(bottom.total).toBe(1); // 2 − 1 twin, full load: EQUAL
+    expect(bottom.shown).toBeLessThanOrEqual(bottom.total);
+  });
+
+  it("C0(iii): partial load with twins in BOTH blocks — strict inequality, never inverted", () => {
+    const { top, bottom } = compose({
+      records: [record({ transcriptPath: "/j/s-1" })],
+      topHits: [hit({ sessionId: "s-1", mtime: 5 })],
+      topTotal: 7,
+      topLoaded: 1,
+      bottomHits: [hit({ sessionId: "s-1", mtime: 5, cwd: "" })],
+      bottomTotal: 9,
+      bottomLoaded: 1,
+    });
+    expect(top.shown).toBe(1); // the journal row only
+    expect(top.total).toBe(7); // 1 journal + 7 − 1 twin
+    expect(top.shown).toBeLessThan(top.total);
+    expect(bottom.shown).toBe(0);
+    expect(bottom.total).toBe(8); // 9 − 1 twin
+    expect(bottom.shown).toBeLessThan(bottom.total);
+  });
+
+  it("C0b: the denominator−numerator gap NEVER GROWS as pages land — the twin arrives on the second page", () => {
+    const journal = [record({ transcriptPath: "/j/s-1" })];
+    // Page 1: a stranger only.
+    const page1 = compose({
+      records: journal,
+      topHits: [hit({ sessionId: "a", mtime: 5 })],
+      topTotal: 3,
+      topLoaded: 1,
+    });
+    // Page 2: the twin lands among the loaded.
+    const page2 = compose({
+      records: journal,
+      topHits: [hit({ sessionId: "a", mtime: 5 }), hit({ sessionId: "s-1", mtime: 4 })],
+      topTotal: 3,
+      topLoaded: 2,
+    });
+    const gap1 = page1.top.total - page1.top.shown;
+    const gap2 = page2.top.total - page2.top.shown;
+    // page1: total 1+3−0=4, shown 2 → gap 2; page2: total 1+3−1=3,
+    // shown 2 → gap 1. The twin's arrival SHRANK the gap by exactly
+    // itself — no off-by-one growth.
+    expect(gap1).toBe(2);
+    expect(gap2).toBe(1);
+    expect(gap2).toBeLessThanOrEqual(gap1);
   });
 });

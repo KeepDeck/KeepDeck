@@ -389,6 +389,86 @@ describe("SessionsBrowser", () => {
     );
   });
 
+  // ── Commit-2 guards: the counters count what the block DRAWS ────────
+
+  it("C1-top: the workspace numerator includes journal rows; no 'shown > total' nonsense", async () => {
+    // Journal-only composition: 2 records, zero index hits — the counter
+    // shows 2 of 2, not "2 of 0", and not nothing.
+    await mount(api([]), [closed(), closed({ sessionId: "s-2" })]);
+    const count = document.querySelector(".browser__count")?.textContent;
+    expect(count).toBe("2");
+  });
+
+  it("C1-top twins: the twin is subtracted from the DENOMINATOR, not drawn twice", async () => {
+    // Two journal records + the engine's page carrying one twin and one
+    // stranger. Drawn: 3 (both journal rows + the stranger). Denominator:
+    // 2 journal + engine total 5 − 1 twin = 6. The OLD counter showed
+    // "3 of 5" — the raw engine total, journal missing, twin uncounted.
+    await mount(
+      api([], {
+        top: blockOf(
+          [hit({ sessionId: "s-1" }), hit({ sessionId: "w-1" })],
+          { total: 5 },
+        ),
+      }),
+      [
+        closed({ transcriptPath: "/j/s-1" }),
+        closed({ sessionId: "s-2" }),
+      ],
+    );
+    expect(document.querySelector(".browser__count")?.textContent).toBe(
+      "3 of 6",
+    );
+  });
+
+  it("C1-bottom: the global numerator counts DRAWN rows — the loaded twin is neither drawn nor counted", async () => {
+    // The bottom engine loaded 2 hits, one of which the journal draws:
+    // the counter says 1 of (2−1).
+    await mount(
+      api([], {
+        bottom: blockOf([hit({ sessionId: "g-1" }), hit({ sessionId: "s-1" })], {
+          total: 2,
+        }),
+      }),
+      [closed({ transcriptPath: "/j/s-1" })],
+    );
+    expect(document.querySelector(".browser__section-count")?.textContent).toBe(
+      " · 1",
+    );
+  });
+
+  it("C1-bottom hasMore: both ternary branches draw the adjusted population", async () => {
+    // Loaded 2 (one stranger, one twin) of engine total 3, more pages to
+    // come: "1 of 2" — numerator the DRAWN stranger, denominator 3 − the
+    // loaded twin. The OLD counter said "2 of 3" (the loaded batch size
+    // over the raw total). The bare-total branch is the C1-bottom case
+    // above.
+    await mount(
+      api([], {
+        bottom: blockOf(
+          [hit({ sessionId: "g-1" }), hit({ sessionId: "s-1" })],
+          { total: 3, hasMore: true },
+        ),
+      }),
+      [closed({ transcriptPath: "/j/s-1" })],
+    );
+    expect(document.querySelector(".browser__section-count")?.textContent).toBe(
+      " · 1 of 2",
+    );
+  });
+
+  it("the divider never says 'All sessions · 0' over an empty bottom", async () => {
+    // The raw engine total is 1 (the twin); the drawn bottom is empty —
+    // the divider's count hides entirely, no " · 0" over nothing.
+    await mount(
+      api([], {
+        bottom: blockOf([hit({ sessionId: "s-1" })], { total: 1 }),
+      }),
+      [closed({ transcriptPath: "/j/s-1" })],
+    );
+    expect(document.querySelector(".browser__section")).toBeNull();
+  });
+
   it("pulls the next page while the list is shorter than its viewport — scroll alone can't fire there", async () => {
     const a = api([hit()], { bottom: blockOf([hit()], { total: 123, hasMore: true }) });
     await mount(a);

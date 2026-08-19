@@ -166,13 +166,18 @@ export function composeSessionBlocks(
   const topTotalShown =
     journalFiltered.length + Math.max(topTotal, topLoaded) - topTwins;
   const bottomTotalShown = Math.max(bottomTotal, bottomLoaded) - bottomTwins;
+  // The engines' own hasMore, derived from the raw totals (loaded < total
+  // is exactly the engine's rule) — DISPLAY-side truth only. The raw
+  // totals stay with the paging engines: feeding a filtered total back
+  // would stop loading early.
+  const topHasMore = topLoaded < topTotal;
 
   return {
     top: {
       rows: topRows,
       shown: topRows.length,
       total: topTotalShown,
-      hasMore: false,
+      hasMore: topHasMore,
     },
     bottom: {
       rows: bottomKept,
