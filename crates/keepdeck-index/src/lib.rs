@@ -491,13 +491,14 @@ impl SessionIndex {
             .map(|(agent, session_id)| {
                 let a = params.add(rusqlite::types::Value::Text(agent.clone()));
                 let s = params.add(rusqlite::types::Value::Text(session_id.clone()));
-                format!("(agent = {a} AND session_id = {s})")
+                format!("({a}, {s})")
             })
             .collect();
         let sql = format!(
             "SELECT agent, session_id, snippet(fts, 0, '[', ']', '…', 12) FROM fts
-             WHERE fts MATCH {match_place} AND ({})",
-            pairs.join(" OR ")
+             WHERE fts MATCH {match_place}
+               AND (agent, session_id) IN (VALUES {})",
+            pairs.join(", ")
         );
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
         let rows = stmt
@@ -1376,6 +1377,110 @@ mod tests {
                 index.search_total("token", None, None).unwrap(),
                 expected.len() as i64
             );
+        }
+    }
+
+    /// A timing MEASUREMENT on a realistic store, not an assertion —
+    /// run explicitly (`cargo test -p keepdeck-index -- --ignored
+    /// realistic_store_timing --nocapture`) and read the printed
+    /// numbers. "Acceptable by construction" is not a measurement:
+    /// this prints what the counter and the page actually cost on a
+    /// store shaped like a long-lived machine's (tens of thousands of
+    /// sessions, a few agents, several folders, content of real
+    /// length), for the empty query and a mid-frequency term, scoped
+    /// and unscoped. Identical harness on both sides of the
+    /// membership-core change.
+    #[test]
+    #[ignore]
+    fn realistic_store_timing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        const SESSIONS: usize = 30_000;
+        const WORDS: usize = 60;
+        let folder_of = |i: usize| match i % 5 {
+            0 => "/wt/alpha",
+            1 => "/wt/beta",
+            2 => "/wt/gamma",
+            3 => "/wt/delta",
+            _ => "/elsewhere/global",
+        };
+        let rows: Vec<IndexRow> = (0..SESSIONS)
+            .map(|i| {
+                let agent = match i % 3 {
+                    0 => "claude",
+                    1 => "codex",
+                    _ => "kimi",
+                };
+                // Every 7th session carries the needle term, so the
+                // hit set is realistic (thousands), not degenerate.
+                let content = if i % 7 == 0 {
+                    format!("session {i} discusses the needle cache invalidation problem in detail")
+                } else {
+                    (0..WORDS)
+                        .map(|w| format!("word{i}x{w}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                IndexRow {
+                    agent: agent.into(),
+                    session_id: format!("s{i}"),
+                    reference: format!("/store/{agent}/s{i}"),
+                    cwd: folder_of(i).into(),
+                    title: Some(format!("title {i}")),
+                    transcript_path: Some(format!("/store/{agent}/s{i}")),
+                    mtime: i as i64,
+                    size: 1024,
+                    content,
+                }
+            })
+            .collect();
+        let t0 = std::time::Instant::now();
+        for batch in rows.chunks(500) {
+            index.upsert(batch).unwrap();
+        }
+        println!("build: {} sessions in {:?}", SESSIONS, t0.elapsed());
+
+        let scope = FolderScope::Only(vec![
+            "/wt/alpha".into(),
+            "/wt/beta".into(),
+            "/wt/gamma".into(),
+            "/wt/delta".into(),
+        ]);
+        let mut measure = |label: &str, f: &dyn Fn() -> usize| {
+            // Warm one pass, then report five.
+            let _ = f();
+            let mut last = 0;
+            for _ in 0..5 {
+                let t = std::time::Instant::now();
+                last = f();
+                println!("{label}: {:?} ({} rows)", t.elapsed(), last);
+            }
+        };
+        {
+            let index = &index;
+            measure("total, empty query, agent+folders", &|| index
+                .search_total("", Some("claude"), Some(&scope))
+                .unwrap()
+                as usize);
+            measure("page, empty query, agent+folders", &|| index
+                .search("", 50, 0, Some("claude"), Some(&scope))
+                .unwrap()
+                .len());
+            measure("total, term, agent+folders", &|| index
+                .search_total("needle", Some("claude"), Some(&scope))
+                .unwrap()
+                as usize);
+            measure("page, term, agent+folders", &|| index
+                .search("needle", 50, 0, Some("claude"), Some(&scope))
+                .unwrap()
+                .len());
+            measure("total, term, unscoped", &|| index
+                .search_total("needle", None, None)
+                .unwrap() as usize);
+            measure("page, term, unscoped, page 3", &|| index
+                .search("needle", 50, 100, None, None)
+                .unwrap()
+                .len());
         }
     }
 }
