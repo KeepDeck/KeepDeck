@@ -77,28 +77,71 @@ impl FolderScope {
     fn is_except(&self) -> bool {
         matches!(self, FolderScope::Except(_))
     }
+}
 
-    /// The SQL fragment for one table alias (`prefix` empty, or `s.` in the
-    /// FTS arm). Returns the clause and how many bind values it owns,
-    /// numbered from `first`. `Except` with NO folders is no clause at all
-    /// (nothing is excluded); `Only` with NO folders matches nothing —
-    /// unreachable from a real workspace (its own folder is always in the
-    /// set), and `1=0` keeps that honest if a caller ever sends it.
-    fn clause(&self, prefix: &str, first: usize) -> (String, usize) {
-        let dirs = self.dirs();
+/// Bind values with their numbers issued AT ADD TIME. Positional
+/// arithmetic — "this clause numbers itself three past the agent" —
+/// cannot survive, because no call site computes a number at all:
+/// adding a value RETURNS the placeholder it owns, and the SQL text
+/// is assembled from those returns. The values vector is in
+/// allocation order by construction, which is exactly the order
+/// `params_from_iter` binds them to `?1..?N`.
+struct Params {
+    values: Vec<rusqlite::types::Value>,
+    next: usize,
+}
+
+impl Params {
+    fn new() -> Self {
+        Params {
+            values: Vec::new(),
+            next: 1,
+        }
+    }
+
+    /// Bind one value; the placeholder it owns comes back.
+    fn add(&mut self, v: rusqlite::types::Value) -> String {
+        let place = format!("?{}", self.next);
+        self.next += 1;
+        self.values.push(v);
+        place
+    }
+
+    /// The agent clause, bound and numbered, with the column already
+    /// qualified for its arm.
+    fn agent_clause(&mut self, agent: Option<&str>, col: &str) -> String {
+        match agent {
+            Some(a) => format!(
+                " AND {col} = {}",
+                self.add(rusqlite::types::Value::Text(a.to_string()))
+            ),
+            None => String::new(),
+        }
+    }
+
+    /// The folder clause, bound and numbered. `Except` with NO
+    /// folders is no clause at all (nothing is excluded); `Only` with
+    /// NO folders matches nothing — unreachable from a real workspace
+    /// (its own folder is always in the set), and `1=0` keeps that
+    /// honest if a caller ever sends it.
+    fn folder_clause(&mut self, folders: Option<&FolderScope>, prefix: &str) -> String {
+        let Some(scope) = folders else {
+            return String::new();
+        };
+        let dirs = scope.dirs();
         if dirs.is_empty() {
-            return if self.is_except() {
-                (String::new(), 0)
+            return if scope.is_except() {
+                String::new()
             } else {
-                (" AND 1=0".to_string(), 0)
+                " AND 1=0".to_string()
             };
         }
-        let placeholders = (0..dirs.len())
-            .map(|i| format!("?{}", first + i))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let op = if self.is_except() { "NOT IN" } else { "IN" };
-        (format!(" AND {prefix}cwd {op} ({placeholders})"), dirs.len())
+        let places: Vec<String> = dirs
+            .iter()
+            .map(|d| self.add(rusqlite::types::Value::Text(d.clone())))
+            .collect();
+        let op = if scope.is_except() { "NOT IN" } else { "IN" };
+        format!(" AND {prefix}cwd {op} ({})", places.join(", "))
     }
 }
 
@@ -282,80 +325,26 @@ impl SessionIndex {
     /// How many sessions match — the "shown X of N" denominator. Same
     /// matching as [`search`] (agent filter, folder scope, FTS ∪
     /// title-LIKE), no paging: the counter and the page come from ONE
-    /// query shape, or the count would describe a different set.
+    /// membership core, or the count would describe a different set.
     pub fn search_total(
         &self,
         query: &str,
         agent: Option<&str>,
         folders: Option<&FolderScope>,
     ) -> Result<i64, String> {
-        use rusqlite::types::Value as SqlValue;
         let q = query.trim();
-        let agent_clause = if agent.is_some() { " AND agent = ?A" } else { "" };
-        if q.is_empty() {
-            // The folder bind values follow the agent's (when present) —
-            // numbered right after whatever came before, or SQLite counts
-            // a gap the values cannot fill.
-            let folder_first = 1 + usize::from(agent.is_some());
-            let folder_sql = match folders {
-                Some(scope) => scope.clause("", folder_first).0,
-                None => String::new(),
-            };
-            let sql = format!(
-                "SELECT COUNT(*) FROM sessions WHERE 1=1{}{}",
-                agent_clause.replace("?A", "?1"),
-                folder_sql,
-            );
-            let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
-            let mut values: Vec<SqlValue> = Vec::new();
-            if let Some(a) = agent {
-                values.push(SqlValue::Text(a.to_string()));
-            }
-            if let Some(scope) = folders {
-                values.extend(scope.dirs().iter().cloned().map(SqlValue::Text));
-            }
-            let total = stmt
-                .query_row(rusqlite::params_from_iter(values), |r| r.get(0))
-                .map_err(|e| e.to_string())?;
-            return Ok(total);
-        }
-        let (fts_query, like) = Self::match_terms(q);
-        let folder_first = 3 + usize::from(agent.is_some());
-        let folder_sql_s = match folders {
-            Some(scope) => scope.clause("s.", folder_first).0,
-            None => String::new(),
+        let mut params = Params::new();
+        let sql = if q.is_empty() {
+            // The empty query's membership is "every session" — a
+            // different matching, shared by both wrappers as ONE
+            // branch: no arms, no dedup, nothing to union.
+            Self::empty_count_sql(&mut params, agent, folders)
+        } else {
+            Self::count_over_core_sql(&mut params, q, agent, folders)
         };
-        let folder_sql = match folders {
-            Some(scope) => scope.clause("", folder_first).0,
-            None => String::new(),
-        };
-        let sql = format!(
-            "SELECT COUNT(*) FROM (
-                SELECT s.agent, s.session_id FROM fts JOIN sessions s
-                  ON s.agent = fts.agent AND s.session_id = fts.session_id
-                WHERE fts MATCH ?1{a1}{f1}
-                UNION
-                SELECT agent, session_id FROM sessions
-                WHERE title LIKE ?2 ESCAPE '\\'{a2}{f2}
-             )",
-            a1 = agent_clause.replace("?A", "?3").replace("agent =", "s.agent ="),
-            a2 = agent_clause.replace("?A", "?3"),
-            f1 = folder_sql_s,
-            f2 = folder_sql,
-        );
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
-        let mut values: Vec<SqlValue> =
-            vec![SqlValue::Text(fts_query), SqlValue::Text(like)];
-        if let Some(a) = agent {
-            values.push(SqlValue::Text(a.to_string()));
-        }
-        if let Some(scope) = folders {
-            values.extend(scope.dirs().iter().cloned().map(SqlValue::Text));
-        }
-        let total = stmt
-            .query_row(rusqlite::params_from_iter(values), |r| r.get(0))
-            .map_err(|e| e.to_string())?;
-        Ok(total)
+        stmt.query_row(rusqlite::params_from_iter(params.values), |r| r.get(0))
+            .map_err(|e| e.to_string())
     }
 
     fn match_terms(q: &str) -> (String, String) {
@@ -368,6 +357,157 @@ impl SessionIndex {
         (fts_query, like)
     }
 
+    /// The ONE membership core: which sessions a non-empty query
+    /// admits — content-FTS ∪ title-LIKE — deduped to a single row
+    /// per session, with the arm that found it (MAX keeps the content
+    /// arm when both did). The counter wraps THIS in COUNT(*); the
+    /// page joins sessions onto it and orders. The arm flag is a
+    /// LITERAL constant inside each arm — never "snippet IS NOT
+    /// NULL", which would make SQLite compute the snippet just to
+    /// test it, and the price this shape exists to remove would
+    /// quietly return. The dedup lives here, once: raw UNION ALL
+    /// below, GROUP BY at this level.
+    fn membership_core_sql(
+        params: &mut Params,
+        q: &str,
+        agent: Option<&str>,
+        folders: Option<&FolderScope>,
+    ) -> String {
+        let (fts_query, like) = Self::match_terms(q);
+        // The user types fragments, not query syntax; quoting kills
+        // injection into the MATCH grammar.
+        let fts_place = params.add(rusqlite::types::Value::Text(fts_query));
+        let like_place = params.add(rusqlite::types::Value::Text(like));
+        let fts_agent = params.agent_clause(agent, "s.agent");
+        let like_agent = params.agent_clause(agent, "agent");
+        // The folder clause guards BOTH arms — a content hit in a
+        // foreign folder is as foreign as a title one.
+        let fts_folders = params.folder_clause(folders, "s.");
+        let like_folders = params.folder_clause(folders, "");
+        format!(
+            "SELECT agent, session_id, MAX(matched_content) AS matched_content FROM (
+                SELECT s.agent AS agent, s.session_id AS session_id, 1 AS matched_content
+                FROM fts JOIN sessions s
+                  ON s.agent = fts.agent AND s.session_id = fts.session_id
+                WHERE fts MATCH {fts_place}{fts_agent}{fts_folders}
+                UNION ALL
+                SELECT agent, session_id, 0 AS matched_content FROM sessions
+                WHERE title LIKE {like_place} ESCAPE '\\'{like_agent}{like_folders}
+             ) GROUP BY agent, session_id"
+        )
+    }
+
+    /// The empty query's counter: membership is "every session under
+    /// the filters" — a different matching, shared by both wrappers
+    /// as ONE branch. Not residual duplication.
+    fn empty_count_sql(
+        params: &mut Params,
+        agent: Option<&str>,
+        folders: Option<&FolderScope>,
+    ) -> String {
+        let agent_c = params.agent_clause(agent, "agent");
+        let folder_c = params.folder_clause(folders, "");
+        format!("SELECT COUNT(*) FROM sessions WHERE 1=1{agent_c}{folder_c}")
+    }
+
+    /// The empty query's page, over the same membership as its
+    /// counter. Limit/offset bind FIRST so the statement's shape
+    /// matches the core page's (page windows after the filters).
+    fn empty_page_sql(
+        params: &mut Params,
+        limit: usize,
+        offset: usize,
+        agent: Option<&str>,
+        folders: Option<&FolderScope>,
+    ) -> String {
+        let limit_place = params.add(rusqlite::types::Value::Integer(limit as i64));
+        let offset_place = params.add(rusqlite::types::Value::Integer(offset as i64));
+        let agent_c = params.agent_clause(agent, "agent");
+        let folder_c = params.folder_clause(folders, "");
+        format!(
+            "SELECT agent, session_id, ref, cwd, title, transcript_path, mtime
+             FROM sessions WHERE 1=1{agent_c}{folder_c}
+             ORDER BY mtime DESC LIMIT {limit_place} OFFSET {offset_place}"
+        )
+    }
+
+    /// The counter over the core: the whole of the count's own SQL —
+    /// one COUNT around the ONE membership. This is the core's hand,
+    /// not the wrapper's: search_total's body assembles no SQL text
+    /// of its own.
+    fn count_over_core_sql(
+        params: &mut Params,
+        q: &str,
+        agent: Option<&str>,
+        folders: Option<&FolderScope>,
+    ) -> String {
+        format!(
+            "SELECT COUNT(*) FROM ({})",
+            Self::membership_core_sql(params, q, agent, folders)
+        )
+    }
+
+    /// The page over the core: the session columns joined onto the
+    /// membership keys, ordered, cut — and deliberately SNIPPET-LESS:
+    /// the snippet arrives by the top-up, after this cut, so the
+    /// never-paged counter never pays for it.
+    fn page_over_core_sql(
+        params: &mut Params,
+        q: &str,
+        limit: usize,
+        offset: usize,
+        agent: Option<&str>,
+        folders: Option<&FolderScope>,
+    ) -> String {
+        let core = Self::membership_core_sql(params, q, agent, folders);
+        let limit_place = params.add(rusqlite::types::Value::Integer(limit as i64));
+        let offset_place = params.add(rusqlite::types::Value::Integer(offset as i64));
+        format!(
+            "SELECT s.agent, s.session_id, s.ref, s.cwd, s.title,
+                    s.transcript_path, s.mtime, k.matched_content
+             FROM ({core}) k
+             JOIN sessions s
+               ON s.agent = k.agent AND s.session_id = k.session_id
+             ORDER BY s.mtime DESC LIMIT {limit_place} OFFSET {offset_place}"
+        )
+    }
+
+    /// The snippet top-up, AFTER the cutoff: one batched FTS MATCH
+    /// over the page's content-found keys alone. It carries no agent
+    /// or folder conditions — the keys arrive already filtered by the
+    /// core — and the MATCH is load-bearing: a snippet may only be
+    /// computed for a row the content arm actually found, which is
+    /// also what makes a title-found row's NULL honest.
+    fn snippet_topup(
+        &self,
+        q: &str,
+        keys: &[(String, String)],
+    ) -> Result<Vec<(String, String, String)>, String> {
+        let (fts_query, _) = Self::match_terms(q);
+        let mut params = Params::new();
+        let match_place = params.add(rusqlite::types::Value::Text(fts_query));
+        let pairs: Vec<String> = keys
+            .iter()
+            .map(|(agent, session_id)| {
+                let a = params.add(rusqlite::types::Value::Text(agent.clone()));
+                let s = params.add(rusqlite::types::Value::Text(session_id.clone()));
+                format!("(agent = {a} AND session_id = {s})")
+            })
+            .collect();
+        let sql = format!(
+            "SELECT agent, session_id, snippet(fts, 0, '[', ']', '…', 12) FROM fts
+             WHERE fts MATCH {match_place} AND ({})",
+            pairs.join(" OR ")
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(params.values), |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
     /// Search titles + content, one page at a time. An empty query lists
     /// everything newest-first (the browser's initial view); `offset` pages
     /// through the FULL match set (no cap — paging replaced the old
@@ -375,7 +515,8 @@ impl SessionIndex {
     /// picker); `folders` carries directory membership INTO the query (the
     /// top block's `Only`, the bottom's `Except`) so pages arrive already
     /// sorted by block and nothing is fetched to be thrown away. Content
-    /// matches carry a snippet.
+    /// matches carry a snippet — fetched for the PAGE's content-found rows
+    /// only, after the cutoff; the counter never enters the top-up.
     pub fn search(
         &self,
         query: &str,
@@ -384,125 +525,64 @@ impl SessionIndex {
         agent: Option<&str>,
         folders: Option<&FolderScope>,
     ) -> Result<Vec<SearchHit>, String> {
-        use rusqlite::types::Value as SqlValue;
         let q = query.trim();
-        let agent_clause = if agent.is_some() { " AND agent = ?A" } else { "" };
-        if q.is_empty() {
-            // Bind values in index order: limit, offset, agent (when
-            // present), then the folders — the clause numbers itself right
-            // after whichever came last.
-            let folder_first = 3 + usize::from(agent.is_some());
-            let folder_sql = match folders {
-                Some(scope) => scope.clause("", folder_first).0,
-                None => String::new(),
-            };
-            let sql = format!(
-                "SELECT agent, session_id, ref, cwd, title, transcript_path, mtime
-                 FROM sessions WHERE 1=1{}{}
-                 ORDER BY mtime DESC LIMIT ?1 OFFSET ?2",
-                agent_clause.replace("?A", "?3"),
-                folder_sql,
-            );
-            let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
-            let map = |r: &rusqlite::Row<'_>| {
-                Ok(SearchHit {
-                    agent: r.get(0)?,
-                    session_id: r.get(1)?,
-                    reference: r.get(2)?,
-                    cwd: r.get(3)?,
-                    title: r.get(4)?,
-                    transcript_path: r.get(5)?,
-                    mtime: r.get(6)?,
-                    snippet: None,
-                })
-            };
-            let mut values: Vec<SqlValue> = vec![
-                SqlValue::Integer(limit as i64),
-                SqlValue::Integer(offset as i64),
-            ];
-            if let Some(a) = agent {
-                values.push(SqlValue::Text(a.to_string()));
-            }
-            if let Some(scope) = folders {
-                values.extend(scope.dirs().iter().cloned().map(SqlValue::Text));
-            }
-            let rows = stmt
-                .query_map(rusqlite::params_from_iter(values), map)
-                .map_err(|e| e.to_string())?
-                .collect::<Result<Vec<_>, _>>();
-            return rows.map_err(|e| e.to_string());
-        }
-        // FTS5 prefix query over content, unioned with a LIKE over titles —
-        // the user types fragments, not query syntax; quoting kills injection
-        // into the MATCH grammar. The UNION would emit a double-matching
-        // session twice (differing snippet column), so pagination dedups in
-        // SQL: group by session, keep MAX(snip) (the non-NULL content hit),
-        // then page with LIMIT/OFFSET over the deduped set. The folder
-        // clause guards BOTH arms — a content hit in a foreign folder is as
-        // foreign as a title one; the folder bind values are shared by
-        // number (?6..) across the arms.
-        let (fts_query, like) = Self::match_terms(q);
-        let folder_first = 5 + usize::from(agent.is_some());
-        let folder_sql_s = match folders {
-            Some(scope) => scope.clause("s.", folder_first).0,
-            None => String::new(),
+        let mut params = Params::new();
+        let (sql, core_query) = if q.is_empty() {
+            (
+                Self::empty_page_sql(&mut params, limit, offset, agent, folders),
+                None,
+            )
+        } else {
+            (
+                Self::page_over_core_sql(&mut params, q, limit, offset, agent, folders),
+                Some(q),
+            )
         };
-        let folder_sql = match folders {
-            Some(scope) => scope.clause("", folder_first).0,
-            None => String::new(),
-        };
-        let sql = format!(
-            "SELECT agent, session_id, ref, cwd, title, transcript_path,
-                    mtime, MAX(snip) AS snippet
-             FROM (
-                SELECT s.agent, s.session_id, s.ref, s.cwd, s.title,
-                       s.transcript_path, s.mtime,
-                       snippet(fts, 0, '[', ']', '…', 12) AS snip
-                FROM fts JOIN sessions s
-                  ON s.agent = fts.agent AND s.session_id = fts.session_id
-                WHERE fts MATCH ?1{a1}{f1}
-                UNION
-                SELECT agent, session_id, ref, cwd, title, transcript_path,
-                       mtime, NULL
-                FROM sessions WHERE title LIKE ?2 ESCAPE '\\'{a2}{f2}
-             )
-             GROUP BY agent, session_id
-             ORDER BY mtime DESC LIMIT ?3 OFFSET ?4",
-            a1 = agent_clause.replace("?A", "?5").replace("agent =", "s.agent ="),
-            a2 = agent_clause.replace("?A", "?5"),
-            f1 = folder_sql_s,
-            f2 = folder_sql,
-        );
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
-        let map = |r: &rusqlite::Row<'_>| {
-            Ok(SearchHit {
-                agent: r.get(0)?,
-                session_id: r.get(1)?,
-                reference: r.get(2)?,
-                cwd: r.get(3)?,
-                title: r.get(4)?,
-                transcript_path: r.get(5)?,
-                mtime: r.get(6)?,
-                snippet: r.get(7)?,
+        // The core page carries the arm flag as its 8th column; the
+        // empty-membership page has none (every row is title-arm by
+        // definition — no snippet, no top-up).
+        let flagged = stmt.column_count() == 8;
+        let mut rows: Vec<(SearchHit, i64)> = stmt
+            .query_map(rusqlite::params_from_iter(params.values), |r| {
+                Ok((
+                    SearchHit {
+                        agent: r.get(0)?,
+                        session_id: r.get(1)?,
+                        reference: r.get(2)?,
+                        cwd: r.get(3)?,
+                        title: r.get(4)?,
+                        transcript_path: r.get(5)?,
+                        mtime: r.get(6)?,
+                        snippet: None,
+                    },
+                    if flagged { r.get(7)? } else { 0 },
+                ))
             })
-        };
-        let mut values: Vec<SqlValue> = vec![
-            SqlValue::Text(fts_query),
-            SqlValue::Text(like),
-            SqlValue::Integer(limit as i64),
-            SqlValue::Integer(offset as i64),
-        ];
-        if let Some(a) = agent {
-            values.push(SqlValue::Text(a.to_string()));
-        }
-        if let Some(scope) = folders {
-            values.extend(scope.dirs().iter().cloned().map(SqlValue::Text));
-        }
-        let rows = stmt
-            .query_map(rusqlite::params_from_iter(values), map)
             .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>();
-        rows.map_err(|e| e.to_string())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        if let Some(core_query) = core_query {
+            // Only the page's content-found rows enter the top-up — a
+            // title-found row's NULL is decided by the arm flag, not
+            // by a failed fetch.
+            let keys: Vec<(String, String)> = rows
+                .iter()
+                .filter(|(_, matched_content)| *matched_content == 1)
+                .map(|(hit, _)| (hit.agent.clone(), hit.session_id.clone()))
+                .collect();
+            if !keys.is_empty() {
+                let snippets = self.snippet_topup(core_query, &keys)?;
+                let by_key: std::collections::HashMap<(String, String), String> =
+                    snippets.into_iter().map(|(a, s, snip)| ((a, s), snip)).collect();
+                for (hit, _) in rows.iter_mut() {
+                    if let Some(snip) = by_key.get(&(hit.agent.clone(), hit.session_id.clone())) {
+                        hit.snippet = Some(snip.clone());
+                    }
+                }
+            }
+        }
+        Ok(rows.into_iter().map(|(hit, _)| hit).collect())
     }
 
     /// Answer each (agent, session_id) key EXACTLY — the journal join's
