@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { JoinEntry } from "./join";
 import type { SessionRecord } from "./sessionLog";
-import { composeSessionBlocks, rowKeyOf } from "./blocks";
-import { rowOfHit, type UnifiedSessionRow } from "./sessionRow";
+import { composeSessionBlocks } from "./blocks";
+import { rowKeyOf, rowOfHit, type UnifiedSessionRow } from "./sessionRow";
 
 const T0 = 1_000;
 const T = (ms: number) => new Date(ms).toISOString();
@@ -50,10 +50,7 @@ const compose = (over: Partial<Parameters<typeof composeSessionBlocks>[0]> = {})
     topHits: [],
     bottomHits: [],
     topTotal: 0,
-    topLoaded: 0,
     bottomTotal: 0,
-    bottomLoaded: 0,
-    bottomHasMore: false,
     ...over,
   });
 
@@ -128,9 +125,7 @@ describe("composeSessionBlocks — T2: a twin with an EMPTY cwd rides the top on
       topHits: [twinTop],
       bottomHits: [twinBottom],
       topTotal: 1,
-      topLoaded: 1,
       bottomTotal: 1,
-      bottomLoaded: 1,
     });
     expect(top.rows.map((r) => r.sessionId)).toEqual(["s-1"]); // ONCE
     expect(bottom.rows).toEqual([]); // never below
@@ -146,8 +141,7 @@ describe("composeSessionBlocks — T3: binding outranks the folder rule", () => 
     const { top, bottom } = compose({
       records: [record({ cwd: "/foreign" })],
       bottomHits: [hit({ sessionId: "s-1", mtime: 5, cwd: "/foreign" })],
-      bottomTotal: 1,
-      bottomLoaded: 1,
+      bottomTotal: 1
     });
     expect(top.rows.map((r) => r.sessionId)).toEqual(["s-1"]);
     expect(bottom.rows).toEqual([]);
@@ -161,9 +155,7 @@ describe("composeSessionBlocks — T4: the top block is a UNION on one axis", ()
       topHits: [hit({ sessionId: "w-1", mtime: 500 })],
       bottomHits: [hit({ sessionId: "g-1", mtime: 900 })],
       topTotal: 1,
-      topLoaded: 1,
       bottomTotal: 1,
-      bottomLoaded: 1,
     });
     expect(top.rows.map((r) => r.sessionId)).toEqual(["w-1", "s-1"]); // axis order
     expect(bottom.rows.map((r) => r.sessionId)).toEqual(["g-1"]);
@@ -195,7 +187,7 @@ describe("composeSessionBlocks — T5: the COMPOSITE axis, proven by contradicti
     ]);
     // (c): a plain hit between the two.
     const c = hit({ sessionId: "c", mtime: 200 });
-    const { top } = compose({ records: [a], entries, topHits: [c], topTotal: 1, topLoaded: 1 });
+    const { top } = compose({ records: [a], entries, topHits: [c], topTotal: 1 });
     expect(top.rows.map((r) => r.sessionId)).toEqual(["c", "a"]); // by mtime, not the mark
 
     // (a′): the mirror — mtime LATER than the journal mark.
@@ -209,7 +201,7 @@ describe("composeSessionBlocks — T5: the COMPOSITE axis, proven by contradicti
       }],
     ]);
     const c2 = hit({ sessionId: "c2", mtime: 200 });
-    const { top: top2 } = compose({ records: [a2], entries: entries2, topHits: [c2], topTotal: 1, topLoaded: 1 });
+    const { top: top2 } = compose({ records: [a2], entries: entries2, topHits: [c2], topTotal: 1 });
     expect(top2.rows.map((r) => r.sessionId)).toEqual(["a2", "c2"]); // mtime wins again
   });
 
@@ -217,7 +209,7 @@ describe("composeSessionBlocks — T5: the COMPOSITE axis, proven by contradicti
     const b = record({ sessionId: "b", endedAt: T(200) });
     const above = hit({ sessionId: "hi", mtime: 400 });
     const below = hit({ sessionId: "lo", mtime: 100 });
-    const { top } = compose({ records: [b], topHits: [above, below], topTotal: 2, topLoaded: 2 });
+    const { top } = compose({ records: [b], topHits: [above, below], topTotal: 2 });
     expect(top.rows.map((r) => r.sessionId)).toEqual(["hi", "b", "lo"]);
   });
 });
@@ -258,8 +250,7 @@ describe("composeSessionBlocks — the counters the composition itself returns",
     const { top } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],
       topHits: [...twins, ...others],
-      topTotal: 8,
-      topLoaded: 10,
+      topTotal: 8
     });
     expect(top.shown).toBe(10); // journal 1 + kept 9
     expect(top.total).toBe(10); // 1 + max(8,10) − 1 twin
@@ -275,8 +266,7 @@ describe("composeSessionBlocks — the counters the composition itself returns",
     const { top } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],
       topHits: [hit({ sessionId: "s-1", mtime: 5 }), hit({ sessionId: "w-1", mtime: 6 })],
-      topTotal: 2,
-      topLoaded: 2,
+      topTotal: 2
     });
     expect(top.shown).toBe(2);
     expect(top.total).toBe(2);
@@ -290,8 +280,7 @@ describe("composeSessionBlocks — the counters the composition itself returns",
         hit({ sessionId: "s-1", mtime: 5, cwd: "" }),
         hit({ sessionId: "g-1", mtime: 6 }),
       ],
-      bottomTotal: 2,
-      bottomLoaded: 2,
+      bottomTotal: 2
     });
     expect(bottom.shown).toBe(1);
     expect(bottom.total).toBe(1); // 2 − 1 twin, full load: EQUAL
@@ -303,10 +292,8 @@ describe("composeSessionBlocks — the counters the composition itself returns",
       records: [record({ transcriptPath: "/j/s-1" })],
       topHits: [hit({ sessionId: "s-1", mtime: 5 })],
       topTotal: 7,
-      topLoaded: 1,
       bottomHits: [hit({ sessionId: "s-1", mtime: 5, cwd: "" })],
       bottomTotal: 9,
-      bottomLoaded: 1,
     });
     expect(top.shown).toBe(1); // the journal row only
     expect(top.total).toBe(7); // 1 journal + 7 − 1 twin
@@ -316,21 +303,38 @@ describe("composeSessionBlocks — the counters the composition itself returns",
     expect(bottom.shown).toBeLessThan(bottom.total);
   });
 
-  it("C0b: the denominator−numerator gap NEVER GROWS as pages land — the twin arrives on the second page", () => {
+  it("C0-lower: the bottom's max floor — a shrunken engine total under loaded hits", () => {
+    // The engine does not promise loaded ≤ total: a shrinking total
+    // between pages reaches 10 loaded over 8. With one twin among the
+    // loaded: drawn 9, denominator max(8, 10) − 1 = 9 — EQUAL, invariant
+    // intact. Without the LOWER max the total reads 8 − 1 = 7 and the
+    // numerator overshoots it — the very lie the floor exists for.
+    const { bottom } = compose({
+      records: [record({ transcriptPath: "/j/s-1" })],
+      bottomHits: [
+        hit({ sessionId: "s-1", mtime: 5, cwd: "" }),
+        ...Array.from({ length: 9 }, (_, i) => hit({ sessionId: `k-${i}`, mtime: 10 + i })),
+      ],
+      bottomTotal: 8
+    });
+    expect(bottom.shown).toBe(9);
+    expect(bottom.total).toBe(9);
+    expect(bottom.shown).toBeLessThanOrEqual(bottom.total);
+  });
+
+  it("C0b: as pages land at an UNCHANGED raw total, the denominator−numerator gap never grows — the twin arrives on the second page", () => {
     const journal = [record({ transcriptPath: "/j/s-1" })];
     // Page 1: a stranger only.
     const page1 = compose({
       records: journal,
       topHits: [hit({ sessionId: "a", mtime: 5 })],
-      topTotal: 3,
-      topLoaded: 1,
+      topTotal: 3
     });
     // Page 2: the twin lands among the loaded.
     const page2 = compose({
       records: journal,
       topHits: [hit({ sessionId: "a", mtime: 5 }), hit({ sessionId: "s-1", mtime: 4 })],
-      topTotal: 3,
-      topLoaded: 2,
+      topTotal: 3
     });
     const gap1 = page1.top.total - page1.top.shown;
     const gap2 = page2.top.total - page2.top.shown;

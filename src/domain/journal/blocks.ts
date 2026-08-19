@@ -1,12 +1,7 @@
 import type { JoinEntry } from "./join";
 import type { SessionRecord } from "./sessionLog";
 import { joinJournalRow } from "./join";
-import { rowOfJoined, type UnifiedSessionRow } from "./sessionRow";
-
-/** The identity of a session row — "agent:sessionId". The ONE spelling:
- * dedup keys, enrichment keys and React `key`s all ride this. */
-export const rowKeyOf = (key: { agent: string; sessionId: string }): string =>
-  `${key.agent}:${key.sessionId}`;
+import { rowOfJoined, rowKeyOf, type UnifiedSessionRow } from "./sessionRow";
 
 /** The journal-record query predicate — which bound rows stay VISIBLE
  * under an active query. The index search matches CONTENT the client
@@ -31,7 +26,10 @@ export function journalRecordMatches(
  * and the counter over EXACTLY those rows. The counter fields are the
  * block's own — numerator what it DRAWS, denominator what it CAN draw —
  * so the truth of the count is the composition rule's, computed where
- * the rule lives. */
+ * the rule lives. No `hasMore` here on purpose: the bare-total-vs-
+ * "X of N" choice is `shown === total`, the composition's own truth —
+ * equal exactly when the drawn population has reached its bound — and
+ * the paging engine's raw hasMore stays with the engine. */
 export interface ComposedBlock {
   rows: UnifiedSessionRow[];
   /** The drawn-row count — `rows.length`, carried so the counter reads
@@ -43,10 +41,6 @@ export interface ComposedBlock {
    * (some may yet prove to be twins). Monotone toward zero; exact at
    * full load. */
   total: number;
-  /** Whether the block's index half has more pages to load — the
-   * caller's paging stays on the raw engine totals (a filtered total
-   * fed back would stop loading early); this is display-side truth. */
-  hasMore: boolean;
 }
 
 export interface ComposeSessionBlocksInput {
@@ -65,20 +59,17 @@ export interface ComposeSessionBlocksInput {
   /** The agents whose stores the settled scan proved walked whole —
    * the file-erased verdict's precondition. */
   scannedAgents: ReadonlySet<string>;
-  /** The top block's loaded index hits, already mapped to rows. */
+  /** The top block's loaded index hits, already mapped to rows. The
+   * LOADED count is this array's own length — carried as data, not
+   * duplicated as a second number: a caller-fed pair could disagree
+   * with the array and break the very invariant the max floor guards. */
   topHits: UnifiedSessionRow[];
   /** The bottom block's loaded index hits, already mapped to rows. */
   bottomHits: UnifiedSessionRow[];
   /** The top engine's own total (raw, unadjusted). */
   topTotal: number;
-  /** The top engine's loaded hit count. */
-  topLoaded: number;
   /** The bottom engine's own total (raw, unadjusted). */
   bottomTotal: number;
-  /** The bottom engine's loaded hit count. */
-  bottomLoaded: number;
-  /** The bottom engine's own hasMore (raw). */
-  bottomHasMore: boolean;
 }
 
 /**
@@ -107,10 +98,7 @@ export function composeSessionBlocks(
     topHits,
     bottomHits,
     topTotal,
-    topLoaded,
     bottomTotal,
-    bottomLoaded,
-    bottomHasMore,
   } = input;
 
   // ── The top block's journal half ───────────────────────────────────
@@ -157,33 +145,29 @@ export function composeSessionBlocks(
   // Twins among the LOADED hits are rows the engines counted but this
   // block will never draw (the journal draws them, or they are the
   // empty-cwd fall-through) — subtract them from the denominator.
-  // `max` is load-bearing, not cosmetics: the engine's type does not
-  // promise loaded ≤ total (a shrinking total between pages makes the
-  // state reachable), and without the floor the invariant numerator ≤
-  // denominator would break on that input alone.
+  // `max` is load-bearing on BOTH blocks, not cosmetics: the engine's
+  // type does not promise loaded ≤ total (a shrinking total between
+  // pages makes the state reachable — the lower guard pins this shape),
+  // and without the floor the invariant numerator ≤ denominator breaks
+  // on that input alone. The loaded count is the array's own length —
+  // no second number to disagree with it.
   const topTwins = topHits.length - topKept.length;
   const bottomTwins = bottomHits.length - bottomKept.length;
   const topTotalShown =
-    journalFiltered.length + Math.max(topTotal, topLoaded) - topTwins;
-  const bottomTotalShown = Math.max(bottomTotal, bottomLoaded) - bottomTwins;
-  // The engines' own hasMore, derived from the raw totals (loaded < total
-  // is exactly the engine's rule) — DISPLAY-side truth only. The raw
-  // totals stay with the paging engines: feeding a filtered total back
-  // would stop loading early.
-  const topHasMore = topLoaded < topTotal;
+    journalFiltered.length + Math.max(topTotal, topHits.length) - topTwins;
+  const bottomTotalShown =
+    Math.max(bottomTotal, bottomHits.length) - bottomTwins;
 
   return {
     top: {
       rows: topRows,
       shown: topRows.length,
       total: topTotalShown,
-      hasMore: topHasMore,
     },
     bottom: {
       rows: bottomKept,
       shown: bottomKept.length,
       total: bottomTotalShown,
-      hasMore: bottomHasMore,
     },
   };
 }

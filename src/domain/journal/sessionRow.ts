@@ -1,6 +1,15 @@
 import type { JoinedRow, RowStatus } from "./join";
 import type { SessionHandle } from "./sessionLog";
 
+/** The identity of a session row — "agent:sessionId". The ONE spelling:
+ * dedup keys, enrichment keys and React `key`s all ride this. Lives here,
+ * beside the row type it keys: enrichment (a PRECONDITION of composition)
+ * imports it from the row's own home, not from the composition module —
+ * a dependency from consequence back to premise would read circular even
+ * without a module cycle. */
+export const rowKeyOf = (key: { agent: string; sessionId: string }): string =>
+  `${key.agent}:${key.sessionId}`;
+
 /**
  * The ONE row shape both sessions blocks render — the second half of the
  * step's requirement: the blocks differ by WHICH side of the boundary a

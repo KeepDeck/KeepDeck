@@ -15,7 +15,7 @@ vi.mock("../ipc/log", () => ({
 }));
 
 import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
-import { rowKeyOf } from "../domain/journal/blocks";
+import { rowKeyOf } from "../domain/journal/sessionRow";
 import { joinJournalRow } from "../domain/journal";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =

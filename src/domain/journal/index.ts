@@ -24,12 +24,12 @@ export {
 export {
   rowOfHit,
   rowOfJoined,
+  rowKeyOf,
   type UnifiedSessionRow,
 } from "./sessionRow";
 export {
   composeSessionBlocks,
   journalRecordMatches,
-  rowKeyOf,
   type ComposedBlock,
   type ComposeSessionBlocksInput,
 } from "./blocks";

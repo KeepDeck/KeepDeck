@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { indexLookup, type IndexLookupKey } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
-import { rowKeyOf } from "../domain/journal/blocks";
+import { rowKeyOf } from "../domain/journal/sessionRow";
 import type { JoinEntry } from "../domain/journal";
 
 /** The join key of a journal row — same shape the index lookup takes.

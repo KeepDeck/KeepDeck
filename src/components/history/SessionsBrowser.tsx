@@ -290,10 +290,7 @@ export function SessionsBrowser({
     topHits: api.top.hits.map(rowOfHit),
     bottomHits: api.bottom.hits.map(rowOfHit),
     topTotal: api.top.total,
-    topLoaded: api.top.hits.length,
     bottomTotal: api.bottom.total,
-    bottomLoaded: api.bottom.hits.length,
-    bottomHasMore: api.bottom.hasMore,
   });
   const topRows = composed.top.rows;
   const bottomRows = composed.bottom.rows;
@@ -326,12 +323,12 @@ export function SessionsBrowser({
             // The workspace block's counter — both numbers from the
             // COMPOSITION (journal rows in the denominator, loaded twins
             // out of it): numerator what the block DRAWS, denominator
-            // what it can draw. Before full load the denominator is an
-            // UPPER BOUND — the gap to the numerator is index hits not
-            // yet loaded, some of which may yet prove twins; it is
-            // monotone to zero and exact at the end.
+            // what it can draw. The bare-total-vs-"X of N" choice is the
+            // composition's OWN truth — shown === total exactly when the
+            // drawn population has reached its bound; the engine's raw
+            // hasMore stays with the engine.
             <span className="browser__count">
-              {composed.top.shown === composed.top.total && !composed.top.hasMore
+              {composed.top.shown === composed.top.total
                 ? `${composed.top.total}`
                 : `${composed.top.shown} of ${composed.top.total}`}
             </span>
@@ -372,9 +369,9 @@ export function SessionsBrowser({
               All sessions
               {composed.bottom.total > 0 && (
                 <span className="browser__section-count">
-                  {composed.bottom.hasMore
-                    ? ` · ${composed.bottom.shown} of ${composed.bottom.total}`
-                    : ` · ${composed.bottom.total}`}
+                  {composed.bottom.shown === composed.bottom.total
+                    ? ` · ${composed.bottom.total}`
+                    : ` · ${composed.bottom.shown} of ${composed.bottom.total}`}
                 </span>
               )}
             </li>
