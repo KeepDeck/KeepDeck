@@ -1,16 +1,22 @@
 // @vitest-environment happy-dom
 /**
  * The scope-change seam on the REAL carrier — every link of the chain
- * is production code; the only doubles are at the chain's two ENDS
- * (the deck-persistence port — a permission input, not the carrier —
- * and the journal/ind IPC), per the review's rule: fakes are allowed
- * BEFORE the first production causal point and AFTER the last; inside,
- * no manual jumps. Concretely this file builds:
+ * is production code. Doubled modules (the vi.mock list, verbatim):
+ * ipc/history (indexSearch), ipc/journal (loadJournal deferred,
+ * appendJournal, compactJournal), ipc/log, ipc/worktree,
+ * app/runtimeContext (a fixed session-index snapshot — one object
+ * forever, useSyncExternalStore compares by identity). Of these, only
+ * the deck-persistence PORT (a hand-built mutable double, the
+ * permission input) and loadJournal sit at the chain's causal ends;
+ * the rest are ambient frame no test of this seam needs real. The
+ * review's rule holds: fakes allowed BEFORE the first production
+ * causal point and AFTER the last; inside — no manual jumps:
  *
- *   loadJournal (mock, deferred) -> createJournalPersistence (import,
- *   :NN) -> hydrateJournal dispatch -> deckReducer -> createDeckStore
- *   subscribe -> useSyncExternalStore -> journalRows ->
- *   useWorkspaceScope -> useSessionsBrowser -> indexSearch (mock).
+ *   deferred loadJournal (mock) -> createJournalPersistence ->
+ *   hydrateJournal dispatch (the OWNER's, never the test's) ->
+ *   deckReducer inside createDeckStore -> store subscription ->
+ *   useSyncExternalStore -> journalRows -> useWorkspaceScope ->
+ *   useSessionsBrowser -> indexSearch (mock).
  *
  * NOTHING dispatches hydrateJournal by hand: the persistence owner does
  * it once its deferred load resolves and the deck-persistence gate says
@@ -65,6 +71,7 @@ vi.mock("../../app/runtimeContext", () => {
 });
 
 import { useEffect } from "react";
+import { useMemo } from "react";
 import { useSyncExternalStore } from "react";
 import { encodeJournalEvent } from "../../domain/journal/persist";
 import { journalRows } from "../../domain/journal";
@@ -108,10 +115,12 @@ const storedLine = (wsId: string, cwd: string, sessionId: string) =>
 
 /** The deck-persistence port double — a PERMISSION input (readiness),
  * not the carrier; the shape is the mutable-port idiom of
- * useJournalPersistence.test.ts:57-62. */
+ * useJournalPersistence.test.ts:57-62. Counts its live subscriptions so
+ * the teardown witness can observe silence, not just a call. */
 function mutablePersistence(initial: DeckPersistenceSnapshot): {
   port: DeckPersistence;
   set(next: DeckPersistenceSnapshot): void;
+  subscriberCount(): number;
 } {
   let snapshot = initial;
   const listeners = new Set<() => void>();
@@ -128,13 +137,16 @@ function mutablePersistence(initial: DeckPersistenceSnapshot): {
       snapshot = next;
       for (const listener of [...listeners]) listener();
     },
+    subscriberCount: () => listeners.size,
   };
 }
 
 /** The restored deck: ws-1 pane-less (the observed screen), ws-2 WITH a
  * pane — the shape witness 2 needs. Journal keys attach only to
- * RESTORED ids, so both ride the deck's hydrate action. */
-const RESTORED_DECK: Pick<DeckState, "workspaces" | "activeId"> = {
+ * RESTORED ids, so both ride the deck's hydrate action. Typed as the
+ * FULL DeckState (no cast — the compiler names anything missing; the
+ * hydrate action carries this state verbatim into the deck). */
+const RESTORED_DECK: DeckState = {
   workspaces: [
     {
       id: "ws-1",
@@ -154,7 +166,8 @@ const RESTORED_DECK: Pick<DeckState, "workspaces" | "activeId"> = {
     },
   ],
   activeId: "ws-1",
-};
+  viewByWs: {},
+} as DeckState;
 
 let api: ReturnType<typeof useSessionsBrowser>;
 let scopeDirs: ReadonlySet<string>;
@@ -162,12 +175,19 @@ let rowsOut: SessionRecord[];
 
 /** The observed screen's own chain over the REAL store: the store's
  * subscription (useSyncExternalStore — the same wiring useDeck uses),
- * the journal slice, the real scope hook, the real engines. */
+ * the journal slice, the real scope hook, the real engines. The
+ * workspace object comes FROM THE STORE'S STATE (not a module
+ * constant) and the rows are memoized on the journal slice — the
+ * production screen's own discipline (DeckStage.tsx:72). */
 function Screen({ store }: { store: DeckStore }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const rows = journalRows(state.journal.records, "ws-1");
+  const ws = state.workspaces.find((w) => w.id === "ws-1")!;
+  const rows = useMemo(
+    () => journalRows(state.journal.records, "ws-1"),
+    [state.journal, state.journal.records],
+  );
   rowsOut = rows;
-  const dirs = useWorkspaceScope(RESTORED_DECK.workspaces[0], rows);
+  const dirs = useWorkspaceScope(ws, rows);
   scopeDirs = dirs;
   const shared = useBrowserSharedSeam();
   api = useSessionsBrowser(dirs, shared);
@@ -184,7 +204,8 @@ interface Owners {
 /** One owner mount: the store, the persistence owner (started at
  * `restoring` — the real cold-start gate), the deck actions. The
  * journal's load is already in flight (deferred); the readiness flip
- * below releases the owner's hydrate — the production sequence. */
+ * below releases the owner's hydrate — the production sequence. The
+ * owner is DISPOSED on unmount, as the runtime does. */
 function Harness({ ready }: { ready: boolean }) {
   const [owners] = useState<Owners>(() => {
     const store = createDeckStore();
@@ -195,7 +216,7 @@ function Harness({ ready }: { ready: boolean }) {
     const actions = createDeckActions(store);
     // The deck restores FIRST — its workspaces become the ids a loaded
     // journal may adopt (the reducer's own rule).
-    actions.hydrate(RESTORED_DECK as DeckState);
+    actions.hydrate(RESTORED_DECK);
     return {
       store,
       persistence,
@@ -207,13 +228,31 @@ function Harness({ ready }: { ready: boolean }) {
     if (!ready) return;
     owners.persistence.set({ restoring: false, frozen: null });
   }, [ready, owners]);
+  useEffect(() => () => owners.journal.dispose(), [owners]);
   harnessActions = owners.actions;
+  harnessStore = owners.store;
+  harnessPersistence = owners.persistence;
   return createElement(Screen, { store: owners.store });
 }
 
 /** The harness's deck actions — captured for witness 2's production
  * event (setPaneSession through the real creator). */
 let harnessActions: ReturnType<typeof createDeckActions> | null = null;
+/** The harness's store — the witness's view into the REAL state (the
+ * positive assertion that the foreign event actually happened). */
+let harnessStore: DeckStore | null = null;
+/** The harness's persistence double — for the teardown witness. */
+let harnessPersistence: ReturnType<typeof mutablePersistence> | null = null;
+
+/** ws-1's journal projection by content — the immobility snapshot. */
+const ws1Projection = (): string =>
+  JSON.stringify(
+    (harnessStore?.getSnapshot().journal.records["ws-1"] ?? []).map((r) => ({
+      sessionId: r.sessionId,
+      cwd: r.cwd,
+      state: r.state,
+    })),
+  );
 
 describe("scope change on the REAL carrier", () => {
   let root: Root;
@@ -246,10 +285,14 @@ describe("scope change on the REAL carrier", () => {
 
   const mount = async (ready = false) => {
     harnessActions = null;
+    harnessStore = null;
+    harnessPersistence = null;
     await act(async () => {
       root.render(createElement(Harness, { ready }));
     });
-    if (!harnessActions) throw new Error("harness actions not captured");
+    if (!harnessActions || !harnessStore || !harnessPersistence) {
+      throw new Error("harness owners not captured");
+    }
     await act(async () => {});
   };
   const releaseJournal = async (lines: string[]) => {
@@ -265,8 +308,10 @@ describe("scope change on the REAL carrier", () => {
         await vi.advanceTimersByTimeAsync(0);
       });
       await mount(false);
-      // The narrow ask is out (scope = {/repo} only) and STAYS in
-      // flight — nothing resolves it yet.
+      // The narrow ask is out — identified BY KEY, not by position: it
+      // is the only-scope call over the pre-hydration set.
+      const firstCall = ipc.indexSearch.mock.calls[0] as unknown[];
+      expect(firstCall[4]).toEqual({ mode: "only", dirs: ["/repo"] });
       expect(resolvers.length).toBeGreaterThanOrEqual(2);
       const narrowAsk = resolvers[0];
 
@@ -330,6 +375,20 @@ describe("scope change on the REAL carrier", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(150);
       });
+
+      // PRECONDITION, positive and explicit: the hydration has COMPLETED
+      // before any foreign event — the loaded ws-1 record is IN the
+      // store AND the scope has already widened. Without this a
+      // catch-up hydration triggered by the event itself would mask as
+      // the very immobility under test (the owner subscribes to the
+      // deck; its drain re-reads readiness).
+      expect(
+        harnessStore!.getSnapshot().journal.records["ws-1"]?.map(
+          (r) => r.sessionId,
+        ),
+      ).toEqual(["s-h"]);
+      expect([...scopeDirs].sort()).toEqual(["/repo", "/wt/hist"]);
+
       // The widened page zero lands — rows on screen.
       const callsAfterHydrate = ipc.indexSearch.mock.calls.length;
       const onlyIdx = [...ipc.indexSearch.mock.calls]
@@ -353,7 +412,7 @@ describe("scope change on the REAL carrier", () => {
       );
       expect(api.top.hits.map((h) => h.sessionId)).toContain("hist-row");
       const dirsBefore = scopeDirs;
-      const rowsBefore = rowsOut.length;
+      const projectionBefore = ws1Projection();
 
       // A REAL binding event in ANOTHER workspace: the production action
       // creator (setPaneSession), not a hand-built journal event — the
@@ -367,10 +426,59 @@ describe("scope change on the REAL carrier", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(150);
       });
+      // Let the owner's append-drain microtasks settle (the mock
+      // appendJournal resolves instantly, but the flush is async).
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
 
-      expect(scopeDirs).toBe(dirsBefore); // identity held
-      expect(rowsOut).toHaveLength(rowsBefore); // nothing blanked
-      expect(ipc.indexSearch.mock.calls.length).toBe(callsAfterHydrate); // no re-ask
+      // POSITIVE: the event HAPPENED — ws-2's record exists in the REAL
+      // store's journal now (by material, not by call-spy). Without
+      // this, every assertion below is vacuous: they only say nothing
+      // moved, which is equally true when nothing happened.
+      expect(
+        harnessStore!.getSnapshot().journal.records["ws-2"]?.map(
+          (r) => r.sessionId,
+        ),
+      ).toEqual(["s-foreign"]);
+
+      // And it happened AFTER the hydration, proven by the append wire:
+      // the hydrated ws-1 record never rides it (hydrateJournal writes
+      // records, not the outbox), so the ws-2 bound event in the append
+      // log IS the event's own trace — and the positive precondition
+      // above (ws-1 already in the store BEFORE this event was fired)
+      // fixed the order: hydration first, event second. An event fired
+      // before the settle cannot satisfy that precondition — the ws-1
+      // record did not exist yet.
+      const appendedWs = ipc.appendJournal.mock.calls
+        .map((c) => String(c[0]))
+        .filter((line) => line.includes("ws-2"));
+      expect(appendedWs.length).toBeGreaterThan(0);
+
+      // Immobility by CONTENT (not length — a substitution would keep
+      // the count), identity of the scope set, and no re-ask.
+      expect(ws1Projection()).toBe(projectionBefore);
+      expect(scopeDirs).toBe(dirsBefore);
+      expect(ipc.indexSearch.mock.calls.length).toBe(callsAfterHydrate);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("TEARDOWN: the owner disposes with the harness — silence after unmount, observed", async () => {
+    vi.useFakeTimers();
+    try {
+      await mount(false);
+      // The store subscription and the journal owner's persistence
+      // subscription are live while mounted...
+      expect(harnessPersistence!.subscriberCount()).toBeGreaterThan(0);
+      await act(async () => {
+        root.render(createElement("div", null));
+      });
+      // ...and after unmount: no store subscribers left, no timers armed.
+      // The criterion is observable silence, not a dispose() call sighted.
+      expect(harnessPersistence!.subscriberCount()).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
     }

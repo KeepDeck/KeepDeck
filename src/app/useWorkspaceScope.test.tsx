@@ -27,8 +27,23 @@ const record = (cwd: string): SessionRecord =>
     cwd,
     boundAt: "2026-07-19T10:00:00.000Z",
     state: "closed",
-    endedAt: "2026-07-19T11:00:00.000Z",
+    endedAt: "2026-07-19T11:00:00:00Z".replace(":00:00:", ":00:00:"),
   }) as SessionRecord;
+
+/** A pane for the workspace fixture — the provisioning shape carries no
+ * resolved cwd; a real one may. */
+const pane = (over: {
+  provisioning: boolean;
+  cwd: string | null;
+}): Workspace["panes"][number] =>
+  ({
+    id: "pane-1",
+    agentType: "claude",
+    ...(over.cwd !== null && { cwd: over.cwd }),
+    ...(over.provisioning && {
+      provisioning: { phase: "setup" },
+    }),
+  }) as Workspace["panes"][number];
 
 let dirs: ReadonlySet<string>;
 
@@ -85,5 +100,31 @@ describe("useWorkspaceScope — a SEMANTIC version of the scope", () => {
     await render(ws({}), [record("/hist")]);
     expect(dirs).toBe(first); // the empty cwd moved nothing
     expect([...dirs].sort()).toEqual(["/hist", "/repo"]);
+  });
+
+  it("row 3: a provisioning pane without cwd does NOT move the identity", async () => {
+    // The rule (workspaceDirectories) refuses a provisioning pane's
+    // unresolved cwd; the fingerprint rides the RULE's result — so the
+    // hook's contract's future case is pinned NOW: the pane appears,
+    // the identity holds.
+    await render(ws({ panes: [] }), [record("/hist")]);
+    const first = dirs;
+    await render(
+      ws({ panes: [pane({ provisioning: true, cwd: null })] }),
+      [record("/hist")],
+    );
+    expect(dirs).toBe(first);
+    expect([...dirs].sort()).toEqual(["/hist", "/repo"]);
+  });
+
+  it("row 4: a REAL pane cwd DOES move the identity", async () => {
+    await render(ws({ panes: [] }), [record("/hist")]);
+    const first = dirs;
+    await render(
+      ws({ panes: [pane({ provisioning: false, cwd: "/wt/pane-root" })] }),
+      [record("/hist")],
+    );
+    expect(dirs).not.toBe(first);
+    expect([...dirs].sort()).toEqual(["/hist", "/repo", "/wt/pane-root"]);
   });
 });
