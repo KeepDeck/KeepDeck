@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { indexLookup, type IndexLookupKey } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
+import { rowKeyOf } from "../domain/journal/blocks";
 import type { JoinEntry } from "../domain/journal";
 
-/** The join key of a journal row — same shape the index lookup takes. */
+/** The join key of a journal row — same shape the index lookup takes.
+ * The spelling itself lives in the domain (`blocks.ts`): it keys the
+ * ROW, not the effect. */
 export type RowKey = IndexLookupKey;
-
-export const rowKeyOf = (key: RowKey): string => `${key.agent}:${key.sessionId}`;
 
 /** The stable EMPTY invalidation set — a fresh `new Set()` per call would
  * give the default a new identity every render and fire the purge check

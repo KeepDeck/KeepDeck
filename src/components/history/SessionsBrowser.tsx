@@ -3,17 +3,16 @@ import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
 import {
+  composeSessionBlocks,
   handleFromHit,
-  joinJournalRow,
+  rowKeyOf,
   rowOfHit,
-  rowOfJoined,
   type SessionHandle,
   type SessionRecord,
   type UnifiedSessionRow,
 } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { useSessionsBrowser, type BrowserSharedSeam } from "../../app/useSessionsBrowser";
-import { rowKeyOf } from "../../app/useJournalEnrichment";
 import { BackIcon } from "../../ui/icons";
 import { useScrollPaging, NEAR_END } from "../../ui/useScrollPaging";
 import { SessionRowView } from "./SessionRowView";
@@ -275,80 +274,29 @@ export function SessionsBrowser({
     setLoadingPage(false);
   };
 
-  // The journal section under an active query: the index search matches
-  // CONTENT the client never sees, so the pinned part of the top block
-  // filters on what it has — title, directory, branch, session id.
-  // Deliberately the JOURNAL's fields, not the joined title: enrichment
-  // paints cells, it never decides composition — a title arriving late
-  // must not make a filtered row vanish or appear. (The top block's INDEX
-  // half searches by content with everything else — the union keeps both
-  // kinds findable.)
-  const query = api.query.trim().toLowerCase();
-  const journalFiltered =
-    query === ""
-      ? rows
-      : rows.filter((row) =>
-          [row.title, row.cwd, row.branch, row.sessionId].some(
-            (field) => field !== undefined && field.toLowerCase().includes(query),
-          ),
-        );
-  // The top block's journal half — the join against the shared enrichment
-  // table, then the row shape both blocks render.
-  const journalPart = journalFiltered.map((row) => {
-    const agent = agents.find((a) => a.id === row.agent);
-    return rowOfJoined(
-      joinJournalRow(
-        row,
-        api.enrichment.entries.get(rowKeyOf(row)),
-        agent?.label,
-        // "The answer may still change": the scan state OR the enrichment
-        // table's own pending (an ask in flight, or a revision-bumped
-        // re-ask still owed) — the scan-end publish flips scanning and
-        // bumps the revision in ONE re-render, before any effect can fire
-        // the re-ask, so this composed flag is what keeps that boundary
-        // frame honest.
-        api.scanning || api.enrichment.pending,
-        // The file-erased verdict's precondition: THIS agent's store was
-        // walked by the settled scan. An unscanned agent's absence from
-        // the index proves nothing.
-        api.scannedAgents.has(row.agent),
-      ),
-    );
+  // The blocks' composition lives in the domain (`composeSessionBlocks`)
+  // — one entry point owning the query predicate, the union, the dedup
+  // and the time axis; the view feeds it and draws what it returns. The
+  // counter fields are computed there too, but THIS commit still draws
+  // the old counters: the count's own repair is the next commit, kept
+  // separate so its red guards belong to it provably.
+  const composed = composeSessionBlocks({
+    records: rows,
+    query: api.query.trim(),
+    entries: api.enrichment.entries,
+    agentLabel: (agentId) => agents.find((a) => a.id === agentId)?.label,
+    answerMayChange: api.scanning || api.enrichment.pending,
+    scannedAgents: api.scannedAgents,
+    topHits: api.top.hits.map(rowOfHit),
+    bottomHits: api.bottom.hits.map(rowOfHit),
+    topTotal: api.top.total,
+    topLoaded: api.top.hits.length,
+    bottomTotal: api.bottom.total,
+    bottomLoaded: api.bottom.hits.length,
+    bottomHasMore: api.bottom.hasMore,
   });
-  // The VISIBLE journal keys — the dedup base for BOTH index halves: an
-  // index row the journal already shows is the top block's by binding
-  // FACT, wherever its (possibly EMPTY) cwd falls. Visible, not full: a
-  // journal row the query hid (its match is content-only) must still be
-  // findable through its index hit, not vanish from both blocks.
-  const journalKeys = new Set(
-    journalFiltered.map((row) => `${row.agent}:${row.sessionId}`),
-  );
-  // The top block's index half: workspace-folder hits the journal doesn't
-  // already carry (those are rendered by the journal half above — same
-  // block, no twins).
-  const topIndexPart = api.top.hits
-    .filter((hit) => !journalKeys.has(`${hit.agent}:${hit.sessionId}`))
-    .map(rowOfHit);
-  // ONE axis for the whole block, as decided: the conversation's last
-  // move (the row's `when` — index mtime where known, the journal mark
-  // otherwise), newest first. Concatenating the two halves instead would
-  // leave journal rows standing by BINDING time under an axis that claims
-  // to be conversation time; and a row the index doesn't know keeps its
-  // journal-mark place among the mtime rows instead of sinking below
-  // them all. Stable sort: equal marks keep their half's order. The
-  // re-seating when a scan batch lands IS the accepted §07 price —
-  // insertion by time shifts what sits below, and the block says so.
-  const topRows = [...journalPart, ...topIndexPart].sort(
-    (a, b) => (b.when ?? -Infinity) - (a.when ?? -Infinity),
-  );
-  // The global block: everything but the workspace's folders, minus what
-  // the visible journal already shows (a hit with an EMPTY cwd never
-  // matches any Only-set and would otherwise fall through to Except —
-  // doubling a row the top block already shows; the journal keys catch it
-  // regardless of cwd).
-  const bottomRows = api.bottom.hits
-    .filter((hit) => !journalKeys.has(`${hit.agent}:${hit.sessionId}`))
-    .map(rowOfHit);
+  const topRows = composed.top.rows;
+  const bottomRows = composed.bottom.rows;
   const emptyList = topRows.length === 0 && bottomRows.length === 0;
 
   const now = Date.now();
@@ -393,7 +341,7 @@ export function SessionsBrowser({
       >
         {topRows.map((row, at) => (
           <SessionRowView
-            key={`${row.agent}:${row.sessionId}`}
+            key={rowKeyOf(row)}
             row={row}
             agents={agents}
             dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
@@ -429,7 +377,7 @@ export function SessionsBrowser({
           )}
         {bottomRows.map((row) => (
           <SessionRowView
-            key={`${row.agent}:${row.sessionId}`}
+            key={rowKeyOf(row)}
             row={row}
             agents={agents}
             dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
@@ -464,7 +412,7 @@ export function SessionsBrowser({
           <li className="history__row browser__empty">
             {api.scanning
               ? "Indexing the stores…"
-              : query !== "" || rows.length > 0
+              : api.query.trim() !== "" || rows.length > 0
                 ? "No sessions match"
                 : 'No sessions yet — add an agent with "+ Agent"'}
           </li>

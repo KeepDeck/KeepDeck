@@ -14,9 +14,9 @@ vi.mock("../ipc/log", () => ({
   describeError: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 
-import { useJournalEnrichment, rowKeyOf } from "./useJournalEnrichment";
+import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
+import { rowKeyOf } from "../domain/journal/blocks";
 import { joinJournalRow } from "../domain/journal";
-import type { RowKey } from "./useJournalEnrichment";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;

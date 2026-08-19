@@ -26,3 +26,10 @@ export {
   rowOfJoined,
   type UnifiedSessionRow,
 } from "./sessionRow";
+export {
+  composeSessionBlocks,
+  journalRecordMatches,
+  rowKeyOf,
+  type ComposedBlock,
+  type ComposeSessionBlocksInput,
+} from "./blocks";
