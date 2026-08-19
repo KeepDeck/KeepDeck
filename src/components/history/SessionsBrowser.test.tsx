@@ -1546,4 +1546,24 @@ describe("unified row guard — both blocks, one markup", () => {
       goneRow.querySelector<HTMLButtonElement>(".history__resume")!.disabled,
     ).toBe(true);
   });
+
+  it("GREEN-THROUGH: an INDEX row at a resume-capable agent KEEPS its Resume button", async () => {
+    // The union-narrowing trap: the natural-looking rewrite of the Resume
+    // gate ("bound and not live") would silently strip the button from
+    // EVERY index row — the bottom block's rows, which are exactly the
+    // sessions Resume exists for. An index row has no liveness fact AT
+    // ALL; absence of the fact is not aliveness. This guard is green
+    // before AND after by design — its job is to keep the regression
+    // out, and the mutation check (narrowed condition, one run) is its
+    // proof of teeth.
+    await mount(
+      api([hit({ sessionId: "global-1", title: "from the index", cwd: "/repo" })]),
+      [],
+    );
+    const row = listRows()[0];
+    const resume = row.querySelector<HTMLButtonElement>(".history__resume");
+    expect(resume).not.toBeNull();
+    expect(resume!.disabled).toBe(false);
+    expect(resume!.title).toBe("Resume in /repo");
+  });
 });

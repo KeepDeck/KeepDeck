@@ -90,11 +90,19 @@ export function SessionRowView({
     fork: supportsFork,
     history: canReadHistory,
   } = agentSessionCapabilities(agents, row.agent);
+  // Narrowing by the row's OWN source: the verdict chips, the branch and
+  // the liveness dot are BOUND-row facts (the journal vouches for them);
+  // the snippet is an INDEX-row fact (a content match). Reading each
+  // field only inside its variant is the exhaustive half of the union's
+  // bargain — the compiler enforces the split the markup always implied.
+  const bound = row.kind === "bound" ? row : null;
+  const index = row.kind === "index" ? row : null;
   // A wrong-owner row is visible but continuation would feed the wrong
   // plugin — the affordances do not render at all.
-  const wrongOwner = row.status === "wrong-owner";
+  const wrongOwner = bound?.status === "wrong-owner";
   const openable = row.read !== null && canReadHistory && !wrongOwner;
-  const statusChip = row.status === null ? null : STATUS_CHIP[row.status];
+  const statusChip =
+    bound === null || bound.status === null ? null : STATUS_CHIP[bound.status];
   // The no-title fallback must DISTINGUISH, not decorate: the agent is
   // already the glyph on the left, and a label fallback makes neighbors
   // twins — the very wall of identical rows this work began with. The
@@ -114,12 +122,12 @@ export function SessionRowView({
       // here too).
       onClick={openable ? () => onOpen(row) : undefined}
     >
-      {row.liveness !== null && (
+      {bound !== null && (
         <span
           className={`history__state${
-            row.liveness === "live" ? " history__state--live" : ""
+            bound.liveness === "live" ? " history__state--live" : ""
           }`}
-          title={row.liveness === "live" ? "Running" : "Closed"}
+          title={bound.liveness === "live" ? "Running" : "Closed"}
         />
       )}
       <span className="history__glyph">
@@ -138,8 +146,8 @@ export function SessionRowView({
         <span className="browser__name" title={row.sessionId}>
           {name}
         </span>
-        {row.snippet !== null && (
-          <span className="browser__snippet">{row.snippet}</span>
+        {index !== null && index.snippet !== null && (
+          <span className="browser__snippet">{index.snippet}</span>
         )}
       </button>
       {row.cwd !== "" && (
@@ -150,12 +158,12 @@ export function SessionRowView({
           label={baseName(row.cwd) || row.cwd}
         />
       )}
-      {row.branch !== undefined && (
+      {bound?.branch !== undefined && (
         <Chip
           size="inline"
           className="history__chip"
           title={row.cwd}
-          label={row.branch}
+          label={bound.branch}
         />
       )}
       <span className="history__when">
@@ -188,7 +196,14 @@ export function SessionRowView({
           label="read failed"
         />
       )}
-      {supportsResume && !wrongOwner && row.liveness !== "live" && (
+      {/* The Resume gate, source-aware: a BOUND row resumes unless it is
+       * live right now; an INDEX row has no liveness fact AT ALL and
+       * resumes — most of the bottom block's rows are exactly this, and
+       * narrowing the condition to bound-only would silently strip the
+       * button from every index row. */}
+      {supportsResume &&
+        !wrongOwner &&
+        (index !== null || bound?.liveness !== "live") && (
         <button
           type="button"
           className="history__resume"

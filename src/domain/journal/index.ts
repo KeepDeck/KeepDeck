@@ -25,6 +25,8 @@ export {
   rowOfHit,
   rowOfJoined,
   rowKeyOf,
+  type BoundSessionRow,
+  type IndexSessionRow,
   type UnifiedSessionRow,
 } from "./sessionRow";
 export {
