@@ -1601,6 +1601,45 @@ mod tests {
                     "N={n:>4}: t_total={t_total:?} t_search={t_search:?} (page {rows}) ratio t_search/t_total={ratio:.2}"
                 );
             }
+            // The WIDTH axis: fixed large N, growing page width and
+            // deep offset/scope — does the page's price follow the
+            // LOADED width rather than the match-set size? (The
+            // match-count series above holds width at 50.)
+            println!("width axis (N=1000):");
+            let (t_total, _) = min_of(&|| {
+                index.search_total("mz1000q", None, None).unwrap() as usize
+            });
+            for (width, offset) in [(50usize, 0usize), (500, 0), (1000, 0), (50, 900)] {
+                let (t_search, rows) = min_of(&|| {
+                    index
+                        .search("mz1000q", width, offset, None, None)
+                        .unwrap()
+                        .len()
+                });
+                println!(
+                    "width={width:>4} offset={offset:>4}: t_search={t_search:?} (page {rows}) [t_total={t_total:?}]"
+                );
+            }
+            let scope = FolderScope::Only(vec![
+                "/wt/alpha".into(),
+                "/wt/beta".into(),
+                "/wt/gamma".into(),
+                "/wt/delta".into(),
+            ]);
+            let (t_total_scoped, _) = min_of(&|| {
+                index
+                    .search_total("mz1000q", Some("claude"), Some(&scope))
+                    .unwrap() as usize
+            });
+            let (t_search_scoped, rows) = min_of(&|| {
+                index
+                    .search("mz1000q", 50, 0, Some("claude"), Some(&scope))
+                    .unwrap()
+                    .len()
+            });
+            println!(
+                "width=50 scoped (agent+4 folders): t_total={t_total_scoped:?} t_search={t_search_scoped:?} (page {rows})"
+            );
         }
     }
 }
