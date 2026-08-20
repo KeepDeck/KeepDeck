@@ -321,6 +321,10 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
 // witnesses the committed DOM order plus the raw seam state on both
 // sides of the landing, on ONE mounted tree.
 describe("SessionsBrowser late-landing transition (E7 characterization)", () => {
+  // indicator/firstPagePending are ‹none›/‹false› THROUGHOUT THIS
+  // FIXTURE — the search double answers instantly-empty, so the
+  // search-vs-enrichment race is NOT EXERCISED here; these fields
+  // assert fixture stillness, not product behavior.
   let root: Root;
   let askLog: Array<Array<{ agent: string; sessionId: string }>> = [];
   let pendingResolvers: Array<(answers: IndexLookupAnswer[]) => void> = [];
