@@ -1509,82 +1509,104 @@ mod tests {
         assert!(!sql.contains("cwd"));
     }
 
-    // ── [A1] witness: the chunked top-up's five properties. The
-    // chunk size is the ENGINE'S OWN variable limit, so the guard
-    // forces a boundary the honest way — LOWERING that real limit on
-    // this test's own connection (the engine allows lowering), never
-    // a test-only budget in production code. With the limit at 13,
-    // keys chunk at 6: a 13-key ask crosses a boundary.
+    // ── [A1] witness, END TO END through `search`: the five
+    // properties ride the production path — the arm-flag filter that
+    // decides who enters the top-up, the chunking over the ENGINE'S
+    // OWN variable limit, and the stitch that folds the chunks back
+    // by COMPOSITE key. A direct helper call would bypass the filter
+    // and the stitch, proving neither.
+    //
+    // The boundary is forced the honest way: LOWERING the engine's
+    // real variable limit on this test's own connection (13 → chunks
+    // of 6 keys), never a test-only budget in production code.
     #[test]
-    fn snippet_topup_chunks_at_the_engines_own_limit_five_properties() {
+    fn search_snippets_survive_chunking_and_stitching_five_properties() {
         let dir = tempfile::tempdir().unwrap();
         let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
-        // Rows with a UNIQUE marker per session — the snippet's own
-        // content proves ownership. Two agents share the SAME
-        // session_ids: a boundary crossed on identical ids under
-        // different agents is the stitch's honest case.
+        // Two agents share the SAME session ids, and every row carries
+        // an OWNERSHIP token separate from the query term (the
+        // snippet's highlight wraps the MATCHED term in brackets and
+        // would tear a marker glued to it): a stitch that degenerated
+        // to key-by-session-id would hand one agent the other's
+        // snippet text, and the ownership token would name the thief.
+        // mtimes: the title row newest, then all claude rows, then
+        // all codex — the page order makes the top-up's chunk
+        // boundary fall BETWEEN the agent groups, so every session
+        // id exists on BOTH sides of it.
         let mut rows = Vec::new();
-        for i in 0..6 {
+        for i in 0..6usize {
             for agent in ["claude", "codex"] {
-                rows.push(row(agent, &format!("s{i}"), i as i64, &format!("mzk{i}z marker text")));
+                let mtime = if agent == "claude" { 30 + i } else { 10 + i } as i64;
+                rows.push(row(
+                    agent,
+                    &format!("s{i}"),
+                    mtime,
+                    &format!("mzk shared ground, own token {agent}own{i} closes"),
+                ));
             }
         }
+        let mut title_row = row("claude", "s-title", 90, "quiet words only");
+        title_row.title = Some("mzk heading found by title alone".into());
+        rows.push(title_row);
         index.upsert(&rows).unwrap();
-        // The title-arm key: a session whose content does NOT carry
-        // the term — mixed batches are what the page really send.
-        let mut title_only = row("claude", "s-title", 90, "quiet content");
-        title_only.title = Some("mzz marker title".into());
-        index.upsert(&[title_only]).unwrap();
 
         index
             .conn
             .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 13);
 
-        let mut keys: Vec<(String, String)> = (0..6)
-            .flat_map(|i| {
-                [
-                    ("claude".to_string(), format!("s{i}")),
-                    ("codex".to_string(), format!("s{i}")),
-                ]
-            })
+        // Page wide enough to load the whole match set: 12 content
+        // rows + 1 title row.
+        let hits = index.search("mzk", 50, 0, None, None).unwrap();
+
+        // (1) The EXACT full set: 13 composite keys, no more.
+        assert_eq!(hits.len(), 13);
+        let by_key: std::collections::HashMap<(String, String), Option<String>> = hits
+            .iter()
+            .map(|h| ((h.agent.clone(), h.session_id.clone()), h.snippet.clone()))
             .collect();
-        keys.push(("claude".to_string(), "s-title".to_string()));
-
-        let out = index.snippet_topup("mzk", &keys).unwrap();
-
-        // (1) The EXACT full set of composite keys that match by
-        // content — twelve, not thirteen: the title-arm key never
-        // matches mzk and must not appear.
-        let mut answered: Vec<(String, String)> =
-            out.iter().map(|(a, s, _)| (a.clone(), s.clone())).collect();
-        answered.sort();
-        let mut wanted: Vec<(String, String)> = keys[..12].to_vec();
-        wanted.sort();
-        assert_eq!(answered, wanted);
-        // (2) EXACTLY one result per key.
-        assert_eq!(answered.len(), 12);
-        assert_eq!(
-            answered.iter().collect::<std::collections::HashSet<_>>().len(),
-            12
-        );
-        // (3) A snippet belongs to ITS OWN key — the unique marker
-        // rides inside the snippet itself.
-        for (agent, session_id, snip) in &out {
-            let i = session_id.trim_start_matches('s').to_string();
-            assert!(
-                snip.contains(&format!("mzk{i}z")),
-                "snippet for {agent}/{session_id} carries its own marker: {snip}"
-            );
+        // (2) EXACTLY one result per key — no key lost, none doubled.
+        assert_eq!(by_key.len(), 13);
+        assert!(by_key.contains_key(&("claude".into(), "s-title".into())));
+        for i in 0..6usize {
+            for agent in ["claude", "codex"] {
+                assert!(by_key.contains_key(&(agent.into(), format!("s{i}"))));
+            }
         }
-        // (4) The title-found key stays EMPTY in the mixed batch —
-        // it is absent from the answer, so its row keeps None.
-        assert!(!out.iter().any(|(_, s, _)| s == "s-title"));
-        // (5) The boundary passes through IDENTICAL session_ids
-        // under DIFFERENT agents — chunk at 6 keys, s2/s3 straddle
-        // it in both agents, and all four came home distinct.
-        for (agent, sid) in [("claude", "s2"), ("codex", "s2"), ("claude", "s3"), ("codex", "s3")] {
-            assert!(out.iter().any(|(a, s, _)| a == agent && s == sid));
+        // (3) A snippet belongs to ITS OWN key — both parts of the
+        // key ride inside the snippet's own ownership token.
+        for i in 0..6usize {
+            for agent in ["claude", "codex"] {
+                let snip = by_key
+                    .get(&(agent.into(), format!("s{i}")))
+                    .and_then(|s| s.clone())
+                    .unwrap_or_else(|| panic!("no snippet for {agent}/s{i}"));
+                assert!(
+                    snip.contains(&format!("{agent}own{i}")),
+                    "snippet for {agent}/s{i} is not its own: {snip}"
+                );
+            }
         }
+        // (4) The TITLE-found row stays EMPTY in the mixed batch —
+        // through the production filter: search itself never sent it
+        // to the top-up (its NULL is the arm flag's verdict).
+        assert_eq!(by_key.get(&("claude".into(), "s-title".into())), Some(&None));
+        // (5) The chunk boundary passed through IDENTICAL session_ids
+        // under DIFFERENT agents: the page (after the title row)
+        // holds all claude rows, then all codex rows — the 6-key
+        // chunk boundary falls exactly between them, and the two
+        // sides' id SETS are equal.
+        let content_hits: Vec<&SearchHit> =
+            hits.iter().filter(|h| h.session_id != "s-title").collect();
+        let first_six: Vec<&str> = content_hits[..6].iter().map(|h| h.agent.as_str()).collect();
+        let last_six: Vec<&str> = content_hits[6..].iter().map(|h| h.agent.as_str()).collect();
+        assert!(first_six.iter().all(|a| *a == "claude"), "{first_six:?}");
+        assert!(last_six.iter().all(|a| *a == "codex"), "{last_six:?}");
+        let ids = |hs: &[&SearchHit]| {
+            let mut v: Vec<String> = hs.iter().map(|h| h.session_id.clone()).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(ids(&content_hits[..6]), ids(&content_hits[6..]));
     }
 
     /// A timing MEASUREMENT on a realistic store, not an assertion —
@@ -1740,6 +1762,34 @@ mod tests {
             println!(
                 "width=50 scoped (agent+4 folders): t_total={t_total_scoped:?} t_search={t_search_scoped:?} (page {rows})"
             );
+            // [A2] FORCED multi-chunk: the production chunk (16382
+            // keys at the default limit) is beyond any honest page
+            // width, so the widths above never left the FIRST chunk.
+            // This axis lowers the engine's REAL variable limit on
+            // the measurement's own connection (101 → chunks of 50
+            // keys), keeping N fixed: the same widths now cost 1 / 10
+            // / 20 top-up passes — the multi-chunk price under the
+            // same production mechanism, then the limit is restored.
+            println!("width axis, FORCED multi-chunk (limit 101 → 50-key chunks):");
+            let prev_limit = index.conn.set_limit(
+                rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER,
+                101,
+            );
+            for (width, offset) in [(50usize, 0usize), (500, 0), (1000, 0)] {
+                let (t_search, rows) = min_of(&|| {
+                    index
+                        .search("mz1000q", width, offset, None, None)
+                        .unwrap()
+                        .len()
+                });
+                println!(
+                    "width={width:>4} offset={offset:>4}: t_search={t_search:?} (page {rows}, {} top-up passes)",
+                    (rows + 49) / 50
+                );
+            }
+            index
+                .conn
+                .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, prev_limit);
         }
     }
 }
