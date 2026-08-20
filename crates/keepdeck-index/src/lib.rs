@@ -106,42 +106,81 @@ impl Params {
         self.values.push(v);
         place
     }
+}
 
-    /// The agent clause, bound and numbered, with the column already
-    /// qualified for its arm.
-    fn agent_clause(&mut self, agent: Option<&str>, col: &str) -> String {
-        match agent {
-            Some(a) => format!(
-                " AND {col} = {}",
-                self.add(rusqlite::types::Value::Text(a.to_string()))
-            ),
-            None => String::new(),
+/// The filter binds, allocated ONCE and rendered per arm: one
+/// placeholder for the agent, one per folder, SHARED by both arms of
+/// the core — "allocate once, render twice", the property the old
+/// pre-core SQL had by reusing one number across its arms. A second
+/// allocation per arm would be semantically identical and silently
+/// twice the binds; the plan makes the sharing structural, and the
+/// crate's direct witness test pins it. `render` re-qualifies the
+/// columns per arm (`prefix` empty for the title arm, `s.` for the
+/// FTS arm) — the PLACES never change between renders, only the
+/// column names around them.
+struct FilterPlan {
+    agent_place: Option<String>,
+    folder_places: Vec<String>,
+    /// `Some("IN" | "NOT IN")` when a folder clause exists; the
+    /// operator moves with Only/Except, the ALLOCATION does not.
+    folder_op: Option<&'static str>,
+    /// `Only` with NO folders matches nothing — unreachable from a
+    /// real workspace (its own folder is always in the set), and
+    /// `1=0` keeps that honest if a caller ever sends it. `Except`
+    /// with no folders excludes nothing: no clause, no values.
+    only_empty: bool,
+}
+
+impl FilterPlan {
+    fn allocate(
+        params: &mut Params,
+        agent: Option<&str>,
+        folders: Option<&FolderScope>,
+    ) -> Self {
+        let agent_place =
+            agent.map(|a| params.add(rusqlite::types::Value::Text(a.to_string())));
+        let mut folder_places = Vec::new();
+        let mut folder_op = None;
+        let mut only_empty = false;
+        if let Some(scope) = folders {
+            let dirs = scope.dirs();
+            if dirs.is_empty() {
+                only_empty = !scope.is_except();
+            } else {
+                folder_places = dirs
+                    .iter()
+                    .map(|d| params.add(rusqlite::types::Value::Text(d.clone())))
+                    .collect();
+                folder_op = Some(if scope.is_except() {
+                    "NOT IN"
+                } else {
+                    "IN"
+                });
+            }
+        }
+        FilterPlan {
+            agent_place,
+            folder_places,
+            folder_op,
+            only_empty,
         }
     }
 
-    /// The folder clause, bound and numbered. `Except` with NO
-    /// folders is no clause at all (nothing is excluded); `Only` with
-    /// NO folders matches nothing — unreachable from a real workspace
-    /// (its own folder is always in the set), and `1=0` keeps that
-    /// honest if a caller ever sends it.
-    fn folder_clause(&mut self, folders: Option<&FolderScope>, prefix: &str) -> String {
-        let Some(scope) = folders else {
-            return String::new();
-        };
-        let dirs = scope.dirs();
-        if dirs.is_empty() {
-            return if scope.is_except() {
-                String::new()
-            } else {
-                " AND 1=0".to_string()
-            };
+    /// The clauses for one arm, columns qualified by `prefix`.
+    fn render(&self, prefix: &str) -> String {
+        let mut out = String::new();
+        if let Some(place) = &self.agent_place {
+            out.push_str(&format!(" AND {prefix}agent = {place}"));
         }
-        let places: Vec<String> = dirs
-            .iter()
-            .map(|d| self.add(rusqlite::types::Value::Text(d.clone())))
-            .collect();
-        let op = if scope.is_except() { "NOT IN" } else { "IN" };
-        format!(" AND {prefix}cwd {op} ({})", places.join(", "))
+        if let Some(op) = self.folder_op {
+            out.push_str(&format!(
+                " AND {prefix}cwd {op} ({})",
+                self.folder_places.join(", ")
+            ));
+        } else if self.only_empty {
+            out.push_str(" AND 1=0");
+        }
+        out
     }
 }
 
@@ -378,22 +417,23 @@ impl SessionIndex {
         // injection into the MATCH grammar.
         let fts_place = params.add(rusqlite::types::Value::Text(fts_query));
         let like_place = params.add(rusqlite::types::Value::Text(like));
-        let fts_agent = params.agent_clause(agent, "s.agent");
-        let like_agent = params.agent_clause(agent, "agent");
-        // The folder clause guards BOTH arms — a content hit in a
-        // foreign folder is as foreign as a title one.
-        let fts_folders = params.folder_clause(folders, "s.");
-        let like_folders = params.folder_clause(folders, "");
+        // One plan, both arms: the filters are allocated ONCE and
+        // rendered with each arm's column prefixes — a content hit in
+        // a foreign folder is as foreign as a title one, and the two
+        // arms share the very same placeholders.
+        let plan = FilterPlan::allocate(params, agent, folders);
         format!(
             "SELECT agent, session_id, MAX(matched_content) AS matched_content FROM (
                 SELECT s.agent AS agent, s.session_id AS session_id, 1 AS matched_content
                 FROM fts JOIN sessions s
                   ON s.agent = fts.agent AND s.session_id = fts.session_id
-                WHERE fts MATCH {fts_place}{fts_agent}{fts_folders}
+                WHERE fts MATCH {fts_place}{fts}
                 UNION ALL
                 SELECT agent, session_id, 0 AS matched_content FROM sessions
-                WHERE title LIKE {like_place} ESCAPE '\\'{like_agent}{like_folders}
-             ) GROUP BY agent, session_id"
+                WHERE title LIKE {like_place} ESCAPE '\\'{like}
+             ) GROUP BY agent, session_id",
+            fts = plan.render("s."),
+            like = plan.render(""),
         )
     }
 
@@ -405,9 +445,11 @@ impl SessionIndex {
         agent: Option<&str>,
         folders: Option<&FolderScope>,
     ) -> String {
-        let agent_c = params.agent_clause(agent, "agent");
-        let folder_c = params.folder_clause(folders, "");
-        format!("SELECT COUNT(*) FROM sessions WHERE 1=1{agent_c}{folder_c}")
+        let plan = FilterPlan::allocate(params, agent, folders);
+        format!(
+            "SELECT COUNT(*) FROM sessions WHERE 1=1{}",
+            plan.render("")
+        )
     }
 
     /// The empty query's page, over the same membership as its
@@ -422,12 +464,12 @@ impl SessionIndex {
     ) -> String {
         let limit_place = params.add(rusqlite::types::Value::Integer(limit as i64));
         let offset_place = params.add(rusqlite::types::Value::Integer(offset as i64));
-        let agent_c = params.agent_clause(agent, "agent");
-        let folder_c = params.folder_clause(folders, "");
+        let plan = FilterPlan::allocate(params, agent, folders);
         format!(
             "SELECT agent, session_id, ref, cwd, title, transcript_path, mtime
-             FROM sessions WHERE 1=1{agent_c}{folder_c}
-             ORDER BY mtime DESC LIMIT {limit_place} OFFSET {offset_place}"
+             FROM sessions WHERE 1=1{}
+             ORDER BY mtime DESC LIMIT {limit_place} OFFSET {offset_place}",
+            plan.render("")
         )
     }
 
@@ -1378,6 +1420,71 @@ mod tests {
                 expected.len() as i64
             );
         }
+    }
+
+    // ── [B] witness: the SQL builder's direct guard. Consolidating
+    // four SQL writings into one core made an error in the builder
+    // wrong EVERYWHERE and SILENTLY — before, four writings could
+    // drift and the eye would catch it; after, only a direct test of
+    // the builder's own output says anything. This is that test. It
+    // asserts the plan's STRUCTURE and VALUES, never the whole SQL
+    // string (fragile): counts, shared placeholders, operators.
+    #[test]
+    fn filter_plan_allocates_once_and_renders_per_arm() {
+        // Agent + 2 folders, Only: filter values are 1 + N — ONE
+        // allocation, not one per arm — and the whole core binds
+        // 2 (query terms) + 1 + N.
+        let mut params = Params::new();
+        let only = FolderScope::Only(vec!["/a".into(), "/b".into()]);
+        let sql =
+            SessionIndex::membership_core_sql(&mut params, "term", Some("claude"), Some(&only));
+        assert_eq!(params.values.len(), 2 + 1 + 2);
+        // The very same places render into BOTH arms, each with its
+        // own column qualification.
+        assert!(sql.contains("s.agent = ?3"));
+        assert!(sql.contains(" AND agent = ?3"));
+        assert!(sql.contains("s.cwd IN (?4, ?5)"));
+        assert!(sql.contains(" AND cwd IN (?4, ?5)"));
+
+        // Only vs Except: the OPERATOR moves, the ALLOCATION does not.
+        let mut except_params = Params::new();
+        let except = FolderScope::Except(vec!["/a".into(), "/b".into()]);
+        let except_sql = SessionIndex::membership_core_sql(
+            &mut except_params,
+            "term",
+            Some("claude"),
+            Some(&except),
+        );
+        assert_eq!(except_params.values.len(), params.values.len());
+        assert!(except_sql.contains("cwd NOT IN (?4, ?5)"));
+        assert!(!except_sql.contains("cwd IN (?4"));
+
+        // No agent, no folders: only the two query terms.
+        let mut bare = Params::new();
+        SessionIndex::membership_core_sql(&mut bare, "term", None, None);
+        assert_eq!(bare.values.len(), 2);
+
+        // Empty Only matches nothing and adds NO values; empty Except
+        // is no clause at all and adds none either.
+        let mut empty_only = Params::new();
+        let sql = SessionIndex::membership_core_sql(
+            &mut empty_only,
+            "term",
+            None,
+            Some(&FolderScope::Only(vec![])),
+        );
+        assert_eq!(empty_only.values.len(), 2);
+        assert!(sql.contains("1=0"));
+        let mut empty_except = Params::new();
+        let sql = SessionIndex::membership_core_sql(
+            &mut empty_except,
+            "term",
+            None,
+            Some(&FolderScope::Except(vec![])),
+        );
+        assert_eq!(empty_except.values.len(), 2);
+        assert!(!sql.contains("1=0"));
+        assert!(!sql.contains("cwd"));
     }
 
     /// A timing MEASUREMENT on a realistic store, not an assertion —
