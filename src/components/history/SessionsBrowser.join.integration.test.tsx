@@ -95,7 +95,7 @@ const sessionIndex = vi.hoisted(() => {
   };
   const listeners = new Set<() => void>();
   return {
-    set(next: { scanning: boolean; revision: number }) {
+    set(next: { scanning: boolean; revision: number; invalidated?: Set<string> }) {
       snapshot = { ...snapshot, ...next };
       for (const listener of [...listeners]) listener();
     },
@@ -309,5 +309,229 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     expect(document.querySelector(".history__row")?.textContent).toContain(
       "named by the index",
     );
+  });
+});
+
+// ── E7 characterization: the late-landing transition, made observable ──
+// The behavior E7 is about was NEVER observed: the unit named
+// "a late enrichment answer RE-SEATS its row" substitutes two static
+// tables and never asks or lands anything. This describe runs the REAL
+// chain — Harness → useBrowserSharedSeam → useSessionsBrowser →
+// SessionsBrowser — with a CONTROLLABLE deferred indexLookup, and
+// witnesses the committed DOM order plus the raw seam state on both
+// sides of the landing, on ONE mounted tree.
+describe("SessionsBrowser late-landing transition (E7 characterization)", () => {
+  let root: Root;
+  let askLog: Array<Array<{ agent: string; sessionId: string }>> = [];
+  let pendingResolvers: Array<(answers: IndexLookupAnswer[]) => void> = [];
+
+  beforeEach(() => {
+    ipc.indexSearch.mockReset();
+    ipc.indexSearch.mockResolvedValue({ hits: [], total: 0 });
+    ipc.indexLookup.mockReset();
+    askLog = [];
+    pendingResolvers = [];
+    ipc.indexLookup.mockImplementation((...raw: unknown[]) => {
+      askLog.push(raw[0] as Array<{ agent: string; sessionId: string }>);
+      return new Promise<IndexLookupAnswer[]>((res) => {
+        pendingResolvers.push(res);
+      });
+    });
+    sessionIndex.set({ scanning: false, revision: 1, invalidated: new Set() });
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  /** The raw-state Probe: renders the seam's OWN numbers next to the
+   * browser, reading the SAME api object the browser renders from.
+   * The visible-indicator formula mirrors the component's stated
+   * priority (search pending wins over ambient indexing). */
+  function Probe({ api }: { api: ReturnType<typeof useSessionsBrowser> }) {
+    const indicator = api.firstPagePending
+      ? "Searching"
+      : api.scanning
+        ? "Indexing"
+        : "none";
+    return createElement("div", {
+      "data-probe": "seam",
+      "data-indicator": indicator,
+      "data-scanning": String(api.scanning),
+      "data-first-page-pending": String(api.firstPagePending),
+      "data-top-hits": String(api.top.hits.length),
+      "data-bottom-hits": String(api.bottom.hits.length),
+    });
+  }
+
+  /** One tree, one render: the browser and the probe over the SAME
+   * api. The captured element is reused verbatim for the empty
+   * re-render (form 5). */
+  function LandingHarness({ rows }: { rows: SessionRecord[] }) {
+    const shared = useBrowserSharedSeam();
+    const api = useSessionsBrowser(HARNESS_DIRS, shared);
+    return createElement(
+      "div",
+      null,
+      createElement(SessionsBrowser, {
+        api,
+        agents: AGENTS,
+        ready: true,
+        rows,
+        onResume: vi.fn(),
+        onFork: vi.fn(),
+      }),
+      createElement(Probe, { api }),
+    );
+  }
+
+  /** The committed-DOM snapshot: the two journal rows' order (by the
+   * name cell's session-id title) and the probe tuple. */
+  const snapshot = () => {
+    const order = [...document.querySelectorAll(".history__row")]
+      .filter((r) => r.querySelector(".browser__name"))
+      .map((r) => r.querySelector(".browser__name")!.getAttribute("title"));
+    const p = document.querySelector<HTMLElement>("[data-probe]")!;
+    return {
+      order,
+      indicator: p.dataset.indicator,
+      scanning: p.dataset.scanning,
+      firstPagePending: p.dataset.firstPagePending,
+      topHits: p.dataset.topHits,
+      bottomHits: p.dataset.bottomHits,
+    };
+  };
+
+  // No ties: y's journal mark 300_000, x's 100_000; the late hit for x
+  // carries mtime 500_000 — before landing y leads, after landing x
+  // leads, on marks alone, with no equal timestamps anywhere.
+  const ROW_X = record({
+    sessionId: "x",
+    title: "x-row",
+    transcriptPath: CLAUDE_JOURNAL_ONLY,
+    endedAt: new Date(100_000).toISOString(),
+  });
+  const ROW_Y = record({
+    sessionId: "y",
+    title: "y-row",
+    transcriptPath: CLAUDE_JOURNAL_ONLY,
+    endedAt: new Date(300_000).toISOString(),
+  });
+  const ROWS = [ROW_X, ROW_Y];
+  const hitX = (mtime: number): IndexLookupAnswer => ({
+    agent: "claude",
+    sessionId: "x",
+    status: "hit",
+    reference: CLAUDE_INDEX_ONLY,
+    title: "x by index",
+    mtime,
+  });
+
+  it("the landed answer re-seats the row in one mounted list — committed DOM order, before and after the late hit", async () => {
+    // This test observes the DOM transition, not visual perception —
+    // the frame may never paint.
+    await act(async () => root.render(createElement(LandingHarness, { rows: ROWS })));
+
+    // The real chain asked, by key, exactly the declared rows — one
+    // batched ask, nothing landed yet, no second ask.
+    expect(askLog).toEqual([
+      [
+        { agent: "claude", sessionId: "x" },
+        { agent: "claude", sessionId: "y" },
+      ],
+    ]);
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(1);
+
+    // BEFORE the landing: journal marks alone — y leads.
+    const before = snapshot();
+    expect(before.order).toEqual(["y", "x"]);
+    expect(before).toEqual({
+      order: ["y", "x"],
+      indicator: "none",
+      scanning: "false",
+      firstPagePending: "false",
+      topHits: "0",
+      bottomHits: "0",
+    });
+
+    // The late answer lands on the SAME mounted tree.
+    await act(async () =>
+      pendingResolvers[0]([hitX(500_000), { agent: "claude", sessionId: "y", status: "absent" }]),
+    );
+
+    // AFTER the landing: x re-seated by its index mtime; the SAME two
+    // rows, same keys, nothing else appeared.
+    const after = snapshot();
+    expect(after.order).toEqual(["x", "y"]);
+    expect([...after.order].sort()).toEqual(["x", "y"]);
+    expect(after).toEqual({
+      order: ["x", "y"],
+      indicator: "none",
+      scanning: "false",
+      firstPagePending: "false",
+      topHits: "0",
+      bottomHits: "0",
+    });
+
+    // The after-state survives an empty re-render (same props, same
+    // rows reference): the landing is not a transient frame.
+    await act(async () => root.render(createElement(LandingHarness, { rows: ROWS })));
+    expect(snapshot().order).toEqual(["x", "y"]);
+    // The hit is stable: no re-ask was triggered by the re-render.
+    expect(ipc.indexLookup).toHaveBeenCalledTimes(1);
+  });
+
+  it("an invalidated hit is purged and re-asked — the row falls back to its journal mark until the new answer lands", async () => {
+    await act(async () => root.render(createElement(LandingHarness, { rows: ROWS })));
+
+    // First landing: BOTH keys are hits (y's mtime stays below x's, so
+    // x leads) — y becomes a STABLE hit, which is what makes the later
+    // re-ask exactly-for-x.
+    await act(async () =>
+      pendingResolvers[0]([
+        hitX(500_000),
+        {
+          agent: "claude",
+          sessionId: "y",
+          status: "hit",
+          reference: CLAUDE_INDEX_ONLY,
+          title: "y by index",
+          mtime: 250_000,
+        },
+      ]),
+    );
+    expect(snapshot().order).toEqual(["x", "y"]);
+
+    // A real snapshot update carries the NEW invalidated set (the key
+    // the last scan pruned) with the revision bump — the real chain
+    // purges x's cached hit and re-asks for it.
+    await act(async () => {
+      sessionIndex.set({
+        scanning: false,
+        revision: 2,
+        invalidated: new Set(["claude:x"]),
+      });
+    });
+
+    // The re-ask is EXACTLY for the purged key — y's hit never re-asks.
+    expect(askLog[1]).toEqual([{ agent: "claude", sessionId: "x" }]);
+
+    // The purged row fell back to its journal mark (100_000) while y
+    // keeps its landed one (250_000): y leads again, mid-flight.
+    const mid = snapshot();
+    expect(mid.order).toEqual(["y", "x"]);
+    expect(mid).toEqual({
+      order: ["y", "x"],
+      indicator: "none",
+      scanning: "false",
+      firstPagePending: "false",
+      topHits: "0",
+      bottomHits: "0",
+    });
+
+    // The second landing re-seats x — in the SAME DOM.
+    await act(async () => pendingResolvers[1]([hitX(500_000)]));
+    const after = snapshot();
+    expect(after.order).toEqual(["x", "y"]);
+    expect([...after.order].sort()).toEqual(["x", "y"]);
   });
 });
