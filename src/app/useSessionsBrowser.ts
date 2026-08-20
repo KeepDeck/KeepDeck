@@ -34,14 +34,16 @@ export interface BlockApi {
  * each browser — membership in the query made them workspace-shaped BY
  * DESIGN. */
 export interface BrowserSharedSeam {
+  /** Scan in flight — witnesses: SessionsBrowser.test's busy-sign rows.
+   * (One freshness lifecycle with revision/enrichment below.) */
   scanning: boolean;
   /** The index's revision as the seam sees it — per-browser refresh
-   * effects key on it WITHOUT each browser subscribing twice. */
+   * effects key on it WITHOUT each browser subscribing twice.
+   * Witness: useSessionsBrowser.test's revision-bump re-ask. */
   revision: number;
-  /** The "agent:sessionId" keys the last settled scan PRUNED — sessions
-   * that were indexed and are not anymore. The enrichment cache devalues
-   * exactly these hits; identity moves only when something dropped. */
-  invalidated: ReadonlySet<string>;
+  /** The journal rows' shared enrichment table — witnesses:
+   * useJournalEnrichment.test (the table's own contract) and
+   * SessionsBrowser.join.integration (the join over it). */
   enrichment: {
     entries: ReadonlyMap<string, JoinEntry>;
     /** The table may still change (an ask in flight, or the index moved
@@ -53,10 +55,13 @@ export interface BrowserSharedSeam {
     declare(keys: ReadonlyArray<RowKey>): void;
   };
   /** Declare the need for a fresh index; the sessionIndexManager owns
-   * when a scan actually runs. */
+   * when a scan actually runs. Witness: useSessionsBrowser.test's
+   * ensureFresh pass-through. */
   ensureFresh(): void;
   /** One transcript page, via the owning plugin (live parse — the index
-   * never renders transcripts). */
+   * never renders transcripts). Witness: SessionsBrowser.test's
+   * read-flow rows call it per link, in union order (weak on the
+   * provider seam itself — see E6 small item 1). */
   transcript(
     agent: string,
     ref: string,
@@ -127,7 +132,6 @@ export function useBrowserSharedSeam(): BrowserSharedSeam {
   return {
     scanning: index.scanning,
     revision: index.revision,
-    invalidated: index.invalidated,
     enrichment,
     ensureFresh,
     transcript,
