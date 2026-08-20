@@ -1072,11 +1072,13 @@ describe("SessionsBrowser journal join", () => {
     expect(names[2]).toContain("unknown");
   });
 
-  it("a late enrichment answer RE-SEATS its row — the accepted scan-time reorder, composition untouched", async () => {
+  it("enrichment entries set the row's axis place — two static join snapshots, composition untouched", async () => {
     // Two journal rows by their journal marks; then the index answer
     // lands a recent conversation time for the older one — it moves up to
     // its time place. Same rows, same keys: enrichment re-ordered, never
-    // composed (the §07 price the user accepted knowingly).
+    // composed. Two static join snapshots; this asserts composition/sort
+    // semantics, not a landing transition; the latter is characterized
+    // in SessionsBrowser.join.integration.test.tsx.
     const rows = [
       closed({ sessionId: "x", endedAt: new Date(100_000).toISOString() }),
       closed({ sessionId: "y", endedAt: new Date(300_000).toISOString() }),
