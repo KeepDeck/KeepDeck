@@ -538,4 +538,58 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
     expect(after.order).toEqual(["x", "y"]);
     expect([...after.order].sort()).toEqual(["x", "y"]);
   });
+
+  it("a forced scan×search race keeps the busy slot on Searching — not Indexing — while the row re-seats", async () => {
+    // This test observes the DOM transition, not visual perception —
+    // the frame may never paint. The race is CREATED by this fixture
+    // (scanning forced on, both page-zero searches deferred), not
+    // observed in the wild; no frequency, no duration is claimed.
+    // indicator/firstPagePending here DO assert product behavior —
+    // unlike the two strata above, the race IS exercised.
+    sessionIndex.set({ scanning: true, revision: 1, invalidated: new Set() });
+    const searchResolvers: Array<(page: SearchPage) => void> = [];
+    ipc.indexSearch.mockReset();
+    ipc.indexSearch.mockImplementation(
+      () => new Promise<SearchPage>((res) => searchResolvers.push(res)),
+    );
+
+    await act(async () => root.render(createElement(LandingHarness, { rows: ROWS })));
+
+    // The lookup is deferred, both page-zero searches hang, the scan
+    // flag is ON: the ONE busy slot must name the SEARCH, and the row
+    // order is journal marks alone — y first.
+    const before = snapshot();
+    expect(before).toEqual({
+      order: ["y", "x"],
+      indicator: "Searching",
+      scanning: "true",
+      firstPagePending: "true",
+      topHits: "0",
+      bottomHits: "0",
+    });
+    // The slot does NOT say Indexing while scanning is true — the
+    // conflict §07's second condition lives on, made observable.
+    expect(document.body.textContent).not.toContain("Indexing…");
+
+    // The late hit lands UNDER THE SAME RACE: the row re-seats while
+    // the slot still says Searching.
+    await act(async () =>
+      pendingResolvers[0]([hitX(500_000), { agent: "claude", sessionId: "y", status: "absent" }]),
+    );
+    const after = snapshot();
+    expect(after).toEqual({
+      order: ["x", "y"],
+      indicator: "Searching",
+      scanning: "true",
+      firstPagePending: "true",
+      topHits: "0",
+      bottomHits: "0",
+    });
+    expect(document.body.textContent).not.toContain("Indexing…");
+
+    // Clean finish: release both deferred page-zero searches.
+    await act(async () => {
+      for (const res of searchResolvers) res({ hits: [], total: 0 });
+    });
+  });
 });
