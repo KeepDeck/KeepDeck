@@ -91,12 +91,11 @@ const sessionIndex = vi.hoisted(() => {
   let snapshot = {
     scanning: false,
     revision: 1,
-    scannedAgents: new Set(["claude", "kimi"]),
     invalidated: new Set<string>(),
   };
   const listeners = new Set<() => void>();
   return {
-    set(next: { scanning: boolean; revision: number; scannedAgents?: Set<string> }) {
+    set(next: { scanning: boolean; revision: number }) {
       snapshot = { ...snapshot, ...next };
       for (const listener of [...listeners]) listener();
     },

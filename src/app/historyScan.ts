@@ -43,21 +43,9 @@ interface Enumeration {
   legacy: boolean;
 }
 
-/** One agent's walk outcome — the scan PROOF the freshness owner
- * accumulates. `complete` is the only certified result: everything the
- * enumeration promised was read, indexed, and pruned. `partial` walked
- * something but not to a conclusion (an unreadable store part, a
- * degraded legacy empty listing, a session whose describe/content
- * refused); `failed` is the whole agent's pass refusing. */
-export type AgentScanOutcome = "complete" | "partial" | "failed";
-
-/** Per-agent outcomes of one scan pass, keyed by agent id. */
-export type ScanOutcomes = Map<string, AgentScanOutcome>;
-
-/** One scan pass's report: who walked how, and which sessions the index
- * LOST (pruned) — the per-key invalidation signal for answer caches. */
+/** One scan pass's report: which sessions the index LOST (pruned) —
+ * the per-key invalidation signal for answer caches. */
 export interface ScanReport {
-  outcomes: ScanOutcomes;
   dropped: PrunedKey[];
 }
 
@@ -109,7 +97,6 @@ export async function scanAgentHistories(
    * frozen on stale data. */
   onProgress?: () => void,
 ): Promise<ScanReport> {
-  const outcomes: ScanOutcomes = new Map();
   const dropped: PrunedKey[] = [];
   for (const { agentId, history } of sources) {
     try {
@@ -170,7 +157,6 @@ export async function scanAgentHistories(
           "web:history",
           `${agentId}: empty listing over ${stored.size} indexed sessions — prune skipped (unreadable store?)`,
         );
-        outcomes.set(agentId, "partial");
         continue;
       }
       // A partial pass deletes nothing, and never silently: whatever the
@@ -178,15 +164,16 @@ export async function scanAgentHistories(
       // keeps visible for plugins that skip their own logging.
       if (!complete) {
         log.warn("web:history", `${agentId}: partial listing — nothing pruned`);
-        outcomes.set(agentId, "partial");
         continue;
       }
-      // A session whose describe/content refused was PROVEN to exist by
-      // the enumeration yet never made it into the index — certifying
-      // this pass complete would arm the file-erased verdict over a
-      // file the store demonstrably holds.
+      // A per-session refusal makes ingestion incomplete. Conservatively
+      // do not authorize destructive prune from that pass; retry on a
+      // later scan.
       if (refusedSessions > 0) {
-        outcomes.set(agentId, "partial");
+        log.warn(
+          "web:history",
+          `${agentId}: ${refusedSessions} sessions refused — nothing pruned`,
+        );
         continue;
       }
       const droppedKeys = await ops.prune(
@@ -195,14 +182,12 @@ export async function scanAgentHistories(
       );
       if (droppedKeys.length > 0) onProgress?.();
       dropped.push(...droppedKeys);
-      outcomes.set(agentId, "complete");
     } catch (e) {
       log.warn(
         "web:history",
         `${agentId} history scan failed: ${describeError(e)}`,
       );
-      outcomes.set(agentId, "failed");
     }
   }
-  return { outcomes, dropped };
+  return { dropped };
 }

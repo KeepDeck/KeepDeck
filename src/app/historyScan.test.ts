@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentHistory } from "@keepdeck/plugin-api";
-import {
-  scanAgentHistories,
-  type AgentScanOutcome,
-  type ScanIndexOps,
-} from "./historyScan";
+import { scanAgentHistories, type ScanIndexOps } from "./historyScan";
+import { log } from "../ipc/log";
 
 vi.mock("../ipc/history", () => ({
   indexRefs: vi.fn(),
@@ -245,71 +242,35 @@ describe("scanAgentHistories", () => {
     expect(prunes).toEqual([]);
   });
 
-  it("the per-agent outcome classifies the walk — proof is complete only", async () => {
-    const outcomeOf = async (
-      over: Partial<AgentHistory>,
-      stored: { reference: string; mtime: number; size: number }[] = [],
-    ): Promise<AgentScanOutcome | undefined> => {
-      const { mock } = ops(stored);
-      const report = await scanAgentHistories(
-        [{ agentId: "claude", history: history(over) }],
-        mock,
-      );
-      return report.outcomes.get("claude");
-    };
-
-    // A clean full walk over a whole store: certified.
-    expect(await outcomeOf({})).toBe("complete");
-
-    // A describe/content refusal over a PROVEN file: the store holds it,
-    // the index never got it — certifying would arm a false verdict.
-    expect(
-      await outcomeOf({
-        describe: async () => {
-          throw new Error("read refused");
-        },
-      }),
-    ).toBe("partial");
-
-    // An incomplete listing walked something, not everything.
-    expect(
-      await outcomeOf({
-        list: async () => [],
-        listing: async () => ({ stubs: [], complete: false }),
-      }),
-    ).toBe("partial");
-
-    // The degraded legacy empty listing over a non-empty index: partial,
-    // never certified, never pruned.
-    expect(
-      await outcomeOf(
-        { list: async () => [] },
-        [{ reference: "/s/a", mtime: 5, size: 10 }],
-      ),
-    ).toBe("partial");
-
-    // The agent's whole pass refusing: failed — and the OTHER agent's
-    // outcome survives beside it.
-    const { mock } = ops([]);
-    const both = await scanAgentHistories(
+  it("a per-session refusal conservatively authorizes no prune — and says so", async () => {
+    // The store's enumeration returns a LIVE, CHANGED session whose
+    // describe refuses; the index additionally holds a session the
+    // store no longer lists. Ingestion is incomplete, so the pass must
+    // not authorize destructive prune — and the skip must be OBSERVABLE:
+    // the warning names the refused count and says nothing was pruned.
+    const { mock, prunes } = ops([
+      { reference: "/s/gone", mtime: 1, size: 1 },
+    ]);
+    await scanAgentHistories(
       [
-        { agentId: "claude", history: history() },
         {
-          agentId: "codex",
+          agentId: "claude",
           history: history({
-            list: async () => {
-              throw new Error("store refused");
-            },
-            listing: async () => {
-              throw new Error("store refused");
+            list: async () => [stub("live")],
+            describe: async () => {
+              throw new Error("read refused");
             },
           }),
         },
       ],
       mock,
     );
-    expect(both.outcomes.get("claude")).toBe("complete");
-    expect(both.outcomes.get("codex")).toBe("failed");
+    expect(prunes).toEqual([]);
+    const warned = vi
+      .mocked(log.warn)
+      .mock.calls.map((c) => c.join(" "))
+      .find((m) => m.includes("sessions refused"));
+    expect(warned).toContain("1 sessions refused — nothing pruned");
   });
 
   it("pruned sessions ride the report as dropped keys — the cache's invalidation signal", async () => {

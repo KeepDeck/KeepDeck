@@ -52,7 +52,6 @@ describe("createAppRuntime", () => {
     expect(runtime.sessionIndex.snapshot()).toEqual({
       scanning: false,
       revision: 0,
-      scannedAgents: new Set(),
       invalidated: new Set(),
     });
 
@@ -69,7 +68,6 @@ describe("createAppRuntime", () => {
     expect(runtime.sessionIndex.snapshot()).toEqual({
       scanning: false,
       revision: 0,
-      scannedAgents: new Set(),
       invalidated: new Set(),
     });
   });

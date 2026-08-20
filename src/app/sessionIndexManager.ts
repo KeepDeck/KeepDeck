@@ -21,12 +21,6 @@ export interface SessionIndexSnapshot {
    * subscribes to: a first-ever scan fills the list batch by batch instead
    * of showing emptiness until the end. */
   revision: number;
-  /** The agents whose stores the LAST SETTLED SCAN proved walked whole —
-   * the `file-erased` verdict's precondition. An agent absent here was
-   * never looked at (or not to a conclusion), and its absence from the
-   * index proves nothing. ACCUMULATED across passes: a narrow pass proves
-   * only its own agents, an earlier proof stands until contradicted. */
-  scannedAgents: ReadonlySet<string>;
   /** The "agent:sessionId" keys the last settled scan PRUNED from the
    * index — sessions that WERE there and are not anymore. Per-key answer
    * caches devalue exactly these (a hit that outlived its session is a
@@ -87,7 +81,6 @@ export function createSessionIndexManager(
   let snapshot: SessionIndexSnapshot = {
     scanning: false,
     revision: 0,
-    scannedAgents: new Set(),
     invalidated: new Set(),
   };
   const listeners = new Set<() => void>();
@@ -122,20 +115,17 @@ export function createSessionIndexManager(
    * only when something actually changed. Forgetting this test is how
    * `useSyncExternalStore` loops (the UsageChips lesson). */
   function publish(
-    next: Omit<SessionIndexSnapshot, "scannedAgents" | "invalidated"> & {
-      scannedAgents?: ReadonlySet<string>;
+    next: Omit<SessionIndexSnapshot, "invalidated"> & {
       invalidated?: ReadonlySet<string>;
     },
   ): void {
     const merged: SessionIndexSnapshot = {
       ...next,
-      scannedAgents: next.scannedAgents ?? snapshot.scannedAgents,
       invalidated: next.invalidated ?? snapshot.invalidated,
     };
     if (
       merged.scanning === snapshot.scanning &&
       merged.revision === snapshot.revision &&
-      merged.scannedAgents === snapshot.scannedAgents &&
       merged.invalidated === snapshot.invalidated
     )
       return;
@@ -147,10 +137,9 @@ export function createSessionIndexManager(
     running = need;
     const sources = sourcesOf(need.agent);
     publish({ scanning: true, revision: snapshot.revision });
-    // The outcomes the settling pass carries, staged by `.then` and
-    // applied by the SINGLE settle publish in `.finally` — two publishes
-    // would double-bump the revision.
-    let provenNow: Set<string> | null = null;
+    // What the settling pass carries, staged by `.then` and applied by
+    // the SINGLE settle publish in `.finally` — two publishes would
+    // double-bump the revision.
     let invalidNow: Set<string> | null = null;
     void scanAgentHistories(sources, undefined, () => {
       // A batch landed: bump the revision so subscribed listings refresh
@@ -158,18 +147,6 @@ export function createSessionIndexManager(
       publish({ scanning: true, revision: snapshot.revision + 1 });
     })
       .then((report: ScanReport) => {
-        // ACCUMULATE, never replace: a narrow pass proves only its own
-        // agents, and proof from an earlier complete walk stands until
-        // contradicted — a new pass that says nothing about an agent
-        // (narrower scope, refusal, partial walk) does not unprove it.
-        // `complete` is the only certified outcome: a partial walk has
-        // proven its store's files EXIST while leaving rows unindexed —
-        // exactly the shape that would arm a false file-erased verdict.
-        const next = new Set(snapshot.scannedAgents);
-        for (const [agentId, outcome] of report.outcomes) {
-          if (outcome === "complete") next.add(agentId);
-        }
-        provenNow = next;
         // The pruned keys — REPLACED per pass (last answer wins): the
         // caches devalue each list once, when it lands. Identity moves
         // only when something actually dropped. `rowKeyOf` — the one
@@ -185,14 +162,11 @@ export function createSessionIndexManager(
       })
       .finally(() => {
         running = null;
-        // A REFUSED pass carries no outcomes — the previous proofs stand
-        // untouched ("tried" is not "looked").
-        if (provenNow !== null || invalidNow !== null) {
+        if (invalidNow !== null) {
           publish({
             scanning: false,
             revision: snapshot.revision + 1,
-            ...(provenNow !== null ? { scannedAgents: provenNow } : {}),
-            ...(invalidNow !== null ? { invalidated: invalidNow } : {}),
+            invalidated: invalidNow,
           });
         } else {
           publish({ scanning: false, revision: snapshot.revision + 1 });

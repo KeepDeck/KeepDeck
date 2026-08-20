@@ -173,7 +173,6 @@ describe("invalidation key seam (T6, end to end)", () => {
     await act(async () => {
       indexTruth.delete("claude:s-doom");
       resolveScan({
-        outcomes: new Map([["claude", "complete"]]),
         dropped: [{ agent: "claude", sessionId: "s-doom" }],
       });
     });

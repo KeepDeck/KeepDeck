@@ -55,7 +55,6 @@ vi.mock("../../app/runtimeContext", () => {
   const snapshot = {
     scanning: false,
     revision: 1,
-    scannedAgents: new Set<string>(),
     invalidated: new Set<string>(),
   };
   return {
