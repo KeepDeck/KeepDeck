@@ -1164,9 +1164,9 @@ describe("SessionsBrowser journal join", () => {
   });
 
   it("the index gave the link and the READ fell: a status on the row, the list unchanged, never 'nothing to read'", async () => {
-    // The transcript file vanished between the scan that indexed it and
-    // the open. The refusal is named as itself — on the viewer and on the
-    // row — and the row keeps its place and its open affordance.
+    // The read attempt refused. The refusal is named as itself — on the
+    // viewer and on the row — and the row keeps its place and its open
+    // affordance.
     const a = api([], {}, {
       "claude:s-1": { kind: "hit", reference: "/vanished/s-1.jsonl", title: "gone file", mtime: 7 },
     });
@@ -1185,10 +1185,9 @@ describe("SessionsBrowser journal join", () => {
   });
 
   it("the journal path is DEAD but the index link lives: the row OPENS on the second, no failure mark", async () => {
-    // The union is a fallback, not a display priority: a journal path is a
-    // record of the past, the index link reflects the last scan — a moved
-    // file can leave the second live. One attempt per source, mark only
-    // when both refused.
+    // The union is a fallback, not a display priority: both links are
+    // opaque handles — one can refuse while the other still serves the
+    // read. One attempt per source, mark only when both refused.
     const calls: string[] = [];
     const a = api([], {}, {
       "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "the index knows", mtime: 7 },
@@ -1214,34 +1213,41 @@ describe("SessionsBrowser journal join", () => {
     );
   });
 
-  it("BOTH links dead: the mark appears, the row stays, both attempts made", async () => {
+  it("all read links refuse: the mark appears, the row stays, both attempts made", async () => {
     const calls: string[] = [];
     const a = api([], {}, {
-      "claude:s-1": { kind: "hit", reference: "/store/dead-too", title: "both dead", mtime: 7 },
+      "claude:s-1": { kind: "hit", reference: "/store/refuses", title: "flaky both ways", mtime: 7 },
     });
     a.transcript = vi.fn((_agent: string, ref: string) => {
       calls.push(ref);
-      return Promise.reject(new Error("no such file"));
+      return Promise.reject(new Error("permission denied"));
     });
     await mount(a, [
-      closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" }),
+      closed({ sessionId: "s-1", transcriptPath: "/journal/refuses.jsonl" }),
     ]);
     await act(async () =>
       document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
-    expect(calls).toEqual(["/journal/dead.jsonl", "/store/dead-too"]);
+    expect(calls).toEqual(["/journal/refuses.jsonl", "/store/refuses"]);
     const row = topRow();
-    expect(row.textContent).toContain("both dead");
-    expect(chipOf(row)?.textContent).toBe("read failed");
+    expect(row.textContent).toContain("flaky both ways");
+    const chip = chipOf(row);
+    expect(chip?.textContent).toBe("read failed");
+    // The chip's title is EXACTLY the generic observation — no causal
+    // story about files; a non-file cause must produce the same text.
+    expect(chip?.getAttribute("title")).toBe(
+      "Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate.",
+    );
+    expect(row.textContent).not.toContain("nothing to read");
     expect(document.querySelector(".browser__viewer")?.textContent).toContain(
-      "Read failed: no such file",
+      "Read failed: permission denied",
     );
   });
 
   it("a retry after a both-links failure goes through the union again — the mark retires on success", async () => {
     // The mark is a reaction, not a verdict: the row keeps its open
-    // affordance and a later click (the file came back, or the scan
-    // fixed the link) reads cleanly and clears the mark.
+    // affordance and a later click (a retry that now succeeds) reads
+    // cleanly and clears the mark.
     let dead = true;
     const a = api([], {}, {
       "claude:s-1": { kind: "hit", reference: "/store/s-1", title: "flaky", mtime: 7 },

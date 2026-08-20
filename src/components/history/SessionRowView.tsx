@@ -187,7 +187,7 @@ export function SessionRowView({
           size="inline"
           tone="error"
           className="history__status"
-          title="Reading this session failed — its transcript file disappeared between the scan and the open. This is not 'nothing to read': the row stays, and a retry is legitimate."
+          title="Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate."
           label="read failed"
         />
       )}

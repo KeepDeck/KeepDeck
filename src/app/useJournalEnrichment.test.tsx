@@ -282,10 +282,10 @@ describe("useJournalEnrichment", () => {
     expect(api.entries.get(rowKeyOf(KEY_B))).toEqual({ kind: "absent" });
   });
 
-  it("a PRUNED key's hit is devalued — the file-erased verdict's missing half", async () => {
+  it("a pruned key invalidates a cached hit and is looked up again", async () => {
     // The full regression line: the session is known to the index (a
-    // hit) → the file is erased while the app runs → the prune names the
-    // key → the hit is purged and re-asked → the domain sees the absence.
+    // hit) → the session is pruned while the app runs → the prune names
+    // the key → the hit is purged and re-asked → the domain sees the absence.
     let invalidated: ReadonlySet<string> = new Set();
     const render = () =>
       act(async () =>

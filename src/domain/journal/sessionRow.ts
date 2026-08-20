@@ -34,8 +34,8 @@ interface SessionRowBase {
  * honestly be unset (not recorded); liveness is always KNOWN (live or
  * closed — KeepDeck itself bound it); a content-search snippet never
  * exists (the journal has no content match to show). `status` carries
- * the verdict chips — a wrong-owner or erased-file verdict is always
- * about a row the JOURNAL vouches for. The read link may be NULL: the
+ * the verdict chips — a wrong-owner verdict is always about a row the
+ * JOURNAL vouches for. The read link may be NULL: the
  * join found nothing to read. */
 export interface BoundSessionRow extends SessionRowBase {
   kind: "bound";

@@ -106,10 +106,9 @@ export function SessionsBrowser({
   /** The viewer's own failure line — a refused read is named where it
    * happened, not rendered as an empty transcript. */
   const [viewerError, setViewerError] = useState<string | null>(null);
-  /** Rows whose LAST read by link fell (the file vanished between scans).
-   * The row stays and stays openable — a retry is legitimate — but the
-   * failure is named on the row, as itself and never as "nothing to
-   * read". */
+  /** Rows whose LAST read by link fell. The row stays and stays
+   * openable — a retry is legitimate — but the failure is named on the
+   * row, as itself and never as "nothing to read". */
   const [readFailed, setReadFailed] = useState<ReadonlySet<string>>(new Set());
   // Resume needs a live original directory — same gate for both blocks.
   const presence = useDirPresence([
@@ -170,9 +169,9 @@ export function SessionsBrowser({
 
   /** One transcript read of `target` at `from`. A page-zero refusal falls
    * through to the row's NEXT read link (the union is a real fallback, not
-   * a display priority): the journal path is a record of the past, the
-   * index link reflects the last scan — a moved file can leave the second
-   * live. The failure mark lands only when the LAST link refused too. */
+   * a display priority): both links are opaque handles the row merely
+   * carries — one can refuse while the other still serves the read. The
+   * failure mark lands only when the LAST link refused too. */
   const loadMore = (target: ViewerTarget, from: number) => {
     const seq = viewSeq.current;
     const limit = from === 0 ? FIRST_TURNS : NEXT_TURNS;
@@ -206,10 +205,10 @@ export function SessionsBrowser({
           loadMore({ ...target, reference: next, tried: target.tried + 1 }, 0);
           return;
         }
-        // The read fell on the LAST link — typically the transcript file
-        // vanished between the scan that indexed it and this open. Named
-        // as itself, on the viewer AND on the row; the row keeps its
-        // place. The mark is the ROW's verdict, so it lands on every link
+        // The read fell on the LAST link — every handle the row carries
+        // refused its attempt. Named as itself, on the viewer AND on the
+        // row; the row keeps its place. The mark is the ROW's verdict, so
+        // it lands on every link
         // of the union: the first link alone must not read as alive when
         // its spare just refused too. Exhausted stops the viewer's fill-
         // the-viewport effect from re-requesting a link that just
