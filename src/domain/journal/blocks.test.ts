@@ -19,7 +19,6 @@ const record = (over: Partial<SessionRecord>): SessionRecord =>
   }) as SessionRecord;
 
 const NO_ENTRIES: ReadonlyMap<string, JoinEntry> = new Map();
-const NO_SCAN = new Set<string>();
 const LABEL = (id: string) => (id === "claude" ? "Claude Code" : undefined);
 
 const hit = (over: {
@@ -46,7 +45,6 @@ const compose = (over: Partial<Parameters<typeof composeSessionBlocks>[0]> = {})
     entries: NO_ENTRIES,
     agentLabel: LABEL,
     answerMayChange: false,
-    scannedAgents: NO_SCAN,
     topHits: [],
     bottomHits: [],
     topTotal: 0,

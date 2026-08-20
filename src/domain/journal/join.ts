@@ -33,10 +33,6 @@ export type RowStatus =
    * an absent answer predates a change still in flight (a scan, a
    * revision-bumped re-ask). */
   | "indexing"
-  /** The journal path EXISTS, the index (settled) does not know the
-   * session, and the agent's store was scanned — the transcript file is
-   * erased, said BEFORE the click. */
-  | "file-erased"
   /** Definitive: no journal path, no index row, index settled — but the
    * conversation ran here. */
   | "nothing-to-read"
@@ -77,16 +73,14 @@ export function joinJournalRow(
   entry: JoinEntry | undefined,
   agentLabel: string | undefined,
   /** The row's index answer MAY STILL CHANGE — a scan in flight, or a
-   * re-ask due/in flight after a revision bump. An `absent` entry is a
-   * VERDICT only while false; the caller composes it (scan state OR the
-   * enrichment table's own pending flag), so the domain stays the one
-   * place that decides what an answer MEANS. */
+   * re-ask due/in flight after a revision bump. Matters only to a row
+   * WITHOUT a read link: there an `absent` entry is a verdict only
+   * while false. A row WITH a readable link carries no status at all,
+   * whatever the index says — the link itself is tried at click time.
+   * The caller composes this flag (scan state OR the enrichment
+   * table's own pending flag), so the domain stays the one place that
+   * decides what an answer MEANS. */
   answerMayChange: boolean,
-  /** Whether THIS AGENT's store participated in the settled scan — the
-   * `file-erased` verdict's second boundary. Composed by the caller; an
-   * agent that never scanned owes no verdict (absence proves nothing
-   * about a store nobody looked at). */
-  scannedAgent: boolean,
 ): JoinedRow {
   // The wrong-owner guard outranks everything, the journal path included:
   // that path is the record's claim, and the claim is what's broken —
@@ -130,20 +124,13 @@ export function joinJournalRow(
       : (Date.parse(
           record.state === "closed" ? record.endedAt : record.boundAt,
         ) || null);
-  // A read link needs no status — except ONE case, and it is a NEW branch:
-  // the row HAS a journal path, the index (settled) does NOT know the
-  // session, and the agent's store PARTICIPATED in that scan — then the
-  // file the path names is erased, and the row can say so BEFORE the
-  // click. Everything else about a readable row stays statusless.
-  // `scannedAgent` (who participated) is the second boundary: an agent
-  // whose store never scanned owes no verdict — absence proves nothing
-  // about a store nobody looked at.
+  // A readable link carries no status, without exceptions: whether the
+  // index knows the session or not, the link is tried at click time and
+  // the attempt itself reports its own outcome.
   let status: RowStatus | null;
   if (read !== null) {
-    status =
-      entry?.kind === "absent" && !answerMayChange && scannedAgent
-        ? "file-erased"
-        : null;
+    // the ONLY status question left is the no-link case
+    status = null;
   } else {
     status =
       entry?.kind === "absent"

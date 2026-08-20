@@ -56,9 +56,6 @@ export interface ComposeSessionBlocksInput {
   /** Whether an index answer may still change (scan state OR the
    * enrichment table's own pending). */
   answerMayChange: boolean;
-  /** The agents whose stores the settled scan proved walked whole —
-   * the file-erased verdict's precondition. */
-  scannedAgents: ReadonlySet<string>;
   /** The top block's loaded index hits, already mapped to rows. The
    * LOADED count is this array's own length — carried as data, not
    * duplicated as a second number: a caller-fed pair could disagree
@@ -94,7 +91,6 @@ export function composeSessionBlocks(
     entries,
     agentLabel,
     answerMayChange,
-    scannedAgents,
     topHits,
     bottomHits,
     topTotal,
@@ -112,7 +108,6 @@ export function composeSessionBlocks(
         entries.get(rowKeyOf(record)),
         agentLabel(record.agent),
         answerMayChange,
-        scannedAgents.has(record.agent),
       ),
     ),
   );

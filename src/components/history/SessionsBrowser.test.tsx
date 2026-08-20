@@ -96,7 +96,6 @@ const api = (
   query: "",
   firstPagePending: false,
   scanning: false,
-  scannedAgents: new Set<string>(),
   enrichment: {
     entries: new Map(Object.entries(entries)),
     pending: false,

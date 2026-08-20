@@ -628,7 +628,6 @@ describe("useJournalEnrichment", () => {
       api.entries.get(rowKeyOf({ agent: "claude", sessionId: "s-1" })),
       "Claude Code",
       false,
-      true,
     );
     expect(before.status).toBe("nothing-to-read");
 
@@ -649,7 +648,6 @@ describe("useJournalEnrichment", () => {
       api.entries.get(rowKeyOf({ agent: "claude", sessionId: "s-1" })),
       "Claude Code",
       false,
-      true,
     );
     expect(after.title).toBe("fix the auth bug");
     expect(after.read).toEqual({ source: "index", reference: "/store/s-1" });

@@ -38,10 +38,6 @@ export interface BrowserSharedSeam {
   /** The index's revision as the seam sees it — per-browser refresh
    * effects key on it WITHOUT each browser subscribing twice. */
   revision: number;
-  /** The agents whose stores the LAST SETTLED scan walked — the
-   * `file-erased` verdict's precondition: an agent absent here was never
-   * looked at, and its absence from the index proves nothing. */
-  scannedAgents: ReadonlySet<string>;
   /** The "agent:sessionId" keys the last settled scan PRUNED — sessions
    * that were indexed and are not anymore. The enrichment cache devalues
    * exactly these hits; identity moves only when something dropped. */
@@ -84,9 +80,6 @@ export interface SessionsBrowserApi {
    * flicker apart over one shared search box. */
   firstPagePending: boolean;
   scanning: boolean;
-  /** The settled scan's participants — see
-   * [`BrowserSharedSeam.scannedAgents`]. */
-  scannedAgents: ReadonlySet<string>;
   /** The journal rows' shared enrichment table — see
    * [`BrowserSharedSeam.enrichment`]. */
   enrichment: BrowserSharedSeam["enrichment"];
@@ -134,7 +127,6 @@ export function useBrowserSharedSeam(): BrowserSharedSeam {
   return {
     scanning: index.scanning,
     revision: index.revision,
-    scannedAgents: index.scannedAgents,
     invalidated: index.invalidated,
     enrichment,
     ensureFresh,
@@ -255,7 +247,6 @@ export function useSessionsBrowser(
     query: top.query,
     firstPagePending: top.firstPagePending || bottom.firstPagePending,
     scanning,
-    scannedAgents: shared.scannedAgents,
     enrichment: shared.enrichment,
     search,
     ensureFresh: shared.ensureFresh,

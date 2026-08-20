@@ -14,10 +14,9 @@ const record = (over: Partial<SessionRecord> = {}): SessionRecord =>
   }) as SessionRecord;
 
 const LABEL = "Claude Code";
-/** The join's fourth and fifth arguments for the common case: the answer
- * is settled, and the agent's store was scanned (the file-erased verdict
- * allowed to fire when its inputs say so). */
-const SETTLED_SCANNED = [false, true] as const;
+/** The join's fourth argument for the common case: the answer is
+ * settled (no scan in flight, no re-ask owed). */
+const SETTLED = [false] as const;
 
 describe("joinJournalRow", () => {
   it("a row without its own name takes the index's title; a meaningful own name keeps it", () => {
@@ -25,7 +24,7 @@ describe("joinJournalRow", () => {
       record({ title: "fix the auth bug" }),
       { kind: "hit", reference: "/store/s-1", title: "index says otherwise", mtime: 5000 },
       LABEL,
-      ...SETTLED_SCANNED,
+      ...SETTLED,
     );
     expect(named.title).toBe("fix the auth bug");
 
@@ -33,7 +32,7 @@ describe("joinJournalRow", () => {
       record(),
       { kind: "hit", reference: "/store/s-1", title: "index title", mtime: 5000 },
       LABEL,
-      ...SETTLED_SCANNED,
+      ...SETTLED,
     );
     expect(nameless.title).toBe("index title");
 
@@ -41,7 +40,7 @@ describe("joinJournalRow", () => {
       record(),
       { kind: "hit", reference: "/store/s-1", title: null, mtime: 5000 },
       LABEL,
-      ...SETTLED_SCANNED,
+      ...SETTLED,
     );
     expect(blank.title).toBeUndefined();
   });
@@ -54,16 +53,16 @@ describe("joinJournalRow", () => {
       record({ title: LABEL }),
       { kind: "hit", reference: "/store/s-1", title: "the real conversation", mtime: 5000 },
       LABEL,
-      ...SETTLED_SCANNED,
+      ...SETTLED,
     );
     expect(joined.title).toBe("the real conversation");
     // With no index answer to fall back on, the label-title is simply
     // gone — the caller's fallback chain renders the same label anyway.
-    const unanswered = joinJournalRow(record({ title: LABEL }), undefined, LABEL, ...SETTLED_SCANNED);
+    const unanswered = joinJournalRow(record({ title: LABEL }), undefined, LABEL, ...SETTLED);
     expect(unanswered.title).toBeUndefined();
     // No agent info (plugin gone) → no label to compare against; the
     // title stands as the record's own.
-    const noLabel = joinJournalRow(record({ title: LABEL }), undefined, undefined, ...SETTLED_SCANNED);
+    const noLabel = joinJournalRow(record({ title: LABEL }), undefined, undefined, ...SETTLED);
     expect(noLabel.title).toBe(LABEL);
   });
 
@@ -72,7 +71,7 @@ describe("joinJournalRow", () => {
       record({ transcriptPath: "/journal/s-1.jsonl" }),
       { kind: "hit", reference: "/store/s-1", title: null, mtime: 5000 },
       LABEL,
-      ...SETTLED_SCANNED,
+      ...SETTLED,
     );
     expect(both.read).toEqual({ source: "journal", reference: "/journal/s-1.jsonl" });
 
@@ -80,18 +79,15 @@ describe("joinJournalRow", () => {
       record(),
       { kind: "hit", reference: "/store/s-1", title: null, mtime: 5000 },
       LABEL,
-      ...SETTLED_SCANNED,
+      ...SETTLED,
     );
     expect(onlyIndex.read).toEqual({ source: "index", reference: "/store/s-1" });
 
-    const neither = joinJournalRow(record(), { kind: "absent" }, LABEL, false, false);
+    const neither = joinJournalRow(record(), { kind: "absent" }, LABEL, false);
     expect(neither.read).toBeNull();
   });
 
-  it("a journal path keeps the row readable against every index answer but ONE — failure never degrades the known", () => {
-    // The one exception is the file-erased VERDICT (below): it claims the
-    // path's file is gone, not that the row is unreadable. Every other
-    // answer leaves a path-bearing row statusless and openable.
+  it("a journal path keeps the row readable against every index answer — failure never degrades the known", () => {
     const answers: (JoinEntry | undefined)[] = [
       undefined,
       { kind: "error" },
@@ -101,38 +97,23 @@ describe("joinJournalRow", () => {
         record({ transcriptPath: "/journal/s-1.jsonl" }),
         entry,
         LABEL,
-        ...SETTLED_SCANNED,
+        ...SETTLED,
       );
       expect(joined.read).toEqual({ source: "journal", reference: "/journal/s-1.jsonl" });
       expect(joined.status).toBeNull();
     }
-    // An absent answer with the store NOT scanned: no verdict owed.
-    const unscanned = joinJournalRow(
-      record({ transcriptPath: "/journal/s-1.jsonl" }),
-      { kind: "absent" },
-      LABEL,
-      false,
-      false,
-    );
-    expect(unscanned.read).toEqual({ source: "journal", reference: "/journal/s-1.jsonl" });
-    expect(unscanned.status).toBeNull();
   });
 
-  it("the file-erased verdict in its three positions", () => {
+  it("an absent index answer with a read link creates NO status — settled or not", () => {
+    // The link itself is the row's answer: it is tried at click time,
+    // and only the attempt reports an outcome. Whatever the index
+    // thinks of the key, a readable row carries no pre-verdict.
     const withPath = record({ transcriptPath: "/journal/s-1.jsonl" });
-    // Path + settled absence + scanned store → the file is erased, said
-    // BEFORE the click.
     expect(
-      joinJournalRow(withPath, { kind: "absent" }, LABEL, false, true).status,
-    ).toBe("file-erased");
-    // Same input while the answer may still change → not a verdict yet.
+      joinJournalRow(withPath, { kind: "absent" }, LABEL, false).status,
+    ).toBeNull();
     expect(
-      joinJournalRow(withPath, { kind: "absent" }, LABEL, true, true).status,
-    ).toBeNull(); // readable row, still indexing elsewhere — no chip
-    // Same input, agent's store never scanned → NO verdict at all: its
-    // absence from the index proves nothing.
-    expect(
-      joinJournalRow(withPath, { kind: "absent" }, LABEL, false, false).status,
+      joinJournalRow(withPath, { kind: "absent" }, LABEL, true).status,
     ).toBeNull();
   });
 
@@ -145,7 +126,7 @@ describe("joinJournalRow", () => {
       record({ title: "probe", transcriptPath: "/.kimi-code/sessions/kimi-9" }),
       { kind: "foreign", agents: ["kimi"] },
       LABEL,
-      ...SETTLED_SCANNED,
+      ...SETTLED,
     );
     expect(joined.read).toBeNull();
     expect(joined.status).toBe("wrong-owner");
@@ -153,31 +134,30 @@ describe("joinJournalRow", () => {
   });
 
   it("absent splits on the scan state: 'indexing' while a scan runs, 'nothing-to-read' only when settled", () => {
+    // Two no-link fixtures IDENTICAL but for the flag — the flag is
+    // what the unit pins, not two independently placed literals.
     const pathless = record();
-    expect(
-      joinJournalRow(pathless, { kind: "absent" }, LABEL, true, true).status,
-    ).toBe("indexing");
-    expect(
-      joinJournalRow(pathless, { kind: "absent" }, LABEL, false, true).status,
-    ).toBe("nothing-to-read");
+    const absent: JoinEntry = { kind: "absent" };
+    expect(joinJournalRow(pathless, absent, LABEL, true).status).toBe("indexing");
+    expect(joinJournalRow(pathless, absent, LABEL, false).status).toBe("nothing-to-read");
   });
 
   it("no answer yet is the temporary state, never 'nothing-to-read' — the first-paint trap", () => {
     // First render: the scan flag starts OFF and the ask has not fired.
     // Deriving one from the other is exactly the flash the design forbids.
     expect(
-      joinJournalRow(record(), undefined, LABEL, false, true).status,
+      joinJournalRow(record(), undefined, LABEL, false).status,
     ).toBe("indexing");
   });
 
   it("a failed ask is named as itself — for a pathless row it is not 'nothing-to-read'", () => {
     expect(
-      joinJournalRow(record(), { kind: "error" }, LABEL, false, true).status,
+      joinJournalRow(record(), { kind: "error" }, LABEL, false).status,
     ).toBe("index-error");
     // A first refusal before any success must not masquerade as an
     // absence even while the index looks settled.
     expect(
-      joinJournalRow(record(), { kind: "error" }, LABEL, true, true).status,
+      joinJournalRow(record(), { kind: "error" }, LABEL, true).status,
     ).toBe("index-error");
   });
 
@@ -189,7 +169,7 @@ describe("joinJournalRow", () => {
       record({ endedAt: "2026-07-19T11:00:00.000Z" }),
       { kind: "hit", reference: "/store/s-1", title: null, mtime: 1_000 },
       LABEL,
-      ...SETTLED_SCANNED,
+      ...SETTLED,
     );
     expect(known.when).toBe(1_000);
     // Index-unknown: the journal's own mark, not a sink-to-the-end.
@@ -197,12 +177,12 @@ describe("joinJournalRow", () => {
       record({ endedAt: "2026-07-19T11:00:00.000Z" }),
       { kind: "absent" },
       LABEL,
-      ...SETTLED_SCANNED,
+      ...SETTLED,
     );
     expect(unknown.when).toBe(Date.parse("2026-07-19T11:00:00.000Z"));
     // Unanswered too — no invented axis, the honest journal mark.
     expect(
-      joinJournalRow(record({ endedAt: "2026-07-19T11:00:00.000Z" }), undefined, LABEL, ...SETTLED_SCANNED).when,
+      joinJournalRow(record({ endedAt: "2026-07-19T11:00:00.000Z" }), undefined, LABEL, ...SETTLED).when,
     ).toBe(Date.parse("2026-07-19T11:00:00.000Z"));
   });
 
@@ -210,7 +190,7 @@ describe("joinJournalRow", () => {
     // The join is per-row pure: "empty index" is every entry absent (or
     // unanswered), "empty journal" is zero rows to join — neither needs
     // this function to know about the other.
-    const emptyIndexRow = joinJournalRow(record(), { kind: "absent" }, LABEL, false, true);
+    const emptyIndexRow = joinJournalRow(record(), { kind: "absent" }, LABEL, false);
     expect(emptyIndexRow.status).toBe("nothing-to-read");
     expect(emptyIndexRow.read).toBeNull();
   });

@@ -31,7 +31,6 @@ import {
 const sharedOf = (over: Partial<BrowserSharedSeam> = {}): BrowserSharedSeam => ({
   scanning: false,
   revision: 1,
-  scannedAgents: new Set(["claude"]),
   invalidated: new Set(),
   enrichment: {
     entries: new Map(),

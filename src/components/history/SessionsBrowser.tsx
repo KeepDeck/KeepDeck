@@ -285,7 +285,6 @@ export function SessionsBrowser({
     entries: api.enrichment.entries,
     agentLabel: (agentId) => agents.find((a) => a.id === agentId)?.label,
     answerMayChange: api.scanning || api.enrichment.pending,
-    scannedAgents: api.scannedAgents,
     topHits: api.top.hits.map(rowOfHit),
     bottomHits: api.bottom.hits.map(rowOfHit),
     topTotal: api.top.total,
