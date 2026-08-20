@@ -514,41 +514,63 @@ impl SessionIndex {
         )
     }
 
-    /// The snippet top-up, AFTER the cutoff: one batched FTS MATCH
+    /// The snippet top-up, AFTER the cutoff: a batched FTS MATCH
     /// over the page's content-found keys alone. It carries no agent
     /// or folder conditions — the keys arrive already filtered by the
     /// core — and the MATCH is load-bearing: a snippet may only be
     /// computed for a row the content arm actually found, which is
     /// also what makes a title-found row's NULL honest.
+    ///
+    /// CHUNKED at the ENGINE'S OWN variable limit, read at runtime:
+    /// each key binds two values beside the MATCH's one, and SQLite
+    /// caps statement parameters (32766 on the bundled build). The
+    /// old pre-core page never bound per-key — consolidation
+    /// introduced the dependency on page width, and this is its
+    /// bound. The chunk size is the engine's constraint, not a
+    /// budget: no number here exists for tests.
     fn snippet_topup(
         &self,
         q: &str,
         keys: &[(String, String)],
     ) -> Result<Vec<(String, String, String)>, String> {
+        let var_limit =
+            usize::try_from(
+                self.conn
+                    .limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER),
+            )
+                .unwrap_or(0);
+        // Two binds per key plus the MATCH bind; a limit below that
+        // degrades to one key per ask rather than dividing by zero.
+        let chunk = var_limit.saturating_sub(1) / 2;
+        let chunk = chunk.max(1);
         let (fts_query, _) = Self::match_terms(q);
-        let mut params = Params::new();
-        let match_place = params.add(rusqlite::types::Value::Text(fts_query));
-        let pairs: Vec<String> = keys
-            .iter()
-            .map(|(agent, session_id)| {
-                let a = params.add(rusqlite::types::Value::Text(agent.clone()));
-                let s = params.add(rusqlite::types::Value::Text(session_id.clone()));
-                format!("({a}, {s})")
-            })
-            .collect();
-        let sql = format!(
-            "SELECT agent, session_id, snippet(fts, 0, '[', ']', '…', 12) FROM fts
-             WHERE fts MATCH {match_place}
-               AND (agent, session_id) IN (VALUES {})",
-            pairs.join(", ")
-        );
-        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map(rusqlite::params_from_iter(params.values), |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+        let mut out = Vec::new();
+        for group in keys.chunks(chunk) {
+            let mut params = Params::new();
+            let match_place = params.add(rusqlite::types::Value::Text(fts_query.clone()));
+            let pairs: Vec<String> = group
+                .iter()
+                .map(|(agent, session_id)| {
+                    let a = params.add(rusqlite::types::Value::Text(agent.clone()));
+                    let s = params.add(rusqlite::types::Value::Text(session_id.clone()));
+                    format!("({a}, {s})")
+                })
+                .collect();
+            let sql = format!(
+                "SELECT agent, session_id, snippet(fts, 0, '[', ']', '…', 12) FROM fts
+                 WHERE fts MATCH {match_place}
+                   AND (agent, session_id) IN (VALUES {})",
+                pairs.join(", ")
+            );
+            let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(params.values), |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
+                .map_err(|e| e.to_string())?;
+            out.extend(rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?);
+        }
+        Ok(out)
     }
 
     /// Search titles + content, one page at a time. An empty query lists
@@ -1485,6 +1507,84 @@ mod tests {
         assert_eq!(empty_except.values.len(), 2);
         assert!(!sql.contains("1=0"));
         assert!(!sql.contains("cwd"));
+    }
+
+    // ── [A1] witness: the chunked top-up's five properties. The
+    // chunk size is the ENGINE'S OWN variable limit, so the guard
+    // forces a boundary the honest way — LOWERING that real limit on
+    // this test's own connection (the engine allows lowering), never
+    // a test-only budget in production code. With the limit at 13,
+    // keys chunk at 6: a 13-key ask crosses a boundary.
+    #[test]
+    fn snippet_topup_chunks_at_the_engines_own_limit_five_properties() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        // Rows with a UNIQUE marker per session — the snippet's own
+        // content proves ownership. Two agents share the SAME
+        // session_ids: a boundary crossed on identical ids under
+        // different agents is the stitch's honest case.
+        let mut rows = Vec::new();
+        for i in 0..6 {
+            for agent in ["claude", "codex"] {
+                rows.push(row(agent, &format!("s{i}"), i as i64, &format!("mzk{i}z marker text")));
+            }
+        }
+        index.upsert(&rows).unwrap();
+        // The title-arm key: a session whose content does NOT carry
+        // the term — mixed batches are what the page really send.
+        let mut title_only = row("claude", "s-title", 90, "quiet content");
+        title_only.title = Some("mzz marker title".into());
+        index.upsert(&[title_only]).unwrap();
+
+        index
+            .conn
+            .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 13);
+
+        let mut keys: Vec<(String, String)> = (0..6)
+            .flat_map(|i| {
+                [
+                    ("claude".to_string(), format!("s{i}")),
+                    ("codex".to_string(), format!("s{i}")),
+                ]
+            })
+            .collect();
+        keys.push(("claude".to_string(), "s-title".to_string()));
+
+        let out = index.snippet_topup("mzk", &keys).unwrap();
+
+        // (1) The EXACT full set of composite keys that match by
+        // content — twelve, not thirteen: the title-arm key never
+        // matches mzk and must not appear.
+        let mut answered: Vec<(String, String)> =
+            out.iter().map(|(a, s, _)| (a.clone(), s.clone())).collect();
+        answered.sort();
+        let mut wanted: Vec<(String, String)> = keys[..12].to_vec();
+        wanted.sort();
+        assert_eq!(answered, wanted);
+        // (2) EXACTLY one result per key.
+        assert_eq!(answered.len(), 12);
+        assert_eq!(
+            answered.iter().collect::<std::collections::HashSet<_>>().len(),
+            12
+        );
+        // (3) A snippet belongs to ITS OWN key — the unique marker
+        // rides inside the snippet itself.
+        for (agent, session_id, snip) in &out {
+            let i = session_id.trim_start_matches('s').to_string();
+            assert!(
+                snip.contains(&format!("mzk{i}z")),
+                "snippet for {agent}/{session_id} carries its own marker: {snip}"
+            );
+        }
+        // (4) The title-found key stays EMPTY in the mixed batch —
+        // it is absent from the answer, so its row keeps None.
+        assert!(!out.iter().any(|(_, s, _)| s == "s-title"));
+        // (5) The boundary passes through IDENTICAL session_ids
+        // under DIFFERENT agents — chunk at 6 keys, s2/s3 straddle
+        // it in both agents, and all four came home distinct.
+        for (agent, sid) in [("claude", "s2"), ("codex", "s2"), ("claude", "s3"), ("codex", "s3")] {
+            assert!(out.iter().any(|(a, s, _)| a == agent && s == sid));
+        }
     }
 
     /// A timing MEASUREMENT on a realistic store, not an assertion —

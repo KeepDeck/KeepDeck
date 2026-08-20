@@ -5,7 +5,7 @@ edition = "2021"
 description = "Disposable SQLite+FTS5 search index over agent session stores."
 
 [dependencies]
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "limits"] }
 
 [dev-dependencies]
 tempfile = "3"
