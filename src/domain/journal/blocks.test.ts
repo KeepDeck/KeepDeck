@@ -299,6 +299,32 @@ describe("composeSessionBlocks — the counters the composition itself returns",
     expect(top.shown).toBeLessThanOrEqual(top.total);
   });
 
+  it("C0-overall: the aggregate sums the members' COMPOSED numbers — never the engines' raw totals", () => {
+    // Deliberately ASYMMETRIC fixture: journal 2 (one a twin of a top
+    // hit); top loaded 3 (1 twin + 2 strangers), raw total 6; bottom
+    // loaded 2, no twins, raw total 7. Blocks: top 4 of 7, bottom 2 of
+    // 7; overall 6 of 14. The raw-total sum is 13 ≠ 14 — journal rows
+    // (2) outnumber the twins (1), so summing raw totals reddens here.
+    const { top, bottom, overall } = compose({
+      records: [
+        record({ transcriptPath: "/j/s-1" }),
+        record({ sessionId: "s-2" }),
+      ],
+      topHits: [
+        hit({ sessionId: "s-1", mtime: 5 }),
+        hit({ sessionId: "w-1", mtime: 6 }),
+        hit({ sessionId: "w-2", mtime: 7 }),
+      ],
+      bottomHits: [hit({ sessionId: "b-1", mtime: 4 }), hit({ sessionId: "b-2", mtime: 3 })],
+      topTotal: 6,
+      bottomTotal: 7,
+    });
+    expect(`${top.shown} of ${top.total}`).toBe("4 of 7");
+    expect(`${bottom.shown} of ${bottom.total}`).toBe("2 of 7");
+    expect(overall).toEqual({ shown: 6, total: 14 });
+    expect(overall.shown).toBeLessThanOrEqual(overall.total);
+  });
+
   it("C0(ii): a twin in the BOTTOM (the empty-cwd shape) — inequality holds, equality at full load", () => {
     const { bottom } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],

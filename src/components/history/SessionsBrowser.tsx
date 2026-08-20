@@ -316,18 +316,29 @@ export function SessionsBrowser({
               {api.firstPagePending ? "Searching…" : "Indexing…"}
             </span>
           )}
-          {composed.top.total > 0 && (
-            // The workspace block's counter — both numbers from the
-            // COMPOSITION (journal rows in the denominator, loaded twins
-            // out of it): numerator what the block DRAWS, denominator
-            // what it can draw. The bare-total-vs-"X of N" choice is the
-            // composition's OWN truth — shown === total exactly when the
-            // drawn population has reached its bound; the engine's raw
-            // hasMore stays with the engine.
+          {composed.overall.total > 0 && (
+            // The search field's counter — the AGGREGATE of both blocks
+            // (journal rows in the denominator, loaded twins out of it):
+            // numerator what the field's results DRAW across both
+            // blocks, denominator what they can draw. The
+            // bare-total-vs-"X of N" choice is the composition's OWN
+            // truth — shown === total exactly when the drawn population
+            // has reached its bound; the engine's raw hasMore stays
+            // with the engine. The show condition is total > 0, NOT
+            // shown > 0: a fully-twin first page (shown 0, total N) is
+            // reachable and "0 of N" there is more honest than a hidden
+            // counter. On refresh/retype the old rows deliberately stay
+            // until the new page zero lands — the aggregate then
+            // describes the DRAWN OLD snapshot, not the freshness of
+            // the new ask; inherited from the old top counter, wider
+            // with the aggregate, and not promised otherwise. The
+            // divider's own condition (topRows.length > 0) is
+            // DELIBERATELY different: silence over an empty top half is
+            // right — there is nothing to divide.
             <span className="browser__count">
-              {composed.top.shown === composed.top.total
-                ? `${composed.top.total}`
-                : `${composed.top.shown} of ${composed.top.total}`}
+              {composed.overall.shown === composed.overall.total
+                ? `${composed.overall.total}`
+                : `${composed.overall.shown} of ${composed.overall.total}`}
             </span>
           )}
         </span>

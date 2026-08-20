@@ -420,6 +420,45 @@ describe("SessionsBrowser", () => {
     );
   });
 
+  it("C1-field overall: the search field's counter sums BOTH blocks — the drawn whole, not the top alone", async () => {
+    // Journal 2 (one a twin of a top hit); top loaded 3 (1 twin + 2
+    // strangers) with raw total 6; bottom loaded 2, no twins, raw 7.
+    // Blocks: top 4 of 7, bottom 2 of 7 — the FIELD must speak of the
+    // whole: 6 of 14, the sum of what both blocks draw.
+    await mount(
+      api([], {
+        top: blockOf(
+          [hit({ sessionId: "s-1" }), hit({ sessionId: "w-1" }), hit({ sessionId: "w-2" })],
+          { total: 6 },
+        ),
+        bottom: blockOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
+          total: 7,
+        }),
+      }),
+      [closed({ transcriptPath: "/j/s-1" }), closed({ sessionId: "s-2" })],
+    );
+    expect(document.querySelector(".browser__count")?.textContent).toBe(
+      "6 of 14",
+    );
+  });
+
+  it("C1-field empty-top: the top block EMPTY, the bottom alive — the counter still shows", async () => {
+    // No journal records, no top hits: the old field condition
+    // (top.total > 0) rendered NO number over a fully drawn list. The
+    // aggregate does not hide: 2 of 5.
+    await mount(
+      api([], {
+        bottom: blockOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
+          total: 5,
+        }),
+      }),
+      [],
+    );
+    expect(document.querySelector(".browser__count")?.textContent).toBe(
+      "2 of 5",
+    );
+  });
+
   it("C1-bottom: the global numerator counts DRAWN rows — the loaded twin is neither drawn nor counted", async () => {
     // The bottom engine loaded 2 hits, one of which the journal draws:
     // the counter says 1 of (2−1).

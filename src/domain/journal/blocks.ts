@@ -84,7 +84,11 @@ export interface ComposeSessionBlocksInput {
  */
 export function composeSessionBlocks(
   input: ComposeSessionBlocksInput,
-): { top: ComposedBlock; bottom: ComposedBlock } {
+): {
+  top: ComposedBlock;
+  bottom: ComposedBlock;
+  overall: { shown: number; total: number };
+} {
   const {
     records,
     query,
@@ -165,6 +169,21 @@ export function composeSessionBlocks(
       rows: bottomKept,
       shown: bottomKept.length,
       total: bottomTotalShown,
+    },
+    // The search field's aggregate — the summary of the TWO members,
+    // not a third block (no rows of its own). Its total is a MOVING
+    // composite bound: it shifts as pages load, when a late twin
+    // lands, and on a new scan; shown ≤ total always, with equality
+    // exactly when both blocks are fully loaded on a stable index
+    // snapshot — no fixed "everything there is" is promised. And it is
+    // the sum of THIS composition's members, not "everything in the
+    // app": a third member would change the sum here, not at the
+    // consumer. The summands are the COMPOSED numbers only — the twin
+    // deductions and the max-floor above are already in them; the
+    // engines' raw totals never enter this addition.
+    overall: {
+      shown: topRows.length + bottomKept.length,
+      total: topTotalShown + bottomTotalShown,
     },
   };
 }
