@@ -1184,7 +1184,7 @@ describe("SessionsBrowser journal join", () => {
     );
   });
 
-  it("the journal path is DEAD but the index link lives: the row OPENS on the second, no failure mark", async () => {
+  it("the journal link refuses but the index link succeeds: the row OPENS on the second, no failure mark", async () => {
     // The union is a fallback, not a display priority: both links are
     // opaque handles — one can refuse while the other still serves the
     // read. One attempt per source, mark only when both refused.
