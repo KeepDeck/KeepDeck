@@ -129,9 +129,11 @@ export function composeSessionBlocks(
   // time under an axis that claims to be conversation time; and a row
   // the index doesn't know keeps its journal-mark place among the mtime
   // rows instead of sinking below them all. Stable sort: equal marks
-  // keep their half's order. The re-seating when a scan batch lands IS
-  // the accepted §07 price — insertion by time shifts what sits below,
-  // and the block says so.
+  // keep their half's order. A landed index answer re-seats the row to
+  // its index mtime — the transition is characterized in
+  // SessionsBrowser.join.integration.test.tsx; it is not the price §07
+  // described, which was the insertion of ANOTHER row while a row's own
+  // key stayed put.
   const topRows = [...journalPart, ...topKept].sort(
     (a, b) => (b.when ?? -Infinity) - (a.when ?? -Infinity),
   );
