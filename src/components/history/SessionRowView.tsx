@@ -243,7 +243,7 @@ export function SessionRowView({
             <Chip
               size="inline"
               className="history__chip"
-              title={row.cwd}
+              title={bound.branch}
               label={bound.branch}
             />
           </span>

@@ -588,11 +588,15 @@ describe("SessionsBrowser journal section", () => {
     expect(rows).toHaveLength(3);
     expect(rows[0].textContent).toContain("auth bug");
     // Both chips render on a bound row: the directory (same chip as the
-    // hits' rows — one row shape) and the branch after it.
+    // hits' rows — one row shape) and the branch after it. Each chip's
+    // tooltip names ITS OWN fact: the branch's says the branch, not the
+    // folder path it sits beside.
     const chips = rows[0].querySelectorAll(".history__chip");
     expect(chips).toHaveLength(2);
     expect(chips[0].textContent).toBe("repo");
+    expect(chips[0].getAttribute("title")).toBe("/repo");
     expect(chips[1].textContent).toBe("kd/ws/1");
+    expect(chips[1].getAttribute("title")).toBe("kd/ws/1");
     expect(rows[0].querySelector(".history__state--live")).toBeNull();
     expect(rows[1].querySelector(".history__state--live")).not.toBeNull();
     expect(rows[2].textContent).toContain("other session");
