@@ -13,6 +13,11 @@ import {
 } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  anchorCorrection,
+  pickAnchor,
+  type AnchorState,
+} from "./rowAnchor";
 import { useSessionsBrowser, type BrowserSharedSeam } from "../../app/useSessionsBrowser";
 import { BackIcon } from "../../ui/icons";
 import { NEAR_END } from "../../ui/useScrollPaging";
@@ -367,11 +372,73 @@ export function SessionsBrowser({
     estimateSize: () => 72,
     overscan: 6,
     getItemKey: (index) => rowKeyOf(queue[index]),
+    /**
+     * ANCHOR BY KEY, not by index — the correction peer-4 named before
+     * any code: a landed WORKSPACE page inserts rows ABOVE a watched
+     * other-row; the watched row's INDEX shifts by the page size while
+     * its KEY is the same. Anchoring by the old index would hold a
+     * DIFFERENT row and produce exactly the jump this step treats.
+     * The library corrects for SIZE changes above the anchor by
+     * itself; INSERTIONS above are OUR half: on each queue change, if
+     * rows were inserted above the first visible row (its key found at
+     * a NEW index), the scroll shifts by the inserted rows' measured
+     * span so the ANCHOR KEY keeps its viewport offset.
+     *
+     * VANISHED KEY — the explicit branch (named, not defaulted): when
+     * the anchor's key leaves the queue (a real composition change —
+     * search, scope change, invalidation), we HOLD THE CURRENT OFFSET:
+     * whatever now occupies the viewport stays where it is. A jump to
+     * the top would decide FOR the user in the one moment we ourselves
+     * do not know what happened.
+     */
+    onChange: (instance) => {
+      void instance;
+    },
   });
+  // The insertion-above correction (see the virtualizer comment): the
+  // decision arithmetic lives PURE in rowAnchor.ts (pickAnchor,
+  // anchorCorrection) — verified by the stand directly, numbers not
+  // pixels; this effect applies its verdict to the scroll.
+  const anchorRef = useRef<AnchorState | null>(null);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const scrollTop = list.scrollTop;
+    // The virtualizer's rows narrowed to the correction's view of
+    // them (key as string — our keys always are).
+    const rows = virtualItems.map((v) => ({ key: v.key as string, start: v.start }));
+    if (anchorRef.current === null) {
+      const first = pickAnchor(rows, scrollTop);
+      anchorRef.current = {
+        key: first ? first.key : null,
+        offset: first ? first.start - scrollTop : 0,
+      };
+      return;
+    }
+    const verdict = anchorCorrection(rows, scrollTop, anchorRef.current);
+    if (verdict.delta !== 0) {
+      list.scrollTop = scrollTop + verdict.delta;
+      rowVirtualizer.measure();
+    }
+    anchorRef.current = verdict.next;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue]);
   const virtualItems = rowVirtualizer.getVirtualItems();
   const lastVisibleIndex = virtualItems.length
     ? virtualItems[virtualItems.length - 1].index
     : -1;
+  // ONE measure callback for the whole list — a fresh arrow per row
+  // would ride the props and fell every row's memo on every parent
+  // render. measureElement resolves the row by its data-index, so the
+  // single function serves all rows.
+  const measureRow = useCallback(
+    (el: HTMLLIElement | null) => {
+      rowVirtualizer.measureElement(el);
+    },
+    // The virtualizer instance is stable for the mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   // The two thresholds from the range — re-checked on range change AND
   // after each landed page (a landing shifts the ends without a scroll).
@@ -515,6 +582,13 @@ export function SessionsBrowser({
               onResume={onResumeRow}
               onFork={onForkRow}
               virtualStart={virtualRow.start}
+              virtualIndex={virtualRow.index}
+              // Dynamic heights: the meta line wraps and a future
+              // snippet stretches the row AFTER first paint — the row
+              // reports its real box, the virtualizer re-measures, and
+              // the anchor-by-key correction above keeps the watched
+              // row at its offset when a size changes ABOVE it.
+              measureRef={measureRow}
             />
           );
         })}

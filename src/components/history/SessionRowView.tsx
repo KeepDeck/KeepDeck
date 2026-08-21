@@ -58,6 +58,15 @@ export interface SessionRowViewProps {
    * there is no last-row anchor anymore — the paging signal reads
    * the virtual range, not a DOM node. */
   virtualStart?: number;
+  /** The row's queue index, stamped as data-index for the
+   * virtualizer's measurement pass (measureElement resolves the row
+   * by this attribute — the ref callback stays ONE stable function). */
+  virtualIndex?: number;
+  /** Receives the row's <li> for height measurement by the
+   * virtualizer (dynamic heights: wrapped meta lines, future
+   * snippets). STABLE by contract: the caller passes ONE function
+   * for the whole list, or the row's memo falls. */
+  measureRef?: (el: HTMLLIElement | null) => void;
   onOpen(row: UnifiedSessionRow): void;
   onResume(row: UnifiedSessionRow): void;
   onFork(row: UnifiedSessionRow): void;
@@ -170,6 +179,8 @@ export const SessionRowView = memo(function SessionRowView({
   readFailed,
   now,
   virtualStart,
+  virtualIndex,
+  measureRef,
   onOpen,
   onResume,
   onFork,
@@ -228,6 +239,8 @@ export const SessionRowView = memo(function SessionRowView({
   return (
     <li
       key={rowKeyOf(row)}
+      ref={measureRef}
+      data-index={virtualIndex}
       className={`history__row history__datarow${openable ? " history__row--open" : ""}`}
       style={positionStyle}
       // The WHOLE row opens the transcript — aiming at the text alone is a

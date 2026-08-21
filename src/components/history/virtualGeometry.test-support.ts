@@ -10,8 +10,15 @@
  */
 
 /** Pins the list scroll container (and everything inside it) to a
- * viewport size. Returns a restore function. */
-export function pinListViewport(height: number, width = 800): () => void {
+ * viewport size. `rowHeight` defaults to 64; pass the ESTIMATE (72)
+ * when a test needs measurement to be a no-op (offsets computed from
+ * the estimate never shift after the first measure — the stability
+ * witnesses need that). Returns a restore function. */
+export function pinListViewport(
+  height: number,
+  width = 800,
+  rowHeight = 64,
+): () => void {
   const original = Element.prototype.getBoundingClientRect;
   Element.prototype.getBoundingClientRect = function (
     this: Element,
@@ -21,11 +28,11 @@ export function pinListViewport(height: number, width = 800): () => void {
     if (el.closest?.(".browser__list") || el.classList?.contains("browser__list")) {
       // Everything inside the list reports the CONTAINER's box as its
       // own: the virtualizer's viewport probe reads the container, and
-      // any per-row measurement reads a nonzero (uniform) height.
+      // any per-row measurement reads the pinned row height.
       return {
         ...base,
         width,
-        height: el.classList?.contains("browser__list") ? height : 64,
+        height: el.classList?.contains("browser__list") ? height : rowHeight,
         top: 0,
         bottom: height,
         left: 0,
