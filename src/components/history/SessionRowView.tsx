@@ -60,12 +60,82 @@ export interface SessionRowViewProps {
 }
 
 /**
+ * The row's action buttons — Resume and Fork — as their OWN unit, so
+ * the list row and the opened-session header render them from ONE
+ * place: the availability rules (source-aware resume gate, the
+ * wrong-owner lockout, the dir gates) live here once and are never
+ * re-derived per surface.
+ */
+export function SessionRowActions({
+  row,
+  agents,
+  dirMissing,
+  onResume,
+  onFork,
+}: {
+  row: UnifiedSessionRow;
+  agents: AgentInfo[];
+  dirMissing: boolean;
+  onResume(row: UnifiedSessionRow): void;
+  onFork(row: UnifiedSessionRow): void;
+}) {
+  const {
+    resume: supportsResume,
+    fork: supportsFork,
+  } = agentSessionCapabilities(agents, row.agent);
+  const bound = row.kind === "bound" ? row : null;
+  const index = row.kind === "index" ? row : null;
+  const wrongOwner = bound?.status === "wrong-owner";
+  return (
+    <>
+      {/* The Resume gate, source-aware: a BOUND row resumes unless it is
+       * live right now; an INDEX row has no liveness fact AT ALL and
+       * resumes — most of the bottom block's rows are exactly this. */}
+      {supportsResume &&
+      !wrongOwner &&
+      (index !== null || bound?.liveness !== "live") && (
+        <button
+          type="button"
+          className="history__resume"
+          disabled={dirMissing || row.cwd === ""}
+          title={
+            dirMissing
+              ? "The session's directory no longer exists"
+              : row.cwd === ""
+                ? "The session has no recorded directory"
+                : `Resume in ${row.cwd}`
+          }
+          onClick={(e) => {
+            e.stopPropagation();
+            onResume(row);
+          }}
+        >
+          Resume
+        </button>
+      )}
+      {supportsFork && !wrongOwner && (
+        <button
+          type="button"
+          className="history__fork"
+          title="Fork — a new conversation continuing from this session"
+          onClick={(e) => {
+            e.stopPropagation();
+            onFork(row);
+          }}
+        >
+          Fork
+        </button>
+      )}
+    </>
+  );
+}
+
+/**
  * The ONE row component both sessions blocks render. The blocks differ by
  * which side of the workspace boundary a session sits on — never by
- * markup: the skeleton (live dot?, glyph, name+snippet, directory, branch?,
- * time, chips?, Resume?, Fork?) is this component, and a source's silence
- * is an empty cell, not a different template. The serialization guard in
- * the suite pins exactly that.
+ * markup: the skeleton (glyph, name+snippet, actions, the meta line) is
+ * this component, and a source's silence is an empty meta part, not a
+ * different template. The serialization guard in the suite pins that.
  */
 export function SessionRowView({
   row,
@@ -80,8 +150,6 @@ export function SessionRowView({
 }: SessionRowViewProps) {
   const agent = agents.find((a) => a.id === row.agent);
   const {
-    resume: supportsResume,
-    fork: supportsFork,
     history: canReadHistory,
   } = agentSessionCapabilities(agents, row.agent);
   // Narrowing by the row's OWN source: the verdict chips, the branch and
@@ -143,45 +211,14 @@ export function SessionRowView({
           <span className="browser__snippet">{index.snippet}</span>
         )}
       </button>
-      {/* The Resume gate, source-aware: a BOUND row resumes unless it is
-       * live right now; an INDEX row has no liveness fact AT ALL and
-       * resumes — most of the bottom block's rows are exactly this.
-       * Availability rules are unchanged; the buttons only moved. */}
-      {supportsResume &&
-      !wrongOwner &&
-      (index !== null || bound?.liveness !== "live") ? (
-        <button
-          type="button"
-          className="history__resume"
-          disabled={dirMissing || row.cwd === ""}
-          title={
-            dirMissing
-              ? "The session's directory no longer exists"
-              : row.cwd === ""
-                ? "The session has no recorded directory"
-                : `Resume in ${row.cwd}`
-          }
-          onClick={(e) => {
-            e.stopPropagation();
-            onResume(row);
-          }}
-        >
-          Resume
-        </button>
-      ) : null}
-      {supportsFork && !wrongOwner ? (
-        <button
-          type="button"
-          className="history__fork"
-          title="Fork — a new conversation continuing from this session"
-          onClick={(e) => {
-            e.stopPropagation();
-            onFork(row);
-          }}
-        >
-          Fork
-        </button>
-      ) : null}
+      {/* The actions — ONE unit shared with the opened-session header. */}
+      <SessionRowActions
+        row={row}
+        agents={agents}
+        dirMissing={dirMissing}
+        onResume={onResume}
+        onFork={onFork}
+      />
       <span className="history__meta">
         {row.cwd !== "" && (
           <span className="history__meta-folder" title={row.cwd}>

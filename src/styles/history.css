@@ -349,14 +349,33 @@
 /* Backing out of an opened transcript to the sessions list — the git
  * plugin's drill-back row, verbatim: full-width, left chevron + the
  * drilled-into label, top LEFT. No close cross: this is navigation. */
-.browser__back {
-  flex: none;
+/* The opened session's header BAR: the drill-back button on the left
+ * (its own button — actions can never nest inside one), the row's own
+ * actions on the right, from the SAME availability rules as the list
+ * row. */
+.browser__viewerbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  border: 0;
   border-bottom: 1px solid #1c2230;
+}
+
+.browser__viewerbar .history__resume,
+.browser__viewerbar .history__fork {
+  margin-left: auto;
+}
+
+.browser__viewerbar .history__resume + .history__fork {
+  margin-left: 0;
+}
+
+.browser__back {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
   background: transparent;
   color: #8b93a3;
   /* The label is a session TITLE, not the git plugin's short scope tag —

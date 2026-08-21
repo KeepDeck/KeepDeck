@@ -15,7 +15,7 @@ import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { useSessionsBrowser, type BrowserSharedSeam } from "../../app/useSessionsBrowser";
 import { BackIcon } from "../../ui/icons";
 import { useScrollPaging, NEAR_END } from "../../ui/useScrollPaging";
-import { SessionRowView } from "./SessionRowView";
+import { SessionRowView, SessionRowActions } from "./SessionRowView";
 
 interface SessionsBrowserProps {
   api: SessionsBrowserApi;
@@ -67,7 +67,9 @@ const FIRST_TURNS = 50;
 const NEXT_TURNS = 20;
 
 /** What the transcript viewer reads — one row's read link, whichever list
- * the row came from (a journal row or an index hit). */
+ * the row came from (a journal row or an index hit). Carries the row
+ * itself: the header's actions render from the SAME availability rules
+ * as the list row, not a re-derivation. */
 interface ViewerTarget {
   agent: string;
   sessionId: string;
@@ -79,6 +81,9 @@ interface ViewerTarget {
    * link's failure is the row's failure. Singleton for hit rows. */
   fallbacks: string[];
   tried: number;
+  /** The row this target was opened from — the header's actions live
+   * on it (one rule source with the list row). */
+  row: UnifiedSessionRow;
 }
 
 /**
@@ -264,6 +269,7 @@ export function SessionsBrowser({
       title: row.title ?? null,
       fallbacks: row.readLinks,
       tried: 0,
+      row,
     });
   };
 
@@ -430,21 +436,35 @@ export function SessionsBrowser({
 
       {open && (
         <div className="browser__viewer" role="dialog" aria-label="Session transcript">
-          <button
-            type="button"
-            // The git plugin's drill-back idiom, verbatim: a full-width row
-            // at the top, left chevron + the drilled-into label — backing
-            // out of a drill-in is navigation, not a window close.
-            className="browser__back"
-            onClick={closeViewer}
-            title="Back to the sessions list"
-            aria-label="Back to the sessions list"
-          >
-            <BackIcon />
-            <span className="browser__backlabel">
-              {open.title ?? open.sessionId}
-            </span>
-          </button>
+          {/* A BAR, not one button: the git plugin's drill-back idiom on
+           * the left (chevron + label, its own button, same clip and
+           * tooltips as before — backing out of a drill-in is
+           * navigation), the row's OWN actions on the right. Same
+           * availability rules as the list row, read from the same
+           * place — a button inside a button is not an option. */}
+          <div className="browser__viewerbar">
+            <button
+              type="button"
+              className="browser__back"
+              onClick={closeViewer}
+              title="Back to the sessions list"
+              aria-label="Back to the sessions list"
+            >
+              <BackIcon />
+              <span className="browser__backlabel">
+                {open.title ?? open.sessionId}
+              </span>
+            </button>
+            <SessionRowActions
+              row={open.row}
+              agents={agents}
+              dirMissing={
+                open.row.cwd !== "" && !dirPresent(presence, open.row.cwd)
+              }
+              onResume={onResumeByHandle(onResume)}
+              onFork={onForkByHandle(onFork)}
+            />
+          </div>
           <div
             className="browser__viewer-body"
             ref={viewerRef}

@@ -334,6 +334,35 @@ describe("SessionsBrowser", () => {
     expect(document.querySelector(".history__row")).not.toBeNull(); // the list again
   });
 
+  it("the opened session's header carries the row's OWN actions — same rules, no nested buttons", async () => {
+    // Resume and Fork at the top right of the viewer, rendered from the
+    // SAME availability unit as the list row; the back control stays a
+    // SEPARATE button — actions never nest inside it.
+    const onResume = vi.fn();
+    const a = api([hit()]);
+    await mount(a, [], { onResume });
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+    );
+    const bar = document.querySelector(".browser__viewerbar")!;
+    const back = bar.querySelector<HTMLButtonElement>(".browser__back")!;
+    expect(back).not.toBeNull();
+    // No nesting: the back button holds no buttons inside.
+    expect(back.querySelector("button")).toBeNull();
+    // Both actions present in the bar, OUTSIDE the back button.
+    const resume = bar.querySelector<HTMLButtonElement>(".history__resume");
+    const fork = bar.querySelector<HTMLButtonElement>(".history__fork");
+    expect(resume).not.toBeNull();
+    expect(fork).not.toBeNull();
+    expect(back.contains(resume!)).toBe(false);
+    expect(back.contains(fork!)).toBe(false);
+    // And they obey the row's rules — the hit row resumes (no liveness
+    // fact), and clicking dispatches like the row's own.
+    expect(resume!.disabled).toBe(false);
+    await act(async () => resume!.click());
+    expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
   it("hides unsupported actions and does not open stale indexed history", async () => {
     const a = api([hit()]);
     await act(async () =>
