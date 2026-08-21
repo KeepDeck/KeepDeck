@@ -40,4 +40,26 @@ describe("history data row layout contract", () => {
     expect(meta["flex-wrap"]).toBe("wrap");
     expect(meta["grid-template-columns"]).toBeUndefined();
   });
+
+  it("the meta's separators are GENERATED — every part but the first", () => {
+    // NOTE: generated content never reaches the DOM in this stand
+    // (happy-dom resolves no ::before into the tree), so the WITNESS is
+    // the rule's own text — do not look for the middot in a DOM test.
+    // (ruleBody cannot parse the combinator selector; a direct source
+    // match is the witness.) The «* + *» shape is the load-bearing
+    // half: the separator rides BETWEEN rendered parts only, so an
+    // absent part is an absent separator — no hanging dot at either
+    // end, no dot beside a lone part, under any set of facts, BY
+    // CONSTRUCTION.
+    const rule = css.match(
+      /\.history__meta\s*>\s*\*\s*\+\s*\*\s*::before\s*\{([^{}]*)\}/,
+    );
+    if (!rule) {
+      throw new Error(
+        "no generated-separator rule for the meta line (.history__meta > * + *::before)",
+      );
+    }
+    const decls = rule[1];
+    expect(decls).toContain('content: "·"');
+  });
 });

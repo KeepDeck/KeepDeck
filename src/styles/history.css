@@ -99,6 +99,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The meta's separator, GENERATED: a middot before every rendered part
+ * but the first. Because the separator lives in the flow, an absent
+ * part is an absent NODE — no separator for it exists, and no set of
+ * facts can leave a hanging dot at either end or a dot beside a lone
+ * part. Generated content never reaches the DOM test stand; the style
+ * witness below pins the rule's text. */
+.history__meta > * + *::before {
+  content: "·";
+  margin-right: 6px;
+  color: inherit;
+}
+
 /* Exceptional marks in the meta line: TEXT, not pills — the quiet
  * gray gives way to the semantic palette only. */
 .history__meta-mark {
