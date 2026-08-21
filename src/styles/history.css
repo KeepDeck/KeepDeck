@@ -59,32 +59,61 @@
   border-bottom: none;
 }
 
-/* ── The DATA row's layout contract ─────────────────────────────────
- * Nine permanent semantic slots — state · glyph · name · cwd · branch ·
- * when · issues · resume · fork — in ONE explicit template shared by
- * every data row of the list. The sameness is the point: under flex, an
- * absent fact was an absent NODE, the name's flex absorbed the freed
- * width, and every chip right of it drifted per row. Explicit common
- * tracks (never auto/max-content — those size per row and rebuild the
- * same raggedness in new clothes) pin each column's edge for all rows.
- * Shrinking order on a narrow panel: the cwd track yields first (its
- * floor is zero, its cap the old 180px budget), the name last (widest
- * floor, stretches with the rest). Issues wrap inside their track —
- * the row grows taller, nothing clips, nothing overflows. */
+/* ── The DATA row's layout contract: TWO bands ──────────────────────
+ * The main band (state · glyph · name · resume · fork) and, spanning
+ * below, the metadata band (cwd · branch · when · issues) with its own
+ * nested grid — one explicit template per band, shared by every data
+ * row. The sameness is the point: under flex, an absent fact was an
+ * absent NODE, the name's flex absorbed the freed width, and every
+ * chip right of it drifted per row. Explicit common tracks (never
+ * auto/max-content — those size per row and rebuild the same raggedness
+ * in new clothes) pin each column's edge for all rows. The ONLY
+ * stretchable track is the NAME; the folder is a definite positive
+ * width (floor 120, cap the old 180px budget) so "the name takes the
+ * rest" is the construction, not a side effect. The user chose the
+ * two-band shape knowingly: the row is taller, fewer sessions fit. */
 .history__datarow {
   display: grid;
   grid-template-columns:
-    7px                /* state */
-    16px               /* glyph */
-    minmax(220px, 1fr) /* name */
-    minmax(0px, 180px) /* cwd */
-    120px              /* branch */
-    64px               /* when */
-    96px               /* issues */
-    72px               /* resume */
-    56px;              /* fork */
+    7px                 /* state */
+    16px                /* glyph */
+    minmax(220px, 1fr)  /* name */
+    72px                /* resume */
+    56px;               /* fork */
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: center;
+}
+
+/* The metadata band — the row's second track, nested grid, shared. The
+ * issues floor fits the LONGEST unwrappable label ("index unreachable",
+ * "nothing to read"): wrapping must break BETWEEN chips, never through
+ * one, and clipping a message is not an option. */
+.history__meta {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 180px) /* cwd */
+    120px                /* branch */
+    64px                 /* when */
+    120px;               /* issues */
   column-gap: 10px;
   align-items: center;
+}
+
+/* State and glyph anchor to the MAIN band: two-line metadata below
+ * must not pull them down the row. */
+.history__slot-state,
+.history__glyph {
+  align-self: start;
+}
+
+/* The state SLOT is neutral: track width and NOTHING else — no paint,
+ * no shape. The painted dot is a child node (see .history__state below),
+ * rendered only where liveness is known; an empty slot must never wear
+ * the painted fact's class, or "no fact" would draw one. */
+.history__slot-state {
+  display: flex;
 }
 
 .history__cwd,
@@ -104,7 +133,9 @@
 }
 
 /* Action buttons fill their permanent slots — one width for every row,
- * whether the neighbor's slot holds a button or holds its place. */
+ * whether the neighbor's slot holds a button or holds its place. The
+ * border box, so the width contract never depends on a button's border
+ * styles in a given engine. */
 .history__action {
   display: flex;
 }
@@ -112,6 +143,7 @@
 .history__action .history__resume,
 .history__action .history__fork {
   width: 100%;
+  box-sizing: border-box;
 }
 
 /* The folder chip's label clips from the LEFT: the distinguishing tail

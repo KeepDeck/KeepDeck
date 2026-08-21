@@ -117,20 +117,25 @@ export function SessionRowView({
       // here too).
       onClick={openable ? () => onOpen(row) : undefined}
     >
-      {/* NINE permanent slots — state · glyph · name · cwd · branch ·
-       * when · issues · resume · fork. Each renders ALWAYS: an absent
-       * fact is an empty slot holding its place, never a missing node —
-       * a row that drops its cells makes every neighbor's remaining
-       * cells drift. aria-hidden marks ONLY an empty slot's content. */}
+      {/* TWO bands, strict axes inside each: the main band (state ·
+       * glyph · name · resume · fork) and the metadata band (cwd ·
+       * branch · when · issues) as a nested grid spanning below. All
+       * slots are permanent; an absent fact is an EMPTY slot holding
+       * its track. The state slot is NEUTRAL — it carries track width
+       * and nothing else; the painted dot is a CHILD node, rendered
+       * only where liveness is known: an empty slot must never wear
+       * the painted fact's class, or "no fact" would draw one. */}
       {bound !== null ? (
-        <span
-          className={`history__state${
-            bound.liveness === "live" ? " history__state--live" : ""
-          }`}
-          title={bound.liveness === "live" ? "Running" : "Closed"}
-        />
+        <span className="history__slot-state">
+          <span
+            className={`history__state${
+              bound.liveness === "live" ? " history__state--live" : ""
+            }`}
+            title={bound.liveness === "live" ? "Running" : "Closed"}
+          />
+        </span>
       ) : (
-        <span className="history__state" aria-hidden="true" />
+        <span className="history__slot-state" aria-hidden="true" />
       )}
       <span className="history__glyph">
         <AgentGlyph icon={agent?.icon} />
@@ -152,81 +157,6 @@ export function SessionRowView({
           <span className="browser__snippet">{index.snippet}</span>
         )}
       </button>
-      {row.cwd !== "" ? (
-        <span className="history__cwd">
-          <Chip
-            size="inline"
-            className="history__chip"
-            title={row.cwd}
-            // The folder's distinguishing tail lives at the END
-            // ("kd-KeepDeck-Web-3" vs "…Web-4"), so the clip must eat
-            // the HEAD: the chip's label wrapper clips from the left
-            // (its stylesheet scopes direction: rtl to this slot's
-            // label), while the name itself rides a <bdi dir="ltr"> —
-            // isolation without rtl is useless, rtl without isolation
-            // permutes the weak hyphens and digits the tail is made
-            // of. The pair is load-bearing on both sides.
-            label={<bdi dir="ltr">{baseName(row.cwd) || row.cwd}</bdi>}
-          />
-        </span>
-      ) : (
-        <span className="history__cwd" aria-hidden="true" />
-      )}
-      {bound?.branch !== undefined ? (
-        <span className="history__branch">
-          <Chip
-            size="inline"
-            className="history__chip"
-            title={row.cwd}
-            label={bound.branch}
-          />
-        </span>
-      ) : (
-        <span className="history__branch" aria-hidden="true" />
-      )}
-      {row.when !== null ? (
-        <span className="history__when">{formatAge(row.when, now)}</span>
-      ) : (
-        <span className="history__when" aria-hidden="true" />
-      )}
-      {/* ONE container for the row's issue chips — "dir gone", the
-       * status verdict, "read failed" — more than one can be true at
-       * once. Under crowding they WRAP inside this track: the row grows
-       * taller and every message stays; clipping or overflowing the
-       * track would hide a meaning. */}
-      {dirMissing || statusChip !== null || readFailed ? (
-        <span className="history__issues">
-          {dirMissing && (
-            <Chip
-              size="inline"
-              tone="error"
-              className="history__missing"
-              title={`${row.cwd} no longer exists — the session cannot resume in place`}
-              label="dir gone"
-            />
-          )}
-          {statusChip !== null && (
-            <Chip
-              size="inline"
-              tone={statusChip.tone}
-              className="history__status"
-              title={statusChip.title}
-              label={statusChip.label}
-            />
-          )}
-          {readFailed && (
-            <Chip
-              size="inline"
-              tone="error"
-              className="history__status"
-              title="Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate."
-              label="read failed"
-            />
-          )}
-        </span>
-      ) : (
-        <span className="history__issues" aria-hidden="true" />
-      )}
       {/* The Resume gate, source-aware: a BOUND row resumes unless it is
        * live right now; an INDEX row has no liveness fact AT ALL and
        * resumes — most of the bottom block's rows are exactly this, and
@@ -282,6 +212,83 @@ export function SessionRowView({
           aria-hidden="true"
         />
       )}
+      {/* The metadata band — its own grid, shared by every row: the
+       * folder clips from the head (the tail is the distinguisher),
+       * the issues WRAP inside their track rather than clip: each of
+       * the three messages is a meaning, and the row may grow taller
+       * to keep them all. */}
+      <span className="history__meta">
+        {row.cwd !== "" ? (
+          <span className="history__cwd">
+            <Chip
+              size="inline"
+              className="history__chip"
+              title={row.cwd}
+              // The folder's distinguishing tail lives at the END
+              // ("kd-KeepDeck-Web-3" vs "…Web-4"), so the clip must eat
+              // the HEAD: the chip's label wrapper clips from the left
+              // (its stylesheet scopes direction: rtl to this slot's
+              // label), while the name itself rides a <bdi dir="ltr"> —
+              // isolation without rtl is useless, rtl without isolation
+              // permutes the weak hyphens and digits the tail is made
+              // of. The pair is load-bearing on both sides.
+              label={<bdi dir="ltr">{baseName(row.cwd) || row.cwd}</bdi>}
+            />
+          </span>
+        ) : (
+          <span className="history__cwd" aria-hidden="true" />
+        )}
+        {bound?.branch !== undefined ? (
+          <span className="history__branch">
+            <Chip
+              size="inline"
+              className="history__chip"
+              title={row.cwd}
+              label={bound.branch}
+            />
+          </span>
+        ) : (
+          <span className="history__branch" aria-hidden="true" />
+        )}
+        {row.when !== null ? (
+          <span className="history__when">{formatAge(row.when, now)}</span>
+        ) : (
+          <span className="history__when" aria-hidden="true" />
+        )}
+        {dirMissing || statusChip !== null || readFailed ? (
+          <span className="history__issues">
+            {dirMissing && (
+              <Chip
+                size="inline"
+                tone="error"
+                className="history__missing"
+                title={`${row.cwd} no longer exists — the session cannot resume in place`}
+                label="dir gone"
+              />
+            )}
+            {statusChip !== null && (
+              <Chip
+                size="inline"
+                tone={statusChip.tone}
+                className="history__status"
+                title={statusChip.title}
+                label={statusChip.label}
+              />
+            )}
+            {readFailed && (
+              <Chip
+                size="inline"
+                tone="error"
+                className="history__status"
+                title="Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate."
+                label="read failed"
+              />
+            )}
+          </span>
+        ) : (
+          <span className="history__issues" aria-hidden="true" />
+        )}
+      </span>
     </li>
   );
 }

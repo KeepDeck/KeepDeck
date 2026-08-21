@@ -596,9 +596,9 @@ describe("SessionsBrowser journal section", () => {
     expect(rows[0].querySelector(".history__state--live")).toBeNull();
     expect(rows[1].querySelector(".history__state--live")).not.toBeNull();
     expect(rows[2].textContent).toContain("other session");
-    // A hit row knows no liveness — its state SLOT holds the place,
-    // honestly empty (marked hidden), no dot drawn.
-    expect(rows[2].querySelector(".history__state:not([aria-hidden])")).toBeNull();
+    // A hit row knows no liveness — the painted dot is absent as a
+    // node (the neutral slot holds the place, silently).
+    expect(rows[2].querySelector(".history__state")).toBeNull();
     // The divider sits between the pinned rows and the hits, carrying
     // the global block's own counter.
     const divider = document.querySelector(".browser__section");
@@ -1068,9 +1068,9 @@ describe("SessionsBrowser journal join", () => {
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/s-1.jsonl" })]);
     const top = topRows();
     expect(top).toHaveLength(2); // the bound record AND the folder hit
-    expect(top[0].querySelector(".history__state:not([aria-hidden])")).not.toBeNull(); // bound first
+    expect(top[0].querySelector(".history__state")).not.toBeNull(); // bound first
     expect(top[0].textContent).toContain("s-1"); // nameless → its session id
-    expect(top[1].querySelector(".history__state:not([aria-hidden])")).toBeNull(); // the hit: slot empty
+    expect(top[1].querySelector(".history__state")).toBeNull(); // the hit: no dot node
     expect(top[1].textContent).toContain("folder hit");
     const bottom = bottomRows();
     expect(bottom).toHaveLength(1);
@@ -1394,40 +1394,47 @@ describe("unified row guard — both blocks, one markup", () => {
       .map((b) => b.textContent),
   });
 
-  /** The slot skeleton: the NINE named cells and their ORDER are the
-   * requirement — permanent, in every data row, whatever facts the row
-   * has. Extracted per slot so the comparison cannot pass on accidental
-   * overall equality while a cell moved. No filtering, no lifting: an
-   * absent fact must appear as its EMPTY slot, not as a missing node —
-   * a conditional node anywhere in this list is the regression this
+  /** The slot TREE: the named cells and their ORDER are the requirement
+   * — permanent, in every data row, whatever facts the row has — and
+   * the metadata band's slots are part of the tree (a nested grid of
+   * its own, still named cells). No filtering, no lifting: an absent
+   * fact must appear as its EMPTY slot, not as a missing node — a
+   * conditional node anywhere in this tree is the regression this
    * guard exists to catch (it was the very defect: missing nodes made
    * every neighbor's cells drift). */
-  const SLOTS = [
+  const slotNameOf = (el: Element): string | { meta: unknown[] } => {
+    const c = (el as HTMLElement).classList;
+    if (c.contains("history__slot-state")) return "state";
+    if (c.contains("history__glyph")) return "glyph";
+    if (c.contains("browser__open")) return "name";
+    if (c.contains("history__action--resume")) return "resume";
+    if (c.contains("history__action--fork")) return "fork";
+    if (c.contains("history__meta")) {
+      return {
+        meta: [...el.children].map((child) => {
+          const cc = (child as HTMLElement).classList;
+          if (cc.contains("history__cwd")) return "cwd";
+          if (cc.contains("history__branch")) return "branch";
+          if (cc.contains("history__when")) return "when";
+          if (cc.contains("history__issues")) return "issues";
+          return "other";
+        }),
+      };
+    }
+    return "other";
+  };
+
+  const slotsTreeOf = (row: Element): unknown[] =>
+    [...row.children].map(slotNameOf);
+
+  const SLOTS_TREE = [
     "state",
     "glyph",
     "name",
-    "cwd",
-    "branch",
-    "when",
-    "issues",
     "resume",
     "fork",
-  ] as const;
-
-  const slotsOf = (row: Element): string[] =>
-    [...row.children].map((el) => {
-      const c = (el as HTMLElement).classList;
-      if (c.contains("history__state")) return "state";
-      if (c.contains("history__glyph")) return "glyph";
-      if (c.contains("browser__open")) return "name";
-      if (c.contains("history__cwd")) return "cwd";
-      if (c.contains("history__branch")) return "branch";
-      if (c.contains("history__when")) return "when";
-      if (c.contains("history__issues")) return "issues";
-      if (c.contains("history__action--resume")) return "resume";
-      if (c.contains("history__action--fork")) return "fork";
-      return "other";
-    });
+    { meta: ["cwd", "branch", "when", "issues"] },
+  ];
 
   it("identical data renders identically through BOTH sources — serialization compared, not eyeballed", async () => {
     // The same session as a journal record and as an index hit: title,
@@ -1482,20 +1489,20 @@ describe("unified row guard — both blocks, one markup", () => {
     const fromJournal = rowOf(0);
     const fromIndex = rowOf(1);
     expect(skeletonOf(fromJournal)).toEqual(skeletonOf(fromIndex));
-    // The FULL slot skeleton, no filtering and no removals: both rows
-    // carry the same nine named slots in the same order — the journal
-    // row's extra facts (the dot) live INSIDE their slots as content,
-    // never as extra nodes between them.
-    expect(slotsOf(fromJournal)).toEqual([...SLOTS]);
-    expect(slotsOf(fromIndex)).toEqual([...SLOTS]);
-    // The journal-source fact sits in ITS OWN cell: the state slot is
-    // filled where liveness is known, empty (hidden) where it is not.
-    expect(
-      fromJournal.querySelector(".history__state:not([aria-hidden])"),
-    ).not.toBeNull();
-    expect(
-      fromIndex.querySelector(".history__state:not([aria-hidden])"),
-    ).toBeNull();
+    // The FULL slot tree, no filtering and no removals: both rows carry
+    // the same named slots in the same order, the metadata band nested
+    // with its four — the journal row's extra facts live INSIDE their
+    // slots as content, never as extra nodes between them.
+    expect(slotsTreeOf(fromJournal)).toEqual(SLOTS_TREE);
+    expect(slotsTreeOf(fromIndex)).toEqual(SLOTS_TREE);
+    // The journal-source fact sits in ITS OWN cell: the state SLOT is
+    // present in both rows, the PAINTED DOT is a child node that
+    // exists only where liveness is known — an empty slot must never
+    // draw the fact it lacks.
+    expect(fromJournal.querySelector(".history__slot-state")).not.toBeNull();
+    expect(fromIndex.querySelector(".history__slot-state")).not.toBeNull();
+    expect(fromJournal.querySelector(".history__state")).not.toBeNull();
+    expect(fromIndex.querySelector(".history__state")).toBeNull();
   });
 
   it("source-only cells are MAY-BE-ABSENT, not different: liveness dot and branch chip", async () => {
@@ -1528,14 +1535,10 @@ describe("unified row guard — both blocks, one markup", () => {
     );
     const fromJournal = rowOf(0);
     const fromIndex = rowOf(1);
-    // The dot exists only where liveness is known — inside the state
-    // slot, which itself exists in both rows.
-    expect(
-      fromJournal.querySelector(".history__state:not([aria-hidden])"),
-    ).not.toBeNull();
-    expect(
-      fromIndex.querySelector(".history__state:not([aria-hidden])"),
-    ).toBeNull();
+    // The dot exists only where liveness is known — as a CHILD of the
+    // neutral state slot, which itself exists in both rows.
+    expect(fromJournal.querySelector(".history__state")).not.toBeNull();
+    expect(fromIndex.querySelector(".history__state")).toBeNull();
     // The branch chip exists only where a branch was recorded — and it
     // is the SECOND chip, the directory chip stays first.
     const journalChips = fromJournal.querySelectorAll(".history__chip");
@@ -1549,10 +1552,10 @@ describe("unified row guard — both blocks, one markup", () => {
     const folderLabel = journalChips[0].querySelector(".chip__label")!;
     const bdi = folderLabel.querySelector("bdi[dir='ltr']");
     expect(bdi?.textContent).toBe("repo");
-    // The ORDER guard, independent of any block: both rows' slot
-    // sequences equal the same nine names — not merely each other.
-    expect(slotsOf(fromJournal)).toEqual([...SLOTS]);
-    expect(slotsOf(fromIndex)).toEqual([...SLOTS]);
+    // The ORDER guard, independent of any block: both rows' slot trees
+    // equal the same named shape — not merely each other.
+    expect(slotsTreeOf(fromJournal)).toEqual(SLOTS_TREE);
+    expect(slotsTreeOf(fromIndex)).toEqual(SLOTS_TREE);
   });
 
   it("two NAMELESS hits stay distinguishable — the session id, not a wall of agent labels", async () => {
