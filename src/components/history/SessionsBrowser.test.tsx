@@ -1990,14 +1990,31 @@ describe("virtualized list — the window, not the pile", () => {
     expect(rowTopOf(watchedKey)).toBe(watchedBefore);
   });
 
-  it("CLOCK: an even minute tick, paused when hidden, immediate on return — and it touches NOTHING but the visible rows' renders", async () => {
-    // The four clock witnesses in one place: the tick is EVEN (fires
-    // on the minute boundary, not on renders), the hidden window
-    // counts no time (interval cleared), the return recomputes
-    // immediately, and the tick does not re-walk the queue's
-    // measurements (the row-render count stays the visible window's).
-    const a = api([], { other: trackOf(manyHits(60, "g"), { total: 60 }) });
-    vi.useFakeTimers();
+  it("CLOCK: the tick is OBSERVED in the label — 59s→1m flips, hidden counts nothing, return recomputes at once, teardown leaves no timers", async () => {
+    // The witnesses assert the OBSERVABLE RESULT, not call counts:
+    // (1) the label: a row whose age crosses the minute boundary
+    // under the tick FLIPS its text (59s → 1m); (2) hidden + 120s —
+    // the label does NOT move (no time counted); (3) the window
+    // returns — the label recomputes IMMEDIATELY (59s is long past);
+    // (4) unmount — vi.getTimerCount() is zero: the interval left
+    // with the component. The row mtime is pinned NOW-59s at mount
+    // so the very first tick must flip it.
+    const nowMs = Date.now();
+    const a = api(
+      [],
+      {
+        other: trackOf(
+          [{ ...hit({ sessionId: "age-row", title: null }), mtime: nowMs - 59_500 }],
+          { total: 1 },
+        ),
+      },
+    );
+    // The age label derives from the row's `when` vs the component's
+    // frozen-at-mount clock (formatAge: <60s = "now", then "1m ago"):
+    // at mount it reads "now"; after ONE minute of fake time it must
+    // read "1m ago".
+    vi.useFakeTimers({ now: nowMs });
+    vi.setSystemTime(nowMs);
     try {
       installResizeObserver();
       const restore = pinListViewport(600);
@@ -2016,48 +2033,44 @@ describe("virtualized list — the window, not the pile", () => {
         ),
       );
       for (let i = 0; i < 3; i++) await act(async () => {});
-      const titles = () =>
-        [...document.querySelectorAll(".browser__list .history__meta-age")].map(
-          (n) => n.textContent,
-        );
-      const before = titles();
+      const label = () =>
+        [
+          ...document.querySelectorAll(".browser__list .history__meta-age"),
+        ]
+          .map((n) => n.textContent)
+          .find((t): t is string => t !== undefined && t !== null) ?? null;
+      // (0) The fixture is honest: sub-minute at mount.
+      expect(label()).toBe("now");
 
-      // (1) EVEN TICK: a minute passes — the labels recompute.
+      // (1) EVEN TICK: a minute passes under fake time — the label
+      // crosses the boundary and FLIPS.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      // Ages recomputed: same count (visible window), the labels
-      // re-derived from the new now (the fixture's mtimes are fixed;
-      // the LABEL may read the same string — witness the RENDER, not
-      // the text: the meta-age nodes exist and the list did not grow.
-      expect(titles().length).toBe(before.length);
+      expect(label()).toMatch(/1m/);
 
-      // (2) HIDDEN: no time counted — no interval work while hidden.
+      // (2) HIDDEN: two more minutes count NOTHING — the label stands.
       Object.defineProperty(document, "hidden", { value: true, configurable: true });
       document.dispatchEvent(new Event("visibilitychange"));
-      const tickSpy = vi.fn();
-      // Whatever timers remain must not fire for the hidden window.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(120_000);
       });
-      expect(tickSpy).not.toHaveBeenCalled(); // spy installed post-hide stays cold
+      expect(label()).toMatch(/1m/); // still 1m, not 3m
 
-      // (3) RETURN: immediate recompute — visibilitychange handler
-      // fires setNow before any interval.
+      // (3) RETURN: the immediate recompute fires — the label moves
+      // the SAME instant (no interval wait): 2m+ now.
       Object.defineProperty(document, "hidden", { value: false, configurable: true });
-      let threw = false;
-      try {
+      vi.setSystemTime(nowMs + 180_000);
+      await act(async () => {
         document.dispatchEvent(new Event("visibilitychange"));
-      } catch {
-        threw = true;
-      }
-      expect(threw).toBe(false);
-      await act(async () => {});
-      // (4) The queue was not re-walked: the mounted rows stay the
-      // window's count, not the queue's.
-      expect(
-        document.querySelectorAll(".browser__list > .history__row").length,
-      ).toBeLessThanOrEqual(40);
+      });
+      expect(label()).toMatch(/3m/);
+
+      // (4) TEARDOWN: unmount leaves no timers behind.
+      await act(async () => {
+        root.unmount();
+      });
+      expect(vi.getTimerCount()).toBe(0);
       restore();
     } finally {
       vi.useRealTimers();

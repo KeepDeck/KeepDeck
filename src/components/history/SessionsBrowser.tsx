@@ -679,11 +679,12 @@ export function SessionsBrowser({
   // stabilized arrays) is memoized on its real sources, or the tick
   // would re-walk the whole queue through the library's memo.
   // HONEST SCOPE of "only the visible": the ROWS in the markup are
-  // only the visible; the presence pass over its inputs is memoized
-  // away per unrelated render — but when the inputs DO change, that
-  // pass runs over all of them, visible or not. Not rounded in our
-  // favor: the queue walk is gone, the input walk on real changes
-  // remains.
+  // only the visible; the presence inputs (the cwd array AND the
+  // hook's fingerprint over it) are memoized on their real sources —
+  // an unrelated render touches no path at all. When the inputs DO
+  // change, the fingerprint pass runs over all of them, visible or
+  // not. Not rounded in our favor: the queue walk is gone, the input
+  // walk on real changes remains.
   // The CONTRACT (the circle's, not a guess): lag up to one minute is
   // accepted (the label is coarse anyway); a hidden window does not
   // count time (the interval pauses on document.hidden); on the

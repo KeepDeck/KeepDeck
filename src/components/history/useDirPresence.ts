@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { probeWorktree } from "../../ipc/worktree";
 
 /** The joiner for the probe-set fingerprint: NUL cannot appear in a path
@@ -29,7 +29,17 @@ export function useDirPresence(
     new Map(),
   );
   const answersRef = useRef<Map<string, boolean>>(new Map());
-  const dirs = [...new Set(cwds.filter((cwd) => cwd !== ""))].sort().join(SEP);
+  // The fingerprint is MEMOIZED on the caller's array identity: the
+  // filter-set-sort-join walked every path on EVERY render (tick
+  // included) even when the caller had memoized the array itself —
+  // the dedup then only stopped the probes, not the walk. With a
+  // memoized input array (the browser's contract since the clock
+  // landed inside), an unrelated render no longer touches the paths
+  // at all; a real change (new array) recomputes the fingerprint.
+  const dirs = useMemo(
+    () => [...new Set(cwds.filter((cwd) => cwd !== ""))].sort().join(SEP),
+    [cwds],
+  );
   useEffect(() => {
     if (dirs === "") return;
     let alive = true;
