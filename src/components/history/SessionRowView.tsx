@@ -3,7 +3,6 @@ import type { RowStatus, UnifiedSessionRow } from "../../domain/journal";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { AgentGlyph } from "../../ui/AgentGlyph";
-import { Chip } from "../../ui/Chip";
 import { baseName } from "../../domain/deck";
 import type { RefObject } from "react";
 
@@ -117,26 +116,13 @@ export function SessionRowView({
       // here too).
       onClick={openable ? () => onOpen(row) : undefined}
     >
-      {/* TWO bands, strict axes inside each: the main band (state ·
-       * glyph · name · resume · fork) and the metadata band (cwd ·
-       * branch · when · issues) as a nested grid spanning below. All
-       * slots are permanent; an absent fact is an EMPTY slot holding
-       * its track. The state slot is NEUTRAL — it carries track width
-       * and nothing else; the painted dot is a CHILD node, rendered
-       * only where liveness is known: an empty slot must never wear
-       * the painted fact's class, or "no fact" would draw one. */}
-      {bound !== null ? (
-        <span className="history__slot-state">
-          <span
-            className={`history__state${
-              bound.liveness === "live" ? " history__state--live" : ""
-            }`}
-            title={bound.liveness === "live" ? "Running" : "Closed"}
-          />
-        </span>
-      ) : (
-        <span className="history__slot-state" aria-hidden="true" />
-      )}
+      {/* THREE columns, two rows — the family shape of this app's list
+       * rows (bell__item): glyph spans both rows, the name and the
+       * actions share the first, the metadata flows under the name at
+       * its OWN width. The liveness dot and the branch chip are GONE
+       * by the user's direct choice; absence keeps no seat. The meta
+       * is one quiet text line — folder, age, then exceptional marks
+       * — separated by middots, wrapping WHOLE if crowded. */}
       <span className="history__glyph">
         <AgentGlyph icon={agent?.icon} />
       </span>
@@ -159,134 +145,74 @@ export function SessionRowView({
       </button>
       {/* The Resume gate, source-aware: a BOUND row resumes unless it is
        * live right now; an INDEX row has no liveness fact AT ALL and
-       * resumes — most of the bottom block's rows are exactly this, and
-       * narrowing the condition to bound-only would silently strip the
-       * button from every index row. The slots are permanent; the
-       * button's availability is exactly what it was. */}
+       * resumes — most of the bottom block's rows are exactly this.
+       * Availability rules are unchanged; the buttons only moved. */}
       {supportsResume &&
       !wrongOwner &&
       (index !== null || bound?.liveness !== "live") ? (
-        <span className="history__action history__action--resume">
-          <button
-            type="button"
-            className="history__resume"
-            disabled={dirMissing || row.cwd === ""}
-            title={
-              dirMissing
-                ? "The session's directory no longer exists"
-                : row.cwd === ""
-                  ? "The session has no recorded directory"
-                  : `Resume in ${row.cwd}`
-            }
-            onClick={(e) => {
-              e.stopPropagation();
-              onResume(row);
-            }}
-          >
-            Resume
-          </button>
-        </span>
-      ) : (
-        <span
-          className="history__action history__action--resume"
-          aria-hidden="true"
-        />
-      )}
+        <button
+          type="button"
+          className="history__resume"
+          disabled={dirMissing || row.cwd === ""}
+          title={
+            dirMissing
+              ? "The session's directory no longer exists"
+              : row.cwd === ""
+                ? "The session has no recorded directory"
+                : `Resume in ${row.cwd}`
+          }
+          onClick={(e) => {
+            e.stopPropagation();
+            onResume(row);
+          }}
+        >
+          Resume
+        </button>
+      ) : null}
       {supportsFork && !wrongOwner ? (
-        <span className="history__action history__action--fork">
-          <button
-            type="button"
-            className="history__fork"
-            title="Fork — a new conversation continuing from this session"
-            onClick={(e) => {
-              e.stopPropagation();
-              onFork(row);
-            }}
-          >
-            Fork
-          </button>
-        </span>
-      ) : (
-        <span
-          className="history__action history__action--fork"
-          aria-hidden="true"
-        />
-      )}
-      {/* The metadata band — its own grid, shared by every row: the
-       * folder clips from the head (the tail is the distinguisher),
-       * the issues WRAP inside their track rather than clip: each of
-       * the three messages is a meaning, and the row may grow taller
-       * to keep them all. */}
+        <button
+          type="button"
+          className="history__fork"
+          title="Fork — a new conversation continuing from this session"
+          onClick={(e) => {
+            e.stopPropagation();
+            onFork(row);
+          }}
+        >
+          Fork
+        </button>
+      ) : null}
       <span className="history__meta">
-        {row.cwd !== "" ? (
-          <span className="history__cwd">
-            <Chip
-              size="inline"
-              className="history__chip"
-              title={row.cwd}
-              // The folder's distinguishing tail lives at the END
-              // ("kd-KeepDeck-Web-3" vs "…Web-4"), so the clip must eat
-              // the HEAD: the chip's label wrapper clips from the left
-              // (its stylesheet scopes direction: rtl to this slot's
-              // label), while the name itself rides a <bdi dir="ltr"> —
-              // isolation without rtl is useless, rtl without isolation
-              // permutes the weak hyphens and digits the tail is made
-              // of. The pair is load-bearing on both sides.
-              label={<bdi dir="ltr">{baseName(row.cwd) || row.cwd}</bdi>}
-            />
+        {row.cwd !== "" && (
+          <span className="history__meta-folder" title={row.cwd}>
+            {baseName(row.cwd) || row.cwd}
           </span>
-        ) : (
-          <span className="history__cwd" aria-hidden="true" />
         )}
-        {bound?.branch !== undefined ? (
-          <span className="history__branch">
-            <Chip
-              size="inline"
-              className="history__chip"
-              title={bound.branch}
-              label={bound.branch}
-            />
+        {row.when !== null && (
+          <span className="history__meta-age">{formatAge(row.when, now)}</span>
+        )}
+        {dirMissing && (
+          <span className="history__meta-mark" title={`${row.cwd} no longer exists — the session cannot resume in place`}>
+            dir gone
           </span>
-        ) : (
-          <span className="history__branch" aria-hidden="true" />
         )}
-        {row.when !== null ? (
-          <span className="history__when">{formatAge(row.when, now)}</span>
-        ) : (
-          <span className="history__when" aria-hidden="true" />
-        )}
-        {dirMissing || statusChip !== null || readFailed ? (
-          <span className="history__issues">
-            {dirMissing && (
-              <Chip
-                size="inline"
-                tone="error"
-                className="history__missing"
-                title={`${row.cwd} no longer exists — the session cannot resume in place`}
-                label="dir gone"
-              />
-            )}
-            {statusChip !== null && (
-              <Chip
-                size="inline"
-                tone={statusChip.tone}
-                className="history__status"
-                title={statusChip.title}
-                label={statusChip.label}
-              />
-            )}
-            {readFailed && (
-              <Chip
-                size="inline"
-                tone="error"
-                className="history__status"
-                title="Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate."
-                label="read failed"
-              />
-            )}
+        {statusChip !== null && (
+          <span
+            className={`history__meta-mark${
+              statusChip.tone === "error" ? " history__meta-mark--err" : ""
+            }`}
+            title={statusChip.title}
+          >
+            {statusChip.label}
           </span>
-        ) : (
-          <span className="history__issues" aria-hidden="true" />
+        )}
+        {readFailed && (
+          <span
+            className="history__meta-mark history__meta-mark--err"
+            title="Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate."
+          >
+            read failed
+          </span>
         )}
       </span>
     </li>

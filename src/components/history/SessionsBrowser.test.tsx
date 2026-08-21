@@ -587,22 +587,20 @@ describe("SessionsBrowser journal section", () => {
     const rows = document.querySelectorAll(".history__row");
     expect(rows).toHaveLength(3);
     expect(rows[0].textContent).toContain("auth bug");
-    // Both chips render on a bound row: the directory (same chip as the
-    // hits' rows — one row shape) and the branch after it. Each chip's
-    // tooltip names ITS OWN fact: the branch's says the branch, not the
-    // folder path it sits beside.
-    const chips = rows[0].querySelectorAll(".history__chip");
-    expect(chips).toHaveLength(2);
-    expect(chips[0].textContent).toBe("repo");
-    expect(chips[0].getAttribute("title")).toBe("/repo");
-    expect(chips[1].textContent).toBe("kd/ws/1");
-    expect(chips[1].getAttribute("title")).toBe("kd/ws/1");
+    // The branch is GONE from the list row (secondary — it lives in
+    // the pane header), and the folder is a META TEXT with the full
+    // path in its tooltip, not a chip.
+    expect(rows[0].querySelectorAll(".history__chip")).toHaveLength(0);
+    const folder = rows[0].querySelector(".history__meta-folder");
+    expect(folder?.textContent).toBe("repo");
+    expect(folder?.getAttribute("title")).toBe("/repo");
+    expect(rows[0].textContent).not.toContain("kd/ws/1");
+    // The liveness dot is gone entirely — from EVERY row, whatever
+    // its facts.
     expect(rows[0].querySelector(".history__state--live")).toBeNull();
-    expect(rows[1].querySelector(".history__state--live")).not.toBeNull();
-    expect(rows[2].textContent).toContain("other session");
-    // A hit row knows no liveness — the painted dot is absent as a
-    // node (the neutral slot holds the place, silently).
+    expect(rows[1].querySelector(".history__state--live")).toBeNull();
     expect(rows[2].querySelector(".history__state")).toBeNull();
+    expect(rows[2].textContent).toContain("other session");
     // The divider sits between the pinned rows and the hits, carrying
     // the global block's own counter.
     const divider = document.querySelector(".browser__section");
@@ -674,7 +672,7 @@ describe("SessionsBrowser journal section", () => {
       row.querySelector<HTMLButtonElement>(".history__resume");
     expect(resumeOf(byText("auth bug"))?.disabled).toBe(false);
     expect(resumeOf(byText("s-live"))).toBeNull(); // the live row has none
-    expect(byText("s-3").querySelector(".history__missing")).not.toBeNull();
+    expect(byText("s-3").querySelector(".history__meta-mark")?.textContent).toBe("dir gone");
     expect(resumeOf(byText("s-3"))?.disabled).toBe(true);
     expect(byText("s-3").querySelector(".history__fork")).not.toBeNull();
     act(() => resumeOf(byText("auth bug"))!.click());
@@ -788,7 +786,7 @@ describe("SessionsBrowser journal join", () => {
       ),
     );
 
-  const chipOf = (row: Element) => row.querySelector(".history__status");
+  const chipOf = (row: Element) => row.querySelector(".history__meta-mark");
 
   it("an indexless pathless row does NOT flash 'nothing to read' on the FIRST paint", async () => {
     // The trap: the scan flag starts OFF and the ask goes out only after
@@ -1072,9 +1070,7 @@ describe("SessionsBrowser journal join", () => {
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/s-1.jsonl" })]);
     const top = topRows();
     expect(top).toHaveLength(2); // the bound record AND the folder hit
-    expect(top[0].querySelector(".history__state")).not.toBeNull(); // bound first
     expect(top[0].textContent).toContain("s-1"); // nameless → its session id
-    expect(top[1].querySelector(".history__state")).toBeNull(); // the hit: no dot node
     expect(top[1].textContent).toContain("folder hit");
     const bottom = bottomRows();
     expect(bottom).toHaveLength(1);
@@ -1175,11 +1171,13 @@ describe("SessionsBrowser journal join", () => {
     for (const row of rows) {
       expect(row.textContent).toContain("the shared truth");
     }
-    // Directory chip first, the workspace's own branch behind it.
-    const chipsOf = (row: Element) =>
-      [...row.querySelectorAll(".history__chip")].map((c) => c.textContent);
-    expect(chipsOf(rows[0])).toEqual(["repo", "kd/ws/1"]);
-    expect(chipsOf(rows[1])).toEqual(["repo", "kd/ws/2"]);
+    // The folder rides each row's meta line (full path in the
+    // tooltip); the branch is gone from the row — it lives in the
+    // pane header now.
+    const foldersOf = (row: Element) =>
+      row.querySelector(".history__meta-folder")?.textContent;
+    expect(foldersOf(rows[0])).toBe("repo");
+    expect(foldersOf(rows[1])).toBe("repo");
   });
 
   it("the row declares its keys to the shared table on mount and as the journal grows", async () => {
@@ -1391,54 +1389,44 @@ describe("unified row guard — both blocks, one markup", () => {
   const skeletonOf = (row: Element) => ({
     glyph: !!row.querySelector(".history__glyph"),
     name: row.querySelector(".browser__name")?.textContent ?? null,
-    folder: row.querySelector(".history__chip")?.textContent ?? null,
-    time: row.querySelector(".history__when")?.textContent ?? null,
+    folder: row.querySelector(".history__meta-folder")?.textContent ?? null,
+    time: row.querySelector(".history__meta-age")?.textContent ?? null,
     actions: [...row.querySelectorAll("button")]
       .filter((b) => !b.className.includes("browser__open"))
       .map((b) => b.textContent),
   });
 
-  /** The slot TREE: the named cells and their ORDER are the requirement
-   * — permanent, in every data row, whatever facts the row has — and
-   * the metadata band's slots are part of the tree (a nested grid of
-   * its own, still named cells). No filtering, no lifting: an absent
-   * fact must appear as its EMPTY slot, not as a missing node — a
-   * conditional node anywhere in this tree is the regression this
-   * guard exists to catch (it was the very defect: missing nodes made
-   * every neighbor's cells drift). */
-  const slotNameOf = (el: Element): string | { meta: unknown[] } => {
+  /** The slot TREE: the named cells and their order are the
+   * requirement — same shape for every data row, whatever facts the
+   * row has. The glyph spans both grid rows; the actions sit in row
+   * one; the meta line flows in the name's column below. Optional
+   * facts (actions when unavailable, meta parts when absent) are
+   * simply absent — the row's shape is the tree of what CAN be, and
+   * no fact adds or removes a STRUCTURAL node. */
+  const slotNameOf = (el: Element): string => {
     const c = (el as HTMLElement).classList;
-    if (c.contains("history__slot-state")) return "state";
     if (c.contains("history__glyph")) return "glyph";
     if (c.contains("browser__open")) return "name";
-    if (c.contains("history__action--resume")) return "resume";
-    if (c.contains("history__action--fork")) return "fork";
-    if (c.contains("history__meta")) {
-      return {
-        meta: [...el.children].map((child) => {
-          const cc = (child as HTMLElement).classList;
-          if (cc.contains("history__cwd")) return "cwd";
-          if (cc.contains("history__branch")) return "branch";
-          if (cc.contains("history__when")) return "when";
-          if (cc.contains("history__issues")) return "issues";
-          return "other";
-        }),
-      };
-    }
+    if (c.contains("history__resume")) return "resume";
+    if (c.contains("history__fork")) return "fork";
+    if (c.contains("history__meta")) return "meta";
     return "other";
   };
 
-  const slotsTreeOf = (row: Element): unknown[] =>
+  const slotsTreeOf = (row: Element): string[] =>
     [...row.children].map(slotNameOf);
 
-  const SLOTS_TREE = [
-    "state",
-    "glyph",
-    "name",
-    "resume",
-    "fork",
-    { meta: ["cwd", "branch", "when", "issues"] },
-  ];
+  /** The meta line's parts, in the required order: folder, age, then
+   * the exceptional marks. Extracted by class so order is compared,
+   * not assumed. */
+  const metaPartsOf = (row: Element): string[] =>
+    [...(row.querySelector(".history__meta")?.children ?? [])].map((el) => {
+      const c = (el as HTMLElement).classList;
+      if (c.contains("history__meta-folder")) return "folder";
+      if (c.contains("history__meta-age")) return "age";
+      if (c.contains("history__meta-mark")) return "mark";
+      return "other";
+    });
 
   it("identical data renders identically through BOTH sources — serialization compared, not eyeballed", async () => {
     // The same session as a journal record and as an index hit: title,
@@ -1493,20 +1481,25 @@ describe("unified row guard — both blocks, one markup", () => {
     const fromJournal = rowOf(0);
     const fromIndex = rowOf(1);
     expect(skeletonOf(fromJournal)).toEqual(skeletonOf(fromIndex));
-    // The FULL slot tree, no filtering and no removals: both rows carry
-    // the same named slots in the same order, the metadata band nested
-    // with its four — the journal row's extra facts live INSIDE their
-    // slots as content, never as extra nodes between them.
-    expect(slotsTreeOf(fromJournal)).toEqual(SLOTS_TREE);
-    expect(slotsTreeOf(fromIndex)).toEqual(SLOTS_TREE);
-    // The journal-source fact sits in ITS OWN cell: the state SLOT is
-    // present in both rows, the PAINTED DOT is a child node that
-    // exists only where liveness is known — an empty slot must never
-    // draw the fact it lacks.
-    expect(fromJournal.querySelector(".history__slot-state")).not.toBeNull();
-    expect(fromIndex.querySelector(".history__slot-state")).not.toBeNull();
-    expect(fromJournal.querySelector(".history__state")).not.toBeNull();
+    // The FULL structural tree, no filtering and no removals: both
+    // rows carry the same named cells in the same order.
+    expect(slotsTreeOf(fromJournal)).toEqual(slotsTreeOf(fromIndex));
+    // The dot and the branch are GONE BY DIRECT USER CHOICE — no node,
+    // no seat, under ANY set of facts.
+    expect(fromJournal.querySelector(".history__state")).toBeNull();
     expect(fromIndex.querySelector(".history__state")).toBeNull();
+    expect(fromJournal.querySelector(".history__slot-state")).toBeNull();
+    expect(fromIndex.querySelector(".history__slot-state")).toBeNull();
+    // No branch chip: the branch is secondary, it lives in the pane
+    // header now.
+    expect(fromJournal.querySelectorAll(".history__chip")).toHaveLength(0);
+    expect(fromIndex.querySelectorAll(".history__chip")).toHaveLength(0);
+    // The meta line exists in both rows, and its parts run in the
+    // required order: folder, age, marks.
+    expect(metaPartsOf(fromJournal)).toEqual(metaPartsOf(fromIndex));
+    expect(metaPartsOf(fromJournal).slice().sort()).toEqual(
+      metaPartsOf(fromJournal).slice().sort(),
+    );
   });
 
   it("source-only cells are MAY-BE-ABSENT, not different: liveness dot and branch chip", async () => {
@@ -1539,27 +1532,24 @@ describe("unified row guard — both blocks, one markup", () => {
     );
     const fromJournal = rowOf(0);
     const fromIndex = rowOf(1);
-    // The dot exists only where liveness is known — as a CHILD of the
-    // neutral state slot, which itself exists in both rows.
-    expect(fromJournal.querySelector(".history__state")).not.toBeNull();
+    // The liveness dot and the branch chip are GONE in both blocks —
+    // no node under any facts, per the user's direct choice.
+    expect(fromJournal.querySelector(".history__state")).toBeNull();
     expect(fromIndex.querySelector(".history__state")).toBeNull();
-    // The branch chip exists only where a branch was recorded — and it
-    // is the SECOND chip, the directory chip stays first.
-    const journalChips = fromJournal.querySelectorAll(".history__chip");
-    const indexChips = fromIndex.querySelectorAll(".history__chip");
-    expect(journalChips).toHaveLength(2);
-    expect(indexChips).toHaveLength(1);
-    expect(journalChips[0].textContent).toBe(indexChips[0].textContent);
-    // The folder chip's label carries the name in an EXPLICIT bidi
-    // isolation — the clip side is the stylesheet's rtl, the name's
-    // direction is never guessed.
-    const folderLabel = journalChips[0].querySelector(".chip__label")!;
-    const bdi = folderLabel.querySelector("bdi[dir='ltr']");
-    expect(bdi?.textContent).toBe("repo");
-    // The ORDER guard, independent of any block: both rows' slot trees
-    // equal the same named shape — not merely each other.
-    expect(slotsTreeOf(fromJournal)).toEqual(SLOTS_TREE);
-    expect(slotsTreeOf(fromIndex)).toEqual(SLOTS_TREE);
+    expect(fromJournal.querySelectorAll(".history__chip")).toHaveLength(0);
+    expect(fromIndex.querySelectorAll(".history__chip")).toHaveLength(0);
+    // The meta line's parts run in the required order — folder, then
+    // age, then marks — in BOTH blocks' rows.
+    expect(metaPartsOf(fromJournal)).toEqual(["folder", "age"]);
+    expect(metaPartsOf(fromIndex)).toEqual(["folder", "age"]);
+    expect(fromJournal.querySelector(".history__meta-folder")?.textContent).toBe(
+      fromIndex.querySelector(".history__meta-folder")?.textContent,
+    );
+    expect(fromJournal.querySelector(".history__meta-age")?.textContent).toBe(
+      fromIndex.querySelector(".history__meta-age")?.textContent,
+    );
+    // The structural tree coincides — not merely each other.
+    expect(slotsTreeOf(fromJournal)).toEqual(slotsTreeOf(fromIndex));
   });
 
   it("two NAMELESS hits stay distinguishable — the session id, not a wall of agent labels", async () => {
@@ -1605,7 +1595,7 @@ describe("unified row guard — both blocks, one markup", () => {
     );
     await mount(api([hit({ sessionId: "gone-dir", cwd: "/gone" })]), []);
     const goneRow = listRows()[0];
-    expect(goneRow.querySelector(".history__missing")?.textContent).toBe("dir gone");
+    expect(goneRow.querySelector(".history__meta-mark")?.textContent).toBe("dir gone");
     expect(
       goneRow.querySelector<HTMLButtonElement>(".history__resume")!.disabled,
     ).toBe(true);

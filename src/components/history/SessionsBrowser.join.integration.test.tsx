@@ -250,7 +250,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
 
     const row = document.querySelector(".history__row")!;
     expect(row.textContent).toContain("the corrupted record");
-    expect(row.querySelector(".history__status")?.textContent).toBe("wrong agent");
+    expect(row.querySelector(".history__meta-mark")?.textContent).toBe("wrong agent");
     expect(
       row.querySelector<HTMLButtonElement>(".browser__open")!.disabled,
     ).toBe(true);
