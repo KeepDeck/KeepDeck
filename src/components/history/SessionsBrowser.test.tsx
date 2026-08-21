@@ -1913,6 +1913,36 @@ describe("virtualized list — the window, not the pile", () => {
     expect(rowTopOf("g-0")).toBe(beforeTop);
   });
 
+  it("C-vanished: when the remembered key disappears, the current offset is held instead of jumping to the top", async () => {
+    const a = api([], {
+      other: laneOf(manyHits(80, "g"), { total: 80 }),
+    });
+    restoreViewport();
+    restoreViewport = pinListViewport(600, 800, 72);
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    Object.defineProperty(list, "scrollHeight", { value: 80 * 72, configurable: true });
+    Object.defineProperty(list, "clientHeight", { value: 600, configurable: true });
+
+    list.scrollTop = 30 * 72 + 37;
+    await act(async () => {
+      list.dispatchEvent(new Event("scroll"));
+    });
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const before = list.scrollTop;
+    expect(before).toBeGreaterThan(2000);
+
+    // The remembered row is removed from the queue entirely. The
+    // vanished-key branch must hold the live offset; a top reset is the
+    // visible failure, even though the old key can no longer be found.
+    a.other = laneOf(manyHits(80, "replacement"), { total: 80 });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+
+    expect(list.scrollTop).toBe(before);
+  });
+
   it("A-BLOCKER: an ordinary scroll STAYS — and a queue change holds the watched row's place (invariant, not number)", async () => {
     // The regression this pins: the merged effect compensated on
     // every range change — scrolling re-found the stale anchor and
@@ -1988,6 +2018,37 @@ describe("virtualized list — the window, not the pile", () => {
     // THE ANCHOR'S OWN CLAIM: the same key at the same offset.
     expect(visibleKeys()).toContain(watchedKey);
     expect(rowTopOf(watchedKey)).toBe(watchedBefore);
+  });
+
+  it("C-measure: measured row geometry replaces the estimate and an unrelated clock render does not reset the queue", async () => {
+    const nowMs = Date.now();
+    const a = api([], {
+      other: laneOf(
+        Array.from({ length: 10 }, (_, i) =>
+          hit({ sessionId: `measured-${i}`, mtime: nowMs - 59_500 }),
+        ),
+        { total: 10 },
+      ),
+    });
+    vi.useFakeTimers({ now: nowMs });
+    vi.setSystemTime(nowMs);
+    try {
+      await mountBrowser(a);
+      for (let i = 0; i < 3; i++) await act(async () => {});
+      const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+      // The adapter reports 64px rows while the virtualizer's estimate is
+      // 72px: the list height proves measureElement supplied live geometry.
+      expect(list.style.height).toBe(`${10 * 64}px`);
+      const before = list.style.height;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      expect(list.style.height).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("CLOCK: the tick is OBSERVED in the label — 59s→1m flips, hidden counts nothing, return recomputes at once, teardown leaves no timers", async () => {
