@@ -1827,21 +1827,11 @@ describe("virtualized list — the window, not the pile", () => {
     Object.defineProperty(list, "scrollHeight", { value: 40 * 72, configurable: true });
     Object.defineProperty(list, "clientHeight", { value: 600, configurable: true });
 
-    // Twenty workspace rows land ABOVE.
-    a.workspace = trackOf(manyHits(20, "w"), { total: 20 });
-    // Refresh the pinned scroll geometry for the grown queue (the
-    // pre-insertion pin 40×72 no longer bounds a 60-row list).
-    Object.defineProperty(list, "scrollHeight", { value: 60 * 72, configurable: true });
-    await mountBrowser(a);
-    for (let i = 0; i < 3; i++) await act(async () => {});
-
     // THE PROPERTY the anchor exists for, measured not computed: the
-    // watched row's OFFSET FROM THE VIEWPORT TOP is the same before
-    // and after the insertion. Numbers appear only where they are the
-    // subject (the pure arithmetic file); here the subject is
-    // sameness. The pinned rect makes the measurement meaningful:
-    // every row reports top=0 (the adapter pins ALL rows to the
-    // container box) — so the row's offset is derived from the
+    // watched row's OFFSET FROM THE VIEWPORT TOP — captured BEFORE
+    // the insertion (while the queue is still the 40-row list), so
+    // the sameness claim compares across the insertion, not a value
+    // with itself. The row's offset is derived from the
     // virtualizer's own positions: translateY(start) − scrollTop.
     const rowTopOf = (key: string): number | null => {
       const li = [
@@ -1856,11 +1846,19 @@ describe("virtualized list — the window, not the pile", () => {
     const beforeTop = rowTopOf("g-0");
     expect(beforeTop).not.toBeNull();
 
-    // The scroll moved by the span at least (≥ the minimal measured
-    // mix) and the watched key — now ~twenty rows down, OUTSIDE the
-    // pre-correction window — is back among the mounted.
-    expect(list.scrollTop).toBeGreaterThanOrEqual(20 * 64);
-    // THE ANCHOR'S OWN CLAIM: same key, same offset from the top.
+    // Twenty workspace rows land ABOVE — AFTER the "before" capture.
+    a.workspace = trackOf(manyHits(20, "w"), { total: 20 });
+    // Refresh the pinned scroll geometry for the grown queue (the
+    // pre-insertion pin 40×72 no longer bounds a 60-row list).
+    Object.defineProperty(list, "scrollHeight", { value: 60 * 72, configurable: true });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+
+    // THE ANCHOR'S OWN CLAIM: the same key at the same offset from
+    // the top, across the insertion. An anchor that misreads the key
+    // as vanished (the window-only lookup) would leave g-0 twenty
+    // rows up the content — a DIFFERENT offset; an anchor that does
+    // nothing would leave the offset shifted by the inserted span.
     expect(rowTopOf("g-0")).toBe(beforeTop);
   });
 
