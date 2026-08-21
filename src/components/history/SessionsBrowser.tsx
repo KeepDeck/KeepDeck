@@ -87,7 +87,7 @@ export function SessionsBrowser({
    * row, as itself and never as "nothing to read". */
   const [readFailed, setReadFailed] = useState<ReadonlySet<string>>(new Set());
   // Resume needs a live original directory — same gate for both
-  // tracks. The cwd LIST is memoized on the real sources: the hook's
+  // lanes. The cwd LIST is memoized on the real sources: the hook's
   // own fingerprint dedup keeps the effect from re-probing, but the
   // ARRAY construction itself ran on every render (the minute tick
   // included) — an unrelated state change must not even walk the
@@ -124,7 +124,7 @@ export function SessionsBrowser({
   }, [declare, rows]);
 
   // Lazy paging, driven by the VIRTUAL RANGE (never by a DOM node: the
-  // last row of a track unmounts by definition once scrolled past). Two
+  // last row of a lane unmounts by definition once scrolled past). Two
   // SEPARATE thresholds, each asking only its own engine. The
   // virtualizer and the thresholds live below the composed rows —
   // they read the stabilized queue.
@@ -263,7 +263,7 @@ export function SessionsBrowser({
   // feels early enough in a live fling is the user's eye, not ours.
   const maybeLoadBoth = useCallback(() => {
     if (lastVirtualIndex < 0) return;
-    // The workspace track's tail asks ONLY its own engine.
+    // The workspace lane's tail asks ONLY its own engine.
     if (api.workspace.hasMore && workspaceRows.length > 0) {
       if (workspaceRows.length - 1 - lastVirtualIndex <= PAGE_AHEAD) {
         api.workspace.loadMore();
@@ -407,9 +407,9 @@ export function SessionsBrowser({
           />
           {listCount.total > 0 && (
             // The search field's counter — the count of THIS LIST (both
-            // its tracks, journal rows in the denominator, loaded twins
+            // its lanes, journal rows in the denominator, loaded twins
             // out of it): numerator what the list DRAWS across both
-            // tracks, denominator what it can draw. The
+            // lanes, denominator what it can draw. The
             // bare-total-vs-"X of N" choice is the composition's OWN
             // truth — shown === total exactly when the drawn population
             // has reached its bound; the engine's raw hasMore stays
@@ -483,8 +483,8 @@ export function SessionsBrowser({
           );
         })}
         {/* The list's TAIL — the list's basement, OUTSIDE the virtual
-         * count: ONE spinner as the list's LAST element while ANY track
-         * loads more, ONE error line for whichever track refused (both
+         * count: ONE spinner as the list's LAST element while ANY lane
+         * loads more, ONE error line for whichever lane refused (both
          * refused — still one line). Not being data rows, these never
          * enter the virtual range's arithmetic — the thresholds count
          * DATA rows only, or "total − 1 − last visible" could go
@@ -495,7 +495,7 @@ export function SessionsBrowser({
          * empty, and a workspace with journal rows would otherwise show
          * a failed search as a quietly shorter list.
          *
-         * The KNOWN, CHOSEN cost: while the WORKSPACE track loads more,
+         * The KNOWN, CHOSEN cost: while the WORKSPACE lane loads more,
          * the spinner sits BELOW the already-drawn other rows — far
          * from where the new rows will arrive, often outside the
          * viewport. That is deliberate: the list has ONE tail, like any

@@ -117,7 +117,7 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
         ),
       );
       // Page zeros of the OLD scope land (the workspace ask fires first,
-      // then the other): 2 rows on screen in the other track.
+      // then the other): 2 rows on screen in the other lane.
       await act(async () =>
         resolvers[0]({ hits: [], total: 0 }),
       );
@@ -163,14 +163,14 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
 
   it("the two asks carry Only and Except of the SAME directory set", async () => {
     await mount(new Set(["/wt/kd-x"]));
-    // Two asks fire on mount — the workspace track first, the other
+    // Two asks fire on mount — the workspace lane first, the other
     // second (engine order).
     expect(ipc.indexSearch).toHaveBeenCalledTimes(2);
     expect(scopeOfCall(0)).toEqual({ mode: "only", dirs: ["/wt/kd-x"] });
     expect(scopeOfCall(1)).toEqual({ mode: "except", dirs: ["/wt/kd-x"] });
   });
 
-  it("each track pages ITS OWN engine; one text searches both", async () => {
+  it("each lane pages ITS OWN engine; one text searches both", async () => {
     await mount();
     await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 123 }));
     await act(async () => resolvers[1]({ hits: mkHits(0, 30), total: 456 }));
@@ -212,7 +212,7 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
     }
   });
 
-  it("a revision bump refreshes BOTH tracks; a stale page never lands", async () => {
+  it("a revision bump refreshes BOTH lanes; a stale page never lands", async () => {
     await mount();
     // Page zeros land.
     await act(async () => resolvers[0]({ hits: mkHits(0, 3), total: 3 }));
@@ -278,9 +278,9 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
     expect(ensureFresh).toHaveBeenCalledTimes(1);
   });
 
-  it("pages arrive FULL from each track's own query — nothing fetched to throw away", async () => {
+  it("pages arrive FULL from each lane's own query — nothing fetched to throw away", async () => {
     // The counter invariant's other half: numerator and denominator come
-    // from the track's own response — asserted by the totals being the
+    // from the lane's own response — asserted by the totals being the
     // ENGINE's answer, not a locally filtered count.
     await mount();
     await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 500 }));
@@ -289,7 +289,7 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
     expect(api.workspace.hasMore).toBe(true);
   });
 
-  it("the first-page flag: true while either track's page zero rides, gone when both land", async () => {
+  it("the first-page flag: true while either lane's page zero rides, gone when both land", async () => {
     // Binary, no machine timings — fake timers hold the debounce, the
     // pending resolvers hold the flight. The ask is visible work, not a
     // freeze: old rows STAY while the new ones ride (nothing is cleared
@@ -312,7 +312,7 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
       expect(api.firstPagePending).toBe(true);
       expect(api.other.hits).toHaveLength(2);
 
-      // The WORKSPACE track's new page lands: still pending — the
+      // The WORKSPACE lane's new page lands: still pending — the
       // other's page zero rides.
       await act(async () => resolvers[2]({ hits: mkHits(60, 5), total: 5 }));
       expect(api.firstPagePending).toBe(true);

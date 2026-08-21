@@ -90,7 +90,7 @@ const live = (over: Partial<SessionRecord> = {}): SessionRecord =>
     ...over,
   }) as SessionRecord;
 
-const trackOf = (
+const laneOf = (
   hits: SearchHit[],
   over: {
     total?: number;
@@ -116,8 +116,8 @@ const api = (
   over: Partial<SessionsBrowserApi> = {},
   entries: Record<string, JoinEntry> = {},
 ): SessionsBrowserApi => ({
-  workspace: trackOf([]),
-  other: trackOf(hits),
+  workspace: laneOf([]),
+  other: laneOf(hits),
   query: "",
   firstPagePending: false,
   scanning: false,
@@ -424,7 +424,7 @@ describe("SessionsBrowser", () => {
     expect(document.querySelector(".history__fork")).toBeNull();
     const open = document.querySelector<HTMLButtonElement>(".browser__open")!;
     expect(open.disabled).toBe(true);
-    // The OTHER track's row (the queue's tail) stays inert.
+    // The OTHER lane's row (the queue's tail) stays inert.
     const hitRow = otherRows(1)[0];
     await act(async () => (hitRow as HTMLLIElement).click());
     expect(a.transcript).not.toHaveBeenCalled();
@@ -433,10 +433,10 @@ describe("SessionsBrowser", () => {
 
   it("shows the field's count: partial as 'X of N', complete as the plain total", async () => {
     // The FIELD's counter speaks for the whole list — journal rows and
-    // both tracks' loaded hits, twins out. Partial: drawn 2 of a 124
+    // both lanes' loaded hits, twins out. Partial: drawn 2 of a 124
     // bound (1 journal + 123 raw other); complete: 2 of 2.
     await mount(
-      api([hit()], { other: trackOf([hit()], { total: 123, hasMore: true }) }),
+      api([hit()], { other: laneOf([hit()], { total: 123, hasMore: true }) }),
       [closed({ title: "pinned" })],
     );
     expect(document.querySelector(".browser__count")?.textContent).toBe(
@@ -447,7 +447,7 @@ describe("SessionsBrowser", () => {
     document.body.innerHTML = "<div id='host2'></div>";
     root = createRoot(document.getElementById("host2")!);
     await mount(
-      api([hit()], { other: trackOf([hit()], { total: 1 }) }),
+      api([hit()], { other: laneOf([hit()], { total: 1 }) }),
       [closed({ title: "pinned" })],
     );
     expect(document.querySelector(".browser__count")?.textContent).toBe("2");
@@ -470,7 +470,7 @@ describe("SessionsBrowser", () => {
     // "3 of 5" — the raw engine total, journal missing, twin uncounted.
     await mount(
       api([], {
-        workspace: trackOf(
+        workspace: laneOf(
           [hit({ sessionId: "s-1" }), hit({ sessionId: "w-1" })],
           { total: 5 },
         ),
@@ -485,18 +485,18 @@ describe("SessionsBrowser", () => {
     );
   });
 
-  it("C1-field whole list: the field's counter sums BOTH tracks — the drawn whole, not the workspace alone", async () => {
-    // Journal 2 (one a twin of a workspace hit); the workspace track
-    // loaded 3 (1 twin + 2 strangers) with raw total 6; the other track
-    // loaded 2, no twins, raw 7. Tracks: workspace 4 of 7, other 2 of
+  it("C1-field whole list: the field's counter sums BOTH lanes — the drawn whole, not the workspace alone", async () => {
+    // Journal 2 (one a twin of a workspace hit); the workspace lane
+    // loaded 3 (1 twin + 2 strangers) with raw total 6; the other lane
+    // loaded 2, no twins, raw 7. Lanes: workspace 4 of 7, other 2 of
     // 7 — the FIELD must speak of the whole: 6 of 14.
     await mount(
       api([], {
-        workspace: trackOf(
+        workspace: laneOf(
           [hit({ sessionId: "s-1" }), hit({ sessionId: "w-1" }), hit({ sessionId: "w-2" })],
           { total: 6 },
         ),
-        other: trackOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
+        other: laneOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
           total: 7,
         }),
       }),
@@ -507,13 +507,13 @@ describe("SessionsBrowser", () => {
     );
   });
 
-  it("C1-field empty workspace track: the workspace track EMPTY, the other alive — the counter still shows", async () => {
+  it("C1-field empty workspace lane: the workspace lane EMPTY, the other alive — the counter still shows", async () => {
     // No journal records, no workspace hits: the OLD field condition
-    // (the workspace track's total > 0) rendered NO number over a fully
+    // (the workspace lane's total > 0) rendered NO number over a fully
     // drawn list. The count does not hide: 2 of 5.
     await mount(
       api([], {
-        other: trackOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
+        other: laneOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
           total: 5,
         }),
       }),
@@ -525,12 +525,12 @@ describe("SessionsBrowser", () => {
   });
 
   it("C1-other: the list's numerator counts DRAWN rows — the loaded twin is neither drawn nor counted", async () => {
-    // The other track loaded 2 hits, one of which the journal draws:
+    // The other lane loaded 2 hits, one of which the journal draws:
     // drawn 2 (journal 1 + the stranger), denominator 1 + (2 − 1 twin)
     // = 2 — EQUAL, the plain "2". Counting the twin would say "2 of 3".
     await mount(
       api([], {
-        other: trackOf([hit({ sessionId: "g-1" }), hit({ sessionId: "s-1" })], {
+        other: laneOf([hit({ sessionId: "g-1" }), hit({ sessionId: "s-1" })], {
           total: 2,
         }),
       }),
@@ -546,7 +546,7 @@ describe("SessionsBrowser", () => {
     // bare-total branch is the C1-other case above.
     await mount(
       api([], {
-        other: trackOf(
+        other: laneOf(
           [hit({ sessionId: "g-1" }), hit({ sessionId: "s-1" })],
           { total: 3, hasMore: true },
         ),
@@ -559,12 +559,12 @@ describe("SessionsBrowser", () => {
   });
 
   it("the field's count never inflates over an all-twin other page", async () => {
-    // The raw engine total is 1 (the twin); the drawn other track is
+    // The raw engine total is 1 (the twin); the drawn other lane is
     // empty — the twin must not inflate the list's denominator: the
     // journal row is all there is, and the count says just "1".
     await mount(
       api([], {
-        other: trackOf([hit({ sessionId: "s-1" })], { total: 1 }),
+        other: laneOf([hit({ sessionId: "s-1" })], { total: 1 }),
       }),
       [closed({ transcriptPath: "/j/s-1" })],
     );
@@ -572,14 +572,14 @@ describe("SessionsBrowser", () => {
   });
 
   it("ONE queue: workspace rows first, other rows after, NOTHING between them — and no section node anywhere", async () => {
-    // Belonging outranks time: the other track's row is FRESHER, yet
+    // Belonging outranks time: the other lane's row is FRESHER, yet
     // rides below every workspace row. Between the two halves of the
     // queue there is no divider, no label, no node of any class — the
     // list is visually one.
     await mount(
       api([], {
-        workspace: trackOf([hit({ sessionId: "w-1", title: "ws hit", mtime: 100 })]),
-        other: trackOf([hit({ sessionId: "g-1", title: "fresher stranger", mtime: 900 })]),
+        workspace: laneOf([hit({ sessionId: "w-1", title: "ws hit", mtime: 100 })]),
+        other: laneOf([hit({ sessionId: "g-1", title: "fresher stranger", mtime: 900 })]),
       }),
       [closed({ sessionId: "s-1", endedAt: new Date(100_000).toISOString() })],
     );
@@ -600,12 +600,12 @@ describe("SessionsBrowser", () => {
   });
 
   it("ONE tail: exactly one spinner, LAST in the list, whatever loads — and one error line, never two", async () => {
-    // Both tracks loading: ONE spinner at the end (it names no track —
-    // the list is loading). The workspace track loading under drawn
+    // Both lanes loading: ONE spinner at the end (it names no lane —
+    // the list is loading). The workspace lane loading under drawn
     // other rows: still the one tail, last of all.
     const both = api([], {
-      workspace: trackOf([hit({ sessionId: "w-1" })], { loadingMore: true }),
-      other: trackOf([hit({ sessionId: "g-1" })], { loadingMore: true }),
+      workspace: laneOf([hit({ sessionId: "w-1" })], { loadingMore: true }),
+      other: laneOf([hit({ sessionId: "g-1" })], { loadingMore: true }),
     });
     await mount(both);
     const spinners = document.querySelectorAll(".browser__more");
@@ -617,8 +617,8 @@ describe("SessionsBrowser", () => {
     document.body.innerHTML = "<div id='host2'></div>";
     root = createRoot(document.getElementById("host2")!);
     const workspaceOnly = api([], {
-      workspace: trackOf([hit({ sessionId: "w-1" })], { loadingMore: true }),
-      other: trackOf([hit({ sessionId: "g-1" })]),
+      workspace: laneOf([hit({ sessionId: "w-1" })], { loadingMore: true }),
+      other: laneOf([hit({ sessionId: "g-1" })]),
     });
     await mount(workspaceOnly);
     expect(document.querySelectorAll(".browser__more")).toHaveLength(1);
@@ -626,13 +626,13 @@ describe("SessionsBrowser", () => {
     const last = lastChild[lastChild.length - 1];
     expect(last?.classList.contains("browser__more")).toBe(true);
 
-    // Both tracks refused: ONE error line (one sentence, no track name).
+    // Both lanes refused: ONE error line (one sentence, no lane name).
     await act(async () => root.unmount());
     document.body.innerHTML = "<div id='host3'></div>";
     root = createRoot(document.getElementById("host3")!);
     const failed = api([], {
-      workspace: trackOf([], { error: "bridge one" }),
-      other: trackOf([], { error: "bridge two" }),
+      workspace: laneOf([], { error: "bridge one" }),
+      other: laneOf([], { error: "bridge two" }),
     });
     await mount(failed);
     const errors = [...document.querySelectorAll(".browser__empty")].filter((el) =>
@@ -642,7 +642,7 @@ describe("SessionsBrowser", () => {
   });
 
   it("pulls the next page while the list is shorter than its viewport — scroll alone can't fire there", async () => {
-    const a = api([hit()], { other: trackOf([hit()], { total: 123, hasMore: true }) });
+    const a = api([hit()], { other: laneOf([hit()], { total: 123, hasMore: true }) });
     await mount(a);
     // happy-dom's zero-height layout IS the unfilled-viewport case.
     expect(a.other.loadMore).toHaveBeenCalled();
@@ -661,7 +661,7 @@ describe("SessionsBrowser", () => {
 
   it("a loading page shows a spinner as the list/viewer tail, not an empty stall", async () => {
     const a = api([hit()], {
-      other: trackOf([hit()], { total: 123, hasMore: true, loadingMore: true }),
+      other: laneOf([hit()], { total: 123, hasMore: true, loadingMore: true }),
     });
     a.transcript = vi.fn(
       () => new Promise<AgentTranscriptEntry[]>(() => {}), // never resolves
@@ -719,7 +719,7 @@ describe("SessionsBrowser journal section", () => {
     return { ...result, onResume, onFork };
   };
 
-  it("journal rows ride first, before the other track's rows, with the folder as meta text", async () => {
+  it("journal rows ride first, before the other lane's rows, with the folder as meta text", async () => {
     await mount(
       api([hit({ sessionId: "u-9", title: "other session" })]),
       [closed({ title: "auth bug", branch: "kd/ws/1" }), live()],
@@ -742,7 +742,7 @@ describe("SessionsBrowser journal section", () => {
     expect(rows[2].querySelector(".history__state")).toBeNull();
     expect(rows[2].textContent).toContain("other session");
     // One queue, nothing between: the journal rows ride first, the
-    // other track's row after — and NO section node exists anywhere.
+    // other lane's row after — and NO section node exists anywhere.
     expect(document.querySelector(".browser__section")).toBeNull();
     expect(rows[2].previousElementSibling).toBe(rows[1]);
   });
@@ -761,7 +761,7 @@ describe("SessionsBrowser journal section", () => {
     expect(otherRows(1)[0].textContent).toContain("other session");
   });
 
-  it("an active query filters the journal client-side; content-only matches survive in the other track", async () => {
+  it("an active query filters the journal client-side; content-only matches survive in the other lane", async () => {
     // "auth" matches the journal row's title, so s-1 rides the queue's
     // head and its hit dedupes; s-2's title does NOT match, so its hit
     // (a content match from the index) must still show in the queue's
@@ -886,7 +886,7 @@ describe("SessionsBrowser journal section", () => {
     // rows would show a failed search as a quietly shorter list — the wrong
     // answer with no indication anywhere.
     await mount(
-      api([], { other: trackOf([], { error: "index unavailable" }), query: "auth" }),
+      api([], { other: laneOf([], { error: "index unavailable" }), query: "auth" }),
       [closed({ title: "auth bug" })],
     );
     expect(document.body.textContent).toContain("Search failed: index unavailable");
@@ -1185,8 +1185,8 @@ describe("SessionsBrowser journal join", () => {
     // doubling a row already shown earlier in the list. The dedup is by
     // journal KEY, wherever the twin's cwd falls (or doesn't).
     const a = api([], {
-      workspace: trackOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
-      other: trackOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
+      workspace: laneOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
+      other: laneOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
     });
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/s-1.jsonl" })]);
     const all = listRows();
@@ -1200,8 +1200,8 @@ describe("SessionsBrowser journal join", () => {
     // folder is usually IN the set by construction — but binding is a
     // recorded FACT, and no directory filter may unseat it.
     const a = api([], {
-      workspace: trackOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
-      other: trackOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
+      workspace: laneOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
+      other: laneOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
     });
     await mount(a, [closed({ sessionId: "s-1", cwd: "/foreign" })]);
     expect(listRows()).toHaveLength(1);
@@ -1211,8 +1211,8 @@ describe("SessionsBrowser journal join", () => {
 
   it("the queue's head is a UNION: a workspace-folder hit the journal lacks rides it", async () => {
     const a = api([], {
-      workspace: trackOf([hit({ sessionId: "w-1", title: "folder hit" })]),
-      other: trackOf([hit({ sessionId: "g-1", title: "global hit" })]),
+      workspace: laneOf([hit({ sessionId: "w-1", title: "folder hit" })]),
+      other: laneOf([hit({ sessionId: "g-1", title: "global hit" })]),
     });
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/s-1.jsonl" })]);
     const head = workspaceRows(1);
@@ -1224,7 +1224,7 @@ describe("SessionsBrowser journal join", () => {
     expect(tail[0].textContent).toContain("global hit");
   });
 
-  it("the workspace track stands on ONE axis: conversation time, journal marks for the rest", async () => {
+  it("the workspace lane stands on ONE axis: conversation time, journal marks for the rest", async () => {
     // An index row NEWER than every journal row sits ABOVE them; a
     // journal row the index knows stands by its CONVERSATION time (the
     // landed mtime), not its binding time; a row the index doesn't know
@@ -1232,7 +1232,7 @@ describe("SessionsBrowser journal join", () => {
     // all index rows.
     const a = api(
       [],
-      { workspace: trackOf([hit({ sessionId: "h", title: "newest hit", mtime: 400_000 })]) },
+      { workspace: laneOf([hit({ sessionId: "h", title: "newest hit", mtime: 400_000 })]) },
       {
         "claude:k": { kind: "hit", reference: "/store/k", title: "known", mtime: 300_000 },
       },
@@ -1581,7 +1581,7 @@ describe("row render stability — the effect, not the memo", () => {
     // literal for the old row would legitimately re-render it (its
     // source changed).
     const sameG1 = a.other.hits[0];
-    a.other = trackOf(
+    a.other = laneOf(
       [sameG1, hit({ sessionId: "g-2", title: null })],
       { total: 2 },
     );
@@ -1636,7 +1636,7 @@ describe("virtualized list — the window, not the pile", () => {
 
   it("A: at 2400 model rows the mounted rows are bounded by the window plus explicit slack", async () => {
     await mountBrowser(
-      api([], { other: trackOf(manyHits(2400), { total: 2400, hasMore: true }) }),
+      api([], { other: laneOf(manyHits(2400), { total: 2400, hasMore: true }) }),
     );
     const mounted = document.querySelectorAll(
       ".browser__list > .history__row",
@@ -1669,12 +1669,12 @@ describe("virtualized list — the window, not the pile", () => {
     });
     await mountBrowser(
       api([], {
-        workspace: trackOf(manyHits(30, "w"), {
+        workspace: laneOf(manyHits(30, "w"), {
           total: 300,
           hasMore: true,
           loadMore: workspaceLoad,
         }),
-        other: trackOf(manyHits(5, "g"), {
+        other: laneOf(manyHits(5, "g"), {
           total: 500,
           hasMore: true,
           loadMore: otherLoad,
@@ -1701,23 +1701,23 @@ describe("virtualized list — the window, not the pile", () => {
 
   it("B: the signal rides the RANGE, not a DOM node — a scrolled-past tail still pages", async () => {
     // The mutation this pins: reading the last DOM node instead of the
-    // range. After a scroll past the workspace track's end, its last
+    // range. After a scroll past the workspace lane's end, its last
     // row is UNMOUNTED (that is what virtualization means) — a
     // DOM-node signal finds no node and never asks, and the workspace
-    // track's paging silently dies. The range signal asks: the range's
+    // lane's paging silently dies. The range signal asks: the range's
     // end is beyond the workspace boundary, which IS the threshold.
     const workspaceLoad = vi.fn();
     const otherLoad = vi.fn();
     await mountBrowser(
       api([], {
-        // A long other track pushes the workspace tail far above the
+        // A long other lane pushes the workspace tail far above the
         // scroll bottom; the workspace pages land first.
-        workspace: trackOf(manyHits(20, "w"), {
+        workspace: laneOf(manyHits(20, "w"), {
           total: 200,
           hasMore: true,
           loadMore: workspaceLoad,
         }),
-        other: trackOf(manyHits(400, "g"), {
+        other: laneOf(manyHits(400, "g"), {
           total: 2000,
           hasMore: true,
           loadMore: otherLoad,
@@ -1745,7 +1745,7 @@ describe("virtualized list — the window, not the pile", () => {
     // container keeps it (the next Tab enters the nearest visible
     // row). A neighboring ROW was rejected as guessing intent.
     const a = api([], {
-      other: trackOf(manyHits(60, "g"), { total: 60 }),
+      other: laneOf(manyHits(60, "g"), { total: 60 }),
     });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
@@ -1780,7 +1780,7 @@ describe("virtualized list — the window, not the pile", () => {
     // focused element of a removed row — never because focus happened
     // to sit in body while the list mutated.
     const a = api([], {
-      other: trackOf(manyHits(30, "g"), {
+      other: laneOf(manyHits(30, "g"), {
         total: 100,
         hasMore: true,
         loadMore: vi.fn(),
@@ -1791,9 +1791,9 @@ describe("virtualized list — the window, not the pile", () => {
     const list = document.querySelector<HTMLUListElement>(".browser__list")!;
 
     // Nothing was ever focused in a row; focus is wherever it was —
-    // body. The page "lands": the track's hits array grows, rows are
+    // body. The page "lands": the lane's hits array grows, rows are
     // added (child mutations galore).
-    a.other = trackOf(manyHits(60, "g"), { total: 100, hasMore: false, loadMore: vi.fn() });
+    a.other = laneOf(manyHits(60, "g"), { total: 100, hasMore: false, loadMore: vi.fn() });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
 
@@ -1817,7 +1817,7 @@ describe("virtualized list — the window, not the pile", () => {
     // the observer; the stand dispatches the moves explicitly
     // (happy-dom fires no focus events on .focus()).
     const a = api([], {
-      other: trackOf(manyHits(30, "g"), { total: 100, hasMore: true, loadMore: vi.fn() }),
+      other: laneOf(manyHits(30, "g"), { total: 100, hasMore: true, loadMore: vi.fn() }),
     });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
@@ -1846,7 +1846,7 @@ describe("virtualized list — the window, not the pile", () => {
     // focus drifts to body — the raw transfer conditions — the
     // memory must have been cleared by the real move above.
     outside.remove();
-    a.other = trackOf(manyHits(10, "g"), { total: 10, hasMore: false, loadMore: vi.fn() });
+    a.other = laneOf(manyHits(10, "g"), { total: 10, hasMore: false, loadMore: vi.fn() });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
     expect(document.activeElement).toBe(document.body);
@@ -1865,7 +1865,7 @@ describe("virtualized list — the window, not the pile", () => {
     // window, the vanished branch fires, the anchor hands to an
     // inserted row and the watched row jumps away.
     const a = api([], {
-      other: trackOf(manyHits(40, "g"), { total: 40 }),
+      other: laneOf(manyHits(40, "g"), { total: 40 }),
     });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
@@ -1898,7 +1898,7 @@ describe("virtualized list — the window, not the pile", () => {
     expect(beforeTop).not.toBeNull();
 
     // Twenty workspace rows land ABOVE — AFTER the "before" capture.
-    a.workspace = trackOf(manyHits(20, "w"), { total: 20 });
+    a.workspace = laneOf(manyHits(20, "w"), { total: 20 });
     // Refresh the pinned scroll geometry for the grown queue (the
     // pre-insertion pin 40×72 no longer bounds a 60-row list).
     Object.defineProperty(list, "scrollHeight", { value: 60 * 72, configurable: true });
@@ -1927,7 +1927,7 @@ describe("virtualized list — the window, not the pile", () => {
     // first-visible boundary so a stale arming anchor would be caught
     // holding the PREVIOUS row's offset.
     const a = api([], {
-      other: trackOf(manyHits(80, "g"), { total: 80 }),
+      other: laneOf(manyHits(80, "g"), { total: 80 }),
     });
     // Row height = the ESTIMATE (72): measurements are then a no-op on
     // offsets — deterministic starts make the INVARIANT exact; with
@@ -1980,7 +1980,7 @@ describe("virtualized list — the window, not the pile", () => {
     // the anchor must hold ITS key at ITS offset. Same-key/same-
     // offset survives height changes, paddings and any arithmetic;
     // a computed number would not.
-    a.workspace = trackOf(manyHits(20, "w"), { total: 20 });
+    a.workspace = laneOf(manyHits(20, "w"), { total: 20 });
     Object.defineProperty(list, "scrollHeight", { value: 100 * 72, configurable: true });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
@@ -2003,7 +2003,7 @@ describe("virtualized list — the window, not the pile", () => {
     const a = api(
       [],
       {
-        other: trackOf(
+        other: laneOf(
           [{ ...hit({ sessionId: "age-row", title: null }), mtime: nowMs - 59_500 }],
           { total: 1 },
         ),
@@ -2379,7 +2379,7 @@ describe("unified row guard — both blocks, one markup", () => {
     const head = workspaceRows(2);
     expect(head).toHaveLength(1);
     expect(head[0].textContent).toContain("zz-9");
-    // One queue: the journal row first, the other track's rows after —
+    // One queue: the journal row first, the other lane's rows after —
     // nothing between them.
     const rows = listRows();
     expect(rows).toHaveLength(3);

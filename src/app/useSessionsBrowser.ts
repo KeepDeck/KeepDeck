@@ -10,16 +10,16 @@ import { useAppRuntime } from "./runtimeContext";
 import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
 import { usePagedSessionSearch } from "./usePagedSessionSearch";
 
-/** One track's search state: its own pages, its own totals — the
- * numerator and the denominator of a track's count come from ITS
+/** One lane's search state: its own pages, its own totals — the
+ * numerator and the denominator of a lane's count come from ITS
  * response, never stitched together from two. */
-export interface TrackApi {
+export interface LaneApi {
   hits: SearchHit[];
   total: number;
   hasMore: boolean;
   loadingMore: boolean;
-  /** Page zero of this track's current query is in flight — its OWN
-   * pending, for per-track needs; the list-level flag composes both. */
+  /** Page zero of this lane's current query is in flight — its OWN
+   * pending, for per-lane needs; the list-level flag composes both. */
   firstPagePending: boolean;
   error: string | null;
   loadMore(): void;
@@ -71,26 +71,26 @@ export interface BrowserSharedSeam {
 }
 
 export interface SessionsBrowserApi {
-  /** The WORKSPACE track: index hits from the workspace's OWN folders —
+  /** The WORKSPACE lane: index hits from the workspace's OWN folders —
    * the list draws it first; belonging outranks time. */
-  workspace: TrackApi;
-  /** The OTHER track: index hits from everywhere BUT those folders —
-   * drawn after the workspace track, however fresh its rows are. */
-  other: TrackApi;
-  /** The query both tracks answer — per browser: the box a workspace
-   * shows is its own, and the tracks' results are workspace-shaped
+  workspace: LaneApi;
+  /** The OTHER lane: index hits from everywhere BUT those folders —
+   * drawn after the workspace lane, however fresh its rows are. */
+  other: LaneApi;
+  /** The query both lanes answer — per browser: the box a workspace
+   * shows is its own, and the lanes' results are workspace-shaped
    * anyway. */
   query: string;
   /** Results of the CURRENT query are still riding: true while EITHER
-   * track's first page is in flight — with two scoped queries, "the
-   * results I asked for" is both of them, and a flag per track would
+   * lane's first page is in flight — with two scoped queries, "the
+   * results I asked for" is both of them, and a flag per lane would
    * flicker apart over one shared search box. */
   firstPagePending: boolean;
   scanning: boolean;
   /** The journal rows' shared enrichment table — see
    * [`BrowserSharedSeam.enrichment`]. */
   enrichment: BrowserSharedSeam["enrichment"];
-  /** Run the debounced search on BOTH tracks; resets each track's paging. */
+  /** Run the debounced search on BOTH lanes; resets each lane's paging. */
   search(query: string): void;
   ensureFresh(): void;
   transcript(
@@ -143,9 +143,9 @@ export function useBrowserSharedSeam(): BrowserSharedSeam {
 /** The per-browser half: two folder-scoped engines over ONE query text,
  * feeding ONE list in a fixed order. `dirs` is the workspace's directory
  * set as the webview's domain computes it (own folder ∪ pane folders ∪
- * folders from its journal history) — the workspace track asks Only,
- * the other track Except, so membership rides in the queries and each
- * track pages over its own set, fetching nothing it will throw away. */
+ * folders from its journal history) — the workspace lane asks Only,
+ * the other lane Except, so membership rides in the queries and each
+ * lane pages over its own set, fetching nothing it will throw away. */
 export function useSessionsBrowser(
   dirs: ReadonlySet<string>,
   shared: BrowserSharedSeam,
@@ -188,7 +188,7 @@ export function useSessionsBrowser(
   const { resetTo: resetOtherTo } = other;
   const { scanning } = shared;
 
-  // Each track re-reads page zero on every index REVISION: the mount
+  // Each lane re-reads page zero on every index REVISION: the mount
   // fire is the initial listing, and later bumps are landed scan
   // batches — a first-ever scan fills the list while it runs instead of
   // after it (the filling-while-scanning the user chose).
@@ -222,7 +222,7 @@ export function useSessionsBrowser(
 
   const search = useCallback(
     (query: string) => {
-      // One text, two asks — the tracks' query states are set
+      // One text, two asks — the lanes' query states are set
       // synchronously and identically by their engines, so the box and
       // both results always agree on what was typed.
       workspace.search(query);
