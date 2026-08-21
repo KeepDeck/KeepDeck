@@ -14,7 +14,6 @@ import {
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  anchorCorrection,
   pickAnchor,
   type AnchorState,
 } from "./rowAnchor";
@@ -123,12 +122,21 @@ export function SessionsBrowser({
    * openable — a retry is legitimate — but the failure is named on the
    * row, as itself and never as "nothing to read". */
   const [readFailed, setReadFailed] = useState<ReadonlySet<string>>(new Set());
-  // Resume needs a live original directory — same gate for both tracks.
-  const presence = useDirPresence([
-    ...rows.map((row) => row.cwd),
-    ...api.workspace.hits.map((hit) => hit.cwd),
-    ...api.other.hits.map((hit) => hit.cwd),
-  ]);
+  // Resume needs a live original directory — same gate for both
+  // tracks. The cwd LIST is memoized on the real sources: the hook's
+  // own fingerprint dedup keeps the effect from re-probing, but the
+  // ARRAY construction itself ran on every render (the minute tick
+  // included) — an unrelated state change must not even walk the
+  // inputs.
+  const presenceCwds = useMemo(
+    () => [
+      ...rows.map((row) => row.cwd),
+      ...api.workspace.hits.map((hit) => hit.cwd),
+      ...api.other.hits.map((hit) => hit.cwd),
+    ],
+    [rows, api.workspace.hits, api.other.hits],
+  );
+  const presence = useDirPresence(presenceCwds);
   // Orders transcript responses: a stale page must never render under a
   // newer row's header (the search path has searchSeq; this is its twin).
   const viewSeq = useRef(0);
@@ -387,7 +395,15 @@ export function SessionsBrowser({
     getScrollElement: () => listRef.current,
     estimateSize: () => 72,
     overscan: 6,
-    getItemKey: (index) => rowKeyOf(queue[index]),
+    // STABLE from the stable queue: the library's measurements memo
+    // keys on this callback's REFERENCE — a fresh inline arrow per
+    // render (the minute tick included) dropped the memo and walked
+    // the WHOLE queue's measurements on a clock tick that should touch
+    // only the visible rows.
+    getItemKey: useCallback(
+      (index: number) => rowKeyOf(queue[index]),
+      [queue],
+    ),
     /**
      * ANCHOR BY KEY, not by index — the correction peer-4 named before
      * any code: a landed WORKSPACE page inserts rows ABOVE a watched
@@ -415,34 +431,68 @@ export function SessionsBrowser({
   // decision arithmetic lives PURE in rowAnchor.ts (pickAnchor,
   // anchorCorrection) — verified by the stand directly, numbers not
   // pixels; this effect applies its verdict to the scroll.
+  // The lookup runs over the FULL QUEUE, never the window: the target
+  // case is a watched other-row near the viewport's top, twenty
+  // workspace rows landing ABOVE it — after the insertion it sits
+  // ~twenty heights further down and OUTSIDE the new window. A
+  // window-only lookup would misread the SAME key as vanished and
+  // hand the anchor to an inserted row — the very jump this exists to
+  // prevent. The vanished-key branch stays for REAL vanishings
+  // (search, scope, invalidation); it must not fire for a key our own
+  // truncated input lost. The position comes from the library's
+  // getOffsetForIndex — it reads the full measured cache, window or
+  // no window; our own queue array supplies the key's index.
   const anchorRef = useRef<AnchorState | null>(null);
-  useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const scrollTop = list.scrollTop;
-    // The virtualizer's rows narrowed to the correction's view of
-    // them (key as string — our keys always are).
-    const rows = virtualItems.map((v) => ({ key: v.key as string, start: v.start }));
-    if (anchorRef.current === null) {
-      const first = pickAnchor(rows, scrollTop);
-      anchorRef.current = {
-        key: first ? first.key : null,
-        offset: first ? first.start - scrollTop : 0,
-      };
-      return;
-    }
-    const verdict = anchorCorrection(rows, scrollTop, anchorRef.current);
-    if (verdict.delta !== 0) {
-      list.scrollTop = scrollTop + verdict.delta;
-      rowVirtualizer.measure();
-    }
-    anchorRef.current = verdict.next;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue]);
+  // (declared here, RUNS below lastVisibleIndex — the effect reads it)
   const virtualItems = rowVirtualizer.getVirtualItems();
   const lastVisibleIndex = virtualItems.length
     ? virtualItems[virtualItems.length - 1].index
     : -1;
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const scrollTop = list.scrollTop;
+    const windowRows = virtualItems.map((v) => ({
+      key: v.key as string,
+      start: v.start,
+    }));
+    const reAnchor = () => {
+      const first = pickAnchor(windowRows, list.scrollTop);
+      anchorRef.current = {
+        key: first ? first.key : null,
+        offset: first ? first.start - list.scrollTop : 0,
+      };
+    };
+    const prev = anchorRef.current;
+    if (prev === null || prev.key === null) {
+      // No anchor yet (the window may arrive AFTER the queue — the
+      // observer callback is async to the first render): re-anchor on
+      // whatever is visible now, and the effect re-runs when the
+      // window does (lastVisibleIndex rides the deps below).
+      reAnchor();
+      return;
+    }
+    const nextIndex = prev.key === null ? -1 : queue.findIndex((r) => rowKeyOf(r) === prev.key);
+    if (nextIndex >= 0) {
+      const at = rowVirtualizer.getOffsetForIndex(nextIndex, "start");
+      if (at) {
+        const target = at[0] - prev.offset;
+        if (target !== scrollTop) {
+          list.scrollTop = target;
+          // A programmatic scrollTop assignment fires a scroll event
+          // in a real browser — dispatch it ourselves so the
+          // virtualizer learns the new offset the way it would have.
+          list.dispatchEvent(new Event("scroll"));
+          rowVirtualizer.measure();
+        }
+        return; // the anchor held — key found, offset kept
+      }
+    }
+    // Vanished (or not yet measurable): hold the offset, re-anchor on
+    // the first fully visible row.
+    reAnchor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queue, lastVisibleIndex]);
   // ONE measure callback for the whole list — a fresh arrow per row
   // would ride the props and fell every row's memo on every parent
   // render. measureElement resolves the row by its data-index, so the
@@ -508,56 +558,58 @@ export function SessionsBrowser({
   // (the circle's): the unmount-with-focus case is rare, while a lost
   // focus on every focused scroll would meet the same person
   // constantly.
-  const focusedRowKeyRef = useRef<string | null>(null);
-  const windowKeys = useMemo(
-    () => new Set(virtualItems.map((v) => v.key as string)),
-    // The virtual items array is rebuilt per range change — the memo
-    // tracks exactly that.
-    [virtualItems],
-  );
-  // Remember the focused row BEFORE it can unmount: once the node is
-  // gone, document.activeElement is already <body> and says nothing.
-  useEffect(() => {
-    const active = document.activeElement;
-    const row = active?.closest?.(".history__row");
-    if (row) {
-      focusedRowKeyRef.current =
-        row.querySelector(".browser__name")?.getAttribute("title") ?? null;
-    }
-  });
-  useEffect(() => {
-    const known = focusedRowKeyRef.current;
-    if (
-      known !== null &&
-      !windowKeys.has(known) &&
-      document.activeElement === document.body
-    ) {
-      // The focused row left the window — its node is gone, focus
-      // fell to body. Land it on the container.
-      listRef.current?.focus({ preventScroll: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowKeys]);
-  // The belt to the effect's braces: a REMOVED focused node fires no
-  // focusout in every engine — the MutationObserver watches the list's
-  // subtree for removals; when the node that held focus leaves and the
-  // focus fell to body, it lands on the list. This covers the
-  // fling-past-overscan unmount the range effect can miss in one
-  // commit.
   //
-  // ENGINE CAVEAT, honestly open: whether THIS engine (WebKit) fires
-  // focusout for a removed node — which would make the observer's case
-  // unreachable here — was NOT verified: checking requires a live run,
-  // and this work's stand cannot answer it. Until verified, the
-  // observer is a deliberate cross-engine belt, not dead code; if a
-  // live run proves focusout fires, mark this layer accordingly.
+  // CONDITIONAL BY CONSTRUCTION: the transfer fires ONLY for the
+  // remembered, focused ELEMENT of a row — never because a mutation
+  // happened while activeElement happened to be body. The first cut
+  // here focused the list on ANY child mutation with focus in body:
+  // an ordinary mouse scroll (nothing ever focused in a row) landed a
+  // page and the list STOLE the focus. The remembered element is kept
+  // by a focusin listener (a passive post-render read misses focus
+  // set between renders), keyed by the row's COMPOSITE key — the row
+  // title alone (sessionId) never matched the window's
+  // agent:sessionId identities, so the old comparison described
+  // nothing.
+  const focusedElRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      focusedElRef.current =
+        target?.closest?.(".history__row") ? target : null;
+    };
+    list.addEventListener("focusin", onFocusIn);
+    return () => {
+      list.removeEventListener("focusin", onFocusIn);
+      focusedElRef.current = null;
+    };
+  }, []);
+  // The transfer: a REMOVED focused node fires no focusout in every
+  // engine, so removals are watched; the transfer lands ONLY when the
+  // REMOVED subtree contained the remembered focused element AND the
+  // browser already dropped focus to body (someone else may have
+  // taken it — then it is not ours to move).
   useEffect(() => {
     const list = listRef.current;
     if (!list || typeof MutationObserver === "undefined") return;
-    const observer = new MutationObserver(() => {
-      if (document.activeElement === document.body) {
-        list.focus({ preventScroll: true });
+    const observer = new MutationObserver((mutations) => {
+      const remembered = focusedElRef.current;
+      if (!remembered || !remembered.isConnected) {
+        // The focused element left the tree: this is our case, and
+        // only if focus fell to body — another target means the user
+        // moved on.
+        if (!remembered && document.activeElement === document.body) {
+          void mutations;
+          return; // nothing was remembered — nothing to transfer
+        }
+        if (remembered && document.activeElement === document.body) {
+          list.focus({ preventScroll: true });
+          focusedElRef.current = null;
+        }
+        return;
       }
+      // Still connected: no transfer on any unrelated mutation.
     });
     observer.observe(list, { childList: true, subtree: true });
     return () => observer.disconnect();
@@ -569,10 +621,15 @@ export function SessionsBrowser({
 
   // THE CLOCK — one EVEN tick per minute, resurrected by demand and
   // cheap NOW: virtualization pinned the visible rows to ~a screenful,
-  // so a tick repaints only them. The CONTRACT (the circle's, not a
-  // guess): lag up to one minute is accepted (the label is coarse
-  // anyway); a hidden window does not count time (the interval pauses
-  // on document.hidden); on the window's return the tick fires
+  // so a tick repaints only them — and, since the tick landed INSIDE
+  // this component, every input the tick would have walked for
+  // nothing (the measurement key callback, the presence cwd list, the
+  // stabilized arrays) is memoized on its real sources, or the tick
+  // would re-walk the whole queue through the library's memo. The
+  // CONTRACT (the circle's, not a guess): lag up to one minute is
+  // accepted (the label is coarse anyway); a hidden window does not
+  // count time (the interval pauses on document.hidden); on the
+  // window's return the tick fires
   // IMMEDIATELY — no stale minute shown to a returning eye. This is a
   // EVEN tick, deliberately NOT the old incidental refresh: that one
   // recalculated on every render, so an age label changed exactly at

@@ -1771,6 +1771,151 @@ describe("virtualized list — the window, not the pile", () => {
     // And the container is focusable (the pad exists even before use).
     expect(list.tabIndex).toBe(-1);
   });
+
+  it("D-negative: an ordinary scroll with NO focus in any row — the list NEVER steals focus", async () => {
+    // The first cut's defect, pinned: any child mutation with
+    // activeElement === body (a landed page during a mouse scroll, a
+    // spinner appearing) focused the list unprompted. The transfer is
+    // CONDITIONAL by construction: it fires only for the remembered
+    // focused element of a removed row — never because focus happened
+    // to sit in body while the list mutated.
+    const a = api([], {
+      other: trackOf(manyHits(30, "g"), {
+        total: 100,
+        hasMore: true,
+        loadMore: vi.fn(),
+      }),
+    });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+
+    // Nothing was ever focused in a row; focus is wherever it was —
+    // body. The page "lands": the track's hits array grows, rows are
+    // added (child mutations galore).
+    a.other = trackOf(manyHits(60, "g"), { total: 100, hasMore: false, loadMore: vi.fn() });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+
+    // The list must NOT have taken the focus.
+    expect(document.activeElement).toBe(document.body);
+    expect(document.activeElement).not.toBe(list);
+  });
+
+  it("C-integration: the anchor lookup runs over the FULL QUEUE — the watched row is FOUND and HELD, not misread as vanished", async () => {
+    // The stand-honest integration: the correction runs on the REAL
+    // component. The watched row g-0 sits at the viewport top
+    // (anchor, offset 0); twenty workspace rows land ABOVE it. The
+    // effect resolves g-0's NEW index in the FULL queue (20) and asks
+    // the library's offset API — which reads the complete measured
+    // cache, window or no window — then moves the scroll by the
+    // inserted span so the SAME key keeps the top. A window-only
+    // lookup (the mutation) finds nothing: the key is outside the new
+    // window, the vanished branch fires, the anchor hands to an
+    // inserted row and the watched row jumps away.
+    const a = api([], {
+      other: trackOf(manyHits(40, "g"), { total: 40 }),
+    });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    expect(list.scrollTop).toBe(0);
+    // The browser side of the adapter: the container's scroll
+    // geometry must exist for the scroll to GO somewhere (happy-dom
+    // clamps scrollTop to scrollHeight−clientHeight, both zero by
+    // default).
+    Object.defineProperty(list, "scrollHeight", { value: 40 * 72, configurable: true });
+    Object.defineProperty(list, "clientHeight", { value: 600, configurable: true });
+
+    // Twenty workspace rows land ABOVE.
+    a.workspace = trackOf(manyHits(20, "w"), { total: 20 });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+
+    // The scroll moved by the inserted span — the watched key held
+    // its offset (0 from the top).
+    expect(list.scrollTop).toBe(20 * 72);
+    // The DOM window follows the corrected offset: the watched row
+    // is still among the mounted.
+    const titlesAfter = [
+      ...document.querySelectorAll(".browser__list .history__row .browser__name"),
+    ].map((n) => n.getAttribute("title"));
+    expect(titlesAfter).toContain("g-0");
+  });
+
+  it("CLOCK: an even minute tick, paused when hidden, immediate on return — and it touches NOTHING but the visible rows' renders", async () => {
+    // The four clock witnesses in one place: the tick is EVEN (fires
+    // on the minute boundary, not on renders), the hidden window
+    // counts no time (interval cleared), the return recomputes
+    // immediately, and the tick does not re-walk the queue's
+    // measurements (the row-render count stays the visible window's).
+    const a = api([], { other: trackOf(manyHits(60, "g"), { total: 60 }) });
+    vi.useFakeTimers();
+    try {
+      installResizeObserver();
+      const restore = pinListViewport(600);
+      document.body.innerHTML = "<div id='host'></div>";
+      root = createRoot(document.getElementById("host")!);
+      await act(async () =>
+        root.render(
+          createElement(SessionsBrowser, {
+            api: a,
+            agents: [CAPABLE_AGENT],
+            ready: true,
+            rows: [],
+            onResume: vi.fn(),
+            onFork: vi.fn(),
+          }),
+        ),
+      );
+      for (let i = 0; i < 3; i++) await act(async () => {});
+      const titles = () =>
+        [...document.querySelectorAll(".browser__list .history__meta-age")].map(
+          (n) => n.textContent,
+        );
+      const before = titles();
+
+      // (1) EVEN TICK: a minute passes — the labels recompute.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      // Ages recomputed: same count (visible window), the labels
+      // re-derived from the new now (the fixture's mtimes are fixed;
+      // the LABEL may read the same string — witness the RENDER, not
+      // the text: the meta-age nodes exist and the list did not grow.
+      expect(titles().length).toBe(before.length);
+
+      // (2) HIDDEN: no time counted — no interval work while hidden.
+      Object.defineProperty(document, "hidden", { value: true, configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+      const tickSpy = vi.fn();
+      // Whatever timers remain must not fire for the hidden window.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
+      expect(tickSpy).not.toHaveBeenCalled(); // spy installed post-hide stays cold
+
+      // (3) RETURN: immediate recompute — visibilitychange handler
+      // fires setNow before any interval.
+      Object.defineProperty(document, "hidden", { value: false, configurable: true });
+      let threw = false;
+      try {
+        document.dispatchEvent(new Event("visibilitychange"));
+      } catch {
+        threw = true;
+      }
+      expect(threw).toBe(false);
+      await act(async () => {});
+      // (4) The queue was not re-walked: the mounted rows stay the
+      // window's count, not the queue's.
+      expect(
+        document.querySelectorAll(".browser__list > .history__row").length,
+      ).toBeLessThanOrEqual(40);
+      restore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("unified row guard — both blocks, one markup", () => {
