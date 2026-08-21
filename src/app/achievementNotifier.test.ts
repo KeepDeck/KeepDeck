@@ -582,7 +582,7 @@ describe("reconciling a congratulated set against the ledger", () => {
     // established user's launch is dirty at nothing — so the file sat at v1
     // forever, every migration target stayed revocable on every later launch,
     // and a timezone change months after the upgrade could still take a badge
-    // away through the very sweep this commit narrowed.
+    // away through the migration-scoped sweep.
     const { deps, saved, notify, history } = fakeDeps({
       loadNotified: async () =>
         JSON.stringify({
