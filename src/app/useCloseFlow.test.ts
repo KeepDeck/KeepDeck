@@ -29,6 +29,38 @@ import type { CloseRequest } from "./agentOrchestrator";
 const closeAgents = vi.fn<(request: CloseRequest) => Promise<string[]>>(() =>
   Promise.resolve([]),
 );
+/** The registry ask, faked at the seam: most tests leave it answering
+ * "none" per entry (an ordinary close — the warning must NOT appear), and
+ * the background tests aim it per test. The REAL seam batches one query
+ * per distinct agent; the fake mirrors its contract. */
+const backgroundCarriers = vi.fn<
+  (
+    entries: { agentType: string; sessionId: string }[],
+  ) => Promise<("background" | "none" | "unknown" | null)[]>
+>(async (entries) => entries.map(() => "none"));
+
+/** A controllable in-flight ask for the late-paint tests: the dialog opens
+ * before `resolve` fires — exactly what the standing instant-open rule
+ * demands of the first frame. */
+function deferredCarriers() {
+  let settled = false;
+  let resolve!: (
+    value: ("background" | "none" | "unknown" | null)[],
+  ) => void;
+  const promise = new Promise<("background" | "none" | "unknown" | null)[]>(
+    (res) => {
+      resolve = (value) => {
+        settled = true;
+        res(value);
+      };
+    },
+  );
+  return {
+    promise: () => promise,
+    settled: () => settled,
+    resolve,
+  };
+}
 /** The last close this test asked for. */
 const requested = () => closeAgents.mock.calls[0][0];
 
@@ -75,6 +107,7 @@ function Probe() {
     blockedPanes,
     suspendAgent,
     closeAgents,
+    backgroundCarriers,
   });
   return null;
 }
@@ -99,12 +132,25 @@ function seed(extra: { id: string; cwd: string; branch: string }[] = []) {
   return "ws-1";
 }
 
+/** Bind pane-1 to a session — the registry ask keys off the binding, and a
+ * close of an unbound pane has nothing to ask about. */
+function bindSession(sessionId = "s-1") {
+  act(() =>
+    deck.setPaneSession("ws-1", "pane-1", {
+      id: sessionId,
+      boundAt: "2026-08-16T00:00:00Z",
+    }),
+  );
+}
+
 describe("useCloseFlow", () => {
   let root: Root;
 
   beforeEach(() => {
     closeAgents.mockClear();
     suspendAgent.mockClear();
+    backgroundCarriers.mockReset();
+    backgroundCarriers.mockResolvedValue(["none"]);
     probes.probeWorktree.mockReset();
     probes.probeWorktree.mockResolvedValue(probed(true));
     runtimeHeads = new Map();
@@ -117,9 +163,9 @@ describe("useCloseFlow", () => {
     act(() => root.unmount());
   });
 
-  it("closing an agent names exactly that pane", () => {
+  it("closing an agent names exactly that pane", async () => {
     const wsId = seed();
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     act(() => flow.confirmClose());
     expect(requested()).toEqual({
       kind: "agent",
@@ -128,6 +174,121 @@ describe("useCloseFlow", () => {
       deleteWorktrees: false,
       worktrees: [],
     });
+  });
+
+  it("opens WITHOUT the registry: full base text while the ask is still in flight, and 'none' never changes a character", async () => {
+    // The standing rule — dialog opens stay instant — plus the warning's
+    // area held from widening: the registry's ~0.25s must gate nothing,
+    // and its ordinary answer must not so much as re-render the sentence.
+    const ask = deferredCarriers();
+    backgroundCarriers.mockImplementationOnce(ask.promise);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    // First frame: the dialog is HERE, its text full and meaningful, no
+    // placeholder, no waiting state — the ask has not answered yet.
+    expect(ask.settled()).toBe(false);
+    expect(flow.closeMessage).toContain("Its terminal session will be ended.");
+    expect(flow.closeMessage).not.toContain("background");
+
+    const before = flow.closeMessage;
+    await act(async () => ask.resolve(["none"]));
+    expect(backgroundCarriers).toHaveBeenCalledWith([
+      { agentType: "claude", sessionId: "s-1" },
+    ]);
+    expect(flow.closeMessage).toBe(before);
+  });
+
+  it("a background carrier PAINTS the warning line when the answer lands", async () => {
+    const ask = deferredCarriers();
+    backgroundCarriers.mockImplementationOnce(ask.promise);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).not.toContain("carried");
+    await act(async () => ask.resolve(["background"]));
+    expect(flow.closeMessage).toContain("carried by a background agent");
+    expect(flow.closeMessage).toContain("not the work");
+    // Stopping the work is not ours to do; the sentence says whose it is.
+    expect(flow.closeMessage).toContain("agents screen");
+    // The base sentence is still there — the line is ADDITIVE.
+    expect(flow.closeMessage).toContain("Its terminal session will be ended.");
+  });
+
+  it("an unreachable registry warns too — skipping on a failed question returns the harm whole", async () => {
+    backgroundCarriers.mockResolvedValueOnce(["unknown"]);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).toContain("may still be carried");
+    expect(flow.closeMessage).toContain("could not be reached");
+  });
+
+  it("a REJECTED ask paints the cautious line — a broken registry is unknown, not none", async () => {
+    backgroundCarriers.mockRejectedValueOnce(new Error("spawn failed"));
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).toContain("may still be carried");
+  });
+
+  it("an agent with no live registry is never asked — no background mechanism to warn about", async () => {
+    backgroundCarriers.mockResolvedValueOnce([null]);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).not.toContain("background");
+  });
+
+  it("a null answer (no capability to ask) keeps the sentence to the character — the none-guard's twin", async () => {
+    // Two quiet branches after the fix: "none" (the registry CLAIMED not
+    // carried) and null (nobody was asked — the agent has no background
+    // mechanism). Both must hold the ordinary sentence exactly; if the
+    // null branch ever regresses into an assertion ("none" painted as a
+    // claim) or a stray line, it will surface here, not in whatever
+    // future step makes the distinction load-bearing again. The twin of
+    // the none-guard: pinned TO THE CHARACTER, not by substring.
+    backgroundCarriers.mockResolvedValueOnce([null]);
+    const wsId = seed();
+    bindSession();
+    const before = (() => {
+      // The same dialog without any ask at all — the reference sentence.
+      return "Its terminal session will be ended.\nSuspending stops the agent instead, keeping the pane and its session.";
+    })();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).toBe(before);
+    expect(flow.closeMessage).not.toContain("background");
+  });
+
+  it("an answer arriving AFTER the dialog is gone paints nothing anywhere", async () => {
+    // The classic of the late-paint pattern: cancel (or confirm) while the
+    // ask is in flight, then let it land. Nothing may throw, and the next
+    // dialog must open clean — no straggler line from a dead generation.
+    const ask = deferredCarriers();
+    backgroundCarriers.mockImplementationOnce(ask.promise);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    act(() => flow.cancelClose());
+    await act(async () => {
+      ask.resolve(["background"]);
+    });
+    expect(flow.closing).toBeNull();
+    expect(flow.closeMessage).toBe("");
+
+    backgroundCarriers.mockResolvedValueOnce(["none"]);
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).not.toContain("carried");
+  });
+
+  it("a pane with no session binding asks nothing and closes ordinarily", async () => {
+    // No binding, no conversation to be carried: the ask is skipped, not
+    // defaulted — and the sentence stays the plain one.
+    const wsId = seed();
+    act(() => deck.addAgentPane("ws-1", { id: "pane-3", agentType: "claude" }));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-3", "Agent 3"));
+    expect(backgroundCarriers).not.toHaveBeenCalled();
+    expect(flow.closeMessage).not.toContain("background");
   });
 
   it("offers to delete a worktree that is still being created", async () => {
@@ -205,6 +366,46 @@ describe("useCloseFlow", () => {
     });
   });
 
+  it("a workspace with NO carried pane keeps its sentence to the character", async () => {
+    // The warning's area, workspace half: an all-ordinary workspace must
+    // say exactly what it always said — one extra word would be noise on
+    // every close, and a missing word is the harm itself.
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    // Two panes hold sessions by seed + binding here; the exact old text.
+    expect(flow.closeMessage).toBe(
+      "This ends 2 agents and their sessions.",
+    );
+  });
+
+  it("a workspace with ONE carried pane warns — painted when the answer lands", async () => {
+    // A workspace close is the gesture furthest from the individual pane;
+    // a carried conversation in it survives exactly as it survives a
+    // single pane's close, and the person must hear that up front.
+    const ask = deferredCarriers();
+    backgroundCarriers.mockImplementationOnce(ask.promise);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).not.toContain("carried");
+    await act(async () => ask.resolve(["none", "background"]));
+    expect(flow.closeMessage).toContain(
+      "At least one conversation is carried by a background agent",
+    );
+    expect(flow.closeMessage).toContain("not the work");
+    // The ordinary sentence still carries its count.
+    expect(flow.closeMessage).toContain("This ends 2 agents");
+  });
+
+  it("a workspace where any ask failed warns too — the asymmetry holds per pane", async () => {
+    backgroundCarriers.mockResolvedValueOnce(["none", "unknown"]);
+    const wsId = seed();
+    bindSession();
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).toContain("may still be carried");
+  });
+
   it("uses the observed current branch when discarding an owned worktree", async () => {
     runtimeHeads.set("/wt/2", { branch: "feature/current" });
     const wsId = seed();
@@ -265,28 +466,28 @@ describe("useCloseFlow", () => {
       () => new Promise((resolve) => (answer = resolve)),
     );
     const wsId = seed();
-    // The worktree pane's request hangs on its probe...
+    // The worktree pane's request hangs on its probe... The plain pane's
+    // request only owes the registry ask (a microtask), so it opens first.
     act(() => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
-    // ...and a plain pane's request opens synchronously meanwhile.
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     expect(flow.closing).toMatchObject({ kind: "agent", paneId: "pane-1" });
 
     await act(async () => answer(probed(true)));
     expect(flow.closing).toMatchObject({ kind: "agent", paneId: "pane-1" });
   });
 
-  it("cancel closes nothing", () => {
+  it("cancel closes nothing", async () => {
     const wsId = seed();
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     act(() => flow.cancelClose());
     expect(closeAgents).not.toHaveBeenCalled();
     expect(deck.workspaces[0].panes).toHaveLength(2);
   });
 
   describe("suspending instead of closing", () => {
-    it("dismisses the dialog and delegates to suspend, closing nothing", () => {
+    it("dismisses the dialog and delegates to suspend, closing nothing", async () => {
       const wsId = seed();
-      act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+      await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
       expect(flow.canSuspendInstead).toBe(true);
 
       act(() => flow.suspendInstead());
@@ -367,24 +568,24 @@ describe("closing a pane that is already stopped", () => {
     act(() => root.unmount());
   });
 
-  it("reports it as stopped, and offers no suspend", () => {
+  it("reports it as stopped, and offers no suspend", async () => {
     const wsId = seed();
     act(() =>
       deck.suspendPane(wsId, "pane-1"),
     );
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
     expect(agentSnapshot().stopped).toBe(true);
     expect(flow.canSuspendInstead).toBe(false);
   });
 
-  it("does NOT call a rising pane stopped — it is about to run", () => {
+  it("does NOT call a rising pane stopped — it is about to run", async () => {
     // The dialog would otherwise say "it is stopped" about a pane that is
     // seconds from a live terminal, which is every pane just after launch.
     const wsId = seed();
     act(() => deck.suspendPane(wsId, "pane-1"));
     act(() => deck.requestPaneWake(wsId, "pane-1"));
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
     expect(agentSnapshot().stopped).toBe(false);
   });
@@ -394,7 +595,7 @@ describe("closing a pane that is already stopped", () => {
     // user with a pane that neither closed nor stopped and no explanation.
     const wsId = seed();
     suspendAgent.mockResolvedValueOnce("remote");
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
     await act(async () => flow.suspendInstead());
 
@@ -406,7 +607,7 @@ describe("closing a pane that is already stopped", () => {
     expect(errors).toEqual([]);
   });
 
-  it("treats a pane stuck on a GONE folder as stopped, like every other surface", () => {
+  it("treats a pane stuck on a GONE folder as stopped, like every other surface", async () => {
     // Its tile is dimmed and its tray chip carries the stopped marker, but
     // the model still calls it `waking` — the block is the sweep's runtime
     // verdict. Without it the dialog promised to end a terminal session that
@@ -417,7 +618,7 @@ describe("closing a pane that is already stopped", () => {
     // because only the runtime block says it will never get there.
     act(() => deck.suspendPane(wsId, "pane-1"));
     act(() => deck.requestPaneWake(wsId, "pane-1"));
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
     expect(agentSnapshot().stopped).toBe(true);
     expect(flow.canSuspendInstead).toBe(false);
@@ -462,9 +663,9 @@ describe("what the dialog promises is what confirming does", () => {
     expect(requested().worktrees).toEqual([]);
   });
 
-  it("offers the alternative only when it is really on offer", () => {
+  it("offers the alternative only when it is really on offer", async () => {
     const wsId = seed();
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     expect(flow.closeMessage).toContain("Its terminal session will be ended.");
     expect(flow.closeMessage).toContain("Suspending stops the agent instead");
 
@@ -478,7 +679,7 @@ describe("what the dialog promises is what confirming does", () => {
         remoteEndpoint: "ws://vps:4500",
       }),
     );
-    act(() => flow.requestCloseAgent(wsId, "pane-remote", "Remote"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-remote", "Remote"));
     expect(flow.canSuspendInstead).toBe(false);
     expect(flow.closeMessage).toBe("Its terminal session will be ended.");
   });
@@ -493,7 +694,7 @@ describe("what the dialog promises is what confirming does", () => {
     // probe result can flip.
     act(() => deck.suspendPane(wsId, "pane-1"));
     act(() => deck.requestPaneWake(wsId, "pane-1"));
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     expect(flow.canSuspendInstead).toBe(true);
 
     // The sweep reports the folder gone while the dialog is up.
@@ -603,13 +804,13 @@ describe("what the dialog promises is what confirming does", () => {
         ],
       });
     });
-    act(() => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
+    await act(async () => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
     expect(flow.closeMessage).toBe("Its worktree is still being created.");
 
     const wsId = seed();
     act(() => deck.suspendPane(wsId, "pane-1"));
     act(() => deck.requestPaneWake(wsId, "pane-1"));
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     expect(flow.closeMessage).toContain("It is starting up");
     expect(flow.closeMessage).not.toContain("will be ended");
   });

@@ -44,6 +44,16 @@ export interface AgentContribution {
   /** Read-only discovery over this agent's session store ([F8] browser).
    * Absent = the agent's sessions don't appear in the global search. */
   history?: AgentHistory;
+  /** Which of this agent's sessions are LIVE right now — held by a process
+   * (an interactive run elsewhere, a background agent owned by the CLI's
+   * daemon), not by one of our panes. A snapshot, not a watch: the host
+   * asks before acting on a resume refusal and when a picker opens.
+   *
+   * The QUESTION here is about live processes, not about the store — which
+   * is why this is a sibling of `usage`/`status`/`history` and not a
+   * history method. Absent = the agent cannot say, and a refused resume
+   * keeps its old meaning. */
+  liveSessions?: AgentLiveSessions;
   /** @deprecated API 30+ plugins declare `target.remote` and its schemes once
    * in the manifest. Retained only for legacy plugin execution. */
   remote?: AgentRemote;
@@ -246,13 +256,47 @@ export interface AgentTranscriptEntry {
   text: string;
 }
 
+/** One live session held by a process OUTSIDE our panes — the CLI's own
+ * interactive run or a background agent of its daemon. Identity is the
+ * SESSION (the id a resume would refuse), and the rest is what a person
+ * needs to recognize the conversation: its kind, its name, its state. */
+export interface AgentLiveSession {
+  /** The agent's own session id — the resume key this entry makes refuse. */
+  sessionId: string;
+  /** How the process holds it — the CLI's own vocabulary
+   * (e.g. "interactive" | "background"). */
+  kind: string;
+  /** The conversation's name, when the CLI knows one. */
+  name?: string;
+  /** The CLI's own liveness state (e.g. "working" | "blocked" | "done"),
+   * when it reports one. */
+  state?: string;
+}
+
+/** A snapshot of the agent's live sessions — see
+ * `AgentContribution.liveSessions`. */
+export interface AgentLiveSessions {
+  /** Every session currently held by an outside process. Refusing (a broken
+   * CLI, a dead daemon, a timeout) is a legitimate answer the caller treats
+   * as UNKNOWN — never as an empty list, which would read as "nothing is
+   * live" and green-light exactly the action it must not take. */
+  list(): Promise<AgentLiveSession[]>;
+}
+
 /** Read-only discovery over the agent's own store ([F8] global browser):
  * the plugin enumerates and parses (its format, its capability — fs or
  * sqliteReadonly); the host diffs, indexes and searches. Every method is
  * read-only by construction. */
-export interface AgentHistory {
-  /** Enumerate the whole store — stat-level, no content reads. */
+export interface AgentHistory {  /** Enumerate the whole store — stat-level, no content reads. */
   list(): Promise<AgentSessionStub[]>;
+  /** Enumerate the whole store WITH an integrity signal: `complete` is
+   * false when any part of the store could not be read — an unreadable
+   * directory is skipped and named in the log, never fatal to the walk.
+   * The host prunes ONLY on `complete === true`; a plugin without this
+   * method keeps the legacy `list()` contract, whose successful read has
+   * always meant "complete enough to prune". Two honest contracts, not
+   * an old one and its replacement. */
+  listing?(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }>;
   /** The facts worth indexing, for one (new/changed) session. */
   describe(ref: string): Promise<AgentSessionFacts>;
   /** The searchable text (user+assistant turns) — feeds the FTS index. */

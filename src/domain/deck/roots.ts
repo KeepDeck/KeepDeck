@@ -14,7 +14,10 @@ import type { Workspace } from "./workspaces";
 /** The directory a pane would run in right now. Provisioning panes without a
  * resolved `cwd` deliberately have none yet: falling back to the workspace cwd
  * would describe the wrong process location. */
-export function paneExecutionCwd(ws: Workspace, pane: Pane): string | null {
+export function paneExecutionCwd(
+  ws: Pick<Workspace, "cwd">,
+  pane: Pane,
+): string | null {
   if (pane.provisioning && !pane.cwd) return null;
   return pane.cwd ?? ws.cwd;
 }
@@ -54,4 +57,71 @@ export function gitWatchPaths(workspaces: Workspace[]): Set<string> {
     }
   }
   return paths;
+}
+
+/**
+ * The workspace's DIRECTORIES — where a session counts as "ran here": the
+ * workspace's own folder plus the folders its current panes run in
+ * (worktree roots included). `worktreeBaseDir` is deliberately NOT a
+ * source: it is only a suggestion of where panes' worktrees may land, and
+ * a pane's worktree can live anywhere — deriving folders from the base
+ * root would claim every sibling worktree ever created under it.
+ *
+ * The set is exactly what its two sources say, no prefix logic anywhere:
+ * `/wt/kd-KeepDeck-1` and `/wt/kd-KeepDeck-12` share a base and a stem and
+ * are still two different folders.
+ */
+export function workspaceDirectories(
+  ws: Pick<Workspace, "cwd"> & { panes: Workspace["panes"] },
+): ReadonlySet<string> {
+  const dirs = new Set([ws.cwd]);
+  for (const pane of ws.panes) {
+    const path = paneExecutionCwd(ws, pane);
+    if (path) dirs.add(path);
+  }
+  return dirs;
+}
+
+/**
+ * Grow a directory set with the folders a workspace worked in BEFORE —
+ * the journal's recorded cwds. Journal-AGNOSTIC on purpose: it takes bare
+ * paths, so the set-building method stays substitutable (own-only, plus
+ * current panes, plus history — three builders, one predicate), and no
+ * journal type leaks into the directory rule. Blank paths never land in
+ * the set: an empty cwd is a missing answer, not a folder.
+ */
+export function withHistoricalDirectories(
+  dirs: ReadonlySet<string>,
+  cwds: ReadonlyArray<string>,
+): ReadonlySet<string> {
+  const grown = new Set(dirs);
+  for (const cwd of cwds) {
+    if (cwd !== "") grown.add(cwd);
+  }
+  return grown;
+}
+
+/**
+ * Whether `path` is one of `dirs` — membership by EXACT path. Not a
+ * prefix, not a base root: a longer sibling never matches, and the empty
+ * path (a session with no recorded directory) belongs nowhere.
+ */
+export function pathBelongsTo(dirs: ReadonlySet<string>, path: string): boolean {
+  return path !== "" && dirs.has(path);
+}
+
+/**
+ * THE workspace-scope policy, named once: which directories make a
+ * session "ran here" — the user's chosen widest rule, the workspace's
+ * own folder ∪ its panes' folders ∪ the folders its journal history
+ * remembers. Own-plus-panes come from the deck's live state; the
+ * remembered folders are passed as bare paths (journal-agnostic, so
+ * this stays a pure function over data). This is the ONE address of the
+ * rule — callers pass its output to the folder-scoped index asks.
+ */
+export function workspaceScopeDirectories(
+  ws: Pick<Workspace, "cwd"> & { panes: Workspace["panes"] },
+  historicalCwds: ReadonlyArray<string>,
+): ReadonlySet<string> {
+  return withHistoricalDirectories(workspaceDirectories(ws), historicalCwds);
 }

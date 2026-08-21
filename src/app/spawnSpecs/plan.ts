@@ -68,7 +68,12 @@ export interface BuiltPlan {
  * their session facts; the hook that runs is the variant's. */
 type PlanVariant =
   | { kind: "spawn" }
-  | { kind: "resume"; sessionId: string; origin: ResumeOrigin }
+  | {
+      kind: "resume";
+      sessionId: string;
+      origin: ResumeOrigin;
+      retry?: boolean;
+    }
   | { kind: "fork"; sessionId: string; sourceCwd: string; transcriptPath?: string };
 
 /** Build one plan through the agent's hook. A throwing SPAWN hook degrades
@@ -250,6 +255,7 @@ export async function buildPlan(
             resumeOf: variant.sessionId,
             resumeOrigin: variant.origin,
             postbackMark: postbackCount(paneId),
+            ...(variant.retry ? { resumeRetry: true } : {}),
           }
         : variant.kind === "fork"
           ? { forkOf: variant.sessionId }

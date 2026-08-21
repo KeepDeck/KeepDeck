@@ -9,6 +9,7 @@ import { useAgentDialog } from "./useAgentDialog";
 import { useAgentRunView } from "./useAgentRunView";
 import { useAgents } from "./useAgents";
 import { useAppRuntime } from "./runtimeContext";
+import { askBackgroundCarriers } from "./liveSessions";
 import { useCloseFlow } from "./useCloseFlow";
 import { commands } from "./commandRegistry";
 import { createTeamFlow } from "./mail";
@@ -25,7 +26,7 @@ import { useWorkspaceFrames } from "./useWorkspaceFrames";
 import { workspaceForNotification } from "./notificationNavigation";
 import { usePaneDrag } from "./usePaneDrag";
 import { usePersistence } from "./usePersistence";
-import { useSessionsBrowser } from "./useSessionsBrowser";
+import { useBrowserSharedSeam } from "./useSessionsBrowser";
 import { useSettings } from "./useSettings";
 import { useSpawnContext } from "./useSpawnContext";
 import { suspendRefusalText } from "./suspendOutcome";
@@ -81,7 +82,7 @@ export function useAppController() {
   const spawnCtx = useSpawnContext(runtime.spawnContext);
   const orchestrator = runtime.orchestrator;
   const runView = useAgentRunView(orchestrator);
-  const sessionsBrowser = useSessionsBrowser();
+  const browserShared = useBrowserSharedSeam();
   const [forkDialog, setForkDialog] = useState<{
     wsId: string;
     record: SessionHandle;
@@ -165,6 +166,11 @@ export function useAppController() {
     blockedPanes: runView.blocked,
     suspendAgent: orchestrator.suspend,
     closeAgents: orchestrator.close,
+    // The registry ask the close sentence needs — batched (one query per
+    // distinct agent), the same seam every live-session question goes
+    // through, so the view layer never touches a plugin.
+    backgroundCarriers: (entries) =>
+      askBackgroundCarriers({ pluginHost, pluginRegistries }, entries),
   });
   const transactions = [
     agentFlow.dialog,
@@ -429,7 +435,7 @@ export function useAppController() {
     railCollapsed,
     railWorkspaces,
     runView,
-    sessionsBrowser,
+    browserShared,
     setCreating,
     setForkDialog,
     setFrozenAck,

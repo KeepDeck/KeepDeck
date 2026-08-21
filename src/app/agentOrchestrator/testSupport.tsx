@@ -118,6 +118,7 @@ vi.mock("../spawnSpecs", () => {
         _ctx: unknown,
         resumeId: string,
         origin: "restore" | "manual",
+        retry = false,
       ) => {
         if (gate.build) await gate.build;
         specs.set(facts.paneId, {
@@ -125,6 +126,7 @@ vi.mock("../spawnSpecs", () => {
           env: [],
           resumeOf: resumeId,
           resumeOrigin: origin,
+          ...(retry ? { resumeRetry: true } : {}),
           postbackMark: 0,
         });
         notify();
@@ -179,6 +181,18 @@ const skillsAsked = vi.fn(
     Promise.resolve(null),
 );
 vi.mock("../postbacks", () => ({ postbackCount: () => 0 }));
+
+// The live-registry seam, faked with the same contract as the real one:
+// tests set the ANSWER, the wiring decides with it. `null` (the default) is
+// "no capability to ask" — the legacy behavior — which is what a suite that
+// never touches this sees.
+export const liveRegistry = {
+  answer: null as "live" | "absent" | "unknown" | null,
+};
+vi.mock("../liveSessions", () => ({
+  askLiveRegistry: vi.fn(async () => liveRegistry.answer),
+  liveOutsideSessions: vi.fn(async () => ({ ok: false })),
+}));
 
 /** A retired session's per-process state must not stay bound to the pane, or
  *  a suspended card keeps showing the dead conversation's ctx% and cost and a
@@ -389,7 +403,13 @@ export function Probe() {
           close: pty.close,
           runOnce: pty.runOnce,
         },
-        plugins: {} as SpawnPluginAccess,
+        plugins: {
+          // The registry seam recovery now asks (live sessions): an empty
+          // agent registry answers "no capability" — the legacy behavior —
+          // without the seam itself throwing on an empty double.
+          pluginHost: { getInstalled: () => [] },
+          pluginRegistries: { agents: { list: () => [] } },
+        } as unknown as SpawnPluginAccess,
         probe: ipc.probeWorktree,
         mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
         lifecycle,

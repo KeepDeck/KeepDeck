@@ -40,7 +40,11 @@ export interface AgentOrchestrator {
     paneId: string,
     mode: AgentRestartMode,
   ): Promise<RestartOutcome>;
-  /** Recover a rejected boot-time resume by respawning fresh, at most once. */
+  /** Recover a rejected boot-time resume: ask the live registry before
+   * touching the binding — a session held by an outside process keeps it
+   * and offers the choice, an absent one earns one quiet retry, and only
+   * the second silent death (or no registry to ask) falls back fresh.
+   * Answers whether it took the pane over (the caller then stays quiet). */
   recoverRejectedResume(
     wsId: string,
     paneId: string,
@@ -48,6 +52,13 @@ export interface AgentOrchestrator {
   ): boolean;
   /** Retry a failed spawn-plan build. */
   retryPlanBuild(paneId: string): void;
+  /** Fork the live session a refused-resume card holds into a copy in the
+   * SAME directory (the card never chooses one) — a new pane, the binding
+   * untouched. */
+  forkOccupiedSession(wsId: string, paneId: string): Promise<void>;
+  /** Stop offering the occupied choice: the pane stays visible and bound,
+   * nothing is erased — the ordinary exit card takes over. */
+  dismissOccupied(paneId: string): void;
   /** Continue a journal session in a new pane. */
   resumeSession(
     wsId: string,
@@ -72,12 +83,25 @@ export interface AgentRunView {
   blocked: Record<string, string>;
   /** paneId → manual wake-plan failure. */
   wakeFailed: Record<string, string>;
+  /** paneId → the live-outside note whose choice the pane's card offers. */
+  occupied: Record<string, OccupiedNote>;
   /** Current cached spawn plans. */
   specs: Record<string, SpawnPlan>;
   /** Panes whose plan build failed before a process started. */
   planFailed: ReadonlySet<string>;
   /** paneId → terminal mount generation. */
   epochs: Record<string, number>;
+}
+
+/** A refused boot resume that turned out to be a live outside session —
+ * the note the pane's card explains itself with. */
+export interface OccupiedNote {
+  /** Whether the registry PROVED the session live, or merely failed to
+   * answer (the card words the difference — a person must know what is
+   * known and what is not). */
+  registry: "live" | "unknown";
+  /** The conversation's own name, when the registry knew one. */
+  name: string | null;
 }
 
 export interface CreatePaneRequest {

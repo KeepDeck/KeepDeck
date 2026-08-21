@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { AgentInfo, AgentRestartMode } from "../domain/agents";
 import type { SpawnPlan } from "../app/spawnSpecs";
 import {
@@ -32,9 +33,56 @@ import {
   type JournalRecords,
   type SessionHandle,
 } from "../domain/journal";
-import { SessionsBrowser } from "./history/SessionsBrowser";
-import type { SessionsBrowserApi } from "../app/useSessionsBrowser";
+import { useWorkspaceScope } from "../app/useWorkspaceScope";
+import { WorkspaceSessionsBrowser } from "./history/SessionsBrowser";
+import type { BrowserSharedSeam } from "../app/useSessionsBrowser";
 import type { RestartOutcome } from "../app/agentOrchestrator";
+
+/** A pane-less workspace's sessions screen: the empty-deck browser with
+ * the workspace's scope set. A component of its own so the scope hook
+ * runs unconditionally per workspace (hooks in the map body would
+ * violate the rules of hooks); inside, the scope policy is ONE call —
+ * the rule lives in the domain, identity stability in the application
+ * hook. NOTE: this renders only for pane-less workspaces, so the pane
+ * source of the rule is empty here; the journal history is the one
+ * live source of scope movement on this screen. */
+function WorkspaceSessionsScreen({
+  ws,
+  journal,
+  browserShared,
+  agents,
+  agentsReady,
+  onResumeSession,
+  onForkSession,
+}: {
+  ws: Workspace;
+  journal: JournalRecords;
+  browserShared: BrowserSharedSeam;
+  agents: AgentInfo[];
+  agentsReady: boolean;
+  onResumeSession: (wsId: string, record: SessionHandle) => void;
+  onForkSession: (wsId: string, record: SessionHandle) => void;
+}) {
+  // Rows identity-stable per (journal, workspace): the scope hook's
+  // memos key on this array's identity, and a fresh array per render
+  // would re-key the scope every render — an infinite reset loop (the
+  // scope-change effect fires, clears the rows, re-renders, fresh array
+  // again). The journal object is state-stable upstream, so this memo
+  // moves only when the journal truly moves.
+  const rows = useMemo(() => journalRows(journal, ws.id), [journal, ws.id]);
+  const dirs = useWorkspaceScope(ws, rows);
+  return (
+    <WorkspaceSessionsBrowser
+      shared={browserShared}
+      dirs={dirs}
+      agents={agents}
+      ready={agentsReady}
+      rows={rows}
+      onResume={(record) => onResumeSession(ws.id, record)}
+      onFork={(record) => onForkSession(ws.id, record)}
+    />
+  );
+}
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
  * props (command, spec, cwd, badge) are the same everywhere. */
@@ -83,14 +131,14 @@ interface DeckStageProps {
   /** The empty-workspace count picker chose `count` agents. */
   /** The session journal's folded records — the empty-workspace history. */
   journal: JournalRecords;
-  /** Forget one journal row (the history list's ×). */
-  onDeleteJournalRecord(wsId: string, sessionId: string): void;
   /** Resume a journal record into a new pane of its workspace. */
   onResumeSession(wsId: string, record: SessionHandle): void;
   /** Open the fork-target dialog for a journal record. */
   onForkSession(wsId: string, record: SessionHandle): void;
-  /** The global sessions browser's engine (search/scan/transcript). */
-  browser: SessionsBrowserApi;
+  /** The browser seam's shared half (keyed enrichment + freshness +
+   * transcript dispatch) — one instance app-wide; each browser builds its
+   * own folder-scoped engines on top of it. */
+  browserShared: BrowserSharedSeam;
   onSelectPane(wsId: string, paneId: string): void;
   onToggleFocus(wsId: string, paneId: string): void;
   /** Minimize a pane out of the grid, or restore it (grid layout only). */
@@ -112,6 +160,17 @@ interface DeckStageProps {
    * They stayed stopped; their cards explain instead of coming up as a
    * different conversation. */
   wakeFailed: Record<string, string>;
+  /** Panes whose refused resume holds a LIVE outside session: paneId → the
+   * note their cards offer a choice on (fork a copy, leave it). The binding
+   * is intact; nothing was erased. */
+  occupiedPanes: Record<
+    string,
+    { registry: "live" | "unknown"; name: string | null }
+  >;
+  /** Fork the occupied card's live session into a copy (same directory). */
+  onForkOccupied(wsId: string, paneId: string): void;
+  /** Stop offering the occupied choice (pane stays visible and bound). */
+  onDismissOccupied(paneId: string): void;
   /** Spawn plan per live pane — args + env carrying its session identity
    * ([F7]/[F8] v2: assigned id or armed reporter, resume recipe). */
   specByPane: Record<string, SpawnPlan>;
@@ -178,10 +237,9 @@ export function DeckStage({
   unavailableAgentReasons,
   gitHeads,
   journal,
-  onDeleteJournalRecord,
   onResumeSession,
   onForkSession,
-  browser,
+  browserShared,
   onSelectPane,
   onToggleFocus,
   onToggleMinimize,
@@ -192,6 +250,9 @@ export function DeckStage({
   onPaneTitle,
   idleBlocked,
   wakeFailed,
+  occupiedPanes,
+  onForkOccupied,
+  onDismissOccupied,
   specByPane,
   failedPanes,
   onStartFresh,
@@ -223,14 +284,14 @@ export function DeckStage({
               }}
             >
               <div className="deck__setup-col">
-                <SessionsBrowser
-                  api={browser}
+                <WorkspaceSessionsScreen
+                  ws={ws}
+                  journal={journal}
+                  browserShared={browserShared}
                   agents={agents}
-                  ready={agentsReady}
-                  rows={journalRows(journal, ws.id)}
-                  onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
-                  onResume={(record) => onResumeSession(ws.id, record)}
-                  onFork={(record) => onForkSession(ws.id, record)}
+                  agentsReady={agentsReady}
+                  onResumeSession={onResumeSession}
+                  onForkSession={onForkSession}
                 />
               </div>
             </div>
@@ -506,6 +567,9 @@ export function DeckStage({
               idle={pane.idle}
               wakeError={wakeFailed[pane.id] ?? null}
               blockedDir={idleBlocked[pane.id] ?? null}
+              occupied={occupiedPanes[pane.id] ?? null}
+              onForkOccupied={() => onForkOccupied(ws.id, pane.id)}
+              onDismissOccupied={() => onDismissOccupied(pane.id)}
               provisioning={pane.provisioning}
               unavailableAgent={unavailableAgent}
               colSpan={layout.colSpan}

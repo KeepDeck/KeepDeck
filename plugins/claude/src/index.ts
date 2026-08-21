@@ -29,6 +29,7 @@ import {
 } from "./status";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
+import { claudeLiveSessions } from "./liveSessions";
 
 /** Quote a path for a shell command line (single quotes, `'\''` escaping) —
  * KeepDeck.app can live under a path with spaces. */
@@ -191,6 +192,10 @@ export function projectSlug(cwd: string): string {
   return slug;
 }
 
+/** The store root this plugin reads (history.ts owns the same constant for
+ * discovery); a fork's derived transcript path starts here. */
+const PROJECTS_ROOT = "~/.claude/projects";
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -206,6 +211,7 @@ const plugin: KeepDeckPlugin = {
       },
       status: { normalize: normalizeClaudeStatus, renderMail: renderClaudeMail },
       history: claudeHistory(ctx),
+      liveSessions: claudeLiveSessions(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
           output.args = [
@@ -232,22 +238,25 @@ const plugin: KeepDeckPlugin = {
          * where it was (no duplicate-id ambiguity). The copy lands inside
          * `~/.claude/projects` only — exactly the manifest's fsWrite scope. */
         "fork.plan": async (input, output) => {
-          const source = input.transcriptPath;
-          if (!source) {
-            // Without the reporter-delivered path there is nothing safe to
-            // copy — guessing the source slug would be store archaeology.
-            throw new Error(
-              `claude fork of ${input.sessionId}: no recorded transcript path`,
-            );
-          }
+          // The transcript path arrives recorded (the reporter delivered
+          // it) or is DERIVED from the session's own recorded cwd — the
+          // store layout is deterministic (`projects/<slug(cwd)>/<id>.jsonl`)
+          // and this plugin owns that layout knowledge. Derivation is not
+          // archaeology when the cwd is known; guessing WITHOUT one was.
+          // A derived path is used as-is for a cross-directory copy and,
+          // for the same-directory fork the resume card offers, merely
+          // proves target === source — nothing is read or written.
+          const source =
+            input.transcriptPath ??
+            `${PROJECTS_ROOT}/${projectSlug(input.sourceCwd)}/${input.sessionId}.jsonl`;
           if (!/\.jsonl$/.test(source)) {
             throw new Error(
               `claude fork of ${input.sessionId}: transcript is not a .jsonl (${source})`,
             );
           }
-          // The projects root comes from the transcript itself — no home
-          // lookup, and a layout change breaks LOUDLY here instead of
-          // copying into a wrong tree.
+          // The projects root comes from the transcript itself when there
+          // is one — no home lookup; a layout change breaks LOUDLY here
+          // instead of copying into a wrong tree.
           const marker = "/projects/";
           const at = source.lastIndexOf(marker);
           if (at < 0) {
@@ -257,7 +266,15 @@ const plugin: KeepDeckPlugin = {
           }
           const projectsRoot = source.slice(0, at + marker.length - 1);
           const target = `${projectsRoot}/${projectSlug(input.cwd)}/${input.sessionId}.jsonl`;
-          await ctx.services.fsWrite.copyFile(source, target);
+          // Branching IN PLACE (target dir = source dir) skips the copy
+          // SILENTLY: it is a legitimate request — the fork card never
+          // chooses a directory — and the file already sits exactly where
+          // the copy would land. The HOST side refuses a same-file copy
+          // loudly (it cannot know the intent); only the plugin knows this
+          // one is not a mistake, so only the plugin may skip it.
+          if (target !== source) {
+            await ctx.services.fsWrite.copyFile(source, target);
+          }
           output.args = [
             ...(await hookArgs(ctx.resources)),
             ...skillsArgs(input.skills),

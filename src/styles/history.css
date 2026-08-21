@@ -59,20 +59,102 @@
   border-bottom: none;
 }
 
-.history__state {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background-color: #3a4658;
-}
-
-.history__state--live {
-  background-color: var(--kd-ok);
+/* ── The DATA row's layout: three columns, the family shape ─────────
+ * The same skeleton this app's other list rows use (bell__item): a
+ * fixed glyph column spanning both rows, a name column that takes the
+ * rest, an actions column of its own width. The metadata is NOT a
+ * grid and has NO fixed tracks — a local text flow under the name,
+ * ending where its text ends; fixed tracks here are what made the
+ * row's second line a row of pillars with a hole on the right. The
+ * liveness dot and the branch chip are gone by direct user choice. */
+.history__datarow {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 4px;
+  /* The virtualized row is absolutely positioned with width:100%; the
+   * app sets NO global border-box, so without this the 100% is the
+   * CONTENT box and the row's own horizontal padding pushes it past
+   * the container's right edge — by exactly the padding, clipping the
+   * action buttons' right edge on EVERY row. */
+  box-sizing: border-box;
+  /* CENTER, not start: the title, the glyph and the action buttons
+   * share row 1 — with `start` the taller buttons hung BELOW the title
+   * line (their center ~5px low, at the metadata's level) and the row
+   * read bottom-heavy. Centering row 1 puts every cell's center on one
+   * line; the metadata line below is row 2's only resident. */
+  align-items: center;
 }
 
 .history__glyph {
-  flex: none;
+  /* Row 1 only, centered with the title (the mockup's star sits on
+   * the title line). Spanning both rows centered it mid-row — between
+   * the lines — which read as floating. */
+  grid-row: 1;
+  align-self: center;
+}
+
+/* Every cell of the row is EXPLICITLY placed — auto-placement is
+ * banned here: it is what dropped a loose second button onto the meta
+ * line. The actions are ONE group in column 3, row 1, right-aligned;
+ * the group keeps its cell when empty or half-filled, so the row's
+ * shape never depends on availability. */
+.browser__open {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.history__actions {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history__meta {
+  grid-column: 2;
+  justify-self: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  /* Crowded meta wraps WHOLE to the next line — it never disappears
+   * and is never cut; there is no track to clip it in. */
+  min-width: 0;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.history__meta-folder,
+.history__meta-age {
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The meta's separator, GENERATED: a middot before every rendered part
+ * but the first. Because the separator lives in the flow, an absent
+ * part is an absent NODE — no separator for it exists, and no set of
+ * facts can leave a hanging dot at either end or a dot beside a lone
+ * part. Generated content never reaches the DOM test stand; the style
+ * witness below pins the rule's text. */
+.history__meta > * + *::before {
+  content: "·";
+  margin-right: 6px;
+  color: inherit;
+}
+
+/* Exceptional marks in the meta line: TEXT, not pills — the quiet
+ * gray gives way to the semantic palette only. */
+.history__meta-mark {
+  color: var(--kd-warn);
+}
+
+.history__meta-mark--err {
+  color: var(--kd-err);
+}
+
+.history__glyph {
   display: inline-flex;
   width: 16px;
   height: 16px;
@@ -92,37 +174,6 @@
   white-space: nowrap;
   font-size: 13px;
   color: #d6d9df;
-}
-
-.history__chip {
-  flex: none;
-  max-width: 180px;
-  overflow: hidden;
-}
-
-.history__when {
-  flex: none;
-  font-size: 11px;
-  color: #6b7280;
-  font-variant-numeric: tabular-nums;
-}
-
-.history__delete {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: 4px;
-  background: none;
-  color: #6b7280;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.history__delete:hover {
-  background-color: #1c2230;
-  color: #c5c8c6;
 }
 
 .history__resume,
@@ -146,9 +197,6 @@
   color: #c5c8c6;
 }
 
-.history__missing {
-  flex: none;
-}
 
 .history__resume:disabled {
   opacity: 0.4;
@@ -212,7 +260,8 @@
   pointer-events: none;
 }
 
-.browser__scanning {
+.browser__scanning,
+.browser__searching {
   font-size: 11px;
   color: #6b7280;
 }
@@ -228,22 +277,26 @@
   min-height: 0;
 }
 
-/* Only HIT rows are clickable (they open the transcript) — journal rows and
- * status rows (the section label, empty placeholder, loading tail) are not. */
-.browser__list .history__row:not(.browser__empty):not(.browser__more):not(.browser__journal) {
+/* Rows with a read link are clickable (they open the transcript); rows
+ * without one and the status rows (the list label, empty placeholder,
+ * loading tail) are not. One rule for the complete list — the row component
+ * is one. */
+.browser__list .history__row.history__row--open {
   cursor: pointer;
 }
 
-.browser__list .history__row:not(.browser__empty):not(.browser__more):not(.browser__journal):hover {
+.browser__list .history__row.history__row--open:hover {
   background-color: #131926;
 }
 
-/* The label between the pinned journal rows and the global hits. */
-.browser__section {
-  padding: 6px 12px 4px;
-  border-bottom: 1px solid #151a24;
-  font-size: 11px;
-  color: #6b7280;
+/* The open button is the row's name cell for every row; disabled is
+ * simply not-openable (no read link, no history capability, wrong
+ * owner) — it must not look or feel pressable. Its typography lives on
+ * the .browser__name span inside, deliberately: a font shorthand on the
+ * button itself would fight that rule the same "alien font" way the
+ * journal name once did. */
+.browser__open:disabled {
+  cursor: default;
 }
 
 /* The loading tail — a spinner as the LAST element while the next page is
@@ -331,21 +384,44 @@
 }
 
 /* Backing out of an opened transcript to the sessions list — the git
- * plugin's drill-back row, verbatim: full-width, left chevron + the
- * drilled-into label, top LEFT. No close cross: this is navigation. */
-.browser__back {
-  flex: none;
+ * plugin's drill-back row, verbatim: left chevron + the drilled-into
+ * label, top LEFT. No close cross: this is navigation. */
+/* The opened session's header BAR: the drill-back button on the left
+ * (its own button — actions can never nest inside one), the row's own
+ * actions on the right, from the SAME availability rules as the list
+ * row. The bar owns the horizontal padding — symmetric left and
+ * right — which the old single back button carried alone; the button
+ * keeps only its vertical padding, so the bar's height stays what one
+ * button's padding always made it. The push-right rule lives on the
+ * GROUP (once), never per button — its behavior must not depend on
+ * which buttons are available. */
+.browser__viewerbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  border: 0;
+  padding: 0 12px;
   border-bottom: 1px solid #1c2230;
+}
+
+.browser__viewerbar .history__actions {
+  margin-left: auto;
+}
+
+.browser__back {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
   background: transparent;
   color: #8b93a3;
   /* The label is a session TITLE, not the git plugin's short scope tag —
-   * sentence case at content size, with a comfortable row height. */
-  padding: 12px;
+   * sentence case at content size, with a comfortable row height. Only
+   * the VERTICAL padding stays on the button; the horizontal belongs to
+   * the bar (it used to be 12px all around, when the button WAS the
+   * bar — keeping it would double the left edge). */
+  padding: 12px 0;
   font-size: 13px;
   text-align: left;
   cursor: pointer;

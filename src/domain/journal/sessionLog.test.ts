@@ -179,6 +179,19 @@ describe("foldJournal / flushJournalTail", () => {
     expect(records["ws-1"][0]).toMatchObject({ state: "closed", endedAt: T1 });
   });
 
+  it("a journal containing a 'deleted' event folds WITHOUT the forgotten row — the load path keeps reading what the app no longer writes", () => {
+    // The "forget" button is gone, but "deleted" events already in real
+    // journals must keep folding on load: dropping the fold branch would
+    // resurrect every row the user ever forgot. This is the guard at the
+    // DISPLAY level — journalRows is what the browser lists.
+    const records = foldJournal([
+      bound("ws-1", "s-1"),
+      bound("ws-1", "s-2", { paneId: "pane-2" }),
+      { e: "deleted", v: 1, wsId: "ws-1", sessionId: "s-1", at: T1 },
+    ]);
+    expect(journalRows(records, "ws-1").map((r) => r.sessionId)).toEqual(["s-2"]);
+  });
+
   it("flush trims exactly the appended prefix; zero is a no-op ref", () => {
     let journal = withJournalEvent(emptyJournal, bound("ws-1", "s-1"));
     journal = withJournalEvent(journal, bound("ws-1", "s-2", { paneId: "p2" }));

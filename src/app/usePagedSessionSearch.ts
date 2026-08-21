@@ -30,13 +30,27 @@ export interface PagedSearch<T> {
   hasMore: boolean;
   /** A `loadMore` page is in flight (guards the scroll sentinel). */
   loadingMore: boolean;
+  /** Page zero of the current query is IN FLIGHT. True from the moment
+   * the fetch fires (the debounce settling) until ITS generation lands —
+   * a STALE landing never clears a newer ask's flag. This is what makes
+   * a ~1s index query read as visible work instead of a freeze: the old
+   * rows stay on screen (nothing is cleared until the new answer lands)
+   * and the pending flag says why. */
+  firstPagePending: boolean;
   /** The query the rows answer. */
   query: string;
   /** Page zero failed for the current query — `rows` is empty, not stale.
    * Cleared by the next landing (a retype, a refresh, a scan refresh). */
   error: string | null;
-  /** Run the debounced search; resets paging to page zero. */
+  /** Run the debounced search; called on every keystroke. Resets paging. */
   search(query: string): void;
+  /** A new question whose old rows must leave the screen IMMEDIATELY —
+   * unlike `search` (a retype keeps the old results visible while the
+   * new ones ride). A scope change arrives here: the rows on screen
+   * answer an area nobody asks about anymore, and one debounce window of
+   * them is a mixed list in the making. Same generation mechanics as
+   * `search`, rows cleared in the same tick. */
+  resetTo(query: string): void;
   /** Append the next page for the current query. */
   loadMore(): void;
   /** Re-fetch page zero for the current query WITHOUT shrinking below what's
@@ -69,6 +83,7 @@ export function usePagedSessionSearch<T>(
   const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [firstPagePending, setFirstPagePending] = useState(false);
 
   const queryRef = useRef("");
   const rowsRef = useRef<T[]>([]);
@@ -104,11 +119,15 @@ export function usePagedSessionSearch<T>(
     (q: string, atLeast = 0) => {
       // The caller (`search`/`refresh`) has already advanced the generation.
       const seq = searchSeq.current;
+      // The ask is live NOW — render-pure enough: the flag's whole job is
+      // to cover the flight, and only this generation's landing clears it.
+      setFirstPagePending(true);
       void fetchRef
         .current(q, Math.max(FIRST_PAGE, atLeast), 0)
         .then((page) => {
           if (searchSeq.current !== seq) return;
           loadedSeqRef.current = seq;
+          setFirstPagePending(false);
           setError(null);
           apply(page.rows, page.total);
         })
@@ -121,6 +140,7 @@ export function usePagedSessionSearch<T>(
           // guard (loaded !== requested) then refused forever: dead paging
           // as a side effect of the guard working as designed.
           loadedSeqRef.current = seq;
+          setFirstPagePending(false);
           // What the failure MEANS depends on what it was refreshing.
           // `atLeast > 0` is a background refresh of a span the user already
           // walked: the rows on screen are a real, correctly-labelled answer
@@ -158,8 +178,17 @@ export function usePagedSessionSearch<T>(
     [runSearch, debounceMs, cancelPendingSearch],
   );
 
-  const loadMore = useCallback(() => {
-    if (loadingMoreRef.current) return;
+  /** `search`'s immediate-clear twin (see the interface doc): generation
+   * up, rows out, debounced page zero of `q` on the way. */
+  const resetTo = useCallback(
+    (q: string) => {
+      search(q);
+      apply([], 0);
+    },
+    [search, apply],
+  );
+
+  const loadMore = useCallback(() => {    if (loadingMoreRef.current) return;
     // The loaded rows must belong to the CURRENT generation. If a search is
     // pending, or its page zero hasn't landed yet, paging would append the new
     // request's page onto stale rows — wait for page zero instead.
@@ -204,9 +233,11 @@ export function usePagedSessionSearch<T>(
     total,
     hasMore: rows.length < total,
     loadingMore,
+    firstPagePending,
     query,
     error,
     search,
+    resetTo,
     loadMore,
     refresh,
   };

@@ -54,6 +54,7 @@ import {
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
 import { createAgentStatusTracker } from "./agentStatusTracker";
+import { createSessionIndexManager } from "./sessionIndexManager";
 import { createPaneLifecycle } from "./paneLifecycle";
 import { subscribeRoleCatalogChanges } from "./roleCatalogManager";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
@@ -162,6 +163,11 @@ export function createAppRuntime(
     usage: usageManager,
   });
   const statusTracker = createAgentStatusTracker();
+  // The session-search index's freshness owner — needs are declared by
+  // surfaces (browser, spawn picker), when to scan is decided here.
+  const sessionIndex = createSessionIndexManager(
+    plugins.pluginRegistries.agents,
+  );
   // Who may speak for a pane. Built before the lanes that ask it, and handed
   // to each as a value, so identity, usage and status cannot drift apart on
   // a question all three have to answer the same way.
@@ -319,6 +325,7 @@ export function createAppRuntime(
     usageManager,
     activityWitness,
     statusTracker,
+    sessionIndex,
     windowReportJournal,
     start() {
       if (disposed) return;
@@ -373,6 +380,7 @@ export function createAppRuntime(
       if (disposed) return;
       disposed = true;
       application.dispose();
+      sessionIndex.dispose();
       paneInputFocus.dispose();
       activityWitness.dispose();
       exhaustionNotifier?.dispose();

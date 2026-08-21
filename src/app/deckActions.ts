@@ -154,8 +154,6 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "setPaneProvisioningPhase", wsId, paneId, phase }),
     hydrateJournal: (records: JournalRecords) =>
       dispatch({ type: "hydrateJournal", records, at: nowIso() }),
-    deleteJournalRecord: (wsId: string, sessionId: string) =>
-      dispatch({ type: "deleteJournalRecord", wsId, sessionId, at: nowIso() }),
     journalFlushed: (count: number) => dispatch({ type: "journalFlushed", count }),
     setWorkspacePluginSlot: (
       wsId: string,

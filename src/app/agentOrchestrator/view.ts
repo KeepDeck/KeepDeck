@@ -13,11 +13,12 @@
 import type { SpawnPlan } from "../spawnSpecs";
 import { peekPanePlanError, peekPaneSpawnSpec } from "../spawnSpecs";
 import type { DeckStore } from "../deckStore";
-import type { AgentRunView } from ".";
+import type { AgentRunView, OccupiedNote } from ".";
 
 const EMPTY_VIEW: AgentRunView = {
   blocked: {},
   wakeFailed: {},
+  occupied: {},
   specs: {},
   planFailed: new Set(),
   epochs: {},
@@ -32,10 +33,17 @@ export interface RunViewStore {
   markBlocked(paneId: string, dir: string): void;
   /** A manual wake refused, with the reason its card shows. */
   markWakeFailed(paneId: string, why: string): void;
+  /** The pane's refused resume turned out to be a LIVE outside session:
+   * the binding stays and the card offers the choice (fork, dismiss).
+   * `registry` names whether the registry PROVED it live or merely failed
+   * to answer — the card words the difference. */
+  markOccupied(paneId: string, note: OccupiedNote): void;
   blockedDir(paneId: string): string | null;
   /** Whether this pane's directory is gone — the question the suspend refusal
    * and the resume claimant both ask. */
   isBlocked(paneId: string): boolean;
+  /** The occupied note, when the pane's card is offering the choice. */
+  occupiedNote(paneId: string): OccupiedNote | null;
   /** Forget both notes for one pane; `true` when anything was there. */
   clearNotes(paneId: string): boolean;
   /** Re-mount this pane's terminal: a restart bumps its mount generation.
@@ -50,6 +58,7 @@ export interface RunViewStore {
 export function createRunViewStore(deck: DeckStore): RunViewStore {
   const blocked = new Map<string, string>();
   const wakeFailed = new Map<string, string>();
+  const occupied = new Map<string, OccupiedNote>();
   const epochs = new Map<string, number>();
   const listeners = new Set<() => void>();
   let view: AgentRunView = EMPTY_VIEW;
@@ -70,6 +79,7 @@ export function createRunViewStore(deck: DeckStore): RunViewStore {
     view = {
       blocked: Object.fromEntries(blocked),
       wakeFailed: Object.fromEntries(wakeFailed),
+      occupied: Object.fromEntries(occupied),
       specs,
       planFailed,
       epochs: Object.fromEntries(epochs),
@@ -90,11 +100,16 @@ export function createRunViewStore(deck: DeckStore): RunViewStore {
     markWakeFailed: (paneId, why) => {
       wakeFailed.set(paneId, why);
     },
+    markOccupied: (paneId, note) => {
+      occupied.set(paneId, note);
+    },
     blockedDir: (paneId) => blocked.get(paneId) ?? null,
     isBlocked: (paneId) => blocked.has(paneId),
+    occupiedNote: (paneId) => occupied.get(paneId) ?? null,
     clearNotes(paneId) {
       let changed = blocked.delete(paneId);
       changed = wakeFailed.delete(paneId) || changed;
+      changed = occupied.delete(paneId) || changed;
       return changed;
     },
     bumpEpoch(paneId) {
@@ -103,7 +118,7 @@ export function createRunViewStore(deck: DeckStore): RunViewStore {
     },
     forgetGone(live) {
       let dropped = false;
-      for (const map of [blocked, wakeFailed, epochs]) {
+      for (const map of [blocked, wakeFailed, occupied, epochs]) {
         for (const paneId of [...map.keys()]) {
           if (!live.has(paneId)) {
             map.delete(paneId);

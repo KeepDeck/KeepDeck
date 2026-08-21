@@ -157,8 +157,15 @@ export type SessionStartMode = "new" | "resume" | "fork";
 
 /** Why a listed session can't be RESUMED (forking stays possible — it is
  * exactly the escape hatch for these): its directory is gone, it never
- * recorded one, or a pane already owns the binding. */
-export type ResumeBlock = "dir-gone" | "no-cwd" | "claimed" | null;
+ * recorded one, a pane already owns the binding — or an OUTSIDE process
+ * holds it, which unlike the others is not dead: a copy can be forked
+ * right away. */
+export type ResumeBlock =
+  | "dir-gone"
+  | "no-cwd"
+  | "claimed"
+  | "busy-outside"
+  | null;
 
 /** Whether Create is allowed for the "Start from" choice. New sessions
  * always pass; continuing needs a picked session, and resume additionally a

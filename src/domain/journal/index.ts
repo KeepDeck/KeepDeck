@@ -15,3 +15,23 @@ export {
   type SessionRecord,
   type SessionRecordBase,
 } from "./sessionLog";
+export {
+  joinJournalRow,
+  type JoinEntry,
+  type JoinedRow,
+  type RowStatus,
+} from "./join";
+export {
+  rowOfHit,
+  rowOfJoined,
+  rowKeyOf,
+  type BoundSessionRow,
+  type IndexSessionRow,
+  type UnifiedSessionRow,
+} from "./sessionRow";
+export {
+  composeSessionList,
+  journalRecordMatches,
+  type ComposedLane,
+  type ComposeSessionListInput,
+} from "./session-list";

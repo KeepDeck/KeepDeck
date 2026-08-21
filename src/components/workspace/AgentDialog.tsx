@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   agentRemoteSchemes,
   agentSessionCapabilities,
@@ -22,8 +22,10 @@ import {
   type SessionStartMode,
 } from "../../domain/agents";
 import { baseName } from "../../domain/deck";
+import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
+import { useAppRuntime } from "../../app/runtimeContext";
 import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
 import { useEscape } from "../../ui/useEscape";
 import { useScrollPaging } from "../../ui/useScrollPaging";
@@ -99,6 +101,14 @@ interface AgentDialogProps {
   /** How a session is already held by a pane, for the resume dimming rule
    * — running, stopped, or free. Injected (deck state stays outside). */
   sessionClaim(sessionId: string): "running" | "stopped" | null;
+  /** Which of the agent's sessions are held by an OUTSIDE process right
+   * now (advisory, for the resume dimming rule): ids when the registry
+   * answered, `ok: false` when it could not. Injected — the same seam the
+   * session search uses; a view never touches a plugin. The answer lands
+   * as a second wave, exactly like the branch list: opening stays instant. */
+  liveOutside(
+    agent: AgentType,
+  ): Promise<{ ok: true; ids: ReadonlySet<string> } | { ok: false }>;
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
 }
@@ -128,6 +138,7 @@ export function AgentDialog({
   pickFolder,
   searchSessions,
   sessionClaim,
+  liveOutside,
   onConfirm,
   onCancel,
 }: AgentDialogProps) {
@@ -229,6 +240,33 @@ export function AgentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startMode, agentType, sessionQuery]);
 
+  // The picker reads the INDEX, which nothing refreshed unless the history
+  // browser was visited. DECLARE the need for the selected agent's store —
+  // when the scan runs is the sessionIndexManager's call (it waits for
+  // plugin registration on its own). Fires on open and on every agent
+  // switch; typing never rescans.
+  const { sessionIndex } = useAppRuntime();
+  useEffect(() => {
+    sessionIndex.ensureFresh(agentType);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionIndex, agentType]);
+
+  // The declared scan lands in BATCHES — the picker's listing re-reads its
+  // page-zero span on every revision bump so a long first catch-up fills
+  // the list while it runs (the browser's twin, same snapshot). The FIRST
+  // observation only records the baseline: the mount query above already
+  // lists, and a re-fetch before any rows landed would be a duplicate.
+  const index = useSyncExternalStore(sessionIndex.subscribe, sessionIndex.snapshot);
+  const lastRevision = useRef<number | null>(null);
+  const { refresh: refreshSessions } = pagedSessions;
+  useEffect(() => {
+    const first = lastRevision.current === null;
+    lastRevision.current = index.revision;
+    if (first || startMode === "new") return;
+    refreshSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index.revision]);
+
   // Prefill the Name from a session title while the field is UNTOUCHED (name
   // still equals the last prefill); a hand-edited name stays the user's. The
   // previous prefill is captured BEFORE reassigning the ref — setName's updater
@@ -250,12 +288,38 @@ export function AgentDialog({
   }, [agentType]);
 
   // Resume needs the session's directory alive — same gate as the browser.
-  const presence = useDirPresence(
-    startMode === "resume" ? sessions.map((s) => s.handle.cwd) : [],
+  const presenceCwds = useMemo(
+    () => (startMode === "resume" ? sessions.map((s) => s.handle.cwd) : []),
+    [startMode, sessions],
   );
+  const presence = useDirPresence(presenceCwds);
+  // Which sessions an OUTSIDE process holds, asked once per agent while a
+  // resume picker is open — a second wave, never a delay to opening (the
+  // registry costs a CLI spawn; the branch list arrives the same way).
+  // `unknown` marks rows the registry could not speak to — blocked like a
+  // busy row (resuming would just be refused), forkable like any other.
+  const [liveOutsideIds, setLiveOutsideIds] = useState<ReadonlySet<string> | "unknown">("unknown");
+  useEffect(() => {
+    if (startMode !== "resume") return;
+    let cancelled = false;
+    setLiveOutsideIds("unknown");
+    liveOutside(agentType).then((answer) => {
+      if (cancelled) return;
+      setLiveOutsideIds(answer.ok ? answer.ids : "unknown");
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startMode, agentType]);
   const resumeBlockOf = (row: SessionPickRow): ResumeBlock => {
     if (row.handle.cwd === "") return "no-cwd";
     if (sessionClaim(row.handle.sessionId) !== null) return "claimed";
+    if (
+      liveOutsideIds !== "unknown" &&
+      liveOutsideIds.has(row.handle.sessionId)
+    )
+      return "busy-outside";
     if (!dirPresent(presence, row.handle.cwd)) return "dir-gone";
     return null;
   };
@@ -265,6 +329,8 @@ export function AgentDialog({
         return "no recorded directory — fork instead";
       case "claimed":
         return "already in a pane";
+      case "busy-outside":
+        return "running in the background — fork a copy to continue here";
       case "dir-gone":
         return "directory is gone — fork instead";
       case null:
@@ -585,12 +651,12 @@ export function AgentDialog({
                 const active =
                   validPick?.handle.sessionId === row.handle.sessionId;
                 return (
-                  <li key={`${row.handle.agent}:${row.handle.sessionId}`}>
+                  <li key={rowKeyOf(row.handle)}>
                     <button
                       type="button"
                       className={`form__session${active ? " form__session--active" : ""}${
                         block !== null ? " form__session--blocked" : ""
-                      }`}
+                      }${block === "busy-outside" ? " form__session--busy" : ""}`}
                       onClick={() => pickSession(row)}
                     >
                       <span className="form__session-name">

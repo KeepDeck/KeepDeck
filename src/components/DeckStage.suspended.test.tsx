@@ -55,7 +55,6 @@ const workspaces = [
 ];
 
 const callbacks = {
-  onDeleteJournalRecord: vi.fn(),
   onResumeSession: vi.fn(),
   onForkSession: vi.fn(),
   onSelectPane: vi.fn(),
@@ -75,22 +74,21 @@ const callbacks = {
 };
 
 const browser = {
-  hits: [],
-  total: 0,
-  hasMore: false,
-  loadingMore: false,
-  query: "",
-  error: null,
   scanning: false,
-  search: vi.fn(),
-  loadMore: vi.fn(),
-  scan: vi.fn(),
+  revision: 1,
+  invalidated: new Set<string>(),
+  enrichment: {
+    entries: new Map(),
+    pending: false,
+    declare: vi.fn(),
+  },
+  ensureFresh: vi.fn(),
   transcript: vi.fn(() => Promise.resolve([])),
 };
 
 const props = (overrides: Record<string, unknown> = {}) => ({
   journal: {},
-  browser,
+  browserShared: browser,
   workspaces,
   activeId: "ws-1",
   viewByWs: {},
@@ -113,6 +111,9 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   gitHeads: new Map(),
   idleBlocked: {},
   wakeFailed: {},
+  occupiedPanes: {},
+  onForkOccupied: () => {},
+  onDismissOccupied: () => {},
   specByPane: {
     "pane-1": { command: "codex", args: [], env: [] },
     "pane-2": { command: "codex", args: [], env: [] },

@@ -6,10 +6,12 @@ import {
   paneResumeSessionId,
 } from "../../domain/deck";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
+import { decideRejectedResume } from "../../domain/agents";
 import { describeError, log } from "../../ipc/log";
 import type {
   McpAccessAsk,
   AgentOrchestrator,
+  OccupiedNote,
   RestartOutcome,
   SessionRegistryPort,
   StagedSkillsAsk,
@@ -17,6 +19,7 @@ import type {
 } from ".";
 import type { DeckActions } from "../deckActions";
 import type { DeckStore } from "../deckStore";
+import { askLiveRegistry } from "../liveSessions";
 import { postbackCount } from "../postbacks";
 import type { SpawnContextSource } from "../spawnContextSource";
 import {
@@ -47,17 +50,33 @@ interface RestartDeps {
   /** Re-mount a pane's terminal — the view store owns the generation and
    * publishes it; a restart only says which pane. */
   bumpEpoch(paneId: string): void;
+  /** Publish the run view — the occupied card a recovery lands on is part
+   * of it, and a pane's fate changing must reach every listener. */
+  publish(): void;
+  /** The occupied note a live refusal leaves on the pane's card. */
+  markOccupied(paneId: string, note: OccupiedNote): void;
+  /** The occupied note, when one is standing. */
+  occupiedNote(paneId: string): OccupiedNote | null;
+  /** Forget a pane's notes (blocked / wake-failed / occupied). */
+  clearNotes(paneId: string): boolean;
   startOwed: Set<string>;
   skillsAsk: StagedSkillsAsk;
   mcpAccess: McpAccessAsk;
   schedule(): void;
   lifecycle: PaneLifecyclePort;
+  /** The continuation flows (resume/fork into a new pane) — the occupied
+   * card's fork button rides the SAME path the dialog's fork does. */
+  forks: {
+    forkSession: AgentOrchestrator["forkSession"];
+  };
 }
 
 export interface AgentOrchestratorRestart {
   restart: AgentOrchestrator["restart"];
   recoverRejectedResume: AgentOrchestrator["recoverRejectedResume"];
   retryPlanBuild: AgentOrchestrator["retryPlanBuild"];
+  forkOccupiedSession: AgentOrchestrator["forkOccupiedSession"];
+  dismissOccupied: AgentOrchestrator["dismissOccupied"];
   owns(paneId: string): boolean;
 }
 
@@ -80,11 +99,16 @@ export function createAgentOrchestratorRestart({
   plugins,
   spawnContext,
   bumpEpoch,
+  publish,
+  markOccupied,
+  occupiedNote,
+  clearNotes,
   startOwed,
   skillsAsk,
   mcpAccess,
   schedule,
   lifecycle,
+  forks,
 }: RestartDeps): AgentOrchestratorRestart {
   const restarting = new Set<string>();
 
@@ -236,25 +260,123 @@ export function createAgentOrchestratorRestart({
     const target = targetOf(wsId, paneId);
     if (!target) return false;
 
+    // The pane is taken over the moment the registry question opens; the
+    // synchronous answer ("I took it") is what keeps the crash
+    // notification off a pane whose fate is still being decided.
     restarting.add(paneId);
-    startOwed.add(paneId);
-    log.warn(
-      "web:orchestrator",
-      `${paneId}: resume of ${spec?.resumeOf} exited (${code ?? "?"}) without reporting — respawning fresh`,
-    );
-    actions.setPaneSession(target.workspace.id, paneId, null);
-    dropPaneSpawnSpec(paneId);
-    lifecycle.retire(paneId);
-    void sessions
-      .close(paneId)
-      .then(() => {
+    void (async () => {
+      try {
+        // ASK, don't parse the refusal: the string is not a contract, the
+        // registry is the state. `null` (no capability to ask) is its own
+        // answer and the rule reads it apart from "absent".
+        const answer = spec?.resumeOf
+          ? await askLiveRegistry(plugins, target.agentType, spec.resumeOf)
+          : null;
+        const action = decideRejectedResume(
+          answer,
+          spec?.resumeRetry === true,
+        );
+        if (action.kind === "keep") {
+          // The conversation is alive in an outside process: the binding
+          // STAYS, the pane stays exited, and its card offers the choice.
+          // The occupied note survives the spec being dropped later — it
+          // lives in the view, not in the plan.
+          markOccupied(paneId, {
+            registry: action.registry,
+            name: null,
+          });
+          publish();
+          log.warn(
+            "web:orchestrator",
+            `${paneId}: resume of ${spec?.resumeOf} refused — the session is ${action.registry === "live" ? "live outside" : "possibly live (registry unanswered)"}; binding kept, choice offered`,
+          );
+          return;
+        }
+        if (action.kind === "retry-once") {
+          // The registry says the session is NOT held — but a refusal a
+          // moment ago proved it exists. An agent that finished in between
+          // vanished from the registry while the conversation became fully
+          // resumable: one quiet retry recovers exactly that race.
+          startOwed.add(paneId);
+          const context = spawnContext.get();
+          if (context) {
+            await buildResumeSpec(
+              plugins,
+              target.agentType,
+              {
+                paneId,
+                workspace: target.workspace,
+                cwd: target.cwd,
+                branch: target.branch,
+                yolo: target.yolo,
+                stagedSkills: skillsAsk(target.workspace),
+                mcpAccess,
+              },
+              context,
+              target.sessionId!,
+              "restore",
+              true,
+            );
+          }
+          lifecycle.retire(paneId);
+          await sessions.close(paneId);
+          if (targetOf(target.workspace, paneId)) bumpEpoch(paneId);
+          log.warn(
+            "web:orchestrator",
+            `${paneId}: resume of ${spec?.resumeOf} exited silently, registry says free — one quiet retry`,
+          );
+          return;
+        }
+        // legacy-fresh: the recorded session is truly gone. The old
+        // behavior, whole — including the one automatic fresh spawn.
+        startOwed.add(paneId);
+        log.warn(
+          "web:orchestrator",
+          `${paneId}: resume of ${spec?.resumeOf} exited (${code ?? "?"}) without reporting — respawning fresh`,
+        );
+        actions.setPaneSession(target.workspace.id, paneId, null);
+        dropPaneSpawnSpec(paneId);
+        lifecycle.retire(paneId);
+        await sessions.close(paneId);
         if (targetOf(target.workspace, paneId)) bumpEpoch(paneId);
-      })
-      .finally(() => {
+      } catch (error) {
+        log.warn(
+          "web:orchestrator",
+          `${paneId}: rejected-resume recovery failed: ${describeError(error)}`,
+        );
+      } finally {
         restarting.delete(paneId);
         schedule();
-      });
+      }
+    })();
     return true;
+  };
+
+  const forkOccupiedSession: AgentOrchestrator["forkOccupiedSession"] =
+    async (wsId, paneId) => {
+      const target = targetOf(wsId, paneId);
+      if (!occupiedNote(paneId) || !target?.sessionId) return;
+      // Same directory by definition — the card never chooses one. The
+      // record carries no transcript path: the plugin's fork recipe owns
+      // its store layout and locates the source itself.
+      await forks.forkSession(
+        wsId,
+        {
+          agent: target.agentType,
+          sessionId: target.sessionId,
+          cwd: target.cwd,
+          ...(target.branch !== undefined && { branch: target.branch }),
+          ...(target.yolo && { yolo: true }),
+        },
+        { kind: "dir", cwd: target.cwd },
+      );
+    };
+
+  const dismissOccupied: AgentOrchestrator["dismissOccupied"] = (paneId) => {
+    // The pane stays visible and bound; nothing is erased. Only the
+    // offer goes — the ordinary exit card takes over, and a later
+    // refused resume can bring the choice back.
+    if (clearNotes(paneId)) publish();
   };
 
   const retryPlanBuild: AgentOrchestrator["retryPlanBuild"] = (paneId) => {
@@ -267,6 +389,8 @@ export function createAgentOrchestratorRestart({
     restart,
     recoverRejectedResume,
     retryPlanBuild,
+    forkOccupiedSession,
+    dismissOccupied,
     owns: (paneId) => restarting.has(paneId),
   };
 }

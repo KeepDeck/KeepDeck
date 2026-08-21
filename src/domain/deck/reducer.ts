@@ -574,16 +574,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ),
       };
     }
-    case "deleteJournalRecord": {
-      const journal = withJournalEvent(state.journal, {
-        e: "deleted",
-        v: 1,
-        wsId: action.wsId,
-        sessionId: action.sessionId,
-        at: action.at,
-      });
-      return journal === state.journal ? state : { ...state, journal };
-    }
     case "journalFlushed": {
       const journal = flushJournalTail(state.journal, action.count);
       return journal === state.journal ? state : { ...state, journal };

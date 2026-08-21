@@ -369,16 +369,20 @@ describe("claude fork.plan", () => {
     });
   });
 
-  it("rejects without a recorded transcript path — no guessing, no surgery", async () => {
+  it("derives the transcript path from the recorded cwd when none was delivered", async () => {
+    // The occupied-resume card's fork carries no transcript path — the
+    // plugin owns the store layout and derives it. For the card's
+    // same-directory fork the derived path merely proves target ===
+    // source: nothing is read, nothing is copied.
     const copies: [string, string][] = [];
     const agent = activate(null, copies);
-    await expect(
-      agent.hooks["fork.plan"]!(
-        { ...input, sessionId: "uuid-1", sourceCwd: "/x" },
-        output(),
-      ),
-    ).rejects.toThrow("no recorded transcript path");
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, sessionId: "uuid-1", sourceCwd: "/old/worktree", cwd: "/old/worktree" },
+      out,
+    );
     expect(copies).toEqual([]);
+    expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
   });
 
   it("rejects an unexpected store layout loudly instead of copying blind", async () => {
@@ -431,6 +435,37 @@ describe("claude fork.plan", () => {
       ),
     ).rejects.toThrow("shorter path");
     expect(copies).toEqual([]); // zero writes on refusal
+  });
+
+  it("branching in place skips the copy SILENTLY — the file already sits where it would land", async () => {
+    // The fork card never chooses a directory, so source dir = target dir
+    // is the card's NORMAL shape, not an error. The copy would be a
+    // same-file copy (which the host refuses loudly for everyone else) —
+    // only the plugin knows this one is legitimate, so only it may skip.
+    const copies: [string, string][] = [];
+    const agent = activate(SESSION_HOOK, copies);
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      {
+        ...forkInput,
+        // Same slug as the transcript's own dir → target === source.
+        cwd: "/old/worktree",
+      },
+      out,
+    );
+    expect(copies).toEqual([]);
+    expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
+  });
+
+  it("spawn.plan never emits the CLI's agents screen — the connect path is gone", async () => {
+    // DEMOLITION, the absence half: no spawn input may open the CLI's own
+    // agent screen anymore. The ordinary shape is pinned by the suite
+    // around; this pins that its argv vocabulary has no such entry.
+    const agent = activate(SESSION_HOOK);
+    const out = output();
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, out);
+    expect(out.args).not.toContain("agents");
+    expect(out.args).toContain("--dangerously-skip-permissions");
   });
 
   it("contributes its mail renderer, which is what puts it on the labelled channel", () => {

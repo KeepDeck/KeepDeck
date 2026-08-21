@@ -360,6 +360,12 @@
   opacity: 0.55;
 }
 
+/* An OUTSIDE-held row is NOT dead — a fork is legal right now — so it dims
+   less than a gone-directory row and keeps its own wording. */
+.form__session--busy {
+  opacity: 0.8;
+}
+
 .form__session-name {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -107,7 +107,7 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
    *   file at v1 indefinitely, which keeps every migration target revocable
    *   on EVERY later launch. That is how a badge could still evaporate on
    *   a timezone change months after the upgrade, through the narrowed
-   *   sweep this commit introduced.
+   *   migration-scoped sweep.
    *
    * So: no write at all while a migration is pending and unrepaired, and a
    * forced write once the repair lands. The cost is that awards delivered

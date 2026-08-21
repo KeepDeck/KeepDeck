@@ -280,7 +280,11 @@ describe("agent history over the RPC seam", () => {
       Number(h.pushes[1].channel.slice("history:".length)),
       {
         ok: true,
-        value: { cwd: "/repo", title: "Session", transcriptPath: "/transcript" },
+        value: {
+          cwd: "/repo",
+          title: "Session",
+          transcriptPath: "/transcript",
+        },
       },
     ]);
     await expect(describe).resolves.toEqual({
@@ -322,6 +326,20 @@ describe("agent history over the RPC seam", () => {
     ]);
     await expect(listing).rejects.toThrow("malformed");
 
+    // An unknown extra field in facts drops at the boundary — the answer
+    // is rebuilt from known fields only, never passed through.
+    const junkField = harness();
+    await junkField.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasHistory: true },
+    ]);
+    const describing = junkField.agent().history!.describe("/store/s");
+    await junkField.dispatch.call("agents.historyResult", [
+      Number(junkField.pushes[0].channel.slice("history:".length)),
+      { ok: true, value: { cwd: "/repo", forkedAt: "yes" } },
+    ]);
+    await expect(describing).resolves.toEqual({ cwd: "/repo" });
+
     const disposed = harness();
     await disposed.dispatch.call("agents.register", [
       1,
@@ -330,6 +348,114 @@ describe("agent history over the RPC seam", () => {
     const content = disposed.agent().history!.content("/store/session-1");
     disposed.dispatch.dispose();
     await expect(content).rejects.toThrow("disposed");
+  });
+
+  it("listing is proxied only under the guest's hasListing declaration", async () => {
+    // No declaration → no method: the host must never ask a realm for a
+    // method it never claimed — old guests throw on the unknown name, which
+    // is this contract's own freeze, reborn for the whole external tier.
+    const silent = harness();
+    await silent.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasHistory: true },
+    ]);
+    expect(silent.agent().history!.listing).toBeUndefined();
+
+    const declared = harness();
+    await declared.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasHistory: true, hasListing: true },
+    ]);
+    const asking = declared.agent().history!.listing!();
+    expect(declared.pushes[0].payload).toEqual({
+      agentId: "gemini",
+      method: "listing",
+      args: [],
+    } satisfies WireAgentHistoryCall);
+    await declared.dispatch.call("agents.historyResult", [
+      Number(declared.pushes[0].channel.slice("history:".length)),
+      {
+        ok: true,
+        value: {
+          stubs: [
+            { sessionId: "session-1", ref: "/store/session-1", mtime: 42, size: 7 },
+          ],
+          complete: false,
+        },
+      },
+    ]);
+    await expect(asking).resolves.toEqual({
+      stubs: [
+        { sessionId: "session-1", ref: "/store/session-1", mtime: 42, size: 7 },
+      ],
+      complete: false,
+    });
+  });
+
+  it("a listing answer with a non-boolean complete fails the boundary", async () => {
+    // The realm's word may never turn junk into a prune permit: anything
+    // but a literal boolean complete rejects as malformed.
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasHistory: true, hasListing: true },
+    ]);
+    const asking = h.agent().history!.listing!();
+    await h.dispatch.call("agents.historyResult", [
+      Number(h.pushes[0].channel.slice("history:".length)),
+      { ok: true, value: { stubs: [], complete: "yes" } },
+    ]);
+    await expect(asking).rejects.toThrow("malformed");
+  });
+
+  it("liveSessions is proxied only under the guest's hasLiveSessions declaration", async () => {
+    // No declaration → no capability at all: the host must never ask a
+    // realm for a call it never claimed — the same refusal freeze the
+    // listing negotiation prevents, on its own channel.
+    const silent = harness();
+    await silent.dispatch.call("agents.register", [1, entry]);
+    expect(silent.agent().liveSessions).toBeUndefined();
+
+    const declared = harness();
+    await declared.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasLiveSessions: true },
+    ]);
+    const asking = declared.agent().liveSessions!.list();
+    expect(declared.pushes[0].channel).toMatch(/^livesessions:\d+$/);
+    expect(declared.pushes[0].payload).toEqual({ agentId: "gemini" });
+    await declared.dispatch.call("agents.liveResult", [
+      Number(declared.pushes[0].channel.slice("livesessions:".length)),
+      {
+        ok: true,
+        value: [
+          {
+            sessionId: "session-1",
+            kind: "background",
+            name: "Fix the build",
+            state: "working",
+            pid: 42,
+          },
+        ],
+      },
+    ]);
+    await expect(asking).resolves.toEqual([
+      { sessionId: "session-1", kind: "background", name: "Fix the build", state: "working" },
+    ]);
+  });
+
+  it("a live-sessions answer with junk rows fails the whole boundary", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasLiveSessions: true },
+    ]);
+    const asking = h.agent().liveSessions!.list();
+    await h.dispatch.call("agents.liveResult", [
+      Number(h.pushes[0].channel.slice("livesessions:".length)),
+      { ok: true, value: [{ sessionId: 7, kind: "background" }] },
+    ]);
+    await expect(asking).rejects.toThrow("malformed");
   });
 });
 

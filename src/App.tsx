@@ -36,6 +36,8 @@ import {
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
 } from "./app/notificationProducers";
+import { liveOutsideSessions } from "./app/liveSessions";
+import { useCallback } from "react";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import "./styles/index.css";
@@ -45,7 +47,15 @@ function App() {
   // The status tracker feeds the team dialog's live activity column; read
   // here (before the ready gate — hooks run unconditionally) and passed as
   // a port, so the dialog stays testable with a literal.
-  const { statusTracker } = useAppRuntime();
+  const { statusTracker, plugins } = useAppRuntime();
+  // The resume picker's advisory live-registry ask — handed to the dialog
+  // READY-MADE (the same seam the session search uses; a view never
+  // touches a plugin). Stable identity: the dialog re-asks per agent, not
+  // per render.
+  const liveOutside = useCallback(
+    (agent: string) => liveOutsideSessions(plugins, agent),
+    [plugins],
+  );
   if (!controller.ready) return <div className="deck" />;
   const {
     active,
@@ -85,7 +95,7 @@ function App() {
     railCollapsed,
     railWorkspaces,
     runView,
-    sessionsBrowser,
+    browserShared,
     setCreating,
     setForkDialog,
     teamDialog,
@@ -293,14 +303,13 @@ function App() {
             unavailableAgentReasons={unavailableReasons}
             gitHeads={gitHeads}
             journal={deck.journal.records}
-            onDeleteJournalRecord={deck.deleteJournalRecord}
             onResumeSession={(wsId, record) =>
               void orchestrator.resumeSession(wsId, record).catch((e: unknown) =>
                 pushAlert("Could not resume the session", describeError(e)),
               )
             }
             onForkSession={(wsId, record) => setForkDialog({ wsId, record })}
-            browser={sessionsBrowser}
+            browserShared={browserShared}
             onSelectPane={deck.selectPane}
             onToggleFocus={paneViewActions.toggleMaximize}
             onToggleMinimize={deck.toggleMinimize}
@@ -316,6 +325,13 @@ function App() {
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}
+            occupiedPanes={runView.occupied}
+            onForkOccupied={(wsId, paneId) => {
+              void orchestrator.forkOccupiedSession(wsId, paneId).catch((e: unknown) =>
+                pushAlert("Could not fork the session", describeError(e)),
+              );
+            }}
+            onDismissOccupied={orchestrator.dismissOccupied}
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={orchestrator.startFresh}
@@ -394,6 +410,7 @@ function App() {
               pickFolder={pickFolder}
               searchSessions={agentFlow.searchSessions}
               sessionClaim={agentFlow.sessionClaim}
+              liveOutside={liveOutside}
               onConfirm={agentFlow.confirm}
               onCancel={agentFlow.cancel}
             />

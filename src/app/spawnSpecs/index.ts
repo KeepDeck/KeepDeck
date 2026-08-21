@@ -55,7 +55,9 @@ export type SpawnPluginAccess = Pick<
 
 /** Build and cache an exclusive RESUME plan for an idle pane about to wake
  * or an exited pane the user explicitly restarts. Replaces any cached plan;
- * the generation reservation prevents the ordinary fresh sweep from racing. */
+ * the generation reservation prevents the ordinary fresh sweep from racing.
+ * `retry` marks the one quiet retry a refused boot restore earned — its own
+ * silent death is then the second, and the legacy fallback fires. */
 export async function buildResumeSpec(
   plugins: SpawnPluginAccess,
   agentType: string,
@@ -63,6 +65,7 @@ export async function buildResumeSpec(
   ctx: SpawnPlanContext,
   resumeId: string,
   origin: ResumeOrigin,
+  retry = false,
 ): Promise<boolean> {
   const agent = findAgent(plugins, agentType);
   if (!agent) return false; // unavailable — the card keeps the pane idle
@@ -78,6 +81,7 @@ export async function buildResumeSpec(
       kind: "resume",
       sessionId: resumeId,
       origin,
+      retry,
     }),
   );
 }

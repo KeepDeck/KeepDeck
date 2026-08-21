@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { kimiHistory, parseWire } from "./history";
 
@@ -53,8 +53,13 @@ const STATE = JSON.stringify({
   agents: { main: { homedir: "/x" } },
 });
 
-function ctx(files: Record<string, string>, dirs: Record<string, unknown[]>) {
+function ctx(
+  files: Record<string, string>,
+  dirs: Record<string, unknown[]>,
+  warn: (message: string) => void = vi.fn(),
+) {
   return {
+    log: { warn, info: vi.fn(), error: vi.fn() },
     services: {
       fs: {
         readDir: async (path: string) => {
@@ -107,6 +112,58 @@ describe("kimi history", () => {
       }),
     );
     expect(await bare.list()).toEqual([]);
+  });
+
+  it("listing() walks past an unreadable working-dir folder: what read is indexed, the folder is named, the answer is incomplete", async () => {
+    const warn = vi.fn();
+    const history = kimiHistory(
+      ctx(
+        {},
+        {
+          "~/.kimi-code/sessions": [
+            { name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" },
+            { name: "wd_b_2", path: "/k/wd_b_2", kind: "dir" },
+          ],
+          "/k/wd_a_1": [
+            { name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" },
+          ],
+          "/k/wd_a_1/session_s1/agents/main": [
+            { name: "wire.jsonl", path: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", kind: "file", size: 4, mtime: 9 },
+          ],
+          // "/k/wd_b_2" deliberately absent → readDir throws.
+        },
+        warn,
+      ),
+    );
+    expect(await history.listing!()).toEqual({
+      stubs: [
+        { sessionId: "session_s1", ref: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", mtime: 9, size: 4 },
+      ],
+      complete: false,
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("/k/wd_b_2");
+  });
+
+  it("a session without agents/main is a normal shape under listing() too — skipped, walk still complete", async () => {
+    // The prune hazard's honest half: never-spawned sessions drop out of a
+    // COMPLETE listing. Only an agents/main that exists but won't read is
+    // the hazard — and the fs layer cannot tell those apart (see the
+    // named comment at the catch in history.ts).
+    const history = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
+      }),
+    );
+    expect(await history.listing!()).toEqual({ stubs: [], complete: true });
+  });
+
+  it("listing() on an unreadable root answers nothing-read and incomplete — never an empty store", async () => {
+    const warn = vi.fn();
+    const history = kimiHistory(ctx({}, {}, warn));
+    expect(await history.listing!()).toEqual({ stubs: [], complete: false });
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("describe reads workDir + title from the sibling state.json", async () => {

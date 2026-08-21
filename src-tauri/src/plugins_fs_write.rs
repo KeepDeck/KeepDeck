@@ -31,6 +31,20 @@ pub fn plugins_fs_write_copy(
     // file into the store would smuggle data past the read capability.
     let from = resolve_write(&src, &roots)?;
     let to = resolve_write(&dst, &roots)?;
+    // Refuse LOUDLY before opening anything: a copy of a file onto itself
+    // truncates the destination first and then "copies" the emptied source —
+    // the one-file conversation destroyed. The host cannot know WHY a plugin
+    // copies, so it must not silently reinterpret the call either: a plugin
+    // that means "no move, same directory" skips the copy on its own side,
+    // and a plugin that copies the same path by ACCIDENT deserves the error.
+    // Paths are canonicalized by `resolve_write`, so aliases (symlinks,
+    // /private vs /var) collapse before the comparison.
+    if from.path == to.path {
+        return Err(format!(
+            "fsWrite.copyFile: source and destination are the same file ({})",
+            to.path.display()
+        ));
+    }
     if let Some(dir) = to.path.parent() {
         create_dirs_owner_only(dir, &to.root)?;
     }
@@ -474,6 +488,21 @@ mod tests {
             roots,
         )
         .is_err());
+    }
+
+    #[test]
+    fn copy_onto_itself_is_refused_and_leaves_the_file_intact() {
+        // fs::copy opens the destination with O_TRUNC before reading the
+        // source, so a same-file copy "succeeds" by destroying the file —
+        // a one-transcript conversation annihilated. The refusal must fire
+        // BEFORE any open, and the original must survive byte for byte.
+        let (dir, roots) = root();
+        let file = dir.path().join("s.jsonl");
+        fs::write(&file, "line1\nline2\n").unwrap();
+        let p = file.to_string_lossy().into_owned();
+        let err = plugins_fs_write_copy(p.clone(), p, roots).unwrap_err();
+        assert!(err.contains("same file"), "{err}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "line1\nline2\n");
     }
 
     #[test]
