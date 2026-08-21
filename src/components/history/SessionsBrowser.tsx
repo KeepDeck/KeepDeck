@@ -337,23 +337,38 @@ export function SessionsBrowser({
   // A row's SOURCE PAIR: for a bound row the journal record + its
   // enrichment entry + the answer's mutability (an answer flips
   // indexing→settled verdicts; caching across THAT would freeze the
-  // status chip); for an index row the hit object itself.
+  // status chip); for an index row the hit object itself. MEMOIZED on
+  // the REAL sources — a clock tick (or any unrelated state) must not
+  // rebuild these maps or the stabilized arrays below, or "the tick
+  // only touches the visible rows" would be a promise, not a fact.
   const answerMutable = api.scanning || api.enrichment.pending;
-  const hitByKey = new Map<string, unknown>();
-  for (const h of api.workspace.hits) hitByKey.set(rowKeyOf(h), h);
-  for (const h of api.other.hits) hitByKey.set(rowKeyOf(h), h);
-  const recordByKey = new Map(rows.map((r) => [rowKeyOf(r), r]));
-  const sourceOfKey = (key: string): unknown =>
-    recordByKey.has(key)
-      ? `${String(answerMutable)}:${String(
-          api.enrichment.entries.get(key) === undefined,
-        )}:${String(recordByKey.get(key))}:${String(api.enrichment.entries.get(key))}`
-      : hitByKey.get(key);
-  const workspaceRows = workspaceRowsAll.map((row) =>
-    stabilize(row, sourceOfKey(rowKeyOf(row))),
+  const sources = useMemo(() => {
+    const hitByKey = new Map<string, unknown>();
+    for (const h of api.workspace.hits) hitByKey.set(rowKeyOf(h), h);
+    for (const h of api.other.hits) hitByKey.set(rowKeyOf(h), h);
+    const recordByKey = new Map(rows.map((r) => [rowKeyOf(r), r]));
+    const entries = api.enrichment.entries;
+    const sourceOfKey = (key: string): unknown =>
+      recordByKey.has(key)
+        ? `${String(answerMutable)}:${String(
+            entries.get(key) === undefined,
+          )}:${String(recordByKey.get(key))}:${String(entries.get(key))}`
+        : hitByKey.get(key);
+    return { sourceOfKey };
+    // The hits arrays and entries are the engines'/table's own state:
+    // a new page or a landed answer is a new reference — exactly when
+    // the source map SHOULD rebuild.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, api.workspace.hits, api.other.hits, api.enrichment.entries, answerMutable]);
+  const workspaceRows = useMemo(
+    () => workspaceRowsAll.map((row) => stabilize(row, sources.sourceOfKey(rowKeyOf(row)))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workspaceRowsAll, sources],
   );
-  const otherRows = otherRowsAll.map((row) =>
-    stabilize(row, sourceOfKey(rowKeyOf(row))),
+  const otherRows = useMemo(
+    () => otherRowsAll.map((row) => stabilize(row, sources.sourceOfKey(rowKeyOf(row)))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [otherRowsAll, sources],
   );
   const emptyList = workspaceRows.length === 0 && otherRows.length === 0;
 
@@ -479,23 +494,105 @@ export function SessionsBrowser({
     maybeLoadBoth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maybeLoadBoth, api.workspace.hits.length, api.other.hits.length]);
+
+  // FOCUS TRANSFER: if the focused element lived inside a row that just
+  // UNMOUNTED (scrolled out of the window), focus fell to <body> — the
+  // tab walk restarts at the page top and the keyboard context is lost.
+  // The transfer lands focus on the LIST CONTAINER: the walk's place is
+  // kept, the next Tab enters the nearest visible row. The overscan
+  // covers stepping; this covers the fling past it. Asymmetry argument
+  // (the circle's): the unmount-with-focus case is rare, while a lost
+  // focus on every focused scroll would meet the same person
+  // constantly.
+  const focusedRowKeyRef = useRef<string | null>(null);
+  const windowKeys = useMemo(
+    () => new Set(virtualItems.map((v) => v.key as string)),
+    // The virtual items array is rebuilt per range change — the memo
+    // tracks exactly that.
+    [virtualItems],
+  );
+  // Remember the focused row BEFORE it can unmount: once the node is
+  // gone, document.activeElement is already <body> and says nothing.
+  useEffect(() => {
+    const active = document.activeElement;
+    const row = active?.closest?.(".history__row");
+    if (row) {
+      focusedRowKeyRef.current =
+        row.querySelector(".browser__name")?.getAttribute("title") ?? null;
+    }
+  });
+  useEffect(() => {
+    const known = focusedRowKeyRef.current;
+    if (
+      known !== null &&
+      !windowKeys.has(known) &&
+      document.activeElement === document.body
+    ) {
+      // The focused row left the window — its node is gone, focus
+      // fell to body. Land it on the container.
+      listRef.current?.focus({ preventScroll: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowKeys]);
+  // The belt to the effect's braces: a REMOVED focused node fires no
+  // focusout in every engine — the MutationObserver watches the list's
+  // subtree for removals; when the node that held focus leaves and the
+  // focus fell to body, it lands on the list. This covers the
+  // fling-past-overscan unmount the range effect can miss in one
+  // commit.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver(() => {
+      if (document.activeElement === document.body) {
+        list.focus({ preventScroll: true });
+      }
+    });
+    observer.observe(list, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
   const onListScroll = () => {
     rowVirtualizer.measure();
     maybeLoadBoth();
   };
 
-  // One clock tick for the MOUNT — ages don't tick mid-render, and any
-  // tick tied to the list's growth would invalidate every memoized row
-  // on every landed page (the very cost this stabilization removes).
-  // THE NAMED COST, not a side effect: this FREEZE is real. Before, the
-  // tick refreshed incidentally on any re-render; now a row opened for
-  // an hour says "2m ago" for that hour. Fine for "5d ago"; wrong-
-  // looking for minutes-scale labels. Once the list is virtualized, a
-  // SLOW tick (once a minute) would repaint only the visible rows and
-  // cost almost nothing — whether to add it is an open question for the
-  // next step's review, deliberately not decided here.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const now = useMemo(() => Date.now(), []);
+  // THE CLOCK — one EVEN tick per minute, resurrected by demand and
+  // cheap NOW: virtualization pinned the visible rows to ~a screenful,
+  // so a tick repaints only them. The CONTRACT (the circle's, not a
+  // guess): lag up to one minute is accepted (the label is coarse
+  // anyway); a hidden window does not count time (the interval pauses
+  // on document.hidden); on the window's return the tick fires
+  // IMMEDIATELY — no stale minute shown to a returning eye. This is a
+  // EVEN tick, deliberately NOT the old incidental refresh: that one
+  // recalculated on every render, so an age label changed exactly at
+  // the moment a page landed and the row was moving anyway.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (timer !== null) return;
+      timer = setInterval(() => setNow(Date.now()), 60_000);
+    };
+    const stop = () => {
+      if (timer === null) return;
+      clearInterval(timer);
+      timer = null;
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop(); // a hidden window counts no time
+      } else {
+        setNow(Date.now()); // immediate recompute on return
+        start();
+      }
+    };
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   // STABLE action adapters: ONE pair for the whole mount, not one pair
   // per row per render — the rows receive these as props and re-render
@@ -553,6 +650,16 @@ export function SessionsBrowser({
         className="history__list browser__list"
         ref={listRef}
         onScroll={onListScroll}
+        // Focus landing pad: when a row holding the focus unmounts
+        // (scrolled out of the virtual window), focus moves HERE — the
+        // list container — not to <body>. The person notices focus by
+        // its ring AND by their place in the tab walk; the container
+        // KEEPS the place (the next Tab enters the nearest visible
+        // row), while body would restart the walk at the page top.
+        // Choosing a NEIGHBORING row was rejected as guessing intent
+        // (up or down?). The overscan buffer (6 rows) covers ordinary
+        // stepping; this transfer covers the fling that jumps past it.
+        tabIndex={-1}
         // The virtual window's SPACER is the list itself: its height is
         // the measured sum, and the window's rows sit absolutely
         // positioned inside it — the list stays ONE list (ul/li), the

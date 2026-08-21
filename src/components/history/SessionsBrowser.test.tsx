@@ -11,7 +11,6 @@ import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
 import { SessionRowView } from "./SessionRowView";
 import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
-import { anchorCorrection, pickAnchor } from "./rowAnchor";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -1739,17 +1738,38 @@ describe("virtualized list — the window, not the pile", () => {
     expect(otherLoad).toHaveBeenCalledTimes(0);
   });
 
-  it("C: the anchor decision lives PURE in rowAnchor — see rowAnchor.test.ts: same key keeps its offset across an insertion above; a vanished key holds the offset", async () => {
-    // The DOM half (applying the delta to scrollTop) cannot be
-    // witnessed in happy-dom: the stand computes no geometry, and
-    // imitating the browser's scroll dispatch here proved to test the
-    // IMITATION, not the list. The decision arithmetic — which key is
-    // held, what delta keeps it, what a vanished key does — is a pure
-    // function (rowAnchor.ts) with its own witness file; the pixels
-    // stay the user's.
-    expect(typeof anchorCorrection).toBe("function");
-    expect(typeof pickAnchor).toBe("function");
-    void mountBrowser; // the DOM path stays exercised by A/B above
+  it("D: the focused row riding out of the window lands focus on the LIST CONTAINER, never on body", async () => {
+    // The contract (the circle's ruling): overscan covers stepping;
+    // this covers the fling past it. Focus on <body> would restart the
+    // tab walk at the page top — losing the keyboard's place; the
+    // container keeps it (the next Tab enters the nearest visible
+    // row). A neighboring ROW was rejected as guessing intent.
+    const a = api([], {
+      other: trackOf(manyHits(60, "g"), { total: 60 }),
+    });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    const firstRow = document.querySelector<HTMLLIElement>(".history__row")!;
+    const openBtn = firstRow.querySelector<HTMLButtonElement>(".browser__open");
+    expect(openBtn).not.toBeNull();
+    openBtn!.focus();
+    expect(document.activeElement).toBe(openBtn);
+
+    // The fling: the range jumps far past the focused row (its key
+    // leaves the window) — by driving the virtualizer's own range
+    // through scrollTop, the stand's honest lever for "scrolled away".
+    list.scrollTop = 50 * 64;
+    await act(async () => {
+      list.dispatchEvent(new Event("scroll"));
+    });
+    await act(async () => {});
+    // Focus left the unmounted button and landed on the CONTAINER —
+    // not body.
+    expect(document.activeElement).toBe(list);
+    expect(document.activeElement).not.toBe(document.body);
+    // And the container is focusable (the pad exists even before use).
+    expect(list.tabIndex).toBe(-1);
   });
 });
 

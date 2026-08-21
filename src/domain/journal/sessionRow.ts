@@ -6,7 +6,8 @@ import type { SessionHandle } from "./sessionLog";
  * beside the row type it keys: enrichment (a PRECONDITION of composition)
  * imports it from the row's own home, not from the composition module —
  * a dependency from consequence back to premise would read circular even
- * without a module cycle. */
+ * without a module cycle. STABLE by construction: same agent + sessionId
+ * pair → the same string (template literal of two stable fields). */
 export const rowKeyOf = (key: { agent: string; sessionId: string }): string =>
   `${key.agent}:${key.sessionId}`;
 
