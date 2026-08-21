@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
-import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
 import {
   composeSessionList,
@@ -18,9 +17,8 @@ import {
   type AnchorState,
 } from "./rowAnchor";
 import { useSessionsBrowser, type BrowserSharedSeam } from "../../app/useSessionsBrowser";
-import { BackIcon } from "../../ui/icons";
-import { NEAR_END } from "../../ui/useScrollPaging";
-import { SessionRowView, SessionRowActions } from "./SessionRowView";
+import { SessionRowView } from "./SessionRowView";
+import { SessionViewer, type ViewerTarget } from "./browser/SessionViewer";
 
 interface SessionsBrowserProps {
   api: SessionsBrowserApi;
@@ -66,33 +64,7 @@ export function WorkspaceSessionsBrowser({
  * spawn dialog's picker shares the same mapping via the domain export). */
 export const hitRecord = handleFromHit;
 
-/** Transcript paging's step sizes (the step strategy of the sessions
- * step, [F8]): fill the viewport first, then small increments as
- * scrolling nears the bottom. The viewer is NOT virtualized — it draws
- * every loaded turn; only its FETCHING is incremental. */
-const FIRST_TURNS = 50;
-const NEXT_TURNS = 20;
 const OVERSCAN_ROWS = 6;
-
-/** What the transcript viewer reads — one row's read link, whichever list
- * the row came from (a journal row or an index hit). Carries the row
- * itself: the header's actions render from the SAME availability rules
- * as the list row, not a re-derivation. */
-interface ViewerTarget {
-  agent: string;
-  sessionId: string;
-  reference: string;
-  title: string | null;
-  /** The row's read links in try order (the join's union: journal path
-   * first, the index's reference as the spare), plus how many have
-   * already refused. A failed page zero advances one link; the LAST
-   * link's failure is the row's failure. Singleton for hit rows. */
-  fallbacks: string[];
-  tried: number;
-  /** The row this target was opened from — the header's actions live
-   * on it (one rule source with the list row). */
-  row: UnifiedSessionRow;
-}
 
 /**
  * The empty-workspace sessions surface ([F8]): ONE list with the search bar
@@ -112,12 +84,6 @@ export function SessionsBrowser({
   onFork,
 }: SessionsBrowserProps) {
   const [open, setOpen] = useState<ViewerTarget | null>(null);
-  const [entries, setEntries] = useState<AgentTranscriptEntry[]>([]);
-  const [exhausted, setExhausted] = useState(false);
-  const [loadingPage, setLoadingPage] = useState(false);
-  /** The viewer's own failure line — a refused read is named where it
-   * happened, not rendered as an empty transcript. */
-  const [viewerError, setViewerError] = useState<string | null>(null);
   /** Rows whose LAST read by link fell. The row stays and stays
    * openable — a retry is legitimate — but the failure is named on the
    * row, as itself and never as "nothing to read". */
@@ -165,92 +131,10 @@ export function SessionsBrowser({
   // they read the stabilized queue.
   const listRef = useRef<HTMLUListElement | null>(null);
   const PAGE_AHEAD = 40;
-  const nearEnd = (el: HTMLElement) =>
-    el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END;
-
-  /** One transcript read of `target` at `from`. A page-zero refusal falls
-   * through to the row's NEXT read link (the union is a real fallback, not
-   * a display priority): both links are opaque handles the row merely
-   * carries — one can refuse while the other still serves the read. The
-   * failure mark lands only when the LAST link refused too. */
-  const loadMore = (target: ViewerTarget, from: number) => {
-    const seq = viewSeq.current;
-    const limit = from === 0 ? FIRST_TURNS : NEXT_TURNS;
-    setLoadingPage(true);
-    void api
-      .transcript(target.agent, target.reference, from, limit)
-      .then((page) => {
-        if (viewSeq.current !== seq) return; // another row opened meanwhile
-        setEntries((current) => (from === 0 ? page : [...current, ...page]));
-        setExhausted(page.length < limit);
-        // A good page retires the row's failure mark — a link reads.
-        for (const link of target.fallbacks) {
-          setReadFailed((current) => {
-            if (!current.has(link)) return current;
-            const next = new Set(current);
-            next.delete(link);
-            return next;
-          });
-        }
-      })
-      .catch((e: unknown) => {
-        if (viewSeq.current !== seq) return;
-        const next = target.fallbacks[target.tried + 1];
-        if (from === 0 && next !== undefined) {
-          // The refusal itself is not yet the row's verdict — a link of
-          // the union remains untried. Advance one and retry page zero;
-          // the viewer stays on the same row, so no state is reset.
-          // `tried` advances monotonically: each refusal moves the cursor
-          // past the link that refused, so the walk terminates on the
-          // last link however many fall.
-          loadMore({ ...target, reference: next, tried: target.tried + 1 }, 0);
-          return;
-        }
-        // The read fell on the LAST link — every handle the row carries
-        // refused its attempt. Named as itself, on the viewer AND on the
-        // row; the row keeps its place. The mark is the ROW's verdict, so
-        // it lands on every link
-        // of the union: the first link alone must not read as alive when
-        // its spare just refused too. Exhausted stops the viewer's fill-
-        // the-viewport effect from re-requesting a link that just
-        // refused — a retry comes from a fresh open.
-        setViewerError(e instanceof Error ? e.message : String(e));
-        setExhausted(true);
-        setReadFailed((current) => {
-          const next = new Set(current);
-          for (const link of target.fallbacks) next.add(link);
-          return next;
-        });
-      })
-      .finally(() => {
-        if (viewSeq.current === seq) setLoadingPage(false);
-      });
-  };
-
-  // The transcript pages on scroll too (fill-then-increment, [F8]): nearing
-  // the bottom fetches the next page; the mount-time check below keeps
-  // filling while the loaded turns are shorter than the viewer.
-  const viewerRef = useRef<HTMLDivElement | null>(null);
-  const maybeLoadPage = useCallback(() => {
-    // loadingPage doubles as the in-flight guard: a scroll storm must not
-    // fetch the same offset twice nor skip a page.
-    if (!open || exhausted || loadingPage) return;
-    const body = viewerRef.current;
-    if (body && nearEnd(body)) loadMore(open, entries.length);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, exhausted, loadingPage, entries.length]);
-  useEffect(() => {
-    maybeLoadPage();
-  }, [maybeLoadPage]);
 
   const openViewer = (target: ViewerTarget) => {
     viewSeq.current += 1;
     setOpen(target);
-    setEntries([]);
-    setExhausted(false);
-    setLoadingPage(false);
-    setViewerError(null);
-    loadMore(target, 0);
   };
 
   /** Any unified row opens on its read link — the shown link first (a
@@ -276,7 +160,6 @@ export function SessionsBrowser({
   const closeViewer = () => {
     viewSeq.current += 1;
     setOpen(null);
-    setLoadingPage(false);
   };
 
   // The list's composition lives in the domain (`composeSessionList`)
@@ -887,66 +770,17 @@ export function SessionsBrowser({
       </ul>
 
       {open && (
-        <div className="browser__viewer" role="dialog" aria-label="Session transcript">
-          {/* A BAR, not one button: the git plugin's drill-back idiom on
-           * the left (chevron + label, its own button, same clip and
-           * tooltips as before — backing out of a drill-in is
-           * navigation), the row's OWN actions on the right. Same
-           * availability rules as the list row, read from the same
-           * place — a button inside a button is not an option. */}
-          <div className="browser__viewerbar">
-            <button
-              type="button"
-              className="browser__back"
-              onClick={closeViewer}
-              title="Back to the sessions list"
-              aria-label="Back to the sessions list"
-            >
-              <BackIcon />
-              <span className="browser__backlabel">
-                {open.title ?? open.sessionId}
-              </span>
-            </button>
-            <SessionRowActions
-              row={open.row}
-              agents={agents}
-              dirMissing={
-                open.row.cwd !== "" && !dirPresent(presence, open.row.cwd)
-              }
-              onResume={onResumeRow}
-              onFork={onForkRow}
-            />
-          </div>
-          <div
-            className="browser__viewer-body"
-            ref={viewerRef}
-            onScroll={maybeLoadPage}
-          >
-            {entries.map((entry, index) => (
-              <div
-                key={index}
-                className={`browser__turn browser__turn--${entry.role}`}
-              >
-                {entry.text}
-              </div>
-            ))}
-            {viewerError !== null && entries.length === 0 && (
-              // The read fell — named where it happened, never disguised
-              // as an empty transcript.
-              <div className="browser__empty">Read failed: {viewerError}</div>
-            )}
-            {entries.length === 0 && viewerError === null && !loadingPage && (
-              // A legitimately empty transcript (all lines were noise) must
-              // not read as a hang.
-              <div className="browser__empty">No transcript content</div>
-            )}
-            {loadingPage && (
-              <div className="browser__more" aria-label="Loading transcript">
-                <span className="browser__spinner" />
-              </div>
-            )}
-          </div>
-        </div>
+        <SessionViewer
+          target={open}
+          api={api}
+          agents={agents}
+          presence={presence}
+          readFailed={setReadFailed}
+          viewSeq={viewSeq}
+          onClose={closeViewer}
+          onResume={onResumeRow}
+          onFork={onForkRow}
+        />
       )}
     </div>
   );
