@@ -30,8 +30,8 @@ export {
   type UnifiedSessionRow,
 } from "./sessionRow";
 export {
-  composeSessionBlocks,
+  composeSessionList,
   journalRecordMatches,
-  type ComposedBlock,
-  type ComposeSessionBlocksInput,
+  type ComposedTrack,
+  type ComposeSessionListInput,
 } from "./blocks";

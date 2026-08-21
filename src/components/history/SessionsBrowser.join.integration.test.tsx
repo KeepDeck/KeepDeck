@@ -362,8 +362,8 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       "data-indicator": indicator,
       "data-scanning": String(api.scanning),
       "data-first-page-pending": String(api.firstPagePending),
-      "data-top-hits": String(api.top.hits.length),
-      "data-bottom-hits": String(api.bottom.hits.length),
+      "data-workspace-hits": String(api.workspace.hits.length),
+      "data-other-hits": String(api.other.hits.length),
     });
   }
 
@@ -400,8 +400,8 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       indicator: p.dataset.indicator,
       scanning: p.dataset.scanning,
       firstPagePending: p.dataset.firstPagePending,
-      topHits: p.dataset.topHits,
-      bottomHits: p.dataset.bottomHits,
+      workspaceHits: p.dataset.workspaceHits,
+      otherHits: p.dataset.otherHits,
     };
   };
 
@@ -453,8 +453,8 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       indicator: "none",
       scanning: "false",
       firstPagePending: "false",
-      topHits: "0",
-      bottomHits: "0",
+      workspaceHits: "0",
+      otherHits: "0",
     });
 
     // The late answer lands on the SAME mounted tree.
@@ -472,8 +472,8 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       indicator: "none",
       scanning: "false",
       firstPagePending: "false",
-      topHits: "0",
-      bottomHits: "0",
+      workspaceHits: "0",
+      otherHits: "0",
     });
 
     // The after-state survives an empty re-render (same props, same
@@ -528,8 +528,8 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       indicator: "none",
       scanning: "false",
       firstPagePending: "false",
-      topHits: "0",
-      bottomHits: "0",
+      workspaceHits: "0",
+      otherHits: "0",
     });
 
     // The second landing re-seats x — in the SAME DOM.
@@ -564,8 +564,8 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       indicator: "Searching",
       scanning: "true",
       firstPagePending: "true",
-      topHits: "0",
-      bottomHits: "0",
+      workspaceHits: "0",
+      otherHits: "0",
     });
     // The slot does NOT say Indexing while scanning is true — the
     // conflict §07's second condition lives on, made observable.
@@ -582,8 +582,8 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       indicator: "Searching",
       scanning: "true",
       firstPagePending: "true",
-      topHits: "0",
-      bottomHits: "0",
+      workspaceHits: "0",
+      otherHits: "0",
     });
     expect(document.body.textContent).not.toContain("Indexing…");
 

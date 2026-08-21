@@ -285,14 +285,6 @@
   cursor: default;
 }
 
-/* The label between the pinned journal rows and the global hits. */
-.browser__section {
-  padding: 6px 12px 4px;
-  border-bottom: 1px solid #151a24;
-  font-size: 11px;
-  color: #6b7280;
-}
-
 /* The loading tail — a spinner as the LAST element while the next page is
  * fetched (both the sessions list and the transcript viewer). */
 .browser__more {

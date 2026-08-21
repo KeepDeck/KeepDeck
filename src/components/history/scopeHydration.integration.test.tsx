@@ -357,8 +357,8 @@ describe("scope change on the REAL carrier", () => {
           total: 1,
         });
       });
-      expect(api.top.hits.map((h) => h.sessionId)).not.toContain("old-scope-row");
-      expect(api.bottom.hits.map((h) => h.sessionId)).not.toContain("old-scope-row");
+      expect(api.workspace.hits.map((h) => h.sessionId)).not.toContain("old-scope-row");
+      expect(api.other.hits.map((h) => h.sessionId)).not.toContain("old-scope-row");
     } finally {
       vi.useRealTimers();
     }
@@ -421,7 +421,7 @@ describe("scope change on the REAL carrier", () => {
           total: 1,
         }),
       );
-      expect(api.top.hits.map((h) => h.sessionId)).toContain("hist-row");
+      expect(api.workspace.hits.map((h) => h.sessionId)).toContain("hist-row");
       const dirsBefore = scopeDirs;
       const projectionBefore = ws1Projection();
 

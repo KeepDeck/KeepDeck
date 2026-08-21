@@ -3,7 +3,7 @@ import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
 import {
-  composeSessionBlocks,
+  composeSessionList,
   handleFromHit,
   rowKeyOf,
   rowOfHit,
@@ -115,11 +115,11 @@ export function SessionsBrowser({
    * openable — a retry is legitimate — but the failure is named on the
    * row, as itself and never as "nothing to read". */
   const [readFailed, setReadFailed] = useState<ReadonlySet<string>>(new Set());
-  // Resume needs a live original directory — same gate for both blocks.
+  // Resume needs a live original directory — same gate for both tracks.
   const presence = useDirPresence([
     ...rows.map((row) => row.cwd),
-    ...api.top.hits.map((hit) => hit.cwd),
-    ...api.bottom.hits.map((hit) => hit.cwd),
+    ...api.workspace.hits.map((hit) => hit.cwd),
+    ...api.other.hits.map((hit) => hit.cwd),
   ]);
   // Orders transcript responses: a stale page must never render under a
   // newer row's header (the search path has searchSeq; this is its twin).
@@ -142,32 +142,32 @@ export function SessionsBrowser({
     declare(rows.map((row) => ({ agent: row.agent, sessionId: row.sessionId })));
   }, [declare, rows]);
 
-  // Lazy paging, scroll-driven, for BOTH blocks: the global block pages
+  // Lazy paging, scroll-driven, for BOTH tracks: the other track pages
   // when the list nears its end (the shared engine also feeds the spawn
-  // dialog's picker); the workspace block pages when its LAST row nears
-  // the viewport's bottom — the divider may sit far above the list's end
-  // once the global block has loaded pages of its own.
+  // dialog's picker); the workspace track pages when its LAST row nears
+  // the viewport's bottom — the workspace track's end may sit far above
+  // the list's end once the other track has loaded pages of its own.
   const listRef = useRef<HTMLUListElement | null>(null);
-  const maybeLoadHits = useScrollPaging(listRef, api.bottom, api.bottom.hits.length);
-  const lastTopRef = useRef<HTMLLIElement | null>(null);
-  const maybeLoadTop = useCallback(() => {
+  const maybeLoadHits = useScrollPaging(listRef, api.other, api.other.hits.length);
+  const lastWorkspaceRef = useRef<HTMLLIElement | null>(null);
+  const maybeLoadWorkspace = useCallback(() => {
     const list = listRef.current;
-    const last = lastTopRef.current;
+    const last = lastWorkspaceRef.current;
     // loadMore itself guards the in-flight and exhausted states.
-    if (!list || !last || !api.top.hasMore) return;
+    if (!list || !last || !api.workspace.hasMore) return;
     if (last.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom < NEAR_END) {
-      api.top.loadMore();
+      api.workspace.loadMore();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api.top.hasMore, api.top.loadMore]);
+  }, [api.workspace.hasMore, api.workspace.loadMore]);
   useEffect(() => {
-    maybeLoadTop();
+    maybeLoadWorkspace();
     // Re-check after each landed page, like the shared pager's count.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [maybeLoadTop, api.top.hits.length]);
+  }, [maybeLoadWorkspace, api.workspace.hits.length]);
   const onListScroll = () => {
     maybeLoadHits();
-    maybeLoadTop();
+    maybeLoadWorkspace();
   };
   const nearEnd = (el: HTMLElement) =>
     el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END;
@@ -279,25 +279,25 @@ export function SessionsBrowser({
     setLoadingPage(false);
   };
 
-  // The blocks' composition lives in the domain (`composeSessionBlocks`)
+  // The list's composition lives in the domain (`composeSessionList`)
   // — one entry point owning the query predicate, the union, the dedup,
   // the time axis AND the counters (numerator the drawn rows,
-  // denominator what the block can draw, twins out): the view feeds it
+  // denominator what the list can draw, twins out): the view feeds it
   // and draws what it returns, counters included.
-  const composed = composeSessionBlocks({
+  const composed = composeSessionList({
     records: rows,
     query: api.query.trim(),
     entries: api.enrichment.entries,
     agentLabel: (agentId) => agents.find((a) => a.id === agentId)?.label,
     answerMayChange: api.scanning || api.enrichment.pending,
-    topHits: api.top.hits.map(rowOfHit),
-    bottomHits: api.bottom.hits.map(rowOfHit),
-    topTotal: api.top.total,
-    bottomTotal: api.bottom.total,
+    workspaceHits: api.workspace.hits.map(rowOfHit),
+    otherHits: api.other.hits.map(rowOfHit),
+    workspaceTotal: api.workspace.total,
+    otherTotal: api.other.total,
   });
-  const topRows = composed.top.rows;
-  const bottomRows = composed.bottom.rows;
-  const emptyList = topRows.length === 0 && bottomRows.length === 0;
+  const workspaceRows = composed.workspace.rows;
+  const otherRows = composed.other.rows;
+  const emptyList = workspaceRows.length === 0 && otherRows.length === 0;
 
   const now = Date.now();
   return (
@@ -311,7 +311,7 @@ export function SessionsBrowser({
           onChange={(e) => api.search(e.target.value)}
         />
         <span className="browser__meta">
-          {(api.firstPagePending || (api.scanning && (api.top.hits.length > 0 || api.bottom.hits.length > 0))) && (
+          {(api.firstPagePending || (api.scanning && (api.workspace.hits.length > 0 || api.other.hits.length > 0))) && (
             // One slot, one message — two at once would be porridge. The
             // SEARCH pending wins over the ambient indexing note: it
             // answers what the user just did (typed and is waiting on
@@ -322,11 +322,11 @@ export function SessionsBrowser({
               {api.firstPagePending ? "Searching…" : "Indexing…"}
             </span>
           )}
-          {composed.overall.total > 0 && (
-            // The search field's counter — the AGGREGATE of both blocks
-            // (journal rows in the denominator, loaded twins out of it):
-            // numerator what the field's results DRAW across both
-            // blocks, denominator what they can draw. The
+          {composed.listCount.total > 0 && (
+            // The search field's counter — the count of THIS LIST (both
+            // its tracks, journal rows in the denominator, loaded twins
+            // out of it): numerator what the list DRAWS across both
+            // tracks, denominator what it can draw. The
             // bare-total-vs-"X of N" choice is the composition's OWN
             // truth — shown === total exactly when the drawn population
             // has reached its bound; the engine's raw hasMore stays
@@ -337,14 +337,11 @@ export function SessionsBrowser({
             // until the new page zero lands — the aggregate then
             // describes the DRAWN OLD snapshot, not the freshness of
             // the new ask; inherited from the old top counter, wider
-            // with the aggregate, and not promised otherwise. The
-            // divider's own condition (topRows.length > 0) is
-            // DELIBERATELY different: silence over an empty top half is
-            // right — there is nothing to divide.
+            // with the aggregate, and not promised otherwise.
             <span className="browser__count">
-              {composed.overall.shown === composed.overall.total
-                ? `${composed.overall.total}`
-                : `${composed.overall.shown} of ${composed.overall.total}`}
+              {composed.listCount.shown === composed.listCount.total
+                ? `${composed.listCount.total}`
+                : `${composed.listCount.shown} of ${composed.listCount.total}`}
             </span>
           )}
         </span>
@@ -354,7 +351,7 @@ export function SessionsBrowser({
         ref={listRef}
         onScroll={onListScroll}
       >
-        {topRows.map((row, at) => (
+        {workspaceRows.map((row, at) => (
           <SessionRowView
             key={rowKeyOf(row)}
             row={row}
@@ -365,65 +362,55 @@ export function SessionsBrowser({
             onOpen={openRow}
             onResume={onResumeByHandle(onResume)}
             onFork={onForkByHandle(onFork)}
-            // The workspace block's own paging anchor: its LAST row.
-            rowRef={at === topRows.length - 1 ? lastTopRef : undefined}
+            // The workspace track's own paging anchor: its LAST row. The
+            // workspace track must page to its end before the other
+            // track's rows begin arriving below.
+            rowRef={at === workspaceRows.length - 1 ? lastWorkspaceRef : undefined}
           />
         ))}
-        {api.top.loadingMore && (
+        {otherRows.map((row) => (
+          <SessionRowView
+            key={rowKeyOf(row)}
+            row={row}
+            agents={agents}
+            dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
+            readFailed={row.readLinks.some((link) => readFailed.has(link))}
+            now={now}
+            onOpen={openRow}
+            onResume={onResumeByHandle(onResume)}
+            onFork={onForkByHandle(onFork)}
+          />
+        ))}
+        {/* The list's TAIL — ONE spinner as the list's LAST element
+         * while ANY track loads more, ONE error line for whichever
+         * track refused (both refused — still one line). A failed page
+         * zero cleared its rows on purpose — naming the failure beats a
+         * truthless "No sessions match". NOT inside the empty-state
+         * gate: that gate also requires the journal to be empty, and a
+         * workspace with journal rows would otherwise show a failed
+         * search as a quietly shorter list.
+         *
+         * The KNOWN, CHOSEN cost: while the WORKSPACE track loads more,
+         * the spinner sits BELOW the already-drawn other rows — far
+         * from where the new rows will arrive, often outside the
+         * viewport. That is deliberate: the list has ONE tail, like any
+         * paged list; an insertion point in a flat list is not a
+         * visible address, and we promise none. Do not "fix" this back
+         * into a mid-list marker — the user chose the single tail. */}
+        {(api.workspace.loadingMore || api.other.loadingMore) && (
           <li
             className="history__row browser__more"
-            aria-label="Loading more workspace sessions"
+            aria-label="Loading more sessions"
           >
             <span className="browser__spinner" />
           </li>
         )}
-        {topRows.length > 0 &&
-          (bottomRows.length > 0 || composed.bottom.total > 0) && (
-            <li className="browser__section">
-              All sessions
-              {composed.bottom.total > 0 && (
-                <span className="browser__section-count">
-                  {composed.bottom.shown === composed.bottom.total
-                    ? ` · ${composed.bottom.total}`
-                    : ` · ${composed.bottom.shown} of ${composed.bottom.total}`}
-                </span>
-              )}
-            </li>
-          )}
-        {bottomRows.map((row) => (
-          <SessionRowView
-            key={rowKeyOf(row)}
-            row={row}
-            agents={agents}
-            dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
-            readFailed={row.readLinks.some((link) => readFailed.has(link))}
-            now={now}
-            onOpen={openRow}
-            onResume={onResumeByHandle(onResume)}
-            onFork={onForkByHandle(onFork)}
-          />
-        ))}
-        {api.bottom.loadingMore && (
-          <li className="history__row browser__more" aria-label="Loading more sessions">
-            <span className="browser__spinner" />
-          </li>
-        )}
-        {/* A failed page zero cleared its rows on purpose — naming the
-            failure beats a truthless "No sessions match". NOT inside the
-            empty-state gate: that gate also requires the journal to be
-            empty, and a workspace with journal rows would otherwise show a
-            failed search as a quietly shorter list. */}
-        {api.top.error && (
+        {(api.workspace.error || api.other.error) && (
           <li className="history__row browser__empty">
-            Workspace search failed: {api.top.error}
+            Search failed: {(api.workspace.error ?? api.other.error)}
           </li>
         )}
-        {api.bottom.error && (
-          <li className="history__row browser__empty">
-            Search failed: {api.bottom.error}
-          </li>
-        )}
-        {emptyList && !api.top.error && !api.bottom.error && (
+        {emptyList && !api.workspace.error && !api.other.error && (
           <li className="history__row browser__empty">
             {api.scanning
               ? "Indexing the stores…"

@@ -10,16 +10,16 @@ import { useAppRuntime } from "./runtimeContext";
 import { useJournalEnrichment, type RowKey } from "./useJournalEnrichment";
 import { usePagedSessionSearch } from "./usePagedSessionSearch";
 
-/** One block's search state: its own pages, its own totals — the numerator
- * and the denominator of a block's counter come from ITS response, never
- * stitched together from two. */
-export interface BlockApi {
+/** One track's search state: its own pages, its own totals — the
+ * numerator and the denominator of a track's count come from ITS
+ * response, never stitched together from two. */
+export interface TrackApi {
   hits: SearchHit[];
   total: number;
   hasMore: boolean;
   loadingMore: boolean;
-  /** Page zero of this block's current query is in flight — its OWN
-   * pending, for per-block needs; the list-level flag composes both. */
+  /** Page zero of this track's current query is in flight — its OWN
+   * pending, for per-track needs; the list-level flag composes both. */
   firstPagePending: boolean;
   error: string | null;
   loadMore(): void;
@@ -71,24 +71,26 @@ export interface BrowserSharedSeam {
 }
 
 export interface SessionsBrowserApi {
-  /** The workspace block: index hits from the workspace's OWN folders. */
-  top: BlockApi;
-  /** The global block: index hits from everywhere BUT those folders. */
-  bottom: BlockApi;
-  /** The query both blocks answer — per browser: the box a workspace
-   * shows is its own, and the blocks' results are workspace-shaped
+  /** The WORKSPACE track: index hits from the workspace's OWN folders —
+   * the list draws it first; belonging outranks time. */
+  workspace: TrackApi;
+  /** The OTHER track: index hits from everywhere BUT those folders —
+   * drawn after the workspace track, however fresh its rows are. */
+  other: TrackApi;
+  /** The query both tracks answer — per browser: the box a workspace
+   * shows is its own, and the tracks' results are workspace-shaped
    * anyway. */
   query: string;
   /** Results of the CURRENT query are still riding: true while EITHER
-   * block's first page is in flight — with two scoped queries, "the
-   * results I asked for" is both of them, and a flag per block would
+   * track's first page is in flight — with two scoped queries, "the
+   * results I asked for" is both of them, and a flag per track would
    * flicker apart over one shared search box. */
   firstPagePending: boolean;
   scanning: boolean;
   /** The journal rows' shared enrichment table — see
    * [`BrowserSharedSeam.enrichment`]. */
   enrichment: BrowserSharedSeam["enrichment"];
-  /** Run the debounced search on BOTH blocks; resets each block's paging. */
+  /** Run the debounced search on BOTH tracks; resets each track's paging. */
   search(query: string): void;
   ensureFresh(): void;
   transcript(
@@ -138,12 +140,12 @@ export function useBrowserSharedSeam(): BrowserSharedSeam {
   };
 }
 
-/** The per-browser half: two folder-scoped engines over ONE query text.
- * `dirs` is the workspace's directory set as the webview's domain computes
- * it (own folder ∪ pane folders ∪ folders from its journal history) —
- * the top block asks Only, the bottom Except, so membership rides in the
- * queries and each block pages over its own set, fetching nothing it will
- * throw away. */
+/** The per-browser half: two folder-scoped engines over ONE query text,
+ * feeding ONE list in a fixed order. `dirs` is the workspace's directory
+ * set as the webview's domain computes it (own folder ∪ pane folders ∪
+ * folders from its journal history) — the workspace track asks Only,
+ * the other track Except, so membership rides in the queries and each
+ * track pages over its own set, fetching nothing it will throw away. */
 export function useSessionsBrowser(
   dirs: ReadonlySet<string>,
   shared: BrowserSharedSeam,
@@ -162,7 +164,7 @@ export function useSessionsBrowser(
     }),
     [dirList],
   );
-  const top = usePagedSessionSearch<SearchHit>(
+  const workspace = usePagedSessionSearch<SearchHit>(
     useCallback(
       (query, limit, offset) =>
         indexSearch(query, limit, offset, undefined, scopeOf("only")).then(
@@ -171,7 +173,7 @@ export function useSessionsBrowser(
       [scopeOf],
     ),
   );
-  const bottom = usePagedSessionSearch<SearchHit>(
+  const other = usePagedSessionSearch<SearchHit>(
     useCallback(
       (query, limit, offset) =>
         indexSearch(query, limit, offset, undefined, scopeOf("except")).then(
@@ -180,20 +182,20 @@ export function useSessionsBrowser(
       [scopeOf],
     ),
   );
-  const { refresh: refreshTop } = top;
-  const { refresh: refreshBottom } = bottom;
-  const { resetTo: resetTopTo } = top;
-  const { resetTo: resetBottomTo } = bottom;
+  const { refresh: refreshWorkspace } = workspace;
+  const { refresh: refreshOther } = other;
+  const { resetTo: resetWorkspaceTo } = workspace;
+  const { resetTo: resetOtherTo } = other;
   const { scanning } = shared;
 
-  // Each block re-reads page zero on every index REVISION: the mount fire
-  // is the initial listing, and later bumps are landed scan batches — a
-  // first-ever scan fills the blocks while it runs instead of after it
-  // (the filling-while-scanning the user chose).
+  // Each track re-reads page zero on every index REVISION: the mount
+  // fire is the initial listing, and later bumps are landed scan
+  // batches — a first-ever scan fills the list while it runs instead of
+  // after it (the filling-while-scanning the user chose).
   useEffect(() => {
-    refreshTop();
-    refreshBottom();
-  }, [shared.revision, refreshTop, refreshBottom]);
+    refreshWorkspace();
+    refreshOther();
+  }, [shared.revision, refreshWorkspace, refreshOther]);
 
   // A SCOPE CHANGE is a new QUESTION, not a refresh: the folder set the
   // asks carry has moved, so the old rows answer an area nobody asks
@@ -211,8 +213,8 @@ export function useSessionsBrowser(
   useEffect(() => {
     if (scopeRef.current === dirs) return;
     scopeRef.current = dirs;
-    resetTopTo(top.query);
-    resetBottomTo(bottom.query);
+    resetWorkspaceTo(workspace.query);
+    resetOtherTo(other.query);
     // The engine query states are read fresh inside; the callbacks only
     // need to be the engines' own stable ones.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -220,36 +222,36 @@ export function useSessionsBrowser(
 
   const search = useCallback(
     (query: string) => {
-      // One text, two asks — the blocks' query states are set
+      // One text, two asks — the tracks' query states are set
       // synchronously and identically by their engines, so the box and
       // both results always agree on what was typed.
-      top.search(query);
-      bottom.search(query);
+      workspace.search(query);
+      other.search(query);
     },
-    [top, bottom],
+    [workspace, other],
   );
 
   return {
-    top: {
-      hits: top.rows,
-      total: top.total,
-      hasMore: top.hasMore,
-      loadingMore: top.loadingMore,
-      firstPagePending: top.firstPagePending,
-      error: top.error,
-      loadMore: top.loadMore,
+    workspace: {
+      hits: workspace.rows,
+      total: workspace.total,
+      hasMore: workspace.hasMore,
+      loadingMore: workspace.loadingMore,
+      firstPagePending: workspace.firstPagePending,
+      error: workspace.error,
+      loadMore: workspace.loadMore,
     },
-    bottom: {
-      hits: bottom.rows,
-      total: bottom.total,
-      hasMore: bottom.hasMore,
-      loadingMore: bottom.loadingMore,
-      firstPagePending: bottom.firstPagePending,
-      error: bottom.error,
-      loadMore: bottom.loadMore,
+    other: {
+      hits: other.rows,
+      total: other.total,
+      hasMore: other.hasMore,
+      loadingMore: other.loadingMore,
+      firstPagePending: other.firstPagePending,
+      error: other.error,
+      loadMore: other.loadMore,
     },
-    query: top.query,
-    firstPagePending: top.firstPagePending || bottom.firstPagePending,
+    query: workspace.query,
+    firstPagePending: workspace.firstPagePending || other.firstPagePending,
     scanning,
     enrichment: shared.enrichment,
     search,

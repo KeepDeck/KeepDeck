@@ -66,7 +66,7 @@ const live = (over: Partial<SessionRecord> = {}): SessionRecord =>
     ...over,
   }) as SessionRecord;
 
-const blockOf = (
+const trackOf = (
   hits: SearchHit[],
   over: {
     total?: number;
@@ -91,8 +91,8 @@ const api = (
   over: Partial<SessionsBrowserApi> = {},
   entries: Record<string, JoinEntry> = {},
 ): SessionsBrowserApi => ({
-  top: blockOf([]),
-  bottom: blockOf(hits),
+  workspace: trackOf([]),
+  other: trackOf(hits),
   query: "",
   firstPagePending: false,
   scanning: false,
@@ -109,29 +109,26 @@ const api = (
   ...over,
 });
 
-/** Both blocks render ONE row component with ONE markup — a block is not
- * a class anymore. The top block is the rows BEFORE the divider (or all
- * rows when no divider renders); the bottom block, after it. */
+/** The list is ONE queue: workspace rows first, other rows after —
+ * no divider exists, and the boundary is the queue's own order. Tests
+ * that need the halves read them BY POSITION, stating how many OTHER
+ * rows their fixture drew; the ORDER guard (workspace never below
+ * other) is what makes position a truth, not an assumption. */
 const listRows = (): Element[] => [
   ...document.querySelectorAll(".browser__list > .history__row"),
 ];
-const topRows = (): Element[] => {
+/** The queue's head: everything above the last `otherCount` rows. */
+const workspaceRows = (otherCount: number): Element[] => {
   const all = listRows();
-  const divider = document.querySelector(".browser__section");
-  if (!divider) return all;
-  return all.filter(
-    (row) => row.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING,
-  );
+  return all.slice(0, Math.max(all.length - otherCount, 0));
 };
-const bottomRows = (): Element[] => {
+/** The queue's tail: the last `otherCount` rows (none when 0 —
+ * slice(-0) would return the WHOLE list). */
+const otherRows = (otherCount: number): Element[] => {
   const all = listRows();
-  const divider = document.querySelector(".browser__section");
-  if (!divider) return [];
-  return all.filter(
-    (row) => !(row.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING),
-  );
+  return otherCount === 0 ? [] : all.slice(-otherCount);
 };
-const topRow = (): Element => topRows()[0];
+const topRow = (): Element => listRows()[0];
 
 describe("hitRecord", () => {
   it("carries the index's explicit transcript path; a null one stays absent", () => {
@@ -392,34 +389,33 @@ describe("SessionsBrowser", () => {
     expect(document.querySelector(".history__fork")).toBeNull();
     const open = document.querySelector<HTMLButtonElement>(".browser__open")!;
     expect(open.disabled).toBe(true);
-    // The HIT row (bottom block, past the divider) stays inert.
-    const hitRow = bottomRows()[0];
+    // The OTHER track's row (the queue's tail) stays inert.
+    const hitRow = otherRows(1)[0];
     await act(async () => (hitRow as HTMLLIElement).click());
     expect(a.transcript).not.toHaveBeenCalled();
     expect(document.querySelector(".browser__viewer")).toBeNull();
   });
 
-  it("shows the paging counter: partial as 'X of N', complete as the plain total", async () => {
-    // The GLOBAL block's counter rides the divider; the workspace block's
-    // rides the meta area — each from its own response.
+  it("shows the field's count: partial as 'X of N', complete as the plain total", async () => {
+    // The FIELD's counter speaks for the whole list — journal rows and
+    // both tracks' loaded hits, twins out. Partial: drawn 2 of a 124
+    // bound (1 journal + 123 raw other); complete: 2 of 2.
     await mount(
-      api([hit()], { bottom: blockOf([hit()], { total: 123, hasMore: true }) }),
+      api([hit()], { other: trackOf([hit()], { total: 123, hasMore: true }) }),
       [closed({ title: "pinned" })],
     );
-    expect(document.querySelector(".browser__section-count")?.textContent).toBe(
-      " · 1 of 123",
+    expect(document.querySelector(".browser__count")?.textContent).toBe(
+      "2 of 124",
     );
 
     await act(async () => root.unmount());
     document.body.innerHTML = "<div id='host2'></div>";
     root = createRoot(document.getElementById("host2")!);
     await mount(
-      api([hit()], { bottom: blockOf([hit()], { total: 1 }) }),
+      api([hit()], { other: trackOf([hit()], { total: 1 }) }),
       [closed({ title: "pinned" })],
     );
-    expect(document.querySelector(".browser__section-count")?.textContent).toBe(
-      " · 1",
-    );
+    expect(document.querySelector(".browser__count")?.textContent).toBe("2");
   });
 
   // ── Commit-2 guards: the counters count what the block DRAWS ────────
@@ -439,7 +435,7 @@ describe("SessionsBrowser", () => {
     // "3 of 5" — the raw engine total, journal missing, twin uncounted.
     await mount(
       api([], {
-        top: blockOf(
+        workspace: trackOf(
           [hit({ sessionId: "s-1" }), hit({ sessionId: "w-1" })],
           { total: 5 },
         ),
@@ -454,18 +450,18 @@ describe("SessionsBrowser", () => {
     );
   });
 
-  it("C1-field overall: the search field's counter sums BOTH blocks — the drawn whole, not the top alone", async () => {
-    // Journal 2 (one a twin of a top hit); top loaded 3 (1 twin + 2
-    // strangers) with raw total 6; bottom loaded 2, no twins, raw 7.
-    // Blocks: top 4 of 7, bottom 2 of 7 — the FIELD must speak of the
-    // whole: 6 of 14, the sum of what both blocks draw.
+  it("C1-field whole list: the field's counter sums BOTH tracks — the drawn whole, not the workspace alone", async () => {
+    // Journal 2 (one a twin of a workspace hit); the workspace track
+    // loaded 3 (1 twin + 2 strangers) with raw total 6; the other track
+    // loaded 2, no twins, raw 7. Tracks: workspace 4 of 7, other 2 of
+    // 7 — the FIELD must speak of the whole: 6 of 14.
     await mount(
       api([], {
-        top: blockOf(
+        workspace: trackOf(
           [hit({ sessionId: "s-1" }), hit({ sessionId: "w-1" }), hit({ sessionId: "w-2" })],
           { total: 6 },
         ),
-        bottom: blockOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
+        other: trackOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
           total: 7,
         }),
       }),
@@ -476,13 +472,13 @@ describe("SessionsBrowser", () => {
     );
   });
 
-  it("C1-field empty-top: the top block EMPTY, the bottom alive — the counter still shows", async () => {
-    // No journal records, no top hits: the old field condition
-    // (top.total > 0) rendered NO number over a fully drawn list. The
-    // aggregate does not hide: 2 of 5.
+  it("C1-field empty workspace track: the workspace track EMPTY, the other alive — the counter still shows", async () => {
+    // No journal records, no workspace hits: the OLD field condition
+    // (the workspace track's total > 0) rendered NO number over a fully
+    // drawn list. The count does not hide: 2 of 5.
     await mount(
       api([], {
-        bottom: blockOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
+        other: trackOf([hit({ sessionId: "b-1" }), hit({ sessionId: "b-2" })], {
           total: 5,
         }),
       }),
@@ -493,59 +489,128 @@ describe("SessionsBrowser", () => {
     );
   });
 
-  it("C1-bottom: the global numerator counts DRAWN rows — the loaded twin is neither drawn nor counted", async () => {
-    // The bottom engine loaded 2 hits, one of which the journal draws:
-    // the counter says 1 of (2−1).
+  it("C1-other: the list's numerator counts DRAWN rows — the loaded twin is neither drawn nor counted", async () => {
+    // The other track loaded 2 hits, one of which the journal draws:
+    // drawn 2 (journal 1 + the stranger), denominator 1 + (2 − 1 twin)
+    // = 2 — EQUAL, the plain "2". Counting the twin would say "2 of 3".
     await mount(
       api([], {
-        bottom: blockOf([hit({ sessionId: "g-1" }), hit({ sessionId: "s-1" })], {
+        other: trackOf([hit({ sessionId: "g-1" }), hit({ sessionId: "s-1" })], {
           total: 2,
         }),
       }),
       [closed({ transcriptPath: "/j/s-1" })],
     );
-    expect(document.querySelector(".browser__section-count")?.textContent).toBe(
-      " · 1",
-    );
+    expect(document.querySelector(".browser__count")?.textContent).toBe("2");
   });
 
-  it("C1-bottom hasMore: both ternary branches draw the adjusted population", async () => {
+  it("C1-other hasMore: both ternary branches draw the adjusted population", async () => {
     // Loaded 2 (one stranger, one twin) of engine total 3, more pages to
-    // come: "1 of 2" — numerator the DRAWN stranger, denominator 3 − the
-    // loaded twin. The OLD counter said "2 of 3" (the loaded batch size
-    // over the raw total). The bare-total branch is the C1-bottom case
-    // above.
+    // come: drawn 2 of 3 (1 journal + 3 − the loaded twin) — "2 of 3".
+    // The OLD raw reading said "3 of 3 + 1" (raw totals, twin in). The
+    // bare-total branch is the C1-other case above.
     await mount(
       api([], {
-        bottom: blockOf(
+        other: trackOf(
           [hit({ sessionId: "g-1" }), hit({ sessionId: "s-1" })],
           { total: 3, hasMore: true },
         ),
       }),
       [closed({ transcriptPath: "/j/s-1" })],
     );
-    expect(document.querySelector(".browser__section-count")?.textContent).toBe(
-      " · 1 of 2",
+    expect(document.querySelector(".browser__count")?.textContent).toBe(
+      "2 of 3",
     );
   });
 
-  it("the divider never says 'All sessions · 0' over an empty bottom", async () => {
-    // The raw engine total is 1 (the twin); the drawn bottom is empty —
-    // the divider's count hides entirely, no " · 0" over nothing.
+  it("the field's count never inflates over an all-twin other page", async () => {
+    // The raw engine total is 1 (the twin); the drawn other track is
+    // empty — the twin must not inflate the list's denominator: the
+    // journal row is all there is, and the count says just "1".
     await mount(
       api([], {
-        bottom: blockOf([hit({ sessionId: "s-1" })], { total: 1 }),
+        other: trackOf([hit({ sessionId: "s-1" })], { total: 1 }),
       }),
       [closed({ transcriptPath: "/j/s-1" })],
     );
+    expect(document.querySelector(".browser__count")?.textContent).toBe("1");
+  });
+
+  it("ONE queue: workspace rows first, other rows after, NOTHING between them — and no section node anywhere", async () => {
+    // Belonging outranks time: the other track's row is FRESHER, yet
+    // rides below every workspace row. Between the two halves of the
+    // queue there is no divider, no label, no node of any class — the
+    // list is visually one.
+    await mount(
+      api([], {
+        workspace: trackOf([hit({ sessionId: "w-1", title: "ws hit", mtime: 100 })]),
+        other: trackOf([hit({ sessionId: "g-1", title: "fresher stranger", mtime: 900 })]),
+      }),
+      [closed({ sessionId: "s-1", endedAt: new Date(100_000).toISOString() })],
+    );
+    const all = listRows();
+    expect(all).toHaveLength(3);
+    expect(all[0].querySelector(".browser__name")?.getAttribute("title")).toBe("s-1");
+    expect(all[1].querySelector(".browser__name")?.getAttribute("title")).toBe("w-1");
+    expect(all[2].querySelector(".browser__name")?.getAttribute("title")).toBe("g-1");
+    // Nothing between the halves — every list child between the first
+    // and the last row is itself a row.
+    const between = [...all[0].parentNode!.children].slice(
+      [...all[0].parentNode!.children].indexOf(all[0]),
+      [...all[0].parentNode!.children].indexOf(all[2]) + 1,
+    );
+    expect(between.every((el) => el.classList.contains("history__row"))).toBe(true);
+    // And no section node exists anywhere in the document.
     expect(document.querySelector(".browser__section")).toBeNull();
   });
 
+  it("ONE tail: exactly one spinner, LAST in the list, whatever loads — and one error line, never two", async () => {
+    // Both tracks loading: ONE spinner at the end (it names no track —
+    // the list is loading). The workspace track loading under drawn
+    // other rows: still the one tail, last of all.
+    const both = api([], {
+      workspace: trackOf([hit({ sessionId: "w-1" })], { loadingMore: true }),
+      other: trackOf([hit({ sessionId: "g-1" })], { loadingMore: true }),
+    });
+    await mount(both);
+    const spinners = document.querySelectorAll(".browser__more");
+    expect(spinners).toHaveLength(1);
+    const listChildren = [...document.querySelector(".browser__list")!.children];
+    expect(listChildren[listChildren.length - 1]).toBe(spinners[0]);
+
+    await act(async () => root.unmount());
+    document.body.innerHTML = "<div id='host2'></div>";
+    root = createRoot(document.getElementById("host2")!);
+    const workspaceOnly = api([], {
+      workspace: trackOf([hit({ sessionId: "w-1" })], { loadingMore: true }),
+      other: trackOf([hit({ sessionId: "g-1" })]),
+    });
+    await mount(workspaceOnly);
+    expect(document.querySelectorAll(".browser__more")).toHaveLength(1);
+    const lastChild = [...document.querySelector(".browser__list")!.children];
+    const last = lastChild[lastChild.length - 1];
+    expect(last?.classList.contains("browser__more")).toBe(true);
+
+    // Both tracks refused: ONE error line (one sentence, no track name).
+    await act(async () => root.unmount());
+    document.body.innerHTML = "<div id='host3'></div>";
+    root = createRoot(document.getElementById("host3")!);
+    const failed = api([], {
+      workspace: trackOf([], { error: "bridge one" }),
+      other: trackOf([], { error: "bridge two" }),
+    });
+    await mount(failed);
+    const errors = [...document.querySelectorAll(".browser__empty")].filter((el) =>
+      el.textContent?.includes("failed"),
+    );
+    expect(errors).toHaveLength(1);
+  });
+
   it("pulls the next page while the list is shorter than its viewport — scroll alone can't fire there", async () => {
-    const a = api([hit()], { bottom: blockOf([hit()], { total: 123, hasMore: true }) });
+    const a = api([hit()], { other: trackOf([hit()], { total: 123, hasMore: true }) });
     await mount(a);
     // happy-dom's zero-height layout IS the unfilled-viewport case.
-    expect(a.bottom.loadMore).toHaveBeenCalled();
+    expect(a.other.loadMore).toHaveBeenCalled();
   });
 
   it("an empty transcript reads as empty, not as loading forever", async () => {
@@ -561,7 +626,7 @@ describe("SessionsBrowser", () => {
 
   it("a loading page shows a spinner as the list/viewer tail, not an empty stall", async () => {
     const a = api([hit()], {
-      bottom: blockOf([hit()], { total: 123, hasMore: true, loadingMore: true }),
+      other: trackOf([hit()], { total: 123, hasMore: true, loadingMore: true }),
     });
     a.transcript = vi.fn(
       () => new Promise<AgentTranscriptEntry[]>(() => {}), // never resolves
@@ -613,7 +678,7 @@ describe("SessionsBrowser journal section", () => {
     return { ...result, onResume, onFork };
   };
 
-  it("journal rows pin first, before the hits, with directory and branch chips and state dot", async () => {
+  it("journal rows ride first, before the other track's rows, with the folder as meta text", async () => {
     await mount(
       api([hit({ sessionId: "u-9", title: "other session" })]),
       [closed({ title: "auth bug", branch: "kd/ws/1" }), live()],
@@ -635,10 +700,10 @@ describe("SessionsBrowser journal section", () => {
     expect(rows[1].querySelector(".history__state--live")).toBeNull();
     expect(rows[2].querySelector(".history__state")).toBeNull();
     expect(rows[2].textContent).toContain("other session");
-    // The divider sits between the pinned rows and the hits, carrying
-    // the global block's own counter.
-    const divider = document.querySelector(".browser__section");
-    expect(divider?.textContent).toContain("All sessions");
+    // One queue, nothing between: the journal rows ride first, the
+    // other track's row after — and NO section node exists anywhere.
+    expect(document.querySelector(".browser__section")).toBeNull();
+    expect(rows[2].previousElementSibling).toBe(rows[1]);
   });
 
   it("a hit already pinned in the journal is not duplicated below", async () => {
@@ -651,14 +716,15 @@ describe("SessionsBrowser journal section", () => {
     );
     const rows = document.querySelectorAll(".history__row");
     expect(rows).toHaveLength(2); // journal row + the one non-dup hit
-    expect(bottomRows()).toHaveLength(1);
-    expect(bottomRows()[0].textContent).toContain("other session");
+    expect(otherRows(1)).toHaveLength(1);
+    expect(otherRows(1)[0].textContent).toContain("other session");
   });
 
-  it("an active query filters the pinned section client-side; content-only matches survive in the hits", async () => {
-    // "auth" matches the journal row's title, so s-1 stays pinned and its
-    // hit dedupes; s-2's title does NOT match, so its hit (a content match
-    // from the index) must still show below instead of vanishing.
+  it("an active query filters the journal client-side; content-only matches survive in the other track", async () => {
+    // "auth" matches the journal row's title, so s-1 rides the queue's
+    // head and its hit dedupes; s-2's title does NOT match, so its hit
+    // (a content match from the index) must still show in the queue's
+    // tail instead of vanishing.
     await mount(
       api(
         [hit({ sessionId: "s-1" }), hit({ sessionId: "s-2", title: "s-2" })],
@@ -666,10 +732,10 @@ describe("SessionsBrowser journal section", () => {
       ),
       [closed({ title: "auth bug" }), closed({ sessionId: "s-2", title: "ci" })],
     );
-    const journal = topRows();
+    const journal = workspaceRows(1);
     expect(journal).toHaveLength(1);
     expect(journal[0].textContent).toContain("auth bug");
-    const below = bottomRows();
+    const below = otherRows(1);
     expect(below).toHaveLength(1);
     expect(below[0].textContent).toContain("s-2");
   });
@@ -682,7 +748,7 @@ describe("SessionsBrowser journal section", () => {
     // status instead.
     await mount(api([]), [closed(), closed({ sessionId: "s-2" })]);
     expect(document.querySelector(".history__delete")).toBeNull();
-    expect(topRows()).toHaveLength(2);
+    expect(workspaceRows(0)).toHaveLength(2);
   });
 
   it("a live journal row offers no Resume; a gone dir blocks it — Fork stays", async () => {
@@ -723,7 +789,7 @@ describe("SessionsBrowser journal section", () => {
       closed({ title: "own title", transcriptPath: "/journal/s-1.jsonl" }),
       closed({ sessionId: "s-2" }),
     ]);
-    const openButtons = topRows().map(
+    const openButtons = workspaceRows(0).map(
       (row) => row.querySelector<HTMLButtonElement>(".browser__open")!,
     );
     expect(openButtons).toHaveLength(2);
@@ -779,7 +845,7 @@ describe("SessionsBrowser journal section", () => {
     // rows would show a failed search as a quietly shorter list — the wrong
     // answer with no indication anywhere.
     await mount(
-      api([], { bottom: blockOf([], { error: "index unavailable" }), query: "auth" }),
+      api([], { other: trackOf([], { error: "index unavailable" }), query: "auth" }),
       [closed({ title: "auth bug" })],
     );
     expect(document.body.textContent).toContain("Search failed: index unavailable");
@@ -928,7 +994,7 @@ describe("SessionsBrowser journal join", () => {
         closed({ sessionId: "labelled", title: CAPABLE_AGENT.label }),
       ],
     );
-    const rows = topRows();
+    const rows = workspaceRows(0);
     expect(rows[0].textContent).toContain("from the index");
     expect(rows[1].textContent).toContain("own meaningful title");
     expect(rows[2].textContent).toContain("the real one");
@@ -988,7 +1054,7 @@ describe("SessionsBrowser journal join", () => {
       closed({ sessionId: "pathless" }),
       closed({ sessionId: "withpath", transcriptPath: "/journal/withpath.jsonl" }),
     ]);
-    const rows = topRows();
+    const rows = workspaceRows(0);
     expect(chipOf(rows[0])?.textContent).toBe("index unreachable");
     expect(chipOf(rows[1])).toBeNull();
     await act(async () =>
@@ -1012,7 +1078,7 @@ describe("SessionsBrowser journal join", () => {
       api([], {}, { "claude:s-2": { kind: "hit", reference: "/r/2", title: "landed title", mtime: 7 } }),
       [closed({ title: "first" }), closed({ sessionId: "s-2" })],
     );
-    const rows = topRows();
+    const rows = workspaceRows(0);
     expect(rows).toHaveLength(2);
     expect(rows[0].textContent).toContain("first");
     expect(rows[1].textContent).toContain("landed title");
@@ -1066,52 +1132,52 @@ describe("SessionsBrowser journal join", () => {
     expect(lists[1].textContent).not.toContain("alpha title");
   });
 
-  it("a journal record whose index twin has an EMPTY cwd: top shows it, the bottom has NO twin", async () => {
+  it("a journal record whose index twin has an EMPTY cwd: rides the queue once, ahead of every other row", async () => {
     // Twelve live rows hit exactly this: their index rows carry no cwd,
     // never match any Only-set, and would fall through to Except —
     // doubling a row the top block already shows. The dedup is by
     // journal KEY, wherever the twin's cwd falls (or doesn't).
     const a = api([], {
-      top: blockOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
-      bottom: blockOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
+      workspace: trackOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
+      other: trackOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
     });
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/s-1.jsonl" })]);
     const all = listRows();
     expect(all).toHaveLength(1); // once, not twice
-    expect(topRows()).toHaveLength(1);
-    expect(bottomRows()).toHaveLength(0);
+    expect(workspaceRows(0)).toHaveLength(1);
+    expect(otherRows(0)).toHaveLength(0);
   });
 
-  it("a journal record with its folder OUTSIDE the workspace set: top by binding fact, no twin below", async () => {
+  it("a journal record with its folder OUTSIDE the workspace set: ahead of every other row by binding fact, no twin in the tail", async () => {
     // Guards the rule, not today's data: with the widest factory the
     // folder is usually IN the set by construction — but binding is a
     // recorded FACT, and no directory filter may unseat it.
     const a = api([], {
-      top: blockOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
-      bottom: blockOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
+      workspace: trackOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
+      other: trackOf([hit({ sessionId: "s-1", cwd: "/foreign" })]),
     });
     await mount(a, [closed({ sessionId: "s-1", cwd: "/foreign" })]);
     expect(listRows()).toHaveLength(1);
-    expect(topRows()).toHaveLength(1);
-    expect(bottomRows()).toHaveLength(0);
+    expect(workspaceRows(0)).toHaveLength(1);
+    expect(otherRows(0)).toHaveLength(0);
   });
 
-  it("the top block is a UNION: a workspace-folder hit the journal lacks rides TOP", async () => {
+  it("the queue's head is a UNION: a workspace-folder hit the journal lacks rides it", async () => {
     const a = api([], {
-      top: blockOf([hit({ sessionId: "w-1", title: "folder hit" })]),
-      bottom: blockOf([hit({ sessionId: "g-1", title: "global hit" })]),
+      workspace: trackOf([hit({ sessionId: "w-1", title: "folder hit" })]),
+      other: trackOf([hit({ sessionId: "g-1", title: "global hit" })]),
     });
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/s-1.jsonl" })]);
-    const top = topRows();
-    expect(top).toHaveLength(2); // the bound record AND the folder hit
-    expect(top[0].textContent).toContain("s-1"); // nameless → its session id
-    expect(top[1].textContent).toContain("folder hit");
-    const bottom = bottomRows();
-    expect(bottom).toHaveLength(1);
-    expect(bottom[0].textContent).toContain("global hit");
+    const head = workspaceRows(1);
+    expect(head).toHaveLength(2); // the bound record AND the folder hit
+    expect(head[0].textContent).toContain("s-1"); // nameless → its session id
+    expect(head[1].textContent).toContain("folder hit");
+    const tail = otherRows(1);
+    expect(tail).toHaveLength(1);
+    expect(tail[0].textContent).toContain("global hit");
   });
 
-  it("the top block stands on ONE axis: conversation time, journal marks for the rest", async () => {
+  it("the workspace track stands on ONE axis: conversation time, journal marks for the rest", async () => {
     // An index row NEWER than every journal row sits ABOVE them; a
     // journal row the index knows stands by its CONVERSATION time (the
     // landed mtime), not its binding time; a row the index doesn't know
@@ -1119,7 +1185,7 @@ describe("SessionsBrowser journal join", () => {
     // all index rows.
     const a = api(
       [],
-      { top: blockOf([hit({ sessionId: "h", title: "newest hit", mtime: 400_000 })]) },
+      { workspace: trackOf([hit({ sessionId: "h", title: "newest hit", mtime: 400_000 })]) },
       {
         "claude:k": { kind: "hit", reference: "/store/k", title: "known", mtime: 300_000 },
       },
@@ -1140,7 +1206,7 @@ describe("SessionsBrowser journal join", () => {
         endedAt: new Date(200_000).toISOString(),
       }),
     ]);
-    const names = topRows().map((r) => r.textContent ?? "");
+    const names = workspaceRows(0).map((r) => r.textContent ?? "");
     expect(names[0]).toContain("newest hit");
     expect(names[1]).toContain("known");
     expect(names[2]).toContain("unknown");
@@ -1158,7 +1224,7 @@ describe("SessionsBrowser journal join", () => {
       closed({ sessionId: "y", endedAt: new Date(300_000).toISOString() }),
     ];
     await mount(api([], {}, {}), rows);
-    let names = topRows().map((r) => r.textContent ?? "");
+    let names = workspaceRows(0).map((r) => r.textContent ?? "");
     expect(names[0]).toContain("y");
     expect(names[1]).toContain("x");
 
@@ -1166,10 +1232,10 @@ describe("SessionsBrowser journal join", () => {
       api([], {}, { "claude:x": { kind: "hit", reference: "/s/x", title: null, mtime: 500_000 } }),
       rows,
     );
-    names = topRows().map((r) => r.textContent ?? "");
+    names = workspaceRows(0).map((r) => r.textContent ?? "");
     expect(names[0]).toContain("x"); // re-seated by its landed time
     expect(names[1]).toContain("y");
-    expect(topRows()).toHaveLength(2); // composition unchanged
+    expect(workspaceRows(0)).toHaveLength(2); // composition unchanged
   });
 
   it("one session id in two workspaces' journals: both rows get the title and keep their own branch", async () => {
@@ -1200,7 +1266,7 @@ describe("SessionsBrowser journal join", () => {
         ]),
       ),
     );
-    const rows = topRows();
+    const rows = workspaceRows(0);
     expect(rows).toHaveLength(2);
     for (const row of rows) {
       expect(row.textContent).toContain("the shared truth");
@@ -1644,12 +1710,13 @@ describe("unified row guard — both blocks, one markup", () => {
       api([hit({ sessionId: "zz-1", title: null }), hit({ sessionId: "zz-2", title: null })]),
       [closed({ sessionId: "zz-9", title: undefined })],
     );
-    // No journal rows? There IS one — the top block's nameless record
-    // shows its id too, not the agent label.
-    const top = topRows();
-    expect(top).toHaveLength(1);
-    expect(top[0].textContent).toContain("zz-9");
-    // The divider renders (a journal row exists); the hit rows below it.
+    // No journal rows? There IS one — the queue's head carries the
+    // nameless record showing its id too, not the agent label.
+    const head = workspaceRows(2);
+    expect(head).toHaveLength(1);
+    expect(head[0].textContent).toContain("zz-9");
+    // One queue: the journal row first, the other track's rows after —
+    // nothing between them.
     const rows = listRows();
     expect(rows).toHaveLength(3);
     const hitRows = rows.filter((r) =>

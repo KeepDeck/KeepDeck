@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { JoinEntry } from "./join";
 import type { SessionRecord } from "./sessionLog";
-import { composeSessionBlocks } from "./blocks";
+import { composeSessionList } from "./blocks";
 import { rowKeyOf, rowOfHit, type UnifiedSessionRow } from "./sessionRow";
 
 const T0 = 1_000;
@@ -38,21 +38,21 @@ const hit = (over: {
     mtime: over.mtime,
   });
 
-const compose = (over: Partial<Parameters<typeof composeSessionBlocks>[0]> = {}) =>
-  composeSessionBlocks({
+const compose = (over: Partial<Parameters<typeof composeSessionList>[0]> = {}) =>
+  composeSessionList({
     records: [],
     query: "",
     entries: NO_ENTRIES,
     agentLabel: LABEL,
     answerMayChange: false,
-    topHits: [],
-    bottomHits: [],
-    topTotal: 0,
-    bottomTotal: 0,
+    workspaceHits: [],
+    otherHits: [],
+    workspaceTotal: 0,
+    otherTotal: 0,
     ...over,
   });
 
-describe("composeSessionBlocks — T1: the journal-record query predicate", () => {
+describe("composeSessionList — T1: the journal-record query predicate", () => {
   // Truth table: each field alone matches; a fieldless record doesn't.
   it("each of the four fields matches alone; none matches garbage", () => {
     const cases: Array<[Partial<SessionRecord>, string]> = [
@@ -62,19 +62,19 @@ describe("composeSessionBlocks — T1: the journal-record query predicate", () =
       [{ sessionId: "zz-9" }, "zz-9"],
     ];
     for (const [over, q] of cases) {
-      const { top } = compose({
+      const { workspace } = compose({
         records: [record({ ...over, sessionId: (over as { sessionId?: string }).sessionId ?? "s-1" })],
         query: q,
       });
-      expect(top.rows.map((r) => r.sessionId)).toEqual([
+      expect(workspace.rows.map((r) => r.sessionId)).toEqual([
         (over as { sessionId?: string }).sessionId ?? "s-1",
       ]);
     }
     // Nothing matches a query none of the fields carry.
-    const { top } = compose({ records: [record({ title: "x" })], query: "zzz" });
-    expect(top.rows).toEqual([]);
+    const { workspace } = compose({ records: [record({ title: "x" })], query: "zzz" });
+    expect(workspace.rows).toEqual([]);
     // Case-insensitive by folding BOTH sides, not just the query.
-    const { top: ci } = compose({
+    const { workspace: ci } = compose({
       records: [record({ title: "Auth Bug" })],
       query: "AUTH",
     });
@@ -83,22 +83,22 @@ describe("composeSessionBlocks — T1: the journal-record query predicate", () =
 
   it("substring, not prefix; a removed field stops matching", () => {
     // startsWith would fail the middle-of-string cwd match.
-    const { top } = compose({ records: [record({ cwd: "/home/kd/x" })], query: "kd" });
-    expect(top.rows).toHaveLength(1);
+    const { workspace } = compose({ records: [record({ cwd: "/home/kd/x" })], query: "kd" });
+    expect(workspace.rows).toHaveLength(1);
     // Dropping the field from the predicate's set: the branch-only match.
-    const { top: br } = compose({ records: [record({ branch: "feat/x" })], query: "feat" });
+    const { workspace: br } = compose({ records: [record({ branch: "feat/x" })], query: "feat" });
     expect(br.rows).toHaveLength(1);
   });
 });
 
-describe("composeSessionBlocks — T1b: the title's SOURCE, not the join's paint", () => {
+describe("composeSessionList — T1b: the title's SOURCE, not the join's paint", () => {
   it("a record whose JOURNAL title doesn't match stays hidden even when the index title would", () => {
     // The record's own title is X; the enrichment answer carries an index
     // title Y; the query is Y. The row must NOT pass: enrichment paints
     // cells, it never decides composition — a joined title arriving late
-    // must not make a filtered row appear. (The top block's INDEX half
-    // finds Y by content — the union keeps it findable that way.)
-    const { top } = compose({
+    // must not make a filtered row appear. (The workspace track's INDEX
+    // half finds Y by content — the union keeps it findable that way.)
+    const { workspace } = compose({
       records: [record({ title: "unrelated journal title" })],
       query: "index answer words",
       entries: new Map([
@@ -110,57 +110,57 @@ describe("composeSessionBlocks — T1b: the title's SOURCE, not the join's paint
         }],
       ]),
     });
-    expect(top.rows).toEqual([]);
+    expect(workspace.rows).toEqual([]);
   });
 });
 
-describe("composeSessionBlocks — T2: a twin with an EMPTY cwd rides the top once", () => {
-  it("the journal knows K; both hit sets carry K with an empty cwd — top once, bottom never", () => {
-    const twinTop = hit({ sessionId: "s-1", mtime: 5, cwd: "" });
-    const twinBottom = hit({ sessionId: "s-1", mtime: 5, cwd: "" });
-    const { top, bottom } = compose({
+describe("composeSessionList — T2: a twin with an EMPTY cwd rides the workspace track once", () => {
+  it("the journal knows K; both hit sets carry K with an empty cwd — once in the queue, ahead of every other row, never among them", () => {
+    const twinWorkspace = hit({ sessionId: "s-1", mtime: 5, cwd: "" });
+    const twinOther = hit({ sessionId: "s-1", mtime: 5, cwd: "" });
+    const { workspace, other } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],
-      topHits: [twinTop],
-      bottomHits: [twinBottom],
-      topTotal: 1,
-      bottomTotal: 1,
+      workspaceHits: [twinWorkspace],
+      otherHits: [twinOther],
+      workspaceTotal: 1,
+      otherTotal: 1,
     });
-    expect(top.rows.map((r) => r.sessionId)).toEqual(["s-1"]); // ONCE
-    expect(bottom.rows).toEqual([]); // never below
+    expect(workspace.rows.map((r) => r.sessionId)).toEqual(["s-1"]); // ONCE
+    expect(other.rows).toEqual([]); // never among the other rows
   });
 });
 
-describe("composeSessionBlocks — T3: binding outranks the folder rule", () => {
-  it("a journal record with its folder OUTSIDE the workspace set stays top; the bottom twin is subtracted", () => {
+describe("composeSessionList — T3: binding outranks the folder rule", () => {
+  it("a journal record with its folder OUTSIDE the workspace set rides the queue ahead of every other row, exactly once; its other-track twin is subtracted", () => {
     // The main phrase, as a test: binding is a recorded FACT — no folder
     // filter may unseat it. (The folder SET itself lives in the query;
-    // here the twin arrives via the bottom set, which the composition
-    // must still de-twin.)
-    const { top, bottom } = compose({
+    // here the twin arrives via the other track's set, which the
+    // composition must still de-twin.)
+    const { workspace, other } = compose({
       records: [record({ cwd: "/foreign" })],
-      bottomHits: [hit({ sessionId: "s-1", mtime: 5, cwd: "/foreign" })],
-      bottomTotal: 1
+      otherHits: [hit({ sessionId: "s-1", mtime: 5, cwd: "/foreign" })],
+      otherTotal: 1
     });
-    expect(top.rows.map((r) => r.sessionId)).toEqual(["s-1"]);
-    expect(bottom.rows).toEqual([]);
+    expect(workspace.rows.map((r) => r.sessionId)).toEqual(["s-1"]);
+    expect(other.rows).toEqual([]);
   });
 });
 
-describe("composeSessionBlocks — T4: the top block is a UNION on one axis", () => {
-  it("journal row + workspace hit the journal lacks — both top, ordered by the axis; the global hit stays below", () => {
-    const { top, bottom } = compose({
+describe("composeSessionList — T4: the workspace track is a UNION on one axis", () => {
+  it("journal row + workspace hit the journal lacks — both in the workspace track, ordered by the axis; the other row stays below", () => {
+    const { workspace, other } = compose({
       records: [record({ endedAt: T(200) })],
-      topHits: [hit({ sessionId: "w-1", mtime: 500 })],
-      bottomHits: [hit({ sessionId: "g-1", mtime: 900 })],
-      topTotal: 1,
-      bottomTotal: 1,
+      workspaceHits: [hit({ sessionId: "w-1", mtime: 500 })],
+      otherHits: [hit({ sessionId: "g-1", mtime: 900 })],
+      workspaceTotal: 1,
+      otherTotal: 1,
     });
-    expect(top.rows.map((r) => r.sessionId)).toEqual(["w-1", "s-1"]); // axis order
-    expect(bottom.rows.map((r) => r.sessionId)).toEqual(["g-1"]);
+    expect(workspace.rows.map((r) => r.sessionId)).toEqual(["w-1", "s-1"]); // axis order
+    expect(other.rows.map((r) => r.sessionId)).toEqual(["g-1"]);
   });
 });
 
-describe("composeSessionBlocks — T5: the COMPOSITE axis, proven by contradiction", () => {
+describe("composeSessionList — T5: the COMPOSITE axis, proven by contradiction", () => {
   // Two input rows whose own marks CONTRADICT the axis rule in opposite
   // directions: without the contradiction inside each row, "always the
   // journal mark" and the true rule give ONE order and the test passes
@@ -185,8 +185,8 @@ describe("composeSessionBlocks — T5: the COMPOSITE axis, proven by contradicti
     ]);
     // (c): a plain hit between the two.
     const c = hit({ sessionId: "c", mtime: 200 });
-    const { top } = compose({ records: [a], entries, topHits: [c], topTotal: 1 });
-    expect(top.rows.map((r) => r.sessionId)).toEqual(["c", "a"]); // by mtime, not the mark
+    const { workspace } = compose({ records: [a], entries, workspaceHits: [c], workspaceTotal: 1 });
+    expect(workspace.rows.map((r) => r.sessionId)).toEqual(["c", "a"]); // by mtime, not the mark
 
     // (a′): the mirror — mtime LATER than the journal mark.
     const a2 = record({ sessionId: "a2", endedAt: T(100) });
@@ -199,25 +199,25 @@ describe("composeSessionBlocks — T5: the COMPOSITE axis, proven by contradicti
       }],
     ]);
     const c2 = hit({ sessionId: "c2", mtime: 200 });
-    const { top: top2 } = compose({ records: [a2], entries: entries2, topHits: [c2], topTotal: 1 });
-    expect(top2.rows.map((r) => r.sessionId)).toEqual(["a2", "c2"]); // mtime wins again
+    const { workspace: workspace2 } = compose({ records: [a2], entries: entries2, workspaceHits: [c2], workspaceTotal: 1 });
+    expect(workspace2.rows.map((r) => r.sessionId)).toEqual(["a2", "c2"]); // mtime wins again
   });
 
   it("(b) an index-unknown row stands by its journal mark among mtime rows — it does not sink", () => {
     const b = record({ sessionId: "b", endedAt: T(200) });
     const above = hit({ sessionId: "hi", mtime: 400 });
     const below = hit({ sessionId: "lo", mtime: 100 });
-    const { top } = compose({ records: [b], topHits: [above, below], topTotal: 2 });
-    expect(top.rows.map((r) => r.sessionId)).toEqual(["hi", "b", "lo"]);
+    const { workspace } = compose({ records: [b], workspaceHits: [above, below], workspaceTotal: 2 });
+    expect(workspace.rows.map((r) => r.sessionId)).toEqual(["hi", "b", "lo"]);
   });
 });
 
-describe("composeSessionBlocks — T6: a late answer RE-SEATS its row, composition intact", () => {
-  it("an enrichment answer arriving later moves the row to its landed time; the block's size does not change", () => {
+describe("composeSessionList — T6: a late answer RE-SEATS its row, composition intact", () => {
+  it("an enrichment answer arriving later moves the row to its landed time; the list's size does not change", () => {
     const x = record({ sessionId: "x", endedAt: T(100) });
     const y = record({ sessionId: "y", endedAt: T(300) });
     const before = compose({ records: [x, y] });
-    expect(before.top.rows.map((r) => r.sessionId)).toEqual(["y", "x"]);
+    expect(before.workspace.rows.map((r) => r.sessionId)).toEqual(["y", "x"]);
 
     const after = compose({
       records: [x, y],
@@ -230,129 +230,130 @@ describe("composeSessionBlocks — T6: a late answer RE-SEATS its row, compositi
         }],
       ]),
     });
-    expect(after.top.rows.map((r) => r.sessionId)).toEqual(["x", "y"]); // re-seated
-    expect(after.top.rows).toHaveLength(2); // composition unchanged
-    expect(before.top.rows).toHaveLength(2);
+    expect(after.workspace.rows.map((r) => r.sessionId)).toEqual(["x", "y"]); // re-seated
+    expect(after.workspace.rows).toHaveLength(2); // composition unchanged
+    expect(before.workspace.rows).toHaveLength(2);
   });
 });
 
-describe("composeSessionBlocks — the counters the composition itself returns", () => {
-  // ── The loaded floor, SPLIT BY BLOCK ───────────────────────────────
+describe("composeSessionList — the counters the composition itself returns", () => {
+  // ── The loaded floor, SPLIT BY TRACK ───────────────────────────────
   // The engine does not promise loaded ≤ total (a shrinking total
-  // between pages reaches the state), so each block's denominator floors
+  // between pages reaches the state), so each track's denominator floors
   // at its own max(raw, loaded). One witness per floor, inputs SEPARATED
-  // — the shrunken total rides ONE block per case and the other block
+  // — the shrunken total rides ONE track per case and the other track
   // carries nothing: removing either max must redden ITS case and ONLY
   // its case (mutual non-redness is what proves the floors distinct —
   // one shared-input test covering both is coverage in appearance).
 
-  it("the TOP's floor: shrunken total in the TOP block only", () => {
+  it("the WORKSPACE track's floor: shrunken total in the workspace track only", () => {
     // 10 loaded over a shrunken total of 8, one twin among the loaded:
     // drawn 10, denominator 1 + max(8, 10) − 1 twin = 10 — the numerator
-    // never overshoots. Without the TOP max: 1 + 8 − 1 = 8 under 10.
+    // never overshoots. Without the workspace max: 1 + 8 − 1 = 8 under 10.
     const twins = [hit({ sessionId: "s-1", mtime: 5 })];
     const others = Array.from({ length: 9 }, (_, i) =>
       hit({ sessionId: `o-${i}`, mtime: 100 + i }),
     );
-    const { top } = compose({
+    const { workspace } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],
-      topHits: [...twins, ...others],
-      topTotal: 8,
+      workspaceHits: [...twins, ...others],
+      workspaceTotal: 8,
     });
-    expect(top.shown).toBe(10); // journal 1 + kept 9
-    expect(top.total).toBe(10); // 1 + max(8,10) − 1 twin
+    expect(workspace.shown).toBe(10); // journal 1 + kept 9
+    expect(workspace.total).toBe(10); // 1 + max(8,10) − 1 twin
   });
 
-  it("the BOTTOM's floor: shrunken total in the BOTTOM block only", () => {
-    // The mirror, isolated: 10 loaded over 8 in the bottom, one twin —
-    // drawn 9, denominator max(8, 10) − 1 = 9, EQUAL. Without the BOTTOM
-    // max: 8 − 1 = 7 under 9. The top block carries only the journal
-    // record (its floor computes 1 either way — this case must stay
-    // green when the TOP max is the one removed).
-    const { bottom } = compose({
+  it("the OTHER track's floor: shrunken total in the other track only", () => {
+    // The mirror, isolated: 10 loaded over 8 in the other track, one
+    // twin — drawn 9, denominator max(8, 10) − 1 = 9, EQUAL. Without the
+    // other max: 8 − 1 = 7 under 9. The workspace track carries only the
+    // journal record (its floor computes 1 either way — this case must
+    // stay green when the workspace max is the one removed).
+    const { other } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],
-      bottomHits: [
+      otherHits: [
         hit({ sessionId: "s-1", mtime: 5, cwd: "" }),
         ...Array.from({ length: 9 }, (_, i) => hit({ sessionId: `k-${i}`, mtime: 10 + i })),
       ],
-      bottomTotal: 8,
+      otherTotal: 8,
     });
-    expect(bottom.shown).toBe(9);
-    expect(bottom.total).toBe(9);
-    expect(bottom.shown).toBeLessThanOrEqual(bottom.total);
+    expect(other.shown).toBe(9);
+    expect(other.total).toBe(9);
+    expect(other.shown).toBeLessThanOrEqual(other.total);
   });
 
   // ── C0: numerator ≤ denominator ALWAYS; equality at full load ──────
   // Twins in the inputs are load-bearing — without one, the inequality
   // holds trivially under any implementation.
 
-  it("C0(i): a twin in the TOP — full load reaches equality", () => {
+  it("C0(i): a twin in the WORKSPACE track — full load reaches equality", () => {
     // Journal 1 + engine [twin, stranger] fully loaded (total 2):
     // drawn 2, denominator 1 + 2 − 1 = 2 — EQUAL at full load.
-    const { top } = compose({
+    const { workspace } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],
-      topHits: [hit({ sessionId: "s-1", mtime: 5 }), hit({ sessionId: "w-1", mtime: 6 })],
-      topTotal: 2
+      workspaceHits: [hit({ sessionId: "s-1", mtime: 5 }), hit({ sessionId: "w-1", mtime: 6 })],
+      workspaceTotal: 2
     });
-    expect(top.shown).toBe(2);
-    expect(top.total).toBe(2);
-    expect(top.shown).toBeLessThanOrEqual(top.total);
+    expect(workspace.shown).toBe(2);
+    expect(workspace.total).toBe(2);
+    expect(workspace.shown).toBeLessThanOrEqual(workspace.total);
   });
 
-  it("C0-overall: the aggregate sums the members' COMPOSED numbers — never the engines' raw totals", () => {
-    // Deliberately ASYMMETRIC fixture: journal 2 (one a twin of a top
-    // hit); top loaded 3 (1 twin + 2 strangers), raw total 6; bottom
-    // loaded 2, no twins, raw total 7. Blocks: top 4 of 7, bottom 2 of
-    // 7; overall 6 of 14. The raw-total sum is 13 ≠ 14 — journal rows
-    // (2) outnumber the twins (1), so summing raw totals reddens here.
-    const { top, bottom, overall } = compose({
+  it("C0-listCount: the field's count sums the tracks' COMPOSED numbers — never the engines' raw totals", () => {
+    // Deliberately ASYMMETRIC fixture: journal 2 (one a twin of a
+    // workspace hit); the workspace track loaded 3 (1 twin + 2
+    // strangers), raw total 6; the other track loaded 2, no twins, raw
+    // total 7. Tracks: workspace 4 of 7, other 2 of 7; the list's count
+    // 6 of 14. The raw-total sum is 13 ≠ 14 — journal rows (2) outnumber
+    // the twins (1), so summing raw totals reddens here.
+    const { workspace, other, listCount } = compose({
       records: [
         record({ transcriptPath: "/j/s-1" }),
         record({ sessionId: "s-2" }),
       ],
-      topHits: [
+      workspaceHits: [
         hit({ sessionId: "s-1", mtime: 5 }),
         hit({ sessionId: "w-1", mtime: 6 }),
         hit({ sessionId: "w-2", mtime: 7 }),
       ],
-      bottomHits: [hit({ sessionId: "b-1", mtime: 4 }), hit({ sessionId: "b-2", mtime: 3 })],
-      topTotal: 6,
-      bottomTotal: 7,
+      otherHits: [hit({ sessionId: "b-1", mtime: 4 }), hit({ sessionId: "b-2", mtime: 3 })],
+      workspaceTotal: 6,
+      otherTotal: 7,
     });
-    expect(`${top.shown} of ${top.total}`).toBe("4 of 7");
-    expect(`${bottom.shown} of ${bottom.total}`).toBe("2 of 7");
-    expect(overall).toEqual({ shown: 6, total: 14 });
-    expect(overall.shown).toBeLessThanOrEqual(overall.total);
+    expect(`${workspace.shown} of ${workspace.total}`).toBe("4 of 7");
+    expect(`${other.shown} of ${other.total}`).toBe("2 of 7");
+    expect(listCount).toEqual({ shown: 6, total: 14 });
+    expect(listCount.shown).toBeLessThanOrEqual(listCount.total);
   });
 
-  it("C0(ii): a twin in the BOTTOM (the empty-cwd shape) — inequality holds, equality at full load", () => {
-    const { bottom } = compose({
+  it("C0(ii): a twin in the OTHER track (the empty-cwd shape) — inequality holds, equality at full load", () => {
+    const { other } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],
-      bottomHits: [
+      otherHits: [
         hit({ sessionId: "s-1", mtime: 5, cwd: "" }),
         hit({ sessionId: "g-1", mtime: 6 }),
       ],
-      bottomTotal: 2
+      otherTotal: 2
     });
-    expect(bottom.shown).toBe(1);
-    expect(bottom.total).toBe(1); // 2 − 1 twin, full load: EQUAL
-    expect(bottom.shown).toBeLessThanOrEqual(bottom.total);
+    expect(other.shown).toBe(1);
+    expect(other.total).toBe(1); // 2 − 1 twin, full load: EQUAL
+    expect(other.shown).toBeLessThanOrEqual(other.total);
   });
 
-  it("C0(iii): partial load with twins in BOTH blocks — strict inequality, never inverted", () => {
-    const { top, bottom } = compose({
+  it("C0(iii): partial load with twins in BOTH tracks — strict inequality, never inverted", () => {
+    const { workspace, other } = compose({
       records: [record({ transcriptPath: "/j/s-1" })],
-      topHits: [hit({ sessionId: "s-1", mtime: 5 })],
-      topTotal: 7,
-      bottomHits: [hit({ sessionId: "s-1", mtime: 5, cwd: "" })],
-      bottomTotal: 9,
+      workspaceHits: [hit({ sessionId: "s-1", mtime: 5 })],
+      workspaceTotal: 7,
+      otherHits: [hit({ sessionId: "s-1", mtime: 5, cwd: "" })],
+      otherTotal: 9,
     });
-    expect(top.shown).toBe(1); // the journal row only
-    expect(top.total).toBe(7); // 1 journal + 7 − 1 twin
-    expect(top.shown).toBeLessThan(top.total);
-    expect(bottom.shown).toBe(0);
-    expect(bottom.total).toBe(8); // 9 − 1 twin
-    expect(bottom.shown).toBeLessThan(bottom.total);
+    expect(workspace.shown).toBe(1); // the journal row only
+    expect(workspace.total).toBe(7); // 1 journal + 7 − 1 twin
+    expect(workspace.shown).toBeLessThan(workspace.total);
+    expect(other.shown).toBe(0);
+    expect(other.total).toBe(8); // 9 − 1 twin
+    expect(other.shown).toBeLessThan(other.total);
   });
 
   it("C0b: as pages land at an UNCHANGED raw total, the denominator−numerator gap never grows — the twin arrives on the second page", () => {
@@ -360,17 +361,17 @@ describe("composeSessionBlocks — the counters the composition itself returns",
     // Page 1: a stranger only.
     const page1 = compose({
       records: journal,
-      topHits: [hit({ sessionId: "a", mtime: 5 })],
-      topTotal: 3
+      workspaceHits: [hit({ sessionId: "a", mtime: 5 })],
+      workspaceTotal: 3
     });
     // Page 2: the twin lands among the loaded.
     const page2 = compose({
       records: journal,
-      topHits: [hit({ sessionId: "a", mtime: 5 }), hit({ sessionId: "s-1", mtime: 4 })],
-      topTotal: 3
+      workspaceHits: [hit({ sessionId: "a", mtime: 5 }), hit({ sessionId: "s-1", mtime: 4 })],
+      workspaceTotal: 3
     });
-    const gap1 = page1.top.total - page1.top.shown;
-    const gap2 = page2.top.total - page2.top.shown;
+    const gap1 = page1.workspace.total - page1.workspace.shown;
+    const gap2 = page2.workspace.total - page2.workspace.shown;
     // page1: total 1+3−0=4, shown 2 → gap 2; page2: total 1+3−1=3,
     // shown 2 → gap 1. The twin's arrival SHRANK the gap by exactly
     // itself — no off-by-one growth.

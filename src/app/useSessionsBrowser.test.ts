@@ -116,16 +116,16 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
           root.render(createElement(Probe, { dirs: OLD })),
         ),
       );
-      // Page zeros of the OLD scope land (top fires first, then bottom):
-      // 2 rows on screen in the bottom block.
+      // Page zeros of the OLD scope land (the workspace ask fires first,
+      // then the other): 2 rows on screen in the other track.
       await act(async () =>
         resolvers[0]({ hits: [], total: 0 }),
       );
       await act(async () =>
         resolvers[1]({ hits: mkHits(0, 2), total: 30 }),
       );
-      expect(api.bottom.hits).toHaveLength(2);
-      expect(api.bottom.total).toBe(30);
+      expect(api.other.hits).toHaveLength(2);
+      expect(api.other.total).toBe(30);
 
       // The scope GROWS (the journal settled) — and the change rides the
       // debounced re-ask, so the timer must fire before its ask exists.
@@ -139,7 +139,7 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
       });
 
       // The old rows must NOT remain under the new scope...
-      expect(api.bottom.hits).toHaveLength(0);
+      expect(api.other.hits).toHaveLength(0);
       // ...and the next ask must be page ZERO of the new area — not an
       // offset-2 fetch spliced onto the old rows.
       const calls = ipc.indexSearch.mock.calls;
@@ -150,12 +150,12 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
       await act(async () =>
         resolvers[resolvers.length - 1]({ hits: mkHits(50, 3), total: 3 }),
       );
-      expect(api.bottom.hits.map((h) => h.sessionId)).toEqual([
+      expect(api.other.hits.map((h) => h.sessionId)).toEqual([
         "s-50",
         "s-51",
         "s-52",
       ]);
-      expect(api.bottom.total).toBe(3);
+      expect(api.other.total).toBe(3);
     } finally {
       vi.useRealTimers();
     }
@@ -163,18 +163,19 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
 
   it("the two asks carry Only and Except of the SAME directory set", async () => {
     await mount(new Set(["/wt/kd-x"]));
-    // Two asks fire on mount — top first, bottom second (engine order).
+    // Two asks fire on mount — the workspace track first, the other
+    // second (engine order).
     expect(ipc.indexSearch).toHaveBeenCalledTimes(2);
     expect(scopeOfCall(0)).toEqual({ mode: "only", dirs: ["/wt/kd-x"] });
     expect(scopeOfCall(1)).toEqual({ mode: "except", dirs: ["/wt/kd-x"] });
   });
 
-  it("each block pages ITS OWN engine; one text searches both", async () => {
+  it("each track pages ITS OWN engine; one text searches both", async () => {
     await mount();
     await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 123 }));
     await act(async () => resolvers[1]({ hits: mkHits(0, 30), total: 456 }));
 
-    act(() => api.bottom.loadMore());
+    act(() => api.other.loadMore());
     expect(ipc.indexSearch).toHaveBeenLastCalledWith(
       "",
       20,
@@ -182,7 +183,7 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
       undefined,
       { mode: "except", dirs: ["/wt/kd-x", "/gone"] },
     );
-    act(() => api.top.loadMore());
+    act(() => api.workspace.loadMore());
     expect(ipc.indexSearch).toHaveBeenLastCalledWith(
       "",
       20,
@@ -211,23 +212,23 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
     }
   });
 
-  it("a revision bump refreshes BOTH blocks; a stale page never lands", async () => {
+  it("a revision bump refreshes BOTH tracks; a stale page never lands", async () => {
     await mount();
     // Page zeros land.
     await act(async () => resolvers[0]({ hits: mkHits(0, 3), total: 3 }));
     await act(async () => resolvers[1]({ hits: mkHits(10, 4), total: 4 }));
-    expect(api.top.total).toBe(3);
-    expect(api.bottom.total).toBe(4);
+    expect(api.workspace.total).toBe(3);
+    expect(api.other.total).toBe(4);
 
     // The index moved: both engines re-ask page zero under the new
-    // generation; the STALE bottom page (fired pre-bump) must not land.
+    // generation; the STALE other page (fired pre-bump) must not land.
     shared = sharedOf({ revision: 2 });
     await rerender();
     expect(ipc.indexSearch).toHaveBeenCalledTimes(4);
     await act(async () => resolvers[3]({ hits: mkHits(20, 5), total: 5 }));
-    expect(api.bottom.total).toBe(5);
+    expect(api.other.total).toBe(5);
     await act(async () => resolvers[2]({ hits: mkHits(30, 9), total: 999 }));
-    expect(api.bottom.total).toBe(5); // the stale answer changed nothing
+    expect(api.other.total).toBe(5); // the stale answer changed nothing
   });
 
   it("a page arriving after its query changed is dropped — per engine", async () => {
@@ -241,15 +242,15 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(150);
       });
-      // The OLD bottom page lands after the new query was asked: dropped.
+      // The OLD other page lands after the new query was asked: dropped.
       await act(async () => resolvers[1]({ hits: mkHits(50, 20), total: 20 }));
-      expect(api.bottom.hits).toHaveLength(2); // untouched, still the old rows
-      // The new query's page zeros: top fired first (resolvers[2]), the
-      // bottom's is the third pending resolution.
+      expect(api.other.hits).toHaveLength(2); // untouched, still the old rows
+      // The new query's page zeros: the workspace ask fired first
+      // (resolvers[2]), the other's is the third pending resolution.
       await act(async () => resolvers[2]({ hits: mkHits(60, 5), total: 5 }));
-      expect(api.top.hits).toHaveLength(5);
+      expect(api.workspace.hits).toHaveLength(5);
       await act(async () => resolvers[3]({ hits: mkHits(70, 6), total: 6 }));
-      expect(api.bottom.hits).toHaveLength(6);
+      expect(api.other.hits).toHaveLength(6);
     } finally {
       vi.useRealTimers();
     }
@@ -277,18 +278,18 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
     expect(ensureFresh).toHaveBeenCalledTimes(1);
   });
 
-  it("pages arrive FULL from each block's own query — nothing fetched to throw away", async () => {
+  it("pages arrive FULL from each track's own query — nothing fetched to throw away", async () => {
     // The counter invariant's other half: numerator and denominator come
-    // from the block's own response — asserted by the totals being the
+    // from the track's own response — asserted by the totals being the
     // ENGINE's answer, not a locally filtered count.
     await mount();
     await act(async () => resolvers[0]({ hits: mkHits(0, 50), total: 500 }));
-    expect(api.top.hits).toHaveLength(50);
-    expect(api.top.total).toBe(500);
-    expect(api.top.hasMore).toBe(true);
+    expect(api.workspace.hits).toHaveLength(50);
+    expect(api.workspace.total).toBe(500);
+    expect(api.workspace.hasMore).toBe(true);
   });
 
-  it("the first-page flag: true while either block's page zero rides, gone when both land", async () => {
+  it("the first-page flag: true while either track's page zero rides, gone when both land", async () => {
     // Binary, no machine timings — fake timers hold the debounce, the
     // pending resolvers hold the flight. The ask is visible work, not a
     // freeze: old rows STAY while the new ones ride (nothing is cleared
@@ -303,23 +304,23 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
       act(() => api.search("auth"));
       // During the debounce: still the old answer, no pending yet.
       expect(api.firstPagePending).toBe(false);
-      expect(api.bottom.hits).toHaveLength(2); // old rows intact
+      expect(api.other.hits).toHaveLength(2); // old rows intact
       await act(async () => {
         await vi.advanceTimersByTimeAsync(150); // the debounce fires BOTH asks
       });
       // Neither resolved: pending is TRUE, old rows still shown.
       expect(api.firstPagePending).toBe(true);
-      expect(api.bottom.hits).toHaveLength(2);
+      expect(api.other.hits).toHaveLength(2);
 
-      // The TOP block's new page lands: still pending — the bottom's
-      // page zero rides.
+      // The WORKSPACE track's new page lands: still pending — the
+      // other's page zero rides.
       await act(async () => resolvers[2]({ hits: mkHits(60, 5), total: 5 }));
       expect(api.firstPagePending).toBe(true);
 
       // The bottom's lands too: gone.
       await act(async () => resolvers[3]({ hits: mkHits(70, 6), total: 6 }));
       expect(api.firstPagePending).toBe(false);
-      expect(api.bottom.hits).toHaveLength(6); // the new answer replaced old
+      expect(api.other.hits).toHaveLength(6); // the new answer replaced old
     } finally {
       vi.useRealTimers();
     }
@@ -341,7 +342,7 @@ describe("useSessionsBrowser — two folder-scoped engines", () => {
       // The PREVIOUS query's page lands late: it must not settle anything.
       await act(async () => resolvers[1]({ hits: mkHits(50, 20), total: 20 }));
       expect(api.firstPagePending).toBe(true);
-      expect(api.bottom.hits).toHaveLength(2); // and must not paint
+      expect(api.other.hits).toHaveLength(2); // and must not paint
 
       // The current generation lands: the flag clears.
       await act(async () => resolvers[2]({ hits: mkHits(60, 5), total: 5 }));
