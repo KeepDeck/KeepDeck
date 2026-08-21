@@ -32,6 +32,6 @@ export {
 export {
   composeSessionList,
   journalRecordMatches,
-  type ComposedTrack,
+  type ComposedLane,
   type ComposeSessionListInput,
 } from "./session-list";

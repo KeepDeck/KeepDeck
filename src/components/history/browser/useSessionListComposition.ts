@@ -63,8 +63,8 @@ export function useSessionListComposition({
       agents,
     ],
   );
-  const workspaceRowsAll = composed.workspace.rows;
-  const otherRowsAll = composed.other.rows;
+  const workspaceRowsAll = composed.workspaceLane.rows;
+  const otherRowsAll = composed.otherLane.rows;
 
   // ROW-OBJECT STABILITY: the composition rebuilds every row object on
   // every recomputation (pure and stateless — correct for the domain),

@@ -9,7 +9,7 @@ import { rowOfJoined, rowKeyOf, type UnifiedSessionRow } from "./sessionRow";
  * directory, branch, session id. Deliberately the JOURNAL's fields, not
  * the joined title: enrichment paints cells, it never decides
  * composition — a title arriving late must not make a filtered row
- * vanish or appear. (The workspace track's INDEX half searches by
+ * vanish or appear. (The workspace lane's INDEX half searches by
  * content with everything else — the union keeps both kinds findable.) */
 export function journalRecordMatches(
   record: SessionRecord,
@@ -22,20 +22,20 @@ export function journalRecordMatches(
   );
 }
 
-/** What one track of the list's composition resolved to: the rows to
+/** What one lane of the list's composition resolved to: the rows to
  * draw and the counter over EXACTLY those rows. The counter fields are
- * the track's own — numerator what it DRAWS, denominator what it CAN
+ * the lane's own — numerator what it DRAWS, denominator what it CAN
  * draw — so the truth of the count is the composition rule's, computed
  * where the rule lives. No `hasMore` here on purpose: the
  * bare-total-vs-"X of N" choice is `shown === total`, the composition's
  * own truth — equal exactly when the drawn population has reached its
  * bound — and the paging engine's raw hasMore stays with the engine. */
-export interface ComposedTrack {
+export interface ComposedLane {
   rows: UnifiedSessionRow[];
   /** The drawn-row count — `rows.length`, carried so the counter reads
    * as the composition's own output rather than a re-measure elsewhere. */
   shown: number;
-  /** What the track can eventually draw. Before full load this is an
+  /** What the lane can eventually draw. Before full load this is an
    * UPPER BOUND: the difference to `shown` is the count of index hits
    * NOT YET LOADED — not a promise of that many future visible rows
    * (some may yet prove to be twins). Monotone toward zero; exact at
@@ -56,13 +56,13 @@ export interface ComposeSessionListInput {
   /** Whether an index answer may still change (scan state OR the
    * enrichment table's own pending). */
   answerMayChange: boolean;
-  /** The workspace track's loaded index hits (the Only-scope engine's),
+  /** The workspace lane's loaded index hits (the Only-scope engine's),
    * already mapped to rows. The LOADED count is this array's own length
    * — carried as data, not duplicated as a second number: a caller-fed
    * pair could disagree with the array and break the very invariant
    * the max floor guards. */
   workspaceHits: UnifiedSessionRow[];
-  /** The other track's loaded index hits (the Except-scope engine's),
+  /** The other lane's loaded index hits (the Except-scope engine's),
    * already mapped to rows. */
   otherHits: UnifiedSessionRow[];
   /** The workspace engine's own total (raw, unadjusted). */
@@ -73,13 +73,13 @@ export interface ComposeSessionListInput {
 
 /**
  * The session list's composition — ONE entry point, not a toolkit. The
- * list draws one queue in a fixed order: the WORKSPACE track first
+ * list draws one queue in a fixed order: the WORKSPACE lane first
  * (the workspace's own sessions — journal records by the recorded fact
  * of binding, whatever folder they name, united with the
  * workspace-folder index hits, deduped by journal KEY against the
- * VISIBLE records, on ONE composite time axis), then the OTHER track
+ * VISIBLE records, on ONE composite time axis), then the OTHER lane
  * (the exclusion query's hits minus the same twins). Belonging outranks
- * time: an other-track row never passes above a workspace row, however
+ * time: an other-lane row never passes above a workspace row, however
  * fresh.
  *
  * The counters leave here too: their truth is the composition rule's
@@ -90,8 +90,8 @@ export interface ComposeSessionListInput {
 export function composeSessionList(
   input: ComposeSessionListInput,
 ): {
-  workspace: ComposedTrack;
-  other: ComposedTrack;
+  workspaceLane: ComposedLane;
+  otherLane: ComposedLane;
   listCount: { shown: number; total: number };
 } {
   const {
@@ -106,7 +106,7 @@ export function composeSessionList(
     otherTotal,
   } = input;
 
-  // ── The workspace track's journal half ────────────────────────────
+  // ── The workspace lane's journal half ─────────────────────────────
   const journalFiltered = records.filter((record) =>
     journalRecordMatches(record, query),
   );
@@ -122,7 +122,7 @@ export function composeSessionList(
   );
 
   // The VISIBLE journal keys — the dedup base for BOTH index halves: an
-  // index row the journal already shows is the workspace track's by
+  // index row the journal already shows is the workspace lane's by
   // binding FACT, wherever its (possibly EMPTY) cwd falls. Visible, not
   // full: a journal row the query hid (its match is content-only) must
   // still be findable through its index hit, not vanish from the list.
@@ -133,7 +133,7 @@ export function composeSessionList(
   );
   const otherKept = otherHits.filter((hit) => !journalKeys.has(rowKeyOf(hit)));
 
-  // ── ONE axis for the workspace track ──────────────────────────────
+  // ── ONE axis for the workspace lane ───────────────────────────────
   // The conversation's last move (the row's `when` — index mtime where
   // known, the journal mark otherwise), newest first. Concatenating the
   // two halves instead would leave journal rows standing by BINDING
@@ -153,7 +153,7 @@ export function composeSessionList(
   // Twins among the LOADED hits are rows the engines counted but this
   // list will never draw twice (the journal draws them, or they are the
   // empty-cwd fall-through) — subtract them from the denominator.
-  // `max` is load-bearing on BOTH tracks, not cosmetics: the engine's
+  // `max` is load-bearing on BOTH lanes, not cosmetics: the engine's
   // type does not promise loaded ≤ total (a shrinking total between
   // pages makes the state reachable — the lower guard pins this shape),
   // and without the floor the invariant numerator ≤ denominator breaks
@@ -169,24 +169,24 @@ export function composeSessionList(
     Math.max(otherTotal, otherHits.length) - otherTwins;
 
   return {
-    workspace: {
+    workspaceLane: {
       rows: workspaceRows,
       shown: workspaceRows.length,
       total: workspaceTotalShown,
     },
-    other: {
+    otherLane: {
       rows: otherKept,
       shown: otherKept.length,
       total: otherTotalShown,
     },
     // The search field's count — the count of THIS LIST, the summary of
-    // its two tracks, not a third track (no rows of its own). Its total
+    // its two lanes, not a third lane (no rows of its own). Its total
     // is a MOVING composite bound: it shifts as pages load, when a late
     // twin lands, and on a new scan; shown ≤ total always, with
-    // equality exactly when both tracks are fully loaded on a stable
+    // equality exactly when both lanes are fully loaded on a stable
     // index snapshot — no fixed "everything there is" is promised. And
-    // it is the sum of THIS composition's tracks, not "everything in
-    // the app": a third track would change the sum here, not at the
+    // it is the sum of THIS composition's lanes, not "everything in
+    // the app": a third lane would change the sum here, not at the
     // consumer. The summands are the COMPOSED numbers only — the twin
     // deductions and the max-floor above are already in them; the
     // engines' raw totals never enter this addition.
