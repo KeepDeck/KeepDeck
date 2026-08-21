@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, memo } from "react";
+import type { ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
@@ -8,6 +9,7 @@ import type { AgentInfo } from "../../domain/agents";
 import type { JoinEntry, SessionRecord } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
+import { SessionRowView } from "./SessionRowView";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -18,6 +20,27 @@ const worktreeIpc = vi.hoisted(() => ({
   ),
 }));
 vi.mock("../../ipc/worktree", () => worktreeIpc);
+
+// The row-render counter for the stability suite: hoisted with the mock
+// that uses it (vi.mock bodies run before describe bodies). The wrapper
+// is MEMOIZED itself — an unwrapped one would defeat the very memo the
+// suite measures (React re-renders non-memo children whenever the
+// parent re-renders, whatever the real component does).
+const stability = vi.hoisted(() => ({
+  rowRenders: vi.fn() as unknown as ReturnType<typeof vi.fn> & {
+    (id: string): void;
+  },
+}));
+vi.mock("./SessionRowView", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./SessionRowView")>();
+    const CountingRow = memo(function CountingRow(
+      props: ComponentProps<typeof SessionRowView>,
+    ) {
+      stability.rowRenders(props.row.sessionId);
+      return createElement(actual.SessionRowView, props);
+    });
+  return { ...actual, SessionRowView: CountingRow };
+});
 
 const CAPABLE_AGENT: AgentInfo = {
   id: "claude",
@@ -1417,6 +1440,108 @@ describe("SessionsBrowser journal join", () => {
     expect(document.querySelector(".browser__turn--user")?.textContent).toBe(
       "back again",
     );
+  });
+});
+
+describe("row render stability — the effect, not the memo", () => {
+  // The contract: with UNCHANGED inputs (same row objects, same
+  // handlers, same clock), an unrelated re-render of the LIST renders
+  // NO row; a landed page renders its new rows and only them. The
+  // witness counts actual SessionRowView RENDER CALLS through a
+  // counting wrapper (test-side; no hooks live in production code) —
+  // the memo's presence proves nothing, the absence of work does.
+  const { rowRenders } = stability;
+
+  let root: Root;
+  beforeEach(() => {
+    rowRenders.mockClear();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  // Stable across the suite's mounts: a fresh [CAPABLE_AGENT] literal
+  // per mount would legitimately invalidate every row (the agents prop
+  // is compared by reference) and drown the effect under test.
+  const AGENTS_STABLE = [CAPABLE_AGENT];
+  const mountBrowser = async (
+    a: SessionsBrowserApi,
+    rows: SessionRecord[],
+    onResume = vi.fn(),
+    onFork = vi.fn(),
+  ) =>
+    act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: AGENTS_STABLE,
+          ready: true,
+          rows,
+          onResume,
+          onFork,
+        }),
+      ),
+    );
+
+  it("an UNRELATED re-render (the viewer opens) renders NO row again", async () => {
+    const a = api(
+      [hit({ sessionId: "g-1" })],
+      {},
+      {
+        "claude:s-1": {
+          kind: "hit",
+          reference: "/store/s-1",
+          title: null,
+          mtime: 1_800_000_000_000,
+        },
+      },
+    );
+    await mountBrowser(a, [
+      closed({ transcriptPath: "/j/s-1" }),
+      closed({ sessionId: "s-2" }),
+    ]);
+    // NOTE: the mount count is the baseline; the ASSERTIONS below count
+    // only the DELTA after it — the honest effect measure.
+    const mounted = rowRenders.mock.calls.length;
+    expect(mounted).toBe(3); // 3 rows, one render each at mount
+
+    // Open the row WITH a read link: the component re-renders for real
+    // (the viewer's own state) — every row input unchanged. ZERO row
+    // renders must follow.
+    rowRenders.mockClear();
+    const openBtn = [...document.querySelectorAll<HTMLButtonElement>(".browser__open")].find(
+      (b) => b.querySelector(".browser__name")?.getAttribute("title") === "s-1",
+    )!;
+    await act(async () => openBtn.click());
+    expect(document.querySelector(".browser__viewer")).not.toBeNull();
+    expect(rowRenders).toHaveBeenCalledTimes(0);
+  });
+
+  it("a landed page renders ONLY its new rows; the old ones render nothing", async () => {
+    // ONE api object, mutated the way the real engine mutates its own
+    // state: a NEW hits array on the same object. Everything else the
+    // rows see keeps identity — exactly a landed page.
+    const journal = [closed(), closed({ sessionId: "s-2" })];
+    const a = api([hit({ sessionId: "g-1" })]);
+    const onResume = vi.fn();
+    const onFork = vi.fn();
+    await mountBrowser(a, journal, onResume, onFork);
+    expect(rowRenders.mock.calls.length).toBe(3); // 3 rows at mount
+
+    rowRenders.mockClear();
+    // The page lands the way the real engine lands it: the OLD hit
+    // objects keep identity, the page APPENDS new ones — a fresh
+    // literal for the old row would legitimately re-render it (its
+    // source changed).
+    const sameG1 = a.other.hits[0];
+    a.other = trackOf(
+      [sameG1, hit({ sessionId: "g-2", title: null })],
+      { total: 2 },
+    );
+    await mountBrowser(a, journal, onResume, onFork);
+    // The old rows render NOTHING (their inputs are unchanged — the
+    // composition reuses their row objects), the new row renders ONCE.
+    expect(rowRenders.mock.calls.map((c) => c[0])).toEqual(["g-2"]);
   });
 });
 

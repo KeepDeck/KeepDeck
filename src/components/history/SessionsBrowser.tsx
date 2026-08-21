@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
@@ -61,8 +61,10 @@ export function WorkspaceSessionsBrowser({
  * spawn dialog's picker shares the same mapping via the domain export). */
 export const hitRecord = handleFromHit;
 
-/** Transcript paging mirrors the list ([F8] virtualized viewer): a viewport
- * fill first, then small increments as scrolling nears the bottom. */
+/** Transcript paging's step sizes (the step strategy of the sessions
+ * step, [F8]): fill the viewport first, then small increments as
+ * scrolling nears the bottom. The viewer is NOT virtualized — it draws
+ * every loaded turn; only its FETCHING is incremental. */
 const FIRST_TURNS = 50;
 const NEXT_TURNS = 20;
 
@@ -231,7 +233,7 @@ export function SessionsBrowser({
       });
   };
 
-  // The transcript pages on scroll too ([F8] virtualized viewer): nearing
+  // The transcript pages on scroll too (fill-then-increment, [F8]): nearing
   // the bottom fetches the next page; the mount-time check below keeps
   // filling while the loaded turns are shorter than the viewer.
   const viewerRef = useRef<HTMLDivElement | null>(null);
@@ -259,8 +261,10 @@ export function SessionsBrowser({
 
   /** Any unified row opens on its read link — the shown link first (a
    * click retries exactly what the row displays), the union chain behind
-   * it for the fall-through. */
-  const openRow = (row: UnifiedSessionRow) => {
+   * it for the fall-through. STABLE: one function for the whole list's
+   * lifetime at this mount — a fresh one per render would re-render
+   * every row that receives it. */
+  const openRow = useCallback((row: UnifiedSessionRow) => {
     if (row.read === null) return;
     openViewer({
       agent: row.agent,
@@ -271,7 +275,9 @@ export function SessionsBrowser({
       tried: 0,
       row,
     });
-  };
+    // openViewer is a stable local over setState/useRef only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const closeViewer = () => {
     viewSeq.current += 1;
@@ -283,23 +289,103 @@ export function SessionsBrowser({
   // — one entry point owning the query predicate, the union, the dedup,
   // the time axis AND the counters (numerator the drawn rows,
   // denominator what the list can draw, twins out): the view feeds it
-  // and draws what it returns, counters included.
-  const composed = composeSessionList({
-    records: rows,
-    query: api.query.trim(),
-    entries: api.enrichment.entries,
-    agentLabel: (agentId) => agents.find((a) => a.id === agentId)?.label,
-    answerMayChange: api.scanning || api.enrichment.pending,
-    workspaceHits: api.workspace.hits.map(rowOfHit),
-    otherHits: api.other.hits.map(rowOfHit),
-    workspaceTotal: api.workspace.total,
-    otherTotal: api.other.total,
-  });
-  const workspaceRows = composed.workspace.rows;
-  const otherRows = composed.other.rows;
+  // and draws what it returns, counters included. MEMOIZED on its
+  // inputs: the row OBJECTS it builds are what every SessionRowView
+  // receives as props — rebuilding them per render would re-render the
+  // whole list for nothing. A landed page changes the hits arrays and
+  // re-builds (correctly); an unrelated re-render (a transcript page
+  // landing, a viewer open) reuses the SAME row objects.
+  const composed = useMemo(
+    () =>
+      composeSessionList({
+        records: rows,
+        query: api.query.trim(),
+        entries: api.enrichment.entries,
+        agentLabel: (agentId) => agents.find((a) => a.id === agentId)?.label,
+        answerMayChange: api.scanning || api.enrichment.pending,
+        workspaceHits: api.workspace.hits.map(rowOfHit),
+        otherHits: api.other.hits.map(rowOfHit),
+        workspaceTotal: api.workspace.total,
+        otherTotal: api.other.total,
+      }),
+    // The hits arrays ride by LENGTH + first/last identity is not
+    // enough (a page may replace contents at the same length); the
+    // arrays themselves are the engines' state — new page, new array.
+    [
+      rows,
+      api.query,
+      api.enrichment.entries,
+      api.enrichment.pending,
+      api.scanning,
+      api.workspace.hits,
+      api.other.hits,
+      api.workspace.total,
+      api.other.total,
+      agents,
+    ],
+  );
+  const workspaceRowsAll = composed.workspace.rows;
+  const otherRowsAll = composed.other.rows;
+
+  // ROW-OBJECT STABILITY: the composition rebuilds every row object on
+  // every recomputation (pure and stateless — correct for the domain),
+  // but a rebuilt OBJECT invalidates the memoized row even when nothing
+  // in it changed. This cache re-issues the PREVIOUS object when the
+  // row's SOURCES are the same references — the journal record + its
+  // enrichment entry for a bound row, the index hit for an index row —
+  // so a landed page re-renders exactly its new rows, and an enrichment
+  // landing re-renders exactly the rows whose answers changed. Bounded
+  // by the distinct keys the list ever showed.
+  const rowCacheRef = useRef(new Map<string, UnifiedSessionRow>());
+  const stabilize = (row: UnifiedSessionRow, source: unknown): UnifiedSessionRow => {
+    const key = rowKeyOf(row);
+    const cached = rowCacheRef.current.get(key) as
+      | (UnifiedSessionRow & { __src?: unknown })
+      | undefined;
+    if (cached !== undefined && cached.__src === source) return cached;
+    const stamped = row as UnifiedSessionRow & { __src?: unknown };
+    stamped.__src = source;
+    rowCacheRef.current.set(key, stamped);
+    return stamped;
+  };
+  // A row's SOURCE PAIR: for a bound row the journal record + its
+  // enrichment entry + the answer's mutability (an answer flips
+  // indexing→settled verdicts; caching across THAT would freeze the
+  // status chip); for an index row the hit object itself.
+  const answerMutable = api.scanning || api.enrichment.pending;
+  const hitByKey = new Map<string, unknown>();
+  for (const h of api.workspace.hits) hitByKey.set(rowKeyOf(h), h);
+  for (const h of api.other.hits) hitByKey.set(rowKeyOf(h), h);
+  const recordByKey = new Map(rows.map((r) => [rowKeyOf(r), r]));
+  const sourceOfKey = (key: string): unknown =>
+    recordByKey.has(key)
+      ? `${String(answerMutable)}:${String(
+          api.enrichment.entries.get(key) === undefined,
+        )}:${String(recordByKey.get(key))}:${String(api.enrichment.entries.get(key))}`
+      : hitByKey.get(key);
+  const workspaceRows = workspaceRowsAll.map((row) =>
+    stabilize(row, sourceOfKey(rowKeyOf(row))),
+  );
+  const otherRows = otherRowsAll.map((row) =>
+    stabilize(row, sourceOfKey(rowKeyOf(row))),
+  );
   const emptyList = workspaceRows.length === 0 && otherRows.length === 0;
 
-  const now = Date.now();
+  // One clock tick for the MOUNT — ages don't tick mid-render, and any
+  // tick tied to the list's growth would invalidate every memoized row
+  // on every landed page (the very cost this stabilization removes).
+  // Age labels therefore go stale within a sitting; the row ages were
+  // already frozen per render before this, and nothing in the product
+  // promises ticking ages. A later step may re-tick on explicit demand.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const now = useMemo(() => Date.now(), []);
+
+  // STABLE action adapters: ONE pair for the whole mount, not one pair
+  // per row per render — the rows receive these as props and re-render
+  // on any identity change. The underlying props are stable refs for
+  // the mount's lifetime in the app's usage.
+  const onResumeRow = useMemo(() => resumeByHandle(onResume), [onResume]);
+  const onForkRow = useMemo(() => forkByHandle(onFork), [onFork]);
   return (
     <div className="browser">
       <h2 className="history__title">Sessions</h2>
@@ -360,8 +446,8 @@ export function SessionsBrowser({
             readFailed={row.readLinks.some((link) => readFailed.has(link))}
             now={now}
             onOpen={openRow}
-            onResume={onResumeByHandle(onResume)}
-            onFork={onForkByHandle(onFork)}
+            onResume={onResumeRow}
+            onFork={onForkRow}
             // The workspace track's own paging anchor: its LAST row. The
             // workspace track must page to its end before the other
             // track's rows begin arriving below.
@@ -377,8 +463,8 @@ export function SessionsBrowser({
             readFailed={row.readLinks.some((link) => readFailed.has(link))}
             now={now}
             onOpen={openRow}
-            onResume={onResumeByHandle(onResume)}
-            onFork={onForkByHandle(onFork)}
+            onResume={onResumeRow}
+            onFork={onForkRow}
           />
         ))}
         {/* The list's TAIL — ONE spinner as the list's LAST element
@@ -448,8 +534,8 @@ export function SessionsBrowser({
               dirMissing={
                 open.row.cwd !== "" && !dirPresent(presence, open.row.cwd)
               }
-              onResume={onResumeByHandle(onResume)}
-              onFork={onForkByHandle(onFork)}
+              onResume={onResumeRow}
+              onFork={onForkRow}
             />
           </div>
           <div
@@ -488,14 +574,16 @@ export function SessionsBrowser({
 }
 
 /** The row view hands back the whole row; the browser's callbacks take the
- * handle — one adapter, defined once, not per row. */
-function onResumeByHandle(
+ * handle. The adapters are STABLE for the mount (useCallback below): a
+ * fresh adapter per row per render would re-render every row for
+ * nothing — the rows receive these as props. */
+function resumeByHandle(
   onResume: (record: SessionHandle) => void,
 ): (row: UnifiedSessionRow) => void {
   return (row) => onResume(row.handle);
 }
 
-function onForkByHandle(
+function forkByHandle(
   onFork: (record: SessionHandle) => void,
 ): (row: UnifiedSessionRow) => void {
   return (row) => onFork(row.handle);

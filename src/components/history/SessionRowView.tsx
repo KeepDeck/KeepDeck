@@ -1,3 +1,4 @@
+import { memo, useCallback } from "react";
 import { agentSessionCapabilities, type AgentInfo } from "../../domain/agents";
 import type { RowStatus, UnifiedSessionRow } from "../../domain/journal";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
@@ -86,6 +87,22 @@ export function SessionRowActions({
   const bound = row.kind === "bound" ? row : null;
   const index = row.kind === "index" ? row : null;
   const wrongOwner = bound?.status === "wrong-owner";
+  // STABLE per row-object: the row is a memoized composition output,
+  // so these closures do not churn across unrelated re-renders.
+  const handleResumeClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onResume(row);
+    },
+    [onResume, row],
+  );
+  const handleForkClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onFork(row);
+    },
+    [onFork, row],
+  );
   return (
     // ONE group — a single grid cell in the row (and one child of the
     // viewer bar). Two loose buttons would take two cells: the grid's
@@ -110,10 +127,7 @@ export function SessionRowActions({
                 ? "The session has no recorded directory"
                 : `Resume in ${row.cwd}`
           }
-          onClick={(e) => {
-            e.stopPropagation();
-            onResume(row);
-          }}
+          onClick={handleResumeClick}
         >
           Resume
         </button>
@@ -123,10 +137,7 @@ export function SessionRowActions({
           type="button"
           className="history__fork"
           title="Fork — a new conversation continuing from this session"
-          onClick={(e) => {
-            e.stopPropagation();
-            onFork(row);
-          }}
+          onClick={handleForkClick}
         >
           Fork
         </button>
@@ -136,13 +147,20 @@ export function SessionRowActions({
 }
 
 /**
- * The ONE row component both sessions blocks render. The blocks differ by
- * which side of the workspace boundary a session sits on — never by
+ * The ONE row component both sessions tracks render. The tracks differ
+ * by which side of the workspace boundary a session sits on — never by
  * markup: the skeleton (glyph, name+snippet, actions, the meta line) is
  * this component, and a source's silence is an empty meta part, not a
  * different template. The serialization guard in the suite pins that.
+ *
+ * MEMOIZED on its props: the list renders hundreds of these, and every
+ * prop is stable across unrelated re-renders (row objects, action
+ * adapters and `now` are memoized upstream) — so a landed page draws
+ * its NEW rows and skips the old ones entirely. The memo compares by
+ * prop identity; `rowRef` rides a stable ref object, `dirMissing` and
+ * `readFailed` are primitives.
  */
-export function SessionRowView({
+export const SessionRowView = memo(function SessionRowView({
   row,
   agents,
   dirMissing,
@@ -157,6 +175,17 @@ export function SessionRowView({
   const {
     history: canReadHistory,
   } = agentSessionCapabilities(agents, row.agent);
+  // STABLE handlers: `row` is a memoized object (the composition's own
+  // output), so these closures survive every unrelated re-render — the
+  // memo above then skips this row entirely. (The ACTIONS carry their
+  // own stable pair inside SessionRowActions.)
+  const handleOpenClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onOpen(row);
+    },
+    [onOpen, row],
+  );
   // Narrowing by the row's OWN source: the verdict chips, the branch and
   // the liveness dot are BOUND-row facts (the journal vouches for them);
   // the snippet is an INDEX-row fact (a content match). Reading each
@@ -204,10 +233,7 @@ export function SessionRowView({
         className="browser__open"
         disabled={!openable}
         title={openable ? "Read this session" : undefined}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (openable) onOpen(row);
-        }}
+        onClick={handleOpenClick}
       >
         <span className="browser__name" title={row.sessionId}>
           {name}
@@ -259,4 +285,4 @@ export function SessionRowView({
       </span>
     </li>
   );
-}
+});
