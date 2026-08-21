@@ -1802,6 +1802,57 @@ describe("virtualized list — the window, not the pile", () => {
     expect(document.activeElement).not.toBe(list);
   });
 
+  it("D-order: focus IN a row, then OUT of the list, then the row dies, then focus falls to body — the list STILL does not steal", async () => {
+    // The stale-memory hole the review found: the remembered element
+    // was never cleared when the user LEFT the list; the row's later
+    // removal + focus drifting to body would fire the transfer and
+    // YANK focus back uninvited. The order witness: focus in a row
+    // that will DIE (its key leaves the queue on the next landing) →
+    // focus lands outside the list (a REAL move: relatedTarget set —
+    // this is what must clear the memory) → the queue shrinks, the
+    // row's node is removed, focus ends in body — the transfer's two
+    // RAW conditions both hold — yet nothing fires, because the
+    // memory was cleared by the real move. A removal-fired focusout
+    // (null relatedTarget) must NOT clear — that branch belongs to
+    // the observer; the stand dispatches the moves explicitly
+    // (happy-dom fires no focus events on .focus()).
+    const a = api([], {
+      other: trackOf(manyHits(30, "g"), { total: 100, hasMore: true, loadMore: vi.fn() }),
+    });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    const openBtns = () =>
+      [...document.querySelectorAll<HTMLButtonElement>(".browser__open")];
+    // Focus the LAST row's button — its key leaves on the shrink.
+    const dyingBtn = openBtns()[openBtns().length - 1];
+    dyingBtn.focus();
+    expect(document.activeElement).toBe(dyingBtn);
+
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    await act(async () => {
+      dyingBtn.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    await act(async () => {
+      outside.focus();
+      dyingBtn.dispatchEvent(
+        new FocusEvent("focusout", { bubbles: true, relatedTarget: outside }),
+      );
+    });
+    expect(document.activeElement).toBe(outside);
+
+    // The queue SHRINKS (the focused row's node is removed by key),
+    // focus drifts to body — the raw transfer conditions — the
+    // memory must have been cleared by the real move above.
+    outside.remove();
+    a.other = trackOf(manyHits(10, "g"), { total: 10, hasMore: false, loadMore: vi.fn() });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(document.activeElement).toBe(document.body);
+    expect(document.activeElement).not.toBe(list);
+  });
+
   it("C-integration: the anchor lookup runs over the FULL QUEUE — the watched row is FOUND and HELD, not misread as vanished", async () => {
     // The stand-honest integration: the correction runs on the REAL
     // component. The watched row g-0 sits at the viewport top

@@ -613,9 +613,27 @@ export function SessionsBrowser({
       focusedElRef.current =
         target?.closest?.(".history__row") ? target : null;
     };
+    // LEAVING the list clears the memory — but ONLY on a REAL move:
+    // focusout's relatedTarget tells where focus went; when a node is
+    // REMOVED there may be no focusout at all (that is why the
+    // observer below exists), and a removal-fired focusout carries a
+    // null relatedTarget WITHOUT the user having gone anywhere. So:
+    // clear only when focus verifiably LANDED outside the list; a
+    // null relatedTarget (removal, or engine silence) leaves the
+    // memory for the observer to act on. Without this, a stale
+    // remembered element (user tabbed away, list never knew) would
+    // fire the transfer on a LATER mutation and yank focus back.
+    const onFocusOut = (e: FocusEvent) => {
+      const wentTo = e.relatedTarget as HTMLElement | null;
+      if (wentTo && !list.contains(wentTo)) {
+        focusedElRef.current = null;
+      }
+    };
     list.addEventListener("focusin", onFocusIn);
+    list.addEventListener("focusout", onFocusOut);
     return () => {
       list.removeEventListener("focusin", onFocusIn);
+      list.removeEventListener("focusout", onFocusOut);
       focusedElRef.current = null;
     };
   }, []);
