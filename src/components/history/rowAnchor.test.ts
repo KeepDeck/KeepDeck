@@ -67,4 +67,23 @@ describe("rowAnchor — the insertion-above correction", () => {
     const { delta } = anchorCorrection(after, 320, prev);
     expect(delta).toBe(10);
   });
+
+  it("NOT MEASURED is not VANISHED: a key present in the queue whose position the map does not yield shifts NOTHING and re-anchors", () => {
+    // The empty-measurements state of the live effect (first open,
+    // before any measure): the key IS in the queue — its absence from
+    // the position map is the map's youth, not the row's death.
+    // Treating "no position" as "no key" would hand the anchor to an
+    // inserted row and restore the jump. The pure form: rows WITHOUT
+    // the anchor key but the key known-present → delta 0, re-anchor.
+    // (anchorCorrection sees the rows it is given; the live effect
+    // feeds it the window and pre-checks the FULL queue — this pins
+    // the contract of that pre-check: missing-from-map must reach the
+    // re-anchor branch, never be read as vanished.)
+    const prev = { key: "g-5", offset: 40 };
+    // The map yields nothing at/below the scroll top: an empty window.
+    const emptyMap: AnchorRow[] = [];
+    const { delta, next } = anchorCorrection(emptyMap, 320, prev);
+    expect(delta).toBe(0); // no shift — the scroll is untouched
+    expect(next.key).toBeNull(); // re-anchored, not vanished-jumped
+  });
 });
