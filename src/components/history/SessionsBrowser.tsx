@@ -338,7 +338,8 @@ export function SessionsBrowser({
   // enrichment entry + the answer's mutability (an answer flips
   // indexing→settled verdicts; caching across THAT would freeze the
   // status chip); for an index row the hit object itself. MEMOIZED on
-  // the REAL sources — a clock tick (or any unrelated state) must not
+  // the REAL sources — an unrelated state change (the clock's own tick
+  // included) must not
   // rebuild these maps or the stabilized arrays below, or "the tick
   // only touches the visible rows" would be a promise, not a fact.
   const answerMutable = api.scanning || api.enrichment.pending;
@@ -466,6 +467,9 @@ export function SessionsBrowser({
   // — the browser moved to the virtual range, the picker kept the
   // former.) The thresholds count DATA rows only: the tail's spinner
   // and error line are NOT part of the queue, never in the arithmetic.
+  // HONEST LIMIT: the stand's pinned sizes prove the threshold
+  // ARITHMETIC (which engine, how far, how often); whether 40 rows
+  // feels early enough in a live fling is the user's eye, not ours.
   const maybeLoadBoth = useCallback(() => {
     if (lastVisibleIndex < 0) return;
     // The workspace track's tail asks ONLY its own engine.
@@ -540,6 +544,13 @@ export function SessionsBrowser({
   // focus fell to body, it lands on the list. This covers the
   // fling-past-overscan unmount the range effect can miss in one
   // commit.
+  //
+  // ENGINE CAVEAT, honestly open: whether THIS engine (WebKit) fires
+  // focusout for a removed node — which would make the observer's case
+  // unreachable here — was NOT verified: checking requires a live run,
+  // and this work's stand cannot answer it. Until verified, the
+  // observer is a deliberate cross-engine belt, not dead code; if a
+  // live run proves focusout fires, mark this layer accordingly.
   useEffect(() => {
     const list = listRef.current;
     if (!list || typeof MutationObserver === "undefined") return;
