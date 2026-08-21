@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentInfo } from "../../domain/agents";
 import {
@@ -12,11 +12,12 @@ import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSessionsBrowser, type BrowserSharedSeam } from "../../app/useSessionsBrowser";
 import { SessionRowView } from "./SessionRowView";
-import { SessionViewer, type ViewerTarget } from "./browser/SessionViewer";
+import { SessionViewer } from "./browser/SessionViewer";
 import { useSessionListComposition } from "./browser/useSessionListComposition";
 import { useRowAnchoring } from "./browser/useRowAnchoring";
 import { BrowserSearchStatus } from "./browser/BrowserSearchStatus";
 import { useBrowserClock } from "./browser/useBrowserClock";
+import { useSessionOpening } from "./browser/useSessionOpening";
 
 interface SessionsBrowserProps {
   api: SessionsBrowserApi;
@@ -81,11 +82,14 @@ export function SessionsBrowser({
   onResume,
   onFork,
 }: SessionsBrowserProps) {
-  const [open, setOpen] = useState<ViewerTarget | null>(null);
-  /** Rows whose LAST read by link fell. The row stays and stays
-   * openable — a retry is legitimate — but the failure is named on the
-   * row, as itself and never as "nothing to read". */
-  const [readFailed, setReadFailed] = useState<ReadonlySet<string>>(new Set());
+  const {
+    open,
+    readFailed,
+    setReadFailed,
+    viewSeq,
+    openRow,
+    closeViewer,
+  } = useSessionOpening();
   // Resume needs a live original directory — same gate for both
   // lanes. The cwd LIST is memoized on the real sources: the hook's
   // own fingerprint dedup keeps the effect from re-probing, but the
@@ -102,10 +106,6 @@ export function SessionsBrowser({
   );
   const presence = useDirPresence(presenceCwds);
   const now = useBrowserClock();
-  // Orders transcript responses: a stale page must never render under a
-  // newer row's header (the search path has searchSeq; this is its twin).
-  const viewSeq = useRef(0);
-
   // The browser DECLARES its need for a fresh index; when the scan runs is
   // the sessionIndexManager's call (it also waits for plugin registration
   // on its own — this gate mirrors the surface's own readiness shape). The
@@ -130,36 +130,6 @@ export function SessionsBrowser({
   // they read the stabilized queue.
   const listRef = useRef<HTMLUListElement | null>(null);
   const PAGE_AHEAD = 40;
-
-  const openViewer = (target: ViewerTarget) => {
-    viewSeq.current += 1;
-    setOpen(target);
-  };
-
-  /** Any unified row opens on its read link — the shown link first (a
-   * click retries exactly what the row displays), the union chain behind
-   * it for the fall-through. STABLE: one function for the whole list's
-   * lifetime at this mount — a fresh one per render would re-render
-   * every row that receives it. */
-  const openRow = useCallback((row: UnifiedSessionRow) => {
-    if (row.read === null) return;
-    openViewer({
-      agent: row.agent,
-      sessionId: row.sessionId,
-      reference: row.read.reference,
-      title: row.title ?? null,
-      fallbacks: row.readLinks,
-      tried: 0,
-      row,
-    });
-    // openViewer is a stable local over setState/useRef only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const closeViewer = () => {
-    viewSeq.current += 1;
-    setOpen(null);
-  };
 
   const { workspaceRows, otherRows, listCount, emptyList } =
     useSessionListComposition({ api, agents, rows });
