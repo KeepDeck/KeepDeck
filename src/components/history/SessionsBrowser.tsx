@@ -586,30 +586,30 @@ export function SessionsBrowser({
     };
   }, []);
   // The transfer: a REMOVED focused node fires no focusout in every
-  // engine, so removals are watched; the transfer lands ONLY when the
-  // REMOVED subtree contained the remembered focused element AND the
-  // browser already dropped focus to body (someone else may have
-  // taken it — then it is not ours to move).
+  // engine, so removals are watched. The transfer lands ONLY when BOTH
+  // hold: the removed subtree contained the REMEMBERED focused
+  // element (a focusin-remembered node of a row — an ordinary scroll
+  // that never focused a row transfers NOTHING), AND the browser
+  // already dropped focus to body (another target means the user
+  // moved on — not ours to move). This is CONDITIONAL by
+  // construction; the first cut here focused the list on any mutation
+  // with focus in body and stole focus from plain mouse scrolls —
+  // pinned by the negative witness in the suite.
   useEffect(() => {
     const list = listRef.current;
     if (!list || typeof MutationObserver === "undefined") return;
-    const observer = new MutationObserver((mutations) => {
+    const observer = new MutationObserver(() => {
       const remembered = focusedElRef.current;
-      if (!remembered || !remembered.isConnected) {
-        // The focused element left the tree: this is our case, and
-        // only if focus fell to body — another target means the user
-        // moved on.
-        if (!remembered && document.activeElement === document.body) {
-          void mutations;
-          return; // nothing was remembered — nothing to transfer
-        }
-        if (remembered && document.activeElement === document.body) {
-          list.focus({ preventScroll: true });
-          focusedElRef.current = null;
-        }
-        return;
+      if (
+        remembered &&
+        !remembered.isConnected &&
+        document.activeElement === document.body
+      ) {
+        list.focus({ preventScroll: true });
+        focusedElRef.current = null;
       }
-      // Still connected: no transfer on any unrelated mutation.
+      // Anything else — nothing remembered, still connected, focus
+      // elsewhere — is not a transfer case.
     });
     observer.observe(list, { childList: true, subtree: true });
     return () => observer.disconnect();
@@ -625,8 +625,14 @@ export function SessionsBrowser({
   // this component, every input the tick would have walked for
   // nothing (the measurement key callback, the presence cwd list, the
   // stabilized arrays) is memoized on its real sources, or the tick
-  // would re-walk the whole queue through the library's memo. The
-  // CONTRACT (the circle's, not a guess): lag up to one minute is
+  // would re-walk the whole queue through the library's memo.
+  // HONEST SCOPE of "only the visible": the ROWS in the markup are
+  // only the visible; the presence pass over its inputs is memoized
+  // away per unrelated render — but when the inputs DO change, that
+  // pass runs over all of them, visible or not. Not rounded in our
+  // favor: the queue walk is gone, the input walk on real changes
+  // remains.
+  // The CONTRACT (the circle's, not a guess): lag up to one minute is
   // accepted (the label is coarse anyway); a hidden window does not
   // count time (the interval pauses on document.hidden); on the
   // window's return the tick fires
