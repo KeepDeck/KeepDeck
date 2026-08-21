@@ -72,6 +72,12 @@
   grid-template-columns: 16px minmax(0, 1fr) auto;
   column-gap: 10px;
   row-gap: 4px;
+  /* The virtualized row is absolutely positioned with width:100%; the
+   * app sets NO global border-box, so without this the 100% is the
+   * CONTENT box and the row's own horizontal padding pushes it past
+   * the container's right edge — by exactly the padding, clipping the
+   * action buttons' right edge on EVERY row. */
+  box-sizing: border-box;
   /* CENTER, not start: the title, the glyph and the action buttons
    * share row 1 — with `start` the taller buttons hung BELOW the title
    * line (their center ~5px low, at the metadata's level) and the row

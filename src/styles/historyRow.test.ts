@@ -29,6 +29,12 @@ describe("history data row layout contract", () => {
     // CENTER, not start: title and buttons share row 1's line — start
     // hung the taller buttons below the title (the user's screenshot).
     expect(rule["align-items"]).toBe("center");
+    // BORDER-BOX: the virtualized row is absolute with width:100%; the
+    // app has NO global border-box, so a content-box row overflows the
+    // container by its own padding and clips the buttons' right edge
+    // on every row (the user's screenshot — the regression the
+    // virtualization step introduced).
+    expect(rule["box-sizing"]).toBe("border-box");
   });
 
   it("the glyph rides row 1 centered with the title; the meta sits in the name's column at its own width", () => {
