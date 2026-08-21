@@ -453,7 +453,7 @@ describe("SessionsBrowser", () => {
     expect(document.querySelector(".browser__count")?.textContent).toBe("2");
   });
 
-  // ── Commit-2 guards: the counters count what the block DRAWS ────────
+  // ── Commit-2 guards: the counters count what the lanes DRAW ────────
 
   it("C1-top: the workspace numerator includes journal rows; no 'shown > total' nonsense", async () => {
     // Journal-only composition: 2 records, zero index hits — the counter
