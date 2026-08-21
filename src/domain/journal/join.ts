@@ -44,7 +44,7 @@ export interface JoinedRow {
   record: SessionRecord;
   /** Display title: the record's own MEANINGFUL title, else the index's.
    * Undefined when neither has one — the row then shows its SESSION ID
-   * (the component's one fallback, both blocks alike: the last prop must
+   * (the component's one fallback, both sources alike: the last prop must
    * DISTINGUISH, and the agent is already the glyph). A title EQUAL to
    * the agent's label is not a name; it is the fallback that got frozen
    * into the journal. */

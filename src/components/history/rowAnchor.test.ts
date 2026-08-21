@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickAnchor, type AnchorRow } from "./rowAnchor";
+import { pickAnchor, type AnchorRow, type AnchorState } from "./rowAnchor";
 
 // The anchor's CHOICE, verified directly — numbers, not pixels. The
 // stand computes no geometry; the compensation half (getOffsetForIndex
@@ -10,6 +10,14 @@ import { pickAnchor, type AnchorRow } from "./rowAnchor";
 // its KEY does not.
 describe("rowAnchor — the anchor's choice", () => {
   const row = (key: string, start: number): AnchorRow => ({ key, start });
+
+  it("uses the ref's null sentinel as the only unarmed state", () => {
+    const armed: AnchorState = { key: "g-5", offset: 12 };
+    expect(armed).toEqual({ key: "g-5", offset: 12 });
+    // @ts-expect-error An armed anchor always has a key; absence belongs to the ref.
+    const impossible: AnchorState = { key: null, offset: 123 };
+    expect(impossible).toBeDefined();
+  });
 
   it("the anchor is the first FULLY visible row by KEY — never an overscan row above", () => {
     // scrollTop 320; overscan rows at 128/192 sit ABOVE the viewport.

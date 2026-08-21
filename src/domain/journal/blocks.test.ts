@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { JoinEntry } from "./join";
 import type { SessionRecord } from "./sessionLog";
-import { composeSessionList } from "./blocks";
+import { composeSessionList } from "./session-list";
 import { rowKeyOf, rowOfHit, type UnifiedSessionRow } from "./sessionRow";
 
 const T0 = 1_000;

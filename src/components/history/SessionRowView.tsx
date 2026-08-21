@@ -124,7 +124,7 @@ export function SessionRowActions({
     <span className="history__actions">
       {/* The Resume gate, source-aware: a BOUND row resumes unless it is
        * live right now; an INDEX row has no liveness fact AT ALL and
-       * resumes — most of the bottom block's rows are exactly this. */}
+       * resumes — most rows from the other source are exactly this. */}
       {supportsResume &&
       !wrongOwner &&
       (index !== null || bound?.liveness !== "live") && (
@@ -308,7 +308,7 @@ export const SessionRowView = memo(function SessionRowView({
         {readFailed && (
           <span
             className="history__meta-mark history__meta-mark--err"
-            title="Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate."
+            title="Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate"
           >
             read failed
           </span>

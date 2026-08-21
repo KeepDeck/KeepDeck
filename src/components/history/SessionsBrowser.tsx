@@ -72,6 +72,7 @@ export const hitRecord = handleFromHit;
  * every loaded turn; only its FETCHING is incremental. */
 const FIRST_TURNS = 50;
 const NEXT_TURNS = 20;
+const OVERSCAN_ROWS = 6;
 
 /** What the transcript viewer reads — one row's read link, whichever list
  * the row came from (a journal row or an index hit). Carries the row
@@ -96,10 +97,9 @@ interface ViewerTarget {
 /**
  * The empty-workspace sessions surface ([F8]): ONE list with the search bar
  * on top. The workspace's own journal pins first — the sessions that ran
- * here — below a divider every other session of every agent store,
- * searchable by content and title. Both blocks render the SAME row
- * component: the blocks differ by which side of the workspace boundary a
- * session sits on, never by markup. Search hits only the Rust index;
+ * here — followed by every other session from every agent store. The two
+ * search engines provide that order, while the queue renders one row
+ * component for every source. Search hits only the Rust index;
  * opening a row reads the transcript live through the owning plugin. Resume
  * runs in the session's ORIGINAL directory; Fork picks a new home.
  */
@@ -394,7 +394,7 @@ export function SessionsBrowser({
     count: queue.length,
     getScrollElement: () => listRef.current,
     estimateSize: () => 72,
-    overscan: 6,
+    overscan: OVERSCAN_ROWS,
     // NAMED, NOT FIXED — the React "flushSync was called from inside a
     // lifecycle method" warning on virtualization/focus/anchor
     // scenarios: the MECHANISM is the library's (its adapter's
@@ -458,9 +458,9 @@ export function SessionsBrowser({
   // queue array supplies the key's index. The vanished/not-yet-
   // measured branch holds the offset and re-arms.
   const anchorRef = useRef<AnchorState | null>(null);
-  // (declared here, RUNS below lastVisibleIndex — the effects read it)
+  // (declared here, RUNS below lastVirtualIndex — the effects read it)
   const virtualItems = rowVirtualizer.getVirtualItems();
-  const lastVisibleIndex = virtualItems.length
+  const lastVirtualIndex = virtualItems.length
     ? virtualItems[virtualItems.length - 1].index
     : -1;
   // COMPENSATION FIRST, arming second — declaration order is the run
@@ -482,7 +482,7 @@ export function SessionsBrowser({
     queueRef.current = queue;
     if (prevQueue === queue) return; // not a queue change — never act
     const prev = anchorRef.current;
-    if (prev === null || prev.key === null) return;
+    if (prev === null) return;
     const scrollTop = list.scrollTop;
     const nextIndex = queue.findIndex((r) => rowKeyOf(r) === prev.key);
     if (nextIndex >= 0) {
@@ -525,7 +525,7 @@ export function SessionsBrowser({
       start: v.start,
     }));
     const prev = anchorRef.current;
-    if (prev !== null && prev.key !== null) {
+    if (prev !== null) {
       const still = windowRows.find((r) => r.key === prev.key);
       if (still) {
         anchorRef.current = { key: prev.key, offset: still.start - list.scrollTop };
@@ -533,12 +533,11 @@ export function SessionsBrowser({
       }
     }
     const first = pickAnchor(windowRows, list.scrollTop);
-    anchorRef.current = {
-      key: first ? first.key : null,
-      offset: first ? first.start - list.scrollTop : 0,
-    };
+    anchorRef.current = first
+      ? { key: first.key, offset: first.start - list.scrollTop }
+      : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listRef.current?.scrollTop, lastVisibleIndex]);
+  }, [listRef.current?.scrollTop, lastVirtualIndex]);
   // ONE measure callback for the whole list — a fresh arrow per row
   // would ride the props and fell every row's memo on every parent
   // render. measureElement resolves the row by its data-index, so the
@@ -567,22 +566,22 @@ export function SessionsBrowser({
   // ARITHMETIC (which engine, how far, how often); whether 40 rows
   // feels early enough in a live fling is the user's eye, not ours.
   const maybeLoadBoth = useCallback(() => {
-    if (lastVisibleIndex < 0) return;
+    if (lastVirtualIndex < 0) return;
     // The workspace track's tail asks ONLY its own engine.
     if (api.workspace.hasMore && workspaceRows.length > 0) {
-      if (workspaceRows.length - 1 - lastVisibleIndex <= PAGE_AHEAD) {
+      if (workspaceRows.length - 1 - lastVirtualIndex <= PAGE_AHEAD) {
         api.workspace.loadMore();
       }
     }
-    // The list's overall tail asks ONLY the other engine.
+    // The list's tail asks ONLY the other engine.
     if (api.other.hasMore) {
-      if (queue.length - 1 - lastVisibleIndex <= PAGE_AHEAD) {
+      if (queue.length - 1 - lastVirtualIndex <= PAGE_AHEAD) {
         api.other.loadMore();
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    lastVisibleIndex,
+    lastVirtualIndex,
     api.workspace.hasMore,
     api.workspace.loadMore,
     api.other.hasMore,
@@ -599,8 +598,9 @@ export function SessionsBrowser({
   // UNMOUNTED (scrolled out of the window), focus fell to <body> — the
   // tab walk restarts at the page top and the keyboard context is lost.
   // The transfer lands focus on the LIST CONTAINER: the walk's place is
-  // kept, the next Tab enters the nearest visible row. The overscan
-  // covers stepping; this covers the fling past it. Asymmetry argument
+  // kept, the next Tab enters the nearest visible row. The overscan buffer
+  // (`OVERSCAN_ROWS` rows) covers stepping; this covers the fling past it.
+  // Asymmetry argument
   // (the circle's): the unmount-with-focus case is rare, while a lost
   // focus on every focused scroll would meet the same person
   // constantly.
@@ -800,7 +800,7 @@ export function SessionsBrowser({
         // KEEPS the place (the next Tab enters the nearest visible
         // row), while body would restart the walk at the page top.
         // Choosing a NEIGHBORING row was rejected as guessing intent
-        // (up or down?). The overscan buffer (6 rows) covers ordinary
+        // (up or down?). The overscan buffer (`OVERSCAN_ROWS` rows) covers ordinary
         // stepping; this transfer covers the fling that jumps past it.
         tabIndex={-1}
         // The virtual window's SPACER is the list itself: its height is

@@ -278,9 +278,9 @@
 }
 
 /* Rows with a read link are clickable (they open the transcript); rows
- * without one and the status rows (the section label, empty placeholder,
- * loading tail) are not. One rule for BOTH blocks — the row component is
- * one. */
+ * without one and the status rows (the list label, empty placeholder,
+ * loading tail) are not. One rule for the complete list — the row component
+ * is one. */
 .browser__list .history__row.history__row--open {
   cursor: pointer;
 }

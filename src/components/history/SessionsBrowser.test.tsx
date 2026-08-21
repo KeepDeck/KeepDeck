@@ -783,7 +783,7 @@ describe("SessionsBrowser journal section", () => {
 
   it("the × is gone — a journal row has no way out of the list", async () => {
     // The "forget" glyph promised deletion it never performed (the
-    // conversation stayed on disk and in All sessions), and it let the
+    // conversation stayed on disk and in the session list), and it let the
     // journal of WHAT RAN HERE be edited by hand — silence is the
     // filtering this step forbids. Wrong-owner rows answer with their
     // status instead.
@@ -1182,7 +1182,7 @@ describe("SessionsBrowser journal join", () => {
   it("a journal record whose index twin has an EMPTY cwd: rides the queue once, ahead of every other row", async () => {
     // Twelve live rows hit exactly this: their index rows carry no cwd,
     // never match any Only-set, and would fall through to Except —
-    // doubling a row the top block already shows. The dedup is by
+    // doubling a row already shown earlier in the list. The dedup is by
     // journal KEY, wherever the twin's cwd falls (or doesn't).
     const a = api([], {
       workspace: trackOf([hit({ sessionId: "s-1", cwd: "", reference: "/store/s-1" })]),
@@ -1427,7 +1427,7 @@ describe("SessionsBrowser journal join", () => {
     // The chip's title is EXACTLY the generic observation — no causal
     // story about files; a non-file cause must produce the same text.
     expect(chip?.getAttribute("title")).toBe(
-      "Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate.",
+      "Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate",
     );
     expect(row.textContent).not.toContain("nothing to read");
     expect(document.querySelector(".browser__viewer")?.textContent).toContain(
@@ -2418,7 +2418,7 @@ describe("unified row guard — both blocks, one markup", () => {
   it("GREEN-THROUGH: an INDEX row at a resume-capable agent KEEPS its Resume button", async () => {
     // The union-narrowing trap: the natural-looking rewrite of the Resume
     // gate ("bound and not live") would silently strip the button from
-    // EVERY index row — the bottom block's rows, which are exactly the
+    // EVERY index row — rows from the search source, which are exactly the
     // sessions Resume exists for. An index row has no liveness fact AT
     // ALL; absence of the fact is not aliveness. This guard is green
     // before AND after by design — its job is to keep the regression

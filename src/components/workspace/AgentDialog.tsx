@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   agentRemoteSchemes,
   agentSessionCapabilities,
@@ -288,9 +288,11 @@ export function AgentDialog({
   }, [agentType]);
 
   // Resume needs the session's directory alive — same gate as the browser.
-  const presence = useDirPresence(
-    startMode === "resume" ? sessions.map((s) => s.handle.cwd) : [],
+  const presenceCwds = useMemo(
+    () => (startMode === "resume" ? sessions.map((s) => s.handle.cwd) : []),
+    [startMode, sessions],
   );
+  const presence = useDirPresence(presenceCwds);
   // Which sessions an OUTSIDE process holds, asked once per agent while a
   // resume picker is open — a second wave, never a delay to opening (the
   // registry costs a CLI spawn; the branch list arrives the same way).

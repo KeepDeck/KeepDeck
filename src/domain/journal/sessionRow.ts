@@ -61,9 +61,9 @@ export interface IndexSessionRow extends SessionRowBase {
   snippet: string | null;
 }
 
-/** The ONE row shape both sessions blocks render, as a union over the
- * source — the second half of the step's requirement: the blocks differ
- * by WHICH side of the boundary a session sits, never by markup, and a
+/** The ONE row shape all session sources render, as a union over the
+ * source — the second half of the step's requirement: sources differ by
+ * WHICH side of the boundary a session sits, never by markup, and a
  * source's silence is an empty cell, not a different template. The
  * union removes the IMPOSSIBLE crosses BETWEEN sources (a bound row
  * with a snippet, an index row with liveness); the honest emptinesses

@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentDialog } from "./AgentDialog";
+import * as dirPresenceModule from "../history/useDirPresence";
 import { createSessionIndexManager } from "../../app/sessionIndexManager";
 import type {
   AgentDialogResult,
@@ -672,6 +673,24 @@ describe("AgentDialog start-from session picker", () => {
         session: { mode: "resume", handle: { sessionId: "s-live" } },
       },
     ]);
+  });
+
+  it("keeps the directory source array stable when the picker re-renders", async () => {
+    const presenceSpy = vi.spyOn(dirPresenceModule, "useDirPresence");
+    await mount();
+    act(() => modeBtn("Resume").click());
+    await settleSessions();
+
+    const first = presenceSpy.mock.calls[presenceSpy.mock.calls.length - 1]?.[0];
+    expect(first).toEqual(["/repo/wt", "/gone", "/repo/wt"]);
+
+    // Re-render with the same session result. The hook is called again, but
+    // its input must remain the same array: no filter → Set → sort walk is
+    // allowed for an unrelated dialog render.
+    await mount();
+    const second = presenceSpy.mock.calls[presenceSpy.mock.calls.length - 1]?.[0];
+    expect(second).toBe(first);
+    presenceSpy.mockRestore();
   });
 
   it("un-resumable rows are dimmed with the reason, and picking one keeps Create gated", async () => {

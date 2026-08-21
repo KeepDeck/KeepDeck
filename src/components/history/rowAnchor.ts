@@ -38,8 +38,8 @@ export interface AnchorRow {
   start: number;
 }
 
-export interface AnchorState {
-  key: string | null;
+export type AnchorState = {
+  key: string;
   /** The anchor's offset from the scroll top when last seen. */
   offset: number;
 }

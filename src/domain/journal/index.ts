@@ -34,4 +34,4 @@ export {
   journalRecordMatches,
   type ComposedTrack,
   type ComposeSessionListInput,
-} from "./blocks";
+} from "./session-list";
