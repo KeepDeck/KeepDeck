@@ -374,9 +374,13 @@ export function SessionsBrowser({
   // One clock tick for the MOUNT — ages don't tick mid-render, and any
   // tick tied to the list's growth would invalidate every memoized row
   // on every landed page (the very cost this stabilization removes).
-  // Age labels therefore go stale within a sitting; the row ages were
-  // already frozen per render before this, and nothing in the product
-  // promises ticking ages. A later step may re-tick on explicit demand.
+  // THE NAMED COST, not a side effect: this FREEZE is real. Before, the
+  // tick refreshed incidentally on any re-render; now a row opened for
+  // an hour says "2m ago" for that hour. Fine for "5d ago"; wrong-
+  // looking for minutes-scale labels. Once the list is virtualized, a
+  // SLOW tick (once a minute) would repaint only the visible rows and
+  // cost almost nothing — whether to add it is an open question for the
+  // next step's review, deliberately not decided here.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), []);
 
