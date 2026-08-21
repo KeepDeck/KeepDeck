@@ -395,6 +395,18 @@ export function SessionsBrowser({
     getScrollElement: () => listRef.current,
     estimateSize: () => 72,
     overscan: 6,
+    // NAMED, NOT FIXED — the React "flushSync was called from inside a
+    // lifecycle method" warning on virtualization/focus/anchor
+    // scenarios: the MECHANISM is the library's (its adapter's
+    // onChange rerender, useFlushSync=true by default), the TRIGGER is
+    // ours (measure() from the layout effects below). The switch
+    // exists (useFlushSync: false) and is DELIBERATELY untouched: the
+    // sync rerender exists to kill flicker on measurement and
+    // correction — flipping it would trade a VISIBLE property for a
+    // quiet console. The warning stays NAMED, not silenced; its cost
+    // is a devtools log line, not anything user-facing. If it ever
+    // truly matters, the change must come WITH a flicker measurement,
+    // not blind.
     // STABLE from the stable queue: the library's measurements memo
     // keys on this callback's REFERENCE — a fresh inline arrow per
     // render (the minute tick included) dropped the memo and walked
