@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
@@ -427,52 +427,52 @@ export function SessionsBrowser({
       void instance;
     },
   });
-  // The insertion-above correction (see the virtualizer comment): the
-  // decision arithmetic lives PURE in rowAnchor.ts (pickAnchor,
-  // anchorCorrection) — verified by the stand directly, numbers not
-  // pixels; this effect applies its verdict to the scroll.
+  // The insertion-above correction — TWO SEPARATE EFFECTS, never one:
+  // ARMING remembers the first fully visible row and its offset (it
+  // runs on RANGE changes — ordinary scrolling re-arms, that is the
+  // point); COMPENSATION shifts the scroll and runs ONLY on QUEUE
+  // changes (a landed page). The merged version armed rarely but
+  // compensated on every range change — an ordinary scroll to row 50
+  // found the stale anchor at index 0 and flung the list back to the
+  // top: the regression the review caught live.
   // The lookup runs over the FULL QUEUE, never the window: the target
   // case is a watched other-row near the viewport's top, twenty
   // workspace rows landing ABOVE it — after the insertion it sits
   // ~twenty heights further down and OUTSIDE the new window. A
   // window-only lookup would misread the SAME key as vanished and
   // hand the anchor to an inserted row — the very jump this exists to
-  // prevent. The vanished-key branch stays for REAL vanishings
-  // (search, scope, invalidation); it must not fire for a key our own
-  // truncated input lost. The position comes from the library's
-  // getOffsetForIndex — it reads the full measured cache, window or
-  // no window; our own queue array supplies the key's index.
+  // prevent. The position comes from the library's getOffsetForIndex
+  // — it reads the full measured cache, window or no window; our own
+  // queue array supplies the key's index. The vanished/not-yet-
+  // measured branch holds the offset and re-arms.
   const anchorRef = useRef<AnchorState | null>(null);
-  // (declared here, RUNS below lastVisibleIndex — the effect reads it)
+  // (declared here, RUNS below lastVisibleIndex — the effects read it)
   const virtualItems = rowVirtualizer.getVirtualItems();
   const lastVisibleIndex = virtualItems.length
     ? virtualItems[virtualItems.length - 1].index
     : -1;
-  useEffect(() => {
+  // COMPENSATION FIRST, arming second — declaration order is the run
+  // order of layout effects: when a landed page changes BOTH the
+  // queue and the range in one commit, compensation must read the
+  // PREVIOUS scroll's anchor before arming overwrites it with the
+  // new window's first row.
+  //
+  // COMPENSATION — on queue changes ONLY: if rows landed above the
+  // armed anchor, shift the scroll so the anchor key keeps its
+  // offset. useLayoutEffect: the shift must land in the layout phase,
+  // before the browser paints — a passive effect would flash the
+  // un-shifted position first.
+  const queueRef = useRef(queue);
+  useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
-    const scrollTop = list.scrollTop;
-    const windowRows = virtualItems.map((v) => ({
-      key: v.key as string,
-      start: v.start,
-    }));
-    const reAnchor = () => {
-      const first = pickAnchor(windowRows, list.scrollTop);
-      anchorRef.current = {
-        key: first ? first.key : null,
-        offset: first ? first.start - list.scrollTop : 0,
-      };
-    };
+    const prevQueue = queueRef.current;
+    queueRef.current = queue;
+    if (prevQueue === queue) return; // not a queue change — never act
     const prev = anchorRef.current;
-    if (prev === null || prev.key === null) {
-      // No anchor yet (the window may arrive AFTER the queue — the
-      // observer callback is async to the first render): re-anchor on
-      // whatever is visible now, and the effect re-runs when the
-      // window does (lastVisibleIndex rides the deps below).
-      reAnchor();
-      return;
-    }
-    const nextIndex = prev.key === null ? -1 : queue.findIndex((r) => rowKeyOf(r) === prev.key);
+    if (prev === null || prev.key === null) return;
+    const scrollTop = list.scrollTop;
+    const nextIndex = queue.findIndex((r) => rowKeyOf(r) === prev.key);
     if (nextIndex >= 0) {
       const at = rowVirtualizer.getOffsetForIndex(nextIndex, "start");
       if (at) {
@@ -484,15 +484,49 @@ export function SessionsBrowser({
           // virtualizer learns the new offset the way it would have.
           list.dispatchEvent(new Event("scroll"));
           rowVirtualizer.measure();
+          // Re-arm at the corrected position: the same key, same
+          // offset — the next range change re-arms naturally.
+          anchorRef.current = { key: prev.key, offset: prev.offset };
         }
         return; // the anchor held — key found, offset kept
       }
     }
-    // Vanished (or not yet measurable): hold the offset, re-anchor on
-    // the first fully visible row.
-    reAnchor();
+    // Vanished (or not yet measurable): hold the offset; the ARMING
+    // effect re-arms on the next range change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue, lastVisibleIndex]);
+  }, [queue]);
+  // ARMING — on SCROLL POSITION, not the range's last index: a small
+  // scroll may change the first fully visible row while the last
+  // index stands (the seam peer-4 found) — arming keyed on the index
+  // would keep a STALE anchor through exactly the movements that
+  // matter. CONTINUITY RULE: if the armed anchor's row is still in
+  // the window, arming follows THAT row to its new position (updates
+  // its offset) instead of re-picking the first visible — a
+  // re-pick right after a compensation shift would latch a neighbor
+  // and drift. A full re-pick happens only when the anchor left the
+  // window (real scroll) or none is armed.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const windowRows = virtualItems.map((v) => ({
+      key: v.key as string,
+      start: v.start,
+    }));
+    const prev = anchorRef.current;
+    if (prev !== null && prev.key !== null) {
+      const still = windowRows.find((r) => r.key === prev.key);
+      if (still) {
+        anchorRef.current = { key: prev.key, offset: still.start - list.scrollTop };
+        return;
+      }
+    }
+    const first = pickAnchor(windowRows, list.scrollTop);
+    anchorRef.current = {
+      key: first ? first.key : null,
+      offset: first ? first.start - list.scrollTop : 0,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listRef.current?.scrollTop, lastVisibleIndex]);
   // ONE measure callback for the whole list — a fresh arrow per row
   // would ride the props and fell every row's memo on every parent
   // render. measureElement resolves the row by its data-index, so the

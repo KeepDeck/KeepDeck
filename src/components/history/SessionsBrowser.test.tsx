@@ -1829,18 +1829,116 @@ describe("virtualized list — the window, not the pile", () => {
 
     // Twenty workspace rows land ABOVE.
     a.workspace = trackOf(manyHits(20, "w"), { total: 20 });
+    // Refresh the pinned scroll geometry for the grown queue (the
+    // pre-insertion pin 40×72 no longer bounds a 60-row list).
+    Object.defineProperty(list, "scrollHeight", { value: 60 * 72, configurable: true });
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
 
-    // The scroll moved by the inserted span — the watched key held
-    // its offset (0 from the top).
-    expect(list.scrollTop).toBe(20 * 72);
-    // The DOM window follows the corrected offset: the watched row
-    // is still among the mounted.
-    const titlesAfter = [
-      ...document.querySelectorAll(".browser__list .history__row .browser__name"),
-    ].map((n) => n.getAttribute("title"));
-    expect(titlesAfter).toContain("g-0");
+    // THE PROPERTY the anchor exists for, measured not computed: the
+    // watched row's OFFSET FROM THE VIEWPORT TOP is the same before
+    // and after the insertion. Numbers appear only where they are the
+    // subject (the pure arithmetic file); here the subject is
+    // sameness. The pinned rect makes the measurement meaningful:
+    // every row reports top=0 (the adapter pins ALL rows to the
+    // container box) — so the row's offset is derived from the
+    // virtualizer's own positions: translateY(start) − scrollTop.
+    const rowTopOf = (key: string): number | null => {
+      const li = [
+        ...document.querySelectorAll(".browser__list > .history__row"),
+      ].find((el) => el.querySelector(".browser__name")?.getAttribute("title") === key);
+      if (!li) return null;
+      const m = /(translateY\()(-?\d+(?:\.\d+)?)(px\))/.exec(
+        (li as HTMLElement).style.transform ?? "",
+      );
+      return m ? Number(m[2]) - list.scrollTop : null;
+    };
+    const beforeTop = rowTopOf("g-0");
+    expect(beforeTop).not.toBeNull();
+
+    // The scroll moved by the span at least (≥ the minimal measured
+    // mix) and the watched key — now ~twenty rows down, OUTSIDE the
+    // pre-correction window — is back among the mounted.
+    expect(list.scrollTop).toBeGreaterThanOrEqual(20 * 64);
+    // THE ANCHOR'S OWN CLAIM: same key, same offset from the top.
+    expect(rowTopOf("g-0")).toBe(beforeTop);
+  });
+
+  it("A-BLOCKER: an ordinary scroll STAYS — and a queue change holds the watched row's place (invariant, not number)", async () => {
+    // The regression this pins: the merged effect compensated on
+    // every range change — scrolling re-found the stale anchor and
+    // flung the list back. Arming follows SCROLL POSITION (a small
+    // scroll may change the first visible row while the last index
+    // stands — the seam the review found), compensation follows ONLY
+    // the queue. The witness asserts the PROPERTY the anchor exists
+    // for — the watched row keeps its offset from the viewport top —
+    // measured through the virtualizer's own translateY (the adapter
+    // pins all rect tops to the container). The pre-insertion scroll
+    // is deliberately NOT a multiple of the row height: it moves the
+    // first-visible boundary so a stale arming anchor would be caught
+    // holding the PREVIOUS row's offset.
+    const a = api([], {
+      other: trackOf(manyHits(80, "g"), { total: 80 }),
+    });
+    // Row height = the ESTIMATE (72): measurements are then a no-op on
+    // offsets — deterministic starts make the INVARIANT exact; with
+    // mixed 64/72 measured sizes the adapter's re-measure mid-flight
+    // shifts starts AFTER the correction by amounts the stand cannot
+    // attribute honestly.
+    restoreViewport();
+    restoreViewport = pinListViewport(600, 800, 72);
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    Object.defineProperty(list, "scrollHeight", { value: 80 * 72, configurable: true });
+    Object.defineProperty(list, "clientHeight", { value: 600, configurable: true });
+
+    // HALF ONE: an ordinary scroll — deliberately non-multiple of any
+    // row height — with NO queue change.
+    list.scrollTop = 30 * 72 + 37;
+    await act(async () => {
+      list.dispatchEvent(new Event("scroll"));
+    });
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    // The scroll STAYED (not back to 0 — the merged regression's
+    // signature).
+    expect(list.scrollTop).toBeGreaterThan(2000);
+
+    // The watched row: the FIRST row starting at/after the scroll —
+    // by the virtualizer's own positions.
+    const rowTopOf = (key: string): number | null => {
+      const li = [
+        ...document.querySelectorAll(".browser__list > .history__row"),
+      ].find((el) => el.querySelector(".browser__name")?.getAttribute("title") === key);
+      if (!li) return null;
+      const m = /translateY\((-?\d+(?:\.\d+)?)px\)/.exec(
+        (li as HTMLElement).style.transform ?? "",
+      );
+      return m ? Number(m[1]) - list.scrollTop : null;
+    };
+    const visibleKeys = () =>
+      [...document.querySelectorAll(".browser__list .history__row .browser__name")]
+        .map((n) => n.getAttribute("title"))
+        .filter((t): t is string => t !== null);
+    const watchedKey = visibleKeys().find(
+      (k) => rowTopOf(k) !== null && (rowTopOf(k) as number) >= 0,
+    )!;
+    expect(watchedKey).toBeDefined();
+    const watchedBefore = rowTopOf(watchedKey);
+    expect(watchedBefore).not.toBeNull();
+
+    // HALF TWO: twenty workspace rows land ABOVE the watched row —
+    // the anchor must hold ITS key at ITS offset. Same-key/same-
+    // offset survives height changes, paddings and any arithmetic;
+    // a computed number would not.
+    a.workspace = trackOf(manyHits(20, "w"), { total: 20 });
+    Object.defineProperty(list, "scrollHeight", { value: 100 * 72, configurable: true });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(list.scrollTop).toBeGreaterThan(2000); // still deep in the list
+    // THE ANCHOR'S OWN CLAIM: the same key at the same offset.
+    expect(visibleKeys()).toContain(watchedKey);
+    expect(rowTopOf(watchedKey)).toBe(watchedBefore);
   });
 
   it("CLOCK: an even minute tick, paused when hidden, immediate on return — and it touches NOTHING but the visible rows' renders", async () => {
