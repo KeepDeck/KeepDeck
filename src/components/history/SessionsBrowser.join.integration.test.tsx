@@ -134,6 +134,7 @@ import {
 } from "../../app/useSessionsBrowser";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { SessionsBrowser } from "./SessionsBrowser";
+import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -196,6 +197,7 @@ function Harness({ rows }: { rows: SessionRecord[] }) {
 
 describe("SessionsBrowser journal join × real plugin pair", () => {
   let root: Root;
+  let restoreViewport: () => void = () => {};
   beforeEach(() => {
     ipc.indexSearch.mockReset();
     ipc.indexSearch.mockResolvedValue({ hits: [], total: 0 });
@@ -203,10 +205,15 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     claude.reads.length = 0;
     kimi.reads.length = 0;
     sessionIndex.set({ scanning: false, revision: 1 });
+    installResizeObserver();
+    restoreViewport = pinListViewport(600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    restoreViewport();
+  });
 
   const mount = (rows: SessionRecord[]) =>
     act(async () => root.render(createElement(Harness, { rows })));
@@ -328,6 +335,7 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
   let root: Root;
   let askLog: Array<Array<{ agent: string; sessionId: string }>> = [];
   let pendingResolvers: Array<(answers: IndexLookupAnswer[]) => void> = [];
+  let restoreViewport: () => void = () => {};
 
   beforeEach(() => {
     ipc.indexSearch.mockReset();
@@ -342,10 +350,15 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
       });
     });
     sessionIndex.set({ scanning: false, revision: 1, invalidated: new Set() });
+    installResizeObserver();
+    restoreViewport = pinListViewport(600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    restoreViewport();
+  });
 
   /** The raw-state Probe: renders the seam's OWN numbers next to the
    * browser, reading the SAME api object the browser renders from.

@@ -10,6 +10,7 @@ import type { JoinEntry, SessionRecord } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
 import { SessionRowView } from "./SessionRowView";
+import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -97,6 +98,7 @@ const trackOf = (
     loadingMore?: boolean;
     firstPagePending?: boolean;
     error?: string | null;
+    loadMore?: () => void;
   } = {},
 ) => ({
   hits,
@@ -172,15 +174,25 @@ describe("hitRecord", () => {
 
 describe("SessionsBrowser", () => {
   let root: Root;
+  let restoreViewport: () => void = () => {};
   beforeEach(() => {
     worktreeIpc.probeWorktree.mockClear();
     worktreeIpc.probeWorktree.mockImplementation(() =>
       Promise.resolve({ exists: true, isWorktree: false, branch: null }),
     );
+    // The virtualized list needs browser geometry the stand lacks: a
+    // pinned viewport rect for the list container and a ResizeObserver.
+    // This imitates the BROWSER (the adapter is test-support), not the
+    // list's own logic.
+    installResizeObserver();
+    restoreViewport = pinListViewport(600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    restoreViewport();
+  });
 
   const mount = (
     a: SessionsBrowserApi,
@@ -670,15 +682,21 @@ describe("SessionsBrowser", () => {
 
 describe("SessionsBrowser journal section", () => {
   let root: Root;
+  let restoreViewport: () => void = () => {};
   beforeEach(() => {
     worktreeIpc.probeWorktree.mockClear();
     worktreeIpc.probeWorktree.mockImplementation(() =>
       Promise.resolve({ exists: true, isWorktree: false, branch: null }),
     );
+    installResizeObserver();
+    restoreViewport = pinListViewport(600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    restoreViewport();
+  });
 
   const mount = (
     a: SessionsBrowserApi,
@@ -881,15 +899,21 @@ describe("SessionsBrowser journal section", () => {
 
 describe("SessionsBrowser journal join", () => {
   let root: Root;
+  let restoreViewport: () => void = () => {};
   beforeEach(() => {
     worktreeIpc.probeWorktree.mockClear();
     worktreeIpc.probeWorktree.mockImplementation(() =>
       Promise.resolve({ exists: true, isWorktree: false, branch: null }),
     );
+    installResizeObserver();
+    restoreViewport = pinListViewport(600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    restoreViewport();
+  });
 
   const mount = (
     a: SessionsBrowserApi,
@@ -1453,12 +1477,18 @@ describe("row render stability — the effect, not the memo", () => {
   const { rowRenders } = stability;
 
   let root: Root;
+  let restoreViewport: () => void = () => {};
   beforeEach(() => {
     rowRenders.mockClear();
+    installResizeObserver();
+    restoreViewport = pinListViewport(600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    restoreViewport();
+  });
 
   // Stable across the suite's mounts: a fresh [CAPABLE_AGENT] literal
   // per mount would legitimately invalidate every row (the agents prop
@@ -1545,17 +1575,154 @@ describe("row render stability — the effect, not the memo", () => {
   });
 });
 
+describe("virtualized list — the window, not the pile", () => {
+  // A stands on a model of 2400 rows in a 600px viewport: the mounted
+  // row count must stay bounded by the WINDOW + an explicit slack — a
+  // NUMBER in the test, not an eyeball. B pins the two thresholds
+  // apart: each asks ONLY its own engine, once per hold. The geometry
+  // comes from the test-support adapter (happy-dom computes no layout):
+  // it imitates the BROWSER's reported sizes, never the list's logic.
+  let root: Root;
+  let restoreViewport: () => void = () => {};
+  beforeEach(() => {
+    installResizeObserver();
+    restoreViewport = pinListViewport(600);
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    restoreViewport();
+  });
+
+  const manyHits = (n: number, prefix = "m") =>
+    Array.from({ length: n }, (_, i) =>
+      hit({ sessionId: `${prefix}-${i}`, mtime: 1_000_000 + i }),
+    );
+
+  const mountBrowser = async (
+    a: SessionsBrowserApi,
+    rows: SessionRecord[] = [],
+  ) =>
+    act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: [CAPABLE_AGENT],
+          ready: true,
+          rows,
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+
+  it("A: at 2400 model rows the mounted rows are bounded by the window plus explicit slack", async () => {
+    await mountBrowser(
+      api([], { other: trackOf(manyHits(2400), { total: 2400, hasMore: true }) }),
+    );
+    const mounted = document.querySelectorAll(
+      ".browser__list > .history__row",
+    ).length;
+    // 600px viewport at a 64px pinned row ≈ 10 rows; overscan 6 per
+    // side; the bound allows slack but is a NUMBER: rendering the pile
+    // (2400) reddens 40× over.
+    expect(mounted).toBeLessThanOrEqual(40);
+    expect(mounted).toBeGreaterThan(0);
+  });
+
+  it("B: the workspace threshold asks ONLY the workspace engine; the overall threshold ONLY the other", async () => {
+    // The whole queue sits under one viewport: BOTH thresholds are in
+    // range on the same position — each engine asked exactly once (the
+    // engine guards repeats), and neither asked the other's engine.
+    const workspaceLoad = vi.fn();
+    const otherLoad = vi.fn();
+    await mountBrowser(
+      api([], {
+        workspace: trackOf(manyHits(30, "w"), {
+          total: 300,
+          hasMore: true,
+          loadMore: workspaceLoad,
+        }),
+        other: trackOf(manyHits(5, "g"), {
+          total: 500,
+          hasMore: true,
+          loadMore: otherLoad,
+        }),
+      }),
+    );
+    // Both in range: both asked, once each.
+    expect(workspaceLoad).toHaveBeenCalledTimes(1);
+    expect(otherLoad).toHaveBeenCalledTimes(1);
+    // Extra cycles (landing re-checks) must not double-ask — the
+    // in-flight guard in the engines' loadMore holds; here the mocks
+    // ARE the engines, so the guard is the callback's own count: the
+    // component re-checks but the THRESHOLD hold means the ask fired
+    // already, and the engine's real guard (not mocked away in prod)
+    // swallows repeats. To keep the mock honest we assert the ask
+    // count from the component side: exactly one per engine per hold.
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    expect(workspaceLoad).toHaveBeenCalledTimes(1);
+    expect(otherLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it("B: the signal rides the RANGE, not a DOM node — a scrolled-past tail still pages", async () => {
+    // The mutation this pins: reading the last DOM node instead of the
+    // range. After a scroll past the workspace track's end, its last
+    // row is UNMOUNTED (that is what virtualization means) — a
+    // DOM-node signal finds no node and never asks, and the workspace
+    // track's paging silently dies. The range signal asks: the range's
+    // end is beyond the workspace boundary, which IS the threshold.
+    const workspaceLoad = vi.fn();
+    const otherLoad = vi.fn();
+    await mountBrowser(
+      api([], {
+        // A long other track pushes the workspace tail far above the
+        // scroll bottom; the workspace pages land first.
+        workspace: trackOf(manyHits(20, "w"), {
+          total: 200,
+          hasMore: true,
+          loadMore: workspaceLoad,
+        }),
+        other: trackOf(manyHits(400, "g"), {
+          total: 2000,
+          hasMore: true,
+          loadMore: otherLoad,
+        }),
+      }),
+    );
+    // Let the observer-driven range settle, then assert.
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    // The window covers only the queue's HEAD (~15 rows of 420): the
+    // workspace tail (row 19) is beyond the window — UNMOUNTED, no DOM
+    // node to read — yet the workspace threshold FIRED from the range
+    // (ws=1). A DOM-node signal would find nothing and stay at 0.
+    expect(document.querySelectorAll(".browser__list > .history__row").length)
+      .toBeLessThanOrEqual(40);
+    expect(workspaceLoad).toHaveBeenCalledTimes(1);
+    // The overall tail is far below the window: the OTHER engine is
+    // honestly OUT of range and must NOT have been asked.
+    expect(otherLoad).toHaveBeenCalledTimes(0);
+  });
+});
+
 describe("unified row guard — both blocks, one markup", () => {
   let root: Root;
+  let restoreViewport: () => void = () => {};
   beforeEach(() => {
     worktreeIpc.probeWorktree.mockClear();
     worktreeIpc.probeWorktree.mockImplementation(() =>
       Promise.resolve({ exists: true, isWorktree: false, branch: null }),
     );
+    installResizeObserver();
+    restoreViewport = pinListViewport(600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
-  afterEach(() => act(() => root.unmount()));
+  afterEach(() => {
+    act(() => root.unmount());
+    restoreViewport();
+  });
 
   /** Two browsers side by side: one fed ONLY by the JOURNAL source, one
    * ONLY by the INDEX source, with values picked so the two rows say the

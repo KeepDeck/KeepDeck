@@ -12,9 +12,10 @@ import {
   type UnifiedSessionRow,
 } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useSessionsBrowser, type BrowserSharedSeam } from "../../app/useSessionsBrowser";
 import { BackIcon } from "../../ui/icons";
-import { useScrollPaging, NEAR_END } from "../../ui/useScrollPaging";
+import { NEAR_END } from "../../ui/useScrollPaging";
 import { SessionRowView, SessionRowActions } from "./SessionRowView";
 
 interface SessionsBrowserProps {
@@ -144,33 +145,13 @@ export function SessionsBrowser({
     declare(rows.map((row) => ({ agent: row.agent, sessionId: row.sessionId })));
   }, [declare, rows]);
 
-  // Lazy paging, scroll-driven, for BOTH tracks: the other track pages
-  // when the list nears its end (the shared engine also feeds the spawn
-  // dialog's picker); the workspace track pages when its LAST row nears
-  // the viewport's bottom — the workspace track's end may sit far above
-  // the list's end once the other track has loaded pages of its own.
+  // Lazy paging, driven by the VIRTUAL RANGE (never by a DOM node: the
+  // last row of a track unmounts by definition once scrolled past). Two
+  // SEPARATE thresholds, each asking only its own engine. The
+  // virtualizer and the thresholds live below the composed rows —
+  // they read the stabilized queue.
   const listRef = useRef<HTMLUListElement | null>(null);
-  const maybeLoadHits = useScrollPaging(listRef, api.other, api.other.hits.length);
-  const lastWorkspaceRef = useRef<HTMLLIElement | null>(null);
-  const maybeLoadWorkspace = useCallback(() => {
-    const list = listRef.current;
-    const last = lastWorkspaceRef.current;
-    // loadMore itself guards the in-flight and exhausted states.
-    if (!list || !last || !api.workspace.hasMore) return;
-    if (last.getBoundingClientRect().bottom - list.getBoundingClientRect().bottom < NEAR_END) {
-      api.workspace.loadMore();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api.workspace.hasMore, api.workspace.loadMore]);
-  useEffect(() => {
-    maybeLoadWorkspace();
-    // Re-check after each landed page, like the shared pager's count.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [maybeLoadWorkspace, api.workspace.hits.length]);
-  const onListScroll = () => {
-    maybeLoadHits();
-    maybeLoadWorkspace();
-  };
+  const PAGE_AHEAD = 40;
   const nearEnd = (el: HTMLElement) =>
     el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END;
 
@@ -371,6 +352,71 @@ export function SessionsBrowser({
   );
   const emptyList = workspaceRows.length === 0 && otherRows.length === 0;
 
+  // The virtualizer over the ONE flat queue (workspace rows, then other
+  // rows — the composition's order, untouched). Dynamic measurement:
+  // rows carry meta lines that wrap, so heights vary; estimate runs
+  // before the first measure with a generous overshoot so the scrollbar
+  // never undershoots. Keys are agent:sessionId — NEVER the index.
+  const queue = useMemo(
+    () => [...workspaceRows, ...otherRows],
+    [workspaceRows, otherRows],
+  );
+  const rowVirtualizer = useVirtualizer({
+    count: queue.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => 72,
+    overscan: 6,
+    getItemKey: (index) => rowKeyOf(queue[index]),
+  });
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const lastVisibleIndex = virtualItems.length
+    ? virtualItems[virtualItems.length - 1].index
+    : -1;
+
+  // The two thresholds from the range — re-checked on range change AND
+  // after each landed page (a landing shifts the ends without a scroll).
+  // Two SEPARATE asks, each to its own engine; both may fire on one
+  // position; the engines' own in-flight/exhausted guards make repeats
+  // harmless — one ask per threshold per landing. PAGE_AHEAD = 40 rows:
+  // one page's buffer is eaten by a fast fling in 0.35–0.5s while the
+  // page rides hundreds of ms, so the buffer must be wider than one
+  // page. (The spawn dialog's picker keeps the OLD scroll-geometry hook
+  // — the browser moved to the virtual range, the picker kept the
+  // former.) The thresholds count DATA rows only: the tail's spinner
+  // and error line are NOT part of the queue, never in the arithmetic.
+  const maybeLoadBoth = useCallback(() => {
+    if (lastVisibleIndex < 0) return;
+    // The workspace track's tail asks ONLY its own engine.
+    if (api.workspace.hasMore && workspaceRows.length > 0) {
+      if (workspaceRows.length - 1 - lastVisibleIndex <= PAGE_AHEAD) {
+        api.workspace.loadMore();
+      }
+    }
+    // The list's overall tail asks ONLY the other engine.
+    if (api.other.hasMore) {
+      if (queue.length - 1 - lastVisibleIndex <= PAGE_AHEAD) {
+        api.other.loadMore();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    lastVisibleIndex,
+    api.workspace.hasMore,
+    api.workspace.loadMore,
+    api.other.hasMore,
+    api.other.loadMore,
+    workspaceRows.length,
+    queue.length,
+  ]);
+  useEffect(() => {
+    maybeLoadBoth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maybeLoadBoth, api.workspace.hits.length, api.other.hits.length]);
+  const onListScroll = () => {
+    rowVirtualizer.measure();
+    maybeLoadBoth();
+  };
+
   // One clock tick for the MOUNT — ages don't tick mid-render, and any
   // tick tied to the list's growth would invalidate every memoized row
   // on every landed page (the very cost this stabilization removes).
@@ -440,45 +486,50 @@ export function SessionsBrowser({
         className="history__list browser__list"
         ref={listRef}
         onScroll={onListScroll}
+        // The virtual window's SPACER is the list itself: its height is
+        // the measured sum, and the window's rows sit absolutely
+        // positioned inside it — the list stays ONE list (ul/li), the
+        // keys stay agent:sessionId, the scroll container is the list.
+        // The tail (spinner/error/empty) renders AFTER the spacer, in
+        // normal flow, outside the virtual count.
+        style={
+          emptyList
+            ? undefined
+            : {
+                height: `${rowVirtualizer.getTotalSize()}px`,
+                position: "relative",
+              }
+        }
       >
-        {workspaceRows.map((row, at) => (
-          <SessionRowView
-            key={rowKeyOf(row)}
-            row={row}
-            agents={agents}
-            dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
-            readFailed={row.readLinks.some((link) => readFailed.has(link))}
-            now={now}
-            onOpen={openRow}
-            onResume={onResumeRow}
-            onFork={onForkRow}
-            // The workspace track's own paging anchor: its LAST row. The
-            // workspace track must page to its end before the other
-            // track's rows begin arriving below.
-            rowRef={at === workspaceRows.length - 1 ? lastWorkspaceRef : undefined}
-          />
-        ))}
-        {otherRows.map((row) => (
-          <SessionRowView
-            key={rowKeyOf(row)}
-            row={row}
-            agents={agents}
-            dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
-            readFailed={row.readLinks.some((link) => readFailed.has(link))}
-            now={now}
-            onOpen={openRow}
-            onResume={onResumeRow}
-            onFork={onForkRow}
-          />
-        ))}
-        {/* The list's TAIL — ONE spinner as the list's LAST element
-         * while ANY track loads more, ONE error line for whichever
-         * track refused (both refused — still one line). A failed page
-         * zero cleared its rows on purpose — naming the failure beats a
-         * truthless "No sessions match". NOT inside the empty-state
-         * gate: that gate also requires the journal to be empty, and a
-         * workspace with journal rows would otherwise show a failed
-         * search as a quietly shorter list.
+        {virtualItems.map((virtualRow) => {
+          const row = queue[virtualRow.index];
+          return (
+            <SessionRowView
+              key={virtualRow.key}
+              row={row}
+              agents={agents}
+              dirMissing={row.cwd !== "" && !dirPresent(presence, row.cwd)}
+              readFailed={row.readLinks.some((link) => readFailed.has(link))}
+              now={now}
+              onOpen={openRow}
+              onResume={onResumeRow}
+              onFork={onForkRow}
+              virtualStart={virtualRow.start}
+            />
+          );
+        })}
+        {/* The list's TAIL — the list's basement, OUTSIDE the virtual
+         * count: ONE spinner as the list's LAST element while ANY track
+         * loads more, ONE error line for whichever track refused (both
+         * refused — still one line). Not being data rows, these never
+         * enter the virtual range's arithmetic — the thresholds count
+         * DATA rows only, or "total − 1 − last visible" could go
+         * negative and mask a broken threshold behind a green test. A
+         * failed page zero cleared its rows on purpose — naming the
+         * failure beats a truthless "No sessions match". NOT inside the
+         * empty-state gate: that gate also requires the journal to be
+         * empty, and a workspace with journal rows would otherwise show
+         * a failed search as a quietly shorter list.
          *
          * The KNOWN, CHOSEN cost: while the WORKSPACE track loads more,
          * the spinner sits BELOW the already-drawn other rows — far

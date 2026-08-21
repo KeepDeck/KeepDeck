@@ -6,11 +6,14 @@ import { type RefObject, useCallback, useEffect } from "react";
 export const NEAR_END = 240;
 
 /**
- * Scroll-driven lazy paging shared by the session lists ([F8]): fetch the next
- * page as the scroll container nears its end, and keep filling while the loaded
- * rows are shorter than the viewport (no scrollbar yet, so a scroll alone can
- * never fire). Returns the handler to wire onto the container's `onScroll`;
- * `count` re-runs the fill check after each landed page.
+ * Scroll-driven lazy paging of ONE plain scroll container ([F8]): fetch
+ * the next page as the container nears its end, and keep filling while
+ * the loaded rows are shorter than the viewport (no scrollbar yet, so a
+ * scroll alone can never fire). Returns the handler to wire onto the
+ * container's `onScroll`; `count` re-runs the fill check after each
+ * landed page. Consumer: the spawn dialog's session picker — the
+ * sessions browser moved to the virtual range and no longer calls this
+ * (its thresholds read the virtualizer's range, not scroll geometry).
  */
 export function useScrollPaging(
   ref: RefObject<HTMLElement | null>,

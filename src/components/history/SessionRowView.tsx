@@ -5,7 +5,7 @@ import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { formatAge } from "../../domain/usage/format";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { baseName } from "../../domain/deck";
-import type { RefObject } from "react";
+import type { CSSProperties } from "react";
 
 /** The journal row's status chip — the visible stand-in for everything
  * that keeps a row unopenable. Plain rows carry no chip at all. */
@@ -53,8 +53,11 @@ export interface SessionRowViewProps {
   readFailed: boolean;
   /** One clock for the whole list — ages don't tick mid-render. */
   now: number;
-  /** The workspace block's LAST row carries the block's paging anchor. */
-  rowRef?: RefObject<HTMLLIElement | null>;
+  /** The virtual window's top offset for this row, in px (the
+   * virtualizer's measured position). The row positions itself;
+   * there is no last-row anchor anymore — the paging signal reads
+   * the virtual range, not a DOM node. */
+  virtualStart?: number;
   onOpen(row: UnifiedSessionRow): void;
   onResume(row: UnifiedSessionRow): void;
   onFork(row: UnifiedSessionRow): void;
@@ -166,7 +169,7 @@ export const SessionRowView = memo(function SessionRowView({
   dirMissing,
   readFailed,
   now,
-  rowRef,
+  virtualStart,
   onOpen,
   onResume,
   onFork,
@@ -207,11 +210,26 @@ export const SessionRowView = memo(function SessionRowView({
   // is treated as absent upstream, so nothing falls back into it either.)
   const name = row.title ?? row.sessionId;
 
+  // The virtual window's own position for this row: absolute inside the
+  // one spacer, top at the measured offset. Outside the virtualized
+  // list (nothing does that today, but the prop is optional) the row
+  // flows normally.
+  const positionStyle: CSSProperties | undefined =
+    virtualStart === undefined
+      ? undefined
+      : {
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          transform: `translateY(${virtualStart}px)`,
+        };
+
   return (
     <li
       key={rowKeyOf(row)}
-      ref={rowRef}
       className={`history__row history__datarow${openable ? " history__row--open" : ""}`}
+      style={positionStyle}
       // The WHOLE row opens the transcript — aiming at the text alone is a
       // hidden hit-target. The action buttons stop the bubble; the inner
       // button stays for keyboard access (its synthesized click bubbles

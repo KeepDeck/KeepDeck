@@ -947,6 +947,59 @@ describe("AgentDialog start-from paging", () => {
     );
     expect(document.querySelector(".form__session-more")).not.toBeNull();
   });
+
+  it("the scroll pager does not double-ask while a page rides — the fill check repeats, the ask does not", async () => {
+    // The browser moved to the virtual range; THIS is the picker's own
+    // pager witness. The second page never resolves (it "rides"); the
+    // fill effect re-runs on every landed count — the in-flight guard
+    // must keep the ask at exactly one, however many re-checks fire.
+    const calls: Array<{ limit: number; offset: number }> = [];
+    const searchSessions = vi.fn(
+      async (_a: string, _q: string, _l: number, offset: number) => {
+        calls.push({ limit: 20, offset });
+        return offset === 0
+          ? { rows: mkRows(0, 50), total: 200 }
+          : new Promise<{ rows: SessionPickRow[]; total: number }>(() => {});
+      },
+    );
+
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          remoteEnabled: false,
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions,
+          sessionClaim: () => null,
+          liveOutside: async () => ({ ok: true, ids: new Set<string>() }),
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+    act(() => modeBtn("Fork").click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    // Extra fill-check cycles: re-renders and microtask flushes, the
+    // kinds the real dialog produces while the page rides.
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {});
+    }
+    // Page zero + EXACTLY ONE next-page ask: the guard held.
+    const nextAsks = calls.filter((c) => c.offset > 0);
+    expect(nextAsks).toHaveLength(1);
+  });
 });
 
 describe("AgentDialog cross-agent pick guard", () => {
