@@ -614,15 +614,19 @@ export function SessionsBrowser({
         target?.closest?.(".history__row") ? target : null;
     };
     // LEAVING the list clears the memory — but ONLY on a REAL move:
-    // focusout's relatedTarget tells where focus went; when a node is
-    // REMOVED there may be no focusout at all (that is why the
-    // observer below exists), and a removal-fired focusout carries a
-    // null relatedTarget WITHOUT the user having gone anywhere. So:
-    // clear only when focus verifiably LANDED outside the list; a
-    // null relatedTarget (removal, or engine silence) leaves the
-    // memory for the observer to act on. Without this, a stale
-    // remembered element (user tabbed away, list never knew) would
-    // fire the transfer on a LATER mutation and yank focus back.
+    // focusout's relatedTarget tells where focus went. We TREAT a
+    // null relatedTarget as removal — a CONSERVATIVE CHOICE, not a
+    // signature: by spec, relatedTarget is also null when focus
+    // leaves for another browsing context or when no focusable target
+    // follows, so a real departure CAN arrive with a null target and
+    // leave the memory stale (a later removal with focus in body
+    // would then return focus to the list — the known edge, kept
+    // over the alternative of clearing on every focusout, which
+    // would break the observer's removal branch: when a node is
+    // REMOVED there may be no focusout at all, and a removal-fired
+    // one carries null without the user having gone anywhere). So:
+    // clear only when focus verifiably LANDED outside the list;
+    // null keeps the memory for the observer to act on.
     const onFocusOut = (e: FocusEvent) => {
       const wentTo = e.relatedTarget as HTMLElement | null;
       if (wentTo && !list.contains(wentTo)) {

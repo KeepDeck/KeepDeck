@@ -13,6 +13,13 @@ const SEP = String.fromCharCode(0);
  * a working resume. An empty cwd is always absent — there is no
  * directory to resume into.
  *
+ * CALLER CONTRACT, not a guarantee of this hook: the fingerprint (and
+ * the input walk) is memoized on the ARRAY IDENTITY — an unrelated
+ * render touches no path only if the caller passes a STABLE array
+ * (memoized on its real sources, as the sessions browser does). A
+ * caller rebuilding the array per render re-walks the paths on every
+ * render; the hook dedups the PROBES either way.
+ *
  * A probe is not a stat: it checks the worktree root and reads the
  * branch too. When the set GROWS (a page lands), only the ADDED paths
  * are probed — known answers carry over untouched, so a page landing
