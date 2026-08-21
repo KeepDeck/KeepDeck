@@ -72,12 +72,20 @@
   grid-template-columns: 16px minmax(0, 1fr) auto;
   column-gap: 10px;
   row-gap: 4px;
-  align-items: start;
+  /* CENTER, not start: the title, the glyph and the action buttons
+   * share row 1 — with `start` the taller buttons hung BELOW the title
+   * line (their center ~5px low, at the metadata's level) and the row
+   * read bottom-heavy. Centering row 1 puts every cell's center on one
+   * line; the metadata line below is row 2's only resident. */
+  align-items: center;
 }
 
 .history__glyph {
-  grid-row: 1 / -1;
-  align-self: start;
+  /* Row 1 only, centered with the title (the mockup's star sits on
+   * the title line). Spanning both rows centered it mid-row — between
+   * the lines — which read as floating. */
+  grid-row: 1;
+  align-self: center;
 }
 
 /* Every cell of the row is EXPLICITLY placed — auto-placement is

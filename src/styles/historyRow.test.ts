@@ -8,6 +8,12 @@ import { readStyles, ruleBody } from "./testSupport";
 // "almost the same template" is how the ragged rows came back the first
 // time, and fixed metadata tracks are how the pillared second line came
 // back the second.
+//
+// HONEST LIMIT of this whole file: the stand computes no geometry —
+// the row-1 centering below is proven by the ARITHMETIC of the rules
+// ((26−18)/2 splits the button overhang both ways instead of letting
+// all 8px hang below), and pinned as a CSS contract; the pixel truth
+// on screen stays the user's to witness.
 describe("history data row layout contract", () => {
   const css = readStyles("history.css");
 
@@ -20,12 +26,15 @@ describe("history data row layout contract", () => {
     expect(template).toBe("16px minmax(0, 1fr) auto");
     expect(rule["column-gap"]).toBe("10px");
     expect(rule["row-gap"]).toBe("4px");
-    expect(rule["align-items"]).toBe("start");
+    // CENTER, not start: title and buttons share row 1's line — start
+    // hung the taller buttons below the title (the user's screenshot).
+    expect(rule["align-items"]).toBe("center");
   });
 
-  it("the glyph spans both rows; the meta sits in the name's column at its own width", () => {
+  it("the glyph rides row 1 centered with the title; the meta sits in the name's column at its own width", () => {
     const glyph = ruleBody(css, ".history__glyph");
-    expect(glyph["grid-row"]).toBe("1 / -1");
+    expect(glyph["grid-row"]).toBe("1");
+    expect(glyph["align-self"]).toBe("center");
     const meta = ruleBody(css, ".history__meta");
     expect(meta["grid-column"]).toBe("2");
     expect(meta["justify-self"]).toBe("start");
@@ -72,8 +81,14 @@ describe("history data row layout contract", () => {
     expect(actions["grid-row"]).toBe("1");
     expect(ruleBody(css, ".browser__open")["grid-column"]).toBe("2");
     expect(ruleBody(css, ".browser__open")["grid-row"]).toBe("1");
-    // The glyph's span stays.
-    expect(ruleBody(css, ".history__glyph")["grid-row"]).toBe("1 / -1");
+    // The glyph rides row 1 CENTERED with the title — spanning both
+    // rows centered it between the lines (floating); `start` hung the
+    // taller buttons below the title line (the user's screenshot).
+    const glyph = ruleBody(css, ".history__glyph");
+    expect(glyph["grid-row"]).toBe("1");
+    expect(glyph["align-self"]).toBe("center");
+    // Row 1 centers: title and buttons on ONE line.
+    expect(ruleBody(css, ".history__datarow")["align-items"]).toBe("center");
   });
 
   it("the viewer bar owns symmetric horizontal padding; the push-right rule rides the GROUP", () => {
