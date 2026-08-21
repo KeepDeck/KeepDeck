@@ -15,6 +15,8 @@ import { SessionRowView } from "./SessionRowView";
 import { SessionViewer, type ViewerTarget } from "./browser/SessionViewer";
 import { useSessionListComposition } from "./browser/useSessionListComposition";
 import { useRowAnchoring } from "./browser/useRowAnchoring";
+import { BrowserSearchStatus } from "./browser/BrowserSearchStatus";
+import { useBrowserClock } from "./browser/useBrowserClock";
 
 interface SessionsBrowserProps {
   api: SessionsBrowserApi;
@@ -99,6 +101,7 @@ export function SessionsBrowser({
     [rows, api.workspace.hits, api.other.hits],
   );
   const presence = useDirPresence(presenceCwds);
+  const now = useBrowserClock();
   // Orders transcript responses: a stale page must never render under a
   // newer row's header (the search path has searchSeq; this is its twin).
   const viewSeq = useRef(0);
@@ -380,56 +383,6 @@ export function SessionsBrowser({
     maybeLoadBoth();
   };
 
-  // THE CLOCK — one EVEN tick per minute, resurrected by demand and
-  // cheap NOW: virtualization pinned the visible rows to ~a screenful,
-  // so a tick repaints only them — and, since the tick landed INSIDE
-  // this component, every input the tick would have walked for
-  // nothing (the measurement key callback, the presence cwd list, the
-  // stabilized arrays) is memoized on its real sources, or the tick
-  // would re-walk the whole queue through the library's memo.
-  // HONEST SCOPE of "only the visible": the ROWS in the markup are
-  // only the visible; the presence inputs (the cwd array AND the
-  // hook's fingerprint over it) are memoized on their real sources —
-  // an unrelated render touches no path at all. When the inputs DO
-  // change, the fingerprint pass runs over all of them, visible or
-  // not. Not rounded in our favor: the queue walk is gone, the input
-  // walk on real changes remains.
-  // The CONTRACT (the circle's, not a guess): lag up to one minute is
-  // accepted (the label is coarse anyway); a hidden window does not
-  // count time (the interval pauses on document.hidden); on the
-  // window's return the tick fires
-  // IMMEDIATELY — no stale minute shown to a returning eye. This is a
-  // EVEN tick, deliberately NOT the old incidental refresh: that one
-  // recalculated on every render, so an age label changed exactly at
-  // the moment a page landed and the row was moving anyway.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const start = () => {
-      if (timer !== null) return;
-      timer = setInterval(() => setNow(Date.now()), 60_000);
-    };
-    const stop = () => {
-      if (timer === null) return;
-      clearInterval(timer);
-      timer = null;
-    };
-    const onVisibility = () => {
-      if (document.hidden) {
-        stop(); // a hidden window counts no time
-      } else {
-        setNow(Date.now()); // immediate recompute on return
-        start();
-      }
-    };
-    if (!document.hidden) start();
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, []);
-
   // STABLE action adapters: ONE pair for the whole mount, not one pair
   // per row per render — the rows receive these as props and re-render
   // on any identity change. The underlying props are stable refs for
@@ -447,17 +400,11 @@ export function SessionsBrowser({
           onChange={(e) => api.search(e.target.value)}
         />
         <span className="browser__meta">
-          {(api.firstPagePending || (api.scanning && (api.workspace.hits.length > 0 || api.other.hits.length > 0))) && (
-            // One slot, one message — two at once would be porridge. The
-            // SEARCH pending wins over the ambient indexing note: it
-            // answers what the user just did (typed and is waiting on
-            // THEIR results), while indexing is background state that
-            // outlives the wait. Inside the field, so neither shifts
-            // layout nor duplicates the empty-list placeholder.
-            <span className={api.firstPagePending ? "browser__searching" : "browser__scanning"}>
-              {api.firstPagePending ? "Searching…" : "Indexing…"}
-            </span>
-          )}
+          <BrowserSearchStatus
+            firstPagePending={api.firstPagePending}
+            scanning={api.scanning}
+            hasRows={api.workspace.hits.length > 0 || api.other.hits.length > 0}
+          />
           {listCount.total > 0 && (
             // The search field's counter — the count of THIS LIST (both
             // its tracks, journal rows in the denominator, loaded twins
