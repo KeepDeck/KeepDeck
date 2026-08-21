@@ -59,6 +59,80 @@
   border-bottom: none;
 }
 
+/* ── The DATA row's layout contract ─────────────────────────────────
+ * Nine permanent semantic slots — state · glyph · name · cwd · branch ·
+ * when · issues · resume · fork — in ONE explicit template shared by
+ * every data row of the list. The sameness is the point: under flex, an
+ * absent fact was an absent NODE, the name's flex absorbed the freed
+ * width, and every chip right of it drifted per row. Explicit common
+ * tracks (never auto/max-content — those size per row and rebuild the
+ * same raggedness in new clothes) pin each column's edge for all rows.
+ * Shrinking order on a narrow panel: the cwd track yields first (its
+ * floor is zero, its cap the old 180px budget), the name last (widest
+ * floor, stretches with the rest). Issues wrap inside their track —
+ * the row grows taller, nothing clips, nothing overflows. */
+.history__datarow {
+  display: grid;
+  grid-template-columns:
+    7px                /* state */
+    16px               /* glyph */
+    minmax(220px, 1fr) /* name */
+    minmax(0px, 180px) /* cwd */
+    120px              /* branch */
+    64px               /* when */
+    96px               /* issues */
+    72px               /* resume */
+    56px;              /* fork */
+  column-gap: 10px;
+  align-items: center;
+}
+
+.history__cwd,
+.history__branch,
+.history__issues,
+.history__action {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Chips ride INSIDE their slots: the slot owns the width, the chip
+ * never exceeds it — that is what makes the label's own ellipsis the
+ * clipping that runs. */
+.history__cwd .history__chip,
+.history__branch .history__chip {
+  max-width: 100%;
+}
+
+/* Action buttons fill their permanent slots — one width for every row,
+ * whether the neighbor's slot holds a button or holds its place. */
+.history__action {
+  display: flex;
+}
+
+.history__action .history__resume,
+.history__action .history__fork {
+  width: 100%;
+}
+
+/* The folder chip's label clips from the LEFT: the distinguishing tail
+ * ("…Web-3" vs "…Web-4") is at the end, so the head is what the budget
+ * must eat. direction: rtl lives HERE — on the clipping label wrapper
+ * of this slot's chip ONLY, never on the row or the slot (it would
+ * reverse the column order); the name itself rides <bdi dir="ltr"> in
+ * the markup, isolating the bidi context and killing the first-strong
+ * guess. The pair is load-bearing: isolation without rtl is useless,
+ * rtl without isolation permutes the tail's hyphens and digits. The
+ * chip's own sheet already ellipsizes the label slot. */
+.history__cwd .chip__label {
+  direction: rtl;
+}
+
+.history__issues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .history__state {
   flex: none;
   width: 7px;

@@ -110,20 +110,27 @@ export function SessionRowView({
     <li
       key={rowKeyOf(row)}
       ref={rowRef}
-      className={`history__row${openable ? " history__row--open" : ""}`}
+      className={`history__row history__datarow${openable ? " history__row--open" : ""}`}
       // The WHOLE row opens the transcript — aiming at the text alone is a
       // hidden hit-target. The action buttons stop the bubble; the inner
       // button stays for keyboard access (its synthesized click bubbles
       // here too).
       onClick={openable ? () => onOpen(row) : undefined}
     >
-      {bound !== null && (
+      {/* NINE permanent slots — state · glyph · name · cwd · branch ·
+       * when · issues · resume · fork. Each renders ALWAYS: an absent
+       * fact is an empty slot holding its place, never a missing node —
+       * a row that drops its cells makes every neighbor's remaining
+       * cells drift. aria-hidden marks ONLY an empty slot's content. */}
+      {bound !== null ? (
         <span
           className={`history__state${
             bound.liveness === "live" ? " history__state--live" : ""
           }`}
           title={bound.liveness === "live" ? "Running" : "Closed"}
         />
+      ) : (
+        <span className="history__state" aria-hidden="true" />
       )}
       <span className="history__glyph">
         <AgentGlyph icon={agent?.icon} />
@@ -145,91 +152,135 @@ export function SessionRowView({
           <span className="browser__snippet">{index.snippet}</span>
         )}
       </button>
-      {row.cwd !== "" && (
-        <Chip
-          size="inline"
-          className="history__chip"
-          title={row.cwd}
-          label={baseName(row.cwd) || row.cwd}
-        />
+      {row.cwd !== "" ? (
+        <span className="history__cwd">
+          <Chip
+            size="inline"
+            className="history__chip"
+            title={row.cwd}
+            // The folder's distinguishing tail lives at the END
+            // ("kd-KeepDeck-Web-3" vs "…Web-4"), so the clip must eat
+            // the HEAD: the chip's label wrapper clips from the left
+            // (its stylesheet scopes direction: rtl to this slot's
+            // label), while the name itself rides a <bdi dir="ltr"> —
+            // isolation without rtl is useless, rtl without isolation
+            // permutes the weak hyphens and digits the tail is made
+            // of. The pair is load-bearing on both sides.
+            label={<bdi dir="ltr">{baseName(row.cwd) || row.cwd}</bdi>}
+          />
+        </span>
+      ) : (
+        <span className="history__cwd" aria-hidden="true" />
       )}
-      {bound?.branch !== undefined && (
-        <Chip
-          size="inline"
-          className="history__chip"
-          title={row.cwd}
-          label={bound.branch}
-        />
+      {bound?.branch !== undefined ? (
+        <span className="history__branch">
+          <Chip
+            size="inline"
+            className="history__chip"
+            title={row.cwd}
+            label={bound.branch}
+          />
+        </span>
+      ) : (
+        <span className="history__branch" aria-hidden="true" />
       )}
-      <span className="history__when">
-        {row.when !== null ? formatAge(row.when, now) : ""}
-      </span>
-      {dirMissing && (
-        <Chip
-          size="inline"
-          tone="error"
-          className="history__missing"
-          title={`${row.cwd} no longer exists — the session cannot resume in place`}
-          label="dir gone"
-        />
+      {row.when !== null ? (
+        <span className="history__when">{formatAge(row.when, now)}</span>
+      ) : (
+        <span className="history__when" aria-hidden="true" />
       )}
-      {statusChip !== null && (
-        <Chip
-          size="inline"
-          tone={statusChip.tone}
-          className="history__status"
-          title={statusChip.title}
-          label={statusChip.label}
-        />
-      )}
-      {readFailed && (
-        <Chip
-          size="inline"
-          tone="error"
-          className="history__status"
-          title="Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate."
-          label="read failed"
-        />
+      {/* ONE container for the row's issue chips — "dir gone", the
+       * status verdict, "read failed" — more than one can be true at
+       * once. Under crowding they WRAP inside this track: the row grows
+       * taller and every message stays; clipping or overflowing the
+       * track would hide a meaning. */}
+      {dirMissing || statusChip !== null || readFailed ? (
+        <span className="history__issues">
+          {dirMissing && (
+            <Chip
+              size="inline"
+              tone="error"
+              className="history__missing"
+              title={`${row.cwd} no longer exists — the session cannot resume in place`}
+              label="dir gone"
+            />
+          )}
+          {statusChip !== null && (
+            <Chip
+              size="inline"
+              tone={statusChip.tone}
+              className="history__status"
+              title={statusChip.title}
+              label={statusChip.label}
+            />
+          )}
+          {readFailed && (
+            <Chip
+              size="inline"
+              tone="error"
+              className="history__status"
+              title="Reading this session failed. This is not 'nothing to read': the row stays, and a retry is legitimate."
+              label="read failed"
+            />
+          )}
+        </span>
+      ) : (
+        <span className="history__issues" aria-hidden="true" />
       )}
       {/* The Resume gate, source-aware: a BOUND row resumes unless it is
        * live right now; an INDEX row has no liveness fact AT ALL and
        * resumes — most of the bottom block's rows are exactly this, and
        * narrowing the condition to bound-only would silently strip the
-       * button from every index row. */}
+       * button from every index row. The slots are permanent; the
+       * button's availability is exactly what it was. */}
       {supportsResume &&
-        !wrongOwner &&
-        (index !== null || bound?.liveness !== "live") && (
-        <button
-          type="button"
-          className="history__resume"
-          disabled={dirMissing || row.cwd === ""}
-          title={
-            dirMissing
-              ? "The session's directory no longer exists"
-              : row.cwd === ""
-                ? "The session has no recorded directory"
-                : `Resume in ${row.cwd}`
-          }
-          onClick={(e) => {
-            e.stopPropagation();
-            onResume(row);
-          }}
-        >
-          Resume
-        </button>
+      !wrongOwner &&
+      (index !== null || bound?.liveness !== "live") ? (
+        <span className="history__action history__action--resume">
+          <button
+            type="button"
+            className="history__resume"
+            disabled={dirMissing || row.cwd === ""}
+            title={
+              dirMissing
+                ? "The session's directory no longer exists"
+                : row.cwd === ""
+                  ? "The session has no recorded directory"
+                  : `Resume in ${row.cwd}`
+            }
+            onClick={(e) => {
+              e.stopPropagation();
+              onResume(row);
+            }}
+          >
+            Resume
+          </button>
+        </span>
+      ) : (
+        <span
+          className="history__action history__action--resume"
+          aria-hidden="true"
+        />
       )}
-      {supportsFork && !wrongOwner && (
-        <button
-          type="button"
-          className="history__fork"
-          title="Fork — a new conversation continuing from this session"
-          onClick={(e) => {
-            e.stopPropagation();
-            onFork(row);
-          }}
-        >
-          Fork
-        </button>
+      {supportsFork && !wrongOwner ? (
+        <span className="history__action history__action--fork">
+          <button
+            type="button"
+            className="history__fork"
+            title="Fork — a new conversation continuing from this session"
+            onClick={(e) => {
+              e.stopPropagation();
+              onFork(row);
+            }}
+          >
+            Fork
+          </button>
+        </span>
+      ) : (
+        <span
+          className="history__action history__action--fork"
+          aria-hidden="true"
+        />
       )}
     </li>
   );

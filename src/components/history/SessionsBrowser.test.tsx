@@ -596,8 +596,9 @@ describe("SessionsBrowser journal section", () => {
     expect(rows[0].querySelector(".history__state--live")).toBeNull();
     expect(rows[1].querySelector(".history__state--live")).not.toBeNull();
     expect(rows[2].textContent).toContain("other session");
-    // A hit row knows no liveness — no dot cell at all, honestly.
-    expect(rows[2].querySelector(".history__state")).toBeNull();
+    // A hit row knows no liveness — its state SLOT holds the place,
+    // honestly empty (marked hidden), no dot drawn.
+    expect(rows[2].querySelector(".history__state:not([aria-hidden])")).toBeNull();
     // The divider sits between the pinned rows and the hits, carrying
     // the global block's own counter.
     const divider = document.querySelector(".browser__section");
@@ -1067,9 +1068,9 @@ describe("SessionsBrowser journal join", () => {
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/s-1.jsonl" })]);
     const top = topRows();
     expect(top).toHaveLength(2); // the bound record AND the folder hit
-    expect(top[0].querySelector(".history__state")).not.toBeNull(); // bound first
+    expect(top[0].querySelector(".history__state:not([aria-hidden])")).not.toBeNull(); // bound first
     expect(top[0].textContent).toContain("s-1"); // nameless → its session id
-    expect(top[1].querySelector(".history__state")).toBeNull(); // the hit
+    expect(top[1].querySelector(".history__state:not([aria-hidden])")).toBeNull(); // the hit: slot empty
     expect(top[1].textContent).toContain("folder hit");
     const bottom = bottomRows();
     expect(bottom).toHaveLength(1);
@@ -1393,35 +1394,40 @@ describe("unified row guard — both blocks, one markup", () => {
       .map((b) => b.textContent),
   });
 
-  /** The skeleton's ORDER as the direct children carry it — independent
-   * of both blocks, so a wrong reordering cannot pass as "equally wrong
-   * in both". Independent queries above cannot see order; this does. */
-  const orderOf = (row: Element) =>
+  /** The slot skeleton: the NINE named cells and their ORDER are the
+   * requirement — permanent, in every data row, whatever facts the row
+   * has. Extracted per slot so the comparison cannot pass on accidental
+   * overall equality while a cell moved. No filtering, no lifting: an
+   * absent fact must appear as its EMPTY slot, not as a missing node —
+   * a conditional node anywhere in this list is the regression this
+   * guard exists to catch (it was the very defect: missing nodes made
+   * every neighbor's cells drift). */
+  const SLOTS = [
+    "state",
+    "glyph",
+    "name",
+    "cwd",
+    "branch",
+    "when",
+    "issues",
+    "resume",
+    "fork",
+  ] as const;
+
+  const slotsOf = (row: Element): string[] =>
     [...row.children].map((el) => {
       const c = (el as HTMLElement).classList;
       if (c.contains("history__state")) return "state";
       if (c.contains("history__glyph")) return "glyph";
       if (c.contains("browser__open")) return "name";
-      if (c.contains("history__chip")) return "chip";
+      if (c.contains("history__cwd")) return "cwd";
+      if (c.contains("history__branch")) return "branch";
       if (c.contains("history__when")) return "when";
-      if (c.contains("history__missing") || c.contains("history__status"))
-        return "statuschip";
-      if (c.contains("history__resume")) return "resume";
-      if (c.contains("history__fork")) return "fork";
+      if (c.contains("history__issues")) return "issues";
+      if (c.contains("history__action--resume")) return "resume";
+      if (c.contains("history__action--fork")) return "fork";
       return "other";
     });
-
-  /** The canonical skeleton sequence with the may-be-absent cells removed
-   * (state, status chips) and the branch chip folded (a hit has no
-   * branch, a bound row has one chip MORE). */
-  const canonicalOf = (row: Element): string[] => {
-    const order = orderOf(row).filter((m) => m !== "state" && m !== "statuschip");
-    // Drop the LAST chip (the branch) when two render — cwd stays first.
-    if (order.filter((m) => m === "chip").length > 1) {
-      order.splice(order.lastIndexOf("chip"), 1);
-    }
-    return order;
-  };
 
   it("identical data renders identically through BOTH sources — serialization compared, not eyeballed", async () => {
     // The same session as a journal record and as an index hit: title,
@@ -1476,23 +1482,28 @@ describe("unified row guard — both blocks, one markup", () => {
     const fromJournal = rowOf(0);
     const fromIndex = rowOf(1);
     expect(skeletonOf(fromJournal)).toEqual(skeletonOf(fromIndex));
-    // And the FULL serialization with the may-be-absent cells lifted (the
-    // closed journal row renders its liveness dot; a hit cannot) — any
-    // OTHER markup divergence between the blocks fails here, whatever its
-    // name. The lift itself is audited by the next test.
-    const lift = (row: Element) => {
-      const clone = row.cloneNode(true) as Element;
-      clone.querySelectorAll(".history__state").forEach((n) => n.remove());
-      return clone;
-    };
-    expect(lift(fromJournal).outerHTML).toBe(lift(fromIndex).outerHTML);
+    // The FULL slot skeleton, no filtering and no removals: both rows
+    // carry the same nine named slots in the same order — the journal
+    // row's extra facts (the dot) live INSIDE their slots as content,
+    // never as extra nodes between them.
+    expect(slotsOf(fromJournal)).toEqual([...SLOTS]);
+    expect(slotsOf(fromIndex)).toEqual([...SLOTS]);
+    // The journal-source fact sits in ITS OWN cell: the state slot is
+    // filled where liveness is known, empty (hidden) where it is not.
+    expect(
+      fromJournal.querySelector(".history__state:not([aria-hidden])"),
+    ).not.toBeNull();
+    expect(
+      fromIndex.querySelector(".history__state:not([aria-hidden])"),
+    ).toBeNull();
   });
 
   it("source-only cells are MAY-BE-ABSENT, not different: liveness dot and branch chip", async () => {
     // A bound row with a branch renders the dot and the second chip; a
-    // hit row renders NEITHER — and without them the skeleton is the same
-    // one the identity guard compared. The read link is matched on both
-    // sides so openability itself does not diverge.
+    // hit row renders NEITHER fact — and both rows still carry the SAME
+    // nine slots: the facts live inside their slots, the slots never
+    // leave. The read link is matched on both sides so openability
+    // itself does not diverge.
     const ENDED = "2026-07-19T11:00:00.000Z";
     await mountTwoSources(
       [
@@ -1517,31 +1528,31 @@ describe("unified row guard — both blocks, one markup", () => {
     );
     const fromJournal = rowOf(0);
     const fromIndex = rowOf(1);
-    // The dot exists only where liveness is known.
-    expect(fromJournal.querySelector(".history__state")).not.toBeNull();
-    expect(fromIndex.querySelector(".history__state")).toBeNull();
-    // The branch chip exists only where a branch was recorded — and it is
-    // the SECOND chip, the directory chip stays first.
+    // The dot exists only where liveness is known — inside the state
+    // slot, which itself exists in both rows.
+    expect(
+      fromJournal.querySelector(".history__state:not([aria-hidden])"),
+    ).not.toBeNull();
+    expect(
+      fromIndex.querySelector(".history__state:not([aria-hidden])"),
+    ).toBeNull();
+    // The branch chip exists only where a branch was recorded — and it
+    // is the SECOND chip, the directory chip stays first.
     const journalChips = fromJournal.querySelectorAll(".history__chip");
     const indexChips = fromIndex.querySelectorAll(".history__chip");
     expect(journalChips).toHaveLength(2);
     expect(indexChips).toHaveLength(1);
     expect(journalChips[0].textContent).toBe(indexChips[0].textContent);
-    // The ORDER guard, independent of any block: both rows' canonical
-    // sequences equal the same named order — glyph, name, chips, time,
-    // actions — not merely each other.
-    const CANONICAL = ["glyph", "name", "chip", "when", "resume", "fork"];
-    expect(canonicalOf(fromJournal)).toEqual(CANONICAL);
-    expect(canonicalOf(fromIndex)).toEqual(CANONICAL);
-    // With the may-be-absent cells lifted out, the skeletons coincide.
-    const lift = (row: Element) => {
-      const clone = row.cloneNode(true) as Element;
-      clone.querySelectorAll(".history__state").forEach((n) => n.remove());
-      const chips = clone.querySelectorAll(".history__chip");
-      if (chips.length > 1) chips[chips.length - 1].remove();
-      return clone;
-    };
-    expect(lift(fromJournal).outerHTML).toBe(lift(fromIndex).outerHTML);
+    // The folder chip's label carries the name in an EXPLICIT bidi
+    // isolation — the clip side is the stylesheet's rtl, the name's
+    // direction is never guessed.
+    const folderLabel = journalChips[0].querySelector(".chip__label")!;
+    const bdi = folderLabel.querySelector("bdi[dir='ltr']");
+    expect(bdi?.textContent).toBe("repo");
+    // The ORDER guard, independent of any block: both rows' slot
+    // sequences equal the same nine names — not merely each other.
+    expect(slotsOf(fromJournal)).toEqual([...SLOTS]);
+    expect(slotsOf(fromIndex)).toEqual([...SLOTS]);
   });
 
   it("two NAMELESS hits stay distinguishable — the session id, not a wall of agent labels", async () => {
