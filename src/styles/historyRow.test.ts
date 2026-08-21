@@ -62,4 +62,32 @@ describe("history data row layout contract", () => {
     const decls = rule[1];
     expect(decls).toContain('content: "·"');
   });
+
+  it("the actions are ONE explicitly placed cell — auto-placement is banned", () => {
+    // The defect this pins: two loose buttons took two grid cells, and
+    // auto-placement dropped the second onto the meta line. Every cell
+    // is explicit now — name (col 2), actions group (col 3, row 1).
+    const actions = ruleBody(css, ".history__actions");
+    expect(actions["grid-column"]).toBe("3");
+    expect(actions["grid-row"]).toBe("1");
+    expect(ruleBody(css, ".browser__open")["grid-column"]).toBe("2");
+    expect(ruleBody(css, ".browser__open")["grid-row"]).toBe("1");
+    // The glyph's span stays.
+    expect(ruleBody(css, ".history__glyph")["grid-row"]).toBe("1 / -1");
+  });
+
+  it("the viewer bar owns symmetric horizontal padding; the push-right rule rides the GROUP", () => {
+    const bar = ruleBody(css, ".browser__viewerbar");
+    // Symmetric left/right padding ON THE BAR — the old single button
+    // carried it; a bar without its own padding lets the last button
+    // touch the panel border.
+    expect(bar["padding"]).toBe("0 12px");
+    // The back button keeps only VERTICAL padding — its old 12px-all
+    // would double the bar's left edge.
+    expect(ruleBody(css, ".browser__back")["padding"]).toBe("12px 0");
+    // The push-right rule applies ONCE, to the actions group — never
+    // per button, whose behavior would depend on which rendered.
+    const group = ruleBody(css, ".browser__viewerbar .history__actions");
+    expect(group["margin-left"]).toBe("auto");
+  });
 });

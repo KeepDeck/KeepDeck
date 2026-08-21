@@ -349,9 +349,14 @@ describe("SessionsBrowser", () => {
     expect(back).not.toBeNull();
     // No nesting: the back button holds no buttons inside.
     expect(back.querySelector("button")).toBeNull();
-    // Both actions present in the bar, OUTSIDE the back button.
-    const resume = bar.querySelector<HTMLButtonElement>(".history__resume");
-    const fork = bar.querySelector<HTMLButtonElement>(".history__fork");
+    // Both actions present in the bar, inside their GROUP — the group
+    // is the bar's ONE push-right child (margin rides the group, never
+    // per button), and both sit OUTSIDE the back button.
+    const group = bar.querySelector(".history__actions")!;
+    expect(group).not.toBeNull();
+    expect(bar.querySelectorAll(":scope > .history__actions")).toHaveLength(1);
+    const resume = group.querySelector<HTMLButtonElement>(".history__resume");
+    const fork = group.querySelector<HTMLButtonElement>(".history__fork");
     expect(resume).not.toBeNull();
     expect(fork).not.toBeNull();
     expect(back.contains(resume!)).toBe(false);
@@ -1427,17 +1432,16 @@ describe("unified row guard — both blocks, one markup", () => {
 
   /** The slot TREE: the named cells and their order are the
    * requirement — same shape for every data row, whatever facts the
-   * row has. The glyph spans both grid rows; the actions sit in row
-   * one; the meta line flows in the name's column below. Optional
-   * facts (actions when unavailable, meta parts when absent) are
-   * simply absent — the row's shape is the tree of what CAN be, and
-   * no fact adds or removes a STRUCTURAL node. */
+   * row has. The glyph spans both grid rows; the actions are ONE
+   * group-cell (its buttons are children of the group, never loose
+   * children of the row — loose buttons once fell onto the meta line
+   * by auto-placement); the meta line flows in the name's column
+   * below. */
   const slotNameOf = (el: Element): string => {
     const c = (el as HTMLElement).classList;
     if (c.contains("history__glyph")) return "glyph";
     if (c.contains("browser__open")) return "name";
-    if (c.contains("history__resume")) return "resume";
-    if (c.contains("history__fork")) return "fork";
+    if (c.contains("history__actions")) return "actions";
     if (c.contains("history__meta")) return "meta";
     return "other";
   };
@@ -1529,6 +1533,56 @@ describe("unified row guard — both blocks, one markup", () => {
     expect(metaPartsOf(fromJournal).slice().sort()).toEqual(
       metaPartsOf(fromJournal).slice().sort(),
     );
+    // The actions are ONE group-cell: its buttons are CHILDREN of the
+    // group, never loose children of the row — loose buttons once fell
+    // onto the meta line by grid auto-placement. The group keeps its
+    // cell whatever it holds (both, one, none) — the row's shape never
+    // depends on availability.
+    for (const row of [fromJournal, fromIndex]) {
+      const group = row.querySelector(".history__actions");
+      expect(group).not.toBeNull();
+      expect(group!.querySelector(".history__resume")).not.toBeNull();
+      expect(group!.querySelector(".history__fork")).not.toBeNull();
+      expect(
+        [...row.children].some(
+          (c) => (c as HTMLElement).classList.contains("history__resume"),
+        ),
+      ).toBe(false);
+      expect(
+        [...row.children].some(
+          (c) => (c as HTMLElement).classList.contains("history__fork"),
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("the actions group keeps its cell when EMPTY or HALF-FILLED — the row's shape never depends on availability", async () => {
+    // The degenerate cases the group exists for: a resume-incapable
+    // agent (no buttons at all), a wrong-owner row (neither action).
+    // The group still sits between the name and the meta in the tree;
+    // the meta does not move.
+    const incapable: AgentInfo = {
+      ...CAPABLE_AGENT,
+      features: [{ id: "session.history", label: "History" }],
+    };
+    await act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: api([]),
+          agents: [incapable],
+          ready: true,
+          rows: [closed({ sessionId: "s-1", transcriptPath: "/j/s-1.jsonl" })],
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+    const row = listRows()[0];
+    const group = row.querySelector(".history__actions");
+    expect(group).not.toBeNull(); // the cell exists even with no buttons
+    expect(group!.querySelector("button")).toBeNull();
+    // And the meta stays in its place in the tree.
+    expect(slotsTreeOf(row)).toEqual(["glyph", "name", "actions", "meta"]);
   });
 
   it("source-only cells are MAY-BE-ABSENT, not different: liveness dot and branch chip", async () => {

@@ -87,7 +87,12 @@ export function SessionRowActions({
   const index = row.kind === "index" ? row : null;
   const wrongOwner = bound?.status === "wrong-owner";
   return (
-    <>
+    // ONE group — a single grid cell in the row (and one child of the
+    // viewer bar). Two loose buttons would take two cells: the grid's
+    // auto-placement dropped the second onto the meta line below. The
+    // group keeps its cell even when empty (no button available) or
+    // holding one — the row's shape never depends on availability.
+    <span className="history__actions">
       {/* The Resume gate, source-aware: a BOUND row resumes unless it is
        * live right now; an INDEX row has no liveness fact AT ALL and
        * resumes — most of the bottom block's rows are exactly this. */}
@@ -126,7 +131,7 @@ export function SessionRowActions({
           Fork
         </button>
       )}
-    </>
+    </span>
   );
 }
 

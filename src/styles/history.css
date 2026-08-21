@@ -80,6 +80,25 @@
   align-self: start;
 }
 
+/* Every cell of the row is EXPLICITLY placed — auto-placement is
+ * banned here: it is what dropped a loose second button onto the meta
+ * line. The actions are ONE group in column 3, row 1, right-aligned;
+ * the group keeps its cell when empty or half-filled, so the row's
+ * shape never depends on availability. */
+.browser__open {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.history__actions {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .history__meta {
   grid-column: 2;
   justify-self: start;
@@ -359,26 +378,27 @@
 }
 
 /* Backing out of an opened transcript to the sessions list — the git
- * plugin's drill-back row, verbatim: full-width, left chevron + the
- * drilled-into label, top LEFT. No close cross: this is navigation. */
+ * plugin's drill-back row, verbatim: left chevron + the drilled-into
+ * label, top LEFT. No close cross: this is navigation. */
 /* The opened session's header BAR: the drill-back button on the left
  * (its own button — actions can never nest inside one), the row's own
  * actions on the right, from the SAME availability rules as the list
- * row. */
+ * row. The bar owns the horizontal padding — symmetric left and
+ * right — which the old single back button carried alone; the button
+ * keeps only its vertical padding, so the bar's height stays what one
+ * button's padding always made it. The push-right rule lives on the
+ * GROUP (once), never per button — its behavior must not depend on
+ * which buttons are available. */
 .browser__viewerbar {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 0 12px;
   border-bottom: 1px solid #1c2230;
 }
 
-.browser__viewerbar .history__resume,
-.browser__viewerbar .history__fork {
+.browser__viewerbar .history__actions {
   margin-left: auto;
-}
-
-.browser__viewerbar .history__resume + .history__fork {
-  margin-left: 0;
 }
 
 .browser__back {
@@ -391,8 +411,11 @@
   background: transparent;
   color: #8b93a3;
   /* The label is a session TITLE, not the git plugin's short scope tag —
-   * sentence case at content size, with a comfortable row height. */
-  padding: 12px;
+   * sentence case at content size, with a comfortable row height. Only
+   * the VERTICAL padding stays on the button; the horizontal belongs to
+   * the bar (it used to be 12px all around, when the button WAS the
+   * bar — keeping it would double the left edge). */
+  padding: 12px 0;
   font-size: 13px;
   text-align: left;
   cursor: pointer;
