@@ -49,7 +49,6 @@ export function useSessionOpening() {
     setReadFailed,
     viewSeq,
     openRow,
-    openViewer,
     closeViewer,
   };
 }

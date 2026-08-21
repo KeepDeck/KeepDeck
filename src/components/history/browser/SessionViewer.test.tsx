@@ -124,11 +124,10 @@ describe("SessionViewer", () => {
     act(() => root.unmount());
   });
 
-  it("retry is legitimate: reopening repeats the shown link and names read failure itself", async () => {
-    const transcript = vi
-      .fn<SessionsBrowserApi["transcript"]>()
-      .mockRejectedValueOnce(new Error("no such file"))
-      .mockResolvedValueOnce([entry("back again")]);
+  it("names a read refusal as itself and leaves retry to the parent", async () => {
+    const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
+      Promise.reject(new Error("no such file")),
+    );
     const readFailed = vi.fn();
     const viewSeq = { current: 0 };
 
@@ -138,21 +137,10 @@ describe("SessionViewer", () => {
       "Read failed: no such file",
     );
     expect(document.body.textContent).not.toContain("nothing to read");
-
-    // The list's open click retries the same displayed link by opening a new
-    // target. The viewer must not silently switch to another reference.
-    await renderViewer({
-      root,
-      target: target(),
-      transcript,
-      viewSeq,
-      readFailed,
-    });
-    await settle();
-    expect(transcript).toHaveBeenNthCalledWith(2, "claude", SHOWN, 0, 50);
-    expect(document.querySelector(".browser__turn--user")?.textContent).toBe(
-      "back again",
-    );
+    const lastUpdate = readFailed.mock.calls[readFailed.mock.calls.length - 1]?.[0] as (
+      current: ReadonlySet<string>,
+    ) => ReadonlySet<string>;
+    expect(lastUpdate(new Set())).toEqual(new Set([SHOWN]));
   });
 
   it("drops a stale page when the view sequence advances to a newer header", async () => {
