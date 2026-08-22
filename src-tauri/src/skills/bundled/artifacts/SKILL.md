@@ -20,10 +20,22 @@ One self-contained file. It renders under a strict Content-Security-Policy on a 
 - Real data over placeholders: use the actual numbers, names, and code you are presenting.
 - Diagrams: inline SVG, or a hand-rolled HTML/CSS diagram. No CDN libraries (they cannot load).
 - Keep it readable in a browser tab: system fonts, clear hierarchy, no framework boilerplate.
+- ONE visual style for the whole document. Pick whatever fits the content, but
+  every section — headers, cards, tables, diagrams, code blocks — follows the
+  SAME palette, spacing and typography; a page that switches style halfway
+  reads as two documents stapled together. Prefer a dark theme (a light
+  `pre`/code block on a dark page is fine; a light SECTION is not).
 
 ## Publishing
 
 Call artifact_publish with a `path` to the file you wrote (preferred — the file must live INSIDE your pane's cwd, and its extension must match the declared format) or inline `content`. Give it a short lowercase `id` (dashes, e.g. `auth-flow`) — teammates reference artifacts by id in mail. `format` is `html` or `md` and is PINNED at first publish: a flip is refused; publish a new artifact instead.
+
+Scripted callers (running a tool call from a script, not typing it): prefer
+`path` over `content` — a value computed in the script (a read piped into a
+variable) may arrive as undefined unless it is materialized in a real file
+first. If a publish is refused with "needs one of `path` or `content`", the
+content never made it into the call: write the bytes to a file in your cwd and
+publish the path.
 
 The result carries TWO urls — the artifact's and the workspace index. PRINT BOTH, verbatim, so the user's scrollback is a recovery surface.
 
