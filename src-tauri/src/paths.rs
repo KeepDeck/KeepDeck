@@ -17,11 +17,6 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-/// Compile-time evidence that test homes take the dedicated branch above the
-/// production environment resolver.
-#[cfg(test)]
-pub(crate) const TEST_HOME_BRANCH: bool = true;
-
 /// This build's home, by the precedence above. `None` only in degenerate
 /// environments with none of the variables — callers must treat that as "no
 /// persistence", never as an error.
@@ -223,12 +218,22 @@ mod tests {
 
     #[test]
     fn test_home_is_a_tmp_home_by_construction() {
-        assert!(TEST_HOME_BRANCH);
         let home = keepdeck_home().expect("test builds always have a tmp home");
         assert!(
             home.starts_with(std::env::temp_dir()),
             "test home escaped the temp directory: {}",
             home.display()
         );
+    }
+
+    #[test]
+    fn test_homes_are_fresh_per_thread() {
+        let first = std::thread::spawn(|| keepdeck_home().expect("first test home"))
+            .join()
+            .expect("first home thread must finish");
+        let second = std::thread::spawn(|| keepdeck_home().expect("second test home"))
+            .join()
+            .expect("second home thread must finish");
+        assert_ne!(first, second, "test homes must not be shared across threads");
     }
 }
