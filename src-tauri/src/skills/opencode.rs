@@ -7,7 +7,85 @@
 //! POINTS AT the staged SKILL.md rather than inlining it — a reference cannot
 //! go stale when the skill is edited.
 
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use crate::state::write_atomic;
+
+/// How the swap is performed. The MECHANISM is staging's — one atomic
+/// directory replacement, used by every view — while the tmp and trash
+/// names below are this dialect's own.
+pub(super) type SwapDir = fn(&Path, &Path, &Path) -> io::Result<()>;
+
+/// opencode's view of a workspace's skills, through its whole lifecycle.
+///
+/// It lives OUTSIDE the wiped `staging/` tree: opencode treats its config
+/// dir as writable (node_modules, account state) and those files must
+/// survive every rebuild — only the two subtrees named here are ours.
+pub(super) struct View {
+    dir: PathBuf,
+    skills_tmp: PathBuf,
+    command_tmp: PathBuf,
+}
+
+impl View {
+    /// Where every workspace's opencode view lives — the prune sweep asks
+    /// for it rather than spelling this dialect's directory itself.
+    pub(super) fn parent(root: &Path) -> PathBuf {
+        root.join("opencode")
+    }
+
+    pub(super) fn at(root: &Path, ws_id: &str) -> Self {
+        let dir = Self::parent(root).join(ws_id);
+        Self {
+            skills_tmp: dir.join(".skills-tmp"),
+            command_tmp: dir.join(".command-tmp"),
+            dir,
+        }
+    }
+
+    /// The path the DTO carries to the spawn (`OPENCODE_CONFIG_DIR`).
+    pub(super) fn config_dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Where a skill's SKILL.md copy is staged.
+    pub(super) fn skills_tmp(&self) -> &Path {
+        &self.skills_tmp
+    }
+
+    /// The subtrees an emptied library must take with it — and only
+    /// those: opencode's own files sit beside them.
+    pub(super) fn ours(&self) -> [PathBuf; 2] {
+        [self.dir.join("skills"), self.dir.join("command")]
+    }
+
+    /// Clear yesterday's staging dirs before a rebuild.
+    pub(super) fn prepare(&self) -> io::Result<()> {
+        for stale in [&self.skills_tmp, &self.command_tmp] {
+            match std::fs::remove_dir_all(stale) {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                other => other?,
+            }
+        }
+        Ok(())
+    }
+
+    /// One `/name` command per skill — the user-facing half.
+    pub(super) fn emit(&self, name: &str, content: &str, skill_file: &str) -> io::Result<()> {
+        let staged_skill = self.dir.join("skills").join(name).join(skill_file);
+        write_atomic(
+            &self.command_tmp.join(format!("{name}.md")),
+            command(name, content, &staged_skill).as_bytes(),
+        )
+    }
+
+    /// Land both subtrees.
+    pub(super) fn finalize(&self, swap: SwapDir) -> io::Result<()> {
+        swap(&self.skills_tmp, &self.dir.join("skills"), &self.dir.join(".old-skills"))?;
+        swap(&self.command_tmp, &self.dir.join("command"), &self.dir.join(".old-command"))
+    }
+}
 
 /// The generated `/name` command for opencode.
 pub(super) fn command(name: &str, content: &str, staged_skill: &Path) -> String {

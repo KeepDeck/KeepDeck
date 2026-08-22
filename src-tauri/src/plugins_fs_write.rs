@@ -8,6 +8,10 @@
 //! is re-joined before the `starts_with` proof against the declared roots.
 //! A root that cannot be canonicalized falls back to its expanded literal
 //! form: the store root may itself be about to be created.
+//!
+//! Containment is by DECLARED ROOTS, not a denylist — so nothing is
+//! special-cased, the artifacts root included: its own threat model
+//! treats `data_dir` as agent-writable and answers there.
 
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write as _};
