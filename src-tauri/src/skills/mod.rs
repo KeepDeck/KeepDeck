@@ -250,7 +250,7 @@ mod tests {
         let (_tmp, root) = root();
         let shared = root.parent().unwrap().join("shared-cwd");
         fs::create_dir_all(&shared).unwrap();
-        save(&global(&root), "review", "x").unwrap();
+        save(&global(&root), "review", "---\ndescription: x\n---\nx\n").unwrap();
         let roots = vec![shared.to_string_lossy().into_owned()];
         let locks = SkillsLocks::default();
         staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
@@ -277,7 +277,7 @@ mod tests {
     fn prune_disarms_a_crashed_workspaces_recorded_cwds() {
         let (_tmp, root) = root();
         let wt = fake_worktree(root.parent().unwrap());
-        save(&global(&root), "review", "x").unwrap();
+        save(&global(&root), "review", "---\ndescription: x\n---\nx\n").unwrap();
         let roots = vec![wt.to_string_lossy().into_owned()];
         staging::stage(&SkillsLocks::default(), &root, "ws-9", &roots, &[], false).unwrap().unwrap();
         assert!(wt.join(".agents").join("skills").exists());
