@@ -158,7 +158,7 @@ const plugin: KeepDeckPlugin = {
           output.args = [
             ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
-            ...mcpArgs(input.mcp),
+            ...mcpArgs(input.mcp, ctx.log),
             ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
           ];
@@ -167,7 +167,7 @@ const plugin: KeepDeckPlugin = {
           output.args = [
             ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
-            ...mcpArgs(input.mcp),
+            ...mcpArgs(input.mcp, ctx.log),
             ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
             "resume",
@@ -182,7 +182,7 @@ const plugin: KeepDeckPlugin = {
           output.args = [
             ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
-            ...mcpArgs(input.mcp),
+            ...mcpArgs(input.mcp, ctx.log),
             ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
             "fork",
