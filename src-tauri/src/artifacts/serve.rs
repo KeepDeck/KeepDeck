@@ -131,7 +131,7 @@ fn md_page(title: &str, source: &str) -> String {
         escape_html(title),
         style,
         render_markdown(source),
-        LIVE_REFRESH_SNIPPET
+        live_refresh_snippet()
     )
 }
 
@@ -146,7 +146,13 @@ fn md_page(title: &str, source: &str) -> String {
 /// prevent.
 /// The module test pins this source of truth against the bundled skill so
 /// neither drifts alone.
-const LIVE_REFRESH_SNIPPET: &str = "<script>\n(()=>{const note=()=>{const n=document.createElement(\"div\");\nn.setAttribute(\"style\",\"background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999\");\nn.textContent=\"This page's server went away — republish or reopen from the agent's message.\";\ndocument.body.appendChild(n);};\nconst es=new EventSource(location.pathname+\"/events\"+location.search);\nes.addEventListener(\"version\",()=>location.reload());\nes.addEventListener(\"bye\",()=>{es.close();note();});\nes.addEventListener(\"error\",()=>{es.close();note();});})();\n</script>";
+const LIVE_REFRESH_JS: &str = include_str!("refresh.js");
+
+fn live_refresh_snippet() -> String {
+    // `refresh.js` owns pure JavaScript; the server owns the HTML wrapper.
+    // The asset's trailing newline is the newline before </script>.
+    format!("<script>\n{LIVE_REFRESH_JS}</script>")
+}
 
 /// The EXPORT variant of the md page: same template, NO snippet (the
 /// URL is dead outside the session — a live-refresh script pointing at
@@ -196,65 +202,68 @@ fn respond_csp(
 
 #[cfg(test)]
 mod tests {
-    use super::LIVE_REFRESH_SNIPPET;
+    use super::{live_refresh_snippet, LIVE_REFRESH_JS};
     use crate::skills::BUNDLED;
 
-    /// The byte-contract pin belongs beside the server source of truth: the
-    /// shipped skill carries the live-refresh lines in the same shape the
-    /// display server's template injects. CONTAINS is intentional because the
-    /// skill embeds the script inside prose/fencing.
+    /// One-shot migration pin: while the JS moves out of an escaped Rust
+    /// string, prove the served fragment is byte-identical, including both
+    /// wrapper newlines, before the legacy literal is retired.
     #[test]
-    fn content_carries_the_live_refresh_contract() {
-        for skill in BUNDLED {
-            assert!(
-                skill
-                    .content
-                    .contains("EventSource(location.pathname+\"/events\"+location.search)"),
-                "{}: the pin-preserving subscribe line must ship verbatim",
-                skill.name
-            );
-            assert!(
-                skill.content.contains("es.addEventListener(\"error\""),
-                "{}: the error arm must ship verbatim",
-                skill.name
-            );
-            assert!(
-                skill.content.contains("es.addEventListener(\"version\",()=>location.reload())"),
-                "{}: the reload-on-version line must ship verbatim",
-                skill.name
-            );
-        }
+    fn asset_wrap_matches_legacy_served_fragment() {
+        const LEGACY_SERVED_FRAGMENT: &str = r#"<script>
+(()=>{const note=()=>{const n=document.createElement("div");
+n.setAttribute("style","background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999");
+n.textContent="This page's server went away — republish or reopen from the agent's message.";
+document.body.appendChild(n);};
+const es=new EventSource(location.pathname+"/events"+location.search);
+es.addEventListener("version",()=>location.reload());
+es.addEventListener("bye",()=>{es.close();note();});
+es.addEventListener("error",()=>{es.close();note();});})();
+</script>"#;
+        assert_eq!(live_refresh_snippet(), LEGACY_SERVED_FRAGMENT);
     }
 
-    /// Every SCRIPT LINE the display server injects into rendered md pages
-    /// must appear in the bundled skill's teaching snippet VERBATIM. The
-    /// server is the source of truth; if this fails, the skill teaches a
-    /// refresh contract the server no longer honors.
+    /// Every executable line in the pure-JS asset must match the inner lines
+    /// of the skill's fenced example verbatim. The two DOM-detail lines are
+    /// deliberately CONTAINS exceptions: the skill's surrounding prose may
+    /// frame those lines differently while the executable contract remains
+    /// pinned everywhere else.
     #[test]
-    fn the_skill_snippet_matches_the_server_template_lines() {
+    fn the_skill_snippet_matches_the_refresh_asset_lines() {
         let taught = BUNDLED
             .iter()
             .find(|skill| skill.name == "artifacts")
             .expect("the artifacts skill ships");
-        // Extract the executed-JS lines from the server's snippet: strip the
-        // <script> wrapper, drop blank lines and prose strings. The skill's
-        // prose framing may differ; the contract is the executed ES lines.
-        let js_lines: Vec<&str> = LIVE_REFRESH_SNIPPET
+        let js_lines: Vec<&str> = LIVE_REFRESH_JS
             .lines()
             .map(str::trim)
             .filter(|line| {
                 !line.is_empty()
-                    && !line.starts_with("<")
                     && !line.contains("textContent")
                     && !line.contains("setAttribute")
             })
             .collect();
-        assert!(!js_lines.is_empty(), "extraction sanity");
-        for line in js_lines {
-            assert!(
-                taught.content.contains(line),
-                "the skill must teach the server's line verbatim:\n{line}"
-            );
-        }
+        let lines: Vec<&str> = taught.content.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim() == "```html")
+            .expect("the skill's refresh example has an html fence");
+        let end = lines[start + 1..]
+            .iter()
+            .position(|line| line.trim() == "```")
+            .map(|offset| start + 1 + offset)
+            .expect("the skill's refresh example closes its fence");
+        let taught_lines: Vec<&str> = lines[start + 1..end]
+            .iter()
+            .map(|line| line.trim())
+            .filter(|line| {
+                !line.is_empty()
+                    && !line.starts_with("<script>")
+                    && !line.starts_with("</script>")
+                    && !line.contains("textContent")
+                    && !line.contains("setAttribute")
+            })
+            .collect();
+        assert_eq!(js_lines, taught_lines);
     }
 }

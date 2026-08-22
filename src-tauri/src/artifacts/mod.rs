@@ -11,8 +11,8 @@
 
 mod claim;
 mod render;
-/// pub(crate): hosts LIVE_REFRESH_SNIPPET — the cross-module contract
-/// the skills tier's bundled content pins against.
+/// pub(crate): hosts the refresh asset and its server-side wrapper — the
+/// cross-module contract the skills tier's bundled content pins against.
 pub(crate) mod serve;
 mod server;
 mod store;
