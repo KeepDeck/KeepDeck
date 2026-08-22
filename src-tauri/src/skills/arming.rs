@@ -34,29 +34,79 @@ const PLANTED: &str = ".agents";
 /// user's arrangement and is never written through. Wholly best-effort per
 /// root — one odd cwd must not take the workspace's staging down — and the
 /// successfully armed cwds are returned for the armed manifest.
-pub(super) fn arm_roots(root: &Path, staged_skills: &Path, spawn_roots: &[String]) -> Vec<String> {
-    let mut armed = Vec::new();
+/// A spawn cwd we did not arm because something of the USER's is in the
+/// way. Only that: a cwd that is simply gone is not a refusal, and
+/// neither is an IO fault — both would tell the user to move a file
+/// they never had.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillArmRefusal {
+    pub root: String,
+    pub reason: String,
+}
+
+/// One arming pass (mirrors the TS wire, camelCase).
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillArmReport {
+    pub armed: Vec<String>,
+    pub refused: Vec<SkillArmRefusal>,
+}
+
+/// What one cwd's arming came to.
+///
+/// THREE states, not two. `Ok(true)`/`Ok(false)` used to fold "we armed
+/// it" and "we left it alone" and "the user's file is in the way" into
+/// one bit, which is why the refusals were invisible; a two-state
+/// Option would fold the first two back together and record a cwd that
+/// does not exist as armed.
+enum Armed {
+    /// Our link is in place.
+    Yes,
+    /// Nothing to arm and nothing to report: the cwd is gone or was
+    /// never a directory. NOT a refusal — the user did nothing.
+    Absent,
+    /// Something of the user's holds the spot.
+    Refused(&'static str),
+}
+
+pub(super) fn arm_roots(
+    root: &Path,
+    staged_skills: &Path,
+    spawn_roots: &[String],
+) -> SkillArmReport {
+    let mut report = SkillArmReport::default();
     for wt in spawn_roots {
         match arm_one(root, staged_skills, Path::new(wt)) {
-            Ok(true) => armed.push(wt.clone()),
-            Ok(false) => {}
+            Ok(Armed::Yes) => report.armed.push(wt.clone()),
+            Ok(Armed::Absent) => {}
+            Ok(Armed::Refused(reason)) => report.refused.push(SkillArmRefusal {
+                root: wt.clone(),
+                reason: reason.to_string(),
+            }),
+            // A FAULT, never a refusal: a busy disk must not read as
+            // "move your file".
             Err(e) => log::warn!("skills: arming {wt} failed: {e}"),
         }
     }
-    armed
+    report
 }
 
-/// Arm one spawn cwd; `Ok(true)` iff OUR link is (now) in place there.
-fn arm_one(root: &Path, staged_skills: &Path, wt: &Path) -> io::Result<bool> {
+/// Arm one spawn cwd.
+fn arm_one(root: &Path, staged_skills: &Path, wt: &Path) -> io::Result<Armed> {
     if !wt.is_dir() {
-        return Ok(false);
+        return Ok(Armed::Absent);
     }
     let agents = wt.join(".agents");
     // `.agents` existing as anything but a real directory (a file, or a
     // symlink into the user's own tree) is the user's — creating our link
     // through it would write inside THEIR target.
     match fs::symlink_metadata(&agents) {
-        Ok(meta) if !meta.file_type().is_dir() => return Ok(false),
+        Ok(meta) if !meta.file_type().is_dir() => {
+            return Ok(Armed::Refused(
+                "a file or link named .agents is already there — it is yours, so nothing was planted",
+            ))
+        }
         _ => {}
     }
     let link = agents.join("skills");
@@ -68,10 +118,17 @@ fn arm_one(root: &Path, staged_skills: &Path, wt: &Path) -> io::Result<bool> {
                 fs::remove_file(&link)?;
                 symlink_dir(staged_skills, &link)?;
             } else {
-                return Ok(false); // someone else's link — hands off
+                return Ok(Armed::Refused(
+                    ".agents/skills points somewhere else — it is not ours to replace",
+                ));
             }
         }
-        Ok(_) => return Ok(false), // the user's real .agents/skills — hands off
+        // The user's own real .agents/skills — hands off.
+        Ok(_) => {
+            return Ok(Armed::Refused(
+                ".agents/skills is your own directory — nothing was planted",
+            ))
+        }
         Err(e) if e.kind() == ErrorKind::NotFound => {
             fs::create_dir_all(&agents)?;
             symlink_dir(staged_skills, &link)?;
@@ -81,7 +138,7 @@ fn arm_one(root: &Path, staged_skills: &Path, wt: &Path) -> io::Result<bool> {
     if let Err(e) = ensure_excluded(wt, PLANTED) {
         log::warn!("skills: exclude line for {} failed: {e}", wt.display());
     }
-    Ok(true)
+    Ok(Armed::Yes)
 }
 
 /// Remove OUR symlinks (and a `.agents` dir they leave empty) from the
@@ -152,6 +209,82 @@ mod tests {
         fs::read_to_string(repo.join(".git").join("info").join("exclude")).unwrap()
     }
 
+    /// THE VOCABULARY, one pin per arm. Each says what the user is told,
+    /// because the sentence IS the feature — a refusal nobody can act on
+    /// is the silence we started from wearing a banner.
+
+    #[test]
+    fn refuses_when_dot_agents_is_the_users_own_file() {
+        let (_tmp, root) = root();
+        let wt = fake_worktree(root.parent().unwrap());
+        let view = staged_view(&root);
+        fs::write(wt.join(".agents"), "mine").unwrap();
+        let roots = vec![wt.to_string_lossy().into_owned()];
+
+        let report = arm_roots(&root, &view, &roots);
+
+        assert!(report.armed.is_empty());
+        assert_eq!(report.refused.len(), 1);
+        assert_eq!(report.refused[0].root, roots[0]);
+        assert!(report.refused[0].reason.contains(".agents"));
+        // Their file is untouched — the refusal is the whole action.
+        assert_eq!(fs::read_to_string(wt.join(".agents")).unwrap(), "mine");
+    }
+
+    #[test]
+    fn refuses_when_dot_agents_skills_points_somewhere_else() {
+        let (_tmp, root) = root();
+        let wt = fake_worktree(root.parent().unwrap());
+        let view = staged_view(&root);
+        let theirs = root.parent().unwrap().join("their-skills");
+        fs::create_dir_all(&theirs).unwrap();
+        fs::create_dir_all(wt.join(".agents")).unwrap();
+        std::os::unix::fs::symlink(&theirs, wt.join(".agents").join("skills")).unwrap();
+        let roots = vec![wt.to_string_lossy().into_owned()];
+
+        let report = arm_roots(&root, &view, &roots);
+
+        assert!(report.armed.is_empty());
+        assert_eq!(report.refused.len(), 1);
+        assert!(report.refused[0].reason.contains("not ours to replace"));
+        // Still aimed where they aimed it.
+        assert_eq!(
+            fs::read_link(wt.join(".agents").join("skills")).unwrap(),
+            theirs,
+        );
+    }
+
+    #[test]
+    fn refuses_when_dot_agents_skills_is_the_users_real_directory() {
+        let (_tmp, root) = root();
+        let wt = fake_worktree(root.parent().unwrap());
+        let view = staged_view(&root);
+        fs::create_dir_all(wt.join(".agents").join("skills").join("theirs")).unwrap();
+        let roots = vec![wt.to_string_lossy().into_owned()];
+
+        let report = arm_roots(&root, &view, &roots);
+
+        assert!(report.armed.is_empty());
+        assert_eq!(report.refused.len(), 1);
+        assert!(report.refused[0].reason.contains("your own directory"));
+        assert!(wt.join(".agents").join("skills").join("theirs").is_dir());
+    }
+
+    #[test]
+    fn a_cwd_that_is_not_there_is_silent_never_a_refusal() {
+        // The arm the user did nothing to cause: a worktree removed under
+        // us, or a cwd that never existed. Reporting it would tell them to
+        // move a file they never had — the feature lying.
+        let (_tmp, root) = root();
+        let view = staged_view(&root);
+        let roots = vec![root.parent().unwrap().join("gone").to_string_lossy().into_owned()];
+
+        let report = arm_roots(&root, &view, &roots);
+
+        assert!(report.armed.is_empty());
+        assert!(report.refused.is_empty());
+    }
+
     #[test]
     fn arms_a_plain_main_checkout_cwd() {
         let (_tmp, root) = root();
@@ -161,7 +294,7 @@ mod tests {
 
         let armed = arm_roots(&root, &view, &[repo.to_string_lossy().into_owned()]);
 
-        assert_eq!(armed, vec![repo.to_string_lossy().into_owned()]);
+        assert_eq!(armed.armed, vec![repo.to_string_lossy().into_owned()]);
         let link = repo.join(".agents").join("skills");
         assert!(link.join("review").join("SKILL.md").exists());
         assert!(exclude_of(&repo).contains("/.agents/"));
@@ -193,7 +326,7 @@ mod tests {
         fs::create_dir_all(theirs.join("their-skill")).unwrap();
         let roots = vec![wt.to_string_lossy().into_owned()];
 
-        assert!(arm_roots(&root, &view, &roots).is_empty());
+        assert!(arm_roots(&root, &view, &roots).armed.is_empty());
         assert!(theirs.join("their-skill").exists());
         assert!(!fs::symlink_metadata(&theirs).unwrap().file_type().is_symlink());
 
@@ -230,7 +363,7 @@ mod tests {
             ],
         );
 
-        assert!(armed.is_empty());
+        assert!(armed.armed.is_empty());
         assert_eq!(fs::read_to_string(with_file.join(".agents")).unwrap(), "not a dir");
         assert!(!their_tree.join("skills").exists()); // nothing planted in their tree
     }

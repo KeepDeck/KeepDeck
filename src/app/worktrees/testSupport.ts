@@ -23,6 +23,7 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 // sweep as done when they did — so the doubles answer `true` like the real ones.
 const skillsIpc = vi.hoisted(() => ({
   stageSkills: vi.fn(),
+  armSkills: vi.fn(async () => ({ armed: [], refused: [] })),
   disarmSkills: vi.fn(async (_roots: string[]) => true),
   pruneSkills: vi.fn(async (_liveWsIds: string[]) => true),
 }));
@@ -138,6 +139,7 @@ export function managerFor(read: () => DeckEntry[]): WorktreeManager {
  * says, or the owner reads `undefined` as a failure and retries it forever. */
 export function armDoubles(): void {
   skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
+  skills.armSkills.mockResolvedValue({ armed: [], refused: [] });
   skills.disarmSkills.mockResolvedValue(true);
   skills.pruneSkills.mockResolvedValue(true);
   mcpArming.mcpArm.mockResolvedValue({ armed: [], refused: [] });

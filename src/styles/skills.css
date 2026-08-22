@@ -273,3 +273,32 @@
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* Where skills did NOT reach an agent. Above the library rather than
+   inside it: the rows below are the skills that exist, and this is about
+   the directories they could not get to — a different subject, and one
+   the user can act on. Dismissless, because there is nothing to
+   acknowledge: it goes when their own file does. */
+.skills__refusals {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border: 1px solid #4a4030;
+  border-radius: 6px;
+  background: #2a2620;
+  font-size: 12px;
+  color: #c5c8c6;
+}
+
+.skills__refusals-title {
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* One refused folder and why — a block per entry, like the settings
+   surface's: run together they read as one sentence about the wrong
+   folder. */
+.skills__refusals li {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}

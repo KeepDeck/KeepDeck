@@ -234,6 +234,7 @@ pub fn run() {
             skills::skills_delete,
             skills::skills_rename,
             skills::skills_stage,
+            skills::skills_arm,
             skills::skills_prune,
             skills::skills_disarm,
             roles::roles_list,

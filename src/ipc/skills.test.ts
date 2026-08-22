@@ -25,6 +25,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 import { sameSkillScope, skillScopeOf } from "../domain/skills";
 import { ipcSkillsStorage } from "./skillsStorage";
 import {
+  armSkills,
   deleteSkill,
   disarmSkills,
   fetchSkills,
@@ -208,5 +209,42 @@ describe("the bundled scope at the IPC boundary", () => {
     expect(rows[1].scope).toEqual({ kind: "global" });
     // Old-shape rows ride untouched — the union the editor sections on.
     expect(rows).toHaveLength(2);
+  });
+});
+
+describe("the stage wire is untouched by refusals", () => {
+  it("skills_stage still answers with VIEWS ONLY", async () => {
+    // THE SEAM PIN. `StagedSkillsViews` in spawnSpecs/plan.ts is a
+    // structural copy of this shape, and a structural copy does not break
+    // when the original grows — it just silently stops carrying the new
+    // field. So refusals ride their own command and never a byte of this
+    // one: the seam is never asked to carry what it cannot.
+    tauri.invoke.mockResolvedValueOnce({
+      claudePluginDir: "/c",
+      opencodeConfigDir: "/o",
+      skillsDir: "/s",
+    });
+
+    const views = await stageSkills("ws-1", ["/repo"]);
+
+    expect(tauri.invoke).toHaveBeenCalledWith("skills_stage", {
+      wsId: "ws-1",
+      roots: ["/repo"],
+    });
+    expect(views && Object.keys(views).sort()).toEqual([
+      "claudePluginDir",
+      "opencodeConfigDir",
+      "skillsDir",
+    ]);
+  });
+
+  it("a failed arming degrades to an empty report, never to no pane", async () => {
+    // Skills are an enhancement, not a prerequisite: a pane spawns
+    // unarmed rather than not at all.
+    tauri.invoke.mockRejectedValueOnce(new Error("busy"));
+    expect(await armSkills("ws-1", ["/repo"])).toEqual({
+      armed: [],
+      refused: [],
+    });
   });
 });

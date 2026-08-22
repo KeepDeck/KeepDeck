@@ -97,6 +97,36 @@ export async function stageSkills(
   }
 }
 
+/** A spawn cwd we did not arm because something of the USER's holds the
+ * spot. Only that: an absent cwd and an IO fault are not refusals. */
+export interface SkillArmRefusal {
+  root: string;
+  reason: string;
+}
+
+export interface SkillArmReport {
+  armed: string[];
+  refused: SkillArmRefusal[];
+}
+
+/** Arm this workspace's spawn cwds against its staged views.
+ *
+ * Its OWN call, made on every ask rather than memoized beside the views:
+ * a refusal ends the moment the user moves their file, and one cached
+ * with the staging kept being reported long after. Failure degrades to an
+ * empty report — a pane spawns without skills rather than not at all. */
+export async function armSkills(
+  wsId: string,
+  roots: string[],
+): Promise<SkillArmReport> {
+  try {
+    return await invoke<SkillArmReport>("skills_arm", { wsId, roots });
+  } catch (e) {
+    log.warn("web:skills", `skills_arm failed; spawning unarmed: ${describeError(e)}`);
+    return { armed: [], refused: [] };
+  }
+}
+
 /** Remove KeepDeck's `.agents/skills` symlinks from the given spawn cwds
  * (a closing workspace's directories). Best-effort: never throws, and reports
  * whether it actually got through, so a caller that records "this state is
