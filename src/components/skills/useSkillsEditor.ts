@@ -279,7 +279,18 @@ export function useSkillsEditor({
     const scope = selection.scope;
     // An edited name moves the directory first (assets travel), then the
     // ordinary save lands the content under the new name.
-    if (selection.mode === "edit" && draftSource.name !== selection.name) {
+    //
+    // NOT when the skill vanished. There is nothing on disk to move, so
+    // the rename could only fail — and failing here returns, which would
+    // shut the retitle hatch one step further along than the gate did,
+    // trading a dead button for a "Rename failed" the user cannot act
+    // on. A vanished draft goes straight to the create below, which is
+    // what the hatch is for.
+    if (
+      selection.mode === "edit" &&
+      !verdicts.vanished &&
+      draftSource.name !== selection.name
+    ) {
       const renamed = await stillOurs(() =>
         rename(scope, selection.name, draftSource.name),
       );

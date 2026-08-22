@@ -63,7 +63,43 @@ describe("vanished", () => {
     expect(verdicts({ skills: null }).vanished).toBe(false);
   });
 
-  it("kills Save — the gate and the write machine refuse as one", () => {
+  it("RETITLING reopens Save — the draft is the only copy left", () => {
+    // The file is gone, so what is on screen exists nowhere else.
+    // Refusing outright would strand it behind a dead button; a new name
+    // makes the save a create instead of a doomed update.
+    const rescued = verdicts({ skills: [], form: draft({ name: "rescued" }) });
+    expect(rescued.vanished).toBe(true);
+    expect(rescued.canSave).toBe(true);
+  });
+
+  it("but only a retitle — the ORIGINAL name still refuses", () => {
+    // Keeping the name means asking to update a directory that is gone,
+    // which can only fail. The hatch is a way out, not a blanket pardon.
+    const same = verdicts({ skills: [] });
+    expect(same.vanished).toBe(true);
+    expect(same.canSave).toBe(false);
+  });
+
+  it("the hatch does not open onto an OCCUPIED name", () => {
+    // Retitling onto a skill that exists would collide — the arms
+    // compose, they do not override each other.
+    const collide = verdicts({
+      skills: [skill("taken")],
+      form: draft({ name: "taken" }),
+    });
+    expect(collide.vanished).toBe(true);
+    expect(collide.nameTaken).toBe(true);
+    expect(collide.canSave).toBe(false);
+  });
+
+  it("nor onto an INVALID one — the new name is still judged", () => {
+    const bad = verdicts({ skills: [], form: draft({ name: "Not Kebab" }) });
+    expect(bad.vanished).toBe(true);
+    expect(bad.nameProblem).toBe("invalid");
+    expect(bad.canSave).toBe(false);
+  });
+
+  it("kills Save for an unchanged name — gate and write machine refuse as one", () => {
     // Refusing here is the whole protection: the write machine reads THIS
     // verdict rather than forming its own, so there is no path where the
     // button says impossible and a doomed update goes through anyway.

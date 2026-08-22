@@ -197,6 +197,31 @@ describe("the vanished verdict has ONE computation", () => {
     expect(lib.rename).not.toHaveBeenCalled();
   });
 
+  it("RETITLING a vanished draft rescues it as a NEW skill", () => {
+    // The whole hatch, end to end. The gate reopens on the new name, and
+    // the write machine must skip the rename — there is nothing on disk
+    // to move — and land the text as a create. If the rename ran, it
+    // would fail against a directory that is gone and the rescue would
+    // die one step past the button.
+    openDirty("deploy");
+    act(() => {
+      lib.skills = [skill("review")];
+      root.render(createElement(Probe));
+    });
+    act(() => editor.onField("name", "rescued"));
+    expect(editor.verdicts.vanished).toBe(true);
+    expect(editor.verdicts.canSave).toBe(true);
+    act(() => {
+      void editor.submit();
+    });
+    expect(lib.rename).not.toHaveBeenCalled();
+    expect(lib.save).toHaveBeenCalledWith(
+      { kind: "global" },
+      expect.objectContaining({ name: "rescued" }),
+      "create",
+    );
+  });
+
   it("keeps the user's text on screen — a refused save is not a discard", () => {
     // Throwing away what they typed is the one thing worse than a stale
     // editor, so the draft survives the disappearance.

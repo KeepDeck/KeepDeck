@@ -179,6 +179,20 @@ export function skillFormVerdicts({
   // backend refuses a create over an existing skill regardless. Disabling
   // Create on a library we could not read would trade a silent overwrite
   // for a silently dead button.
+  // THE RETITLE HATCH. A skill deleted under the user is normally
+  // unsavable — an update to a directory that is gone can only fail.
+  // But refusing outright strands the text on screen behind a dead
+  // button, and that draft is the one thing here that exists nowhere
+  // else: the file is gone, so what the user is looking at IS the only
+  // copy. Giving it a new name turns the save into a create (the write
+  // machine reads this same verdict to decide that), so the way out is
+  // to retitle: keep the old name and Save stays refused, because that
+  // really would be a doomed update.
+  const retitled =
+    selection !== null &&
+    selection.mode === "edit" &&
+    form.name !== selection.name;
+
   // `!isView` belongs here with its siblings, and it was the one
   // write-adjacent verdict without it. Nothing reachable changes: a
   // read-only editor never reports a field change, so a view selection
@@ -190,7 +204,7 @@ export function skillFormVerdicts({
     selection !== null &&
     !isView &&
     dirty &&
-    !vanished &&
+    (!vanished || retitled) &&
     nameProblem === null &&
     !nameTaken &&
     descriptionProblem === null;
