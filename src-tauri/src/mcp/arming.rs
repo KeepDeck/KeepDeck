@@ -1,33 +1,33 @@
-//! Delivering MCP servers to kimi, which has no door but the filesystem.
+//! Delivering MCP servers to a CLI whose only door is the filesystem.
 //!
-//! kimi 0.31 has no flag and no env for MCP config: its loader reads
-//! `<cwd>/.kimi-code/mcp.json` (plus two paths KeepDeck must not touch — the
-//! user's own home config, and the repo-shared `.mcp.json` claude also reads).
-//! So a pane's cwd is ARMED with that file, exactly the way codex's skills are
-//! armed with a symlink — same manifest, same exclude, same crash sweep
-//! ([`crate::worktree_arm`]).
+//! A CLI with no flag and no env for MCP config reads one from its own place
+//! in the pane's cwd, so the cwd is ARMED with that file — exactly the way
+//! codex's skills are armed with a symlink: same manifest, same exclude, same
+//! crash sweep ([`crate::worktree_arm`]).
+//!
+//! WHAT the file is called belongs to the dialect ([`super::kimi`], the only
+//! one today, modelled on [`crate::skills::opencode`]); this flow owns WHEN it
+//! is planted and taken back, and what makes it provably ours. A second
+//! file-fed CLI adds a view beside kimi's rather than editing this file.
 //!
 //! Ownership is a MARKER FILE next to the config, not a guess about its
-//! contents: `.kimi-code/.keepdeck-managed` says this `mcp.json` is ours to
-//! rewrite and ours to take away. A cwd where the user already keeps their own
-//! `mcp.json` is left completely alone — the pane simply gets no KeepDeck
-//! server, which the app surfaces, because merging into a file the user wrote
-//! would be editing their config.
+//! contents: `.keepdeck-managed` beside it says this config is ours to rewrite
+//! and ours to take away. A cwd where the user already keeps their own is left
+//! completely alone — the pane simply gets no KeepDeck server, which the app
+//! surfaces, because merging into a file the user wrote would be editing their
+//! config.
 
 use serde::Deserialize;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::Path;
 
+use super::kimi;
 use crate::state::write_atomic;
 use crate::worktree_arm::{
     add_armed, ensure_excluded, forget_armed, prune_manifests, remove_excluded,
 };
 
-/// What arming plants in a pane's cwd — the directory git must stay blind to,
-/// and the one kimi reads its MCP config from.
-const PLANTED: &str = ".kimi-code";
-const CONFIG_FILE: &str = "mcp.json";
 /// Empty, and its mere presence is the claim: with it, the config beside it is
 /// KeepDeck's to rewrite and to remove; without it, the config is the user's.
 /// A marker rather than a shape test, so the day the server bank puts
@@ -99,20 +99,28 @@ fn arm_one(cwd: &Path, content: &str) -> io::Result<Option<String>> {
     if !cwd.is_dir() {
         return Ok(Some("this directory no longer exists".into()));
     }
-    let dir = cwd.join(PLANTED);
-    // `.kimi-code` as anything but a real directory (a file, or a symlink into
-    // the user's own tree) is theirs — writing through it would land inside
-    // their target.
+    let view = kimi::View::at(cwd);
+    let dir = view.dir().to_path_buf();
+    // The planted directory as anything but a real directory (a file, or a
+    // symlink into the user's own tree) is theirs — writing through it would
+    // land inside their target.
     match fs::symlink_metadata(&dir) {
         Ok(meta) if !meta.file_type().is_dir() => {
-            return Ok(Some(format!("{PLANTED} here is not a directory")));
+            return Ok(Some(format!(
+                "{} here is not a directory",
+                kimi::View::dir_name()
+            )));
         }
         _ => {}
     }
-    let config = dir.join(CONFIG_FILE);
+    let config = view.config().to_path_buf();
     let marker = dir.join(MARKER_FILE);
     if fs::symlink_metadata(&config).is_ok() && !marker.exists() {
-        return Ok(Some(format!("{PLANTED}/{CONFIG_FILE} here is not KeepDeck's")));
+        return Ok(Some(format!(
+            "{}/{} here is not KeepDeck's",
+            kimi::View::dir_name(),
+            kimi::View::config_name()
+        )));
     }
     // Whether the claim is OURS TO UNDO. A re-arm of a cwd we already own must
     // not roll back on failure: the marker and config were there before this
@@ -133,7 +141,7 @@ fn arm_one(cwd: &Path, content: &str) -> io::Result<Option<String>> {
         }
         return Err(e);
     }
-    if let Err(e) = ensure_excluded(cwd, PLANTED) {
+    if let Err(e) = ensure_excluded(cwd, kimi::View::dir_name()) {
         log::warn!("mcp: exclude line for {} failed: {e}", cwd.display());
     }
     Ok(None)
@@ -183,21 +191,27 @@ fn disarm_files(cwds: &[String]) -> (Vec<String>, io::Result<()>) {
 }
 
 /// Take our planting out of ONE cwd.
+///
+/// SECOND DIALECT: this picks the only view there is. A second one does not
+/// break the build here — it would silently sweep kimi's files and leave the
+/// other CLI's planted. Adding one means a lookup, and a record that says
+/// which dialect armed each cwd for the crash path to resolve (see [`prune`]).
 fn disarm_one(cwd: &Path) -> io::Result<()> {
-    let dir = cwd.join(PLANTED);
+    let view = kimi::View::at(cwd);
+    let dir = view.dir();
     if !dir.join(MARKER_FILE).exists() {
         return Ok(());
     }
-    for file in [CONFIG_FILE, MARKER_FILE] {
-        match fs::remove_file(dir.join(file)) {
+    for file in [view.config(), &dir.join(MARKER_FILE)] {
+        match fs::remove_file(file) {
             Err(e) if e.kind() == ErrorKind::NotFound => {}
             other => other?,
         }
     }
-    // Only vanishes when our two files were its whole content — kimi may
+    // Only vanishes when our two files were its whole content — the CLI may
     // keep state of its own in there.
-    let _ = fs::remove_dir(&dir);
-    if let Err(e) = remove_excluded(cwd, PLANTED) {
+    let _ = fs::remove_dir(dir);
+    if let Err(e) = remove_excluded(cwd, kimi::View::dir_name()) {
         log::warn!("mcp: exclude cleanup for {} failed: {e}", cwd.display());
     }
     Ok(())
@@ -205,6 +219,12 @@ fn disarm_one(cwd: &Path) -> io::Result<()> {
 
 /// Sweep the cwds of workspaces that are gone — the crash path, where the deck
 /// no longer knows the directories but the manifest does.
+///
+/// SECOND DIALECT: the record holds cwds and nothing else, which is enough
+/// while one view exists. With two, this path has a cwd and no way to tell
+/// which config was planted in it — the record has to gain the dialect, and
+/// the widening is the shared [`crate::worktree_arm`] record's, not this
+/// module's alone.
 pub(crate) fn prune(root: &Path, live: &[String]) -> io::Result<()> {
     // The prune deletes each dead key's whole manifest itself, so what it
     // needs back is only whether the pass worked — the cleared set is the

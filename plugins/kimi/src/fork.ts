@@ -13,8 +13,17 @@ import type { ForkPlanInput, PluginContext } from "@keepdeck/plugin-api";
  * copy the session dir into the TARGET cwd's `wd_` folder, patch `workDir`
  * (the gate) and `agents.main.homedir` (the one embedded absolute path),
  * and append the new id to the index. The original stays resumable where
- * it was. The `wd_` key is `wd_<lowercased-basename>_<sha256(cwd)[:12]>`
- * — formula verified against real store entries.
+ * it was. The `wd_` key is `wd_<lowercased-basename>_<sha256(cwd)[:12]>`.
+ *
+ * Its SHAPE is now upstream's own contract — kimi-code 0.38 validates
+ * `^wd_[a-z0-9._-]+_[0-9a-f]{12}$` in `packages/protocol/src/workspace.ts`
+ * ("workspace_id must be a wd_<slug>_<hash12> string"), and
+ * `session_index.jsonl` is still the index it files ids in
+ * (`packages/migration-legacy/src/paths.ts`). The DERIVATION — which
+ * basename, lowercased, over which digest of which path — is published
+ * nowhere and stays probe-derived: a validator that accepts our output
+ * proves the string is well-formed, never that it names the directory
+ * kimi would have picked. The layout gate below is what catches that.
  */
 export async function kimiForkPlan(
   ctx: PluginContext,
@@ -91,6 +100,35 @@ export async function kimiForkPlan(
     JSON.stringify(patched, null, 2),
   );
 
+  // Read the clone back before the index line makes it findable: a session
+  // that exists with a real id but opens elsewhere is the failure nobody can
+  // see. Refusing HERE needs no cleanup of the index — the append is the
+  // commit point, and taking a line back out of a journal a live kimi may be
+  // reading is the dangerous move we then never make.
+  //
+  // Proves our write landed; NOT that kimi resolves the session here — the
+  // `wd_` derivation is ours (module docblock), and only a resume proves that.
+  const landed = await ctx.services.fs.readFile(`${dstSessionDir}/state.json`);
+  const landedWorkDir =
+    landed.text === null || landed.truncated
+      ? null
+      : ((): unknown => {
+          try {
+            return (JSON.parse(landed.text) as Record<string, unknown>).workDir;
+          } catch {
+            return null;
+          }
+        })();
+  if (landedWorkDir !== input.cwd) {
+    // The copy stays: `fsWrite` has no delete. Inert, not ignored — unlisted
+    // without an index line, and overwritten by a later fork to the same target.
+    throw new Error(
+      `kimi fork of ${input.sessionId}: the clone landed in ${
+        typeof landedWorkDir === "string" ? landedWorkDir : "an unreadable state"
+      }, not ${input.cwd} — not activating it`,
+    );
+  }
+
   // The index is how `--session <id>` finds the clone at all.
   const indexPath = `${sessionsRoot.slice(0, -"/sessions".length)}/session_index.jsonl`;
   await ctx.services.fsWrite.appendLine(
@@ -129,7 +167,10 @@ async function copyTree(
 }
 
 /** `wd_<lowercased-basename>_<sha256(absolute-cwd)[:12]>` — the store folder
- * kimi files a directory's sessions under (formula probe-verified). */
+ * kimi files a directory's sessions under.
+ *
+ * The shape this returns is upstream-validated (see the module docblock);
+ * the derivation is ours, from probing, and no upstream source states it. */
 export async function wdKey(cwd: string): Promise<string> {
   const base = cwd.slice(cwd.lastIndexOf("/") + 1).toLowerCase();
   const digest = await crypto.subtle.digest(

@@ -49,20 +49,31 @@ const TREE: Record<string, { name: string; kind: "file" | "dir" }[]> = {
   [`${SRC_DIR}/logs`]: [{ name: "kimi-code.log", kind: "file" }],
 };
 
-function fixture(stateText: string | null = JSON.stringify(STATE)): Fx {
+function fixture(
+  stateText: string | null = JSON.stringify(STATE),
+  /** Makes a read of a written file disagree with what was written. Unset,
+   * reads serve the written bytes — what the landing guard checks against. */
+  landedOverride?: string,
+): Fx {
   const writes = new Map<string, string>();
   const copies: [string, string][] = [];
   const appends: [string, string][] = [];
   const ctx = {
     services: {
       fs: {
-        readFile: async (path: string) => ({
-          path,
-          text: stateText,
-          isBinary: stateText === null,
-          size: stateText?.length ?? 0,
-          truncated: false,
-        }),
+        readFile: async (path: string) => {
+          const written =
+            landedOverride !== undefined && writes.has(path)
+              ? landedOverride
+              : (writes.get(path) ?? stateText);
+          return {
+            path,
+            text: written,
+            isBinary: written === null,
+            size: written?.length ?? 0,
+            truncated: false,
+          };
+        },
         readDir: async (path: string) =>
           (TREE[path] ?? []).map((entry) => ({
             ...entry,
@@ -208,6 +219,30 @@ describe("kimiForkPlan", () => {
     await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow("disk full");
     // The activation artifacts never landed: no state.json, no index line.
     expect(fx.writes.size).toBe(0);
+    expect(fx.appends).toHaveLength(0);
+  });
+
+  it("refuses a clone that landed anywhere but the requested target", async () => {
+    // The store reports a different workDir than the one we wrote — our
+    // operation failed, however healthy the return value would look.
+    const fx = fixture(
+      JSON.stringify(STATE),
+      JSON.stringify({ ...STATE, workDir: "/somewhere/else" }),
+    );
+
+    await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow(
+      "landed in /somewhere/else, not /t",
+    );
+    // Never activated: no index line, so kimi never lists the bad clone.
+    expect(fx.appends).toHaveLength(0);
+  });
+
+  it("refuses when the clone's state is unreadable rather than trusting the write", async () => {
+    const fx = fixture(JSON.stringify(STATE), "{ not json");
+
+    await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow(
+      "an unreadable state",
+    );
     expect(fx.appends).toHaveLength(0);
   });
 });

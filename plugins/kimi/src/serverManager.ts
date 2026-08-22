@@ -1,19 +1,32 @@
+/**
+ * The LIFECYCLE of the Kimi setup server: spawning it, queueing operations
+ * onto the one live instance, and tearing it down.
+ *
+ * Two other jobs used to live here and now don't, because each changes for
+ * its own reason: the shell program the server is wrapped in
+ * ([`./serverWrapper`]) and the reading of what the server printed
+ * ([`./serverStartup`] — the endpoint, and the diagnostics when there is
+ * none). What is left is the part that owns a PROCESS.
+ */
 import type {
   PluginSessionHandle,
   PluginSessions,
 } from "@keepdeck/plugin-api";
+import {
+  MAX_STARTUP_OUTPUT,
+  extractServerAccess,
+  startupExitMessage,
+  startupTimeoutMessage,
+  type KimiServerAccess,
+} from "./serverStartup";
+import { setupServerWrapperScript } from "./serverWrapper";
 
 const SERVER_START_TIMEOUT_MS = 15_000;
-const MAX_STARTUP_OUTPUT = 32_768;
 
-/** How often the spawn wrapper checks that its parent (the KeepDeck process)
- * is still alive. See setupServerWrapperScript's docblock for the design. */
-const WATCHDOG_POLL_SECONDS = 5;
-
-export interface KimiServerAccess {
-  origin: string;
-  token: string;
-}
+/** Re-exported for the manager's consumers: they ask this module for an
+ * endpoint, so the shape of one reads as part of its surface — while the
+ * definition stays beside the parser that produces it. */
+export type { KimiServerAccess };
 
 export interface KimiServerManager {
   run<T>(
@@ -249,139 +262,6 @@ export function createKimiServerManager(
       await drainPromise;
     },
   };
-}
-
-/** The spawn wrapper script. Exported (not inline) so the test suite can
- * syntax-check it with `sh -n` instead of only asserting substrings.
- *
- * Design:
- * - The watcher subshell polls its parent (the KeepDeck process) and kills
- *   the server when the parent is gone — `kimi web` survives SIGHUP, so a
- *   hard host crash (SIGKILL, power loss) would otherwise orphan a live
- *   server with an unrecoverable token. `kill -0` checks pid EXISTENCE, so
- *   the poll also compares the parent's start time (`ps -o lstart=`): a
- *   recycled pid fails the identity check. A failed `ps` read skips the
- *   comparison rather than risking a spurious kill.
- * - A PTY-master close delivers SIGHUP to the foreground process group, so
- *   the wrapper traps HUP to stay alive long enough to finish the teardown;
- *   the TERM→KILL escalation mirrors the PTY close contract because the
- *   server can take seconds to honor a bare TERM.
- * - The watcher's own `sleep` children are reaped via TERM/EXIT traps —
- *   otherwise a killed watcher leaves a sleep holding the PTY slave open,
- *   delaying EOF (and the exit event) past the PTY's kill grace.
- * - The main shell `wait`s on the server and re-exits with its status, so a
- *   server that dies on its own produces the honest "exited before it
- *   became ready" event instead of a misleading startup timeout. The
- *   graceful path needs no watchdog: closing the session signals the whole
- *   process group. */
-export function setupServerWrapperScript(): string {
-  return `trap "" HUP
-parent=$PPID
-started=$(ps -o lstart= -p "$parent" 2>/dev/null)
-kimi web --no-open --host 127.0.0.1 --port 0 --log-level silent --debug-endpoints &
-child=$!
-(
-  slp=
-  trap 'kill "$slp" 2>/dev/null' EXIT
-  trap 'exit 0' TERM
-  while kill -0 "$parent" 2>/dev/null; do
-    now=$(ps -o lstart= -p "$parent" 2>/dev/null)
-    [ -n "$started" ] && [ -n "$now" ] && [ "$now" != "$started" ] && break
-    sleep ${WATCHDOG_POLL_SECONDS} &
-    slp=$!
-    wait "$slp" 2>/dev/null
-  done
-  kill "$child" 2>/dev/null
-  sleep 3 &
-  slp=$!
-  wait "$slp" 2>/dev/null
-  kill -9 "$child" 2>/dev/null
-) &
-watcher=$!
-wait "$child" 2>/dev/null
-code=$?
-kill "$watcher" 2>/dev/null
-exit "$code"`;
-}
-
-/** Parse the authenticated loopback endpoint from the server's startup
- * banner. The port is whatever ephemeral port `--port 0` bound, so only the
- * host and the presence of a token are validated. */
-export function extractServerAccess(
-  output: string,
-): KimiServerAccess | null {
-  const plain = stripTerminalControls(output);
-  // The token is REQUIRED in the pattern: a match without one is discarded
-  // below anyway, and a non-global `match` stops at the first hit — so an
-  // optional group let a bare loopback URL printed ahead of the tokenized
-  // one eat the only match and report the server as never ready.
-  const match = plain.match(/http:\/\/127\.0\.0\.1:\d+\/#token=[^\s]+/);
-  if (!match) return null;
-  try {
-    const url = new URL(match[0]);
-    if (url.hostname !== "127.0.0.1") {
-      return null;
-    }
-    const token = url.hash.startsWith("#token=")
-      ? decodeURIComponent(url.hash.slice("#token=".length))
-      : "";
-    return token ? { origin: url.origin, token } : null;
-  } catch {
-    return null;
-  }
-}
-
-function stripTerminalControls(value: string): string {
-  return value
-    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, "")
-    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
-}
-
-/** A short, single-line head of what the setup server actually printed, with
- * terminal control sequences and blank lines removed. Empty when it said
- * nothing. This is the honest diagnostic — a Kimi deprecation notice or a bind
- * error appears at the START of the output, so on long output we keep the head
- * (with a trailing `…`), not the tail, to preserve the line that names the
- * failure. */
-export function describeStartupOutput(raw: string): string {
-  const text = stripTerminalControls(raw)
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .join(" ")
-    .trim();
-  if (!text) return "";
-  const limit = 300;
-  return text.length > limit ? `${text.slice(0, limit)}…` : text;
-}
-
-/** Single source for the " It reported: …" suffix — appends the server's own
- * captured output to a failure message whenever it printed anything. */
-function withReportedOutput(base: string, rawOutput: string): string {
-  const detail = describeStartupOutput(rawOutput);
-  return detail ? `${base} It reported: ${detail}` : base;
-}
-
-/** The setup-server process died before reporting its address; the server's
- * own output is the real reason. */
-function startupExitMessage(
-  code: number | null,
-  rawOutput: string,
-): string {
-  const codeText = code === null ? "" : ` (code ${code})`;
-  return withReportedOutput(
-    `Kimi setup server exited before it became ready${codeText}.`,
-    rawOutput,
-  );
-}
-
-/** The setup server stayed up but never printed a parseable address in time —
- * most likely Kimi changed its startup banner. */
-function startupTimeoutMessage(rawOutput: string): string {
-  return withReportedOutput(
-    "Timed out waiting for the Kimi setup server to report its address. Kimi may have changed its startup banner.",
-    rawOutput,
-  );
 }
 
 function disposedError(): Error {

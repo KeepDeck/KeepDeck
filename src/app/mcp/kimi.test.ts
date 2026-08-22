@@ -1,12 +1,28 @@
 import { describe, expect, it } from "vitest";
 import type { McpServerSpec } from "@keepdeck/plugin-api";
-import { kimiMcpConfig } from "./kimi";
+import { kimiMcpConfig, mcpFileRenderer } from "./kimi";
 
 const server = (name: string): McpServerSpec => ({
   name,
   transport: "stdio",
   command: "/bin/keepdeck",
   args: ["--mcp-shim", "/home/mcp.sock"],
+});
+
+describe("which agents are fed by file", () => {
+  it("answers with a renderer for the file-fed agent and null for argv ones", () => {
+    // The injection flow asks this instead of naming an agent: everything it
+    // does differently for a file — one secret per shared cwd, nothing on
+    // argv — follows from the delivery, not from which CLI it belongs to.
+    expect(mcpFileRenderer("kimi")).not.toBeNull();
+    for (const argvFed of ["claude", "codex", "opencode", "grok"]) {
+      expect(mcpFileRenderer(argvFed)).toBeNull();
+    }
+  });
+
+  it("hands back the dialect's own renderer, not a copy of its shape", () => {
+    expect(mcpFileRenderer("kimi")).toBe(kimiMcpConfig);
+  });
 });
 
 describe("kimi's mcp.json", () => {
