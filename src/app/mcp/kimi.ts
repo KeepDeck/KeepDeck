@@ -9,6 +9,11 @@ import { mapMcpServers, type McpServerSpec } from "@keepdeck/plugin-api";
  * by the host (plugins have no such capability, and the ordering against
  * worktree teardown is the worktree owner's invariant). The same split codex
  * already has for skills: the host plants, the plugin contributes nothing.
+ * That proof establishes HOST-MUST-WRITE, not HOST-DECIDES-FORMAT: a future
+ * plugin-owned format remains a possible door (the shared-mcp v2 precedent),
+ * but we price it shut here on lifecycle grounds. If another dialect arrives,
+ * emitter hygiene is one module plus one match arm, not branches spread across
+ * the host; its lifecycle must first make the door worth opening.
  */
 export const KIMI_AGENT = "kimi";
 

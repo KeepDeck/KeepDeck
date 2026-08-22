@@ -12,6 +12,12 @@
  * goes through this object, so that ordering is enforceable in one place
  * instead of agreed upon across four files.
  *
+ * Vocabulary: worktrees are INFRASTRUCTURE — the pane-directory owner — while
+ * skills are the CAPABILITY PLATFORM. Features meet this owner at ports, and
+ * runtime.ts is the composition root that wires them; keeping those nouns
+ * explicit prevents an infrastructure/feature dependency from looking like a
+ * harmless convenience import.
+ *
  * The state here is per-instance on purpose: the maps below used to be module
  * globals that outlived a test's `clearAllMocks`, and a lifetime nobody owns is
  * exactly the shape of bug this module exists to prevent.

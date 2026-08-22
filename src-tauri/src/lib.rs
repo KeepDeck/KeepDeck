@@ -448,13 +448,14 @@ mod tests {
         out
     }
 
-    /// TOTAL ABSENCE: no code under src-tauri may set or remove
-    /// KEEPDECK_HOME. Test homes are a fresh tmp dir per test by
-    /// construction (paths.rs); the env override is a production
-    /// mechanism nobody mutates. This scan — the wiring-pin pattern —
-    /// makes an in-tree setter unreachable, which is what keeps the
-    /// keepdeck_home() tripwire's blast radius fair: every trip source
-    /// that can actually reach it (a shell export, out-of-tree
+    /// SOURCE-TREE ABSENCE: this walks only `src/**/*.rs`; it does not claim
+    /// to inspect every file under `src-tauri` or code outside the tree. No
+    /// source in this scanned tree may set or remove KEEPDECK_HOME. Test homes
+    /// are a fresh tmp dir per test by construction (paths.rs); the env
+    /// override is a production mechanism nobody mutates. This scan — the
+    /// wiring-pin pattern — makes an in-tree setter unreachable, which is what
+    /// keeps the keepdeck_home() tripwire's blast radius fair: every trip
+    /// source that can actually reach it (a shell export, out-of-tree
     /// mutation) reports honest process state and deserves its red.
     #[test]
     fn nothing_sets_or_removes_keepdeck_home() {
@@ -473,6 +474,10 @@ mod tests {
                     scanned += 1;
                     let src = std::fs::read_to_string(&path)
                         .unwrap_or_else(|e| panic!("home pin: reading {path:?}: {e}"));
+                    // The matcher is intentionally same-line and literal: a
+                    // cheap source pin, not a Rust parser. A direct negative
+                    // setter test cannot live here because this scan reads
+                    // its own source and would report that test as a finding.
                     for (idx, line) in src.lines().enumerate() {
                         if line.contains("env::set_var")
                             || line.contains("env::remove_var")
