@@ -122,20 +122,49 @@ impl DisplayServer {
             wake_keep: Mutex::new(Some(wake_near)),
             wake_poll: Mutex::new(Some(wake_far)),
         });
-        std::thread::Builder::new()
-            .name("keepdeck artifacts accept".into())
-            .spawn({
-                let shared = Arc::clone(&shared);
-                move || accept_loop(listener, shared)
-            })
-            .map_err(|e| format!("spawning the accept loop failed: {e}"))?;
-        std::thread::Builder::new()
-            .name("keepdeck artifacts tick".into())
-            .spawn({
-                let shared = Arc::clone(&shared);
-                move || tick_loop(shared)
-            })
-            .map_err(|e| format!("spawning the keepalive tick failed: {e}"))?;
+        Self::start_threads(listener, shared)
+    }
+
+    fn start_threads(listener: TcpListener, shared: Arc<Shared>) -> Result<Self, String> {
+        Self::start_threads_with(
+            listener,
+            shared,
+            |listener, shared| {
+                std::thread::Builder::new()
+                    .name("keepdeck artifacts accept".into())
+                    .spawn(move || accept_loop(listener, shared))
+                    .map_err(|e| format!("spawning the accept loop failed: {e}"))
+            },
+            |shared| {
+                std::thread::Builder::new()
+                    .name("keepdeck artifacts tick".into())
+                    .spawn(move || tick_loop(shared))
+                    .map_err(|e| format!("spawning the keepalive tick failed: {e}"))
+            },
+        )
+    }
+
+    fn start_threads_with<Accept, Tick>(
+        listener: TcpListener,
+        shared: Arc<Shared>,
+        spawn_accept: Accept,
+        spawn_tick: Tick,
+    ) -> Result<Self, String>
+    where
+        Accept: FnOnce(TcpListener, Arc<Shared>) -> Result<std::thread::JoinHandle<()>, String>,
+        Tick: FnOnce(Arc<Shared>) -> Result<std::thread::JoinHandle<()>, String>,
+    {
+        let accept_thread = spawn_accept(listener, Arc::clone(&shared))?;
+        if let Err(error) = spawn_tick(Arc::clone(&shared)) {
+            // `Self` is not constructed on this error path, so mirror stop's
+            // teardown here: mark dead before dropping the wake pair, then
+            // join the already-running accept loop before returning Err.
+            shared.dead.store(true, Ordering::SeqCst);
+            drop(shared.wake_keep.lock().expect("wake poisoned").take());
+            drop(shared.wake_poll.lock().expect("wake poisoned").take());
+            let _ = accept_thread.join();
+            return Err(format!("spawning the keepalive tick failed: {error}"));
+        }
         Ok(Self { shared })
     }
 
@@ -679,6 +708,54 @@ mod tests {
         (server, store, root, dir)
     }
 
+    #[test]
+    fn tick_spawn_failure_tears_down_the_accept_loop() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (wake_near, wake_far) = std::os::unix::net::UnixStream::pair().unwrap();
+        let shared = Arc::new(Shared {
+            root: std::env::temp_dir(),
+            port,
+            index_tokens: Mutex::new(HashMap::new()),
+            subs: Mutex::new(HashMap::new()),
+            dead: AtomicBool::new(false),
+            wake_keep: Mutex::new(Some(wake_near)),
+            wake_poll: Mutex::new(Some(wake_far)),
+        });
+        let accept_exited = Arc::new(AtomicBool::new(false));
+        let exited = Arc::clone(&accept_exited);
+
+        let error = DisplayServer::start_threads_with(
+            listener,
+            Arc::clone(&shared),
+            move |listener, shared| {
+                std::thread::Builder::new()
+                    .name("keepdeck artifacts accept test".into())
+                    .spawn(move || {
+                        accept_loop(listener, shared);
+                        exited.store(true, Ordering::SeqCst);
+                    })
+                    .map_err(|e| e.to_string())
+            },
+            |_| Err("injected tick spawn failure".into()),
+        )
+        .err()
+        .expect("injected tick failure must return Err");
+
+        assert_eq!(
+            error,
+            "spawning the keepalive tick failed: injected tick spawn failure"
+        );
+        assert!(accept_exited.load(Ordering::SeqCst));
+        assert!(TcpStream::connect_timeout(
+            &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+            Duration::from_millis(250),
+        )
+        .is_err());
+        assert!(shared.dead.load(Ordering::SeqCst));
+    }
+
     fn publish(store: &ArtifactsStore, slug: &str, body: &[u8]) -> String {
         store
             .publish(
@@ -1084,4 +1161,3 @@ mod tests {
         assert!(text.contains("event: bye\ndata: server stopping"), "{text}");
     }
 }
-
