@@ -155,17 +155,18 @@ fn md_page(title: &str, source: &str) -> String {
     )
 }
 
-/// The template-injected live-refresh block — the SAME contract the
-/// skill teaches agents to embed in their html pages verbatim: reload on
-/// `version`, a visible goodbye on `bye` or `error`. The subscribe URL
+/// The live-refresh block the SERVER installs on every page it serves —
+/// the one copy of the contract, owned here: reload on `version`, a
+/// visible goodbye on `bye` or `error`. The subscribe URL
 /// carries `location.search` so a `?v=`-PINNED tab subscribes pinned
 /// too (the pathname drops the query; without it the server-side
 /// pinned-immunity never engages from a real pinned tab). The error arm
 /// CLOSES the source once — EventSource silently reconnects forever on
 /// server death, which is the silent-staleness the goodbye exists to
 /// prevent.
-/// The module test pins this source of truth against the bundled skill so
-/// neither drifts alone.
+/// It opens with a sentinel guard so a page that already carries a copy
+/// (published before the server took ownership) ends up with ONE live
+/// subscription rather than two.
 const LIVE_REFRESH_JS: &str = include_str!("refresh.js");
 
 fn live_refresh_snippet() -> String {
@@ -333,95 +334,27 @@ mod tests {
         );
     }
 
-    /// One-shot migration pin: while the JS moves out of an escaped Rust
-    /// string, prove the served fragment is byte-identical, including both
-    /// wrapper newlines, before the legacy literal is retired.
-    #[test]
-    fn asset_wrap_matches_legacy_served_fragment() {
-        const LEGACY_SERVED_FRAGMENT: &str = r#"<script>
-(()=>{const note=()=>{const n=document.createElement("div");
-n.setAttribute("style","background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999");
-n.textContent="This page's server went away — republish or reopen from the agent's message.";
-document.body.appendChild(n);};
-const es=new EventSource(location.pathname+"/events"+location.search);
-es.addEventListener("version",()=>location.reload());
-es.addEventListener("bye",()=>{es.close();note();});
-es.addEventListener("error",()=>{es.close();note();});})();
-</script>"#;
-        assert_eq!(live_refresh_snippet(), LEGACY_SERVED_FRAGMENT);
-    }
 
-    /// Every executable line in the pure-JS asset must match the inner lines
-    /// of the skill's fenced example verbatim. The two DOM-detail lines are
-    /// deliberately CONTAINS exceptions: the skill's surrounding prose may
-    /// frame those lines differently while the executable contract remains
-    /// pinned everywhere else.
+    /// THE INVERTED SOURCE PIN — heir to the byte-pin this replaces.
+    ///
+    /// The old pin held the skill's fenced example byte-identical to the
+    /// asset, because the contract lived in TWO documents and had to be
+    /// copied by hand. It does not any more: the server installs the
+    /// script, and the skill teaches agents to write none. So the pin
+    /// inverts — the skill must contain NO subscription at all.
+    ///
+    /// Same file, same drift it guards, opposite assertion: the failure it
+    /// exists to catch is the teaching CREEPING BACK, which would put a
+    /// second subscription on every page that follows it.
     #[test]
-    fn the_skill_snippet_matches_the_refresh_asset_lines() {
+    fn the_skill_teaches_no_refresh_script() {
         let taught = BUNDLED
             .iter()
             .find(|skill| skill.name == "artifacts")
             .expect("the artifacts skill ships");
-        let js_lines: Vec<&str> = LIVE_REFRESH_JS
-            .lines()
-            .map(str::trim)
-            .filter(|line| {
-                !line.is_empty()
-                    && !line.contains("textContent")
-                    && !line.contains("setAttribute")
-            })
-            .collect();
-        let lines: Vec<&str> = taught.content.lines().collect();
-        // Anchored on WHAT the block is, not where it sits: the EventSource
-        // line exists only inside the refresh contract, so the fence around
-        // it is the example — immune to section moves, renames and future
-        // html examples elsewhere in the document. Exactly one such block:
-        // a second contract in one document is the second-site drift the
-        // byte-contract exists to prevent.
-        let mut starts: Vec<usize> = Vec::new();
-        for (index, line) in lines.iter().enumerate() {
-            if line.contains("EventSource(location.pathname") {
-                starts.push(index);
-            }
-        }
-        assert_eq!(
-            starts.len(),
-            1,
-            "the skill must teach exactly one refresh block"
-        );
-        let contract = starts[0];
-        // Any fence form opens the block (```, ```html, ```html + info
-        // string) — the boundary is structural, not syntactic, so an
-        // innocent fence-style edit cannot fail a byte-pin about refresh.js.
-        let start = lines[..contract]
-            .iter()
-            .rposition(|line| line.trim_start().starts_with("```"))
-            .expect("the refresh block sits in a fence");
-        let end = lines[start + 1..]
-            .iter()
-            .position(|line| line.trim() == "```")
-            .map(|offset| start + 1 + offset)
-            .expect("the refresh example closes its fence");
-        // The unambiguity argument ("the nearest opener above the contract
-        // is the block's own") holds only while the contract is INSIDE a
-        // fence — a signature line in prose with any block above it would
-        // pair the wrong fences and accuse refresh.js of a range it never
-        // touched. The containment is asserted, not assumed.
         assert!(
-            contract > start && contract < end,
-            "the refresh contract must sit inside the fence the pin measures"
+            !taught.content.contains(SUBSCRIPTION_SIGNATURE),
+            "the skill must teach no refresh script — the server installs it",
         );
-        let taught_lines: Vec<&str> = lines[start + 1..end]
-            .iter()
-            .map(|line| line.trim())
-            .filter(|line| {
-                !line.is_empty()
-                    && !line.starts_with("<script>")
-                    && !line.starts_with("</script>")
-                    && !line.contains("textContent")
-                    && !line.contains("setAttribute")
-            })
-            .collect();
-        assert_eq!(js_lines, taught_lines);
     }
 }

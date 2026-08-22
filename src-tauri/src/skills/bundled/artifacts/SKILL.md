@@ -39,22 +39,11 @@ publish the path.
 
 The result carries TWO urls — the artifact's and the workspace index. PRINT BOTH, verbatim, so the user's scrollback is a recovery surface.
 
-The FIRST publish of a new artifact opens in the user's browser automatically (they can turn that off). Later versions NEVER re-open a tab: the open page refreshes by itself. To make that work, include this block UNCHANGED near the end of the page's `<body>` (for html artifacts):
+The FIRST publish of a new artifact opens in the user's browser automatically (they can turn that off). Later versions NEVER re-open a tab: the open page refreshes by itself.
 
-```html
-<script>
-(()=>{const note=()=>{const n=document.createElement("div");
-n.setAttribute("style","background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999");
-n.textContent="This page's server went away — republish or reopen from the agent's message.";
-document.body.appendChild(n);};
-const es=new EventSource(location.pathname+"/events"+location.search);
-es.addEventListener("version",()=>location.reload());
-es.addEventListener("bye",()=>{es.close();note();});
-es.addEventListener("error",()=>{es.close();note();});})();
-</script>
-```
+**Write no refresh script.** The server adds one when it serves your page — every page, both formats, nothing for you to include. Do not write your own `EventSource`, polling loop, or reload timer: yours would run ALONGSIDE the server's and reload the page twice.
 
-That is the whole live-refresh contract: reload on `version`, say goodbye on `bye` or `error`. Do NOT modify it into a reconnect or add your own version events — the loop guard is that the server never sends unsolicited version events, and reconnect-with-replay logic on the page side would break that contract. (`md` artifacts need nothing — the server renders them WITH this same block injected, so they refresh exactly like html pages.)
+The contract the server installs, so you know what your page does: reload on `version`, and on `bye` or `error` close the stream and show a note that the server went away. It never reconnects — the loop guard is that the server sends no unsolicited version events, and a page-side reconnect-with-replay would break that. An EXPORTED page carries no refresh at all: its session URL is dead by design, so the server strips the script on the way out rather than hand the reader a page that announces a server it can never reach.
 
 ## Working as a team
 
