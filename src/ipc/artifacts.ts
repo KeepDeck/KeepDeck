@@ -36,28 +36,81 @@ export interface ArtifactPublishPayload {
 
 export async function artifactPublish(
   payload: ArtifactPublishPayload,
-): Promise<unknown> {
+): Promise<PublishIpcResult> {
   return await invoke("artifact_publish", { payload });
+}
+
+/** The publish result (mirrors Rust `PublishResult`): urls null while
+ * the display server is down — a publish never fails on that. `isNew`
+ * rides the IPC (the notification producers) even though the
+ * agent-facing wire drops it. */
+export interface PublishIpcResult {
+  slug: string;
+  version: number;
+  isNew: boolean;
+  url: string | null;
+  indexUrl: string | null;
+}
+
+/** One list row (mirrors Rust `ArtifactMeta`, camelCase on the wire). */
+export interface ArtifactMetaRow {
+  id: string;
+  title: string;
+  format: "html" | "md";
+  versionCount: number;
+  updatedAt: number;
+  lastAuthor: string;
 }
 
 export async function artifactList(payload: {
   workspaceId: string;
-}): Promise<unknown> {
+}): Promise<ArtifactMetaRow[]> {
   return await invoke("artifact_list", { payload });
 }
+
+/** The read result (mirrors Rust `ReadOutcome`): inline content, or the
+ * over-cap arm's size and honest note. Tagged by `kind`. */
+export type ArtifactReadResult =
+  | {
+      kind: "inline";
+      id: string;
+      version: number;
+      title: string;
+      format: "html" | "md";
+      content: string;
+      authorLabel: string;
+      at: number;
+    }
+  | {
+      kind: "overCap";
+      id: string;
+      version: number;
+      size: number;
+      title: string;
+      note: string;
+    };
 
 export async function artifactRead(payload: {
   workspaceId: string;
   slug: string;
   version?: number;
-}): Promise<unknown> {
+}): Promise<ArtifactReadResult> {
   return await invoke("artifact_read", { payload });
+}
+
+/** The delete result (mirrors Rust `DeleteOutcome`): when nothing was
+ * there, `deleted: false` with the counts it would have had. */
+export interface ArtifactDeleteResult {
+  id: string;
+  deleted: boolean;
+  versionCount: number | null;
+  createdAt: number | null;
 }
 
 export async function artifactDelete(payload: {
   workspaceId: string;
   slug: string;
-}): Promise<unknown> {
+}): Promise<ArtifactDeleteResult> {
   return await invoke("artifact_delete", { payload });
 }
 

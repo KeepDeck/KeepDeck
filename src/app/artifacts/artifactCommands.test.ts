@@ -205,7 +205,16 @@ describe("registerArtifactCommands", () => {
   });
 
   it("read parses a numeric version and rejects junk by NAME", async () => {
-    vi.mocked(artifactRead).mockResolvedValue({ kind: "inline", content: "x" });
+    vi.mocked(artifactRead).mockResolvedValue({
+      kind: "inline",
+      id: "x",
+      version: 3,
+      title: "T",
+      format: "html",
+      content: "x",
+      authorLabel: "l",
+      at: 1,
+    });
     const { run } = setup([pane()]);
     await run("artifact.read", { id: "x", version: "3" }, paneSource());
     expect(artifactRead).toHaveBeenCalledWith(
@@ -277,7 +286,7 @@ describe("registerArtifactCommands", () => {
 
   it("delete passes the workspace-scoped slug through", async () => {
     vi.mocked(artifactDelete).mockResolvedValue({
-      slug: "x",
+      id: "x",
       deleted: true,
       versionCount: 2,
       createdAt: 1,

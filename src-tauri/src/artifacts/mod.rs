@@ -284,11 +284,40 @@ pub fn artifact_list(
     state.store.list(&payload.workspace_id).map_err(|e| e.0)
 }
 
+/// The read result, typed on the wire like every other artifact result
+/// (camelCase keys by serde, not hand-written json! literals — a typo'd
+/// key now fails compilation instead of shipping a dead field the TS
+/// side silently ignores). Tagged by `kind`; the over-cap arm carries
+/// the size and the honest note instead of the content.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(tag = "kind")]
+pub enum ReadOutcome {
+    #[serde(rename_all = "camelCase")]
+    Inline {
+        id: String,
+        version: u64,
+        title: String,
+        format: store::ArtifactFormat,
+        content: String,
+        author_label: String,
+        at: u64,
+    },
+    #[serde(rename_all = "camelCase")]
+    OverCap {
+        id: String,
+        version: u64,
+        size: u64,
+        title: String,
+        note: String,
+    },
+}
+
 #[tauri::command(async)]
 pub fn artifact_read(
     state: State<ArtifactsState>,
     payload: ReadPayload,
-) -> Result<serde_json::Value, String> {
+) -> Result<ReadOutcome, String> {
     use store::ReadResult;
     let result = state
         .store
@@ -303,24 +332,22 @@ pub fn artifact_read(
             bytes,
             author_label,
             at,
-        } => serde_json::json!({
-            "kind": "inline",
-            "id": slug,
-            "version": version,
-            "title": title,
-            "format": match format { store::ArtifactFormat::Html => "html", store::ArtifactFormat::Md => "md" },
-            "content": String::from_utf8_lossy(&bytes).into_owned(),
-            "authorLabel": author_label,
-            "at": at,
-        }),
-        ReadResult::OverCap { slug, version, size, title, note, .. } => serde_json::json!({
-            "kind": "overCap",
-            "id": slug,
-            "version": version,
-            "size": size,
-            "title": title,
-            "note": note,
-        }),
+        } => ReadOutcome::Inline {
+            id: slug,
+            version,
+            title,
+            format,
+            content: String::from_utf8_lossy(&bytes).into_owned(),
+            author_label,
+            at,
+        },
+        ReadResult::OverCap { slug, version, size, title, note, .. } => ReadOutcome::OverCap {
+            id: slug,
+            version,
+            size,
+            title,
+            note,
+        },
     })
 }
 

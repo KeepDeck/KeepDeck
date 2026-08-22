@@ -41,14 +41,6 @@ import {
 
 /** What the Rust publish result gives the command layer (urls null while
  * the display server is down — a publish never fails on that). */
-interface PublishIpcResult {
-  slug: string;
-  version: number;
-  isNew: boolean;
-  url: string | null;
-  indexUrl: string | null;
-}
-
 export interface ArtifactCommandDeps {
   /** The live deck — workspaces and panes for identity resolution. */
   deck: () => { workspaces: Workspace[] } | null;
@@ -214,7 +206,7 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
       }
       const autoOpen =
         getSettings()?.artifactAutoOpen ?? DEFAULT_SETTINGS.artifactAutoOpen;
-      const result = await artifactPublish({
+      const wire = await artifactPublish({
         workspaceId: caller.workspaceId,
         paneId: caller.paneId,
         label: caller.label,
@@ -227,7 +219,6 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         message,
         autoOpen,
       });
-      const wire = result as PublishIpcResult;
       if (wire.isNew && deps.announce) {
         deps.announce({
           kind: "published",
@@ -260,9 +251,9 @@ function listCommand(deps: ArtifactCommandDeps): CommandSpec {
     args: [],
     run: async (_args, source) => {
       const caller = callerContext(source, deps);
-      const artifacts = (await artifactList({
+      const artifacts = await artifactList({
         workspaceId: caller.workspaceId,
-      })) as unknown[];
+      });
       return {
         artifacts,
         note:
@@ -321,10 +312,10 @@ function deleteCommand(deps: ArtifactCommandDeps): CommandSpec {
       const caller = callerContext(source, deps);
       const id = str(args, "id");
       if (!id) throw new Error("delete needs an id");
-      const outcome = (await artifactDelete({
+      const outcome = await artifactDelete({
         workspaceId: caller.workspaceId,
         slug: id,
-      })) as { deleted: boolean };
+      });
       if (outcome.deleted && deps.announce) {
         deps.announce({
           kind: "deleted",
