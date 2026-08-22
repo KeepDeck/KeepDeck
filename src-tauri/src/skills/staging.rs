@@ -83,10 +83,7 @@ pub(super) fn stage(
 ) -> io::Result<Option<SkillStagingDto>> {
     let library = root.join("library");
     let final_dir = root.join("staging").join(ws_id);
-    // opencode's view lives OUTSIDE the wiped staging: opencode writes its
-    // own files into its config dir, and those must survive every rebuild —
-    // only the `skills/` subtree below this dir is KeepDeck's.
-    let opencode_dir = root.join("opencode").join(ws_id);
+    let opencode = opencode::View::at(root, ws_id);
 
     // Overlapping same-ws stagings share tmp dirs and the swap — serialize.
     let lock = locks.for_ws(ws_id);
@@ -99,11 +96,8 @@ pub(super) fn stage(
     if sources.is_empty() {
         // An emptied library must not leave yesterday's views behind — but
         // opencode's own files next to our subtrees are not ours to touch.
-        for stale in [
-            final_dir,
-            opencode_dir.join("skills"),
-            opencode_dir.join("command"),
-        ] {
+        let [oc_skills, oc_commands] = opencode.ours();
+        for stale in [final_dir, oc_skills, oc_commands] {
             match fs::remove_dir_all(&stale) {
                 Err(e) if e.kind() == ErrorKind::NotFound => {}
                 other => other?,
@@ -128,14 +122,7 @@ pub(super) fn stage(
         &claude_plugin.join(".claude-plugin").join("plugin.json"),
         CLAUDE_PLUGIN_MANIFEST.as_bytes(),
     )?;
-    let opencode_tmp = opencode_dir.join(".skills-tmp");
-    let opencode_cmd_tmp = opencode_dir.join(".command-tmp");
-    for stale in [&opencode_tmp, &opencode_cmd_tmp] {
-        match fs::remove_dir_all(stale) {
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            other => other?,
-        }
-    }
+    opencode.prepare()?;
     for (name, source) in &sources {
         // The two materialization contracts, enforced by the match arms:
         // LIBRARY — a source deleted between collection and here is
@@ -149,7 +136,7 @@ pub(super) fn stage(
         let views = [
             claude_plugin.join("skills"),
             tmp.join("skills"),
-            opencode_tmp.clone(),
+            opencode.skills_tmp().to_path_buf(),
         ];
         let content: &str = match source {
             Source::Library { dir, content } => {
@@ -183,31 +170,13 @@ pub(super) fn stage(
                 content
             }
         };
-        // The user-facing half of the opencode view — BOTH arms reach it
-        // (bundled entries materialize IDENTICALLY to library ones): a
-        // /name command whose palette description is the skill's own,
-        // pointing the agent at the staged SKILL.md (the command file
-        // must not go stale on edits, so it references rather than
-        // inlines).
-        let staged_skill = opencode_dir.join("skills").join(name).join(SKILL_FILE);
-        let command = opencode::command(name, content, &staged_skill);
-        write_atomic(
-            &opencode_cmd_tmp.join(format!("{name}.md")),
-            command.as_bytes(),
-        )?;
+        // BOTH arms reach it: bundled entries materialize identically to
+        // library ones.
+        opencode.emit(name, content, SKILL_FILE)?;
     }
     fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
     swap_dir(&tmp, &final_dir, &root.join("staging").join(format!(".old-{ws_id}")))?;
-    swap_dir(
-        &opencode_tmp,
-        &opencode_dir.join("skills"),
-        &opencode_dir.join(".old-skills"),
-    )?;
-    swap_dir(
-        &opencode_cmd_tmp,
-        &opencode_dir.join("command"),
-        &opencode_dir.join(".old-command"),
-    )?;
+    opencode.finalize(swap_dir)?;
 
     let armed = arm_roots(root, &final_dir.join("skills"), spawn_roots);
     record_armed(root, ws_id, &armed, "skills");
@@ -215,7 +184,7 @@ pub(super) fn stage(
     let abs = |dir: &Path| dir.to_string_lossy().into_owned();
     Ok(Some(SkillStagingDto {
         claude_plugin_dir: abs(&final_dir.join("claude-plugin")),
-        opencode_config_dir: abs(&opencode_dir),
+        opencode_config_dir: abs(opencode.config_dir()),
         skills_dir: abs(&final_dir.join("skills")),
     }))
 }
@@ -379,7 +348,7 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<bool> {
 /// in-flight stage of a LIVE workspace can never lose its build-aside dir to
 /// a concurrent prune. The library is user content and is never touched.
 pub(super) fn prune_views(root: &Path, live: &[String]) -> io::Result<()> {
-    for parent in [root.join("staging"), root.join("opencode")] {
+    for parent in [root.join("staging"), opencode::View::parent(root)] {
         for dir in sorted_dirs(&parent)? {
             let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
             let id = name
