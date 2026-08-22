@@ -13,8 +13,17 @@ import type { ForkPlanInput, PluginContext } from "@keepdeck/plugin-api";
  * copy the session dir into the TARGET cwd's `wd_` folder, patch `workDir`
  * (the gate) and `agents.main.homedir` (the one embedded absolute path),
  * and append the new id to the index. The original stays resumable where
- * it was. The `wd_` key is `wd_<lowercased-basename>_<sha256(cwd)[:12]>`
- * — formula verified against real store entries.
+ * it was. The `wd_` key is `wd_<lowercased-basename>_<sha256(cwd)[:12]>`.
+ *
+ * Its SHAPE is now upstream's own contract — kimi-code 0.38 validates
+ * `^wd_[a-z0-9._-]+_[0-9a-f]{12}$` in `packages/protocol/src/workspace.ts`
+ * ("workspace_id must be a wd_<slug>_<hash12> string"), and
+ * `session_index.jsonl` is still the index it files ids in
+ * (`packages/migration-legacy/src/paths.ts`). The DERIVATION — which
+ * basename, lowercased, over which digest of which path — is published
+ * nowhere and stays probe-derived: a validator that accepts our output
+ * proves the string is well-formed, never that it names the directory
+ * kimi would have picked. The layout gate below is what catches that.
  */
 export async function kimiForkPlan(
   ctx: PluginContext,
@@ -129,7 +138,10 @@ async function copyTree(
 }
 
 /** `wd_<lowercased-basename>_<sha256(absolute-cwd)[:12]>` — the store folder
- * kimi files a directory's sessions under (formula probe-verified). */
+ * kimi files a directory's sessions under.
+ *
+ * The shape this returns is upstream-validated (see the module docblock);
+ * the derivation is ours, from probing, and no upstream source states it. */
 export async function wdKey(cwd: string): Promise<string> {
   const base = cwd.slice(cwd.lastIndexOf("/") + 1).toLowerCase();
   const digest = await crypto.subtle.digest(
