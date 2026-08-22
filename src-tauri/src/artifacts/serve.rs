@@ -298,6 +298,15 @@ es.addEventListener("error",()=>{es.close();note();});})();
             .position(|line| line.trim() == "```")
             .map(|offset| start + 1 + offset)
             .expect("the refresh example closes its fence");
+        // The unambiguity argument ("the nearest opener above the contract
+        // is the block's own") holds only while the contract is INSIDE a
+        // fence — a signature line in prose with any block above it would
+        // pair the wrong fences and accuse refresh.js of a range it never
+        // touched. The containment is asserted, not assumed.
+        assert!(
+            contract > start && contract < end,
+            "the refresh contract must sit inside the fence the pin measures"
+        );
         let taught_lines: Vec<&str> = lines[start + 1..end]
             .iter()
             .map(|line| line.trim())
