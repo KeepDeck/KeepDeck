@@ -88,45 +88,66 @@ fn open_browser(url: &str) -> Result<(), String> {
 /// Claim the store root, then bind the display server on it.
 /// Idempotent; a contention refusal surfaces verbatim so the toggle can
 /// say WHY. Resolves to the display server's port.
+fn enable_at(
+    state: &ArtifactsState,
+    root: &std::path::Path,
+    start: impl FnOnce(&std::path::Path) -> Result<server::DisplayServer, String>,
+) -> Result<u16, String> {
+    // Root then server is the lifecycle lock order. Keeping both locks across
+    // claim + bind makes a concurrent enable unable to observe a claim that a
+    // failed bind is about to roll back.
+    let mut bound = state.root.lock().expect("artifacts root poisoned");
+    let mut server = state.server.lock().expect("artifacts server poisoned");
+    if let Some(live) = server.as_ref() {
+        return Ok(live.port());
+    }
+
+    let claimed_here = bound.is_none();
+    if claimed_here {
+        state.store.enable(root)?;
+        *bound = Some(root.to_path_buf());
+    }
+
+    let started = match start(root) {
+        Ok(started) => started,
+        Err(error) => {
+            if claimed_here {
+                state.store.disable();
+                *bound = None;
+            }
+            return Err(error);
+        }
+    };
+    let port = started.port();
+    *server = Some(started);
+    log::info!(
+        "artifacts: store claimed at {} — display on port {port}",
+        root.display()
+    );
+    Ok(port)
+}
+
 #[tauri::command(async)]
 pub fn artifacts_enable(
     app: tauri::AppHandle,
     state: State<ArtifactsState>,
 ) -> Result<u16, String> {
     let root = store_root(&app)?;
-    {
-        let mut bound = state.root.lock().expect("artifacts root poisoned");
-        if bound.is_none() {
-            state.store.enable(&root)?;
-            *bound = Some(root.clone());
-        }
-    }
-    let mut server = state.server.lock().expect("artifacts server poisoned");
-    if server.is_none() {
-        let started = server::DisplayServer::start(&root)?;
-        let port = started.port();
-        *server = Some(started);
-        log::info!(
-            "artifacts: store claimed at {} — display on port {port}",
-            root.display()
-        );
-        Ok(port)
-    } else {
-        Ok(server.as_ref().map(|s| s.port()).unwrap_or(0))
-    }
+    enable_at(&state, &root, server::DisplayServer::start)
 }
 
 /// Server teardown first (bye), then release the claim. Idempotent.
 #[tauri::command(async)]
 pub fn artifacts_disable(state: State<ArtifactsState>) {
-    {
-        let mut server = state.server.lock().expect("artifacts server poisoned");
-        if let Some(live) = server.take() {
-            live.stop();
-        }
+    // Match enable_at's root-then-server order so a concurrent On cannot
+    // bind a new server between teardown and root release.
+    let mut bound = state.root.lock().expect("artifacts root poisoned");
+    let mut server = state.server.lock().expect("artifacts server poisoned");
+    if let Some(live) = server.take() {
+        live.stop();
     }
     state.store.disable();
-    *state.root.lock().expect("artifacts root poisoned") = None;
+    *bound = None;
     log::info!("artifacts: display down, store released");
 }
 
@@ -404,4 +425,28 @@ pub fn artifact_drop_workspace(
     ws_id: String,
 ) -> Result<(), String> {
     state.store.drop_workspace(&ws_id).map_err(|e| e.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_display_server_start_rolls_back_the_claim_and_root() {
+        let state = ArtifactsState::new();
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("artifacts");
+
+        let error = enable_at(&state, &root, |_| Err("injected display failure".into()))
+            .expect_err("injected start must fail");
+
+        assert_eq!(error, "injected display failure");
+        assert!(!state.is_claimed());
+        assert!(state.root.lock().expect("root lock").is_none());
+        assert!(state.server.lock().expect("server lock").is_none());
+        // The claim guard was released too: a subsequent owner can claim the
+        // same root instead of inheriting the failed enable's lock.
+        state.store.enable(&root).expect("claim after rollback");
+        state.store.disable();
+    }
 }
