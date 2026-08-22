@@ -155,6 +155,15 @@ export function SkillsDialog({
   const skillAt = (scope: SkillScope, name: string): LibrarySkill | undefined =>
     (skills ?? []).find((s) => sameSkillRef(s, { scope, name }));
 
+  /** The bundled row at `name` — "which BUNDLED row IS this one" for the
+   * view mode, whose Selection carries no scope (the mode implies it:
+   * only bundled rows open views). The same list-reconciliation question
+   * `skillAt` asks of an edit selection. */
+  const bundledRowAt = (name: string): LibrarySkill | undefined =>
+    (skills ?? []).find(
+      (s) => s.scope.kind === "bundled" && s.name === name,
+    );
+
   /** The open skill is gone from the library — an agent deleted or renamed it
    * under us. The list reconciles itself through the subscription; the SELECTION
    * did not, so the editor kept a title, a body and a live Save that could only
@@ -180,23 +189,26 @@ export function SkillsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vanished, dirty]);
 
+  /** The ONE bundled-vs-own routing decision: a bundled row opens the
+   * read-only viewer, everything else the edit machine. openSkill and
+   * the nav's onOpen both ask here — a new selection-entry path gets
+   * the mapping for free instead of re-deriving (and mis-deriving) it. */
+  const selectionFor = (skill: LibrarySkill): Selection =>
+    skill.scope.kind === "bundled"
+      ? { mode: "view", name: skill.name }
+      : { mode: "edit", scope: skill.scope, name: skill.name };
+
   const openSkill = (skill: LibrarySkill) => {
     // The same projection the library's `read` uses, WHOLE — so the editor and
     // every other surface see one skill, not two readings of one file. It
     // already applies "the directory name wins over the frontmatter's";
     // re-asserting `name` here was that rule stated a second time, in the one
     // place that would keep the old answer when it changed.
-    if (skill.scope.kind === "bundled") {
-      // The read-only tier: view mode, never the edit machine. The form
-      // still receives the draft (the viewer projects it), but the write
-      // machinery keys on selection.mode and so never fires for a view.
-      setSelection({ mode: "view", name: skill.name });
-      setForm(skillDraftOf(skill));
-      setDirty(false);
-      setNameTouched(false);
-      return;
-    }
-    setSelection({ mode: "edit", scope: skill.scope, name: skill.name });
+    // The bundled tier hydrates through here too: view mode carries no scope
+    // in the Selection, but the row in hand does — apply() routes BOTH modes
+    // through this function, so the viewer receives the row's content (the
+    // nav-click path once fell through to EMPTY_FORM and rendered blank).
+    setSelection(selectionFor(skill));
     setForm(skillDraftOf(skill));
     setDirty(false);
     setNameTouched(false);
@@ -266,6 +278,20 @@ export function SkillsDialog({
     // A stale error belongs to the skill it happened on, not to wherever
     // the user navigates next.
     clearError();
+    // Both selection modes route through openSkill — the one hydration
+    // home. A view selection names a BUNDLED row (scope implied by the
+    // mode); the row is resolved from the list like the edit branch
+    // resolves its own, and a row that vanished between click and now
+    // drops to the placeholder with the same honesty: an empty viewer
+    // claiming to show a skill that no longer ships would be a ghost.
+    if (next?.mode === "view") {
+      const row = bundledRowAt(next.name);
+      if (row) {
+        openSkill(row);
+        return;
+      }
+      next = null;
+    }
     if (next?.mode === "edit") {
       const skill = skillAt(next.scope, next.name);
       if (skill) {
@@ -288,12 +314,17 @@ export function SkillsDialog({
   useEscape(() => navigate(null, true), canClose && !confirm);
 
   const creating = selection?.mode === "create";
+  /** The read-only tier: a view selection never authors anything. Named
+   * once — the write-adjacent guards below all ask it, so the policy
+   * lives in one place instead of five inline comparisons forgetting
+   * one of them. */
+  const isView = selection?.mode === "view";
   // Taken = another skill in this scope holds the name. Keeping your OWN
   // name is not a collision — that's just an ordinary save. A bundled row
   // (view mode) never authors anything — no name is judged.
   const nameTaken =
     selection !== null &&
-    selection.mode !== "view" &&
+    !isView &&
     !(selection.mode === "edit" && selection.name === form.name) &&
     skillAt(selection.scope, form.name) !== undefined;
   // The name is judged only where it is being AUTHORED — a create, or an edit
@@ -304,9 +335,7 @@ export function SkillsDialog({
   // a kebab-case complaint under a name the user was not editing — one rule,
   // two doors, opposite answers.
   const authoringName =
-    selection !== null &&
-    selection.mode !== "view" &&
-    (selection.mode === "create" || selection.name !== form.name);
+    selection !== null && !isView && (selection.mode === "create" || selection.name !== form.name);
   // ONE verdict, like the description's, rendered by the gate AND the hint
   // below. Derived separately they drifted: an emptied Name field disabled Save
   // while the message stayed hidden, because "empty" counted as invalid at the
@@ -358,8 +387,9 @@ export function SkillsDialog({
   };
 
   const performSubmit = async (selection: Selection) => {
-    // A view selection never reaches the write machine (openSkill routes
-    // bundled rows there; this guard is the type-level backstop).
+    // A view selection never reaches the write machine (routing sends
+    // bundled rows to the viewer; this guard is the type-level backstop,
+    // keyed on the same named policy as the derived guards above).
     if (selection.mode === "view") return;
     const scope = selection.scope;
     // `draftSource` catches typing during the awaits (newer keystrokes were NOT
@@ -454,11 +484,7 @@ export function SkillsDialog({
                 selection.name === skill.name)
             }
             onOpen={(skill) => {
-              if (skill.scope.kind === "bundled") {
-                navigate({ mode: "view", name: skill.name });
-                return;
-              }
-              navigate({ mode: "edit", scope: skill.scope, name: skill.name });
+              navigate(selectionFor(skill));
             }}
             onCreate={(scope) => navigate({ mode: "create", scope })}
           />

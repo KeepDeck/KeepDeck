@@ -825,6 +825,33 @@ it("a bundled row opens the read-only viewer — no Save, no Delete, never dirty
   expect(button("Save")).toBeUndefined();
 });
 
+it("the viewer shows the bundled row's CONTENT, not a blank shell (RL-8)", async () => {
+  // The nav-click path once fell through apply() with no view branch:
+  // setForm(EMPTY_FORM) — a blank name/description/body while every
+  // presence pin stayed green. A viewer pin asserts the DATA.
+  lib.skills = [
+    {
+      scope: { kind: "bundled" },
+      name: "artifacts",
+      content:
+        "---\nname: artifacts\ndescription: Publish live pages from any pane\n---\n\nPublish body text.",
+    },
+  ];
+  await mount();
+  await act(async () => {
+    row("artifacts")!.click();
+  });
+  expect(
+    document.querySelector(".skill-viewer__name")?.textContent,
+  ).toBe("artifacts");
+  expect(
+    document.querySelector(".skill-viewer__description")?.textContent,
+  ).toBe("Publish live pages from any pane");
+  expect(
+    document.querySelector(".skill-viewer__body")?.textContent,
+  ).toContain("Publish body text.");
+});
+
 it("opening the BUNDLED row in the union highlights exactly one row", async () => {
     // The day-one union: a user-global artifacts AND the bundled one.
     // View-mode matching is scope-checked — a name-only match would
