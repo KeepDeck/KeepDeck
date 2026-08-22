@@ -807,7 +807,7 @@ it("renders the Bundled group LAST with both same-name rows visible (namespaces 
   expect(document.querySelectorAll(".skills__item")).toHaveLength(2);
 });
 
-it("a bundled row opens the read-only viewer — no Save, no Delete, never dirty", async () => {
+it("a bundled row uses the common editor UI, read-only — no Save, no Delete", async () => {
   lib.skills = [
     { scope: { kind: "bundled" }, name: "artifacts", content: skill("artifacts").content },
   ];
@@ -815,14 +815,25 @@ it("a bundled row opens the read-only viewer — no Save, no Delete, never dirty
   await act(async () => {
     row("artifacts")!.click();
   });
-  // The viewer (selectable copy text + the ships-with note), not the form.
-  expect(document.querySelector(".skill-viewer")).not.toBeNull();
+  // Bundled uses the same panel markup as Global and Workspace, plus its
+  // ships-with note. Read-only preserves selection/copy without write controls.
+  expect(document.querySelector(".skills__editor-head")).not.toBeNull();
   expect(
-    document.querySelector(".skill-viewer__note")?.textContent,
+    document.querySelector(".skills__readonly-note")?.textContent,
   ).toContain("copy any part");
-  // The write machine is absent — no body textarea, no Save button.
-  expect(document.querySelector("#skill-body")).toBeNull();
+  expect(document.querySelector(".skills__scope")?.textContent).toBe("Bundled");
+  expect(input("skill-name").readOnly).toBe(true);
+  expect(document.querySelector<HTMLTextAreaElement>("#skill-description")?.readOnly).toBe(true);
+  expect(textarea().readOnly).toBe(true);
+  type(input("skill-name"), "mutated");
+  type(textarea(), "mutated");
+  await mount();
+  expect(input("skill-name").value).toBe("artifacts");
+  expect(textarea().value).toContain("Body of artifacts");
+  // The write machine is absent — no actions, no Save button.
+  expect(document.querySelector(".skills__actions")).toBeNull();
   expect(button("Save")).toBeUndefined();
+  expect(button("Delete")).toBeUndefined();
 });
 
 it("the viewer shows the bundled row's CONTENT, not a blank shell (RL-8)", async () => {
@@ -841,14 +852,12 @@ it("the viewer shows the bundled row's CONTENT, not a blank shell (RL-8)", async
   await act(async () => {
     row("artifacts")!.click();
   });
+  expect(input("skill-name").value).toBe("artifacts");
   expect(
-    document.querySelector(".skill-viewer__name")?.textContent,
-  ).toBe("artifacts");
-  expect(
-    document.querySelector(".skill-viewer__description")?.textContent,
+    document.querySelector<HTMLTextAreaElement>("#skill-description")?.value,
   ).toBe("Publish live pages from any pane");
   expect(
-    document.querySelector(".skill-viewer__body")?.textContent,
+    textarea().value,
   ).toContain("Publish body text.");
 });
 
@@ -871,7 +880,7 @@ it("opening the BUNDLED row in the union highlights exactly one row", async () =
     await act(async () => {
       bundledRow.click();
     });
-    expect(document.querySelector(".skill-viewer")).not.toBeNull();
+    expect(document.querySelector(".skills__editor-head")).not.toBeNull();
     const active = document.querySelectorAll(".skills__item--active");
     expect(active).toHaveLength(1);
   });
@@ -894,7 +903,7 @@ it("the unlock hint shows while the artifacts setting is off, absent while on", 
         createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
       );
     });
-    const hint = document.querySelector(".skill-viewer__hint");
+    const hint = document.querySelector(".skills__readonly-hint");
     expect(hint?.textContent).toContain("artifacts experiment");
 
     // Setting ON: absent.
@@ -904,7 +913,7 @@ it("the unlock hint shows while the artifacts setting is off, absent while on", 
         createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
       );
     });
-    expect(document.querySelector(".skill-viewer__hint")).toBeNull();
+    expect(document.querySelector(".skills__readonly-hint")).toBeNull();
 
     // Boot-unknown (null): no hint on unknown.
     settingsState.current = null;
@@ -913,7 +922,7 @@ it("the unlock hint shows while the artifacts setting is off, absent while on", 
         createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
       );
     });
-    expect(document.querySelector(".skill-viewer__hint")).toBeNull();
+    expect(document.querySelector(".skills__readonly-hint")).toBeNull();
   });
 
   it("the bundled group carries no + New button (the teaching is the affordance)", async () => {

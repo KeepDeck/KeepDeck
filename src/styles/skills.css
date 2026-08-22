@@ -256,13 +256,7 @@
   flex: 1;
 }
 
-.skill-viewer {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.skill-viewer__note {
+.skills__readonly-note {
   margin: 0;
   padding: 10px 12px;
   border: 1px solid #1c2230;
@@ -272,33 +266,8 @@
   line-height: 1.5;
 }
 
-.skill-viewer__name {
-  margin: 0;
-  font-size: 16px;
-}
-
-.skill-viewer__description {
-  margin: 0;
-  color: #8b93a7;
-  font-size: 13px;
-}
-
-.skill-viewer__body {
-  margin: 0;
-  padding: 12px;
-  border: 1px solid #1c2230;
-  border-radius: 8px;
-  background: #0d1117;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-
-.skill-viewer__hint {
-  margin: 0;
+.skills__readonly-hint {
+  margin: 6px 0 0;
   padding: 8px 12px;
   border: 1px solid #3a3320;
   border-radius: 8px;

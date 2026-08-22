@@ -14,27 +14,38 @@
  */
 import { useSettings } from "../../app/useSettings";
 import type { SkillDraft } from "../../domain/skills";
+import { SkillEditor } from "./SkillEditor";
 
 export function SkillViewer({ draft }: { draft: SkillDraft }) {
   // null = the settings load is unsettled (boot): no hint on unknown.
   const settings = useSettings();
   const artifactsOff = settings !== null && settings.artifacts === false;
   return (
-    <div className="skill-viewer kd-selectable">
-      <p className="skill-viewer__note">
-        Ships with KeepDeck and updates with it — read-only. To customize,
-        create your own skill in Global: the text below is selectable,
-        copy any part.
-      </p>
-      {artifactsOff && (
-        <p className="skill-viewer__hint">
-          This skill arms agents only while the artifacts experiment is on
-          (Settings → Experimental).
-        </p>
-      )}
-      <h3 className="skill-viewer__name">{draft.name}</h3>
-      <p className="skill-viewer__description">{draft.description}</p>
-      <pre className="skill-viewer__body">{draft.body}</pre>
-    </div>
+    <SkillEditor
+      creating={false}
+      savedName={draft.name}
+      scopeLabel="Bundled"
+      readOnly
+      readOnlyNotice="Ships with KeepDeck and updates with it — read-only. To customize, create your own skill in Global: the text below is selectable, copy any part."
+      readOnlyHint={
+        artifactsOff
+          ? "This skill arms agents only while the artifacts experiment is on (Settings → Experimental)."
+          : undefined
+      }
+      form={draft}
+      dirty={false}
+      validation={{
+        nameProblem: null,
+        nameTaken: false,
+        descriptionProblem: null,
+        vanished: false,
+      }}
+      canSave={false}
+      busy={false}
+      error={null}
+      onField={() => undefined}
+      onSubmit={() => undefined}
+      onDelete={() => undefined}
+    />
   );
 }
