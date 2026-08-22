@@ -50,10 +50,16 @@ pub(super) fn render_markdown(source: &str) -> String {
     }
     macro_rules! flush_table {
         () => {
-            #[allow(unused_assignments)]
             if in_table {
                 out.push_str("</table>\n");
                 in_table = false;
+            }
+        };
+    }
+    macro_rules! close_table {
+        () => {
+            if in_table {
+                out.push_str("</table>\n");
             }
         };
     }
@@ -183,7 +189,7 @@ pub(super) fn render_markdown(source: &str) -> String {
         paragraph.push(escape_html(trimmed));
     }
     flush_paragraph!();
-    flush_table!();
+    close_table!();
     if in_fence {
         // Unterminated fence: render what accumulated, escaped.
         out.push_str("<pre><code>");
