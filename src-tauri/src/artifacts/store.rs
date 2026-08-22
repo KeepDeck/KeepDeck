@@ -1266,6 +1266,9 @@ mod tests {
         // existing manifest must agree with it (a fixture edit that
         // changes the slug fails loudly here, not silently downstream).
         slug: String,
+        /// CONSUMED: the fixtures are html-only now — a fixture edit
+        /// reintroducing another format fails loudly here (the
+        /// same fail-loud-not-silently shape as `slug` above).
         format: String,
         version_count: u64,
     }
@@ -1274,6 +1277,8 @@ mod tests {
     struct GoldenRequest {
         slug: Option<String>,
         title: String,
+        /// CONSUMED: html-only truth of the fixtures, asserted in the
+        /// runner alongside the existing-manifest's format.
         format: String,
     }
 
@@ -1301,6 +1306,23 @@ mod tests {
         ))
         .unwrap();
         assert!(cases.len() >= 12);
+        for case in &cases {
+            // The fixtures' own html-only truth: every format field
+            // (request and existing) is html — anything else is a
+            // fixture edit the html-only door would mis-handle.
+            assert_eq!(
+                case.request.format, "html",
+                "case {}: fixture request format must be html",
+                case.name
+            );
+            if let Some(e) = &case.existing {
+                assert_eq!(
+                    e.format, "html",
+                    "case {}: fixture existing format must be html",
+                    case.name
+                );
+            }
+        }
         for case in &cases {
             let dir = tempfile::tempdir().unwrap();
             let root = dir.path().join("artifacts");
