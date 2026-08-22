@@ -100,6 +100,35 @@ export async function kimiForkPlan(
     JSON.stringify(patched, null, 2),
   );
 
+  // Read the clone back before the index line makes it findable: a session
+  // that exists with a real id but opens elsewhere is the failure nobody can
+  // see. Refusing HERE needs no cleanup of the index — the append is the
+  // commit point, and taking a line back out of a journal a live kimi may be
+  // reading is the dangerous move we then never make.
+  //
+  // Proves our write landed; NOT that kimi resolves the session here — the
+  // `wd_` derivation is ours (module docblock), and only a resume proves that.
+  const landed = await ctx.services.fs.readFile(`${dstSessionDir}/state.json`);
+  const landedWorkDir =
+    landed.text === null || landed.truncated
+      ? null
+      : ((): unknown => {
+          try {
+            return (JSON.parse(landed.text) as Record<string, unknown>).workDir;
+          } catch {
+            return null;
+          }
+        })();
+  if (landedWorkDir !== input.cwd) {
+    // The copy stays: `fsWrite` has no delete. Inert, not ignored — unlisted
+    // without an index line, and overwritten by a later fork to the same target.
+    throw new Error(
+      `kimi fork of ${input.sessionId}: the clone landed in ${
+        typeof landedWorkDir === "string" ? landedWorkDir : "an unreadable state"
+      }, not ${input.cwd} — not activating it`,
+    );
+  }
+
   // The index is how `--session <id>` finds the clone at all.
   const indexPath = `${sessionsRoot.slice(0, -"/sessions".length)}/session_index.jsonl`;
   await ctx.services.fsWrite.appendLine(
