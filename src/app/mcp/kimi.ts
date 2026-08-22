@@ -15,7 +15,23 @@ import { mapMcpServers, type McpServerSpec } from "@keepdeck/plugin-api";
  * emitter hygiene is one module plus one match arm, not branches spread across
  * the host; its lifecycle must first make the door worth opening.
  */
-export const KIMI_AGENT = "kimi";
+const KIMI_AGENT = "kimi";
+
+/** Renders one pane's servers into the body its CLI reads from disk. */
+export type McpFileRenderer = (servers: readonly McpServerSpec[]) => string;
+
+/**
+ * How this agent's servers reach it: a renderer when the CLI is fed by a FILE
+ * in the pane's cwd, `null` when it takes them on argv.
+ *
+ * The question the injection flow asks, so it never names an agent. Everything
+ * that follows from the answer — that a shared cwd holds one file and so one
+ * secret, that nothing rides argv — follows from file delivery as a CLASS, not
+ * from which CLI happens to be file-fed today.
+ */
+export function mcpFileRenderer(agentType: string): McpFileRenderer | null {
+  return agentType === KIMI_AGENT ? kimiMcpConfig : null;
+}
 
 /** The `mcp.json` body for one pane, in kimi's own shape (`mcpServers`, keyed
  * by name — the format claude's config also uses, which is why kimi calls the

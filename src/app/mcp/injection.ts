@@ -22,7 +22,7 @@ import { acceptMcpServers } from "./servers";
 import { describeError, log } from "../../ipc/log";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
 import type { McpArmReport } from "../../ipc/mcpArming";
-import { kimiMcpConfig, KIMI_AGENT } from "./kimi";
+import { mcpFileRenderer } from "./kimi";
 
 /** The name KeepDeck's own server is filed under in every client config —
  * and therefore the prefix its tools carry (`mcp__keepdeck__…`). */
@@ -202,18 +202,18 @@ export function createMcpInjection({
   return {
     async access(target) {
       if (socket() === null) return NO_ACCESS;
-      // A shared directory gets no secret ON THE INVOCATION. kimi's config is
-      // one file per directory, so two panes running there would both
-      // announce whichever secret was written last — and naming the wrong
-      // pane is worse than naming none.
+      const render = mcpFileRenderer(target.agentType);
+      // A shared directory gets no secret ON THE INVOCATION. File delivery is
+      // one file per directory, so two panes running there would both announce
+      // whichever secret was written last — and naming the wrong pane is worse
+      // than naming none. A property of the DELIVERY, not of any one CLI.
       //
       // It is no longer anonymous, though: the shim falls back to the secret
       // in `KEEPDECK_BRIDGE`, which every process under a pane inherits and
-      // which names that pane exactly. Before that, kimi in a shared
+      // which names that pane exactly. Before that, a file-fed pane sharing a
       // directory could not use a pane-scoped tool at all — mail refused it
       // with "this connection is not attached to a pane".
-      const shared =
-        target.agentType === KIMI_AGENT && panesIn(target.cwd) > 1;
+      const shared = render !== null && panesIn(target.cwd) > 1;
       const invoked = await resolve(shared ? null : target.client);
       if (!invoked) return NO_ACCESS;
       // Re-checked after the await: the toggle may have gone Off while the
@@ -231,12 +231,12 @@ export function createMcpInjection({
       for (const { name, reason } of rejected) {
         log.warn("web:mcp", `server "${name}" not injected: ${reason}`);
       }
-      if (target.agentType !== KIMI_AGENT) return argvOnly(accepted);
-      // kimi reads a FILE and takes nothing on argv, so its servers ride the
-      // delivery instead and the hook is told there is nothing to add. The
-      // content is rendered NOW, against the invocation this pane was
-      // answered with, and written later.
-      const content = kimiMcpConfig(accepted);
+      if (!render) return argvOnly(accepted);
+      // A file-fed CLI takes nothing on argv, so its servers ride the delivery
+      // instead and the hook is told there is nothing to add. The content is
+      // rendered NOW, against the invocation this pane was answered with, and
+      // written later.
+      const content = render(accepted);
       return { servers: [], deliver: () => deliverFile(target, content) };
     },
 
