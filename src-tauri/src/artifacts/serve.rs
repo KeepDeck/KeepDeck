@@ -144,10 +144,9 @@ fn md_page(title: &str, source: &str) -> String {
 /// CLOSES the source once — EventSource silently reconnects forever on
 /// server death, which is the silent-staleness the goodbye exists to
 /// prevent.
-/// pub(crate): a CROSS-MODULE contract — the skills tier's bundled
-/// artifacts skill teaches this exact snippet, and the module test
-/// pins the two against each other so neither drifts alone.
-pub(crate) const LIVE_REFRESH_SNIPPET: &str = "<script>\n(()=>{const note=()=>{const n=document.createElement(\"div\");\nn.setAttribute(\"style\",\"background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999\");\nn.textContent=\"This page's server went away — republish or reopen from the agent's message.\";\ndocument.body.appendChild(n);};\nconst es=new EventSource(location.pathname+\"/events\"+location.search);\nes.addEventListener(\"version\",()=>location.reload());\nes.addEventListener(\"bye\",()=>{es.close();note();});\nes.addEventListener(\"error\",()=>{es.close();note();});})();\n</script>";
+/// The module test pins this source of truth against the bundled skill so
+/// neither drifts alone.
+const LIVE_REFRESH_SNIPPET: &str = "<script>\n(()=>{const note=()=>{const n=document.createElement(\"div\");\nn.setAttribute(\"style\",\"background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999\");\nn.textContent=\"This page's server went away — republish or reopen from the agent's message.\";\ndocument.body.appendChild(n);};\nconst es=new EventSource(location.pathname+\"/events\"+location.search);\nes.addEventListener(\"version\",()=>location.reload());\nes.addEventListener(\"bye\",()=>{es.close();note();});\nes.addEventListener(\"error\",()=>{es.close();note();});})();\n</script>";
 
 /// The EXPORT variant of the md page: same template, NO snippet (the
 /// URL is dead outside the session — a live-refresh script pointing at
@@ -193,4 +192,69 @@ fn respond_csp(
     stream.write_all(head.as_bytes())?;
     stream.write_all(body)?;
     stream.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LIVE_REFRESH_SNIPPET;
+    use crate::skills::BUNDLED;
+
+    /// The byte-contract pin belongs beside the server source of truth: the
+    /// shipped skill carries the live-refresh lines in the same shape the
+    /// display server's template injects. CONTAINS is intentional because the
+    /// skill embeds the script inside prose/fencing.
+    #[test]
+    fn content_carries_the_live_refresh_contract() {
+        for skill in BUNDLED {
+            assert!(
+                skill
+                    .content
+                    .contains("EventSource(location.pathname+\"/events\"+location.search)"),
+                "{}: the pin-preserving subscribe line must ship verbatim",
+                skill.name
+            );
+            assert!(
+                skill.content.contains("es.addEventListener(\"error\""),
+                "{}: the error arm must ship verbatim",
+                skill.name
+            );
+            assert!(
+                skill.content.contains("es.addEventListener(\"version\",()=>location.reload())"),
+                "{}: the reload-on-version line must ship verbatim",
+                skill.name
+            );
+        }
+    }
+
+    /// Every SCRIPT LINE the display server injects into rendered md pages
+    /// must appear in the bundled skill's teaching snippet VERBATIM. The
+    /// server is the source of truth; if this fails, the skill teaches a
+    /// refresh contract the server no longer honors.
+    #[test]
+    fn the_skill_snippet_matches_the_server_template_lines() {
+        let taught = BUNDLED
+            .iter()
+            .find(|skill| skill.name == "artifacts")
+            .expect("the artifacts skill ships");
+        // Extract the executed-JS lines from the server's snippet: strip the
+        // <script> wrapper, drop blank lines and prose strings. The skill's
+        // prose framing may differ; the contract is the executed ES lines.
+        let js_lines: Vec<&str> = LIVE_REFRESH_SNIPPET
+            .lines()
+            .map(str::trim)
+            .filter(|line| {
+                !line.is_empty()
+                    && !line.starts_with("<")
+                    && !line.contains("textContent")
+                    && !line.contains("setAttribute")
+            })
+            .collect();
+        assert!(!js_lines.is_empty(), "extraction sanity");
+        for line in js_lines {
+            assert!(
+                taught.content.contains(line),
+                "the skill must teach the server's line verbatim:\n{line}"
+            );
+        }
+    }
 }

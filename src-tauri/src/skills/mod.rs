@@ -38,6 +38,7 @@ use std::path::{Path, PathBuf};
 // than reaching up into this router.
 pub use library::SkillDto;
 pub use staging::{SkillStagingDto, SkillsLocks};
+pub(crate) use bundled::BUNDLED;
 pub(crate) use gates::{GateKey, GateRegistry};
 
 /// Every skill in the library, global scope first, then workspaces, names
@@ -169,7 +170,7 @@ pub fn skills_stage(
     // The composition root owns the feature dependency; this command sees a
     // fresh bool from the registry and staging below stays artifacts-free.
     let claimed = gates.resolve(GateKey::Artifacts);
-    staging::stage(&locks, &root, &ws_id, &roots, bundled::BUNDLED, claimed)
+    staging::stage(&locks, &root, &ws_id, &roots, BUNDLED, claimed)
         .map_err(|e| e.to_string())
 }
 

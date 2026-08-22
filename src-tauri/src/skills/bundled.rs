@@ -52,30 +52,6 @@ mod tests {
         }
     }
 
-    /// The byte-contract pin: the shipped skill carries the live-refresh
-    /// lines in the same shape the display server's template injects —
-    /// CONTAINS (the skill embeds the script inside prose/fencing), not
-    /// byte-equality; "byte-identical" describes the content MOVE only.
-    #[test]
-    fn content_carries_the_live_refresh_contract() {
-        for skill in BUNDLED {
-            assert!(
-                skill
-                    .content
-                    .contains("EventSource(location.pathname+\"/events\"+location.search)"),
-                "{}: the pin-preserving subscribe line must ship verbatim", skill.name
-            );
-            assert!(
-                skill.content.contains("es.addEventListener(\"error\""),
-                "{}: the error arm must ship verbatim", skill.name
-            );
-            assert!(
-                skill.content.contains("es.addEventListener(\"version\",()=>location.reload())"),
-                "{}: the reload-on-version line must ship verbatim", skill.name
-            );
-        }
-    }
-
     /// The tier's shape: exactly the artifacts skill, gated — pinned so a
     /// second entry's arrival is a deliberate act, not an accident.
     #[test]
@@ -85,40 +61,4 @@ mod tests {
         assert_eq!(BUNDLED[0].gate, Some(GateKey::Artifacts));
     }
 
-    /// INTEGRATION (the §F cross-module contract, pinned end-to-end):
-    /// every SCRIPT LINE the display server's template injects into
-    /// rendered md pages must appear in the bundled skill's teaching
-    /// snippet VERBATIM — the server is the source of truth; if this
-    /// fails, the skill ships a refresh contract the server no longer
-    /// honors (agents would embed a broken page). The extracted
-    /// template lines are the non-prose, non-blank lines of the
-    /// snippet: the exact JS the browser executes.
-    #[test]
-    fn the_skill_snippet_matches_the_server_template_lines() {
-        let taught = BUNDLED
-            .iter()
-            .find(|skill| skill.name == "artifacts")
-            .expect("the artifacts skill ships");
-        // Extract the executed-JS lines from the server's snippet: strip
-        // the <script> wrapper, drop blank lines and the note's prose
-        // strings (the skill's prose framing may differ; the CONTRACT is
-        // the ES lines: subscribe, three listeners, close-on-bye/error).
-        let js_lines: Vec<&str> = crate::artifacts::serve::LIVE_REFRESH_SNIPPET
-            .lines()
-            .map(str::trim)
-            .filter(|line| {
-                !line.is_empty()
-                    && !line.starts_with("<")
-                    && !line.contains("textContent")
-                    && !line.contains("setAttribute")
-            })
-            .collect();
-        assert!(!js_lines.is_empty(), "extraction sanity");
-        for line in js_lines {
-            assert!(
-                taught.content.contains(line),
-                "the skill must teach the server's line verbatim:\n{line}"
-            );
-        }
-    }
 }
