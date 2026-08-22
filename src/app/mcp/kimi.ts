@@ -9,11 +9,13 @@ import { mapMcpServers, type McpServerSpec } from "@keepdeck/plugin-api";
  * by the host (plugins have no such capability, and the ordering against
  * worktree teardown is the worktree owner's invariant). The same split codex
  * already has for skills: the host plants, the plugin contributes nothing.
- * That proof establishes HOST-MUST-WRITE, not HOST-DECIDES-FORMAT: a future
- * plugin-owned format remains a possible door (the shared-mcp v2 precedent),
- * but we price it shut here on lifecycle grounds. If another dialect arrives,
- * emitter hygiene is one module plus one match arm, not branches spread across
- * the host; its lifecycle must first make the door worth opening.
+ *
+ * Host-side is the SETTLED place for the format, not a priced-shut door: a
+ * plugin-declared one was designed and rejected — it would have carried the
+ * shape as wire strings, trading a compile error for a silent mismatch the day
+ * a second dialect arrives. What the host owes instead is that no flow names
+ * an agent: it asks [`mcpFileRenderer`], and the Rust side asks its own view
+ * (`mcp/kimi.rs`). A second dialect adds a module beside this one.
  */
 const KIMI_AGENT = "kimi";
 

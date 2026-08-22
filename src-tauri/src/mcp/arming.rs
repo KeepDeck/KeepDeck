@@ -191,6 +191,11 @@ fn disarm_files(cwds: &[String]) -> (Vec<String>, io::Result<()>) {
 }
 
 /// Take our planting out of ONE cwd.
+///
+/// SECOND DIALECT: this picks the only view there is. A second one does not
+/// break the build here — it would silently sweep kimi's files and leave the
+/// other CLI's planted. Adding one means a lookup, and a record that says
+/// which dialect armed each cwd for the crash path to resolve (see [`prune`]).
 fn disarm_one(cwd: &Path) -> io::Result<()> {
     let view = kimi::View::at(cwd);
     let dir = view.dir();
@@ -214,6 +219,12 @@ fn disarm_one(cwd: &Path) -> io::Result<()> {
 
 /// Sweep the cwds of workspaces that are gone — the crash path, where the deck
 /// no longer knows the directories but the manifest does.
+///
+/// SECOND DIALECT: the record holds cwds and nothing else, which is enough
+/// while one view exists. With two, this path has a cwd and no way to tell
+/// which config was planted in it — the record has to gain the dialect, and
+/// the widening is the shared [`crate::worktree_arm`] record's, not this
+/// module's alone.
 pub(crate) fn prune(root: &Path, live: &[String]) -> io::Result<()> {
     // The prune deletes each dead key's whole manifest itself, so what it
     // needs back is only whether the pass worked — the cleared set is the
