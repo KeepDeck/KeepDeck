@@ -7,6 +7,8 @@
  * - the gate is the CONFIRMED transport status, never the setting. A pane
  *   handed a def for a socket that is down would spend its startup connecting
  *   to nothing and show a failed server instead of no server;
+ * - the gate is read at plan mint: an argv definition is frozen for that
+ *   spawn and cannot be repaired after the hook returns;
  * - the invocation is whatever the backend says it is
  *   ([`mcpConnectionCommand`]), never rebuilt here. The shim flag and the
  *   socket path have exactly one home, on the Rust side, and a second
