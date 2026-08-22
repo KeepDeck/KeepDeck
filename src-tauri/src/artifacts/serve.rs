@@ -286,10 +286,13 @@ es.addEventListener("error",()=>{es.close();note();});})();
             "the skill must teach exactly one refresh block"
         );
         let contract = starts[0];
+        // Any fence form opens the block (```, ```html, ```html + info
+        // string) — the boundary is structural, not syntactic, so an
+        // innocent fence-style edit cannot fail a byte-pin about refresh.js.
         let start = lines[..contract]
             .iter()
-            .rposition(|line| line.trim() == "```html")
-            .expect("the refresh block sits in an html fence");
+            .rposition(|line| line.trim_start().starts_with("```"))
+            .expect("the refresh block sits in a fence");
         let end = lines[start + 1..]
             .iter()
             .position(|line| line.trim() == "```")
