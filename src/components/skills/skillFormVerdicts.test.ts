@@ -5,6 +5,7 @@ import {
   skillFormVerdicts,
   type Selection,
   type VerdictInput,
+  type WritableSelection,
 } from "./skillFormVerdicts";
 
 const skill = (
@@ -62,10 +63,12 @@ describe("vanished", () => {
     expect(verdicts({ skills: null }).vanished).toBe(false);
   });
 
-  it("kills Save, which is what leaves the retitle escape hatch open", () => {
-    // Save is refused for the name that vanished, but the draft stays on
-    // screen — retitling it is how the user rescues their text as a new
-    // skill instead of being stranded behind a dead button.
+  it("kills Save — the gate and the write machine refuse as one", () => {
+    // Refusing here is the whole protection: the write machine reads THIS
+    // verdict rather than forming its own, so there is no path where the
+    // button says impossible and a doomed update goes through anyway.
+    // The user's text stays on screen regardless — throwing away what
+    // they typed is the one thing worse than a stale editor.
     const gone = verdicts({ skills: [] });
     expect(gone.vanished).toBe(true);
     expect(gone.canSave).toBe(false);
@@ -188,5 +191,25 @@ describe("the description rule", () => {
     const v = verdicts({ form: draft({ description: "  " }) });
     expect(v.descriptionProblem).toBe("empty");
     expect(v.canSave).toBe(false);
+  });
+});
+
+describe("the write machine cannot be handed the read-only tier", () => {
+  it("COMPILER GUARD: a view selection is not a writable one", () => {
+    // The assertion is the directive, not the expect below: if this
+    // literal ever compiles, the type stopped excluding the bundled tier
+    // and the runtime guard that was deleted has to come back.
+    // @ts-expect-error — a view selection has no scope and may not be written.
+    const forbidden: WritableSelection = { mode: "view", name: "artifacts" };
+    expect(forbidden).toBeDefined();
+  });
+
+  it("CONTROL: the same shape WITH a scope is writable, so the guard bites for the right reason", () => {
+    const allowed: WritableSelection = {
+      mode: "edit",
+      scope: { kind: "global" },
+      name: "artifacts",
+    };
+    expect(allowed.scope).toEqual({ kind: "global" });
   });
 });

@@ -1,10 +1,10 @@
 import { sameSkillRef } from "../../domain/skills";
-import { SkillViewer } from "./SkillViewer";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SkillEditor } from "./SkillEditor";
 import { SkillsNav } from "./SkillsNav";
+import { BUNDLED_NOTICE } from "./bundledTier";
 import { labelForScope } from "./skillGroups";
 import { useSkillsEditor } from "./useSkillsEditor";
 
@@ -115,8 +115,6 @@ export function SkillsDialog({
                   </>
                 )}
               </div>
-            ) : selection.mode === "view" ? (
-              <SkillViewer draft={form} />
             ) : (
               <SkillEditor
                 // NOT keyed per selection. That remounted the editor whenever
@@ -125,8 +123,19 @@ export function SkillsDialog({
                 // user was typing into and dropping focus, caret and scroll. The
                 // create form's focus is the editor's own business now.
                 creating={editor.creating}
-                savedName={selection.mode === "edit" ? selection.name : null}
-                scopeLabel={labelForScope(groups, selection.scope)}
+                savedName={
+                  selection.mode === "create" ? null : selection.name
+                }
+                // A view selection names a BUNDLED row, which carries no
+                // scope of its own — the mode implies the tier.
+                scopeLabel={
+                  selection.mode === "view"
+                    ? "Bundled"
+                    : labelForScope(groups, selection.scope)
+                }
+                readOnly={verdicts.isView}
+                readOnlyNotice={verdicts.isView ? BUNDLED_NOTICE : undefined}
+                readOnlyHint={verdicts.isView ? editor.viewHint : undefined}
                 form={form}
                 dirty={editor.dirty}
                 validation={{

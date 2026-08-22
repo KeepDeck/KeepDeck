@@ -22,11 +22,13 @@ import {
   type SkillScope,
 } from "../../domain/skills";
 import type { LibrarySkill } from "../../app/skillsLibrary";
+import { useSettings } from "../../app/useSettings";
 import { useSkillsLibrary } from "../../app/useSkills";
 import { useEscape } from "../../ui/useEscape";
 import { useLatch } from "../../ui/useLatch";
 import { useSaveShortcut } from "../../ui/useSaveShortcut";
 import type { SkillsNavGroup } from "./SkillsNav";
+import { bundledUnlockHint } from "./bundledTier";
 import { buildSkillGroups, type GroupWorkspace } from "./skillGroups";
 import {
   bundledRowAt,
@@ -66,6 +68,12 @@ export function useSkillsEditor({
 }: SkillsEditorDeps) {
   const { skills, error, listTrusted, clearError, save, rename, remove } =
     useSkillsLibrary(true);
+  // The settings PORT, not the artifacts feature: the machine pulls one
+  // boolean and hands it to the tier's own text. `null` is the unsettled
+  // boot load and reads as ON — no hint on unknown, rather than one that
+  // blames a setting nobody has read yet.
+  const settings = useSettings();
+  const viewHint = bundledUnlockHint(settings === null || settings.artifacts);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<SkillDraft>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
@@ -354,6 +362,10 @@ export function useSkillsEditor({
     form,
     dirty,
     verdicts,
+    /** The bundled panel's unlock hint, or undefined when the feature is
+     * on (or still unread). A derived verdict about state, like every
+     * other on this object. */
+    viewHint,
     creating: selection?.mode === "create",
     busy,
     deletingNow,
