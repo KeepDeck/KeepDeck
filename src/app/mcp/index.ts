@@ -225,6 +225,9 @@ export function createMcpService(
   /** Directories the LAST pass planted in — a refusal there is stale and
    * must clear (the user moved their file away). */
   const armedRoots = new Set<string>();
+  const scrubRefusalsFor = (roots: string[]) => {
+    for (const root of roots) armedRoots.add(root);
+  };
   let identity: McpServerIdentity = { name: "KeepDeck", version: "unknown" };
   void (deps.identitySource ?? fetchAppInfo)()
     .then((info) => {
@@ -288,9 +291,12 @@ export function createMcpService(
         publish({ ...current, refused });
       }
     },
-    onArmed: (roots) => {
-      for (const root of roots) armedRoots.add(root);
-    },
+    // Both feed the same one-pass buffer that `onRefused` drains: a root
+    // whose config just landed, or just left, has no standing refusal to
+    // keep. Two names because they are two events, one body because the
+    // record-keeping is the same.
+    onArmed: (roots) => scrubRefusalsFor(roots),
+    onRetracted: (roots) => scrubRefusalsFor(roots),
     connection,
   });
   const pump = createMcpRequestPump(

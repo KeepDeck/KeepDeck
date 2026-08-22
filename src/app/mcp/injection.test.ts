@@ -55,6 +55,32 @@ describe("the MCP injection", () => {
     ]);
   });
 
+  it("reports a retract as a RETRACT, never as an arming", async () => {
+    // One name for both said a teardown had armed something. The scrub is
+    // the same — a root's standing refusal goes with the config it stood
+    // beside — but the events are not, and only the caller can tell the
+    // consumer which one happened.
+    const onArmed = vi.fn();
+    const onRetracted = vi.fn();
+    const injection = createMcpInjection({
+      ...ports,
+      socket: () => socket,
+      connection: async () => invocation,
+      plant: async () => ({ armed: ["/repo"], refused: [] }),
+      onArmed,
+      onRetracted,
+    });
+    const access = await injection.access(kimi("/repo"));
+    await access.deliver();
+    expect(onArmed).toHaveBeenCalledWith(["/repo"]);
+    onArmed.mockClear();
+
+    await injection.retract();
+
+    expect(onRetracted).toHaveBeenCalledWith(["/repo"]);
+    expect(onArmed).not.toHaveBeenCalled();
+  });
+
   it("injects NOTHING while the transport is not confirmed up", async () => {
     // The gate is the confirmed socket, not the setting: a pane handed a def
     // for a socket that is down spends its startup failing to connect and
