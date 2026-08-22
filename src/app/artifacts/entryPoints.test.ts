@@ -28,6 +28,7 @@ import { openUrl } from "../../ipc/app";
 import { artifactResolveUrls } from "../../ipc/artifacts";
 
 const instance = createWorkspaceInstance();
+const workspaceIsLive = () => true;
 
 const workspaces = () => [{ id: "ws-1", name: "KeepDeck" }];
 
@@ -111,7 +112,7 @@ describe("openArtifactFromNotification", () => {
       slug: "x",
       paneLabel: "l",
     });
-    const result = await openArtifactFromNotification(source);
+    const result = await openArtifactFromNotification(source, workspaceIsLive);
     expect(openUrl).toHaveBeenCalledWith("http://127.0.0.1:41/a/t/x");
     expect(result).toEqual({ opened: "http://127.0.0.1:41/a/t/x" });
   });
@@ -126,7 +127,7 @@ describe("openArtifactFromNotification", () => {
       workspace: { id: "ws-1", instance },
       artifactId: "deleted-since",
     };
-    const result = await openArtifactFromNotification(source);
+    const result = await openArtifactFromNotification(source, workspaceIsLive);
     expect(openUrl).toHaveBeenCalledWith("http://127.0.0.1:41/i/");
     expect(result).toEqual({ opened: "http://127.0.0.1:41/i/" });
   });
@@ -140,7 +141,23 @@ describe("openArtifactFromNotification", () => {
       slug: "x",
       paneLabel: "l",
     });
-    const result = await openArtifactFromNotification(source);
+    const result = await openArtifactFromNotification(source, workspaceIsLive);
+    expect(openUrl).not.toHaveBeenCalled();
+    expect(result).toEqual({ silent: "unresolved" });
+  });
+
+  it("stale workspace instances are a silent no-op", async () => {
+    const source = artifactSource({
+      kind: "published",
+      workspaceId: "ws-1",
+      workspaceInstance: instance,
+      slug: "x",
+      paneLabel: "l",
+    });
+
+    const result = await openArtifactFromNotification(source, () => false);
+
+    expect(artifactResolveUrls).not.toHaveBeenCalled();
     expect(openUrl).not.toHaveBeenCalled();
     expect(result).toEqual({ silent: "unresolved" });
   });

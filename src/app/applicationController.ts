@@ -192,7 +192,14 @@ export function createApplicationController({
           // system browser. Fallbacks and failures live in the helper:
           // dead artifactId → the workspace index; unresolvable → a
           // silent no-op, never an error dialog off a click.
-          void openArtifactFromNotification(notification.source);
+          void openArtifactFromNotification(
+            notification.source,
+            (workspace) =>
+              workspaceForNotification(
+                deck.getSnapshot().workspaces,
+                workspace,
+              ) !== null,
+          );
           return;
         }
         default: {

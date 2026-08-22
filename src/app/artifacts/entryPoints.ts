@@ -13,7 +13,10 @@
 import { describeError, log } from "../../ipc/log";
 import { openUrl } from "../../ipc/app";
 import { artifactResolveUrls } from "../../ipc/artifacts";
-import type { NotificationSource } from "../../domain/notifications";
+import type {
+  NotificationSource,
+  NotificationWorkspace,
+} from "../../domain/notifications";
 import type { WorkspaceInstance } from "../../domain/workspaceInstance";
 
 /** The first-publish / delete notification inputs. */
@@ -44,8 +47,12 @@ export function artifactSource(event: ArtifactEvent): Extract<
  * resolution so tests can assert the fallback ladder without a browser. */
 export async function openArtifactFromNotification(
   source: NotificationSource,
+  isWorkspaceLive: (workspace: NotificationWorkspace) => boolean,
 ): Promise<{ opened: string } | { silent: "unresolved" }> {
   if (source.type !== "artifacts") {
+    return { silent: "unresolved" };
+  }
+  if (!isWorkspaceLive(source.workspace)) {
     return { silent: "unresolved" };
   }
   try {
