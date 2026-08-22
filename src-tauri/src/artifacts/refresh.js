@@ -1,4 +1,5 @@
-(()=>{const note=()=>{const n=document.createElement("div");
+(()=>{if(window.__keepdeckRefresh)return;window.__keepdeckRefresh=1;
+const note=()=>{const n=document.createElement("div");
 n.setAttribute("style","background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999");
 n.textContent="This page's server went away — republish or reopen from the agent's message.";
 document.body.appendChild(n);};

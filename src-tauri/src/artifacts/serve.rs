@@ -24,8 +24,16 @@ fn artifact_csp(token: &str, slug: &str) -> String {
 const INDEX_CSP: &str =
     "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
 
-/// Serve one artifact version: bytes VERBATIM for html (the page is the
-/// agent's document — no chrome injection), the boring template for md.
+/// Serve one artifact version: the author's document for html, the
+/// boring template for md — and BOTH carry the live-refresh script,
+/// installed here.
+///
+/// The html page is still the agent's; the only thing added is the
+/// subscription, appended at the end of `<body>` where it cannot
+/// displace anything the author wrote. Storage stays untouched: what
+/// was published is what is stored, and the script exists only in what
+/// is SERVED — which is also what lets a fix to `refresh.js` reach every
+/// page ever published, without rewriting a single stored byte.
 pub(super) fn serve_artifact(
     stream: &mut TcpStream,
     root: &Path,
@@ -41,7 +49,19 @@ pub(super) fn serve_artifact(
     };
     let csp = artifact_csp(&manifest.token, slug);
     let body: Vec<u8> = match manifest.format {
-        ArtifactFormat::Html => bytes,
+        ArtifactFormat::Html => {
+            let (page, placement) = with_live_refresh(&String::from_utf8_lossy(&bytes));
+            if matches!(placement, RefreshPlacement::Appended) {
+                // Served, not refused — but say so: a page that never
+                // closes its body is malformed enough that the author
+                // probably did not mean it, and the refresh sitting
+                // outside the body is the visible consequence.
+                log::warn!(
+                    "artifacts: {slug:?} has no </body>, refresh appended at the end"
+                );
+            }
+            page.into_bytes()
+        }
         ArtifactFormat::Md => md_page(&manifest.title, &String::from_utf8_lossy(&bytes)).into_bytes(),
     };
     let _ = respond_csp(stream, 200, MIME_HTML, &body, &[
@@ -71,7 +91,17 @@ pub(super) fn serve_export(
     let mut body = Vec::with_capacity(bytes.len() + export_meta.len());
     body.extend_from_slice(export_meta.as_bytes());
     match manifest.format {
-        ArtifactFormat::Html => body.extend_from_slice(&bytes),
+        // html export drops the live-refresh script for the SAME reason
+        // md renders without it (below) — and here the note is not merely
+        // possible but CERTAIN: the export meta-CSP allows inline script
+        // yet names no `connect-src`, so it falls back to `default-src
+        // 'none'` and the subscription is refused by policy. A refused
+        // EventSource fires `error`, and the block's error arm paints the
+        // goodbye. Shipping author bytes verbatim therefore guaranteed a
+        // "the server went away" banner on a file the reader just saved.
+        ArtifactFormat::Html => {
+            body.extend_from_slice(strip_live_refresh(&String::from_utf8_lossy(&bytes)).as_bytes())
+        }
         // md export renders WITHOUT the live-refresh snippet: the
         // session URL is dead by design, and a script pointing at
         // nothing would show a goodbye note on first open.
@@ -145,23 +175,99 @@ fn md_page(title: &str, source: &str) -> String {
     )
 }
 
-/// The template-injected live-refresh block — the SAME contract the
-/// skill teaches agents to embed in their html pages verbatim: reload on
-/// `version`, a visible goodbye on `bye` or `error`. The subscribe URL
+/// The live-refresh block the SERVER installs on every page it serves —
+/// the one copy of the contract, owned here: reload on `version`, a
+/// visible goodbye on `bye` or `error`. The subscribe URL
 /// carries `location.search` so a `?v=`-PINNED tab subscribes pinned
 /// too (the pathname drops the query; without it the server-side
 /// pinned-immunity never engages from a real pinned tab). The error arm
 /// CLOSES the source once — EventSource silently reconnects forever on
 /// server death, which is the silent-staleness the goodbye exists to
 /// prevent.
-/// The module test pins this source of truth against the bundled skill so
-/// neither drifts alone.
+/// It opens with a sentinel guard so a page that already carries a copy
+/// (published before the server took ownership) ends up with ONE live
+/// subscription rather than two.
 const LIVE_REFRESH_JS: &str = include_str!("refresh.js");
 
 fn live_refresh_snippet() -> String {
     // `refresh.js` owns pure JavaScript; the server owns the HTML wrapper.
     // The asset's trailing newline is the newline before </script>.
     format!("<script>\n{LIVE_REFRESH_JS}</script>")
+}
+
+/// Put the live-refresh script into an author's html page.
+///
+/// UNCONDITIONAL, and that is the design rather than an oversight. The
+/// obvious alternative — look for a subscription and skip if one is
+/// there — cannot work, because the marker is CONTENT and these pages
+/// are frequently ABOUT KeepDeck: a page quoting the block in a `<pre>`
+/// would read as already subscribed and would never refresh again. The
+/// same check would also withhold a fixed script from exactly the pages
+/// carrying an old copy. So nothing is detected; the asset's own
+/// sentinel guard makes a second copy harmless instead.
+///
+/// Before `</body>` when there is one, appended when there is not: a
+/// page too malformed to close its body still gets served and still
+/// refreshes, because a display server that refuses to display is a
+/// worse failure than a script in an odd place.
+/// Where the script ended up. Returned rather than logged from inside,
+/// so the builder stays a pure function of its input and the CALLER —
+/// which is the only place that knows WHICH artifact this is — owns the
+/// warning. The alternative, re-testing the page for `</body>` at the
+/// call site, would be a second site deciding the same thing, free to
+/// drift from this one without a test noticing.
+pub(super) enum RefreshPlacement {
+    BeforeBodyClose,
+    Appended,
+}
+
+fn with_live_refresh(html: &str) -> (String, RefreshPlacement) {
+    let snippet = live_refresh_snippet();
+    match html.rfind("</body>") {
+        Some(at) => (
+            format!("{}{snippet}{}", &html[..at], &html[at..]),
+            RefreshPlacement::BeforeBodyClose,
+        ),
+        None => (format!("{html}{snippet}"), RefreshPlacement::Appended),
+    }
+}
+
+/// The one line that names a live subscription. Used to RECOGNISE a
+/// refresh block, never to decide whether to add one — the serve path
+/// injects unconditionally, because this signature is content and the
+/// pages KeepDeck publishes are frequently about KeepDeck: a page that
+/// merely QUOTES the block in a `<pre>` would read as already-subscribed.
+const SUBSCRIPTION_SIGNATURE: &str = "EventSource(location.pathname";
+
+/// Drop every `<script>` element that opens a live subscription.
+///
+/// EXPORT ONLY, and the asymmetry is the whole licence for cutting at all:
+/// here a wrong cut degrades to a page that does not refresh, which is
+/// exactly what an exported page should do, while the same cut on the
+/// serve path would break a live page. So this recognises by content —
+/// tolerated where being wrong is harmless, and refused where it is not.
+///
+/// Scoped to SCRIPT ELEMENTS on purpose: a page documenting the artifacts
+/// feature carries the signature as escaped text inside `<pre>`, which is
+/// prose and must survive the round trip untouched.
+fn strip_live_refresh(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(open) = rest.find("<script") {
+        let after_open = &rest[open..];
+        let Some(close) = after_open.find("</script>") else {
+            break; // unterminated: nothing to bound, leave the tail as-is
+        };
+        let element = &after_open[..close + "</script>".len()];
+        if element.contains(SUBSCRIPTION_SIGNATURE) {
+            out.push_str(&rest[..open]);
+        } else {
+            out.push_str(&rest[..open + element.len()]);
+        }
+        rest = &after_open[close + "</script>".len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The EXPORT variant of the md page: same template, NO snippet (the
@@ -226,98 +332,138 @@ fn respond_csp(
 
 #[cfg(test)]
 mod tests {
-    use super::{live_refresh_snippet, LIVE_REFRESH_JS};
+    use super::{
+        live_refresh_snippet, strip_live_refresh, with_live_refresh, RefreshPlacement,
+        SUBSCRIPTION_SIGNATURE,
+    };
     use crate::skills::BUNDLED;
 
-    /// One-shot migration pin: while the JS moves out of an escaped Rust
-    /// string, prove the served fragment is byte-identical, including both
-    /// wrapper newlines, before the legacy literal is retired.
+    /// THE EXPORT PIN: an exported page never renders the goodbye.
+    ///
+    /// The property is user-visible, not structural — a reader who saves a
+    /// file must not open it to "This page's server went away". It is
+    /// stated as the ABSENCE OF A LIVE SUBSCRIPTION because that is the
+    /// only cause: the export meta-CSP permits inline script but names no
+    /// `connect-src`, so it falls back to `default-src 'none'`, the
+    /// subscription is refused by policy, the refusal fires `error`, and
+    /// the error arm paints the note. No subscription, no note.
     #[test]
-    fn asset_wrap_matches_legacy_served_fragment() {
-        const LEGACY_SERVED_FRAGMENT: &str = r#"<script>
-(()=>{const note=()=>{const n=document.createElement("div");
-n.setAttribute("style","background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999");
-n.textContent="This page's server went away — republish or reopen from the agent's message.";
-document.body.appendChild(n);};
-const es=new EventSource(location.pathname+"/events"+location.search);
-es.addEventListener("version",()=>location.reload());
-es.addEventListener("bye",()=>{es.close();note();});
-es.addEventListener("error",()=>{es.close();note();});})();
-</script>"#;
-        assert_eq!(live_refresh_snippet(), LEGACY_SERVED_FRAGMENT);
+    fn an_exported_page_never_renders_the_goodbye() {
+        let pasted = format!(
+            "<html><body><h1>report</h1>\n{}\n</body></html>",
+            live_refresh_snippet(),
+        );
+        let exported = strip_live_refresh(&pasted);
+        assert!(
+            !exported.contains(SUBSCRIPTION_SIGNATURE),
+            "an exported page must carry no live subscription",
+        );
+        assert!(
+            exported.contains("<h1>report</h1>"),
+            "the author's own page must survive the cut",
+        );
     }
 
-    /// Every executable line in the pure-JS asset must match the inner lines
-    /// of the skill's fenced example verbatim. The two DOM-detail lines are
-    /// deliberately CONTAINS exceptions: the skill's surrounding prose may
-    /// frame those lines differently while the executable contract remains
-    /// pinned everywhere else.
+    /// The cut is scoped to SCRIPT ELEMENTS. A page that documents the
+    /// artifacts feature quotes the block as prose — escaped, inside
+    /// `<pre>` — and that is the corpus this feature publishes most: the
+    /// pages about KeepDeck itself. Prose must round-trip untouched.
     #[test]
-    fn the_skill_snippet_matches_the_refresh_asset_lines() {
+    fn export_keeps_a_quoted_block_and_unrelated_scripts() {
+        let page = format!(
+            "<body><pre>&lt;script&gt;{sig}…&lt;/script&gt;</pre>\
+             <script>const chart=1;</script>{live}</body>",
+            sig = SUBSCRIPTION_SIGNATURE,
+            live = live_refresh_snippet(),
+        );
+        let exported = strip_live_refresh(&page);
+        assert!(
+            exported.contains("<pre>&lt;script&gt;"),
+            "a quoted block is prose and must survive",
+        );
+        assert!(
+            exported.contains("const chart=1;"),
+            "an unrelated script must survive",
+        );
+        assert_eq!(
+            exported.matches("<script").count(),
+            1,
+            "only the subscribing element is cut",
+        );
+    }
+
+
+    /// THE BEHAVIOURAL SERVE PIN: what a reader's browser ends up doing.
+    ///
+    /// Stated as the served page rather than as bytes, because the old
+    /// pin's lesson was that pinning bytes across two documents only ever
+    /// guarded the copying. There is one document now, so the property
+    /// worth holding is the outcome: a page that wrote no script gets
+    /// exactly one subscription, and a page that carries a pre-ownership
+    /// copy gets exactly one ACTIVE one — two script elements, one
+    /// subscriber, which is the guard's whole job.
+    #[test]
+    fn every_served_page_carries_exactly_one_live_subscription() {
+        let (plain, placement) = with_live_refresh("<html><body><h1>report</h1></body></html>");
+        assert!(matches!(placement, RefreshPlacement::BeforeBodyClose));
+        assert_eq!(
+            plain.matches(SUBSCRIPTION_SIGNATURE).count(),
+            1,
+            "a script-less page must be served subscribed",
+        );
+        assert!(
+            plain.contains(&format!("{}</body>", live_refresh_snippet())),
+            "the script belongs at the end of the body, after the author's own",
+        );
+
+        let (legacy, _) = with_live_refresh(&format!(
+            "<html><body>{}</body></html>",
+            live_refresh_snippet(),
+        ));
+        assert_eq!(
+            legacy.matches(SUBSCRIPTION_SIGNATURE).count(),
+            2,
+            "a pre-ownership page keeps its own copy — storage is untouched",
+        );
+        assert_eq!(
+            legacy.matches("window.__keepdeckRefresh").count(),
+            4,
+            "and BOTH copies carry the sentinel, so only one subscribes",
+        );
+    }
+
+    /// A page too malformed to close its body is still served, and still
+    /// refreshes: refusing to display is the worse failure.
+    #[test]
+    fn a_page_without_a_body_close_is_still_served_subscribed() {
+        let (served, placement) = with_live_refresh("<h1>fragment</h1>");
+        assert!(served.starts_with("<h1>fragment</h1>"));
+        assert_eq!(served.matches(SUBSCRIPTION_SIGNATURE).count(), 1);
+        // The placement is REPORTED, not merely done: it is what lets the
+        // caller name the artifact in its warning without re-deciding.
+        assert!(matches!(placement, RefreshPlacement::Appended));
+    }
+
+    /// THE INVERTED SOURCE PIN — heir to the byte-pin this replaces.
+    ///
+    /// The old pin held the skill's fenced example byte-identical to the
+    /// asset, because the contract lived in TWO documents and had to be
+    /// copied by hand. It does not any more: the server installs the
+    /// script, and the skill teaches agents to write none. So the pin
+    /// inverts — the skill must contain NO subscription at all.
+    ///
+    /// Same file, same drift it guards, opposite assertion: the failure it
+    /// exists to catch is the teaching CREEPING BACK, which would put a
+    /// second subscription on every page that follows it.
+    #[test]
+    fn the_skill_teaches_no_refresh_script() {
         let taught = BUNDLED
             .iter()
             .find(|skill| skill.name == "artifacts")
             .expect("the artifacts skill ships");
-        let js_lines: Vec<&str> = LIVE_REFRESH_JS
-            .lines()
-            .map(str::trim)
-            .filter(|line| {
-                !line.is_empty()
-                    && !line.contains("textContent")
-                    && !line.contains("setAttribute")
-            })
-            .collect();
-        let lines: Vec<&str> = taught.content.lines().collect();
-        // Anchored on WHAT the block is, not where it sits: the EventSource
-        // line exists only inside the refresh contract, so the fence around
-        // it is the example — immune to section moves, renames and future
-        // html examples elsewhere in the document. Exactly one such block:
-        // a second contract in one document is the second-site drift the
-        // byte-contract exists to prevent.
-        let mut starts: Vec<usize> = Vec::new();
-        for (index, line) in lines.iter().enumerate() {
-            if line.contains("EventSource(location.pathname") {
-                starts.push(index);
-            }
-        }
-        assert_eq!(
-            starts.len(),
-            1,
-            "the skill must teach exactly one refresh block"
-        );
-        let contract = starts[0];
-        // Any fence form opens the block (```, ```html, ```html + info
-        // string) — the boundary is structural, not syntactic, so an
-        // innocent fence-style edit cannot fail a byte-pin about refresh.js.
-        let start = lines[..contract]
-            .iter()
-            .rposition(|line| line.trim_start().starts_with("```"))
-            .expect("the refresh block sits in a fence");
-        let end = lines[start + 1..]
-            .iter()
-            .position(|line| line.trim() == "```")
-            .map(|offset| start + 1 + offset)
-            .expect("the refresh example closes its fence");
-        // The unambiguity argument ("the nearest opener above the contract
-        // is the block's own") holds only while the contract is INSIDE a
-        // fence — a signature line in prose with any block above it would
-        // pair the wrong fences and accuse refresh.js of a range it never
-        // touched. The containment is asserted, not assumed.
         assert!(
-            contract > start && contract < end,
-            "the refresh contract must sit inside the fence the pin measures"
+            !taught.content.contains(SUBSCRIPTION_SIGNATURE),
+            "the skill must teach no refresh script — the server installs it",
         );
-        let taught_lines: Vec<&str> = lines[start + 1..end]
-            .iter()
-            .map(|line| line.trim())
-            .filter(|line| {
-                !line.is_empty()
-                    && !line.starts_with("<script>")
-                    && !line.starts_with("</script>")
-                    && !line.contains("textContent")
-                    && !line.contains("setAttribute")
-            })
-            .collect();
-        assert_eq!(js_lines, taught_lines);
     }
 }

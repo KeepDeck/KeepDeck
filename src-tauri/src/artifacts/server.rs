@@ -578,12 +578,18 @@ fn subscribe(
 ) {
     // The SSE response: close-delimited (no Content-Length), the read
     // half ignored, writes event-driven.
-    // NO immediate event on subscribe: the page CANNOT know its own
-    // version (artifact bytes serve VERBATIM — no chrome injection), so
-    // the skill's snippet contract is "reload on ANY version event" — an
-    // immediate version would loop page→subscribe→reload forever. The
-    // fresh tab already holds latest content from its GET; the first
+    // NO immediate event on subscribe. The premise USED to be that html
+    // served verbatim, so nothing could ever tell the page its version;
+    // the server installs the refresh script now, and the conclusion is
+    // unchanged because the script is all that is installed — not a
+    // version number. The page still cannot know which version it is
+    // showing, so its contract remains "reload on ANY version event",
+    // and an immediate event would loop page→subscribe→reload forever.
+    // The fresh tab already holds latest content from its GET; the first
     // event it needs is the NEXT version.
+    // Injecting the version alongside the script would end that
+    // constraint — and would trade a one-line rule for a cache-coherence
+    // problem between the stored bytes and the number stamped into them.
     // (No ACAO header: absent ACAO already blocks cross-origin reads;
     // a fake value would read as a security property that isn't there.
     // Artifact-A-JS-reaching-B's stream is the per-artifact connect-src
@@ -795,10 +801,14 @@ mod tests {
         (status, headers, body.as_bytes().to_vec())
     }
 
+    /// The author's document reaches the reader untouched EXCEPT for the
+    /// live-refresh script the server installs — the one addition, and the
+    /// reason a page refreshes at all now that agents write no script.
+    /// Storage is still verbatim; this is a serve-time addition only.
     #[test]
-    fn artifact_page_carries_the_path_pinned_csp_and_serves_bytes_verbatim() {
+    fn artifact_page_carries_the_path_pinned_csp_and_the_authors_bytes() {
         let (server, store, _root, _dir) = fixture("csp");
-        let token = publish(&store, "auth-flow", b"<h1>v1</h1>");
+        let token = publish(&store, "auth-flow", b"<body><h1>v1</h1></body>");
         let (status, headers, body) = get(server.port(), &format!("/a/{token}/auth-flow"));
         assert!(status.starts_with("HTTP/1.1 200"), "{status}");
         assert!(headers.contains(&format!("connect-src /a/{token}/auth-flow/events")), "{headers}");
@@ -806,7 +816,13 @@ mod tests {
         assert!(headers.contains("form-action 'none'"));
         assert!(headers.contains("referrer-policy: no-referrer"));
         assert!(headers.contains("x-content-type-options: nosniff"));
-        assert_eq!(body, b"<h1>v1</h1>");
+        let served = String::from_utf8(body).expect("the page is utf-8");
+        assert!(served.starts_with("<body><h1>v1</h1>"), "{served}");
+        assert_eq!(
+            served.matches("EventSource(location.pathname").count(),
+            1,
+            "the served page subscribes exactly once",
+        );
         server.stop();
     }
 
