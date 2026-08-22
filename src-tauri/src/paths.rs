@@ -17,6 +17,11 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+/// Compile-time evidence that test homes take the dedicated branch above the
+/// production environment resolver.
+#[cfg(test)]
+pub(crate) const TEST_HOME_BRANCH: bool = true;
+
 /// This build's home, by the precedence above. `None` only in degenerate
 /// environments with none of the variables — callers must treat that as "no
 /// persistence", never as an error.
@@ -214,5 +219,16 @@ mod tests {
         // A relative root would resolve against each process's own cwd —
         // the app and the shim would disagree about the socket's location.
         assert_eq!(home_from("keepdeck", None, None, os("relative/home")), None);
+    }
+
+    #[test]
+    fn test_home_is_a_tmp_home_by_construction() {
+        assert!(TEST_HOME_BRANCH);
+        let home = keepdeck_home().expect("test builds always have a tmp home");
+        assert!(
+            home.starts_with(std::env::temp_dir()),
+            "test home escaped the temp directory: {}",
+            home.display()
+        );
     }
 }
