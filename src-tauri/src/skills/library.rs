@@ -30,17 +30,11 @@ use crate::state::write_atomic;
 
 pub(crate) const SKILL_FILE: &str = "SKILL.md";
 
-/// Path-segment safety shared by skill names and workspace ids: one plain
-/// directory name, no traversal. The friendlier naming rules (kebab-case
-/// etc.) are the webview's business.
+/// Path-segment safety, judged by the ONE shared wall (`fs_names`) —
+/// skill names and workspace ids ride the same rule the artifacts
+/// store rides; this wrapper keeps the library's error wording.
 pub(super) fn require_safe(segment: &str, what: &str) -> Result<(), String> {
-    let ok = !segment.is_empty()
-        && segment.len() <= 64
-        && segment
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        && segment.starts_with(|c: char| c.is_ascii_alphanumeric());
-    if ok {
+    if crate::fs_names::is_safe_segment(segment) {
         Ok(())
     } else {
         Err(format!("unsafe {what}: {segment:?}"))
@@ -124,19 +118,10 @@ fn scope_skills(dir: &Path) -> io::Result<Vec<(String, String)>> {
 }
 
 /// Subdirectories of `dir`, name-sorted; a missing `dir` is just empty.
+/// The listing is the shared one (`fs_names`); the io error type is the
+/// library's own.
 pub(super) fn sorted_dirs(dir: &Path) -> io::Result<Vec<PathBuf>> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e),
-    };
-    let mut dirs: Vec<PathBuf> = entries
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-        .map(|e| e.path())
-        .collect();
-    dirs.sort();
-    Ok(dirs)
+    crate::fs_names::sorted_dirs(dir)
 }
 
 pub(super) fn save(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {

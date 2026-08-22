@@ -595,17 +595,12 @@ fn artifact_dir(root: &Path, workspace_id: &str, slug: &str) -> PathBuf {
     workspaces_root(root).join(workspace_id).join(slug)
 }
 
-/// One path-segment safety check, the skills library's rule: plain name,
-/// no traversal. Workspace ids arrive from the deck model, so the
+/// One path-segment safety check, judged by the ONE shared wall
+/// (`fs_names`) — the skills library's rule as a CALL now, not the copy
+/// this used to be. Workspace ids arrive from the deck model, so the
 /// permissive segment rule fits them.
 fn require_safe(segment: &str, what: &str) -> StoreResult<()> {
-    let ok = !segment.is_empty()
-        && segment.len() <= 64
-        && segment
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        && segment.starts_with(|c: char| c.is_ascii_alphanumeric());
-    if ok {
+    if crate::fs_names::is_safe_segment(segment) {
         Ok(())
     } else {
         Err(StoreError::new(format!("unsafe {what}: {segment:?}")))
@@ -641,20 +636,12 @@ fn validate_title(title: &str) -> StoreResult<&str> {
 }
 
 /// Subdirectories of `dir`, name-sorted; a missing dir is just empty
-/// (NotFound = absence, the skills-library precedent).
+/// (NotFound = absence, the shared `fs_names` listing). The wrapper
+/// keeps the store's error TYPE; the traversal of the dir is the one
+/// shared home.
 fn sorted_dirs(dir: &Path) -> StoreResult<Vec<PathBuf>> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(StoreError::new(format!("reading {dir:?} failed: {e}"))),
-    };
-    let mut dirs: Vec<PathBuf> = entries
-        .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-        .map(|e| e.path())
-        .collect();
-    dirs.sort();
-    Ok(dirs)
+    crate::fs_names::sorted_dirs(dir)
+        .map_err(|e| StoreError::new(format!("reading {dir:?} failed: {e}")))
 }
 
 /// Load one artifact's manifest, parsing as UNTRUSTED input: strict shape

@@ -9,6 +9,7 @@ mod containment;
 mod dnd;
 mod downloads;
 mod fswatch;
+mod fs_names;
 mod head_watch;
 mod kimi_usage;
 mod links;
