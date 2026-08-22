@@ -27,6 +27,7 @@ import {
   isArtifactFormat,
   MESSAGE_MAX,
   TITLE_MAX,
+  validateMessage,
   validateTitle,
 } from "../../domain/artifacts/model";
 import { getSettings } from "../settingsManager";
@@ -205,7 +206,10 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         );
       }
       const message = str(args, "message");
-      if (message !== undefined && message.length > MESSAGE_MAX) {
+      // The domain's verdict, not a re-implementation: `.length` counts
+      // UTF-16 units and 300 emoji read as 900 there while the domain
+      // (and Rust) count scalars — the refusal has one home, in scalars.
+      if (message !== undefined && validateMessage(message) === null) {
         throw new Error(`message must be ≤${MESSAGE_MAX} chars`);
       }
       const autoOpen =

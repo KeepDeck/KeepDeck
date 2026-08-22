@@ -252,6 +252,29 @@ describe("registerArtifactCommands", () => {
     ).rejects.toThrow(/title must be 1\.\.200 chars/);
   });
 
+  it("a message of 300 emoji (900 UTF-16 units, 300 scalars) passes the cap the domain judges", async () => {
+    // The A5 pin: the command layer once re-implemented the rule with
+    // `.length` (UTF-16 units) while the domain home counts SCALARS —
+    // a 251-500 emoji message was refused here and accepted by both
+    // real homes. The verdict is the domain's; this pin holds the
+    // command layer to it.
+    const { run } = setup([pane()]);
+    await run(
+      "artifact.publish",
+      { title: "T", format: "html", content: "x", message: "🚀".repeat(300) },
+      paneSource(),
+    );
+    expect(artifactPublish).toHaveBeenCalled();
+    // And the true over-cap, also in scalars: 501 emoji refuse.
+    await expect(
+      run(
+        "artifact.publish",
+        { title: "T", format: "html", content: "x", message: "🚀".repeat(501) },
+        paneSource(),
+      ),
+    ).rejects.toThrow(/message must be ≤500 chars/);
+  });
+
   it("delete passes the workspace-scoped slug through", async () => {
     vi.mocked(artifactDelete).mockResolvedValue({
       slug: "x",
