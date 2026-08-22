@@ -162,11 +162,11 @@ impl DisplayServer {
     }
 
     /// compose_urls (B10): the ONE URL builder, the publish path's entry
-    /// (token in hand from the store commit).
+    /// (token in hand from the store commit) — built from the shared
+    /// builders' pair below.
     pub fn compose_urls(&self, ws: &str, slug: &str, token: &str) -> (String, String) {
         let index = self.index_url(ws);
-        let artifact = format!("http://127.0.0.1:{}/a/{}/{}", self.shared.port, token, slug);
-        (artifact, index)
+        (artifact_url_for(&self.shared, token, slug), index)
     }
 
     fn index_url(&self, ws: &str) -> String {
@@ -245,6 +245,14 @@ fn ensure_index_token(shared: &Shared, ws: &str) -> String {
 pub(super) fn index_url_for(shared: &Arc<Shared>, ws: &str) -> String {
     let token = ensure_index_token(shared, ws);
     format!("http://127.0.0.1:{}/{}/", shared.port, token)
+}
+
+/// The artifact URL — the grammar's other half, beside `index_url_for`
+/// as the ONE builders' pair. The resolve-urls command re-assembled
+/// this shape inline once; both doors now share the format string, so
+/// a prefix or token-segment change cannot happen to one alone.
+pub(super) fn artifact_url_for(shared: &Arc<Shared>, token: &str, slug: &str) -> String {
+    format!("http://127.0.0.1:{}/a/{}/{}", shared.port, token, slug)
 }
 
 // ---- the accept loop (B1: poll(listener, wake) → verdict) ----

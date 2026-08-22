@@ -360,9 +360,7 @@ pub fn artifact_resolve_urls(
             let artifact = store::manifest_for(&shared.root, &payload.workspace_id, &slug)
                 .ok()
                 .flatten()
-                .map(|m| {
-                    format!("http://127.0.0.1:{}/a/{}/{}", shared.port, m.token, slug)
-                });
+                .map(|m| server::artifact_url_for(&shared, &m.token, &slug));
             let index_url = server::index_url_for(&shared, &payload.workspace_id);
             Ok(ResolveUrlsResult { url: artifact, index_url })
         }
