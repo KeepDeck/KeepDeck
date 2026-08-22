@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   normalizeSkillDescription,
   sameSkillRef,
-  sameSkillScope,
   skillDescriptionProblem,
   skillDraftOf,
   skillNameProblem,
@@ -19,6 +18,7 @@ import { useEscape } from "../../ui/useEscape";
 import { useSaveShortcut } from "../../ui/useSaveShortcut";
 import { SkillEditor } from "./SkillEditor";
 import { SkillsNav, type SkillsNavGroup } from "./SkillsNav";
+import { buildSkillGroups, labelForScope } from "./skillGroups";
 
 interface SkillsDialogProps {
   /** The active workspace, hosting the "This workspace" scope; `null` (no
@@ -108,45 +108,15 @@ export function SkillsDialog({
     | null
   >(null);
 
-  const groups = useMemo<SkillsNavGroup[]>(() => {
-    const all = skills ?? [];
-    const built: SkillsNavGroup[] = [
-      {
-        label: "Global",
-        scope: { kind: "global" },
-        // Through the domain predicate, like every other membership test in
-        // this file: a raw field comparison here would silently stop agreeing
-        // with them the moment a scope means anything new.
-        items: all.filter((s) => sameSkillScope(s.scope, { kind: "global" })),
-      },
-    ];
-    if (activeWs) {
-      const scope: SkillScope = { kind: "workspace", wsId: activeWs.id };
-      built.push({
-        label: activeWs.name,
-        scope,
-        items: all.filter((s) => sameSkillScope(s.scope, scope)),
-      });
-    }
-    // The bundled tier LAST (user content outranks app content on the
-    // user's machine) — rows render from the list, both a user-global
-    // and the bundled same-name row visible side by side (namespaces at
-    // rest; resolution-by-name lives in staging alone).
-    const bundled = all.filter((s) => s.scope.kind === "bundled");
-    if (bundled.length > 0) {
-      built.push({
-        label: "Bundled",
-        scope: { kind: "bundled" },
-        items: bundled,
-      });
-    }
-    return built;
-    // On the FIELDS, not the object: `activeWs` is built as a fresh literal by the
-    // caller on every App render — and App re-renders on agent output, git head
-    // polls and usage ticks — so depending on its identity rebuilt these groups
-    // constantly, and with them the nav's parse-once memo downstream.
+  const groups = useMemo<SkillsNavGroup[]>(
+    () => buildSkillGroups(skills, activeWs),
+    // On the FIELDS, not the object: `activeWs` is built as a fresh literal by
+    // the caller on every App render — and App re-renders on agent output, git
+    // head polls and usage ticks — so depending on its identity rebuilt these
+    // groups constantly, and with them the nav's parse-once memo downstream.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skills, activeWs?.id, activeWs?.name]);
+    [skills, activeWs?.id, activeWs?.name],
+  );
 
   /** The listed skill at (scope, name) — "which row IS this one" asked once,
    * where three sites had each spelled out the compound comparison. The library
@@ -444,14 +414,6 @@ export function SkillsDialog({
     if (canClose && !confirm) void submit();
   });
 
-  // From the GROUPS, which pair each scope with the name it is shown under —
-  // the one place that knows which workspace a scope belongs to. Re-deriving the
-  // label from `activeWs` answered a different question ("what is the active
-  // workspace called") and so stamped its name on any scope but its own: the
-  // editor can outlive the switch that changed it, and the chip is the only
-  // thing on screen saying which library a save lands in.
-  const scopeLabel = (scope: SkillScope) =>
-    groups.find((group) => sameSkillScope(group.scope, scope))?.label ?? "Workspace";
 
   return (
     <ModalOverlay>
@@ -529,7 +491,7 @@ export function SkillsDialog({
                 // create form's focus is the editor's own business now.
                 creating={creating}
                 savedName={selection.mode === "edit" ? selection.name : null}
-                scopeLabel={scopeLabel(selection.scope)}
+                scopeLabel={labelForScope(groups, selection.scope)}
                 form={form}
                 dirty={dirty}
                 validation={{
