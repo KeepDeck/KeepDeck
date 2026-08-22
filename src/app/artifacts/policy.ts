@@ -36,7 +36,9 @@ export interface ArtifactsTransition {
 export interface ArtifactsPolicy {
   /** Stop reconciling. `disable: true` queues a FINAL disable onto the
    * same chain — an in-flight enable settles first, so a disposed page
-   * can never leave the store claimed with nobody answering. */
+   * can never leave the store claimed with nobody answering. The report
+   * callback is ignored after `dispose()`, so a late settlement cannot touch
+   * the torn-down runtime. */
   dispose(options?: { disable?: boolean }): void;
 }
 
@@ -47,9 +49,8 @@ export interface ArtifactsPolicy {
  * toggle flip, serialized backend calls, epoch-guarded retry,
  * final-disable-on-dispose. The transport port is REQUIRED (the mcp
  * policy's own rule: the wiring site is the one owner of the ipc
- * binding). REPORT CONTRACT: the consumer guards `disposed` itself (the
- * mcp service precedent) — an in-flight transition may still report
- * after dispose().
+ * binding). The report callback is ignored after `dispose()`, so a late
+ * settlement cannot touch the torn-down runtime.
  */
 export function createArtifactsPolicy(
   settings: ArtifactsSettingsPort,
@@ -63,7 +64,17 @@ export function createArtifactsPolicy(
   let disposed = false;
   let chain: Promise<void> = Promise.resolve();
 
+  const deliver = (transition: ArtifactsTransition) => {
+    // A notifier can settle a backend call after dispose; a torn-down runtime
+    // must not re-register commands or invalidate a dead surface from that
+    // late report.
+    if (disposed) return;
+    report(transition);
+  };
+
   const reconcile = () => {
+    // Unsubscribing is not enough: a notifier iterating a snapshot of its
+    // listeners can still call this callback after dispose.
     if (disposed) return;
     const desired = settings.artifacts();
     if (desired === null || desired === applied) return;
@@ -74,7 +85,7 @@ export function createArtifactsPolicy(
         const value = await (desired
           ? transport.enable()
           : transport.disable());
-        report({
+        deliver({
           desired,
           ok: true,
           // The port clause only when a REAL port came back — the honest
@@ -90,7 +101,7 @@ export function createArtifactsPolicy(
           "web:artifacts",
           `artifacts ${desired ? "enable" : "disable"} failed: ${detail}`,
         );
-        report({ desired, ok: false, detail });
+        deliver({ desired, ok: false, detail });
         if (epoch === call) applied = null;
       }
     });
@@ -104,6 +115,8 @@ export function createArtifactsPolicy(
       disposed = true;
       unsubscribe();
       if (options.disable) {
+        // The final disable rides the existing chain: queueing it separately
+        // could let it overtake an in-flight enable and leave stale state.
         chain = chain.then(async () => {
           try {
             await transport.disable();

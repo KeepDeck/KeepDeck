@@ -125,4 +125,24 @@ describe("createArtifactsPolicy", () => {
     await flush();
     expect(t.calls).toEqual(["enable"]);
   });
+
+  it("drops a late report after dispose({disable})", async () => {
+    let releaseEnable!: (port: number) => void;
+    const enable = vi.fn(
+      () => new Promise<number>((resolve) => (releaseEnable = resolve)),
+    );
+    const disable = vi.fn(async () => {});
+    const report = vi.fn();
+    const settings = settingsPort(true);
+    const policy = createArtifactsPolicy(settings, { enable, disable }, report);
+
+    await flush(); // the enable is now in flight
+    policy.dispose({ disable: true });
+    releaseEnable(43119);
+    await flush();
+    await flush(); // let the queued final disable settle too
+
+    expect(disable).toHaveBeenCalledTimes(1);
+    expect(report).not.toHaveBeenCalled();
+  });
 });
