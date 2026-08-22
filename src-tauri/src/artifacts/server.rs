@@ -795,10 +795,14 @@ mod tests {
         (status, headers, body.as_bytes().to_vec())
     }
 
+    /// The author's document reaches the reader untouched EXCEPT for the
+    /// live-refresh script the server installs — the one addition, and the
+    /// reason a page refreshes at all now that agents write no script.
+    /// Storage is still verbatim; this is a serve-time addition only.
     #[test]
-    fn artifact_page_carries_the_path_pinned_csp_and_serves_bytes_verbatim() {
+    fn artifact_page_carries_the_path_pinned_csp_and_the_authors_bytes() {
         let (server, store, _root, _dir) = fixture("csp");
-        let token = publish(&store, "auth-flow", b"<h1>v1</h1>");
+        let token = publish(&store, "auth-flow", b"<body><h1>v1</h1></body>");
         let (status, headers, body) = get(server.port(), &format!("/a/{token}/auth-flow"));
         assert!(status.starts_with("HTTP/1.1 200"), "{status}");
         assert!(headers.contains(&format!("connect-src /a/{token}/auth-flow/events")), "{headers}");
@@ -806,7 +810,13 @@ mod tests {
         assert!(headers.contains("form-action 'none'"));
         assert!(headers.contains("referrer-policy: no-referrer"));
         assert!(headers.contains("x-content-type-options: nosniff"));
-        assert_eq!(body, b"<h1>v1</h1>");
+        let served = String::from_utf8(body).expect("the page is utf-8");
+        assert!(served.starts_with("<body><h1>v1</h1>"), "{served}");
+        assert_eq!(
+            served.matches("EventSource(location.pathname").count(),
+            1,
+            "the served page subscribes exactly once",
+        );
         server.stop();
     }
 

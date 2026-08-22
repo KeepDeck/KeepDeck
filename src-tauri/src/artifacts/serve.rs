@@ -24,8 +24,16 @@ fn artifact_csp(token: &str, slug: &str) -> String {
 const INDEX_CSP: &str =
     "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
 
-/// Serve one artifact version: bytes VERBATIM for html (the page is the
-/// agent's document — no chrome injection), the boring template for md.
+/// Serve one artifact version: the author's document for html, the
+/// boring template for md — and BOTH carry the live-refresh script,
+/// installed here.
+///
+/// The html page is still the agent's; the only thing added is the
+/// subscription, appended at the end of `<body>` where it cannot
+/// displace anything the author wrote. Storage stays untouched: what
+/// was published is what is stored, and the script exists only in what
+/// is SERVED — which is also what lets a fix to `refresh.js` reach every
+/// page ever published, without rewriting a single stored byte.
 pub(super) fn serve_artifact(
     stream: &mut TcpStream,
     root: &Path,
@@ -41,7 +49,9 @@ pub(super) fn serve_artifact(
     };
     let csp = artifact_csp(&manifest.token, slug);
     let body: Vec<u8> = match manifest.format {
-        ArtifactFormat::Html => bytes,
+        ArtifactFormat::Html => {
+            with_live_refresh(&String::from_utf8_lossy(&bytes)).into_bytes()
+        }
         ArtifactFormat::Md => md_page(&manifest.title, &String::from_utf8_lossy(&bytes)).into_bytes(),
     };
     let _ = respond_csp(stream, 200, MIME_HTML, &body, &[
@@ -175,6 +185,29 @@ fn live_refresh_snippet() -> String {
     format!("<script>\n{LIVE_REFRESH_JS}</script>")
 }
 
+/// Put the live-refresh script into an author's html page.
+///
+/// UNCONDITIONAL, and that is the design rather than an oversight. The
+/// obvious alternative — look for a subscription and skip if one is
+/// there — cannot work, because the marker is CONTENT and these pages
+/// are frequently ABOUT KeepDeck: a page quoting the block in a `<pre>`
+/// would read as already subscribed and would never refresh again. The
+/// same check would also withhold a fixed script from exactly the pages
+/// carrying an old copy. So nothing is detected; the asset's own
+/// sentinel guard makes a second copy harmless instead.
+///
+/// Before `</body>` when there is one, appended when there is not: a
+/// page too malformed to close its body still gets served and still
+/// refreshes, because a display server that refuses to display is a
+/// worse failure than a script in an odd place.
+fn with_live_refresh(html: &str) -> String {
+    let snippet = live_refresh_snippet();
+    match html.rfind("</body>") {
+        Some(at) => format!("{}{snippet}{}", &html[..at], &html[at..]),
+        None => format!("{html}{snippet}"),
+    }
+}
+
 /// The one line that names a live subscription. Used to RECOGNISE a
 /// refresh block, never to decide whether to add one — the serve path
 /// injects unconditionally, because this signature is content and the
@@ -276,7 +309,7 @@ fn respond_csp(
 #[cfg(test)]
 mod tests {
     use super::{
-        live_refresh_snippet, strip_live_refresh, LIVE_REFRESH_JS, SUBSCRIPTION_SIGNATURE,
+        live_refresh_snippet, strip_live_refresh, with_live_refresh, SUBSCRIPTION_SIGNATURE,
     };
     use crate::skills::BUNDLED;
 
@@ -334,6 +367,53 @@ mod tests {
         );
     }
 
+
+    /// THE BEHAVIOURAL SERVE PIN: what a reader's browser ends up doing.
+    ///
+    /// Stated as the served page rather than as bytes, because the old
+    /// pin's lesson was that pinning bytes across two documents only ever
+    /// guarded the copying. There is one document now, so the property
+    /// worth holding is the outcome: a page that wrote no script gets
+    /// exactly one subscription, and a page that carries a pre-ownership
+    /// copy gets exactly one ACTIVE one — two script elements, one
+    /// subscriber, which is the guard's whole job.
+    #[test]
+    fn every_served_page_carries_exactly_one_live_subscription() {
+        let plain = with_live_refresh("<html><body><h1>report</h1></body></html>");
+        assert_eq!(
+            plain.matches(SUBSCRIPTION_SIGNATURE).count(),
+            1,
+            "a script-less page must be served subscribed",
+        );
+        assert!(
+            plain.contains(&format!("{}</body>", live_refresh_snippet())),
+            "the script belongs at the end of the body, after the author's own",
+        );
+
+        let legacy = with_live_refresh(&format!(
+            "<html><body>{}</body></html>",
+            live_refresh_snippet(),
+        ));
+        assert_eq!(
+            legacy.matches(SUBSCRIPTION_SIGNATURE).count(),
+            2,
+            "a pre-ownership page keeps its own copy — storage is untouched",
+        );
+        assert_eq!(
+            legacy.matches("window.__keepdeckRefresh").count(),
+            4,
+            "and BOTH copies carry the sentinel, so only one subscribes",
+        );
+    }
+
+    /// A page too malformed to close its body is still served, and still
+    /// refreshes: refusing to display is the worse failure.
+    #[test]
+    fn a_page_without_a_body_close_is_still_served_subscribed() {
+        let served = with_live_refresh("<h1>fragment</h1>");
+        assert!(served.starts_with("<h1>fragment</h1>"));
+        assert_eq!(served.matches(SUBSCRIPTION_SIGNATURE).count(), 1);
+    }
 
     /// THE INVERTED SOURCE PIN — heir to the byte-pin this replaces.
     ///
