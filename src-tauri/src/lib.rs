@@ -150,6 +150,12 @@ pub fn run() {
             // the app's lifetime.
             let bridge = bridge::start(app.handle())?;
             app.manage(bridge);
+            let gate_app = app.handle().clone();
+            app.manage(skills::GateRegistry::new(move || {
+                gate_app
+                    .state::<artifacts::ArtifactsState>()
+                    .is_claimed()
+            }));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -330,6 +336,8 @@ mod tests {
     const SETUP_MANAGED_TYPES: &[&str] = &[
         // `let bridge = bridge::start(app.handle())?; app.manage(bridge);`
         "Bridge",
+        // `app.manage(skills::GateRegistry::new(...));`
+        "GateRegistry",
     ];
 
     /// The final path segment of a type expression: `crate::artifacts::

@@ -24,6 +24,7 @@
 
 mod arming;
 mod bundled;
+mod gates;
 mod library;
 mod opencode;
 mod staging;
@@ -37,6 +38,7 @@ use std::path::{Path, PathBuf};
 // than reaching up into this router.
 pub use library::SkillDto;
 pub use staging::{SkillStagingDto, SkillsLocks};
+pub(crate) use gates::{GateKey, GateRegistry};
 
 /// Every skill in the library, global scope first, then workspaces, names
 /// alphabetical — a deterministic order the UI can render as-is.
@@ -158,16 +160,15 @@ pub fn skills_rename(
 #[tauri::command(async)]
 pub fn skills_stage(
     locks: tauri::State<'_, SkillsLocks>,
-    artifacts: tauri::State<'_, crate::artifacts::ArtifactsState>,
+    gates: tauri::State<'_, GateRegistry>,
     ws_id: String,
     roots: Vec<String>,
 ) -> Result<Option<SkillStagingDto>, String> {
     let root = skills_root()?;
     library::require_safe(&ws_id, "workspace id")?;
-    // The SOLE artifacts-importing site in skills (the glue): the claim
-    // probe resolves to a plain bool here, and staging logic downstream
-    // stays artifacts-free — content obeys the same gate as its tools.
-    let claimed = artifacts.is_claimed();
+    // The composition root owns the feature dependency; this command sees a
+    // fresh bool from the registry and staging below stays artifacts-free.
+    let claimed = gates.resolve(GateKey::Artifacts);
     staging::stage(&locks, &root, &ws_id, &roots, bundled::BUNDLED, claimed)
         .map_err(|e| e.to_string())
 }
@@ -312,7 +313,7 @@ mod tests {
         let tier = [crate::skills::bundled::BundledSkill {
             name: "probe",
             content: "---\nname: probe\ndescription: \"Probe: the tier\"\n---\nBody\n",
-            gated: false,
+            gate: None,
         }];
         let views = staging::stage(
             &SkillsLocks::default(),

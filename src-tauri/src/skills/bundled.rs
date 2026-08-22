@@ -4,27 +4,28 @@
 //! docs/bundled-skills-design.md — sections are namespaces at rest,
 //! resolution-by-name happens only in staging).
 //!
-//! The GATE boundary: staging LOGIC stays artifacts-free — it takes a
-//! plain `claimed: bool`; only the tauri glue (skills_stage) imports
-//! the artifacts state and computes the bool. One-directional, testable
-//! with a literal, no fn machinery.
+//! The GATE boundary: staging LOGIC stays feature-free — it takes a plain
+//! `claimed: bool`; only the tauri glue (skills_stage) resolves the registry
+//! and computes the bool. One-directional, testable with a literal.
+
+use super::GateKey;
 
 /// One bundled skill. SINGLE-FILE by boundary (SKILL.md only — a real
 /// multi-file need earns a virtual-source concept, not a silent
-/// widening of this struct). `gated`: armed only while the claim probe
-/// is true (the design §3 per-skill gate — the second bundled skill
-/// must not refactor the first one's filter).
+/// widening of this struct). `gate`: None is always armed; Some gate is
+/// armed only while that gate resolves true (the design §3 per-skill gate —
+/// the second bundled skill must not refactor the first one's filter).
 pub(crate) struct BundledSkill {
     pub(crate) name: &'static str,
     pub(crate) content: &'static str,
-    pub(crate) gated: bool,
+    pub(crate) gate: Option<GateKey>,
 }
 
-/// The tier. Every entry ships; `gated` decides arming, never presence.
+/// The tier. Every entry ships; `gate` decides arming, never presence.
 pub(crate) const BUNDLED: &[BundledSkill] = &[BundledSkill {
     name: "artifacts",
     content: include_str!("bundled/artifacts/SKILL.md"),
-    gated: true,
+    gate: Some(GateKey::Artifacts),
 }];
 
 #[cfg(test)]
@@ -81,7 +82,7 @@ mod tests {
     fn the_tier_is_what_it_claims() {
         assert_eq!(BUNDLED.len(), 1);
         assert_eq!(BUNDLED[0].name, "artifacts");
-        assert!(BUNDLED[0].gated);
+        assert_eq!(BUNDLED[0].gate, Some(GateKey::Artifacts));
     }
 
     /// INTEGRATION (the §F cross-module contract, pinned end-to-end):

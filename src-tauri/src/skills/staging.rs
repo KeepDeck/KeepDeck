@@ -92,8 +92,8 @@ pub(super) fn stage(
     let lock = locks.for_ws(ws_id);
     let _staging = lock.lock().unwrap_or_else(|p| p.into_inner());
 
-    // The claim probe arrives as a plain bool from the tauri glue —
-    // staging logic stays artifacts-free (the one-directional boundary).
+    // The registry result arrives as a plain bool from the tauri glue —
+    // staging logic stays feature-free (the one-directional boundary).
     let sources = collect_sources(&library, ws_id, tier, claimed);
 
     if sources.is_empty() {
@@ -256,9 +256,9 @@ fn collect_sources(
     // scope then shadows it naturally; a ws skill outranks a global one
     // exactly as before. Appending the tier last would INVERT the
     // doctrine. The gate applies per skill: ungated always, gated only
-    // while the claim probe is true (content must obey the same gate as
+    // while the resolved gate is true (content must obey the same gate as
     // its tools — advice for absent tools is actively misleading).
-    for skill in tier.iter().filter(|s| !s.gated || claimed) {
+    for skill in tier.iter().filter(|s| s.gate.is_none() || claimed) {
         // The guard, judged by the SAME lift the command generator uses:
         // a skill with no usable description stages NOWHERE — not the
         // views, not the command. A description-less SKILL.md once
@@ -402,6 +402,7 @@ pub(super) fn prune_views(root: &Path, live: &[String]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skills::GateKey;
     use crate::skills::library::{delete, list, save};
     use crate::skills::test_support::{fake_worktree, global, root, ws};
 
@@ -678,7 +679,7 @@ mod tests {
         BundledSkill {
             name,
             content: "---\ndescription: static tier content\n---\nbody\n",
-            gated,
+            gate: gated.then_some(GateKey::Artifacts),
         }
     }
 
@@ -852,7 +853,7 @@ mod tests {
             BundledSkill {
                 name: "broken",
                 content: "no frontmatter at all",
-                gated: false,
+                gate: None,
             },
             tier_skill("whole", false),
         ];
@@ -912,4 +913,3 @@ mod tests {
         assert!(staged.contains("ws wins"), "the ws library row wins: {staged}");
     }
 }
-
