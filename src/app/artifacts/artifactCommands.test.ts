@@ -186,13 +186,13 @@ describe("registerArtifactCommands", () => {
     const { run } = setup([pane()]);
     const result = (await run(
       "artifact.publish",
-      { title: "T", format: "md", content: "# hi" },
+      { title: "T", format: "html", content: "<p>hi</p>" },
       paneSource(),
     )) as { note: string };
     expect(result.note).toContain("display server is off");
   });
 
-  it("a format outside html|md is refused before the invoke", async () => {
+  it("a format that is not html is refused before the invoke — md included", async () => {
     const { run } = setup([pane()]);
     await expect(
       run(
@@ -201,6 +201,17 @@ describe("registerArtifactCommands", () => {
         paneSource(),
       ),
     ).rejects.toThrow(/unknown format.*pdf/);
+    expect(artifactPublish).not.toHaveBeenCalled();
+
+    // THE REMOVAL'S OWN PIN: md is refused at the same door, by the same
+    // rule, with no special sentence — it is a word that is not html.
+    await expect(
+      run(
+        "artifact.publish",
+        { title: "T", format: "md", content: "# hi" },
+        paneSource(),
+      ),
+    ).rejects.toThrow(/unknown format.*md.*html pages/);
     expect(artifactPublish).not.toHaveBeenCalled();
   });
 

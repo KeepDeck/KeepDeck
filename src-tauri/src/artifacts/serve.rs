@@ -6,7 +6,7 @@ use std::io::Write;
 use std::net::TcpStream;
 use std::path::Path;
 
-use crate::artifacts::render::{escape_html, render_markdown};
+use crate::artifacts::render::escape_html;
 use crate::artifacts::store::{read_version_bytes, ArtifactFormat, Manifest, store_meta};
 
 const MIME_HTML: &str = "text/html";
@@ -48,8 +48,9 @@ pub(super) fn serve_artifact(
         return;
     };
     let csp = artifact_csp(&manifest.token, slug);
-    let body: Vec<u8> = match manifest.format {
-        ArtifactFormat::Html => {
+    let body: Vec<u8> = {
+        let ArtifactFormat::Html = manifest.format;
+        {
             let (page, placement) = with_live_refresh(&String::from_utf8_lossy(&bytes));
             if matches!(placement, RefreshPlacement::Appended) {
                 // Served, not refused — but say so: a page that never
@@ -62,7 +63,6 @@ pub(super) fn serve_artifact(
             }
             page.into_bytes()
         }
-        ArtifactFormat::Md => md_page(&manifest.title, &String::from_utf8_lossy(&bytes)).into_bytes(),
     };
     let _ = respond_csp(stream, 200, MIME_HTML, &body, &[
         ("Content-Security-Policy", csp.as_str()),
@@ -90,24 +90,17 @@ pub(super) fn serve_export(
     let export_meta = EXPORT_META.trim_end_matches('\n');
     let mut body = Vec::with_capacity(bytes.len() + export_meta.len());
     body.extend_from_slice(export_meta.as_bytes());
-    match manifest.format {
-        // html export drops the live-refresh script for the SAME reason
-        // md renders without it (below) — and here the note is not merely
-        // possible but CERTAIN: the export meta-CSP allows inline script
+    {
+        let ArtifactFormat::Html = manifest.format;
+        // Export drops the live-refresh script, and the note it would
+        // otherwise paint is not merely possible but CERTAIN: the export
+        // meta-CSP allows inline script
         // yet names no `connect-src`, so it falls back to `default-src
         // 'none'` and the subscription is refused by policy. A refused
         // EventSource fires `error`, and the block's error arm paints the
         // goodbye. Shipping author bytes verbatim therefore guaranteed a
         // "the server went away" banner on a file the reader just saved.
-        ArtifactFormat::Html => {
-            body.extend_from_slice(strip_live_refresh(&String::from_utf8_lossy(&bytes)).as_bytes())
-        }
-        // md export renders WITHOUT the live-refresh snippet: the
-        // session URL is dead by design, and a script pointing at
-        // nothing would show a goodbye note on first open.
-        ArtifactFormat::Md => body.extend_from_slice(
-            md_page_static(&manifest.title, &String::from_utf8_lossy(&bytes)).as_bytes(),
-        ),
+        body.extend_from_slice(strip_live_refresh(&String::from_utf8_lossy(&bytes)).as_bytes());
     }
     let disposition = format!("attachment; filename=\"{slug}.html\"");
     let _ = respond_csp(stream, 200, MIME_HTML, &body, &[
@@ -127,11 +120,10 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
         any = true;
         let slug = escape_html(&meta.id);
         entries.push_str(&format!(
-            "<li><a href=\"/a/{token}/{slug}\">{title}</a> <small>{fmt} · v{n} · by {author}</small> · <a href=\"/a/{token}/{slug}/export\">export</a></li>",
+            "<li><a href=\"/a/{token}/{slug}\">{title}</a> <small>v{n} · by {author}</small> · <a href=\"/a/{token}/{slug}/export\">export</a></li>",
             token = escape_html(&meta.token),
             slug = slug,
             title = escape_html(&meta.title),
-            fmt = match meta.format { ArtifactFormat::Html => "html", ArtifactFormat::Md => "md" },
             n = meta.version_count,
             author = escape_html(&meta.last_author),
         ));
@@ -151,29 +143,6 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
     ]);
 }
 
-/// The shared md page template — the same one export renders through.
-/// The LIVE-REFRESH snippet rides the template: md artifacts refresh in
-/// place exactly like html ones (the template is OURS, the snippet is
-/// ours, the page's CSP allows our own inline script — and export omits
-/// it, where the URL is dead by design).
-fn md_page(title: &str, source: &str) -> String {
-    let template = MD_PAGE.trim_end_matches('\n');
-    let (before_title, after_title) = template
-        .split_once(TITLE_MARKER)
-        .expect("md page asset has its title marker");
-    let (before_body, after_body) = after_title
-        .split_once(BODY_MARKER)
-        .expect("md page asset has its body marker");
-    let (before_refresh, after_refresh) = after_body
-        .split_once(REFRESH_MARKER)
-        .expect("md page asset has its refresh marker");
-    format!(
-        "{before_title}{title}{before_body}{body}{before_refresh}{refresh}{after_refresh}",
-        title = escape_html(title),
-        body = render_markdown(source),
-        refresh = live_refresh_snippet(),
-    )
-}
 
 /// The live-refresh block the SERVER installs on every page it serves —
 /// the one copy of the contract, owned here: reload on `version`, a
@@ -270,32 +239,10 @@ fn strip_live_refresh(html: &str) -> String {
     out
 }
 
-/// The EXPORT variant of the md page: same template, NO snippet (the
-/// URL is dead outside the session — a live-refresh script pointing at
-/// nothing would show a goodbye note on first open).
-fn md_page_static(title: &str, source: &str) -> String {
-    let template = MD_PAGE_STATIC.trim_end_matches('\n');
-    let (before_title, after_title) = template
-        .split_once(TITLE_MARKER)
-        .expect("static md page asset has its title marker");
-    let (before_body, after_body) = after_title
-        .split_once(BODY_MARKER)
-        .expect("static md page asset has its body marker");
-    format!(
-        "{before_title}{title}{before_body}{body}{after_body}",
-        title = escape_html(title),
-        body = render_markdown(source),
-    )
-}
 
 const EXPORT_META: &str = include_str!("export-meta.html");
 const INDEX_PAGE: &str = include_str!("index.html");
-const MD_PAGE: &str = include_str!("md-page.html");
-const MD_PAGE_STATIC: &str = include_str!("md-page-static.html");
 const INDEX_ENTRIES: &str = "<!--KEEPDECK-INDEX-ENTRIES-->";
-const TITLE_MARKER: &str = "<!--KEEPDECK-TITLE-->";
-const BODY_MARKER: &str = "<!--KEEPDECK-BODY-->";
-const REFRESH_MARKER: &str = "<!--KEEPDECK-REFRESH-->";
 
 fn respond(
     stream: &mut TcpStream,

@@ -228,12 +228,14 @@ pub fn artifact_publish(
     payload: PublishPayload,
 ) -> Result<PublishResult, String> {
     use store::{ArtifactFormat, PublishIdentity, PublishRequest};
+    // The door states what it accepts, and there is one thing: "md" is
+    // refused here like any other word, because an artifact IS an html
+    // page and no second renderer exists behind this call.
     let format = match payload.format.as_str() {
         "html" => ArtifactFormat::Html,
-        "md" => ArtifactFormat::Md,
         other => {
             return Err(format!(
-                "unknown format {other:?} — expected html or md"
+                "unknown format {other:?} — artifacts are html pages"
             ))
         }
     };

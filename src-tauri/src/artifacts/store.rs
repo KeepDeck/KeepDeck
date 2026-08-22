@@ -49,19 +49,21 @@ pub(crate) const MESSAGE_MAX: usize = 500;
 /// parse cap (write-succeeds-then-quarantines, the silent-loss class).
 pub(crate) const LABEL_MAX: usize = 200;
 
-/// A format pinned at first publish.
+/// What an artifact IS. One member, and the type survives its own
+/// singularity on purpose: the format is pinned in every manifest, rides
+/// the wire, and names the version files on disk, so an unknown value
+/// must still be a parse failure rather than a default. serde is that
+/// gate — a manifest saying anything else does not deserialize.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArtifactFormat {
     Html,
-    Md,
 }
 
 impl ArtifactFormat {
     fn extension(self) -> &'static str {
         match self {
             ArtifactFormat::Html => "html",
-            ArtifactFormat::Md => "md",
         }
     }
 }
@@ -97,7 +99,6 @@ pub struct Manifest {
 pub struct ArtifactMeta {
     pub id: String,
     pub title: String,
-    pub format: ArtifactFormat,
     pub version_count: u64,
     pub updated_at: u64,
     pub last_author: String,
@@ -328,8 +329,7 @@ impl ArtifactsStore {
                     out.push(ArtifactMeta {
                         id: slug,
                         title: manifest.title,
-                        format: manifest.format,
-                        version_count: manifest.versions.len() as u64,
+                                version_count: manifest.versions.len() as u64,
                         updated_at: last.map(|v| v.at).unwrap_or(manifest.created),
                         last_author: last.map(|v| v.author_label.clone()).unwrap_or_default(),
                     });
@@ -515,12 +515,11 @@ pub fn read_version_bytes(
     fs::read(path).ok()
 }
 
-/// The index's listing rows — id/title/format/count/author plus the
+/// The index's listing rows — id/title/count/author plus the
 /// artifact token (the index builds per-artifact links with it).
 pub struct IndexRow {
     pub id: String,
     pub title: String,
-    pub format: ArtifactFormat,
     pub version_count: u64,
     pub last_author: String,
     pub token: String,
@@ -537,7 +536,6 @@ pub fn store_meta(root: &Path, ws: &str) -> Vec<IndexRow> {
             out.push(IndexRow {
                 id: slug,
                 title: manifest.title,
-                format: manifest.format,
                 version_count: manifest.versions.len() as u64,
                 last_author: manifest
                     .versions
@@ -1005,16 +1003,6 @@ mod tests {
     }
 
     #[test]
-    fn format_flip_refused_naming_the_original() {
-        let (store, _dir, _root) = store_with_root("flip");
-        store.publish(&identity(), content_request(Some("x"), b"<p/"), 1000).unwrap();
-        let mut md_request = content_request(Some("x"), b"# hello".as_slice() as &[u8]);
-        md_request.format = ArtifactFormat::Md;
-        let err = store.publish(&identity(), md_request, 2000).unwrap_err();
-        assert!(err.0.contains("x is"), "refusal names the original: {}", err.0);
-    }
-
-    #[test]
     fn mint_retries_past_a_stranger_canvas() {
         let (store, _dir, _root) = store_with_root("mint");
         // Someone else holds auth-flow; a minted title derives the same base.
@@ -1278,6 +1266,9 @@ mod tests {
         // existing manifest must agree with it (a fixture edit that
         // changes the slug fails loudly here, not silently downstream).
         slug: String,
+        /// CONSUMED: the fixtures are html-only now — a fixture edit
+        /// reintroducing another format fails loudly here (the
+        /// same fail-loud-not-silently shape as `slug` above).
         format: String,
         version_count: u64,
     }
@@ -1286,6 +1277,8 @@ mod tests {
     struct GoldenRequest {
         slug: Option<String>,
         title: String,
+        /// CONSUMED: html-only truth of the fixtures, asserted in the
+        /// runner alongside the existing-manifest's format.
         format: String,
     }
 
@@ -1314,6 +1307,23 @@ mod tests {
         .unwrap();
         assert!(cases.len() >= 12);
         for case in &cases {
+            // The fixtures' own html-only truth: every format field
+            // (request and existing) is html — anything else is a
+            // fixture edit the html-only door would mis-handle.
+            assert_eq!(
+                case.request.format, "html",
+                "case {}: fixture request format must be html",
+                case.name
+            );
+            if let Some(e) = &case.existing {
+                assert_eq!(
+                    e.format, "html",
+                    "case {}: fixture existing format must be html",
+                    case.name
+                );
+            }
+        }
+        for case in &cases {
             let dir = tempfile::tempdir().unwrap();
             let root = dir.path().join("artifacts");
             std::fs::create_dir_all(root.join("ws/ws-1")).unwrap();
@@ -1324,7 +1334,7 @@ mod tests {
             }
             let existing = case.existing.as_ref().map(|e| Manifest {
                 title: "T".into(),
-                format: if e.format == "md" { ArtifactFormat::Md } else { ArtifactFormat::Html },
+                format: ArtifactFormat::Html,
                 token: "x".into(),
                 created: 0,
                 versions: (1..=e.version_count)
@@ -1338,11 +1348,7 @@ mod tests {
                     })
                     .collect(),
             });
-            let format = if case.request.format == "md" {
-                ArtifactFormat::Md
-            } else {
-                ArtifactFormat::Html
-            };
+            let format = ArtifactFormat::Html;
             // The existing manifest's slug is part of the contract: the
             // taken dirs were just built FROM it, so disagreeing fixture
             // fields fail here instead of minting nonsense downstream.
