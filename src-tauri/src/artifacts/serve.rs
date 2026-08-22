@@ -71,7 +71,17 @@ pub(super) fn serve_export(
     let mut body = Vec::with_capacity(bytes.len() + export_meta.len());
     body.extend_from_slice(export_meta.as_bytes());
     match manifest.format {
-        ArtifactFormat::Html => body.extend_from_slice(&bytes),
+        // html export drops the live-refresh script for the SAME reason
+        // md renders without it (below) — and here the note is not merely
+        // possible but CERTAIN: the export meta-CSP allows inline script
+        // yet names no `connect-src`, so it falls back to `default-src
+        // 'none'` and the subscription is refused by policy. A refused
+        // EventSource fires `error`, and the block's error arm paints the
+        // goodbye. Shipping author bytes verbatim therefore guaranteed a
+        // "the server went away" banner on a file the reader just saved.
+        ArtifactFormat::Html => {
+            body.extend_from_slice(strip_live_refresh(&String::from_utf8_lossy(&bytes)).as_bytes())
+        }
         // md export renders WITHOUT the live-refresh snippet: the
         // session URL is dead by design, and a script pointing at
         // nothing would show a goodbye note on first open.
@@ -164,6 +174,44 @@ fn live_refresh_snippet() -> String {
     format!("<script>\n{LIVE_REFRESH_JS}</script>")
 }
 
+/// The one line that names a live subscription. Used to RECOGNISE a
+/// refresh block, never to decide whether to add one — the serve path
+/// injects unconditionally, because this signature is content and the
+/// pages KeepDeck publishes are frequently about KeepDeck: a page that
+/// merely QUOTES the block in a `<pre>` would read as already-subscribed.
+const SUBSCRIPTION_SIGNATURE: &str = "EventSource(location.pathname";
+
+/// Drop every `<script>` element that opens a live subscription.
+///
+/// EXPORT ONLY, and the asymmetry is the whole licence for cutting at all:
+/// here a wrong cut degrades to a page that does not refresh, which is
+/// exactly what an exported page should do, while the same cut on the
+/// serve path would break a live page. So this recognises by content —
+/// tolerated where being wrong is harmless, and refused where it is not.
+///
+/// Scoped to SCRIPT ELEMENTS on purpose: a page documenting the artifacts
+/// feature carries the signature as escaped text inside `<pre>`, which is
+/// prose and must survive the round trip untouched.
+fn strip_live_refresh(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(open) = rest.find("<script") {
+        let after_open = &rest[open..];
+        let Some(close) = after_open.find("</script>") else {
+            break; // unterminated: nothing to bound, leave the tail as-is
+        };
+        let element = &after_open[..close + "</script>".len()];
+        if element.contains(SUBSCRIPTION_SIGNATURE) {
+            out.push_str(&rest[..open]);
+        } else {
+            out.push_str(&rest[..open + element.len()]);
+        }
+        rest = &after_open[close + "</script>".len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The EXPORT variant of the md page: same template, NO snippet (the
 /// URL is dead outside the session — a live-refresh script pointing at
 /// nothing would show a goodbye note on first open).
@@ -226,8 +274,64 @@ fn respond_csp(
 
 #[cfg(test)]
 mod tests {
-    use super::{live_refresh_snippet, LIVE_REFRESH_JS};
+    use super::{
+        live_refresh_snippet, strip_live_refresh, LIVE_REFRESH_JS, SUBSCRIPTION_SIGNATURE,
+    };
     use crate::skills::BUNDLED;
+
+    /// THE EXPORT PIN: an exported page never renders the goodbye.
+    ///
+    /// The property is user-visible, not structural — a reader who saves a
+    /// file must not open it to "This page's server went away". It is
+    /// stated as the ABSENCE OF A LIVE SUBSCRIPTION because that is the
+    /// only cause: the export meta-CSP permits inline script but names no
+    /// `connect-src`, so it falls back to `default-src 'none'`, the
+    /// subscription is refused by policy, the refusal fires `error`, and
+    /// the error arm paints the note. No subscription, no note.
+    #[test]
+    fn an_exported_page_never_renders_the_goodbye() {
+        let pasted = format!(
+            "<html><body><h1>report</h1>\n{}\n</body></html>",
+            live_refresh_snippet(),
+        );
+        let exported = strip_live_refresh(&pasted);
+        assert!(
+            !exported.contains(SUBSCRIPTION_SIGNATURE),
+            "an exported page must carry no live subscription",
+        );
+        assert!(
+            exported.contains("<h1>report</h1>"),
+            "the author's own page must survive the cut",
+        );
+    }
+
+    /// The cut is scoped to SCRIPT ELEMENTS. A page that documents the
+    /// artifacts feature quotes the block as prose — escaped, inside
+    /// `<pre>` — and that is the corpus this feature publishes most: the
+    /// pages about KeepDeck itself. Prose must round-trip untouched.
+    #[test]
+    fn export_keeps_a_quoted_block_and_unrelated_scripts() {
+        let page = format!(
+            "<body><pre>&lt;script&gt;{sig}…&lt;/script&gt;</pre>\
+             <script>const chart=1;</script>{live}</body>",
+            sig = SUBSCRIPTION_SIGNATURE,
+            live = live_refresh_snippet(),
+        );
+        let exported = strip_live_refresh(&page);
+        assert!(
+            exported.contains("<pre>&lt;script&gt;"),
+            "a quoted block is prose and must survive",
+        );
+        assert!(
+            exported.contains("const chart=1;"),
+            "an unrelated script must survive",
+        );
+        assert_eq!(
+            exported.matches("<script").count(),
+            1,
+            "only the subscribing element is cut",
+        );
+    }
 
     /// One-shot migration pin: while the JS moves out of an escaped Rust
     /// string, prove the served fragment is byte-identical, including both
