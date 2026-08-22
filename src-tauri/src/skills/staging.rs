@@ -22,7 +22,7 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
-use super::arming::{arm_roots, disarm_roots};
+use super::arming::{arm_roots, disarm_roots, SkillArmReport};
 use super::bundled::BundledSkill;
 use crate::worktree_arm::{record_armed, retire_key};
 use super::library::{sorted_dirs, SKILL_FILE};
@@ -177,9 +177,6 @@ pub(super) fn stage(
     fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
     swap_dir(&tmp, &final_dir, &root.join("staging").join(format!(".old-{ws_id}")))?;
     opencode.finalize(swap_dir)?;
-
-    let armed = arm_roots(root, &final_dir.join("skills"), spawn_roots);
-    record_armed(root, ws_id, &armed, "skills");
 
     let abs = |dir: &Path| dir.to_string_lossy().into_owned();
     Ok(Some(SkillStagingDto {
@@ -342,6 +339,39 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<bool> {
     Ok(true)
 }
 
+/// Arm this workspace's spawn cwds against its ALREADY-STAGED views, and
+/// say what happened.
+///
+/// Separate from [`stage`] on purpose, and the separation is the feature:
+/// staging is expensive (reading the library, copying trees, the swap) and
+/// is memoized upstream, while arming is four syscalls per cwd. Folded
+/// together, a refusal was as stale as the memo — the user moved their
+/// `.agents` file away and kept being told about it until something
+/// unrelated invalidated the cache. Asked separately, the answer is
+/// fresh by construction.
+///
+/// Takes the same per-workspace lock a stage does: the two must not
+/// interleave on one workspace's directories.
+pub(super) fn arm(
+    locks: &SkillsLocks,
+    root: &Path,
+    ws_id: &str,
+    spawn_roots: &[String],
+) -> SkillArmReport {
+    let lock = locks.for_ws(ws_id);
+    let _arming = lock.lock().unwrap_or_else(|p| p.into_inner());
+    let staged = root.join("staging").join(ws_id).join("skills");
+    // Nothing staged yet — an arming pass here would plant links to a
+    // directory that does not exist. Not a refusal either: the user has
+    // done nothing wrong, the views simply are not built.
+    if !staged.is_dir() {
+        return SkillArmReport::default();
+    }
+    let report = arm_roots(root, &staged, spawn_roots);
+    record_armed(root, ws_id, &report.armed, "skills");
+    report
+}
+
 /// Drop the DERIVED per-workspace dirs (staging views, opencode config
 /// homes) of workspaces that no longer exist. `.tmp-<id>`/`.old-<id>` build
 /// leftovers follow the same liveness rule as the dirs themselves, so an
@@ -493,7 +523,11 @@ mod tests {
         save(&global(&root), "review", &fm("x")).unwrap();
 
         let roots = vec![wt.to_string_lossy().into_owned()];
-        let views = stage(&SkillsLocks::default(), &root, "ws-1", &roots, &[], false).unwrap().unwrap();
+        let locks = SkillsLocks::default();
+        let views = stage(&locks, &root, "ws-1", &roots, &[], false).unwrap().unwrap();
+        // Arming is its OWN pass now — staging builds the views, the ask
+        // that follows plants the links. Both, because a pane needs both.
+        assert_eq!(arm(&locks, &root, "ws-1", &roots).armed, roots);
 
         let link = wt.join(".agents").join("skills");
         assert_eq!(
@@ -505,7 +539,8 @@ mod tests {
 
         // The exclude line lands in the COMMON git dir, exactly once even
         // after restaging.
-        stage(&SkillsLocks::default(), &root, "ws-1", &roots, &[], false).unwrap().unwrap();
+        stage(&locks, &root, "ws-1", &roots, &[], false).unwrap().unwrap();
+        arm(&locks, &root, "ws-1", &roots);
         let exclude = root
             .parent()
             .unwrap()

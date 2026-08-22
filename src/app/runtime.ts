@@ -71,6 +71,7 @@ import {
 } from "./usageHistoryManager";
 import { createWindowExhaustionNotifier } from "./windowExhaustionNotifier";
 import { createAppWindowReportJournal } from "./windowReportJournal";
+import { skillRefusals } from "./skillRefusals";
 import { createSkillsLibrary } from "./skillsLibrary";
 import { ipcSkillsStorage } from "../ipc/skillsStorage";
 import { createWorktreeManager, deckViewOf } from "./worktrees";
@@ -330,12 +331,16 @@ export function createAppRuntime(
       },
     },
   );
+  // Where an arming pass's refusals land for the skills surface to read.
+  // A standing condition, not an event: republished on every pass, so the
+  // list ends the moment the user's own file moves out of the way.
   const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
     (deck, inOrder) =>
       createWorktreePlantings(deck, inOrder, {
-        skills: createSkillsStaging,
+        skills: (deck, inOrder) =>
+          createSkillsStaging(deck, inOrder, skillRefusals.publish),
         mcp: createMcpPlanting,
       }),
   );

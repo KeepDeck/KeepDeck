@@ -6,6 +6,7 @@ import { SkillEditor } from "./SkillEditor";
 import { SkillsNav } from "./SkillsNav";
 import { BUNDLED_NOTICE } from "./bundledTier";
 import { labelForScope } from "./skillGroups";
+import { useSkillRefusals } from "../../app/useSkillRefusals";
 import { useSkillsEditor } from "./useSkillsEditor";
 
 interface SkillsDialogProps {
@@ -36,6 +37,11 @@ export function SkillsDialog({
   canClose = true,
 }: SkillsDialogProps) {
   const editor = useSkillsEditor({ activeWs, onClose, canClose });
+  // Where a skill did NOT reach an agent, and why. Dismissless on
+  // purpose: it is not news to acknowledge but a condition that is
+  // true until the user moves their own file, and it disappears by
+  // itself when they do.
+  const refusals = useSkillRefusals();
   const {
     skills,
     error,
@@ -59,6 +65,22 @@ export function SkillsDialog({
             onClick={() => editor.navigate(null, true)}
           />
         </div>
+
+        {refusals.length > 0 && (
+          <div className="skills__refusals" role="status">
+            <span className="skills__refusals-title">
+              Some directories kept their own <code>.agents</code>, so skills
+              were not planted there:
+            </span>
+            <ul>
+              {refusals.map((refusal) => (
+                <li key={refusal.root} className="kd-selectable">
+                  <code>{refusal.root}</code> — {refusal.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="skills__body">
           <SkillsNav

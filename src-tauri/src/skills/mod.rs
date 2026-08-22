@@ -36,6 +36,7 @@ use std::path::{Path, PathBuf};
 // state; each shape is DEFINED beside the code that produces it, so a change
 // to staging's views or the library's wire shape lands in one file rather
 // than reaching up into this router.
+pub use arming::SkillArmReport;
 pub use library::SkillDto;
 pub(crate) use library::require_safe;
 pub use staging::{SkillStagingDto, SkillsLocks};
@@ -175,6 +176,24 @@ pub fn skills_stage(
         .map_err(|e| e.to_string())
 }
 
+/// Arm this workspace's spawn cwds against its staged views, and report
+/// which ones something of the USER's kept us out of.
+///
+/// Its own command, asked on every spawn rather than memoized with the
+/// views: a refusal is a standing condition the user can end at any
+/// moment, and one cached with the staging kept being reported after the
+/// fix. Cheap enough to ask every time — four syscalls per cwd.
+#[tauri::command(async)]
+pub fn skills_arm(
+    locks: tauri::State<'_, SkillsLocks>,
+    ws_id: String,
+    roots: Vec<String>,
+) -> Result<SkillArmReport, String> {
+    let root = skills_root()?;
+    library::require_safe(&ws_id, "workspace id")?;
+    Ok(staging::arm(&locks, &root, &ws_id, &roots))
+}
+
 /// Remove KeepDeck's `.agents/skills` symlinks from the given spawn cwds —
 /// a closing workspace's directories must not keep dangling links once its
 /// staging is pruned. Only provably-ours links are touched.
@@ -257,7 +276,9 @@ mod tests {
         let roots = vec![shared.to_string_lossy().into_owned()];
         let locks = SkillsLocks::default();
         staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
+        staging::arm(&locks, &root, "ws-live", &roots);
         staging::stage(&locks, &root, "ws-dead", &roots, &[], false).unwrap().unwrap();
+        staging::arm(&locks, &root, "ws-dead", &roots);
 
         // ws-dead crashed; ws-live still runs panes in the shared cwd. The
         // LINK survives (symlink_metadata, not exists(): the shared link
@@ -268,8 +289,10 @@ mod tests {
         assert!(!armed_manifest(&root, "ws-dead").exists());
         assert!(armed_manifest(&root, "ws-live").exists());
 
-        // And ws-live's next stage re-aims the surviving link at ITS view.
+        // And ws-live's next arming re-aims the surviving link at ITS view
+        // — the re-aim is arming's job, which is now its own pass.
         let views = staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
+        staging::arm(&locks, &root, "ws-live", &roots);
         assert_eq!(
             fs::read_link(shared.join(".agents").join("skills")).unwrap(),
             PathBuf::from(&views.skills_dir),
@@ -282,7 +305,11 @@ mod tests {
         let wt = fake_worktree(root.parent().unwrap());
         save(&global(&root), "review", "---\ndescription: x\n---\nx\n").unwrap();
         let roots = vec![wt.to_string_lossy().into_owned()];
-        staging::stage(&SkillsLocks::default(), &root, "ws-9", &roots, &[], false).unwrap().unwrap();
+        let locks = SkillsLocks::default();
+        staging::stage(&locks, &root, "ws-9", &roots, &[], false).unwrap().unwrap();
+        // Staging builds; the arming pass plants — and it is what records
+        // the manifest the prune below reads.
+        staging::arm(&locks, &root, "ws-9", &roots);
         assert!(wt.join(".agents").join("skills").exists());
 
         // Boot after a crash: ws-9 is not in the restored deck.

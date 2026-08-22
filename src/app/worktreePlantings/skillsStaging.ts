@@ -4,6 +4,7 @@
  * composition root; the infrastructure manager only receives the resulting
  * composite planting.
  */
+import { armSkills, type SkillArmRefusal } from "../../ipc/skills";
 import { stageSkills } from "../../ipc/skills";
 import type {
   WorktreeDeckView,
@@ -17,11 +18,35 @@ export type SkillsStaging = WorktreeSkillsPlanting;
 export function createSkillsStaging(
   deck: WorktreeDeckView,
   inOrder: InOrder,
+  /** Where an arming pass reports what the user's own files kept it out
+   * of. Optional: non-app tests need not listen. */
+  onRefusals: (refusals: SkillArmRefusal[]) => void = () => {},
 ): SkillsStaging {
   const staged = new Map<
     string,
     { roots: string[]; views: Promise<WorktreeSkillViews | null> }
   >();
+
+  /** Views from the memo, arming from scratch.
+   *
+   * THE SPLIT that makes a refusal honest: staging is expensive and
+   * cached, arming is four syscalls per cwd and is not. Folded together,
+   * the user moved their `.agents` file away and kept being told about it
+   * until something unrelated cleared the cache. Asked every time, the
+   * answer cannot be stale.
+   */
+  const armThen = (
+    wsId: string,
+    entry: { roots: string[]; views: Promise<WorktreeSkillViews | null> },
+  ): Promise<WorktreeSkillViews | null> =>
+    entry.views.then(async (views) => {
+      // Nothing staged, nothing to arm — and no refusal to report: the
+      // user has done nothing, there is simply no view.
+      if (!views) return views;
+      const report = await inOrder(() => armSkills(wsId, entry.roots));
+      onRefusals(report.refused);
+      return views;
+    });
 
   return {
     forgetStaged(roots) {
@@ -40,7 +65,7 @@ export function createSkillsStaging(
       ].sort();
       const key = keyFor(roots);
       const memoized = staged.get(key);
-      if (memoized) return memoized.views;
+      if (memoized) return armThen(workspace.id, memoized);
 
       const entry: {
         roots: string[];
@@ -62,7 +87,7 @@ export function createSkillsStaging(
         return stageSkills(workspace.id, armable);
       });
       staged.set(key, entry);
-      return entry.views;
+      return armThen(workspace.id, entry);
     },
 
     invalidateSkills() {
