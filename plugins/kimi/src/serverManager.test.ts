@@ -5,12 +5,12 @@ import type {
   PluginSessionHandle,
   PluginSessions,
 } from "@keepdeck/plugin-api";
+import { createKimiServerManager } from "./serverManager";
 import {
-  createKimiServerManager,
   describeStartupOutput,
   extractServerAccess,
-  setupServerWrapperScript,
-} from "./serverManager";
+} from "./serverStartup";
+import { setupServerWrapperScript } from "./serverWrapper";
 
 const encoder = new TextEncoder();
 // `--port 0` makes Kimi bind an ephemeral port; the banner carries the real one.
