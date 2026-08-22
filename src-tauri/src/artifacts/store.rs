@@ -1264,6 +1264,7 @@ mod tests {
 
     #[derive(serde::Deserialize, Debug)]
     struct GoldenCase {
+        name: String,
         existing: Option<GoldenExisting>,
         taken: Vec<String>,
         request: GoldenRequest,
@@ -1273,10 +1274,9 @@ mod tests {
     #[derive(serde::Deserialize, Debug)]
     #[serde(rename_all = "camelCase")]
     struct GoldenExisting {
-        // `slug` exists so a fixture edit that changes it still parses
-        // (fail-loud, not fail-silent); the runner keys off `format` +
-        // `version_count`.
-        #[allow(dead_code)]
+        // `slug` is CONSUMED by the runner: each `taken` dir and the
+        // existing manifest must agree with it (a fixture edit that
+        // changes the slug fails loudly here, not silently downstream).
         slug: String,
         format: String,
         version_count: u64,
@@ -1293,12 +1293,10 @@ mod tests {
     #[serde(rename_all = "camelCase")]
     struct GoldenExpect {
         kind: String,
-        // Both ride the fixture JSON's shape (read on their arms —
-        // append asserts slug/next_version, error asserts the needle);
-        // the fields keep a fixture edit parse-failing loudly.
-        #[allow(dead_code)]
+        // Both CONSUMED by the runner: append asserts slug AND
+        // next_version (versions.len() + 1 of the manifest it built) —
+        // the fixture's every field is a live assertion.
         slug: Option<String>,
-        #[allow(dead_code)]
         next_version: Option<u64>,
         error_contains: Option<String>,
     }
@@ -1345,6 +1343,17 @@ mod tests {
             } else {
                 ArtifactFormat::Html
             };
+            // The existing manifest's slug is part of the contract: the
+            // taken dirs were just built FROM it, so disagreeing fixture
+            // fields fail here instead of minting nonsense downstream.
+            if let Some(e) = case.existing.as_ref() {
+                assert!(
+                    case.taken.iter().any(|t| t == &e.slug),
+                    "case {}: existing slug {} not among taken",
+                    case.name,
+                    e.slug
+                );
+            }
             let request = PublishRequest {
                 slug: case.request.slug.as_deref(),
                 title: &case.request.title,
@@ -1370,6 +1379,20 @@ mod tests {
                         "case: {}",
                         "golden case"
                     );
+                    // append's next_version: the manifest this runner
+                    // built has version_count versions, so the next one
+                    // is that + 1 — asserted, not just parsed.
+                    if let Some(expected_next) = case.expect.next_version {
+                        let manifest_versions = existing.as_ref()
+                            .map(|m| m.versions.len() as u64)
+                            .unwrap_or(0);
+                        assert_eq!(
+                            expected_next,
+                            manifest_versions + 1,
+                            "case {}: fixture nextVersion disagrees with the built manifest",
+                            case.name
+                        );
+                    }
                 }
             }
         }
