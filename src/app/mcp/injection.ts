@@ -166,7 +166,25 @@ export function createMcpInjection({
     // never saw, so the config would sit in the user's directory naming a
     // socket that is gone. Take it straight back instead.
     if (socket() === null) {
-      if (report.armed.length > 0) void retract(report.armed);
+      if (report.armed.length > 0) {
+        try {
+          const removed = await retract(report.armed);
+          if (!removed) {
+            log.warn(
+              "web:mcp",
+              `retracting configs after transport Off reported failure: ${report.armed.join(", ")}`,
+            );
+          }
+        } catch (error) {
+          // Delivery never rejects: the pane may still start without KeepDeck's
+          // servers, while the backend's armed manifest remains the sweep's
+          // recovery record.
+          log.warn(
+            "web:mcp",
+            `retracting configs after transport Off threw: ${describeError(error)}`,
+          );
+        }
+      }
       return;
     }
     for (const root of report.armed) planted.add(root);
