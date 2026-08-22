@@ -67,9 +67,9 @@ pub(super) fn serve_export(
         let _ = respond(stream, 404, MIME_HTML, b"version unavailable");
         return;
     };
-    const EXPORT_META: &str = "<head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:\"></head>";
-    let mut body = Vec::with_capacity(bytes.len() + EXPORT_META.len());
-    body.extend_from_slice(EXPORT_META.as_bytes());
+    let export_meta = EXPORT_META.trim_end_matches('\n');
+    let mut body = Vec::with_capacity(bytes.len() + export_meta.len());
+    body.extend_from_slice(export_meta.as_bytes());
     match manifest.format {
         ArtifactFormat::Html => body.extend_from_slice(&bytes),
         // md export renders WITHOUT the live-refresh snippet: the
@@ -91,14 +91,12 @@ pub(super) fn serve_export(
 /// canvas — every interpolation escapes, links to artifact pages and
 /// export routes, refresh = browser reload.
 pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
-    let mut body = String::new();
-    body.push_str("<!doctype html><html><head><meta charset=\"utf-8\">");
-    body.push_str("<title>Artifacts</title><style>body{font-family:system-ui,sans-serif;margin:2rem;max-width:42rem}li{margin:.4rem 0}small{color:#666}</style></head><body><h1>Artifacts</h1><ul>");
+    let mut entries = String::new();
     let mut any = false;
     for meta in store_meta(root, ws) {
         any = true;
         let slug = escape_html(&meta.id);
-        body.push_str(&format!(
+        entries.push_str(&format!(
             "<li><a href=\"/a/{token}/{slug}\">{title}</a> <small>{fmt} · v{n} · by {author}</small> · <a href=\"/a/{token}/{slug}/export\">export</a></li>",
             token = escape_html(&meta.token),
             slug = slug,
@@ -109,9 +107,13 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
         ));
     }
     if !any {
-        body.push_str("<li><small>nothing published in this workspace yet</small></li>");
+        entries.push_str("<li><small>nothing published in this workspace yet</small></li>");
     }
-    body.push_str("</ul></body></html>");
+    let template = INDEX_PAGE.trim_end_matches('\n');
+    let (before, after) = template
+        .split_once(INDEX_ENTRIES)
+        .expect("index asset has its entries marker");
+    let body = format!("{before}{entries}{after}");
     let _ = respond_csp(stream, 200, MIME_HTML, body.as_bytes(), &[
         ("Content-Security-Policy", INDEX_CSP),
         ("Referrer-Policy", "no-referrer"),
@@ -125,13 +127,21 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
 /// ours, the page's CSP allows our own inline script — and export omits
 /// it, where the URL is dead by design).
 fn md_page(title: &str, source: &str) -> String {
-    let style = "body{font-family:system-ui,sans-serif;margin:2rem;max-width:42rem}pre{background:#f4f4f4;padding:1rem;overflow:auto}";
+    let template = MD_PAGE.trim_end_matches('\n');
+    let (before_title, after_title) = template
+        .split_once(TITLE_MARKER)
+        .expect("md page asset has its title marker");
+    let (before_body, after_body) = after_title
+        .split_once(BODY_MARKER)
+        .expect("md page asset has its body marker");
+    let (before_refresh, after_refresh) = after_body
+        .split_once(REFRESH_MARKER)
+        .expect("md page asset has its refresh marker");
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title><style>{}</style></head><body>{}{}</body></html>",
-        escape_html(title),
-        style,
-        render_markdown(source),
-        live_refresh_snippet()
+        "{before_title}{title}{before_body}{body}{before_refresh}{refresh}{after_refresh}",
+        title = escape_html(title),
+        body = render_markdown(source),
+        refresh = live_refresh_snippet(),
     )
 }
 
@@ -158,14 +168,28 @@ fn live_refresh_snippet() -> String {
 /// URL is dead outside the session — a live-refresh script pointing at
 /// nothing would show a goodbye note on first open).
 fn md_page_static(title: &str, source: &str) -> String {
-    let style = "body{font-family:system-ui,sans-serif;margin:2rem;max-width:42rem}pre{background:#f4f4f4;padding:1rem;overflow:auto}";
+    let template = MD_PAGE_STATIC.trim_end_matches('\n');
+    let (before_title, after_title) = template
+        .split_once(TITLE_MARKER)
+        .expect("static md page asset has its title marker");
+    let (before_body, after_body) = after_title
+        .split_once(BODY_MARKER)
+        .expect("static md page asset has its body marker");
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title><style>{}</style></head><body>{}</body></html>",
-        escape_html(title),
-        style,
-        render_markdown(source)
+        "{before_title}{title}{before_body}{body}{after_body}",
+        title = escape_html(title),
+        body = render_markdown(source),
     )
 }
+
+const EXPORT_META: &str = include_str!("export-meta.html");
+const INDEX_PAGE: &str = include_str!("index.html");
+const MD_PAGE: &str = include_str!("md-page.html");
+const MD_PAGE_STATIC: &str = include_str!("md-page-static.html");
+const INDEX_ENTRIES: &str = "<!--KEEPDECK-INDEX-ENTRIES-->";
+const TITLE_MARKER: &str = "<!--KEEPDECK-TITLE-->";
+const BODY_MARKER: &str = "<!--KEEPDECK-BODY-->";
+const REFRESH_MARKER: &str = "<!--KEEPDECK-REFRESH-->";
 
 fn respond(
     stream: &mut TcpStream,
