@@ -917,6 +917,23 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    /// The cross-language caps mirror: the TS domain's model.test.ts
+    /// asserts its constants against the SAME caps.json this reads
+    /// (include_str, the collision-cases precedent). A bump on either
+    /// side without the shared file fails BOTH suites; production stays
+    /// compile-time on both sides.
+    #[test]
+    fn caps_equal_the_shared_caps_json() {
+        let caps: std::collections::HashMap<String, u64> = serde_json::from_str(
+            include_str!("../../../src/domain/artifacts/caps.json"),
+        )
+        .expect("caps.json parses");
+        assert_eq!(caps["TITLE_MAX"], TITLE_MAX as u64);
+        assert_eq!(caps["MESSAGE_MAX"], MESSAGE_MAX as u64);
+        assert_eq!(caps["CONTENT_CAP_BYTES"], CONTENT_CAP_BYTES as u64);
+        assert_eq!(caps["FILE_CAP_BYTES"], FILE_CAP_BYTES as u64);
+    }
+
     fn store_with_root(tag: &str) -> (ArtifactsStore, tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join(format!("artifacts-{tag}"));

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import capsJson from "./caps.json";
 import {
   CONTENT_CAP_BYTES,
   FILE_CAP_BYTES,
@@ -75,5 +76,18 @@ describe("caps are the designed numbers", () => {
   it("content 256 KiB, file 2 MiB", () => {
     expect(CONTENT_CAP_BYTES).toBe(256 * 1024);
     expect(FILE_CAP_BYTES).toBe(2 * 1024 * 1024);
+  });
+
+  // The cross-language mirror, pinned: the Rust store asserts its
+  // constants against the SAME caps.json (include_str, the mint
+  // precedent) — a bump on either side without the shared file fails
+  // BOTH suites. The JSON is test-only truth; production stays
+  // compile-time on both sides.
+  it("the constants equal caps.json — the file Rust mirrors against too", () => {
+    const caps = capsJson as Record<string, number>;
+    expect(caps.TITLE_MAX).toBe(TITLE_MAX);
+    expect(caps.MESSAGE_MAX).toBe(MESSAGE_MAX);
+    expect(caps.CONTENT_CAP_BYTES).toBe(CONTENT_CAP_BYTES);
+    expect(caps.FILE_CAP_BYTES).toBe(FILE_CAP_BYTES);
   });
 });
