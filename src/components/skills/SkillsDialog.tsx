@@ -2,9 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   normalizeSkillDescription,
   sameSkillRef,
-  skillDescriptionProblem,
   skillDraftOf,
-  skillNameProblem,
   type SkillDraft,
   type SkillScope,
 } from "../../domain/skills";
@@ -19,6 +17,12 @@ import { useSaveShortcut } from "../../ui/useSaveShortcut";
 import { SkillEditor } from "./SkillEditor";
 import { SkillsNav, type SkillsNavGroup } from "./SkillsNav";
 import { buildSkillGroups, labelForScope } from "./skillGroups";
+import {
+  bundledRowAt,
+  skillAt,
+  skillFormVerdicts,
+  type Selection,
+} from "./skillFormVerdicts";
 
 interface SkillsDialogProps {
   /** The active workspace, hosting the "This workspace" scope; `null` (no
@@ -31,14 +35,6 @@ interface SkillsDialogProps {
   canClose?: boolean;
 }
 
-/** Which stored skill the editor shows, or the create form for a scope.
- * The view mode is the read-only BUNDLED row: the write machine (submit,
- * rename, delete, dirty tracking, the confirms) never sees a bundled
- * skill BY CONSTRUCTION — no gating branches inside it. */
-type Selection =
-  | { mode: "edit"; scope: SkillScope; name: string }
-  | { mode: "view"; name: string }
-  | { mode: "create"; scope: SkillScope };
 
 const EMPTY_FORM: SkillDraft = {
   name: "",
@@ -118,39 +114,21 @@ export function SkillsDialog({
     [skills, activeWs?.id, activeWs?.name],
   );
 
-  /** The listed skill at (scope, name) — "which row IS this one" asked once,
-   * where three sites had each spelled out the compound comparison. The library
-   * asks the same question of the disk; if identity ever grows (case-insensitive
-   * names, trimming), these are the two places that must move together. */
-  const skillAt = (scope: SkillScope, name: string): LibrarySkill | undefined =>
-    (skills ?? []).find((s) => sameSkillRef(s, { scope, name }));
 
-  /** The bundled row at `name` — "which BUNDLED row IS this one" for the
-   * view mode, whose Selection carries no scope (the mode implies it:
-   * only bundled rows open views). The same list-reconciliation question
-   * `skillAt` asks of an edit selection. */
-  const bundledRowAt = (name: string): LibrarySkill | undefined =>
-    (skills ?? []).find(
-      (s) => s.scope.kind === "bundled" && s.name === name,
-    );
-
-  /** The open skill is gone from the library — an agent deleted or renamed it
-   * under us. The list reconciles itself through the subscription; the SELECTION
-   * did not, so the editor kept a title, a body and a live Save that could only
-   * ever answer "No skill …". Clean, we drop to the placeholder; dirty, the user's
-   * text stays on screen and Save is refused with a reason, because throwing away
-   * what they typed is the one thing worse than a stale editor. */
-  const vanished =
-    selection?.mode === "edit" &&
-    skills !== null &&
-    // NOT while one of our own writes is in flight: a rename re-anchors the
-    // selection to a name the list does not hold yet — by design, since the save
-    // that follows owns the re-read — so judging it mid-submit calls every rename
-    // a disappearance and disables the save that would complete it. And not over a
-    // list whose last read failed, where absence proves nothing at all.
-    !busy &&
-    listTrusted &&
-    skillAt(selection.scope, selection.name) === undefined;
+  // Every verdict about the draft, reached in one place from one reading
+  // of the world. The write machine downstream receives THIS object and
+  // never the library, so it cannot form a second opinion.
+  const verdicts = skillFormVerdicts({
+    selection,
+    form,
+    skills,
+    listTrusted,
+    busy,
+    dirty,
+    nameTouched,
+  });
+  const { nameTaken, shownNameProblem, descriptionProblem, vanished, canSave } =
+    verdicts;
 
   useEffect(() => {
     if (vanished && !dirty) apply(null);
@@ -255,7 +233,7 @@ export function SkillsDialog({
     // drops to the placeholder with the same honesty: an empty viewer
     // claiming to show a skill that no longer ships would be a ghost.
     if (next?.mode === "view") {
-      const row = bundledRowAt(next.name);
+      const row = bundledRowAt(skills, next.name);
       if (row) {
         openSkill(row);
         return;
@@ -263,7 +241,7 @@ export function SkillsDialog({
       next = null;
     }
     if (next?.mode === "edit") {
-      const skill = skillAt(next.scope, next.name);
+      const skill = skillAt(skills, next.scope, next.name);
       if (skill) {
         openSkill(skill);
         return;
@@ -284,59 +262,6 @@ export function SkillsDialog({
   useEscape(() => navigate(null, true), canClose && !confirm);
 
   const creating = selection?.mode === "create";
-  /** The read-only tier: a view selection never authors anything. Named
-   * once — the write-adjacent guards below all ask it, so the policy
-   * lives in one place instead of five inline comparisons forgetting
-   * one of them. */
-  const isView = selection?.mode === "view";
-  // Taken = another skill in this scope holds the name. Keeping your OWN
-  // name is not a collision — that's just an ordinary save. A bundled row
-  // (view mode) never authors anything — no name is judged.
-  const nameTaken =
-    selection !== null &&
-    !isView &&
-    !(selection.mode === "edit" && selection.name === form.name) &&
-    skillAt(selection.scope, form.name) !== undefined;
-  // The name is judged only where it is being AUTHORED — a create, or an edit
-  // that changes it. An INHERITED name is not the editor's to refuse: the
-  // library deliberately skips this rule on an update for the same reason, so a
-  // hand-made `My_Skill` (which the Rust side stores and lists happily) stays
-  // editable. Judging it here too made that skill openable and unsavable, with
-  // a kebab-case complaint under a name the user was not editing — one rule,
-  // two doors, opposite answers.
-  const authoringName =
-    selection !== null && !isView && (selection.mode === "create" || selection.name !== form.name);
-  // ONE verdict, like the description's, rendered by the gate AND the hint
-  // below. Derived separately they drifted: an emptied Name field disabled Save
-  // while the message stayed hidden, because "empty" counted as invalid at the
-  // gate and as "nothing typed yet" at the message.
-  const nameProblem = authoringName ? skillNameProblem(form.name) : null;
-  // The GATE uses the verdict from the first render; the MESSAGE waits — but only
-  // until the user has STARTED, not until they touch this particular field. Waiting
-  // for the field itself meant filling the description first (the natural order on
-  // a create form) left Create disabled with nothing at all on screen, which is the
-  // failure the verdict exists to prevent. A pristine form still says nothing.
-  const shownNameProblem = nameTouched || dirty || form.name !== "" ? nameProblem : null;
-  // ONE verdict, rendered twice below: the Save gate and the hint under the
-  // field. Derived separately they drifted apart the moment the rule grew — a
-  // stricter gate with nothing on screen explaining the dead button. The rule
-  // itself is the domain's, including why empty is refused (kimi silently drops
-  // a skill whose description is empty, field-verified 0.27, so saving one would
-  // "work" and never reach the agent).
-  const descriptionProblem = skillDescriptionProblem(form.description);
-  // `nameTaken` is a courtesy — it catches the collision before the round
-  // trip and can name the skill. It is NOT the guard: it is derived from the
-  // listed library, which is empty whenever the read failed, and the backend
-  // refuses a create over an existing skill regardless. Disabling Create on a
-  // library we could not read would trade a silent overwrite for a silently
-  // dead button.
-  const canSave =
-    selection !== null &&
-    dirty &&
-    !vanished &&
-    nameProblem === null &&
-    !nameTaken &&
-    descriptionProblem === null;
 
   const submit = async () => {
     // The rename half is not idempotent: a double ⌘S entering twice would
