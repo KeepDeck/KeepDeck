@@ -257,7 +257,7 @@
 }
 
 .skills__readonly-note {
-  margin: 0;
+  margin: 0 0 14px;
   padding: 10px 12px;
   border: 1px solid #1c2230;
   border-radius: 8px;
