@@ -45,7 +45,13 @@ export {
   peekPaneSpawnSpec,
   subscribeSpawnSpecs,
 } from "./cache";
-export type { PaneSpawnFacts } from "./plan";
+export type {
+  McpAccess,
+  McpAccessAsk,
+  McpAccessTarget,
+  PaneSpawnFacts,
+  StagedSkillsViews,
+} from "./plan";
 
 export type SpawnPluginAccess = Pick<
   PluginManager,

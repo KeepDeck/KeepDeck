@@ -29,12 +29,9 @@ import {
   type Workspace,
   type WorktreeTarget,
 } from "../../domain/deck";
-import type { McpArmReport } from "../../ipc/mcpArming";
-import type { SkillsStagingViews } from "../../ipc/skills";
 import type { ProvisionCallbacks, SetupStep } from "../provisioning";
-import { createPlantings } from "./plantings";
 import { createWorktreeProvisioning } from "./provisioning";
-import { createOrderQueue } from "./queue";
+import { createOrderQueue, type InOrder } from "./queue";
 import { createWorktreeTeardown } from "./teardown";
 
 /** A worktree a create put on disk: enough for [`WorktreeManager.remove`]. */
@@ -62,6 +59,22 @@ export interface WorktreeDeckView {
   rootsOf(workspace: WorkspaceRef): string[];
   /** Every live workspace with its roots. */
   live(): LiveWorkspace[];
+}
+
+/** The three staged directory views the spawn hook may consume. Kept as this
+ * infrastructure port rather than importing the skills feature's IPC DTO: the
+ * manager owns the lifetime and ordering, while the feature owns the wire. */
+export interface WorktreeSkillViews {
+  claudePluginDir: string;
+  opencodeConfigDir: string;
+  skillsDir: string;
+}
+
+/** The planting result the MCP feature reports through the infrastructure
+ * port. Structural typing keeps the IPC DTO private to that feature. */
+export interface McpPlantingReport {
+  armed: string[];
+  refused: { root: string; reason: string }[];
 }
 
 /**
@@ -125,7 +138,7 @@ export interface WorktreeProvisioner {
   skillsFor(
     workspace: WorkspaceRef,
     landing?: string,
-  ): Promise<SkillsStagingViews | null>;
+  ): Promise<WorktreeSkillViews | null>;
   /**
    * Tear down each target's git worktree and branches when the close dialog's
    * delete checkbox was ticked. Always forced — the checkbox is explicit
@@ -187,7 +200,7 @@ export interface McpPlanting {
     workspaceId: string,
     root: string,
     content: string,
-  ): Promise<McpArmReport>;
+  ): Promise<McpPlantingReport>;
   /** Take our MCP configs back out of `roots` — every one of them, live or
    * not: this is the transport going down, not a directory leaving. */
   retractMcp(roots: string[]): Promise<boolean>;
@@ -203,6 +216,37 @@ export type WorktreeManager = WorktreeProvisioner &
   WorktreeHousekeeping &
   SkillsInvalidation &
   McpPlanting;
+
+/** The one composite passed into the manager. Its factories receive the
+ * manager's queue, so every planting shares exactly one ordering guard. */
+export interface WorktreePlantingFactories {
+  skills(
+    deck: WorktreeDeckView,
+    inOrder: InOrder,
+  ): WorktreeSkillsPlanting;
+  mcp(inOrder: InOrder): McpPlanting;
+}
+
+export interface WorktreeSkillsPlanting
+  extends Pick<WorktreeProvisioner, "skillsFor">,
+    SkillsInvalidation {
+  /** Forget the stagings that armed any of `roots`. */
+  forgetStaged(roots: string[]): void;
+}
+
+export interface WorktreePlantings
+  extends Pick<WorktreeProvisioner, "skillsFor">,
+    McpPlanting,
+    WorktreeHousekeeping,
+    SkillsInvalidation {
+  /** Teardown's single home for undoing both plantings. */
+  disarm(roots: string[]): Promise<boolean>;
+}
+
+export type WorktreePlantingsFactory = (
+  deck: WorktreeDeckView,
+  inOrder: InOrder,
+) => WorktreePlantings;
 
 /**
  * The deck view over a live snapshot — the one projection of "which
@@ -232,7 +276,10 @@ export function deckViewOf(workspaces: () => Workspace[]): WorktreeDeckView {
   };
 }
 
-export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
+export function createWorktreeManager(
+  deck: WorktreeDeckView,
+  createPlantings: WorktreePlantingsFactory,
+): WorktreeManager {
   const inOrder = createOrderQueue();
   const plantings = createPlantings(deck, inOrder);
   const teardown = createWorktreeTeardown(inOrder, plantings.disarm);

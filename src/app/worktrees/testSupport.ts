@@ -48,12 +48,17 @@ export const mcpArming = mcpArmingIpc;
 
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { Workspace } from "../../domain/deck";
-import type { SkillsStagingViews } from "../../ipc/skills";
+import {
+  createMcpPlanting,
+  createSkillsStaging,
+  createWorktreePlantings,
+} from "../worktreePlantings";
 import {
   createWorktreeManager,
   deckViewOf,
   type LiveWorkspace,
   type WorktreeDeckView,
+  type WorktreePlantingFactories,
   type WorktreeManager,
 } from ".";
 
@@ -78,7 +83,7 @@ export const ref = (id: string, instance = `${id}-life-1`): WorkspaceRef => ({
   instance,
 });
 
-export const stagedFor = (wsId: string): SkillsStagingViews => ({
+export const stagedFor = (wsId: string) => ({
   claudePluginDir: `/staging/${wsId}/claude-plugin`,
   opencodeConfigDir: `/staging/${wsId}/opencode`,
   skillsDir: `/staging/${wsId}/skills`,
@@ -116,7 +121,13 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
 /** A fresh manager per test: its maps are per-instance precisely so no test —
  * and no workspace — inherits another's in-flight state. */
 export function managerFor(read: () => DeckEntry[]): WorktreeManager {
-  return createWorktreeManager(deckView(read));
+  const factories: WorktreePlantingFactories = {
+    skills: createSkillsStaging,
+    mcp: createMcpPlanting,
+  };
+  return createWorktreeManager(deckView(read), (deck, inOrder) =>
+    createWorktreePlantings(deck, inOrder, factories),
+  );
 }
 
 /** Re-arm the doubles after `resetAllMocks` wipes their implementations.

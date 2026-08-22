@@ -72,6 +72,11 @@ import { createAppWindowReportJournal } from "./windowReportJournal";
 import { createSkillsLibrary } from "./skillsLibrary";
 import { ipcSkillsStorage } from "../ipc/skillsStorage";
 import { createWorktreeManager, deckViewOf } from "./worktrees";
+import {
+  createMcpPlanting,
+  createSkillsStaging,
+  createWorktreePlantings,
+} from "./worktreePlantings";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
@@ -317,6 +322,11 @@ export function createAppRuntime(
   const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
+    (deck, inOrder) =>
+      createWorktreePlantings(deck, inOrder, {
+        skills: createSkillsStaging,
+        mcp: createMcpPlanting,
+      }),
   );
   // The library takes only the staleness half of the worktree manager: a write
   // has to drop the staged views the next pane spawn would inject.
