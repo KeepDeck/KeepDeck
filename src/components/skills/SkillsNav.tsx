@@ -52,18 +52,20 @@ export function SkillsNav({
         <div className="skills__group" key={skillScopeKey(scope)}>
           <div className="skills__group-head">
             <span className="skills__group-label">{label}</span>
-            <button
-              type="button"
-              className="skills__new"
-              onClick={() => onCreate(scope)}
-              disabled={busy}
-              // The KIND of library, not which one — a different question from the
-              // group's own label, which names it. Kept deliberately generic:
-              // "New site skill" reads worse than "New workspace skill".
-              title={`New ${scope.kind === "global" ? "global" : "workspace"} skill`}
-            >
-              + New
-            </button>
+            {scope.kind !== "bundled" && (
+              <button
+                type="button"
+                className="skills__new"
+                onClick={() => onCreate(scope)}
+                disabled={busy}
+                // The KIND of library, not which one — a different question from the
+                // group's own label, which names it. Kept deliberately generic:
+                // "New site skill" reads worse than "New workspace skill".
+                title={`New ${scope.kind === "global" ? "global" : "workspace"} skill`}
+              >
+                + New
+              </button>
+            )}
           </div>
           {items.map((skill) => {
             const description = described.get(skill);
@@ -87,9 +89,11 @@ export function SkillsNav({
                 ? "Loading…"
                 : emptyMeans === "unknown"
                   ? "Not known — see the message above"
-                  : scope.kind === "global"
-                    ? "Nothing here yet — a global skill reaches every workspace"
-                    : "Nothing here yet — these stay with this workspace"}
+                  : scope.kind === "bundled"
+                    ? "Bundled skills ship with KeepDeck — create your own in Global and copy any part"
+                    : scope.kind === "global"
+                      ? "Nothing here yet — a global skill reaches every workspace"
+                      : "Nothing here yet — these stay with this workspace"}
             </div>
           )}
         </div>

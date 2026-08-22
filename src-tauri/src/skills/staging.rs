@@ -23,6 +23,7 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use super::arming::{arm_roots, disarm_roots};
+use super::bundled::BundledSkill;
 use crate::worktree_arm::{record_armed, retire_key};
 use super::library::{sorted_dirs, SKILL_FILE};
 use super::opencode;
@@ -77,6 +78,8 @@ pub(super) fn stage(
     root: &Path,
     ws_id: &str,
     spawn_roots: &[String],
+    tier: &[BundledSkill],
+    claimed: bool,
 ) -> io::Result<Option<SkillStagingDto>> {
     let library = root.join("library");
     let final_dir = root.join("staging").join(ws_id);
@@ -89,7 +92,9 @@ pub(super) fn stage(
     let lock = locks.for_ws(ws_id);
     let _staging = lock.lock().unwrap_or_else(|p| p.into_inner());
 
-    let sources = collect_sources(&library, ws_id);
+    // The registry result arrives as a plain bool from the tauri glue —
+    // staging logic stays feature-free (the one-directional boundary).
+    let sources = collect_sources(&library, ws_id, tier, claimed);
 
     if sources.is_empty() {
         // An emptied library must not leave yesterday's views behind — but
@@ -131,39 +136,59 @@ pub(super) fn stage(
             other => other?,
         }
     }
-    for (name, source, content) in &sources {
-        // A source deleted between collection and here is SKIPPED outright —
-        // re-materializing it from the collected bytes would resurrect a
-        // deleted skill for one stage. Views copied BEFORE the vanish are
-        // wiped too, so no view carries the ghost the later ones dropped.
+    for (name, source) in &sources {
+        // The two materialization contracts, enforced by the match arms:
+        // LIBRARY — a source deleted between collection and here is
+        // SKIPPED outright (re-materializing it from the collected bytes
+        // would resurrect a deleted skill for one stage; views copied
+        // BEFORE the vanish are wiped too, so no view carries the ghost
+        // the later ones dropped). BUNDLED — a constant cannot vanish:
+        // the arm is UNCONDITIONAL (create dest + write, no copy_dir,
+        // no present/rollback dance — wiring it into the vanish contract
+        // would add a rollback path that can never fire).
         let views = [
             claude_plugin.join("skills"),
             tmp.join("skills"),
             opencode_tmp.clone(),
         ];
-        let mut present = true;
-        for view in &views {
-            let dest = view.join(name);
-            if !copy_dir(source, &dest)? {
-                present = false;
-                break;
+        let content: &str = match source {
+            Source::Library { dir, content } => {
+                let mut present = true;
+                for view in &views {
+                    let dest = view.join(name);
+                    if !copy_dir(dir, &dest)? {
+                        present = false;
+                        break;
+                    }
+                    // The staged SKILL.md is written from the content read at
+                    // collection time — the same bytes the generated command's
+                    // description came from. A save racing this loop can no longer
+                    // make the staged file and its command diverge.
+                    write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
+                }
+                if !present {
+                    for view in &views {
+                        let _ = fs::remove_dir_all(view.join(name));
+                    }
+                    continue;
+                }
+                content
             }
-            // The staged SKILL.md is written from the content read at
-            // collection time — the same bytes the generated command's
-            // description came from. A save racing this loop can no longer
-            // make the staged file and its command diverge.
-            write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
-        }
-        if !present {
-            for view in &views {
-                let _ = fs::remove_dir_all(view.join(name));
+            Source::Bundled(content) => {
+                for view in &views {
+                    let dest = view.join(name);
+                    fs::create_dir_all(&dest)?;
+                    write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
+                }
+                content
             }
-            continue;
-        }
-        // The user-facing half of the opencode view: a /name command whose
-        // palette description is the skill's own, pointing the agent at the
-        // staged SKILL.md (the command file must not go stale on edits, so
-        // it references rather than inlines).
+        };
+        // The user-facing half of the opencode view — BOTH arms reach it
+        // (bundled entries materialize IDENTICALLY to library ones): a
+        // /name command whose palette description is the skill's own,
+        // pointing the agent at the staged SKILL.md (the command file
+        // must not go stale on edits, so it references rather than
+        // inlines).
         let staged_skill = opencode_dir.join("skills").join(name).join(SKILL_FILE);
         let command = opencode::command(name, content, &staged_skill);
         write_atomic(
@@ -200,8 +225,57 @@ pub(super) fn stage(
 /// cannot be read (non-UTF-8, permissions) is SKIPPED with a warning, the
 /// same treatment `list()` gives it: one broken skill must not take the
 /// whole workspace's staging down.
-fn collect_sources(library: &Path, ws_id: &str) -> Vec<(String, PathBuf, String)> {
-    let mut sources: Vec<(String, PathBuf, String)> = Vec::new();
+/// The materialization source: a library skill carries its dir (copy_dir
+/// materializes assets) AND its collected content (the staged SKILL.md is
+/// written from the bytes read at collection); a bundled skill IS its
+/// constant — no dir, no vanish, unconditional arm.
+pub(super) enum Source {
+    Library { dir: PathBuf, content: String },
+    Bundled(&'static str),
+}
+
+/// One judge for "can this content arm": the description lift the
+/// generated command itself uses, held to non-empty-after-trim. None and
+/// empty and whitespace-only all refuse — the editor's own authoring rule
+/// (agents drop or misfire on an empty description), enforced staging-side
+/// on whatever reached disk anyway.
+fn usable_description(content: &str) -> bool {
+    opencode::frontmatter_line(content, "description")
+        .is_some_and(|d| !d.trim().is_empty())
+}
+
+fn collect_sources(
+    library: &Path,
+    ws_id: &str,
+    tier: &[BundledSkill],
+    claimed: bool,
+) -> Vec<(String, Source)> {
+    let mut sources: Vec<(String, Source)> = Vec::new();
+    // THE MERGE ORDER (the shadow rule as code): retain-then-push means
+    // the LAST source WINS, so the tier enters FIRST — each library
+    // scope then shadows it naturally; a ws skill outranks a global one
+    // exactly as before. Appending the tier last would INVERT the
+    // doctrine. The gate applies per skill: ungated always, gated only
+    // while the resolved gate is true (content must obey the same gate as
+    // its tools — advice for absent tools is actively misleading).
+    for skill in tier.iter().filter(|s| s.gate.is_none() || claimed) {
+        // The guard, judged by the SAME lift the command generator uses:
+        // a skill with no usable description stages NOWHERE — not the
+        // views, not the command. A description-less SKILL.md once
+        // synthesized a command whose empty frontmatter made opencode
+        // refuse its ENTIRE config and killed the agent at spawn; no
+        // consumer can choke on what never lands. First-party content
+        // is pinned to always pass (bundled.rs); a skip here means the
+        // binary shipped broken and the warn names the const.
+        if !usable_description(skill.content) {
+            log::warn!(
+                "skills: bundled skill {} has no usable description — not armed",
+                skill.name
+            );
+            continue;
+        }
+        sources.push((skill.name.to_string(), Source::Bundled(skill.content)));
+    }
     for scope in [library.join("global"), library.join("ws").join(ws_id)] {
         let Ok(dirs) = sorted_dirs(&scope) else { continue };
         for skill in dirs {
@@ -216,9 +290,29 @@ fn collect_sources(library: &Path, ws_id: &str) -> Vec<(String, PathBuf, String)
                     continue;
                 }
             };
+            // The same guard, BEFORE the retain: skipping after it would
+            // have already retained the garbage OVER the tier's valid
+            // same-name skill, leaving BOTH dead (the incident's exact
+            // shape — the agent survives but no artifacts skill arms).
+            // Skipping here never gathers the garbage, so the tier's
+            // skill arms under the name: the shadow-FALLBACK semantics
+            // the merge order exists for.
+            if !usable_description(&content) {
+                log::warn!(
+                    "skills: {} has a SKILL.md with no usable description — not armed (edit or delete it in the library)",
+                    skill.display(),
+                );
+                continue;
+            }
             let name = skill.file_name().unwrap_or_default().to_string_lossy().into_owned();
-            sources.retain(|(existing, _, _)| *existing != name);
-            sources.push((name, skill, content));
+            sources.retain(|(existing, _)| *existing != name);
+            sources.push((
+                name,
+                Source::Library {
+                    dir: skill,
+                    content,
+                },
+            ));
         }
     }
     sources
@@ -235,7 +329,13 @@ fn swap_dir(tmp: &Path, final_dir: &Path, trash: &Path) -> io::Result<()> {
         Err(e) if e.kind() == ErrorKind::NotFound => {}
         other => other?,
     }
-    fs::rename(tmp, final_dir)?;
+    match fs::rename(tmp, final_dir) {
+        // A tmp that was never created (a tier-only stage: no library
+        // skill ever materialized into this view) renames nothing — the
+        // final_dir's absence above already left the view clean.
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        other => other?,
+    }
     let _ = fs::remove_dir_all(trash);
     Ok(())
 }
@@ -302,19 +402,28 @@ pub(super) fn prune_views(root: &Path, live: &[String]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skills::GateKey;
     use crate::skills::library::{delete, list, save};
     use crate::skills::test_support::{fake_worktree, global, root, ws};
+
+    /// Library/tier content as the collection guard requires it: a
+    /// frontmatter description. The guard (usable_description) skips
+    /// anything without one, so every arming fixture carries one — the
+    /// skip behavior itself is pinned by the guard's own tests below.
+    fn fm(desc: &str) -> String {
+        format!("---\ndescription: {desc}\n---\n{desc}\n")
+    }
 
     #[test]
     fn stage_builds_all_three_views_with_workspace_override() {
         let (_tmp, root) = root();
-        save(&global(&root), "review", "global review").unwrap();
-        save(&global(&root), "deploy", "deploy").unwrap();
-        save(&ws(&root, "ws-1"), "review", "ws review").unwrap();
+        save(&global(&root), "review", &fm("global review")).unwrap();
+        save(&global(&root), "deploy", &fm("deploy body")).unwrap();
+        save(&ws(&root, "ws-1"), "review", &fm("ws review")).unwrap();
         // An asset rides along with its skill.
         fs::write(global(&root).join("deploy").join("notes.txt"), "asset").unwrap();
 
-        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
         let claude = PathBuf::from(&views.claude_plugin_dir);
         let manifest = fs::read_to_string(claude.join(".claude-plugin").join("plugin.json")).unwrap();
         assert!(manifest.contains("keepdeck-skills"));
@@ -325,7 +434,7 @@ mod tests {
             PathBuf::from(&views.skills_dir),
         ] {
             let review = fs::read_to_string(skills.join("review").join(SKILL_FILE)).unwrap();
-            assert_eq!(review, "ws review"); // workspace wins the clash
+            assert_eq!(review, fm("ws review")); // workspace wins the clash
             assert_eq!(
                 fs::read_to_string(skills.join("deploy").join("notes.txt")).unwrap(),
                 "asset",
@@ -340,7 +449,7 @@ mod tests {
         save(&global(&root), "review", content).unwrap();
         save(&ws(&root, "ws-1"), "review", "---\ndescription: Ws wins\n---\nB\n").unwrap();
 
-        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
         let oc = PathBuf::from(&views.opencode_config_dir);
         let command = fs::read_to_string(oc.join("command").join("review.md")).unwrap();
         // The palette description is the WINNING skill's, quoted verbatim,
@@ -354,16 +463,16 @@ mod tests {
     #[test]
     fn opencodes_own_files_survive_restaging_and_emptying() {
         let (_tmp, root) = root();
-        save(&global(&root), "review", "x").unwrap();
-        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        save(&global(&root), "review", &fm("x")).unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
 
         // opencode treats its config dir as writable (node_modules, account
         // files) — plant a stand-in next to the skills subtree.
         let oc = PathBuf::from(&views.opencode_config_dir);
         fs::write(oc.join("antigravity-accounts.json"), "precious").unwrap();
 
-        save(&global(&root), "deploy", "y").unwrap();
-        stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        save(&global(&root), "deploy", &fm("y")).unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
         assert_eq!(
             fs::read_to_string(oc.join("antigravity-accounts.json")).unwrap(),
             "precious",
@@ -373,7 +482,7 @@ mod tests {
         // An emptied library removes ONLY KeepDeck's subtrees.
         delete(&global(&root), "review").unwrap();
         delete(&global(&root), "deploy").unwrap();
-        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap(), None);
+        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap(), None);
         assert!(!oc.join("skills").exists());
         assert!(!oc.join("command").exists());
         assert_eq!(
@@ -385,12 +494,12 @@ mod tests {
     #[test]
     fn restaging_drops_deleted_skills() {
         let (_tmp, root) = root();
-        save(&global(&root), "review", "x").unwrap();
-        save(&global(&root), "deploy", "x").unwrap();
-        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        save(&global(&root), "review", &fm("x")).unwrap();
+        save(&global(&root), "deploy", &fm("x")).unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
 
         delete(&global(&root), "deploy").unwrap();
-        stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
         let skills = PathBuf::from(&views.skills_dir);
         assert!(skills.join("review").exists());
         assert!(!skills.join("deploy").exists());
@@ -399,12 +508,12 @@ mod tests {
     #[test]
     fn empty_library_stages_nothing_and_clears_stale_views() {
         let (_tmp, root) = root();
-        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap(), None);
+        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap(), None);
 
-        save(&ws(&root, "ws-1"), "review", "x").unwrap();
-        stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        save(&ws(&root, "ws-1"), "review", &fm("x")).unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
         delete(&ws(&root, "ws-1"), "review").unwrap();
-        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap(), None);
+        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap(), None);
         assert!(!root.join("staging").join("ws-1").exists());
     }
 
@@ -412,10 +521,10 @@ mod tests {
     fn staging_arms_a_worktree_with_an_owned_symlink_and_excludes_it() {
         let (_tmp, root) = root();
         let wt = fake_worktree(root.parent().unwrap());
-        save(&global(&root), "review", "x").unwrap();
+        save(&global(&root), "review", &fm("x")).unwrap();
 
         let roots = vec![wt.to_string_lossy().into_owned()];
-        let views = stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &roots, &[], false).unwrap().unwrap();
 
         let link = wt.join(".agents").join("skills");
         assert_eq!(
@@ -427,7 +536,7 @@ mod tests {
 
         // The exclude line lands in the COMMON git dir, exactly once even
         // after restaging.
-        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &roots, &[], false).unwrap().unwrap();
         let exclude = root
             .parent()
             .unwrap()
@@ -443,12 +552,12 @@ mod tests {
     fn emptied_library_disarms_and_removes_an_empty_agents_dir() {
         let (_tmp, root) = root();
         let wt = fake_worktree(root.parent().unwrap());
-        save(&global(&root), "review", "x").unwrap();
+        save(&global(&root), "review", &fm("x")).unwrap();
         let roots = vec![wt.to_string_lossy().into_owned()];
-        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &roots, &[], false).unwrap().unwrap();
 
         delete(&global(&root), "review").unwrap();
-        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap(), None);
+        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &roots, &[], false).unwrap(), None);
         assert!(!wt.join(".agents").exists());
     }
 
@@ -459,18 +568,18 @@ mod tests {
         let kept = root.parent().unwrap().join("open-pane-cwd");
         fs::create_dir_all(&gone).unwrap();
         fs::create_dir_all(&kept).unwrap();
-        save(&global(&root), "review", "x").unwrap();
+        save(&global(&root), "review", &fm("x")).unwrap();
         let locks = SkillsLocks::default();
         let both = vec![
             gone.to_string_lossy().into_owned(),
             kept.to_string_lossy().into_owned(),
         ];
-        stage(&locks, &root, "ws-1", &both).unwrap().unwrap();
+        stage(&locks, &root, "ws-1", &both, &[], false).unwrap().unwrap();
 
         // The pane in `gone` closed; then the user empties the library.
         delete(&global(&root), "review").unwrap();
         let shrunk = vec![kept.to_string_lossy().into_owned()];
-        assert_eq!(stage(&locks, &root, "ws-1", &shrunk).unwrap(), None);
+        assert_eq!(stage(&locks, &root, "ws-1", &shrunk, &[], false).unwrap(), None);
         // BOTH cwds are disarmed — the departed one via the manifest.
         assert!(!gone.join(".agents").exists());
         assert!(!kept.join(".agents").exists());
@@ -479,7 +588,7 @@ mod tests {
     #[test]
     fn concurrent_same_ws_stagings_serialize_and_end_complete() {
         let (_tmp, root) = root();
-        save(&global(&root), "review", "x").unwrap();
+        save(&global(&root), "review", &fm("x")).unwrap();
         let root = std::sync::Arc::new(root);
         // ONE lock instance shared by both threads — the app's managed state.
         let locks = SkillsLocks::default();
@@ -487,8 +596,8 @@ mod tests {
             let a = std::sync::Arc::clone(&root);
             let b = std::sync::Arc::clone(&root);
             let (la, lb) = (locks.clone(), locks.clone());
-            let ta = std::thread::spawn(move || stage(&la, &a, "ws-1", &[]).unwrap().unwrap());
-            let tb = std::thread::spawn(move || stage(&lb, &b, "ws-1", &[]).unwrap().unwrap());
+            let ta = std::thread::spawn(move || stage(&la, &a, "ws-1", &[], &[], false).unwrap().unwrap());
+            let tb = std::thread::spawn(move || stage(&lb, &b, "ws-1", &[], &[], false).unwrap().unwrap());
             ta.join().unwrap();
             tb.join().unwrap();
             // Whatever the interleaving, the published staging is complete.
@@ -505,16 +614,16 @@ mod tests {
     #[test]
     fn an_unreadable_skill_is_skipped_not_fatal_matching_list() {
         let (_tmp, root) = root();
-        save(&global(&root), "good", "fine").unwrap();
-        save(&global(&root), "bad", "x").unwrap();
+        save(&global(&root), "good", &fm("fine")).unwrap();
+        save(&global(&root), "bad", &fm("x")).unwrap();
         fs::write(global(&root).join("bad").join(SKILL_FILE), [0xff, 0xfe, 0x00]).unwrap();
 
-        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
         let skills = PathBuf::from(&views.skills_dir);
         assert!(skills.join("good").exists());
         assert!(!skills.join("bad").exists());
         // list() treats the same file the same way — the two views agree.
-        let listed = list(&root).unwrap();
+        let listed = list(&root, &[]).unwrap();
         let names: Vec<&str> = listed.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["good"]);
     }
@@ -522,10 +631,10 @@ mod tests {
     #[test]
     fn copy_skips_write_atomics_transient_sibling() {
         let (_tmp, root) = root();
-        save(&global(&root), "review", "x").unwrap();
+        save(&global(&root), "review", &fm("x")).unwrap();
         fs::write(global(&root).join("review").join("SKILL.md.tmp"), "torn").unwrap();
 
-        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
         let staged = PathBuf::from(&views.skills_dir).join("review");
         assert!(staged.join(SKILL_FILE).exists());
         assert!(!staged.join("SKILL.md.tmp").exists());
@@ -534,10 +643,10 @@ mod tests {
     #[test]
     fn other_workspaces_skills_stay_out_of_a_staging() {
         let (_tmp, root) = root();
-        save(&ws(&root, "ws-1"), "mine", "x").unwrap();
-        save(&ws(&root, "ws-2"), "theirs", "x").unwrap();
+        save(&ws(&root, "ws-1"), "mine", &fm("x")).unwrap();
+        save(&ws(&root, "ws-2"), "theirs", &fm("x")).unwrap();
 
-        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[], &[], false).unwrap().unwrap();
         let skills = PathBuf::from(&views.skills_dir);
         assert!(skills.join("mine").exists());
         assert!(!skills.join("theirs").exists());
@@ -546,10 +655,10 @@ mod tests {
     #[test]
     fn pruning_views_drops_dead_workspaces_and_spares_live_ones_and_the_library() {
         let (_tmp, root) = root();
-        save(&global(&root), "review", "x").unwrap();
-        save(&ws(&root, "ws-dead"), "gone", "x").unwrap();
-        stage(&SkillsLocks::default(), &root, "ws-live", &[]).unwrap().unwrap();
-        stage(&SkillsLocks::default(), &root, "ws-dead", &[]).unwrap().unwrap();
+        save(&global(&root), "review", &fm("x")).unwrap();
+        save(&ws(&root, "ws-dead"), "gone", &fm("x")).unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-live", &[], &[], false).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-dead", &[], &[], false).unwrap().unwrap();
         // A crash leftover of a dead workspace's build.
         fs::create_dir_all(root.join("staging").join(".tmp-ws-dead")).unwrap();
 
@@ -562,5 +671,245 @@ mod tests {
         assert!(!root.join("staging").join(".tmp-ws-dead").exists());
         // The library — user content, dead workspace or not — is untouched.
         assert!(ws(&root, "ws-dead").join("gone").join(SKILL_FILE).exists());
+    }
+
+    // ---- the bundled tier's integration gates ----
+
+    fn tier_skill(name: &'static str, gated: bool) -> BundledSkill {
+        BundledSkill {
+            name,
+            content: "---\ndescription: static tier content\n---\nbody\n",
+            gate: gated.then_some(GateKey::Artifacts),
+        }
+    }
+
+    #[test]
+    fn a_gated_tier_arms_only_while_claimed_and_never_shadows_the_library() {
+        let (_tmp, root) = root();
+        save(&global(&root), "alpha", &fm("alpha body")).unwrap();
+        // Same-name day-one case: a user skill AND the bundled one.
+        save(&global(&root), "bundled-one", &fm("user shadows this")).unwrap();
+        let tier = [
+            tier_skill("bundled-one", true),
+            tier_skill("only-tier", true),
+        ];
+
+        // CLAIMED: the tier materializes; the same-name library row WINS
+        // (the merge order — tier first, library retains over it).
+        let views = stage(
+            &SkillsLocks::default(),
+            &root,
+            "ws-1",
+            &[],
+            &tier,
+            true,
+        )
+        .unwrap()
+        .unwrap();
+        let staged = std::fs::read_to_string(
+            Path::new(&views.skills_dir).join("bundled-one").join(SKILL_FILE),
+        )
+        .unwrap();
+        assert!(staged.contains("user shadows this"), "library wins: {staged}");
+        assert!(
+            (Path::new(&views.skills_dir).join("only-tier").join(SKILL_FILE)).exists(),
+            "the tier materializes while claimed"
+        );
+
+        // UNCLAIMED: the gated tier is absent entirely — no stale arming
+        // of advice for tools that are off.
+        let views_off = stage(
+            &SkillsLocks::default(),
+            &root,
+            "ws-1",
+            &[],
+            &tier,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            !(Path::new(&views_off.skills_dir).join("only-tier")).exists(),
+            "gated tier absent while unclaimed"
+        );
+        // The user's library skill still stages (the tier's gate is not
+        // the library's).
+        assert!(
+            (Path::new(&views_off.skills_dir).join("alpha").join(SKILL_FILE)).exists()
+        );
+    }
+
+    #[test]
+    fn an_ungated_tier_arms_without_the_claim() {
+        let (_tmp, root) = root();
+        let tier = [tier_skill("always", false)];
+        let views = stage(
+            &SkillsLocks::default(),
+            &root,
+            "ws-1",
+            &[],
+            &tier,
+            false, // unclaimed — the ungated skill arms anyway
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            (Path::new(&views.skills_dir).join("always").join(SKILL_FILE)).exists()
+        );
+    }
+
+    #[test]
+    fn empty_library_plus_claimed_tier_does_not_disarm() {
+        // The disarm edge: "is there anything to arm" counts the GATED
+        // tier — an empty library with a claimed tier still arms.
+        let (_tmp, root) = root();
+        let tier = [tier_skill("solo", true)];
+        let views = stage(
+            &SkillsLocks::default(),
+            &root,
+            "ws-1",
+            &[],
+            &tier,
+            true,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            (Path::new(&views.skills_dir).join("solo").join(SKILL_FILE)).exists(),
+            "claimed tier alone keeps the arming alive"
+        );
+
+        // And the flip side: empty library + UNCLAIMED tier = nothing to
+        // arm — the old disarm behavior, pinned.
+        let off = stage(
+            &SkillsLocks::default(),
+            &root,
+            "ws-1",
+            &[],
+            &tier,
+            false,
+        )
+        .unwrap();
+        assert!(off.is_none(), "unclaimed tier + empty library disarms");
+    }
+
+    // ---- the collection guard's own gates ----
+    // The incident, pinned: a library file with no usable description
+    // must not arm ANYWHERE — not poison a consumer's whole config —
+    // and must not shadow the tier's valid same-name skill.
+
+    #[test]
+    fn a_descriptionless_library_row_is_skipped_and_the_tier_arms_under_the_name() {
+        // The residue case VERBATIM: garbage global 'artifacts' beside
+        // the valid bundled one. Collection-side skipping means the
+        // garbage is never gathered — the bundled skill arms; a
+        // materialization-side skip would have retained the garbage
+        // over the tier first, leaving BOTH dead.
+        let (_tmp, root) = root();
+        fs::create_dir_all(global(&root).join("artifacts")).unwrap();
+        fs::write(
+            global(&root).join("artifacts").join(SKILL_FILE),
+            "user's own copy",
+        )
+        .unwrap();
+        let tier = [tier_skill("artifacts", true)];
+
+        let views = stage(
+            &SkillsLocks::default(),
+            &root,
+            "ws-1",
+            &[],
+            &tier,
+            true,
+        )
+        .unwrap()
+        .unwrap();
+        let staged = std::fs::read_to_string(
+            Path::new(&views.skills_dir).join("artifacts").join(SKILL_FILE),
+        )
+        .unwrap();
+        assert!(
+            staged.contains("static tier content"),
+            "the bundled skill arms under the shadowed name: {staged}"
+        );
+        // The opencode command carries a REAL description — the poisoned
+        // empty one is what killed the agent.
+        let command = fs::read_to_string(
+            Path::new(&views.opencode_config_dir)
+                .join("command")
+                .join("artifacts.md"),
+        )
+        .unwrap();
+        assert!(command.starts_with("---\ndescription: static tier content\n---"));
+    }
+
+    #[test]
+    fn a_broken_bundled_entry_is_skipped_not_armed() {
+        // Symmetry: first-party content CAN ship broken (a bad include!
+        // edit) — the guard holds both arms. The module pin in
+        // bundled.rs keeps this arm theoretical by failing at test time.
+        let (_tmp, root) = root();
+        let tier = [
+            BundledSkill {
+                name: "broken",
+                content: "no frontmatter at all",
+                gate: None,
+            },
+            tier_skill("whole", false),
+        ];
+        let views = stage(
+            &SkillsLocks::default(),
+            &root,
+            "ws-1",
+            &[],
+            &tier,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        let skills = Path::new(&views.skills_dir);
+        assert!(!skills.join("broken").exists(), "broken tier row skipped");
+        assert!(skills.join("whole").exists(), "valid neighbor still arms");
+    }
+
+    #[test]
+    fn the_list_still_shows_a_row_the_guard_skipped() {
+        // The divergence is DELIBERATE and pinned so nobody "fixes" it:
+        // list = what is on disk (fixable in the editor), staging = what
+        // arms. A hidden broken row is unfixable.
+        let (_tmp, root) = root();
+        fs::create_dir_all(global(&root).join("broken")).unwrap();
+        fs::write(global(&root).join("broken").join(SKILL_FILE), "no frontmatter").unwrap();
+        save(&global(&root), "fine", &fm("fine body")).unwrap();
+
+        let listed = list(&root, &[]).unwrap();
+        let mut names: Vec<&str> = listed.iter().map(|s| s.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, vec!["broken", "fine"]);
+    }
+
+    #[test]
+    fn a_ws_library_skill_shadows_the_tier_in_its_workspace() {
+        // The full precedence: library-ws > bundled > library-global is
+        // the staging order for the TIER; here the ws row must beat the
+        // bundled one (the tier enters first, ws retains last).
+        let (_tmp, root) = root();
+        save(&ws(&root, "ws-1"), "only-tier", &fm("ws wins")).unwrap();
+        let tier = [tier_skill("only-tier", true)];
+        let views = stage(
+            &SkillsLocks::default(),
+            &root,
+            "ws-1",
+            &[],
+            &tier,
+            true,
+        )
+        .unwrap()
+        .unwrap();
+        let staged = std::fs::read_to_string(
+            Path::new(&views.skills_dir).join("only-tier").join(SKILL_FILE),
+        )
+        .unwrap();
+        assert!(staged.contains("ws wins"), "the ws library row wins: {staged}");
     }
 }

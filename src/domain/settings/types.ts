@@ -153,6 +153,23 @@ export interface Settings {
    * socket down nothing can make one. Default off; opt-in only while the
    * feature is experimental. */
   agentTeams: boolean;
+  /** Fleet artifacts ([F6] → Experimental): agents can publish presentation
+   * pages (HTML/md) to a workspace-scoped store, served on localhost with
+   * live refresh, shared as team review objects. A LIVE switch in both
+   * directions: On claims the store root and starts the display server;
+   * Off tears the server down (saying bye to open tabs) and releases the
+   * claim — and unregisters the artifact_* commands, so they stop being
+   * MCP tools the same turn.
+   *
+   * Needs `mcpServer` to be useful for the TOOL half (the commands are MCP
+   * projections) — the display server and any published artifacts keep
+   * serving with the transport off, only new publishes go dark. Default
+   * off; opt-in only while the feature is experimental. */
+  artifacts: boolean;
+  /** First publish of a NEW artifact opens it in the system browser (the
+   * Claude Code artifacts UX; republish never re-opens — the open tab
+   * refreshes live). Inert while `artifacts` is off. Default on. */
+  artifactAutoOpen: boolean;
 }
 
 /** Every settings key. `keyof Settings` here, and the codec table is checked

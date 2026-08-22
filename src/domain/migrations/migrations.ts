@@ -192,9 +192,15 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       needs the two cases apart: it may adopt a better default for a v15
  *       file's absent key, while a v≤14 file's absent key may still be
  *       hiding a deliberate choice.
- *  16 — + agentTeams: the Experimental toggle for agent teams — roles,
+ * 16 — + agentTeams: the Experimental toggle for agent teams — roles,
  *       addressing by role, and messages between teammates (off by
  *       default).
+ * 17 — + artifacts and artifactAutoOpen: the Experimental toggle for the
+ *       fleet artifacts feature (agent-published presentation pages, the
+ *       localhost display server, the artifact_* commands — off by
+ *       default) and its auto-open companion (first publish of a NEW
+ *       artifact opens the browser; true by default, inert while
+ *       artifacts is off).
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -202,7 +208,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 16;
+export const SETTINGS_VERSION = 17;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

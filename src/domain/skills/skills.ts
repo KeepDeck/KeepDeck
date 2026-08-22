@@ -13,16 +13,22 @@
  * of them is pinned to the Rust side.
  */
 
-/** Where a skill lives — its distribution boundary. */
-export type SkillScope = { kind: "global" } | { kind: "workspace"; wsId: string };
+/** Where a skill lives — its distribution boundary. The third kind is the
+ * BUNDLED tier: first-party skills shipped inside the app binary, read-only,
+ * never in the user's library (the editor shows them in their own section;
+ * staging materializes them for agents behind the feature gate). */
+export type SkillScope =
+  | { kind: "global" }
+  | { kind: "workspace"; wsId: string }
+  | { kind: "bundled" };
 
 /** Whether two scopes name the SAME library. Here rather than at a call site
  * because every surface that groups, filters or looks a skill up asks it, and
  * two copies of the workspace-id comparison would drift. */
 export function sameSkillScope(a: SkillScope, b: SkillScope): boolean {
-  return a.kind === "global"
-    ? b.kind === "global"
-    : b.kind === "workspace" && a.wsId === b.wsId;
+  if (a.kind === "bundled") return b.kind === "bundled";
+  if (a.kind === "global") return b.kind === "global";
+  return b.kind === "workspace" && a.wsId === b.wsId;
 }
 
 /** The scope a stored skill lives in. Takes the stored row's shape structurally
@@ -32,9 +38,10 @@ export function sameSkillScope(a: SkillScope, b: SkillScope): boolean {
  * rows do match each other — the id is compared, not vetted — so a caller must
  * not manufacture an empty id and expect it to match nothing.) */
 export function skillScopeOf(stored: {
-  scope: "global" | "workspace";
+  scope: "global" | "workspace" | "bundled";
   wsId: string | null;
 }): SkillScope {
+  if (stored.scope === "bundled") return { kind: "bundled" };
   return stored.scope === "global"
     ? { kind: "global" }
     : { kind: "workspace", wsId: stored.wsId ?? "" };
@@ -61,7 +68,11 @@ export const sameSkillRef = (a: SkillRef, b: SkillRef): boolean =>
  * "how do you flatten a scope" is the kind of question that must not have two
  * answers the day a scope gains a third kind. */
 export const skillScopeKey = (scope: SkillScope): string =>
-  scope.kind === "global" ? "global" : `ws:${scope.wsId}`;
+  scope.kind === "global"
+    ? "global"
+    : scope.kind === "bundled"
+      ? "bundled"
+      : `ws:${scope.wsId}`;
 
 /** A skill split into what the editor form works with. */
 export interface SkillDraft {

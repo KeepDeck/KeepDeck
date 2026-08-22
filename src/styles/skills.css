@@ -255,3 +255,21 @@
 .skills__actions-gap {
   flex: 1;
 }
+
+.skills__readonly-note {
+  margin: 0 0 14px;
+  color: #8b93a7;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.skills__readonly-hint {
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  border: 1px solid #3a3320;
+  border-radius: 8px;
+  background: #1f1a0e;
+  color: #d4b962;
+  font-size: 12px;
+  line-height: 1.5;
+}

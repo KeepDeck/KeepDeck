@@ -24,6 +24,7 @@ import {
   type SpawnPluginAccess,
   buildLivePaneSpec,
 } from ".";
+import type { McpAccess } from "./plan";
 // Straight from the module: the barrel deliberately does not carry it.
 import { resetPaneSpawnSpecs } from "./cache";
 
@@ -55,7 +56,7 @@ const mcpAccess = (target: { paneId?: string; cwd: string }) =>
     deliver: async () => {
       mcpState.delivered.push(target.cwd);
     },
-  });
+  } satisfies McpAccess);
 const pluginRegistries = createContributionRegistries();
 const plugins = {
   pluginRegistries,

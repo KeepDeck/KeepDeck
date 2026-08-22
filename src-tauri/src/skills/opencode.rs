@@ -22,6 +22,9 @@ pub(super) fn command(name: &str, content: &str, staged_skill: &Path) -> String 
 /// Best-effort raw value of one `key:` line inside the frontmatter fence.
 /// Schema knowledge stays TS-side — this lifts a line the library already
 /// stores as valid YAML and re-emits it VERBATIM (quoting untouched).
+/// `pub(super)`: staging's collection guard judges SKILLS by the SAME
+/// lift the command generator uses — one reader, so the guard and the
+/// generator cannot drift apart on what a usable description is.
 ///
 /// COUPLING PIN with `frontmatterSpan`/`parseSkillFile` in
 /// src/domain/skills/skillFile.ts. TS reads this file with a real YAML
@@ -32,7 +35,7 @@ pub(super) fn command(name: &str, content: &str, staged_skill: &Path) -> String 
 /// indefinitely (a rename splices, it does not re-compose), so a stricter
 /// reader here silently generates an opencode command with no description.
 /// Extend both sides together.
-fn frontmatter_line(content: &str, key: &str) -> Option<String> {
+pub(super) fn frontmatter_line(content: &str, key: &str) -> Option<String> {
     // CRLF-tolerant like the TS parser: a hand-edited Windows-style file must
     // not lose its description here.
     let normalized = content.replace("\r\n", "\n");

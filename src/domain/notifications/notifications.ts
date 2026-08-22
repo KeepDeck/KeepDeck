@@ -36,7 +36,14 @@ export type NotificationSource =
    * unlocks land on the trophy case, not in Settings. Typed vocabulary:
    * renaming a tab breaks producers at compile time instead of silently
    * rerouting every deep link to Overview. */
-  | { type: "stats"; tab?: StatsTab };
+  | { type: "stats"; tab?: StatsTab }
+  /** An artifacts event: first publish, or a canvas removed. The click
+   * target is EXTERNAL (the system browser via the openUrl IPC) — no
+   * in-app surface is claimed. IDENTIFIERS only, never a URL: the URL is
+   * session-scoped (ephemeral port), identity is the durable form; the
+   * router resolves the live URL at click time. `artifactId` absent or
+   * dead → the workspace INDEX; resolution failure → silent no-op. */
+  | { type: "artifacts"; workspace: NotificationWorkspace; artifactId?: string };
 
 export type NotificationSeverity = "info" | "warning" | "error";
 
@@ -90,6 +97,10 @@ export function bannerCooldownKey(
       return `pane:${source.paneId}`;
     case "plugin":
       return `plugin:${source.pluginId}`;
+    case "artifacts":
+      // An artifacts event's flapping unit is its workspace — two panes
+      // publishing in one workspace are one voice for the cooldown.
+      return `artifacts:${source.workspace.id}`;
     case "stats":
       return "stats";
     case "app":

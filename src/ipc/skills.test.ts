@@ -174,3 +174,39 @@ describe("the skills invoke-key contract", () => {
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_list");
   });
 });
+
+describe("the bundled scope at the IPC boundary", () => {
+  it("a bundled scope on a MUTATION throws — the programming-error backstop", async () => {
+    // The TS door never issues a bundled mutation (the editor routes
+    // bundled rows to the viewer; the Rust side owns the real refusal);
+    // this pin keeps the mapper's loud failure deliberate.
+    await expect(
+      saveSkill({ kind: "bundled" }, "artifacts", "x", true),
+    ).rejects.toThrow(/bundled skills ship with KeepDeck/);
+    await expect(
+      deleteSkill({ kind: "bundled" }, "artifacts"),
+    ).rejects.toThrow(/bundled skills ship with KeepDeck/);
+    await expect(
+      renameSkill({ kind: "bundled" }, "a", "b"),
+    ).rejects.toThrow(/bundled skills ship with KeepDeck/);
+    // Nothing crossed the wire (the list call is a prior test's residue —
+    // clear and assert from clean).
+    tauri.invoke.mockClear();
+    await expect(
+      saveSkill({ kind: "bundled" }, "artifacts", "x", true),
+    ).rejects.toThrow(/bundled skills ship with KeepDeck/);
+    expect(tauri.invoke).not.toHaveBeenCalled();
+  });
+
+  it("a bundled row ARRIVES from the wire and maps to the third kind", async () => {
+    tauri.invoke.mockResolvedValueOnce([
+      { scope: "bundled", wsId: null, name: "artifacts", content: "x" },
+      { scope: "global", wsId: null, name: "artifacts", content: "user's" },
+    ]);
+    const rows = await ipcSkillsStorage.fetch();
+    expect(rows[0].scope).toEqual({ kind: "bundled" });
+    expect(rows[1].scope).toEqual({ kind: "global" });
+    // Old-shape rows ride untouched — the union the editor sections on.
+    expect(rows).toHaveLength(2);
+  });
+});

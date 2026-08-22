@@ -66,6 +66,9 @@ export function createAgentOrchestratorRuntime(
   let booted = false;
   let scheduled = false;
   const { mcpAccess } = deps;
+  // Skills are resolved at plan mint: the staged view is frozen into the
+  // hook's output for that spawn, so a later gate flip affects only the next
+  // plan.
   const skillsAsk: StagedSkillsAsk = (workspace, landing) => () =>
     worktrees.skillsFor(workspace, landing);
 
@@ -188,6 +191,7 @@ export function createAgentOrchestratorRuntime(
     worktrees,
     isBlocked: runView.isBlocked,
     lifecycle,
+    dropArtifacts: deps.dropArtifacts,
   });
   const restart = createAgentOrchestratorRestart({
     deck,

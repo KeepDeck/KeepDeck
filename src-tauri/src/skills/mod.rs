@@ -23,6 +23,8 @@
 //! language sides).
 
 mod arming;
+mod bundled;
+mod gates;
 mod library;
 mod opencode;
 mod staging;
@@ -37,12 +39,47 @@ use std::path::{Path, PathBuf};
 pub use library::SkillDto;
 pub(crate) use library::require_safe;
 pub use staging::{SkillStagingDto, SkillsLocks};
+pub(crate) use bundled::BUNDLED;
+pub(crate) use gates::{GateKey, GateRegistry};
 
 /// Every skill in the library, global scope first, then workspaces, names
 /// alphabetical — a deterministic order the UI can render as-is.
 #[tauri::command(async)]
 pub fn skills_list() -> Result<Vec<SkillDto>, String> {
-    library::list(&skills_root()?).map_err(|e| e.to_string())
+    library::list(&skills_root()?, bundled::BUNDLED).map_err(|e| e.to_string())
+}
+
+/// The refusal rule's shared arm-check (design §4): a mutation naming a
+/// BUNDLED skill is decided by WHICH ROW EXISTS, here Rust-side — the
+/// raw-IPC layer has no row check of its own (the TS door's refusal
+/// alone leaks). Returns the tier's names for the caller's arm logic.
+fn bundled_names() -> impl Iterator<Item = &'static str> {
+    bundled::BUNDLED.iter().map(|skill| skill.name)
+}
+
+/// The teaching refusal for a bundled name with no library row — the
+/// sentence names the shadow path, so it teaches rather than blocks.
+fn bundled_teaching(name: &str) -> String {
+    format!(
+        "a bundled skill ships with the name {name:?} — create your own; \
+         the same name will shadow the bundled one for agents"
+    )
+}
+
+/// The three-arms gate for a mutation addressing `name` in one library
+/// scope. Arm 1: the user's row exists → normal CRUD (the bundled twin
+/// notwithstanding). Arm 2: no row + a bundled name → the teaching
+/// refusal (nothing of ours is editable). Arm 3 is the caller's
+/// (create) — it SUCCEEDS with a bundled name: the blessed shadow.
+fn bundled_arm_check(dir: &std::path::Path, name: &str) -> Result<(), String> {
+    let row_exists = dir.join(name).join(library::SKILL_FILE).exists();
+    if row_exists {
+        return Ok(());
+    }
+    if bundled_names().any(|bundled| bundled == name) {
+        return Err(bundled_teaching(name));
+    }
+    Ok(())
 }
 
 /// Write one skill's `SKILL.md` (content is composed and validated by the
@@ -57,10 +94,24 @@ pub fn skills_save(
     expect_new: bool,
 ) -> Result<(), String> {
     let root = skills_root()?;
+    if scope == "bundled" {
+        // The tier has no directory to write — the teaching text points
+        // at the copy-into-your-own flow (a scope:'bundled' ARGUMENT is
+        // always a door error, whatever the arms say about names).
+        return Err(
+            "bundled skills ship with KeepDeck and update with it — create your own in Global (the text is selectable, copy any part)".into(),
+        );
+    }
     let dir = library::scope_dir(&root, &scope, ws_id.as_deref())?;
     if expect_new {
+        // Arm 3: create with a bundled name SUCCEEDS — the shadow path.
         library::create(&dir, &name, &content).map_err(|e| e.to_string())
     } else {
+        // Arms 1/2 for updates: the row-existence check, THEN the save
+        // (the Rust save is an upsert with no row check of its own —
+        // without the gate a raw IPC update on a bundled name silently
+        // creates the shadow it should have refused to edit).
+        bundled_arm_check(&dir, &name)?;
         library::save(&dir, &name, &content).map_err(|e| e.to_string())
     }
 }
@@ -69,13 +120,23 @@ pub fn skills_save(
 #[tauri::command(async)]
 pub fn skills_delete(scope: String, ws_id: Option<String>, name: String) -> Result<(), String> {
     let root = skills_root()?;
+    if scope == "bundled" {
+        return Err(
+            "bundled skills ship with KeepDeck and update with it — nothing to delete here".into(),
+        );
+    }
     let dir = library::scope_dir(&root, &scope, ws_id.as_deref())?;
+    bundled_arm_check(&dir, &name)?;
     library::delete(&dir, &name).map_err(|e| e.to_string())
 }
 
 /// Rename one skill by moving its whole directory — assets travel with it,
 /// which a save-new-delete-old dance would silently drop. Refuses to move
-/// onto an existing skill.
+/// onto an existing skill. The bundled-name matrix (design §4): rename
+/// FROM an absent bundled name is arm 2 (nothing of ours to move);
+/// rename ONTO a bundled name is an authoring act — any-free-name
+/// semantics, SUCCEEDS (create-consistent; refusing it while create
+/// succeeds is the door-slam class).
 #[tauri::command(async)]
 pub fn skills_rename(
     scope: String,
@@ -84,7 +145,13 @@ pub fn skills_rename(
     to: String,
 ) -> Result<(), String> {
     let root = skills_root()?;
+    if scope == "bundled" {
+        return Err(
+            "bundled skills ship with KeepDeck and update with it — nothing to rename here".into(),
+        );
+    }
     let dir = library::scope_dir(&root, &scope, ws_id.as_deref())?;
+    bundled_arm_check(&dir, &from)?;
     library::rename(&dir, &from, &to).map_err(|e| e.to_string())
 }
 
@@ -95,12 +162,17 @@ pub fn skills_rename(
 #[tauri::command(async)]
 pub fn skills_stage(
     locks: tauri::State<'_, SkillsLocks>,
+    gates: tauri::State<'_, GateRegistry>,
     ws_id: String,
     roots: Vec<String>,
 ) -> Result<Option<SkillStagingDto>, String> {
     let root = skills_root()?;
     library::require_safe(&ws_id, "workspace id")?;
-    staging::stage(&locks, &root, &ws_id, &roots).map_err(|e| e.to_string())
+    // The composition root owns the feature dependency; this command sees a
+    // fresh bool from the registry and staging below stays artifacts-free.
+    let claimed = gates.resolve(GateKey::Artifacts);
+    staging::stage(&locks, &root, &ws_id, &roots, BUNDLED, claimed)
+        .map_err(|e| e.to_string())
 }
 
 /// Remove KeepDeck's `.agents/skills` symlinks from the given spawn cwds —
@@ -181,11 +253,11 @@ mod tests {
         let (_tmp, root) = root();
         let shared = root.parent().unwrap().join("shared-cwd");
         fs::create_dir_all(&shared).unwrap();
-        save(&global(&root), "review", "x").unwrap();
+        save(&global(&root), "review", "---\ndescription: x\n---\nx\n").unwrap();
         let roots = vec![shared.to_string_lossy().into_owned()];
         let locks = SkillsLocks::default();
-        staging::stage(&locks, &root, "ws-live", &roots).unwrap().unwrap();
-        staging::stage(&locks, &root, "ws-dead", &roots).unwrap().unwrap();
+        staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
+        staging::stage(&locks, &root, "ws-dead", &roots, &[], false).unwrap().unwrap();
 
         // ws-dead crashed; ws-live still runs panes in the shared cwd. The
         // LINK survives (symlink_metadata, not exists(): the shared link
@@ -197,7 +269,7 @@ mod tests {
         assert!(armed_manifest(&root, "ws-live").exists());
 
         // And ws-live's next stage re-aims the surviving link at ITS view.
-        let views = staging::stage(&locks, &root, "ws-live", &roots).unwrap().unwrap();
+        let views = staging::stage(&locks, &root, "ws-live", &roots, &[], false).unwrap().unwrap();
         assert_eq!(
             fs::read_link(shared.join(".agents").join("skills")).unwrap(),
             PathBuf::from(&views.skills_dir),
@@ -208,9 +280,9 @@ mod tests {
     fn prune_disarms_a_crashed_workspaces_recorded_cwds() {
         let (_tmp, root) = root();
         let wt = fake_worktree(root.parent().unwrap());
-        save(&global(&root), "review", "x").unwrap();
+        save(&global(&root), "review", "---\ndescription: x\n---\nx\n").unwrap();
         let roots = vec![wt.to_string_lossy().into_owned()];
-        staging::stage(&SkillsLocks::default(), &root, "ws-9", &roots).unwrap().unwrap();
+        staging::stage(&SkillsLocks::default(), &root, "ws-9", &roots, &[], false).unwrap().unwrap();
         assert!(wt.join(".agents").join("skills").exists());
 
         // Boot after a crash: ws-9 is not in the restored deck.
@@ -223,5 +295,177 @@ mod tests {
     fn prune_on_a_fresh_home_is_a_no_op() {
         let (_tmp, root) = root();
         prune(&root, &["ws-1".into()]).unwrap();
+    }
+
+    // ---- the refusal rule's three arms (design §4) + the bundled
+    // staging half (both views AND the opencode command) ----
+    //
+    // The arm tests call the real COMMANDS, which resolve skills_root()
+    // through keepdeck_home() — a fresh tmp home per test by construction
+    // (paths.rs), so no harness here: no env, no lock, no restore guard.
+    // The day-one-shadow hazard the old isolation guarded against (a real
+    // home carrying a user-authored artifacts skill turning arm 3's
+    // create into a collision) is unreachable: this home is empty.
+
+    #[test]
+    fn tier_entries_materialize_identically_command_included() {
+        // The F-R1 pin: a bundled skill produces ALL views AND the
+        // opencode palette command — identically to a library skill.
+        let (_tmp, root) = root();
+        let tier = [crate::skills::bundled::BundledSkill {
+            name: "probe",
+            content: "---\nname: probe\ndescription: \"Probe: the tier\"\n---\nBody\n",
+            gate: None,
+        }];
+        let views = staging::stage(
+            &SkillsLocks::default(),
+            &root,
+            "ws-1",
+            &[],
+            &tier,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        // All three views carry the skill.
+        for dir in [
+            PathBuf::from(&views.claude_plugin_dir).join("skills"),
+            PathBuf::from(&views.skills_dir),
+            PathBuf::from(&views.opencode_config_dir).join("skills"),
+        ] {
+            assert!(dir.join("probe").join(library::SKILL_FILE).exists());
+        }
+        // The palette command exists and its description comes from the
+        // constant's frontmatter, pointing at the staged SKILL.md.
+        let command = std::fs::read_to_string(
+            PathBuf::from(&views.opencode_config_dir)
+                .join("command")
+                .join("probe.md"),
+        )
+        .unwrap();
+        assert!(
+            command.starts_with("---\ndescription: \"Probe: the tier\"\n---"),
+            "the command's description is the constant's own (frontmatter lifted verbatim, quoting intact): {command}"
+        );
+        assert!(command.contains("skills/probe/SKILL.md"));
+        // The byte pin: the staged SKILL.md IS the constant's bytes —
+        // drift between the tier and any view is a contract break.
+        for dir in [
+            PathBuf::from(&views.claude_plugin_dir).join("skills"),
+            PathBuf::from(&views.skills_dir),
+            PathBuf::from(&views.opencode_config_dir).join("skills"),
+        ] {
+            let staged = std::fs::read(dir.join("probe").join(library::SKILL_FILE)).unwrap();
+            assert_eq!(
+                staged,
+                tier[0].content.as_bytes(),
+                "staged bytes == constant bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn the_three_refusal_arms_rust_side() {
+        std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
+        let global_dir = skills_root().unwrap().join("library").join("global");
+
+        // Arm 3: CREATE with a bundled name SUCCEEDS — the blessed shadow.
+        skills_save(
+            "global".into(),
+            None,
+            "artifacts".into(),
+            "user's own copy".into(),
+            true,
+        )
+        .unwrap();
+        assert!(global_dir.join("artifacts").join(library::SKILL_FILE).exists());
+
+        // Arm 1: UPDATE on the existing (user) row → normal CRUD.
+        skills_save(
+            "global".into(),
+            None,
+            "artifacts".into(),
+            "edited".into(),
+            false,
+        )
+        .unwrap();
+
+        // Arm 2: DELETE (the row exists) → normal CRUD; then a second
+        // delete (row ABSENT, bundled name) → the teaching refusal.
+        skills_delete("global".into(), None, "artifacts".into()).unwrap();
+        let refusal = skills_delete("global".into(), None, "artifacts".into())
+            .unwrap_err();
+        assert!(
+            refusal.contains("bundled skill ships with the name"),
+            "the teaching refusal names the shadow path: {refusal}"
+        );
+
+        // The upsert hole stays closed: an UPDATE on an absent bundled
+        // name refuses rather than silently creating a row.
+        let upsert = skills_save(
+            "global".into(),
+            None,
+            "artifacts".into(),
+            "sneaky shadow".into(),
+            false,
+        )
+        .unwrap_err();
+        assert!(upsert.contains("bundled skill ships with the name"));
+        assert!(
+            !global_dir.join("artifacts").join(library::SKILL_FILE).exists(),
+            "no row was silently created"
+        );
+    }
+
+    #[test]
+    fn the_rename_matrix_for_bundled_names() {
+        std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
+        let global_dir = skills_root().unwrap().join("library").join("global");
+        library::save(&global_dir, "mine", "content").unwrap();
+
+        // Rename ONTO a bundled name (absent target): an authoring act —
+        // SUCCEEDS (any-free-name semantics, visible in the list).
+        skills_rename("global".into(), None, "mine".into(), "artifacts".into())
+            .unwrap();
+        assert!(global_dir.join("artifacts").join(library::SKILL_FILE).exists());
+        assert!(!global_dir.join("mine").exists());
+
+        // Rename FROM an absent bundled name → arm 2 teaching refusal.
+        library::delete(&global_dir, "artifacts").unwrap();
+        library::save(&global_dir, "other", "content").unwrap();
+        let refusal = skills_rename(
+            "global".into(),
+            None,
+            "artifacts".into(),
+            "other".into(),
+        )
+        .unwrap_err();
+        assert!(refusal.contains("bundled skill ships with the name"));
+    }
+
+    #[test]
+    fn a_bundled_scope_argument_refuses_with_the_teaching_text() {
+        let refusal = skills_save(
+            "bundled".into(),
+            None,
+            "anything".into(),
+            "content".into(),
+            true,
+        )
+        .unwrap_err();
+        assert!(
+            refusal.contains("bundled skills ship with KeepDeck"),
+            "the scope argument refuses with the copy-into-your-own teaching: {refusal}"
+        );
+        let del = skills_delete("bundled".into(), None, "anything".into()).unwrap_err();
+        assert!(del.contains("bundled skills ship with KeepDeck"));
+        let ren = skills_rename(
+            "bundled".into(),
+            None,
+            "a".into(),
+            "b".into(),
+        )
+        .unwrap_err();
+        assert!(ren.contains("bundled skills ship with KeepDeck"));
     }
 }

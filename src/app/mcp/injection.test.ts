@@ -159,12 +159,24 @@ describe("the MCP injection", () => {
     expect(plant).not.toHaveBeenCalled();
   });
 
-  it("takes a config straight back when Off landed while the write was queued", async () => {
+  it("waits for the Off cleanup before delivery resolves when the write was queued", async () => {
     // The write waits in the worktree owner's queue and can be a whole
     // teardown late. `retract()` reads the planted set and clears it, so a
     // root recorded after that read is one it never saw — the config would sit
     // in the user's directory naming a socket that is gone.
-    const retract = vi.fn(async (_roots: string[]) => true);
+    let releaseRetract!: () => void;
+    let retractStarted!: () => void;
+    const retractReady = new Promise<void>((resolve) => {
+      retractStarted = resolve;
+    });
+    const retractRelease = new Promise<void>((resolve) => {
+      releaseRetract = resolve;
+    });
+    const retract = vi.fn(async (_roots: string[]) => {
+      retractStarted();
+      await retractRelease;
+      return true;
+    });
     let release!: () => void;
     const queued = new Promise<void>((resolve) => {
       release = resolve;
@@ -184,6 +196,14 @@ describe("the MCP injection", () => {
     socket = null;
     await injection.retract(); // sees nothing planted yet
     release();
+    let delivered = false;
+    void delivering.then(() => {
+      delivered = true;
+    });
+    await retractReady;
+    await Promise.resolve();
+    expect(delivered).toBe(false);
+    releaseRetract();
     await delivering;
 
     expect(retract).toHaveBeenCalledWith(["/repo"]);

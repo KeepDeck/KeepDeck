@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SpawnMcpInput } from "@keepdeck/plugin-api";
 import { mcpArgs } from "./mcp";
 
@@ -46,6 +46,15 @@ describe("codex MCP overrides", () => {
     expect(mcpArgs(input(server('ev"il')))).toEqual([]);
     // ...and one bad name does not take its siblings with it.
     expect(mcpArgs(input(server("my.server"), server("keepdeck")))).toHaveLength(2);
+  });
+
+  it("logs a name codex skipped instead of silently dropping it", () => {
+    const warn = vi.fn();
+
+    expect(mcpArgs(input(server("my.server")), { warn })).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("skipping MCP server my.server"),
+    );
   });
 
   it("escapes what TOML cannot carry raw", () => {

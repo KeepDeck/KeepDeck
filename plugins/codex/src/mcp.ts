@@ -1,4 +1,8 @@
-import { mapMcpServers, type SpawnMcpInput } from "@keepdeck/plugin-api";
+import {
+  mapMcpServers,
+  type PluginLogger,
+  type SpawnMcpInput,
+} from "@keepdeck/plugin-api";
 
 /** One TOML basic string. Codex parses each `-c` value as TOML, so a path
  * with a quote or a backslash has to arrive escaped or the override is read
@@ -52,7 +56,10 @@ function tomlInlineTable(entries: [string, string][]): string {
  */
 const CODEX_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
 
-export const mcpArgs = (mcp: SpawnMcpInput | undefined): string[] =>
+export const mcpArgs = (
+  mcp: SpawnMcpInput | undefined,
+  logger?: Pick<PluginLogger, "warn">,
+): string[] =>
   mcp
     ? mapMcpServers(mcp.servers, {
         stdio: (server) =>
@@ -78,6 +85,11 @@ export const mcpArgs = (mcp: SpawnMcpInput | undefined): string[] =>
                       : []),
                   ]),
               ]
-            : [],
+            : (() => {
+                logger?.warn(
+                  `skipping MCP server ${server.name}: Codex names must match ${CODEX_SERVER_NAME}`,
+                );
+                return [];
+              })(),
       }).flat()
     : [];

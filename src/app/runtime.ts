@@ -33,6 +33,10 @@ import {
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
+import { createArtifactsPolicy } from "./artifacts/policy";
+import { registerArtifactCommands } from "./artifacts/artifactCommands";
+import { announceArtifact } from "./artifacts/producers";
+import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc/artifacts";
 import { createPaneAttribution } from "./paneAttribution";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
@@ -70,6 +74,11 @@ import { createAppWindowReportJournal } from "./windowReportJournal";
 import { createSkillsLibrary } from "./skillsLibrary";
 import { ipcSkillsStorage } from "../ipc/skillsStorage";
 import { createWorktreeManager, deckViewOf } from "./worktrees";
+import {
+  createMcpPlanting,
+  createSkillsStaging,
+  createWorktreePlantings,
+} from "./worktreePlantings";
 import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
@@ -142,6 +151,77 @@ export function createAppRuntime(
       }),
     },
   );
+  // Fleet artifacts: the enable policy (store + display server ride the
+  // one Rust pair) and the command registration, gated on BOTH edges —
+  // the artifacts setting AND the CONFIRMED mcp socket (the registry IS
+  // the MCP projection; the tools exist only while both hold). The
+  // disposer pattern makes re-registration idempotent on either edge.
+  // The enable's settled state: `null` = unknown/unsettled, `true` =
+  // confirmed by the backend, `false` = the last transition FAILED
+  // (contention, fault). The registration gate consumes this — a failed
+  // enable must RETRACT the tools even while the setting reads On,
+  // or the toggle advertises artifact tools that every call refuses.
+  let artifactsEnableOk: boolean | null = null;
+  const artifactsPolicy = createArtifactsPolicy(
+    {
+      artifacts: () => getSettings()?.artifacts ?? null,
+      subscribe: subscribeSettings,
+    },
+    { enable: artifactsEnable, disable: artifactsDisable },
+    (transition) => {
+      // A failed transition MUST be visible somewhere: the contention
+      // refusal ("owned by another KeepDeck process") would otherwise be
+      // dropped entirely — the toggle reads On while the store is
+      // claimed elsewhere, and the only symptom is every publish
+      // refusing. The log is the floor; the gate retraction (below) is
+      // the behavior; the ExperimentalSection surface is a graduation
+      // polish (the mcpStatus.error precedent).
+      artifactsEnableOk = transition.ok;
+      if (!transition.ok) {
+        log.warn(
+          "web:artifacts",
+          `artifacts ${transition.desired ? "enable" : "disable"} failed: ${transition.detail}`,
+        );
+      }
+      // Every claim flip changes the bundled skills staging gate — the
+      // tier's arming follows the claim, and the staging memo only
+      // invalidates on skill writes, so without this a flip leaves panes
+      // spawned after it on the PRE-flip views. TDZ-safe: report fires
+      // only from the policy's chain microtasks and createAppRuntime is
+      // synchronous — `worktrees` (bound later) exists before any report
+      // can run. Bare invalidate is verified sufficient: a cleared memo
+      // is a miss, the miss re-runs stageSkills.
+      worktrees.invalidateSkills();
+      reconcileArtifactCommands();
+    },
+  );
+  let disposeArtifactCommands: (() => void) | null = null;
+  const reconcileArtifactCommands = () => {
+    const shouldRun =
+      (getSettings()?.artifacts ?? false) &&
+      artifactsEnableOk === true &&
+      mcp.status().socket !== null;
+    if (shouldRun && disposeArtifactCommands === null) {
+      disposeArtifactCommands = registerArtifactCommands(
+        commands,
+        {
+          deck: () => deckStore.getSnapshot(),
+          announce: (event) =>
+            announceArtifact(event, {
+              workspaces: () => deckStore.getSnapshot().workspaces,
+            }),
+        },
+      );
+    } else if (!shouldRun && disposeArtifactCommands !== null) {
+      disposeArtifactCommands();
+      disposeArtifactCommands = null;
+    }
+  };
+  const stopArtifactWiring = [
+    subscribeSettings(reconcileArtifactCommands),
+    mcp.subscribe(reconcileArtifactCommands),
+  ];
+  reconcileArtifactCommands();
   const journalPersistence = createJournalPersistence(
     deckStore,
     deckPersistence,
@@ -253,6 +333,11 @@ export function createAppRuntime(
   const windowReportJournal = createAppWindowReportJournal(usageManager);
   const worktrees = createWorktreeManager(
     deckViewOf(() => deckStore.getSnapshot().workspaces),
+    (deck, inOrder) =>
+      createWorktreePlantings(deck, inOrder, {
+        skills: createSkillsStaging,
+        mcp: createMcpPlanting,
+      }),
   );
   // The library takes only the staleness half of the worktree manager: a write
   // has to drop the staged views the next pane spawn would inject.
@@ -284,6 +369,9 @@ export function createAppRuntime(
     worktrees,
     mcpAccess: (target) => mcp.access(target),
     lifecycle,
+    // Workspace deletion drops its artifact store — the deck model is the
+    // only knower of the live workspace set (Rust cannot derive it).
+    dropArtifacts: (wsId) => artifactDropWorkspace(wsId),
   });
   const application = createApplicationController({
     deck: deckStore,
@@ -392,6 +480,9 @@ export function createAppRuntime(
       worktreeSweeper.dispose();
       minimizePolicy.dispose();
       mail.dispose();
+      disposeArtifactCommands?.();
+      for (const stop of stopArtifactWiring) stop();
+      artifactsPolicy.dispose({ disable: true });
       mcp.dispose();
       journalPersistence.dispose();
       sessionBinding?.dispose();

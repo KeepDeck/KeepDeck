@@ -56,19 +56,22 @@ pub struct ChangelogEntry {
 }
 
 /// `changelog.json` on the release channel — a versioned envelope around the
-/// per-release list. Only `releases` is consumed; `schema`/`generatedAt` are
-/// read tolerantly so a future schema bump doesn't break an older client.
+/// per-release list. `schema` is CONSUMED (the reader asserts it knows the
+/// envelope generation — a future bump fails loudly instead of misreading);
+/// `generatedAt` rides the fetch log line, keeping it a live field.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ChangelogManifest {
     #[serde(default)]
-    #[allow(dead_code)]
     schema: u32,
     #[serde(default)]
-    #[allow(dead_code)]
     generated_at: Option<String>,
     #[serde(default)]
     releases: Vec<ChangelogEntry>,
 }
+
+/// The envelope generation this reader understands.
+const CHANGELOG_SCHEMA: u32 = 1;
 
 #[tauri::command]
 pub async fn app_update_check(
@@ -129,7 +132,14 @@ pub async fn app_update_check(
     // the docstring's "non-fatal" promise holds for every failure mode.
     let changelog = match tauri::async_runtime::spawn_blocking(move || {
         match fetch_changelog(&endpoint) {
-            Ok(entries) => entries,
+            Ok((entries, generated_at)) => {
+                log::info!(
+                    "changelog loaded ({} releases, generated {})",
+                    entries.len(),
+                    generated_at.as_deref().unwrap_or("—")
+                );
+                entries
+            }
             Err(error) => {
                 log::warn!("changelog unavailable: {error}");
                 Vec::new()
@@ -278,10 +288,23 @@ fn changelog_http_error(error: ureq::Error) -> String {
 /// Parse `changelog.json` into its release entries. Only `releases` is read;
 /// the envelope (`schema`, `generatedAt`) is tolerated so a future schema bump
 /// degrades to "no notes" rather than breaking older clients.
-fn parse_changelog(bytes: &[u8]) -> Result<Vec<ChangelogEntry>, String> {
+/// Parse the changelog envelope, asserting the reader understands its
+/// generation. Returns the release list and the envelope's `generatedAt`
+/// (the fetch's log line keeps that field live).
+fn parse_changelog(bytes: &[u8]) -> Result<(Vec<ChangelogEntry>, Option<String>), String> {
     let manifest: ChangelogManifest =
         serde_json::from_slice(bytes).map_err(|e| format!("changelog.json unreadable: {e}"))?;
-    Ok(manifest.releases)
+    // Consume the envelope: a schema generation this reader doesn't know
+    // means the release list may mean something else — refuse rather than
+    // misread. (Changelog is display-only, so on refusal the update check
+    // proceeds with empty notes — the caller's existing degradation.)
+    if manifest.schema > CHANGELOG_SCHEMA {
+        return Err(format!(
+            "changelog schema {} is newer than this build understands ({CHANGELOG_SCHEMA})",
+            manifest.schema
+        ));
+    }
+    Ok((manifest.releases, manifest.generated_at))
 }
 
 /// Fetch and parse the channel's accumulated changelog. The changelog is
@@ -290,7 +313,7 @@ fn parse_changelog(bytes: &[u8]) -> Result<Vec<ChangelogEntry>, String> {
 /// future hardening signs the changelog, a `changelog.sig` fetched alongside
 /// and `downloads::verify_minisign_bytes(&bytes, &sig, public_key)` here is
 /// the whole change — the DTO and UI stay as-is.
-fn fetch_changelog(endpoint: &str) -> Result<Vec<ChangelogEntry>, String> {
+fn fetch_changelog(endpoint: &str) -> Result<(Vec<ChangelogEntry>, Option<String>), String> {
     let json_url = sibling_url(endpoint, "changelog.json")?;
     let bytes = fetch_bytes(&json_url)?;
     parse_changelog(&bytes)
@@ -457,18 +480,21 @@ mod tests {
             {"version":"0.16.0","notes":"sixteen","date":"2026-07-20"},
             {"version":"0.15.0","notes":"fifteen"}
         ]}"#;
-        let entries = parse_changelog(json).unwrap();
+        let (entries, generated_at) = parse_changelog(json).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].version, "0.16.0");
         assert_eq!(entries[0].notes, "sixteen");
         assert_eq!(entries[0].date.as_deref(), Some("2026-07-20"));
         assert_eq!(entries[1].date, None);
+        // The envelope's generatedAt rides out — the fetch log line
+        // consumes it, keeping the field live.
+        assert_eq!(generated_at.as_deref(), Some("2026-07-22T10:00:00Z"));
     }
 
     #[test]
     fn parse_changelog_defaults_to_empty_releases() {
-        assert!(parse_changelog(b"{\"schema\":1}").unwrap().is_empty());
-        assert!(parse_changelog(b"{}").unwrap().is_empty());
+        assert!(parse_changelog(b"{\"schema\":1}").unwrap().0.is_empty());
+        assert!(parse_changelog(b"{}").unwrap().0.is_empty());
     }
 
     #[test]
@@ -476,6 +502,15 @@ mod tests {
         assert!(parse_changelog(b"not json").is_err());
         // `releases` must be a list when present.
         assert!(parse_changelog(b"{\"releases\":\"nope\"}").is_err());
+    }
+
+    #[test]
+    fn parse_changelog_refuses_a_schema_from_the_future() {
+        // The envelope's generation is CONSUMED, not tolerated away: a
+        // newer schema means the list may mean something else — refuse
+        // loudly (the caller degrades to empty notes, never misreads).
+        let err = parse_changelog(b"{\"schema\":2,\"releases\":[]}").unwrap_err();
+        assert!(err.contains("newer than this build"), "{err}");
     }
 
     #[test]

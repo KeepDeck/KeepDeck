@@ -17,24 +17,72 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-/// The home directory name per compile profile — siblings, not nested, so a
-/// bug-report zip of the release home carries no dev leftovers.
-const HOME_DIR: &str = if cfg!(debug_assertions) {
-    "keepdeck-dev"
-} else {
-    "keepdeck"
-};
-
 /// This build's home, by the precedence above. `None` only in degenerate
 /// environments with none of the variables — callers must treat that as "no
 /// persistence", never as an error.
+///
+/// TEST BUILDS (`cargo test`): the home is a fresh tmp dir per test, by
+/// construction — libtest spawns each test in its own thread, and the
+/// thread-local below owns a TempDir for that thread's life (self-cleaning
+/// at thread exit). A test binary can NEVER touch the real `keepdeck-dev`:
+/// the env override is not read for resolution under `cfg(test)`.
+///
+/// Tripwire: if `KEEPDECK_HOME` is set in a test run's environment, this
+/// panics with the remedy. A trip reports the PROCESS's state, not the
+/// offending test — under parallelism a leaking setter can burn
+/// home-resolving siblings (the env is process-global; fresh threads per
+/// test do NOT isolate it), which is acceptable precisely because the
+/// total-absence scan pin makes an in-tree setter unreachable. The only
+/// reachable trip sources (a shell export, out-of-tree mutation) deserve
+/// the full-suite red they produce. Degradation note: per-test isolation
+/// is the OBSERVED granularity on this harness (fresh thread per test,
+/// both modes, empirically pinned); a future pooling harness would
+/// degrade it to per-thread — fail-safe (bleed inside one thread's tmp
+/// home), never the real home.
 pub fn keepdeck_home() -> Option<PathBuf> {
+    #[cfg(test)]
+    {
+        if std::env::var_os("KEEPDECK_HOME").is_some() {
+            panic!(
+                "KEEPDECK_HOME is set in a test run — test homes are a fresh \
+                 tmp dir per test, by construction. To change the home, \
+                 change paths.rs, not the env. (Shell export? unset it: \
+                 `unsetenv KEEPDECK_HOME`.) See the tmp-home design note."
+            );
+        }
+        Some(test_home())
+    }
+    #[cfg(not(test))]
     home_from(
-        HOME_DIR,
+        // Sibling folders per profile (keepdeck vs keepdeck-dev), so a
+        // bug-report zip of the release home carries no dev leftovers.
+        // Inlined HERE, its only use — nothing home-flavored is
+        // addressable from a test build.
+        if cfg!(debug_assertions) { "keepdeck-dev" } else { "keepdeck" },
         std::env::var_os("KEEPDECK_HOME"),
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
     )
+}
+
+/// The per-test tmp home (test builds only). Lazy: the first home resolve
+/// on a thread creates the dir; the thread-local owns the TempDir, so it
+/// lives as long as the test thread and removes itself at thread exit —
+/// nothing drops early (the leaked-TempDir lesson), nothing leaks after.
+#[cfg(test)]
+fn test_home() -> PathBuf {
+    use std::cell::RefCell;
+    thread_local! {
+        static HOME: RefCell<Option<tempfile::TempDir>> = RefCell::new(None);
+    }
+    HOME.with(|cell| {
+        if cell.borrow().is_none() {
+            *cell.borrow_mut() = Some(
+                tempfile::tempdir().expect("creating the test tmp home failed"),
+            );
+        }
+        cell.borrow().as_ref().expect("just set").path().to_path_buf()
+    })
 }
 
 /// Where log files go: `<keepdeck_home>/logs`.
@@ -166,5 +214,26 @@ mod tests {
         // A relative root would resolve against each process's own cwd —
         // the app and the shim would disagree about the socket's location.
         assert_eq!(home_from("keepdeck", None, None, os("relative/home")), None);
+    }
+
+    #[test]
+    fn test_home_is_a_tmp_home_by_construction() {
+        let home = keepdeck_home().expect("test builds always have a tmp home");
+        assert!(
+            home.starts_with(std::env::temp_dir()),
+            "test home escaped the temp directory: {}",
+            home.display()
+        );
+    }
+
+    #[test]
+    fn test_homes_are_fresh_per_thread() {
+        let first = std::thread::spawn(|| keepdeck_home().expect("first test home"))
+            .join()
+            .expect("first home thread must finish");
+        let second = std::thread::spawn(|| keepdeck_home().expect("second test home"))
+            .join()
+            .expect("second home thread must finish");
+        assert_ne!(first, second, "test homes must not be shared across threads");
     }
 }

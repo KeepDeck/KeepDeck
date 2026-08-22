@@ -24,6 +24,11 @@ interface SkillEditorProps {
   /** The saved name an edit is anchored to (the header title). */
   savedName: string | null;
   scopeLabel: string;
+  /** Bundled skills use this same panel without exposing any write controls. */
+  readOnly?: boolean;
+  /** Optional bundled-skill guidance, kept outside the authored fields. */
+  readOnlyNotice?: string;
+  readOnlyHint?: string;
   /** The library's own draft shape, not a second declaration of it: what the
    * form holds is exactly what a write takes. `extraFrontmatter` rides along
    * unread — the library preserves whatever the stored file has, so nothing here
@@ -49,6 +54,9 @@ export function SkillEditor({
   creating,
   savedName,
   scopeLabel,
+  readOnly = false,
+  readOnlyNotice,
+  readOnlyHint,
   form,
   dirty,
   validation,
@@ -70,10 +78,13 @@ export function SkillEditor({
 
   return (
     <>
+      {readOnlyNotice && (
+        <p className="skills__readonly-note">{readOnlyNotice}</p>
+      )}
       <div className="skills__editor-head">
         <h3 className="skills__editor-title">
           {creating ? "New skill" : savedName}
-          {dirty && (
+          {!readOnly && dirty && (
             <span
               className="skills__dirty"
               title="Unsaved changes"
@@ -93,7 +104,11 @@ export function SkillEditor({
           className="form__input"
           ref={nameField}
           value={form.name}
-          onChange={(e) => onField("name", e.target.value)}
+          onChange={(e) => {
+            if (!readOnly) onField("name", e.target.value);
+          }}
+          readOnly={readOnly}
+          aria-readonly={readOnly}
           placeholder="kebab-case-name"
           spellCheck={false}
         />
@@ -122,13 +137,20 @@ export function SkillEditor({
           className="form__input skills__desc"
           rows={3}
           value={form.description}
-          onChange={(e) => onField("description", e.target.value)}
+          onChange={(e) => {
+            if (!readOnly) onField("description", e.target.value);
+          }}
+          readOnly={readOnly}
+          aria-readonly={readOnly}
           onKeyDown={(e) => {
             if (e.key === "Enter") e.preventDefault();
           }}
           placeholder="When should an agent reach for this skill"
           spellCheck={false}
         />
+        {readOnlyHint && (
+          <p className="skills__readonly-hint">{readOnlyHint}</p>
+        )}
         {validation.descriptionProblem === "empty" && (
           <div className="skills__hint">
             Required — agents pick skills by description, and some silently
@@ -149,12 +171,16 @@ export function SkillEditor({
         id="skill-body"
         className="skills__text"
         value={form.body}
-        onChange={(e) => onField("body", e.target.value)}
+        onChange={(e) => {
+          if (!readOnly) onField("body", e.target.value);
+        }}
+        readOnly={readOnly}
+        aria-readonly={readOnly}
         placeholder="What the agent reads when the skill triggers"
         spellCheck={false}
       />
 
-      {validation.vanished && (
+      {!readOnly && validation.vanished && (
         <div className="form__error">
           This skill was removed or renamed elsewhere. Copy anything you want to
           keep — saving it here would recreate a skill someone deleted.
@@ -162,23 +188,27 @@ export function SkillEditor({
       )}
       {/* Backend text, not authored copy — selectable so it can be copied into
           a bug report, unlike the fixed guidance in the fields above. */}
-      {error && <div className="form__error kd-selectable">{error}</div>}
-      <div className="skills__actions">
-        {!creating && (
-          <DestructiveButton onClick={onDelete} disabled={busy}>
-            Delete
-          </DestructiveButton>
-        )}
-        <span className="skills__actions-gap" />
-        <button
-          type="button"
-          className="form__create"
-          onClick={onSubmit}
-          disabled={!canSave || busy}
-        >
-          {creating ? "Create" : "Save"}
-        </button>
-      </div>
+      {!readOnly && error && (
+        <div className="form__error kd-selectable">{error}</div>
+      )}
+      {!readOnly && (
+        <div className="skills__actions">
+          {!creating && (
+            <DestructiveButton onClick={onDelete} disabled={busy}>
+              Delete
+            </DestructiveButton>
+          )}
+          <span className="skills__actions-gap" />
+          <button
+            type="button"
+            className="form__create"
+            onClick={onSubmit}
+            disabled={!canSave || busy}
+          >
+            {creating ? "Create" : "Save"}
+          </button>
+        </div>
+      )}
     </>
   );
 }

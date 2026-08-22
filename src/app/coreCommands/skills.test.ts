@@ -407,3 +407,24 @@ describe("arguments are read the same way as everywhere else in the set", () => 
     expect(skills.remove).not.toHaveBeenCalled();
   });
 });
+
+describe("the agent door's bundled negative pin", () => {
+  it("scopeOf REFUSES 'bundled' with the existing two-value error", async () => {
+    // The command door is library-scoped BY CONSTRUCTION (scope is a
+    // required arg and list filters); a speculative bundled scope gets
+    // the throw that names the legal values — pinned deliberate, not
+    // incidental (the agents' bundled surface is the staged briefing).
+    const { registry } = setup([workspace({})]);
+    const result = await registry.execute(
+      "skills.list",
+      { scope: "bundled" },
+      HOST,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toMatch(
+        /scope must be "global" or "workspace", not "bundled"/,
+      );
+    }
+  });
+});

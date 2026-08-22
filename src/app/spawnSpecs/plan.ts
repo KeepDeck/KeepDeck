@@ -6,6 +6,7 @@
 import type {
   AgentContribution,
   ForkPlanInput,
+  McpServerSpec,
   SpawnPlanInput,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
@@ -16,13 +17,35 @@ import {
   type SpawnPlanContext,
 } from "./plans";
 import { describeError, log } from "../../ipc/log";
-import type { SkillsStagingViews } from "../../ipc/skills";
-import type { McpAccess, McpAccessAsk } from "../mcp";
 import { execCovers } from "../../plugins/capabilities/execCovers";
 import { mintBridgeToken, mintMcpToken } from "../ids";
 import { postbackCount } from "../postbacks";
 import { peekPaneSpawnSpec } from "./cache";
 import type { SpawnPluginAccess } from "./index";
+
+/** The host facts this consumer needs from a spawning MCP feature. Structural
+ * on purpose: the feature's richer object remains assignable without making
+ * this plan builder import the feature module. */
+export interface McpAccess {
+  servers: McpServerSpec[];
+  deliver(): Promise<void>;
+}
+
+export interface McpAccessTarget {
+  agentType: string;
+  cwd: string;
+  workspaceId: string;
+  client: string;
+}
+
+export type McpAccessAsk = (target: McpAccessTarget) => Promise<McpAccess>;
+
+/** The staged views this consumer needs from the worktree owner. */
+export interface StagedSkillsViews {
+  claudePluginDir: string;
+  opencodeConfigDir: string;
+  skillsDir: string;
+}
 
 /** The pane-side facts a plan is built from — the hook input's shape minus
  * the resume session (that arrives with the resume request, not the pane). */
@@ -35,7 +58,7 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
    *
    * Named apart from the hook input's own `skills` (which carries the resolved
    * views) because this is the QUESTION, not the answer. */
-  stagedSkills?: () => Promise<SkillsStagingViews | null>;
+  stagedSkills?: () => Promise<StagedSkillsViews | null>;
   /** This pane's MCP access, asked for the same way and for the same reason:
    * the answer moves (the transport toggles, the user's set changes), so it
    * is a QUESTION the build asks, not a value the caller carries.

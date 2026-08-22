@@ -11,6 +11,7 @@ import { readDeck } from "./deckSurface";
 import type { DeckStore } from "./deckStore";
 import type { createPluginManager } from "./pluginManager";
 import type { SkillsLibrary } from "./skillsLibrary";
+import { openArtifactFromNotification } from "./artifacts/entryPoints";
 import {
   settingsSectionForNotification,
   shouldRevealPluginDock,
@@ -183,6 +184,22 @@ export function createApplicationController({
         }
         case "stats": {
           ui?.openUsage(notification.source.tab ?? null);
+          return;
+        }
+        case "artifacts": {
+          // The external destination: resolve the LIVE URL at click time
+          // (identifiers only — never a stored URL) and hand it to the
+          // system browser. Fallbacks and failures live in the helper:
+          // dead artifactId → the workspace index; unresolvable → a
+          // silent no-op, never an error dialog off a click.
+          void openArtifactFromNotification(
+            notification.source,
+            (workspace) =>
+              workspaceForNotification(
+                deck.getSnapshot().workspaces,
+                workspace,
+              ) !== null,
+          );
           return;
         }
         default: {

@@ -2,9 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SkillScope } from "../domain/skills";
 import { describeError, log } from "./log";
 
-/** One stored library skill (mirrors the Rust `SkillDto`). */
+/** One stored library skill (mirrors the Rust `SkillDto`). A `bundled`
+ * row is READ-ONLY: the tier ships with the app; mutations refuse
+ * Rust-side and this module's own mutation mapper throws on the scope
+ * (the programming-error backstop — the TS door never issues one). */
 export interface StoredSkill {
-  scope: "global" | "workspace";
+  scope: "global" | "workspace" | "bundled";
   wsId: string | null;
   name: string;
   content: string;
@@ -27,11 +30,19 @@ export interface SkillsStagingViews {
 /** A scope in the shape the wire carries. Typed as the stored row's own two
  * fields, not an inferred literal, so this and the domain's `skillScopeOf` —
  * which is exactly its inverse — cannot drift apart silently; the round trip is
- * pinned in this module's suite. */
-const wire = (scope: SkillScope): Pick<StoredSkill, "scope" | "wsId"> =>
-  scope.kind === "global"
+ * pinned in this module's suite. The MAPPING direction only: bundled rows
+ * arrive on reads and never leave — a bundled scope here is a programming
+ * error, thrown loudly (the Rust side owns the real refusal). */
+const wire = (scope: SkillScope): Pick<StoredSkill, "scope" | "wsId"> => {
+  if (scope.kind === "bundled") {
+    throw new Error(
+      "bundled skills ship with KeepDeck — mutations address your own library",
+    );
+  }
+  return scope.kind === "global"
     ? { scope: "global", wsId: null }
     : { scope: "workspace", wsId: scope.wsId };
+};
 
 /** The raw library read — THROWS on a backend error, for callers that must
  * tell "empty" from "unreachable" (a failed-save reload keeps its stale

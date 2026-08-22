@@ -1,6 +1,7 @@
 mod agents;
 mod apps;
 mod app_updater;
+mod artifacts;
 mod bridge;
 mod clipboard;
 mod codex_app_server;
@@ -8,6 +9,7 @@ mod containment;
 mod dnd;
 mod downloads;
 mod fswatch;
+mod fs_names;
 mod head_watch;
 mod kimi_usage;
 mod links;
@@ -98,6 +100,7 @@ pub fn run() {
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(history::HistoryIndex::default())
         .manage(session::SessionRegistry::default())
+        .manage(artifacts::ArtifactsState::new())
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
@@ -148,6 +151,12 @@ pub fn run() {
             // the app's lifetime.
             let bridge = bridge::start(app.handle())?;
             app.manage(bridge);
+            let gate_app = app.handle().clone();
+            app.manage(skills::GateRegistry::new(move || {
+                gate_app
+                    .state::<artifacts::ArtifactsState>()
+                    .is_claimed()
+            }));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -157,6 +166,14 @@ pub fn run() {
             app_updater::app_update_discard,
             agents::agents_detect,
             agents::agents_probe_version,
+            artifacts::artifacts_enable,
+            artifacts::artifacts_disable,
+            artifacts::artifact_publish,
+            artifacts::artifact_list,
+            artifacts::artifact_read,
+            artifacts::artifact_delete,
+            artifacts::artifact_resolve_urls,
+            artifacts::artifact_drop_workspace,
             bridge::bridge_nudge,
             bridge::bridge_pane_dir,
             bridge::bridge_reply,
@@ -287,6 +304,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn app_info_reports_crate_identity() {
@@ -295,5 +313,284 @@ mod tests {
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert!(!info.version.is_empty(), "version must not be empty");
         assert!(!info.updater, "dev builds must report the updater as absent");
+    }
+
+    // ── The wiring pin ──────────────────────────────────────────────
+    //
+    // The composition root is the one seam NO layer test reaches: cargo
+    // tests call command fns directly (State resolution never runs) and
+    // the TS suites mock the ipc boundary. A1 was exactly this —
+    // `manage(ArtifactsStore)` while every command waited on
+    // `State<ArtifactsState>` — runtime-dead, silently disarming every
+    // agent's skills on every spawn, invisible to both suites
+    // (learning/state-signature-reviews-include-manage-inventory).
+    //
+    // The pin scans OUR OWN SOURCE as text: every `State<T>` parameter
+    // anywhere under src/ must name a type the app manages. It fails
+    // loud on surprises (a parse that finds nothing is a failure, not a
+    // pass), so new syntax degrades into noise, never silence.
+    //
+    // Over-matching every fn signature — not just #[tauri::command] —
+    // is deliberate: the safe direction. A non-command `State<T>` is
+    // either managed (fine) or dead code the pin surfaces for free.
+
+    /// Types managed NOT as a `Type::new()` literal in the builder
+    /// chain but through a let binding in `setup` — the scan cannot
+    /// resolve those; each entry names its start-injected type.
+    /// KISS: explicit and reviewed beats binding resolution machinery.
+    const SETUP_MANAGED_TYPES: &[&str] = &[
+        // `let bridge = bridge::start(app.handle())?; app.manage(bridge);`
+        "Bridge",
+        // `app.manage(skills::GateRegistry::new(...));`
+        "GateRegistry",
+    ];
+
+    /// The final path segment of a type expression: `crate::artifacts::
+    /// ArtifactsState` → `ArtifactsState`; bare names pass through.
+    fn final_segment(ty: &str) -> &str {
+        ty.rsplit("::").next().unwrap_or(ty)
+    }
+
+    /// Every type expression appearing in a `State<...>` parameter in
+    /// `src`, both spellings (`State<'_, T>` and `State<T>`),
+    /// multiline-safe (signatures wrap across lines).
+    fn state_params(src: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        let bytes = src.as_bytes();
+        let mut i = 0;
+        while let Some(rel) = src[i..].find("State<") {
+            let start = i + rel;
+            // Skip string-ish false positives the cheap way: none exist
+            // in the sources (no `State<` inside literals today); the
+            // loud-failure rule below catches drift into one.
+            let mut depth = 0usize;
+            let mut j = start + "State".len();
+            let mut inner = String::new();
+            let mut closed = false;
+            while j < bytes.len() {
+                match bytes[j] {
+                    b'<' => {
+                        depth += 1;
+                        if depth == 1 {
+                            j += 1;
+                            continue;
+                        }
+                    }
+                    b'>' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            closed = true;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                if depth >= 1 {
+                    inner.push(bytes[j] as char);
+                }
+                j += 1;
+            }
+            assert!(
+                closed,
+                "wiring pin: unbalanced State<…> — new syntax? fail loud, not silent"
+            );
+            // `<'_, T>` → strip the lifetime to `T`; `State<crate::x::T>`
+            // keeps its path for final_segment() to normalize.
+            let inner = inner.trim();
+            let ty = inner
+                .strip_prefix("'_, ")
+                .or_else(|| inner.strip_prefix("'_ ,"))
+                .unwrap_or(inner)
+                .trim();
+            if !ty.is_empty() && !ty.starts_with('\'') {
+                found.push(ty.to_string());
+            }
+            i = start + "State".len();
+        }
+        found
+    }
+
+    /// Production source with `#[cfg(test)] mod … { … }` blocks removed:
+    /// tests quote the hunted syntax itself, and State resolution is a
+    /// production property. Brace-matched (strings containing braces
+    /// would fool it — none do in test-mod headers; loud failures
+    /// guard the edges).
+    fn strip_test_mods(src: &str) -> String {
+        let mut out = String::with_capacity(src.len());
+        let mut rest = src;
+        while let Some(rel) = rest.find("#[cfg(test)]") {
+            let cut = rel + "#[cfg(test)]".len();
+            out.push_str(&rest[..cut]);
+            rest = &rest[cut..];
+            // Skip attributes/comments to the `mod` keyword.
+            if let Some(mod_rel) = rest.find("mod ") {
+                let header_end = mod_rel + "mod ".len();
+                out.push_str(&rest[..header_end]);
+                rest = &rest[header_end..];
+                // The mod name, then the brace-opened body.
+                if let Some(brace) = rest.find('{') {
+                    let name = &rest[..brace];
+                    if name.trim_start_matches(|c: char| c.is_alphanumeric() || c == '_')
+                        .trim()
+                        .is_empty()
+                    {
+                        out.push_str(&rest[..=brace]);
+                        rest = &rest[brace + 1..];
+                        let mut depth = 1usize;
+                        let mut k = 0;
+                        while k < rest.len() && depth > 0 {
+                            match rest.as_bytes()[k] {
+                                b'{' => depth += 1,
+                                b'}' => depth -= 1,
+                                _ => {}
+                            }
+                            k += 1;
+                        }
+                        out.push_str("/* tests stripped */}");
+                        rest = &rest[k..];
+                        continue;
+                    }
+                }
+            }
+            // Not a mod-block shape (e.g. an attribute on a fn): keep
+            // scanning from after the attribute, cutting nothing.
+            out.push_str(rest);
+            break;
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// SOURCE-TREE ABSENCE: this walks only `src/**/*.rs`; it does not claim
+    /// to inspect every file under `src-tauri` or code outside the tree. No
+    /// source in this scanned tree may set or remove KEEPDECK_HOME. Test homes
+    /// are a fresh tmp dir per test by construction (paths.rs); the env
+    /// override is a production mechanism nobody mutates. This scan — the
+    /// wiring-pin pattern — makes an in-tree setter unreachable, which is what
+    /// keeps the keepdeck_home() tripwire's blast radius fair: every trip
+    /// source that can actually reach it (a shell export, out-of-tree
+    /// mutation) reports honest process state and deserves its red.
+    #[test]
+    fn nothing_sets_or_removes_keepdeck_home() {
+        let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders: Vec<String> = Vec::new();
+        let mut stack = vec![src_dir.clone()];
+        let mut scanned = 0usize;
+        while let Some(dir) = stack.pop() {
+            let entries = std::fs::read_dir(&dir)
+                .unwrap_or_else(|e| panic!("home pin: reading {dir:?}: {e}"));
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    scanned += 1;
+                    let src = std::fs::read_to_string(&path)
+                        .unwrap_or_else(|e| panic!("home pin: reading {path:?}: {e}"));
+                    // The matcher is intentionally same-line and literal: a
+                    // cheap source pin, not a Rust parser. A direct negative
+                    // setter test cannot live here because this scan reads
+                    // its own source and would report that test as a finding.
+                    for (idx, line) in src.lines().enumerate() {
+                        if line.contains("env::set_var")
+                            || line.contains("env::remove_var")
+                        {
+                            if line.contains("KEEPDECK_HOME") {
+                                offenders.push(format!(
+                                    "{}:{}: {}",
+                                    path.file_name().unwrap().to_string_lossy(),
+                                    idx + 1,
+                                    line.trim()
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(scanned > 50, "home pin: scanned too few files — the walk broke, fail loud");
+        assert!(
+            offenders.is_empty(),
+            "KEEPDECK_HOME must never be set or removed in-tree: test homes \
+             are a fresh tmp dir per test by construction (paths.rs). To \
+             change the home, change paths.rs, not the env.\n  {}",
+            offenders.join("\n  ")
+        );
+    }
+
+    #[test]
+    fn every_state_param_is_managed() {
+        let lib_src = include_str!("lib.rs");
+
+        // The managed set: builder-chain `.manage(Type…)` literals +
+        // the setup allowlist.
+        let mut managed: Vec<String> = Vec::new();
+        for line in lib_src.lines() {
+            if let Some(rest) = line.trim().strip_prefix(".manage(") {
+                let arg = rest.trim_end_matches(')').trim();
+                // `Type::new()` / `Type::default()` / `Type::name(args)`:
+                // the type is everything before the final `::`.
+                if let Some(pos) = arg.rfind("::") {
+                    managed.push(final_segment(&arg[..pos]).to_string());
+                } else {
+                    panic!(
+                        "wiring pin: .manage({arg}) is not a Type::… literal — \
+                         add it to SETUP_MANAGED_TYPES or teach the scan"
+                    );
+                }
+            }
+        }
+        managed.extend(SETUP_MANAGED_TYPES.iter().map(|s| s.to_string()));
+        assert!(
+            !managed.is_empty(),
+            "wiring pin: no .manage( lines found — scan broke, fail loud"
+        );
+
+        // The consumer set: every State<T> across src/**.rs.
+        let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut consumers: Vec<(String, String)> = Vec::new(); // (type, file)
+        let mut stack = vec![src_dir.clone()];
+        while let Some(dir) = stack.pop() {
+            let entries = std::fs::read_dir(&dir)
+                .unwrap_or_else(|e| panic!("wiring pin: reading {dir:?}: {e}"));
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let src = std::fs::read_to_string(&path)
+                        .unwrap_or_else(|e| panic!("wiring pin: reading {path:?}: {e}"));
+                    // Production code only: test modules quote the very
+                    // syntax this pin hunts (this test's own body
+                    // included), and State resolution is a runtime
+                    // property of production signatures.
+                    let prod = strip_test_mods(&src);
+                    for ty in state_params(&prod) {
+                        consumers.push((
+                            final_segment(&ty).to_string(),
+                            path.file_name().unwrap().to_string_lossy().into_owned(),
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            !consumers.is_empty(),
+            "wiring pin: no State<…> params found — scan broke, fail loud"
+        );
+
+        let mut unmanaged: Vec<String> = consumers
+            .iter()
+            .filter(|(ty, _)| !managed.contains(ty))
+            .map(|(ty, file)| format!("{ty} (in {file})"))
+            .collect();
+        if !unmanaged.is_empty() {
+            unmanaged.sort();
+            panic!(
+                "wiring pin: State<…> of unmanaged types — the A1 class. \
+                 Manage them in lib.rs or fix the signature:\n  {}",
+                unmanaged.join("\n  ")
+            );
+        }
     }
 }

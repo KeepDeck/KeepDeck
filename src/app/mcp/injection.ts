@@ -7,6 +7,8 @@
  * - the gate is the CONFIRMED transport status, never the setting. A pane
  *   handed a def for a socket that is down would spend its startup connecting
  *   to nothing and show a failed server instead of no server;
+ * - the gate is read at plan mint: an argv definition is frozen for that
+ *   spawn and cannot be repaired after the hook returns;
  * - the invocation is whatever the backend says it is
  *   ([`mcpConnectionCommand`]), never rebuilt here. The shim flag and the
  *   socket path have exactly one home, on the Rust side, and a second
@@ -100,7 +102,8 @@ export interface McpInjectionDeps {
    * other pane got, and the fix is the user's to make. */
   onRefused?: (refusals: { root: string; reason: string }[]) => void;
   /** Where the config DID land — so a refusal that no longer holds (the user
-   * moved their file away) stops being reported. */
+   * moved their file away) stops being reported. Also called after retract:
+   * roots whose refusal records leave with our config are no longer armed. */
   onArmed?: (roots: string[]) => void;
 }
 
@@ -166,7 +169,25 @@ export function createMcpInjection({
     // never saw, so the config would sit in the user's directory naming a
     // socket that is gone. Take it straight back instead.
     if (socket() === null) {
-      if (report.armed.length > 0) void retract(report.armed);
+      if (report.armed.length > 0) {
+        try {
+          const removed = await retract(report.armed);
+          if (!removed) {
+            log.warn(
+              "web:mcp",
+              `retracting configs after transport Off reported failure: ${report.armed.join(", ")}`,
+            );
+          }
+        } catch (error) {
+          // Delivery never rejects: the pane may still start without KeepDeck's
+          // servers, while the backend's armed manifest remains the sweep's
+          // recovery record.
+          log.warn(
+            "web:mcp",
+            `retracting configs after transport Off threw: ${describeError(error)}`,
+          );
+        }
+      }
       return;
     }
     for (const root of report.armed) planted.add(root);
@@ -224,6 +245,9 @@ export function createMcpInjection({
       // reads.
       planted.clear();
       await retract(roots);
+      // Retracting removes both records: the armed roots and their standing
+      // refusal entries. The onArmed name describes record scrubbing here,
+      // not only a successful write.
       onArmed(roots);
       onRefused([]);
     },

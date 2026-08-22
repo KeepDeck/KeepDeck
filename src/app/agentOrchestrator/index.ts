@@ -1,8 +1,7 @@
 import type { AgentRestartMode, ForkTarget } from "../../domain/agents";
-import type { SpawnPlan } from "../spawnSpecs";
+import type { McpAccessAsk, SpawnPlan } from "../spawnSpecs";
 import type { Pane, SpawnConfig, WorktreeTarget } from "../../domain/deck";
 import type { SessionHandle } from "../../domain/journal";
-import type { McpAccessAsk } from "../mcp";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { WorkspaceCreationResult } from "../deckActions";
 import type { DeckStore } from "../deckStore";
@@ -205,6 +204,9 @@ export interface AgentOrchestratorDeps {
    * delivery for a CLI that takes none. Empty while the transport is down. */
   mcpAccess: McpAccessAsk;
   lifecycle: PaneLifecyclePort;
+  /** Drop a closing workspace's artifact store (Rust cannot derive the
+   * live workspace set). Optional: absent in non-app tests. */
+  dropArtifacts?: (wsId: string) => Promise<void>;
 }
 
 export function createAgentOrchestrator(
