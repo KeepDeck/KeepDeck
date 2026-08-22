@@ -50,7 +50,17 @@ pub(super) fn serve_artifact(
     let csp = artifact_csp(&manifest.token, slug);
     let body: Vec<u8> = match manifest.format {
         ArtifactFormat::Html => {
-            with_live_refresh(&String::from_utf8_lossy(&bytes)).into_bytes()
+            let (page, placement) = with_live_refresh(&String::from_utf8_lossy(&bytes));
+            if matches!(placement, RefreshPlacement::Appended) {
+                // Served, not refused — but say so: a page that never
+                // closes its body is malformed enough that the author
+                // probably did not mean it, and the refresh sitting
+                // outside the body is the visible consequence.
+                log::warn!(
+                    "artifacts: {slug:?} has no </body>, refresh appended at the end"
+                );
+            }
+            page.into_bytes()
         }
         ArtifactFormat::Md => md_page(&manifest.title, &String::from_utf8_lossy(&bytes)).into_bytes(),
     };
@@ -200,11 +210,25 @@ fn live_refresh_snippet() -> String {
 /// page too malformed to close its body still gets served and still
 /// refreshes, because a display server that refuses to display is a
 /// worse failure than a script in an odd place.
-fn with_live_refresh(html: &str) -> String {
+/// Where the script ended up. Returned rather than logged from inside,
+/// so the builder stays a pure function of its input and the CALLER —
+/// which is the only place that knows WHICH artifact this is — owns the
+/// warning. The alternative, re-testing the page for `</body>` at the
+/// call site, would be a second site deciding the same thing, free to
+/// drift from this one without a test noticing.
+pub(super) enum RefreshPlacement {
+    BeforeBodyClose,
+    Appended,
+}
+
+fn with_live_refresh(html: &str) -> (String, RefreshPlacement) {
     let snippet = live_refresh_snippet();
     match html.rfind("</body>") {
-        Some(at) => format!("{}{snippet}{}", &html[..at], &html[at..]),
-        None => format!("{html}{snippet}"),
+        Some(at) => (
+            format!("{}{snippet}{}", &html[..at], &html[at..]),
+            RefreshPlacement::BeforeBodyClose,
+        ),
+        None => (format!("{html}{snippet}"), RefreshPlacement::Appended),
     }
 }
 
@@ -309,7 +333,8 @@ fn respond_csp(
 #[cfg(test)]
 mod tests {
     use super::{
-        live_refresh_snippet, strip_live_refresh, with_live_refresh, SUBSCRIPTION_SIGNATURE,
+        live_refresh_snippet, strip_live_refresh, with_live_refresh, RefreshPlacement,
+        SUBSCRIPTION_SIGNATURE,
     };
     use crate::skills::BUNDLED;
 
@@ -379,7 +404,8 @@ mod tests {
     /// subscriber, which is the guard's whole job.
     #[test]
     fn every_served_page_carries_exactly_one_live_subscription() {
-        let plain = with_live_refresh("<html><body><h1>report</h1></body></html>");
+        let (plain, placement) = with_live_refresh("<html><body><h1>report</h1></body></html>");
+        assert!(matches!(placement, RefreshPlacement::BeforeBodyClose));
         assert_eq!(
             plain.matches(SUBSCRIPTION_SIGNATURE).count(),
             1,
@@ -390,7 +416,7 @@ mod tests {
             "the script belongs at the end of the body, after the author's own",
         );
 
-        let legacy = with_live_refresh(&format!(
+        let (legacy, _) = with_live_refresh(&format!(
             "<html><body>{}</body></html>",
             live_refresh_snippet(),
         ));
@@ -410,9 +436,12 @@ mod tests {
     /// refreshes: refusing to display is the worse failure.
     #[test]
     fn a_page_without_a_body_close_is_still_served_subscribed() {
-        let served = with_live_refresh("<h1>fragment</h1>");
+        let (served, placement) = with_live_refresh("<h1>fragment</h1>");
         assert!(served.starts_with("<h1>fragment</h1>"));
         assert_eq!(served.matches(SUBSCRIPTION_SIGNATURE).count(), 1);
+        // The placement is REPORTED, not merely done: it is what lets the
+        // caller name the artifact in its warning without re-deciding.
+        assert!(matches!(placement, RefreshPlacement::Appended));
     }
 
     /// THE INVERTED SOURCE PIN — heir to the byte-pin this replaces.

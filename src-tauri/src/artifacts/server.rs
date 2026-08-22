@@ -578,12 +578,18 @@ fn subscribe(
 ) {
     // The SSE response: close-delimited (no Content-Length), the read
     // half ignored, writes event-driven.
-    // NO immediate event on subscribe: the page CANNOT know its own
-    // version (artifact bytes serve VERBATIM — no chrome injection), so
-    // the skill's snippet contract is "reload on ANY version event" — an
-    // immediate version would loop page→subscribe→reload forever. The
-    // fresh tab already holds latest content from its GET; the first
+    // NO immediate event on subscribe. The premise USED to be that html
+    // served verbatim, so nothing could ever tell the page its version;
+    // the server installs the refresh script now, and the conclusion is
+    // unchanged because the script is all that is installed — not a
+    // version number. The page still cannot know which version it is
+    // showing, so its contract remains "reload on ANY version event",
+    // and an immediate event would loop page→subscribe→reload forever.
+    // The fresh tab already holds latest content from its GET; the first
     // event it needs is the NEXT version.
+    // Injecting the version alongside the script would end that
+    // constraint — and would trade a one-line rule for a cache-coherence
+    // problem between the stored bytes and the number stamped into them.
     // (No ACAO header: absent ACAO already blocks cross-origin reads;
     // a fake value would read as a security property that isn't there.
     // Artifact-A-JS-reaching-B's stream is the per-artifact connect-src
