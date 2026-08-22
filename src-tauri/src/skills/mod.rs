@@ -298,30 +298,11 @@ mod tests {
     // staging half (both views AND the opencode command) ----
     //
     // The arm tests call the real COMMANDS, which resolve skills_root()
-    // from KEEPDECK_HOME — the env override IS the isolation (the real
-    // home may carry a user-authored artifacts skill: the day-one
-    // shadow, which would turn arm 3's create into a collision). The
-    // env is PROCESS-GLOBAL: the lock serializes the tests that touch
-    // it, so two isolated_homes never race one home over another.
-    static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn isolated_home(tag: &str) -> (std::sync::MutexGuard<'static, ()>, tempfile::TempDir) {
-        let guard = HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("KEEPDECK_HOME", dir.path().join(tag));
-        (guard, dir)
-    }
-
-    /// Drop the env override on scope exit: a leaked KEEPDECK_HOME
-    /// pointing into a deleted TempDir would poison every later
-    /// skills_root() call in this test binary — the next test author
-    /// should never inherit a silently-broken home.
-    struct HomeRestore;
-    impl Drop for HomeRestore {
-        fn drop(&mut self) {
-            std::env::remove_var("KEEPDECK_HOME");
-        }
-    }
+    // through keepdeck_home() — a fresh tmp home per test by construction
+    // (paths.rs), so no harness here: no env, no lock, no restore guard.
+    // The day-one-shadow hazard the old isolation guarded against (a real
+    // home carrying a user-authored artifacts skill turning arm 3's
+    // create into a collision) is unreachable: this home is empty.
 
     #[test]
     fn tier_entries_materialize_identically_command_included() {
@@ -382,8 +363,6 @@ mod tests {
 
     #[test]
     fn the_three_refusal_arms_rust_side() {
-        let (_guard, _dir) = isolated_home("arms");
-        let _restore = HomeRestore;
         std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
         let global_dir = skills_root().unwrap().join("library").join("global");
 
@@ -437,8 +416,6 @@ mod tests {
 
     #[test]
     fn the_rename_matrix_for_bundled_names() {
-        let (_guard, _dir) = isolated_home("rename");
-        let _restore = HomeRestore;
         std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
         let global_dir = skills_root().unwrap().join("library").join("global");
         library::save(&global_dir, "mine", "content").unwrap();

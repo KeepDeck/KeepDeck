@@ -448,6 +448,58 @@ mod tests {
         out
     }
 
+    /// TOTAL ABSENCE: no code under src-tauri may set or remove
+    /// KEEPDECK_HOME. Test homes are a fresh tmp dir per test by
+    /// construction (paths.rs); the env override is a production
+    /// mechanism nobody mutates. This scan — the wiring-pin pattern —
+    /// makes an in-tree setter unreachable, which is what keeps the
+    /// keepdeck_home() tripwire's blast radius fair: every trip source
+    /// that can actually reach it (a shell export, out-of-tree
+    /// mutation) reports honest process state and deserves its red.
+    #[test]
+    fn nothing_sets_or_removes_keepdeck_home() {
+        let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders: Vec<String> = Vec::new();
+        let mut stack = vec![src_dir.clone()];
+        let mut scanned = 0usize;
+        while let Some(dir) = stack.pop() {
+            let entries = std::fs::read_dir(&dir)
+                .unwrap_or_else(|e| panic!("home pin: reading {dir:?}: {e}"));
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    scanned += 1;
+                    let src = std::fs::read_to_string(&path)
+                        .unwrap_or_else(|e| panic!("home pin: reading {path:?}: {e}"));
+                    for (idx, line) in src.lines().enumerate() {
+                        if line.contains("env::set_var")
+                            || line.contains("env::remove_var")
+                        {
+                            if line.contains("KEEPDECK_HOME") {
+                                offenders.push(format!(
+                                    "{}:{}: {}",
+                                    path.file_name().unwrap().to_string_lossy(),
+                                    idx + 1,
+                                    line.trim()
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(scanned > 50, "home pin: scanned too few files — the walk broke, fail loud");
+        assert!(
+            offenders.is_empty(),
+            "KEEPDECK_HOME must never be set or removed in-tree: test homes \
+             are a fresh tmp dir per test by construction (paths.rs). To \
+             change the home, change paths.rs, not the env.\n  {}",
+            offenders.join("\n  ")
+        );
+    }
+
     #[test]
     fn every_state_param_is_managed() {
         let lib_src = include_str!("lib.rs");
