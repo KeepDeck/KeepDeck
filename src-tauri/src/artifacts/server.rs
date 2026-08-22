@@ -704,6 +704,39 @@ mod tests {
     // `Read` rides the file's own `use std::io::{...}` — no test re-import.
     use std::os::fd::AsRawFd as _;
 
+    /// Wait until `count` subscribers are REGISTERED for (ws, slug).
+    ///
+    /// Replaces a fixed sleep before every broadcast. The sleep was a
+    /// guess at how long the accept thread needs to write the SSE head
+    /// and push the entry, and a guess is a race by construction: on a
+    /// loaded machine — two cargo suites and a vitest run at once — the
+    /// broadcast went out before the subscription existed, reached
+    /// nobody, and the test failed with a 200 head and no version event.
+    /// Waiting for the FACT removes the window rather than widening it,
+    /// and costs a couple of milliseconds instead of a flat 150.
+    ///
+    /// Registration is the LAST thing `subscribe` does, after the head
+    /// is written — so once the entry is visible here, any broadcast
+    /// that follows will find it.
+    fn await_subscribers(server: &DisplayServer, ws: &str, slug: &str, count: usize) {
+        let key = (ws.to_string(), slug.to_string());
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let seen = {
+                let subs = server.shared.subs.lock().expect("subs poisoned");
+                subs.get(&key).map(|v| v.len()).unwrap_or(0)
+            };
+            if seen >= count {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{ws}/{slug}: {seen} of {count} subscribers registered within 5s",
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
     /// A live server over a real store root in a temp dir.
     fn fixture(tag: &str) -> (DisplayServer, ArtifactsStore, PathBuf, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
@@ -883,7 +916,7 @@ mod tests {
             format!("GET /a/{token}/live/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
         )
         .unwrap();
-        std::thread::sleep(Duration::from_millis(150));
+        await_subscribers(&server, "ws-1", "live", 1);
         // NO unsolicited version event: the fresh subscriber already
         // holds latest from its GET — an immediate version would loop
         // page→subscribe→reload forever with the snippet contract
@@ -918,8 +951,19 @@ mod tests {
                 format!("GET /a/{token}/pin/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
             )
             .unwrap();
-        std::thread::sleep(Duration::from_millis(150));
+        // BOTH tabs: the pinned one must be registered too, or "it
+        // received nothing" would be proving the wrong thing.
+        await_subscribers(&server, "ws-1", "pin", 2);
         broadcast_version_on(&server.shared_arc(), "ws-1", "pin", 2);
+        // KEPT, and not the race the readiness poll above removes: this
+        // waits on nothing that could be outrun. `broadcast_version_on`
+        // writes inline while holding the registry lock, so the sibling's
+        // bytes are already out when it returns, and the pinned tab is
+        // retained without a write at all. What follows is a NEGATIVE
+        // assertion — "the pinned tab received nothing" — and a negative
+        // has no fact to wait for, only a duration to grant. The 3s read
+        // windows below do the real proving; this is the settle before
+        // the write halves close.
         std::thread::sleep(Duration::from_millis(300));
         let _ = pinned.shutdown(std::net::Shutdown::Write);
         let _ = sibling.shutdown(std::net::Shutdown::Write);
@@ -952,7 +996,7 @@ mod tests {
             format!("GET /a/{token}/gone-later/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
         )
         .unwrap();
-        std::thread::sleep(Duration::from_millis(150));
+        await_subscribers(&server, "ws-1", "gone-later", 1);
         // The external rm: outside the server, outside the store.
         std::fs::remove_dir_all(root.join("ws/ws-1/gone-later")).unwrap();
         let _ = dir;
@@ -1044,7 +1088,7 @@ mod tests {
                 format!("GET /a/{token}/wedge/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
             )
             .unwrap();
-        std::thread::sleep(Duration::from_millis(150));
+        await_subscribers(&server, "ws-1", "wedge", 1);
         // Fill the wedged subscriber's small buffer: broadcasts until the
         // write timeout errors. Bounded by the work, not wall time.
         for i in 2..=40u64 {
@@ -1069,13 +1113,23 @@ mod tests {
                 .unwrap();
             broadcast_version_on(&server.shared_arc(), "ws-1", "wedge", i);
         }
-        std::thread::sleep(Duration::from_millis(200));
-        // The registry pruned the dead entry (or would on the next
-        // write); the proof of no-hang is that we GOT here.
-        let registry = server.shared.subs.lock().expect("subs poisoned");
-        let entries = registry.get(&("ws-1".to_string(), "wedge".to_string()));
-        let pinned = entries.map(|v| v.len()).unwrap_or(0);
-        drop(registry);
+        // The registry prunes the dead entry on a failing write; wait for
+        // THAT rather than for a duration — a fixed 200ms was a guess at
+        // how fast the last broadcast's write times out, and the guess is
+        // the only thing that could ever have made this test wrong. The
+        // proof of no-hang is that we GOT here at all.
+        let key = ("ws-1".to_string(), "wedge".to_string());
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let pinned = loop {
+            let seen = {
+                let registry = server.shared.subs.lock().expect("subs poisoned");
+                registry.get(&key).map(|v| v.len()).unwrap_or(0)
+            };
+            if seen <= 1 || std::time::Instant::now() >= deadline {
+                break seen;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        };
         assert!(pinned <= 1, "wedged entry pruned or pending prune: {pinned}");
         let _ = root;
         server.stop();
@@ -1110,7 +1164,7 @@ mod tests {
             format!("GET /a/{token}/gone/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
         )
         .unwrap();
-        std::thread::sleep(Duration::from_millis(150));
+        await_subscribers(&server, "ws-1", "gone", 1);
         store.delete("ws-1", "gone").unwrap();
         // The delete command's bye walk (mod.rs) — replicated here: the
         // server's own broadcast_bye.
@@ -1167,7 +1221,7 @@ mod tests {
             format!("GET /a/{token}/t/events HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes(),
         )
         .unwrap();
-        std::thread::sleep(Duration::from_millis(150));
+        await_subscribers(&server, "ws-1", "t", 1);
         server.stop();
         let mut raw = Vec::new();
         sub.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
