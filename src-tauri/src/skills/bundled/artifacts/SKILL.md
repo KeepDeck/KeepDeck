@@ -28,7 +28,7 @@ One self-contained file. It renders under a strict Content-Security-Policy on a 
 
 ## Publishing
 
-Call artifact_publish with a `path` to the file you wrote (preferred — the file must live INSIDE your pane's cwd, and its extension must match the declared format) or inline `content`. Give it a short lowercase `id` (dashes, e.g. `auth-flow`) — teammates reference artifacts by id in mail. `format` is `html` or `md` and is PINNED at first publish: a flip is refused; publish a new artifact instead.
+Call artifact_publish with a `path` to the file you wrote (preferred — the file must live INSIDE your pane's cwd, and the file must be `.html`) or inline `content`. Give it a short lowercase `id` (dashes, e.g. `auth-flow`) — teammates reference artifacts by id in mail. `format` is `html` — an artifact IS an html page, and anything else is refused at the door.
 
 Scripted callers (running a tool call from a script, not typing it): prefer
 `path` over `content` — a value computed in the script (a read piped into a
@@ -41,7 +41,7 @@ The result carries TWO urls — the artifact's and the workspace index. PRINT BO
 
 The FIRST publish of a new artifact opens in the user's browser automatically (they can turn that off). Later versions NEVER re-open a tab: the open page refreshes by itself.
 
-**Write no refresh script.** The server adds one when it serves your page — every page, both formats, nothing for you to include. Do not write your own `EventSource`, polling loop, or reload timer: yours would run ALONGSIDE the server's and reload the page twice.
+**Write no refresh script.** The server adds one when it serves your page — every page, nothing for you to include. Do not write your own `EventSource`, polling loop, or reload timer: yours would run ALONGSIDE the server's and reload the page twice.
 
 The contract the server installs, so you know what your page does: reload on `version`, and on `bye` or `error` close the stream and show a note that the server went away. It never reconnects — the loop guard is that the server sends no unsolicited version events, and a page-side reconnect-with-replay would break that. An EXPORTED page carries no refresh at all: its session URL is dead by design, so the server strips the script on the way out rather than hand the reader a page that announces a server it can never reach.
 

@@ -145,13 +145,13 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         name: "format",
         type: "string",
         required: true,
-        description: "html or md — pinned at first publish",
+        description: "html — an artifact is an html page",
       },
       {
         name: "path",
         type: "string",
         description:
-          "Preferred: a file you wrote (inside the pane's cwd) — .html/.md matching the format",
+          "Preferred: a file you wrote (inside the pane's cwd) — a .html file",
       },
       {
         name: "content",
@@ -177,7 +177,7 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
       }
       const format = str(args, "format");
       if (format === undefined || !isArtifactFormat(format)) {
-        throw new Error(`unknown format ${JSON.stringify(String(args.format))} — expected html or md`);
+        throw new Error(`unknown format ${JSON.stringify(String(args.format))} — artifacts are html pages`);
       }
       const path = str(args, "path");
       const content = str(args, "content");

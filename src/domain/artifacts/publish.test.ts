@@ -23,12 +23,12 @@ const names = (...taken: string[]): PublishDeps => {
 
 describe("explicit slug", () => {
   it("creates when the name is free", () => {
-    const plan = planPublish(null, { slug: "new-thing", title: "T", format: "md" }, names());
-    expect(plan).toEqual({ kind: "create", slug: "new-thing", format: "md" });
+    const plan = planPublish(null, { slug: "new-thing", title: "T", format: "html" }, names());
+    expect(plan).toEqual({ kind: "create", slug: "new-thing", format: "html" });
   });
 
   it("refuses an off-grammar slug", () => {
-    const plan = planPublish(null, { slug: "Bad_Slug", title: "T", format: "md" }, names());
+    const plan = planPublish(null, { slug: "Bad_Slug", title: "T", format: "html" }, names());
     expect(plan).toEqual({ kind: "error", reason: "invalid-slug" });
   });
 
@@ -41,30 +41,6 @@ describe("explicit slug", () => {
     expect(plan).toEqual({ kind: "append", slug: "auth-flow", nextVersion: 4 });
   });
 
-  it("refuses a format flip naming the original format", () => {
-    const plan = planPublish(
-      existing(),
-      { slug: "auth-flow", title: "T", format: "md" },
-      names("auth-flow"),
-    );
-    expect(plan).toEqual({
-      kind: "error",
-      reason: "format-pinned",
-      detail: "auth-flow is html; publish a new artifact for md",
-    });
-  });
-
-  it("creates when the explicit slug names a DIFFERENT artifact than `existing`", () => {
-    // The command layer passes the artifact this slug names (or null); an
-    // explicit slug pointing elsewhere is a fresh create, not a collision
-    // with the caller's own canvas.
-    const plan = planPublish(
-      existing(),
-      { slug: "other-thing", title: "T", format: "html" },
-      names("auth-flow"),
-    );
-    expect(plan).toEqual({ kind: "create", slug: "other-thing", format: "html" });
-  });
 });
 
 describe("minted slug", () => {
@@ -110,7 +86,7 @@ describe("minted slug", () => {
     // the format-pin refusal is explicit-slug-only. Pinned so a future
     // "clever" change to append-on-mint fails this line.
     const plan = planPublish(
-      existing({ format: "md" }),
+      existing({ format: "html" }),
       { title: "Auth Flow", format: "html" },
       names("auth-flow"),
     );

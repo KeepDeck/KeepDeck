@@ -13,16 +13,16 @@
  * `delete.ts` own the decisions; this file is the shared nouns.
  */
 
-/** The two formats an artifact exists in. Pinned at first publish — a
- * republish in the other format is a command error (the manifest carries
- * one format; the extension cross-check and the serving CSP both derive
- * from it, so a mid-chain flip would break both). */
-export type ArtifactFormat = "html" | "md";
+/** What an artifact is. One member, and still a named type: the format
+ * is written into every manifest, rides the wire and names the version
+ * files, so it stays a value that must be CHECKED rather than assumed. */
+export type ArtifactFormat = "html";
 
 /** Runtime guard for the JSON/Rust boundary — a type union cannot guard
- * an untrusted payload string. */
+ * an untrusted payload string, and "md" is now just another word that
+ * is not html. */
 export function isArtifactFormat(value: unknown): value is ArtifactFormat {
-  return value === "html" || value === "md";
+  return value === "html";
 }
 
 /**

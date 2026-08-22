@@ -13,9 +13,12 @@ import {
 } from "./model";
 
 describe("isArtifactFormat", () => {
-  it("accepts both formats and rejects everything else", () => {
+  it("accepts html and rejects everything else, md included", () => {
+    // Same guard, inverted on one word: md was a format and is now just
+    // another string that is not html — the door must say so rather than
+    // accept it and fail later, deeper.
     expect(isArtifactFormat("html")).toBe(true);
-    expect(isArtifactFormat("md")).toBe(true);
+    expect(isArtifactFormat("md")).toBe(false);
     expect(isArtifactFormat("pdf")).toBe(false);
     expect(isArtifactFormat("HTML")).toBe(false);
     expect(isArtifactFormat("")).toBe(false);

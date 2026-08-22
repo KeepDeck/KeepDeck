@@ -10,7 +10,7 @@
     "name": "explicit off-grammar slug → error",
     "existing": null,
     "taken": [],
-    "request": { "slug": "Bad_Slug", "title": "T", "format": "md" },
+    "request": { "slug": "Bad_Slug", "title": "T", "format": "html" },
     "expect": { "kind": "error", "errorContains": "slug" }
   },
   {
@@ -19,13 +19,6 @@
     "taken": ["auth-flow"],
     "request": { "slug": "auth-flow", "title": "T", "format": "html" },
     "expect": { "kind": "append", "slug": "auth-flow", "nextVersion": 4 }
-  },
-  {
-    "name": "explicit format flip → error naming the original",
-    "existing": { "slug": "auth-flow", "format": "html", "versionCount": 3 },
-    "taken": ["auth-flow"],
-    "request": { "slug": "auth-flow", "title": "T", "format": "md" },
-    "expect": { "kind": "error", "errorContains": "is html" }
   },
   {
     "name": "explicit slug naming another name than `existing` → create",
@@ -57,7 +50,7 @@
   },
   {
     "name": "mint onto a STRANGER's base → retry, never join (P1)",
-    "existing": { "slug": "auth-flow", "format": "md", "versionCount": 9 },
+    "existing": { "slug": "auth-flow", "format": "html", "versionCount": 9 },
     "taken": ["auth-flow"],
     "request": { "slug": null, "title": "Auth Flow", "format": "html" },
     "expect": { "kind": "create", "slug": "auth-flow-2" }
@@ -83,35 +76,35 @@
     "name": "title of pure punctuation → fallback base",
     "existing": null,
     "taken": [],
-    "request": { "slug": null, "title": "！！！", "format": "md" },
+    "request": { "slug": null, "title": "！！！", "format": "html" },
     "expect": { "kind": "create", "slug": "artifact" }
   },
   {
     "name": "unicode İ lowercases to i+combining-dot (full Unicode: the dot becomes a dash, both twins)",
     "existing": null,
     "taken": [],
-    "request": { "slug": null, "title": "İstanbul", "format": "md" },
+    "request": { "slug": null, "title": "İstanbul", "format": "html" },
     "expect": { "kind": "create", "slug": "i-stanbul" }
   },
   {
     "name": "kelvin sign K lowercases to k (full Unicode, both twins)",
     "existing": null,
     "taken": [],
-    "request": { "slug": null, "title": "\u212A", "format": "md" },
+    "request": { "slug": null, "title": "\u212A", "format": "html" },
     "expect": { "kind": "create", "slug": "k" }
   },
   {
     "name": "CJK title collapses to the fallback (no ascii survives)",
     "existing": null,
     "taken": [],
-    "request": { "slug": null, "title": "日本語のタイトル", "format": "md" },
+    "request": { "slug": null, "title": "日本語のタイトル", "format": "html" },
     "expect": { "kind": "create", "slug": "artifact" }
   },
   {
     "name": "emoji-only title → fallback (scalars, not UTF-16 units)",
     "existing": null,
     "taken": [],
-    "request": { "slug": null, "title": "🎉🎉🎉", "format": "md" },
+    "request": { "slug": null, "title": "🎉🎉🎉", "format": "html" },
     "expect": { "kind": "create", "slug": "artifact" }
   }
 ]

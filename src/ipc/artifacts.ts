@@ -27,7 +27,7 @@ export interface ArtifactPublishPayload {
   cwd: string | null;
   slug?: string;
   title: string;
-  format: "html" | "md";
+  format: "html";
   path?: string;
   content?: string;
   message?: string;
@@ -56,7 +56,7 @@ export interface PublishIpcResult {
 export interface ArtifactMetaRow {
   id: string;
   title: string;
-  format: "html" | "md";
+  format: "html";
   versionCount: number;
   updatedAt: number;
   lastAuthor: string;
@@ -76,7 +76,7 @@ export type ArtifactReadResult =
       id: string;
       version: number;
       title: string;
-      format: "html" | "md";
+      format: "html";
       content: string;
       authorLabel: string;
       at: number;
