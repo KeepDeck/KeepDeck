@@ -13,6 +13,7 @@
 
 pub mod arming;
 pub(crate) mod bridge;
+mod kimi;
 pub(crate) mod server;
 pub(crate) mod shim;
 
