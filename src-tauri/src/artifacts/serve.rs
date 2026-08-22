@@ -268,15 +268,45 @@ es.addEventListener("error",()=>{es.close();note();});})();
             })
             .collect();
         let lines: Vec<&str> = taught.content.lines().collect();
-        let start = lines
+        // Anchored on WHAT the block is, not where it sits: the EventSource
+        // line exists only inside the refresh contract, so the fence around
+        // it is the example — immune to section moves, renames and future
+        // html examples elsewhere in the document. Exactly one such block:
+        // a second contract in one document is the second-site drift the
+        // byte-contract exists to prevent.
+        let mut starts: Vec<usize> = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            if line.contains("EventSource(location.pathname") {
+                starts.push(index);
+            }
+        }
+        assert_eq!(
+            starts.len(),
+            1,
+            "the skill must teach exactly one refresh block"
+        );
+        let contract = starts[0];
+        // Any fence form opens the block (```, ```html, ```html + info
+        // string) — the boundary is structural, not syntactic, so an
+        // innocent fence-style edit cannot fail a byte-pin about refresh.js.
+        let start = lines[..contract]
             .iter()
-            .position(|line| line.trim() == "```html")
-            .expect("the skill's refresh example has an html fence");
+            .rposition(|line| line.trim_start().starts_with("```"))
+            .expect("the refresh block sits in a fence");
         let end = lines[start + 1..]
             .iter()
             .position(|line| line.trim() == "```")
             .map(|offset| start + 1 + offset)
-            .expect("the skill's refresh example closes its fence");
+            .expect("the refresh example closes its fence");
+        // The unambiguity argument ("the nearest opener above the contract
+        // is the block's own") holds only while the contract is INSIDE a
+        // fence — a signature line in prose with any block above it would
+        // pair the wrong fences and accuse refresh.js of a range it never
+        // touched. The containment is asserted, not assumed.
+        assert!(
+            contract > start && contract < end,
+            "the refresh contract must sit inside the fence the pin measures"
+        );
         let taught_lines: Vec<&str> = lines[start + 1..end]
             .iter()
             .map(|line| line.trim())
