@@ -268,15 +268,33 @@ es.addEventListener("error",()=>{es.close();note();});})();
             })
             .collect();
         let lines: Vec<&str> = taught.content.lines().collect();
-        let start = lines
+        // Anchored on WHAT the block is, not where it sits: the EventSource
+        // line exists only inside the refresh contract, so the fence around
+        // it is the example — immune to section moves, renames and future
+        // html examples elsewhere in the document. Exactly one such block:
+        // a second contract in one document is the second-site drift the
+        // byte-contract exists to prevent.
+        let mut starts: Vec<usize> = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            if line.contains("EventSource(location.pathname") {
+                starts.push(index);
+            }
+        }
+        assert_eq!(
+            starts.len(),
+            1,
+            "the skill must teach exactly one refresh block"
+        );
+        let contract = starts[0];
+        let start = lines[..contract]
             .iter()
-            .position(|line| line.trim() == "```html")
-            .expect("the skill's refresh example has an html fence");
+            .rposition(|line| line.trim() == "```html")
+            .expect("the refresh block sits in an html fence");
         let end = lines[start + 1..]
             .iter()
             .position(|line| line.trim() == "```")
             .map(|offset| start + 1 + offset)
-            .expect("the skill's refresh example closes its fence");
+            .expect("the refresh example closes its fence");
         let taught_lines: Vec<&str> = lines[start + 1..end]
             .iter()
             .map(|line| line.trim())
