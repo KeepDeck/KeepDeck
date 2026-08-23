@@ -7,101 +7,22 @@ import type {
   Disposable,
   DownloadState,
   FileOpenRequest,
-  FsEntry,
-  FsFile,
-  GitBranches,
-  GitChangedFile,
-  GitHistory,
-  GitStatus,
   PluginContext,
   PluginManifest,
   PluginSessionEvent,
-  SpeechCapture,
-  SpeechCaptureOptions,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { describeError } from "./errors";
+import { RemoteDownloadStream } from "./downloadStream";
+import { createGuestServices } from "./guestServices";
 import type { GuestRpc } from "./rpc";
 import {
   type WireAgentHistoryCall,
   type WireAgentLiveSessionsCall,
-  speechLevelChannel,
   type WireHookCall,
   type WireOpenCall,
   type WireSessionEvent,
 } from "./protocol";
-
-class RemoteDownloadIterator implements AsyncIterator<DownloadState> {
-  private value: DownloadState | null = null;
-  private readonly waiters: Array<(result: IteratorResult<DownloadState>) => void> = [];
-  private closed = false;
-
-  constructor(private readonly detach: () => void) {}
-
-  push(state: DownloadState): void {
-    if (this.closed) return;
-    const waiter = this.waiters.shift();
-    if (waiter) waiter({ done: false, value: state });
-    else this.value = state;
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    for (const pending of this.waiters.splice(0)) {
-      pending({ done: true, value: undefined });
-    }
-    this.detach();
-  }
-
-  next(): Promise<IteratorResult<DownloadState>> {
-    const value = this.value;
-    if (value) {
-      this.value = null;
-      return Promise.resolve({ done: false, value });
-    }
-    if (this.closed) return Promise.resolve({ done: true, value: undefined });
-    return new Promise((resolve) => this.waiters.push(resolve));
-  }
-
-  return(): Promise<IteratorResult<DownloadState>> {
-    this.value = null;
-    this.close();
-    return Promise.resolve({ done: true, value: undefined });
-  }
-}
-
-class RemoteDownloadStream implements AsyncIterable<DownloadState> {
-  private state: DownloadState | null = null;
-  private terminal = false;
-  private readonly readers = new Set<RemoteDownloadIterator>();
-
-  constructor(private readonly detach: () => void) {}
-
-  [Symbol.asyncIterator](): AsyncIterator<DownloadState> {
-    let reader!: RemoteDownloadIterator;
-    reader = new RemoteDownloadIterator(() => this.readers.delete(reader));
-    if (this.state) reader.push(this.state);
-    if (this.terminal) reader.close();
-    else this.readers.add(reader);
-    return reader;
-  }
-
-  push(state: DownloadState): void {
-    if (this.terminal) return;
-    this.state = state;
-    for (const reader of [...this.readers]) reader.push(state);
-    if (
-      state.phase === "completed" ||
-      state.phase === "cancelled" ||
-      state.phase === "failed"
-    ) {
-      this.terminal = true;
-      for (const reader of [...this.readers]) reader.close();
-      this.detach();
-    }
-  }
-}
 
 /** A guest context wired to a bridge, plus the sink the connection pumps
  * host-initiated `event` pushes into. */
@@ -518,156 +439,16 @@ export function buildGuestContext(
         ),
     },
 
-    services: {
-      sessions: {
-        spawn: (opts, onEvent) =>
-          (rpc.call("services.sessions.spawn", [opts]) as Promise<{ id: string }>).then(
-            ({ id }) => {
-              sessionListeners.set(id, onEvent);
-              // Flush anything that arrived before this listener existed.
-              const buffered = sessionBuffers.get(id);
-              if (buffered) {
-                sessionBuffers.delete(id);
-                for (const event of buffered) onEvent(event);
-              }
-              return {
-                id,
-                write: (data) =>
-                  rpc.call("services.sessions.write", [id, data]).then(noop),
-                resize: (cols, rows) =>
-                  rpc.call("services.sessions.resize", [id, cols, rows]).then(noop),
-                close: () => {
-                  sessionListeners.delete(id);
-                  return rpc.call("services.sessions.close", [id]).then(noop);
-                },
-              };
-            },
-          ),
-      },
-      ports: {
-        allocate: (key) =>
-          rpc.call("services.ports.allocate", [key]) as Promise<number>,
-      },
-      opener: {
-        openUrl: (url) => rpc.call("services.opener.openUrl", [url]).then(noop),
-        openPath: (path) => rpc.call("services.opener.openPath", [path]).then(noop),
-        openPathWith: (path, application) =>
-          rpc.call("services.opener.openPathWith", [path, application]).then(noop),
-      },
-      fs: {
-        readDir: (path) =>
-          rpc.call("services.fs.readDir", [path]) as Promise<FsEntry[]>,
-        readFile: (path, opts) =>
-          rpc.call("services.fs.readFile", [path, opts]) as Promise<FsFile>,
-        watch: (path, onChange) => remoteWatch("fs", path, onChange),
-      },
-      fsWrite: {
-        mkdir: (path) =>
-          rpc.call("services.fsWrite.mkdir", [path]) as Promise<void>,
-        copyFile: (src, dst) =>
-          rpc.call("services.fsWrite.copyFile", [src, dst]) as Promise<void>,
-        writeFile: (path, text) =>
-          rpc.call("services.fsWrite.writeFile", [path, text]) as Promise<void>,
-        appendLine: (path, line) =>
-          rpc.call("services.fsWrite.appendLine", [path, line]) as Promise<void>,
-      },
-      sqlite: {
-        query: (dbPath, sql, params) =>
-          rpc.call("services.sqlite.query", [dbPath, sql, params]) as Promise<
-            (string | null)[][]
-          >,
-      },
-      git: {
-        status: (repo) =>
-          rpc.call("services.git.status", [repo]) as Promise<GitStatus>,
-        diffFile: (repo, file, opts) =>
-          rpc.call("services.git.diffFile", [repo, file, opts]) as Promise<string>,
-        history: (repo, opts) =>
-          rpc.call("services.git.history", [repo, opts]) as Promise<GitHistory>,
-        branches: (repo) =>
-          rpc.call("services.git.branches", [repo]) as Promise<GitBranches>,
-        changedFiles: (repo, from, to) =>
-          rpc.call("services.git.changedFiles", [repo, from, to]) as Promise<
-            GitChangedFile[]
-          >,
-        watch: (repo, onChange) => remoteWatch("git", repo, onChange),
-      },
-      downloads: {
-        start: (request) => {
-          if (
-            downloadStreams.has(request.id)
-          ) {
-            throw new Error(`download id already used: ${request.id}`);
-          }
-          let stream!: RemoteDownloadStream;
-          stream = new RemoteDownloadStream(() => {
-            if (downloadStreams.get(request.id) === stream) {
-              downloadStreams.delete(request.id);
-            }
-          });
-          downloadStreams.set(request.id, stream);
-          void rpc.call("services.downloads.start", [request]).catch((error) => {
-            downloadStreams.delete(request.id);
-            stream.push({
-              id: request.id,
-              phase: "failed",
-              received: 0,
-              total: request.integrity?.bytes ?? null,
-              error: describeError(error),
-            });
-          });
-          return stream;
-        },
-        cancel: (id) => rpc.call("services.downloads.cancel", [id]).then(noop),
-        exists: (target, integrity) =>
-          rpc.call("services.downloads.exists", [target, integrity]) as Promise<boolean>,
-        remove: (target) =>
-          rpc.call("services.downloads.remove", [target]).then(noop),
-      },
-      clipboard: {
-        writeText: (text) =>
-          rpc.call("services.clipboard.writeText", [text]) as Promise<void>,
-        readText: () =>
-          rpc.call("services.clipboard.readText", []) as Promise<string>,
-      },
-      speech: {
-        engines: () =>
-          rpc.call("services.speech.engines", []) as ReturnType<
-            PluginContext["services"]["speech"]["engines"]
-          >,
-        async startCapture(onLevel) {
-          const id = nextRegId++;
-          const channel = speechLevelChannel(id);
-          if (onLevel) speechLevels.set(channel, onLevel);
-          try {
-            await rpc.call("services.speech.start", [id]);
-          } catch (error) {
-            speechLevels.delete(channel);
-            throw error;
-          }
-          let active = true;
-          const close = () => {
-            active = false;
-            speechLevels.delete(channel);
-          };
-          const capture: SpeechCapture = {
-            async stop(opts: SpeechCaptureOptions) {
-              if (!active) throw new Error("speech capture is already closed");
-              close();
-              return rpc.call("services.speech.stop", [id, opts]) as ReturnType<
-                SpeechCapture["stop"]
-              >;
-            },
-            async cancel() {
-              if (!active) return;
-              close();
-              await rpc.call("services.speech.cancel", [id]);
-            },
-          };
-          return capture;
-        },
-      },
-    },
+    services: createGuestServices({
+      rpc,
+      noop,
+      sessionListeners,
+      sessionBuffers,
+      remoteWatch,
+      downloadStreams,
+      speechLevels,
+      mintId: () => nextRegId++,
+    }),
 
     host: {
       settings: () =>
@@ -685,28 +466,46 @@ export function buildGuestContext(
     notify: (input) => void rpc.call("notify", [input]).catch(noop),
   };
 
-  /** Run one host-requested agent hook and post the mutated output back. */
-  async function runHook(callId: number, payload: unknown): Promise<void> {
-    const { agentId, hook, input, output } = payload as WireHookCall;
+  /**
+   * Answer ONE host-requested call. Every kind — hooks, history reads,
+   * live-session queries, file-open offers — owes the host exactly one reply
+   * on its own result path, whether the work succeeded or threw, and the
+   * reply itself is posted fire-and-forget because a host that has gone away
+   * must not strand the guest in turn. Only the path and the shape of a good
+   * answer differ, so those stay with the caller and the obligation lives
+   * here: a `run*` that forgot its catch would leave the host waiting for a
+   * reply that never comes, until a timeout it cannot explain.
+   */
+  async function answer(
+    path: string,
+    callId: number,
+    work: () => Promise<Record<string, unknown>>,
+  ): Promise<void> {
     try {
-      const fn = agentHooks.get(agentId)?.[hook as keyof AgentHooks];
-      if (!fn) throw new Error(`no ${hook} hook for agent "${agentId}"`);
-      await fn(input as never, output as never);
-      void rpc.call("agents.hookResult", [callId, { ok: true, output }]).catch(noop);
+      const value = await work();
+      void rpc.call(path, [callId, { ok: true, ...value }]).catch(noop);
     } catch (error) {
       void rpc
-        .call("agents.hookResult", [
-          callId,
-          { ok: false, error: describeError(error) },
-        ])
+        .call(path, [callId, { ok: false, error: describeError(error) }])
         .catch(noop);
     }
   }
 
+  /** Run one host-requested agent hook and post the mutated output back. */
+  function runHook(callId: number, payload: unknown): Promise<void> {
+    const { agentId, hook, input, output } = payload as WireHookCall;
+    return answer("agents.hookResult", callId, async () => {
+      const fn = agentHooks.get(agentId)?.[hook as keyof AgentHooks];
+      if (!fn) throw new Error(`no ${hook} hook for agent "${agentId}"`);
+      await fn(input as never, output as never);
+      return { output };
+    });
+  }
+
   /** Run one host-requested read against an agent's history provider. */
-  async function runHistory(callId: number, payload: unknown): Promise<void> {
+  function runHistory(callId: number, payload: unknown): Promise<void> {
     const { agentId, method, args } = payload as WireAgentHistoryCall;
-    try {
+    return answer("agents.historyResult", callId, async () => {
       const history = agentHistories.get(agentId);
       if (!history) throw new Error(`no history provider for agent "${agentId}"`);
       let value: unknown;
@@ -752,62 +551,30 @@ export function buildGuestContext(
         default:
           throw new Error(`unknown agent history method: ${String(method)}`);
       }
-      void rpc
-        .call("agents.historyResult", [callId, { ok: true, value }])
-        .catch(noop);
-    } catch (error) {
-      void rpc
-        .call("agents.historyResult", [
-          callId,
-          { ok: false, error: describeError(error) },
-        ])
-        .catch(noop);
-    }
+      return { value };
+    });
   }
 
   /** Run one host-requested live-sessions query and post the answer back. */
-  async function runLiveSessions(
-    callId: number,
-    payload: unknown,
-  ): Promise<void> {
+  function runLiveSessions(callId: number, payload: unknown): Promise<void> {
     const { agentId } = payload as WireAgentLiveSessionsCall;
-    try {
+    return answer("agents.liveResult", callId, async () => {
       const live = agentLive.get(agentId);
       if (!live) {
         throw new Error(`agent "${agentId}" declared no live-sessions capability`);
       }
-      const value = await live.list();
-      void rpc
-        .call("agents.liveResult", [callId, { ok: true, value }])
-        .catch(noop);
-    } catch (error) {
-      void rpc
-        .call("agents.liveResult", [
-          callId,
-          { ok: false, error: describeError(error) },
-        ])
-        .catch(noop);
-    }
+      return { value: await live.list() };
+    });
   }
 
   /** Run one host-requested file-open and post the boolean verdict back. */
-  async function runOpen(callId: number, payload: unknown): Promise<void> {
+  function runOpen(callId: number, payload: unknown): Promise<void> {
     const { handlerId, request } = payload as WireOpenCall;
-    try {
+    return answer("openers.openResult", callId, async () => {
       const open = openHandlers.get(handlerId);
       if (!open) throw new Error(`no file-open handler "${handlerId}"`);
-      const handled = await open(request);
-      void rpc
-        .call("openers.openResult", [callId, { ok: true, handled: handled === true }])
-        .catch(noop);
-    } catch (error) {
-      void rpc
-        .call("openers.openResult", [
-          callId,
-          { ok: false, error: describeError(error) },
-        ])
-        .catch(noop);
-    }
+      return { handled: (await open(request)) === true };
+    });
   }
 
   function dispatchEvent(channel: string, payload: unknown): void {
