@@ -495,6 +495,7 @@ fn handle_connection(mut stream: TcpStream, shared: Arc<Shared>) {
                     serve::serve_artifact(
                         &mut stream,
                         &shared.root,
+                        shared.port,
                         &ws,
                         &manifest,
                         slug,
@@ -834,17 +835,46 @@ mod tests {
         (status, headers, body.as_bytes().to_vec())
     }
 
-    /// The author's document reaches the reader untouched EXCEPT for the
-    /// live-refresh script the server installs — the one addition, and the
-    /// reason a page refreshes at all now that agents write no script.
-    /// Storage is still verbatim; this is a serve-time addition only.
+    /// The `connect-src` value, as the browser would read it.
+    fn connect_src(headers: &str) -> String {
+        let at = headers
+            .find("connect-src ")
+            .expect("the served CSP names connect-src");
+        let rest = &headers[at + "connect-src ".len()..];
+        rest.split(';').next().unwrap_or("").trim().to_string()
+    }
+
+    /// THE CSP PIN — a source-expression, not a spelling.
+    ///
+    /// Its ancestor asserted the header CONTAINED `connect-src /a/{token}/
+    /// {slug}/events` and passed for eight days while every browser
+    /// refused the subscription: a bare path is not a source-expression
+    /// (the grammar requires a host), so the directive named nothing and
+    /// blocked everything — including the artifact's own endpoint. A
+    /// containment check cannot see that; these assertions can.
     #[test]
     fn artifact_page_carries_the_path_pinned_csp_and_the_authors_bytes() {
         let (server, store, _root, _dir) = fixture("csp");
         let token = publish(&store, "auth-flow", b"<body><h1>v1</h1></body>");
         let (status, headers, body) = get(server.port(), &format!("/a/{token}/auth-flow"));
         assert!(status.starts_with("HTTP/1.1 200"), "{status}");
-        assert!(headers.contains(&format!("connect-src /a/{token}/auth-flow/events")), "{headers}");
+
+        let source = connect_src(&headers);
+        // The page subscribes to its own pathname + "/events"; the policy
+        // must name THAT url, absolutely.
+        assert_eq!(
+            source,
+            format!("http://127.0.0.1:{}/a/{token}/auth-flow/events", server.port()),
+            "connect-src must name the artifact's own events endpoint: {headers}",
+        );
+        // The regression itself: an origin is what makes it a source at
+        // all. A path-only value silently means "deny everything".
+        assert!(
+            source.starts_with("http://") && !source.starts_with('/'),
+            "a bare path is not a CSP source-expression: {source:?}",
+        );
+        // Still PINNED, not 'self': artifact A must not reach artifact B.
+        assert!(source.ends_with("/auth-flow/events"), "{source:?}");
         assert!(headers.contains("base-uri 'none'"));
         assert!(headers.contains("form-action 'none'"));
         assert!(headers.contains("referrer-policy: no-referrer"));

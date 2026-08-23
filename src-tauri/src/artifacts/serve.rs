@@ -11,13 +11,27 @@ use crate::artifacts::store::{read_version_bytes, ArtifactFormat, Manifest, stor
 
 const MIME_HTML: &str = "text/html";
 
-/// The per-artifact serving CSP — format-derived and PATH-PINNED: the
-/// artifact's own events endpoint is the one connectable URL (never
-/// `'self'` — artifact A's JS must not reach artifact B's endpoint even
-/// with a valid token).
-fn artifact_csp(token: &str, slug: &str) -> String {
+/// The artifact's own events endpoint, ABSOLUTE — what the page's
+/// subscription resolves to, and therefore what the policy must name.
+/// Deliberately NOT shared with the pin that checks it: a test spelling
+/// the url from this function would agree with a wrong one.
+fn events_url(port: u16, token: &str, slug: &str) -> String {
+    format!("http://127.0.0.1:{port}/a/{token}/{slug}/events")
+}
+
+/// The per-artifact serving CSP — PATH-PINNED: the artifact's own events
+/// endpoint is the one connectable URL (never `'self'` — artifact A's JS
+/// must not reach artifact B's endpoint even with a valid token).
+///
+/// The source MUST carry an origin. A bare path is not a
+/// source-expression — the grammar requires a host — so `connect-src
+/// /a/…/events` named nothing and blocked every subscription instead of
+/// pinning it. That shipped in the feature's first commit and refused
+/// live refresh in every browser until it was found.
+fn artifact_csp(port: u16, token: &str, slug: &str) -> String {
+    let events = events_url(port, token, slug);
     format!(
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src /a/{token}/{slug}/events; base-uri 'none'; form-action 'none'"
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src {events}; base-uri 'none'; form-action 'none'"
     )
 }
 
@@ -37,6 +51,7 @@ const INDEX_CSP: &str =
 pub(super) fn serve_artifact(
     stream: &mut TcpStream,
     root: &Path,
+    port: u16,
     ws: &str,
     manifest: &Manifest,
     slug: &str,
@@ -47,7 +62,7 @@ pub(super) fn serve_artifact(
         let _ = respond(stream, 404, MIME_HTML, b"version unavailable");
         return;
     };
-    let csp = artifact_csp(&manifest.token, slug);
+    let csp = artifact_csp(port, &manifest.token, slug);
     let body: Vec<u8> = {
         let ArtifactFormat::Html = manifest.format;
         {
