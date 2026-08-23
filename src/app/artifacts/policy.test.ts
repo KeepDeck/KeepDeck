@@ -106,13 +106,22 @@ describe("createArtifactsPolicy", () => {
     expect(t.calls).toEqual(["disable", "enable"]);
   });
 
-  it("dispose({disable}) queues a final disable behind an in-flight enable", async () => {
+  // THE LIFETIME PIN. Dispose runs from `beforeunload`, which fires on
+  // every window reload — an HMR reload in dev, a Cmd+R, a devtools
+  // reload — while the Rust process it would tear down is untouched.
+  // Disabling here killed a live display server, said goodbye to every
+  // open tab, and rebound on a fresh ephemeral port, so every url already
+  // printed into scrollback died with it. A real process exit needs no
+  // help: the store claim is an flock the kernel releases.
+  it("dispose NEVER disables — the server outlives the page", async () => {
     const t = transport();
     const settings = settingsPort(true);
     const policy = createArtifactsPolicy(settings, t, () => {});
-    policy.dispose({ disable: true });
     await flush();
-    expect(t.calls).toEqual(["enable", "disable"]);
+    policy.dispose();
+    await flush();
+    await flush(); // anything queued would have settled by now
+    expect(t.calls).toEqual(["enable"]);
   });
 
   it("dispose stops reconciling — later settings events do nothing", async () => {
@@ -126,7 +135,7 @@ describe("createArtifactsPolicy", () => {
     expect(t.calls).toEqual(["enable"]);
   });
 
-  it("drops a late report after dispose({disable})", async () => {
+  it("drops a late report after dispose", async () => {
     let releaseEnable!: (port: number) => void;
     const enable = vi.fn(
       () => new Promise<number>((resolve) => (releaseEnable = resolve)),
@@ -137,12 +146,12 @@ describe("createArtifactsPolicy", () => {
     const policy = createArtifactsPolicy(settings, { enable, disable }, report);
 
     await flush(); // the enable is now in flight
-    policy.dispose({ disable: true });
+    policy.dispose();
     releaseEnable(43119);
     await flush();
-    await flush(); // let the queued final disable settle too
+    await flush(); // anything queued would have settled by now
 
-    expect(disable).toHaveBeenCalledTimes(1);
+    expect(disable).not.toHaveBeenCalled();
     expect(report).not.toHaveBeenCalled();
   });
 });

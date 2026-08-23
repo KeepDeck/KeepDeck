@@ -34,23 +34,30 @@ export interface ArtifactsTransition {
 }
 
 export interface ArtifactsPolicy {
-  /** Stop reconciling. `disable: true` queues a FINAL disable onto the
-   * same chain — an in-flight enable settles first, so a disposed page
-   * can never leave the store claimed with nobody answering. The report
-   * callback is ignored after `dispose()`, so a late settlement cannot touch
-   * the torn-down runtime. */
-  dispose(options?: { disable?: boolean }): void;
+  /** Stop reconciling — and NOTHING else. It deliberately does not
+   * disable the backend: the display server's life follows the SETTING
+   * and the process, never the page. `beforeunload` fires on every window
+   * reload (every HMR reload in dev), so a final disable here tore down a
+   * live server, said goodbye to every open tab, and killed every url it
+   * had handed out — on a process that never went anywhere. A real exit
+   * needs no help: the store claim is an flock, released by the kernel.
+   * (The mcp policy keeps its final disable — its socket is a NAME on
+   * disk, which process death does leave behind.)
+   * The report callback is ignored after `dispose()`, so a late
+   * settlement cannot touch the torn-down runtime. */
+  dispose(): void;
 }
 
 /**
  * Reconcile the durable `artifacts` setting with the Rust store + display
  * server — the `createMcpServerPolicy` shape applied to the artifacts
  * feature: boot reconcile desired-vs-applied, enable/disable on every
- * toggle flip, serialized backend calls, epoch-guarded retry,
- * final-disable-on-dispose. The transport port is REQUIRED (the mcp
- * policy's own rule: the wiring site is the one owner of the ipc
- * binding). The report callback is ignored after `dispose()`, so a late
- * settlement cannot touch the torn-down runtime.
+ * toggle flip, serialized backend calls, epoch-guarded retry. Dispose
+ * stops reconciling and does NOT disable — see `ArtifactsPolicy.dispose`.
+ * The transport port is REQUIRED (the mcp policy's own rule: the wiring
+ * site is the one owner of the ipc binding). The report callback is
+ * ignored after `dispose()`, so a late settlement cannot touch the
+ * torn-down runtime.
  */
 export function createArtifactsPolicy(
   settings: ArtifactsSettingsPort,
@@ -111,23 +118,9 @@ export function createArtifactsPolicy(
   reconcile();
 
   return {
-    dispose(options = {}) {
+    dispose() {
       disposed = true;
       unsubscribe();
-      if (options.disable) {
-        // The final disable rides the existing chain: queueing it separately
-        // could let it overtake an in-flight enable and leave stale state.
-        chain = chain.then(async () => {
-          try {
-            await transport.disable();
-          } catch (e) {
-            log.warn(
-              "web:artifacts",
-              `final disable failed: ${describeError(e)}`,
-            );
-          }
-        });
-      }
     },
   };
 }
