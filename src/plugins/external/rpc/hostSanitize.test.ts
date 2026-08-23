@@ -69,6 +69,21 @@ describe("shortfall across the boundary", () => {
     }
   });
 
+  it("refuses a NEGATIVE measure — nothing falls short by less than nothing", () => {
+    expect(
+      sanitizeHistoryFacts({
+        cwd: "/repo",
+        shortfall: [{ kind: "parts", unreadableParts: -3 }],
+      }),
+    ).toBeNull();
+    expect(
+      sanitizeHistoryFacts({
+        cwd: "/repo",
+        shortfall: [{ kind: "bytes", size: 40, readBytes: -1 }],
+      }),
+    ).toBeNull();
+  });
+
   it("fails the WHOLE answer when one element is off-shape", () => {
     expect(
       sanitizeHistoryFacts({

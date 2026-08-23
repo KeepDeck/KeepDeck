@@ -193,10 +193,13 @@ export function requireLiveResult<T>(
   return result;
 }
 
-/** A finite number and nothing else — a measure that arrived as a string, a
- * NaN or an Infinity is not a measure. */
-function finite(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+/** A finite, non-negative number and nothing else. A measure that arrived as
+ * a string, a NaN or an Infinity is not a measure — and neither is a negative
+ * one: nothing here can be short by less than nothing, so the boundary
+ * refuses the impossible rather than passing it to a reader who would have to
+ * puzzle over it. */
+function measure(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 /** A realm's shortfall — every element rebuilt from its own kind's fields.
@@ -214,15 +217,15 @@ function sanitizeShortfall(value: unknown): Shortfall[] | null {
     const v = item as Record<string, unknown>;
     switch (v.kind) {
       case "bytes":
-        if (!finite(v.size) || !finite(v.readBytes)) return null;
+        if (!measure(v.size) || !measure(v.readBytes)) return null;
         result.push({ kind: "bytes", size: v.size, readBytes: v.readBytes });
         break;
       case "turns":
-        if (!finite(v.total) || !finite(v.returned)) return null;
+        if (!measure(v.total) || !measure(v.returned)) return null;
         result.push({ kind: "turns", total: v.total, returned: v.returned });
         break;
       case "parts":
-        if (!finite(v.unreadableParts)) return null;
+        if (!measure(v.unreadableParts)) return null;
         result.push({ kind: "parts", unreadableParts: v.unreadableParts });
         break;
       default:

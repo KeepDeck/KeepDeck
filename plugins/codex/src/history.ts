@@ -71,7 +71,7 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
     const entries = parseRollout(file.text ?? "")
       .slice(page.offset, page.offset + page.limit)
       .map((t) => ({ role: t.role, text: t.text }));
-    const shortfall = shortfallOfRead(file, BODY_CAP);
+    const shortfall = shortfallOfRead(file);
     return { entries, ...(shortfall ? { shortfall } : {}) };
   };
 

@@ -34,10 +34,19 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
 
   /** One page of turns WITH what the reading fell short by.
    *
-   * A part row that will not parse is a real loss and countable RIGHT HERE —
+   * A part row that will not PARSE is a real loss and countable right here —
    * no extra query, no total to know: the text of a shown turn simply has a
    * hole in it, and a hole inside a visible turn is the one shortfall a
    * reader would otherwise blame on the agent.
+   *
+   * Only the parse failure counts. `partText` answers `null` for three very
+   * different reasons — torn JSON, a part with no text to give (a tool call,
+   * a thinking step), and an empty string — and the last two are the store
+   * working normally. Counting all three would report thousands of "lost"
+   * parts for a tool-heavy session that lost nothing: a mark that cries on
+   * healthy data is worse than no mark, because it teaches the reader to
+   * ignore it. A row whose data is SQL NULL is not counted either — an empty
+   * envelope is not a damaged one.
    *
    * The row cap is the OTHER loss and is deliberately not claimed yet: this
    * read can see that the cap bit but not how much it hid, and a measure it
@@ -58,16 +67,19 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
     const byMessage = new Map<string, string[]>();
     let unreadableParts = 0;
     for (const [messageId, data] of parts) {
-      const text = data ? partText(data) : null;
-      if (!messageId) continue;
-      if (text === null) {
-        // Not every null is a loss: a tool call or a thinking step has no
-        // text to give. Only a row that FAILED to parse is one, and today
-        // `partText` collapses both into the same answer — so this counts
-        // the collapsed pair and narrows when the type is split.
+      if (!messageId || !data) continue;
+      // The parse is done HERE, not read off `partText`'s answer, because
+      // only this position can tell a torn row from a part that simply has
+      // no text. `partText` still decides what counts as text — the two
+      // answer different questions about the same row.
+      try {
+        JSON.parse(data);
+      } catch {
         unreadableParts += 1;
         continue;
       }
+      const text = partText(data);
+      if (text === null) continue;
       const list = byMessage.get(messageId) ?? [];
       list.push(text);
       byMessage.set(messageId, list);

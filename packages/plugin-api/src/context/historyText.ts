@@ -12,15 +12,17 @@ import type { Shortfall } from "./agents.ts";
  * rather than three times. `undefined` when nothing was missed: an absent
  * shortfall already spells that, and a second spelling would drift.
  *
- * The read length is the CAP, not the text's length: the text is UTF-16 by
- * the time a plugin holds it, and re-measuring it in bytes would cost a full
- * scan of the very megabytes the cap exists to bound. */
-export function shortfallOfRead(
-  file: { size: number; truncated: boolean },
-  cap: number,
-): Shortfall[] | undefined {
+ * Both numbers come FROM THE READ, never from the request. The host clamps a
+ * `maxBytes` to its own ceiling, so a plugin computing the length from what
+ * it asked for would overstate it precisely when it asked for too much — a
+ * false number in the field that exists to keep numbers honest. */
+export function shortfallOfRead(file: {
+  size: number;
+  truncated: boolean;
+  readBytes: number;
+}): Shortfall[] | undefined {
   if (!file.truncated) return undefined;
-  return [{ kind: "bytes", size: file.size, readBytes: Math.min(cap, file.size) }];
+  return [{ kind: "bytes", size: file.size, readBytes: file.readBytes }];
 }
 
 /** The text of a content-parts array, whatever the CLI's part dialect:

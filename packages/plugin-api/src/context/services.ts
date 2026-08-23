@@ -165,13 +165,21 @@ export type FsEntryKind = "file" | "dir" | "symlink";
 
 /** One file's contents. `text` is null when the file is binary (a NUL byte or
  * invalid UTF-8); `truncated` says the text stops at the read cap; `size` is
- * the file's full byte length regardless of the cap. */
+ * the file's full byte length regardless of the cap; `readBytes` is where the
+ * read actually stopped.
+ *
+ * `readBytes` is given rather than inferred: your `maxBytes` is a REQUEST, and
+ * the host clamps it to its own ceiling, so deriving the length from what you
+ * asked for overstates it for exactly the callers who asked too much. Both
+ * numbers are BYTES — `text.length` counts UTF-16 units and is a different
+ * measure entirely. */
 export interface FsFile {
   path: string;
   text: string | null;
   isBinary: boolean;
   size: number;
   truncated: boolean;
+  readBytes: number;
 }
 
 /** Read-only git state of the user's PROJECT repositories, gated by the `git`

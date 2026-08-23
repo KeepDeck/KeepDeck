@@ -18,6 +18,7 @@ const fsFile = (path: string, text: string): FsFile => ({
   isBinary: false,
   size: text.length,
   truncated: false,
+  readBytes: text.length,
 });
 
 function makeCtx(files: Record<string, FsFile>): PluginContext {

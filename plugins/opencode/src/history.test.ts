@@ -80,6 +80,30 @@ describe("opencode history", () => {
     expect(page.shortfall).toEqual([{ kind: "parts", unreadableParts: 1 }]);
   });
 
+  it("tool calls and thinking are NOT losses — a busy session reports none", async () => {
+    const text = (t: string) => JSON.stringify({ type: "text", text: t });
+    const tool = JSON.stringify({ type: "tool", tool: "bash" });
+    const thinking = JSON.stringify({ type: "thinking" });
+    const { ctx: c } = ctx([
+      [["m1", JSON.stringify({ role: "assistant" })]],
+      [
+        ["m1", tool],
+        ["m1", thinking],
+        ["m1", text("done")],
+        ["m1", tool],
+        ["m1", JSON.stringify({ type: "text", text: "  " })],
+      ],
+    ]);
+    const page = await opencodeHistory(c).transcriptPage!("ses_1", {
+      offset: 0,
+      limit: 10,
+    });
+    // Four of the five parts yielded no text, and NONE of them was lost —
+    // a mark that cried here would teach the reader to ignore it.
+    expect(page.entries).toEqual([{ role: "assistant", text: "done" }]);
+    expect(page.shortfall).toBeUndefined();
+  });
+
   it("a clean page carries no shortfall — absence is not an empty one", async () => {
     const text = (t: string) => JSON.stringify({ type: "text", text: t });
     const { ctx: c } = ctx([

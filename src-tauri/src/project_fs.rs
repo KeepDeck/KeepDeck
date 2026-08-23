@@ -87,7 +87,12 @@ pub enum FsKind {
 /// binary — a NUL byte or invalid UTF-8), so the common code-viewer path
 /// carries a plain string across the wire rather than a byte array. `size` is
 /// the file's FULL length; `truncated` says the returned text stops at the
-/// read cap.
+/// read cap; `read_bytes` says where it stopped.
+///
+/// `read_bytes` is REPORTED rather than left for the caller to infer. A caller
+/// knows only what it asked for, and the ask is clamped here — so inferring
+/// would overstate the read for exactly the callers who asked above the
+/// ceiling. The enforcer says what it actually did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FsFile {
@@ -96,6 +101,7 @@ pub struct FsFile {
     pub is_binary: bool,
     pub size: u64,
     pub truncated: bool,
+    pub read_bytes: u64,
 }
 
 /// List one directory's immediate children — non-recursive, one level. The
@@ -162,7 +168,8 @@ pub fn project_fs_read_file(
         .take(cap)
         .read_to_end(&mut buf)
         .map_err(|e| format!("cannot read: {e}"))?;
-    let truncated = size > buf.len() as u64;
+    let read_bytes = buf.len() as u64;
+    let truncated = size > read_bytes;
 
     // Binary detection, the git heuristic: a NUL byte means binary. Otherwise
     // try to decode UTF-8; invalid bytes are binary too (can't render as text).
@@ -181,6 +188,7 @@ pub fn project_fs_read_file(
         is_binary,
         size,
         truncated,
+        read_bytes,
     })
 }
 

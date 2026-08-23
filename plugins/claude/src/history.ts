@@ -136,7 +136,7 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
     const entries = parseTurns(file.text ?? "")
       .slice(page.offset, page.offset + page.limit)
       .map((t) => ({ role: t.role, text: t.text }));
-    const shortfall = shortfallOfRead(file, BODY_CAP);
+    const shortfall = shortfallOfRead(file);
     return { entries, ...(shortfall ? { shortfall } : {}) };
   };
   /** The slug dir's `sessions-index.json` firstPrompt for this session, run
@@ -282,7 +282,7 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       // Only THIS branch read the body, so only it may speak about it. The
       // fast path above returns without a shortfall — not because the file
       // is whole, but because it never looked.
-      const shortfall = shortfallOfRead(file, BODY_CAP);
+      const shortfall = shortfallOfRead(file);
       return {
         cwd: cwd || (cwdOf(text) ?? ""),
         title: summaryOf(text) ?? titleOf(parseTurns(text)),
