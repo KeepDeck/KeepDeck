@@ -142,13 +142,24 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
     for meta in store_meta(root, ws) {
         any = true;
         let slug = escape_html(&meta.id);
+        let token = escape_html(&meta.token);
+        // One link per version, newest first. `?v=` is the ONLY way a
+        // human opens an older version in a browser — agents have
+        // artifact_read, readers had nothing, and the route has parsed
+        // the pin since day one with no door in the product emitting it.
+        // Versions are dense 1..=count (the store's strict shape).
+        let versions = (1..=meta.version_count)
+            .rev()
+            .map(|n| format!("<a href=\"/a/{token}/{slug}?v={n}\">v{n}</a>"))
+            .collect::<Vec<_>>()
+            .join(" ");
         entries.push_str(&format!(
-            "<li><a href=\"/a/{token}/{slug}\">{title}</a> <small>v{n} · by {author}</small> · <a href=\"/a/{token}/{slug}/export\">export</a></li>",
-            token = escape_html(&meta.token),
+            "<li><a href=\"/a/{token}/{slug}\">{title}</a> <small>by {author}</small> · <small>{versions}</small> · <a href=\"/a/{token}/{slug}/export\">export</a></li>",
+            token = token,
             slug = slug,
             title = escape_html(&meta.title),
-            n = meta.version_count,
             author = escape_html(&meta.last_author),
+            versions = versions,
         ));
     }
     if !any {

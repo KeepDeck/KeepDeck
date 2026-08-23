@@ -1212,6 +1212,57 @@ mod tests {
         server.stop();
     }
 
+    /// THE `?v=` DOOR. The route has parsed the pin since the first
+    /// commit and the registry honours it, but nothing in the product
+    /// ever emitted such a url — a shipped server feature with no client
+    /// entry point, so version history was reachable by agents
+    /// (artifact_read) and by nobody else. The index is the door: one
+    /// link per version, and each one must actually serve THAT version.
+    #[test]
+    fn the_index_offers_a_working_link_per_version() {
+        let (server, store, _root, _dir) = fixture("versions");
+        let token = publish(&store, "many", b"<body>v1</body>");
+        for (n, body) in [(2u64, &b"<body>v2</body>"[..]), (3, &b"<body>v3</body>"[..])] {
+            store
+                .publish(
+                    &PublishIdentity {
+                        workspace_id: "ws-1".into(),
+                        pane_id: "p".into(),
+                        label: "l".into(),
+                    },
+                    PublishRequest {
+                        slug: Some("many"),
+                        title: "T",
+                        format: ArtifactFormat::Html,
+                        path: None,
+                        content: Some(body),
+                        message: None,
+                        cwd: None,
+                    },
+                    1000 + n,
+                )
+                .unwrap();
+        }
+        let index_url = server.compose_urls("ws-1", "many", &token).1;
+        let path = index_url.trim_start_matches("http://127.0.0.1:");
+        let path = path.trim_start_matches(&server.port().to_string());
+        let (_, _, body) = get(server.port(), path);
+        let listing = String::from_utf8_lossy(&body).into_owned();
+        for n in 1..=3 {
+            assert!(
+                listing.contains(&format!("/a/{token}/many?v={n}\">v{n}</a>")),
+                "the index must link version {n}:\n{listing}",
+            );
+        }
+        // Not decoration: the oldest link serves the OLDEST bytes, while
+        // the query-less title link stays latest.
+        let (_, _, pinned) = get(server.port(), &format!("/a/{token}/many?v=1"));
+        assert!(String::from_utf8_lossy(&pinned).contains("<body>v1"));
+        let (_, _, latest) = get(server.port(), &format!("/a/{token}/many"));
+        assert!(String::from_utf8_lossy(&latest).contains("<body>v3"));
+        server.stop();
+    }
+
     #[test]
     fn teardown_says_bye_before_the_socket_closes() {
         let (server, store, _root, _dir) = fixture("teardown");
