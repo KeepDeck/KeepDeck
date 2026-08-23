@@ -195,20 +195,6 @@ fn live_refresh_snippet() -> String {
     format!("<script>\n{LIVE_REFRESH_JS}</script>")
 }
 
-/// Put the live-refresh script into an author's html page.
-///
-/// UNCONDITIONAL — never skipped, so every served page subscribes.
-/// Detect-and-SKIP was refused and stays refused: the marker is content,
-/// these pages are frequently about KeepDeck, and a page quoting the
-/// block in a `<pre>` would read as subscribed and never refresh again.
-/// The caller instead STRIPS the author's copy first (script elements
-/// only — quoted prose survives), so being wrong costs a page one of its
-/// own scripts rather than its refresh.
-///
-/// Before `</body>` when there is one, appended when there is not: a
-/// page too malformed to close its body still gets served and still
-/// refreshes, because a display server that refuses to display is a
-/// worse failure than a script in an odd place.
 /// Where the script ended up. Returned rather than logged from inside,
 /// so the builder stays a pure function of its input and the CALLER —
 /// which is the only place that knows WHICH artifact this is — owns the
@@ -222,19 +208,29 @@ pub(super) enum RefreshPlacement {
 
 /// The serve-time page transform: cut the author's subscription, install
 /// ours. ONE function, so the pin exercises what the server does instead
-/// of re-assembling the two halves and drifting from it.
+/// of re-assembling the halves and drifting from it.
+///
+/// The install is UNCONDITIONAL — never skipped, so every served page
+/// subscribes. Detect-and-SKIP was refused and stays refused: the marker
+/// is content, these pages are frequently about KeepDeck, and a page
+/// quoting the block in a `<pre>` would read as subscribed and never
+/// refresh again. Cutting first is what makes the unconditional install
+/// safe (script elements only — quoted prose survives), so being wrong
+/// costs a page one of its own scripts rather than its refresh.
+///
+/// Before `</body>` when there is one, appended when there is not: a
+/// page too malformed to close its body still gets served and still
+/// refreshes, because a display server that refuses to display is a
+/// worse failure than a script in an odd place.
 fn live_page(html: &str) -> (String, RefreshPlacement) {
-    with_live_refresh(&strip_live_refresh(html))
-}
-
-fn with_live_refresh(html: &str) -> (String, RefreshPlacement) {
+    let authored = strip_live_refresh(html);
     let snippet = live_refresh_snippet();
-    match html.rfind("</body>") {
+    match authored.rfind("</body>") {
         Some(at) => (
-            format!("{}{snippet}{}", &html[..at], &html[at..]),
+            format!("{}{snippet}{}", &authored[..at], &authored[at..]),
             RefreshPlacement::BeforeBodyClose,
         ),
-        None => (format!("{html}{snippet}"), RefreshPlacement::Appended),
+        None => (format!("{authored}{snippet}"), RefreshPlacement::Appended),
     }
 }
 
