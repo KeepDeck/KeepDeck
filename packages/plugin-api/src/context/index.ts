@@ -16,6 +16,7 @@ export type {
   PluginAgents,
   RemoteScheme,
   ResumePlanInput,
+  Shortfall,
   SpawnPlanInput,
   SpawnPlanOutput,
   McpServerSpec,

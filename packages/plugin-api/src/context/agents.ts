@@ -241,6 +241,22 @@ export interface AgentSessionStub {
   size: number;
 }
 
+/** Why an answer is shorter than what exists. The measure is the domain's
+ * own vocabulary — a file is measured in bytes, a conversation in turns —
+ * so each kind carries ITS numbers, never one field repurposed across
+ * domains. An ARRAY because one read can fall short two ways at once (a
+ * loop that drops unreadable parts and then hits the size ceiling reports
+ * both). NEVER empty: an empty array would be a second spelling of
+ * "complete", and two spellings of one truth drift apart. Absent means no
+ * shortfall — AT THE TYPE LEVEL. On the Facts field the same absence means
+ * more (the reading may never have touched what it could have fallen short
+ * of); that finer signature lives on the FIELD's comment — do not merge the
+ * two wordings, the field's one is the load-bearing half. */
+export type Shortfall =
+  | { kind: "bytes"; size: number; readBytes: number }
+  | { kind: "turns"; total: number; returned: number }
+  | { kind: "parts"; unreadableParts: number };
+
 /** The fields worth OPENING a session for — fetched only for new/changed
  * stubs. */
 export interface AgentSessionFacts {
@@ -249,6 +265,12 @@ export interface AgentSessionFacts {
   /** The session's transcript file, when the store has one — carried
    * explicitly so consumers never infer it from the ref's shape. */
   transcriptPath?: string;
+  /** About the reading THIS describe made — never about the session as a
+   * whole. A fast-path describe that never read the body has nothing to say
+   * about it: absent means "this reading was complete OR stayed silent
+   * about what it did not do". A consumer who needs to tell those apart
+   * must know which reading it asked for. */
+  shortfall?: Shortfall[];
 }
 
 export interface AgentTranscriptEntry {
@@ -306,6 +328,17 @@ export interface AgentHistory {  /** Enumerate the whole store — stat-level, n
     ref: string,
     page: { offset: number; limit: number },
   ): Promise<AgentTranscriptEntry[]>;
+  /** One transcript page WITH its shortfall — the viewer shows the mark of
+   * ITS OWN reading, not a session-wide inherited one (a scan-born mark
+   * would describe yesterday's file). The legacy `transcript()` stays
+   * honest on its own — two honest contracts, not an old one and its
+   * replacement. No `complete` field on purpose: completeness is DERIVED
+   * (no shortfall ⇒ the page is whole), and a stored duplicate of a derived
+   * truth invites the two to disagree. Do not add it back. */
+  transcriptPage?(
+    ref: string,
+    page: { offset: number; limit: number },
+  ): Promise<{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }>;
 }
 
 export interface ForkPlanInput extends SpawnPlanInput {
