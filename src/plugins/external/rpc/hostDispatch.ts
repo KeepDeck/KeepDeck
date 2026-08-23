@@ -2,45 +2,41 @@ import type {
   AgentContribution,
   AgentHistory,
   AgentHooks,
-  AgentIcon,
-  AgentIconPath,
-  AgentLiveSession,
-  AgentSessionFacts,
-  AgentSessionStub,
-  AgentTranscriptEntry,
   Disposable,
-  DownloadRequest,
-  DownloadState,
-  DownloadTarget,
   DockTabContribution,
-  FsReadFileOptions,
-  GitDiffOptions,
-  GitHistoryOptions,
   PluginContext,
-  PluginSpawnOptions,
   SpeechCapture,
-  SpeechCaptureOptions,
   SettingsSectionContribution,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import {
   actionChannel,
   DECK_EVENT_CHANNELS,
-  downloadChannel,
-  fswatchChannel,
   historyChannel,
   hookChannel,
   livesessionsChannel,
   openChannel,
-  speechLevelChannel,
   type WireAgentHistoryCall,
   type WireAgentLiveSessionsCall,
   type WireHookCall,
   type WireOpenCall,
-  type WireSpawnPlanOutput,
 } from "./protocol";
 import { createHostSessions } from "./hostSessions";
 import { createHostSubscriptions } from "./hostSubscriptions";
+import { createServiceHandlers } from "./hostServices";
+import {
+  asRealmResult,
+  requireHistoryResult,
+  requireLiveResult,
+  sanitizeAgentIcon,
+  sanitizeHistoryContent,
+  sanitizeHistoryFacts,
+  sanitizeHistoryList,
+  sanitizeHistoryListing,
+  sanitizeHistoryTranscript,
+  sanitizeLiveSessions,
+  sanitizePlanOutput,
+} from "./hostSanitize";
 
 /**
  * The routing core of the host bridge: a flat `path → handler` table over the
@@ -515,165 +511,16 @@ export function createHostDispatch(
     // ---- the one teardown path shared by every registration kind ----
     "registrations.dispose": ([regId]) => disposeRegistration(regId as number),
 
-    // ---- services ----
-    "services.ports.allocate": ([key]) => ctx.services.ports.allocate(key as string),
-    "services.opener.openUrl": ([url]) => ctx.services.opener.openUrl(url as string),
-    "services.opener.openPath": ([path]) =>
-      ctx.services.opener.openPath(path as string),
-    "services.opener.openPathWith": ([path, application]) =>
-      ctx.services.opener.openPathWith(path as string, application as string),
-    "services.sessions.spawn": ([opts]) =>
-      sessions.spawn(opts as PluginSpawnOptions),
-    "services.sessions.write": ([id, data]) =>
-      sessions.write(id as string, data as string),
-    "services.sessions.resize": ([id, cols, rows]) =>
-      sessions.resize(id as string, cols as number, rows as number),
-    "services.sessions.close": ([id]) => sessions.close(id as string),
-    "services.fs.readDir": ([path]) => ctx.services.fs.readDir(path as string),
-    "services.fs.readFile": ([path, opts]) =>
-      ctx.services.fs.readFile(
-        path as string,
-        opts as FsReadFileOptions | undefined,
-      ),
-    // A watch is a subscription: the guest mints the id, the host holds the
-    // Disposable under it and pushes `fswatch:<id>` on each change.
-    "services.fs.watch": ([id, path]) => {
-      const key = id as number;
-      watches.get(key)?.dispose();
-      watches.set(
-        key,
-        ctx.services.fs.watch(path as string, () =>
-          push(fswatchChannel(key), undefined),
-        ),
-      );
-    },
-    "services.sqlite.query": ([dbPath, sql, params]) =>
-      ctx.services.sqlite.query(
-        dbPath as string,
-        sql as string,
-        params as string[] | undefined,
-      ),
-    "services.fsWrite.mkdir": ([path]) =>
-      ctx.services.fsWrite.mkdir(path as string),
-    "services.fsWrite.copyFile": ([src, dst]) =>
-      ctx.services.fsWrite.copyFile(src as string, dst as string),
-    "services.fsWrite.writeFile": ([path, text]) =>
-      ctx.services.fsWrite.writeFile(path as string, text as string),
-    "services.fsWrite.appendLine": ([path, line]) =>
-      ctx.services.fsWrite.appendLine(path as string, line as string),
-    "services.fs.unwatch": ([id]) => {
-      const key = id as number;
-      watches.get(key)?.dispose();
-      watches.delete(key);
-    },
-    "services.git.status": ([repo]) => ctx.services.git.status(repo as string),
-    "services.git.history": ([repo, opts]) =>
-      ctx.services.git.history(
-        repo as string,
-        opts as GitHistoryOptions | undefined,
-      ),
-    "services.git.branches": ([repo]) =>
-      ctx.services.git.branches(repo as string),
-    "services.git.changedFiles": ([repo, from, to]) =>
-      ctx.services.git.changedFiles(
-        repo as string,
-        from as string,
-        to as string | undefined,
-      ),
-    "services.git.diffFile": ([repo, file, opts]) =>
-      ctx.services.git.diffFile(
-        repo as string,
-        file as string,
-        opts as GitDiffOptions | undefined,
-      ),
-    // Git watches share the fs watches' plumbing: same guest-minted id space
-    // (one counter mints both), same retained-Disposable map, same
-    // `fswatch:<id>` push channel — a watch is a watch, only the backend
-    // differs.
-    "services.git.watch": ([id, repo]) => {
-      const key = id as number;
-      watches.get(key)?.dispose();
-      watches.set(
-        key,
-        ctx.services.git.watch(repo as string, () =>
-          push(fswatchChannel(key), undefined),
-        ),
-      );
-    },
-    "services.git.unwatch": ([id]) => {
-      const key = id as number;
-      watches.get(key)?.dispose();
-      watches.delete(key);
-    },
-    "services.downloads.start": ([raw]) => {
-      const request = raw as DownloadRequest;
-      const stream = ctx.services.downloads.start(request);
-      activeDownloads.add(request.id);
-      void (async () => {
-        try {
-          for await (const state of stream) {
-            push(downloadChannel(request.id), state);
-          }
-        } catch (error) {
-          const failed: DownloadState = {
-            id: request.id,
-            phase: "failed",
-            received: 0,
-            total: request.integrity?.bytes ?? null,
-            error: error instanceof Error ? error.message : String(error),
-          };
-          push(downloadChannel(request.id), failed);
-        } finally {
-          activeDownloads.delete(request.id);
-        }
-      })();
-    },
-    "services.downloads.cancel": ([id]) =>
-      ctx.services.downloads.cancel(id as string),
-    "services.downloads.exists": ([target, integrity]) =>
-      ctx.services.downloads.exists(
-        target as DownloadTarget,
-        integrity as DownloadRequest["integrity"],
-      ),
-    "services.downloads.remove": ([target]) =>
-      ctx.services.downloads.remove(target as DownloadTarget),
-    "services.speech.engines": () => ctx.services.speech.engines(),
-    "services.speech.start": async ([id]) => {
-      const key = id as number;
-      if (activeSpeechCaptures.has(key)) {
-        throw new Error(`speech capture id already active: ${key}`);
-      }
-      const capture = await ctx.services.speech.startCapture((level) =>
-        push(speechLevelChannel(key), level),
-      );
-      // The realm may have been disposed while the device was opening — its
-      // sweep already ran over a map this capture wasn't in yet. Storing it
-      // now would park a live microphone where nothing can ever cancel it
-      // (the built-in controller guards this same race; the RPC tier must
-      // too, since the app holds ONE capture slot process-wide).
-      if (disposed) {
-        void capture.cancel().catch(() => {});
-        throw new Error("plugin bridge disposed");
-      }
-      activeSpeechCaptures.set(key, capture);
-    },
-    "services.speech.stop": ([id, opts]) => {
-      const key = id as number;
-      const capture = activeSpeechCaptures.get(key);
-      if (!capture) throw new Error(`speech capture is not active: ${key}`);
-      activeSpeechCaptures.delete(key);
-      return capture.stop(opts as SpeechCaptureOptions);
-    },
-    "services.speech.cancel": ([id]) => {
-      const key = id as number;
-      const capture = activeSpeechCaptures.get(key);
-      if (!capture) return;
-      activeSpeechCaptures.delete(key);
-      return capture.cancel();
-    },
-    "services.clipboard.writeText": ([text]) =>
-      ctx.services.clipboard.writeText(text as string),
-    "services.clipboard.readText": () => ctx.services.clipboard.readText(),
+    // ---- services: a LIST, not logic — it lives in its own module ----
+    ...createServiceHandlers({
+      ctx,
+      push,
+      sessions,
+      watches,
+      activeDownloads,
+      activeSpeechCaptures,
+      isDisposed: () => disposed,
+    }),
 
     // ---- host facts ----
     "host.settings": () => ctx.host.settings(),
@@ -750,213 +597,3 @@ export function createHostDispatch(
   };
 }
 
-/**
- * Shape a realm's reply BEFORE it may settle a pending host→realm call. The
- * settle callbacks run after `clearTimeout` — a `result.ok` read throwing on
- * junk (`[id]` with no result, `null`, a primitive) would strand the pending
- * promise FOREVER, past the very timeout built to prevent hangs. So junk
- * becomes an explicit failure, and only a literal `ok: true` reaches `onOk`.
- */
-function asRealmResult<T extends { ok: true }>(
-  value: unknown,
-  onOk: (v: Record<string, unknown>) => T,
-): T | { ok: false; error: string } {
-  if (typeof value === "object" && value !== null) {
-    const v = value as Record<string, unknown>;
-    if (v.ok === true) return onOk(v);
-    if (v.ok === false) {
-      return {
-        ok: false,
-        error: typeof v.error === "string" ? v.error : "realm reported a failure",
-      };
-    }
-  }
-  return { ok: false, error: "malformed result from the realm" };
-}
-
-/** Accept a realm-supplied agent icon only in the contract's exact shape —
- * plain strings bound for SVG attributes; an off-shape layer drops, and an
- * icon with nothing left drops to `undefined` (no icon) rather than refusing
- * the registration. */
-function sanitizeAgentIcon(value: unknown): AgentIcon | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const v = value as Record<string, unknown>;
-  if (typeof v.viewBox !== "string" || !Array.isArray(v.paths))
-    return undefined;
-  const paths = v.paths.flatMap((layer): AgentIconPath[] => {
-    if (typeof layer !== "object" || layer === null) return [];
-    const l = layer as Record<string, unknown>;
-    if (typeof l.d !== "string") return [];
-    return [
-      {
-        d: l.d,
-        ...(typeof l.color === "string" ? { color: l.color } : {}),
-        ...(l.fillRule === "evenodd" ? { fillRule: l.fillRule } : {}),
-      },
-    ];
-  });
-  if (paths.length === 0) return undefined;
-  return { viewBox: v.viewBox, paths };
-}
-
-/** Validate a realm-returned plan output down to plain strings; `null` when
- * anything is off-shape. */
-function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
-  if (v.command !== null && typeof v.command !== "string") return null;
-  if (!Array.isArray(v.args) || !v.args.every((a) => typeof a === "string"))
-    return null;
-  if (
-    !Array.isArray(v.env) ||
-    !v.env.every(
-      (pair) =>
-        Array.isArray(pair) &&
-        pair.length === 2 &&
-        pair.every((x) => typeof x === "string"),
-    )
-  )
-    return null;
-  const pairs = (val: unknown): val is [string, string][] =>
-    Array.isArray(val) &&
-    val.every(
-      (pair) =>
-        Array.isArray(pair) &&
-        pair.length === 2 &&
-        pair.every((x) => typeof x === "string"),
-    );
-  if (v.envDefaults !== undefined && !pairs(v.envDefaults)) return null;
-  return {
-    command: v.command as string | null,
-    args: v.args as string[],
-    env: v.env as [string, string][],
-    ...(v.envDefaults !== undefined
-      ? { envDefaults: v.envDefaults as [string, string][] }
-      : {}),
-  };
-}
-
-function requireHistoryResult<T>(
-  method: WireAgentHistoryCall["method"],
-  value: unknown,
-  sanitize: (value: unknown) => T | null,
-): T {
-  const result = sanitize(value);
-  if (result === null)
-    throw new Error(`agent history ${method} returned malformed data`);
-  return result;
-}
-
-function sanitizeHistoryList(value: unknown): AgentSessionStub[] | null {
-  if (!Array.isArray(value)) return null;
-  const result: AgentSessionStub[] = [];
-  for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
-    if (
-      typeof v.sessionId !== "string" ||
-      typeof v.ref !== "string" ||
-      typeof v.mtime !== "number" ||
-      !Number.isFinite(v.mtime) ||
-      typeof v.size !== "number" ||
-      !Number.isFinite(v.size)
-    )
-      return null;
-    result.push({
-      sessionId: v.sessionId,
-      ref: v.ref,
-      mtime: v.mtime,
-      size: v.size,
-    });
-  }
-  return result;
-}
-
-/** A realm's `listing()` answer — the list sanitizer's shape plus the
- * integrity flag, which must be a LITERAL boolean: a hostile realm's
- * "complete": "yes" must fail the boundary, not read as a prune permit. */
-function sanitizeHistoryListing(
-  value: unknown,
-): { stubs: AgentSessionStub[]; complete: boolean } | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
-  if (typeof v.complete !== "boolean") return null;
-  const stubs = sanitizeHistoryList(v.stubs);
-  if (stubs === null) return null;
-  return { stubs, complete: v.complete };
-}
-
-/** A realm's live-sessions answer — rebuilt from known fields only, like
- * every other reply that crosses this boundary. Junk rows fail the WHOLE
- * answer (never a half-invented registry), and the optional strings drop
- * rather than pass through: a hostile realm's word about live processes
- * only ever gets to be plain data. */
-function sanitizeLiveSessions(value: unknown): AgentLiveSession[] | null {
-  if (!Array.isArray(value)) return null;
-  const result: AgentLiveSession[] = [];
-  for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
-    if (typeof v.sessionId !== "string" || typeof v.kind !== "string")
-      return null;
-    result.push({
-      sessionId: v.sessionId,
-      kind: v.kind,
-      ...(typeof v.name === "string" ? { name: v.name } : {}),
-      ...(typeof v.state === "string" ? { state: v.state } : {}),
-    });
-  }
-  return result;
-}
-
-function requireLiveResult<T>(
-  value: unknown,
-  sanitize: (value: unknown) => T | null,
-): T {
-  const result = sanitize(value);
-  if (result === null)
-    throw new Error("agent live-sessions returned malformed data");
-  return result;
-}
-
-function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
-  if (
-    typeof v.cwd !== "string" ||
-    (v.title !== undefined && typeof v.title !== "string") ||
-    (v.transcriptPath !== undefined && typeof v.transcriptPath !== "string")
-  )
-    return null;
-  return {
-    cwd: v.cwd,
-    ...(typeof v.title === "string" ? { title: v.title } : {}),
-    ...(typeof v.transcriptPath === "string"
-      ? { transcriptPath: v.transcriptPath }
-      : {}),
-  };
-}
-
-function sanitizeHistoryContent(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function sanitizeHistoryTranscript(
-  value: unknown,
-): AgentTranscriptEntry[] | null {
-  if (!Array.isArray(value)) return null;
-  const result: AgentTranscriptEntry[] = [];
-  for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
-    if (
-      (v.role !== "user" &&
-        v.role !== "assistant" &&
-        v.role !== "other") ||
-      typeof v.text !== "string"
-    )
-      return null;
-    result.push({ role: v.role, text: v.text });
-  }
-  return result;
-}
