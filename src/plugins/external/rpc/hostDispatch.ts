@@ -35,6 +35,7 @@ import {
   sanitizeHistoryList,
   sanitizeHistoryListing,
   sanitizeHistoryTranscript,
+  sanitizeHistoryTranscriptPage,
   sanitizeLiveSessions,
   sanitizePlanOutput,
 } from "./hostSanitize";
@@ -299,12 +300,14 @@ export function createHostDispatch(
         hookNames,
         hasHistory,
         hasListing,
+        hasTranscriptPage,
         hasLiveSessions,
         usage,
       } = entry as Omit<AgentContribution, "hooks" | "history"> & {
         hookNames?: string[];
         hasHistory?: boolean;
         hasListing?: boolean;
+        hasTranscriptPage?: boolean;
         hasLiveSessions?: boolean;
       };
       // Usage contributions cannot cross this boundary yet: the store calls
@@ -369,6 +372,20 @@ export function createHostDispatch(
                   await callHistory(id, "transcript", [ref, page]),
                   sanitizeHistoryTranscript,
                 ),
+              // Negotiated exactly like `listing`, and for the same reason:
+              // a standing proxy would make the method look present on every
+              // external plugin, including guests that throw on it.
+              ...(hasTranscriptPage === true && {
+                transcriptPage: async (
+                  ref: string,
+                  page: { offset: number; limit: number },
+                ) =>
+                  requireHistoryResult(
+                    "transcriptPage",
+                    await callHistory(id, "transcriptPage", [ref, page]),
+                    sanitizeHistoryTranscriptPage,
+                  ),
+              }),
             }
           : undefined;
       // Live-sessions capability, negotiated exactly like `listing`: the

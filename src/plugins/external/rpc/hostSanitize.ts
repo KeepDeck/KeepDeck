@@ -5,6 +5,7 @@ import type {
   AgentSessionFacts,
   AgentSessionStub,
   AgentTranscriptEntry,
+  Shortfall,
 } from "@keepdeck/plugin-api";
 import type {
   WireAgentHistoryCall,
@@ -192,6 +193,45 @@ export function requireLiveResult<T>(
   return result;
 }
 
+/** A finite number and nothing else — a measure that arrived as a string, a
+ * NaN or an Infinity is not a measure. */
+function finite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/** A realm's shortfall — every element rebuilt from its own kind's fields.
+ *
+ * The discriminant is matched LITERALLY: an unknown kind fails the whole
+ * answer rather than passing through as an unreadable shape, because a
+ * measure nobody can interpret is worse than none. An EMPTY array fails too
+ * — absence already spells "nothing was missed", and a second spelling of
+ * one truth invites the two to drift apart. */
+function sanitizeShortfall(value: unknown): Shortfall[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const result: Shortfall[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return null;
+    const v = item as Record<string, unknown>;
+    switch (v.kind) {
+      case "bytes":
+        if (!finite(v.size) || !finite(v.readBytes)) return null;
+        result.push({ kind: "bytes", size: v.size, readBytes: v.readBytes });
+        break;
+      case "turns":
+        if (!finite(v.total) || !finite(v.returned)) return null;
+        result.push({ kind: "turns", total: v.total, returned: v.returned });
+        break;
+      case "parts":
+        if (!finite(v.unreadableParts)) return null;
+        result.push({ kind: "parts", unreadableParts: v.unreadableParts });
+        break;
+      default:
+        return null;
+    }
+  }
+  return result;
+}
+
 export function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {
   if (typeof value !== "object" || value === null) return null;
   const v = value as Record<string, unknown>;
@@ -201,13 +241,38 @@ export function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {
     (v.transcriptPath !== undefined && typeof v.transcriptPath !== "string")
   )
     return null;
+  // Present-but-malformed fails the answer; absent stays absent. The
+  // boundary rebuilds from known fields, so a shortfall left OUT of this
+  // list would be dropped in silence — the very silence the field exists
+  // to end.
+  const shortfall =
+    v.shortfall === undefined ? undefined : sanitizeShortfall(v.shortfall);
+  if (shortfall === null) return null;
   return {
     cwd: v.cwd,
     ...(typeof v.title === "string" ? { title: v.title } : {}),
     ...(typeof v.transcriptPath === "string"
       ? { transcriptPath: v.transcriptPath }
       : {}),
+    ...(shortfall !== undefined ? { shortfall } : {}),
   };
+}
+
+/** A realm's `transcriptPage()` answer — the transcript sanitizer's entries
+ * plus the reading's own shortfall. No `complete` flag crosses: completeness
+ * is derived from the shortfall's absence, and a duplicate of a derived
+ * truth invites the two to disagree. */
+export function sanitizeHistoryTranscriptPage(
+  value: unknown,
+): { entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const entries = sanitizeHistoryTranscript(v.entries);
+  if (entries === null) return null;
+  const shortfall =
+    v.shortfall === undefined ? undefined : sanitizeShortfall(v.shortfall);
+  if (shortfall === null) return null;
+  return { entries, ...(shortfall !== undefined ? { shortfall } : {}) };
 }
 
 export function sanitizeHistoryContent(value: unknown): string | null {

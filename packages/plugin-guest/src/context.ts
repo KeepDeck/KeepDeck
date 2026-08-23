@@ -448,6 +448,9 @@ export function buildGuestContext(
             ...(typeof agent.history?.listing === "function" && {
               hasListing: true,
             }),
+            ...(typeof agent.history?.transcriptPage === "function" && {
+              hasTranscriptPage: true,
+            }),
             ...(agent.liveSessions !== undefined && { hasLiveSessions: true }),
           },
           () => {
@@ -727,6 +730,21 @@ export function buildGuestContext(
           break;
         case "transcript":
           value = await history.transcript(
+            args[0] as string,
+            args[1] as { offset: number; limit: number },
+          );
+          break;
+        case "transcriptPage":
+          // Unreachable for an honest guest — the host only asks when our
+          // own registration declared the method. Named anyway: a broken or
+          // hostile realm that declares without implementing gets a sentence
+          // instead of a TypeError.
+          if (!history.transcriptPage) {
+            throw new Error(
+              `agent "${agentId}" declared no transcriptPage capability`,
+            );
+          }
+          value = await history.transcriptPage(
             args[0] as string,
             args[1] as { offset: number; limit: number },
           );
