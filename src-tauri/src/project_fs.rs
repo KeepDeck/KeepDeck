@@ -476,6 +476,44 @@ mod tests {
         assert_eq!(file.text.as_deref(), Some(&"a".repeat(10)[..]));
         assert!(file.truncated);
         assert_eq!(file.size, 100);
+        // Where the read STOPPED, from the read itself. A caller inferring it
+        // from its own `max_bytes` would be right only until it asked above
+        // the ceiling — which is clamped here, silently and by design.
+        assert_eq!(file.read_bytes, 10);
+    }
+
+    /// The wire shape of a file read, pinned key by key.
+    ///
+    /// Everything below this struct is a CAST on the other side: the webview
+    /// names these fields in TypeScript and nothing at runtime checks that
+    /// they arrived. So a rename here — or a serde attribute lost in an edit —
+    /// would not fail a build, a type-check or any existing test: the field
+    /// would simply be `undefined` wherever it is read, and the first sign of
+    /// it would be a blank in the interface. This test is the only thing that
+    /// notices.
+    #[test]
+    fn read_file_wire_json_names_every_field_in_camel_case() {
+        let root = temp_root();
+        write(&root.join("a.txt"), "hi");
+
+        let file = project_fs_read_file(
+            root.join("a.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            None,
+        )
+        .unwrap();
+
+        let wire = serde_json::to_value(&file).unwrap();
+        let mut keys: Vec<&str> = wire.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            ["isBinary", "path", "readBytes", "size", "text", "truncated"],
+        );
+        assert_eq!(wire["readBytes"], 2);
+        assert_eq!(wire["size"], 2);
+        assert_eq!(wire["truncated"], false);
     }
 
     #[test]

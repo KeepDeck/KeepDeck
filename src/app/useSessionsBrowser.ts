@@ -105,6 +105,28 @@ export interface SessionsBrowserApi {
   ): Promise<{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }>;
 }
 
+/**
+ * One transcript page from whichever contract the plugin offers.
+ *
+ * The honest twin when it has one, the legacy method when it does not — and
+ * reached through the CONTRACT rather than a cast. A cast names the single
+ * method it knows about and goes on calling it, so nothing would have failed
+ * when the twin appeared: the work would simply have stopped one call short
+ * of the screen, with every gate green.
+ *
+ * Named, and not inlined, so the choice can be witnessed. The two paths
+ * return the same entries for the same session, so a test comparing answers
+ * cannot tell them apart — only WHICH METHOD RAN separates them.
+ */
+export async function readTranscriptPage(
+  history: AgentHistory,
+  ref: string,
+  page: { offset: number; limit: number },
+): Promise<{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }> {
+  if (history.transcriptPage) return history.transcriptPage(ref, page);
+  return { entries: await history.transcript(ref, page) };
+}
+
 /** The shared seam's single owner: mount ONCE in the controller. */
 export function useBrowserSharedSeam(): BrowserSharedSeam {
   const { plugins, sessionIndex } = useAppRuntime();
@@ -125,14 +147,7 @@ export function useBrowserSharedSeam(): BrowserSharedSeam {
         .find((c) => c.entry.id === agent);
       const history = contribution?.entry.history as AgentHistory | undefined;
       if (!history) return { entries: [] };
-      // The honest twin when the plugin has one, the legacy method when it
-      // does not. Reached through the CONTRACT, not a cast: a cast names the
-      // one method it knows and silently keeps calling it, so the compiler
-      // would not have said a word when this pair appeared.
-      if (history.transcriptPage) {
-        return history.transcriptPage(ref, { offset, limit });
-      }
-      return { entries: await history.transcript(ref, { offset, limit }) };
+      return readTranscriptPage(history, ref, { offset, limit });
     },
     [plugins],
   );

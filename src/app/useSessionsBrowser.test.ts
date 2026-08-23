@@ -18,10 +18,50 @@ const ipc = vi.hoisted(() => ({
 vi.mock("../ipc/history", () => ({ indexSearch: ipc.indexSearch }));
 
 import {
+  readTranscriptPage,
   useSessionsBrowser,
   type BrowserSharedSeam,
   type SessionsBrowserApi,
 } from "./useSessionsBrowser";
+import type { AgentHistory } from "@keepdeck/plugin-api";
+
+/**
+ * Which contract the browser reaches for. Both paths answer with the same
+ * entries for the same session, so nothing here may compare answers — the
+ * assertions are about WHICH METHOD RAN, because that is the only difference
+ * a broken preference would show.
+ */
+describe("the browser prefers the honest twin", () => {
+  const page = { offset: 0, limit: 10 };
+  const entries = [{ role: "user" as const, text: "same either way" }];
+
+  it("calls transcriptPage when the plugin has one, and leaves transcript alone", async () => {
+    const transcript = vi.fn(async () => entries);
+    const transcriptPage = vi.fn(async () => ({
+      entries,
+      shortfall: [{ kind: "bytes" as const, size: 40, readBytes: 8 }],
+    }));
+    const history = { transcript, transcriptPage } as unknown as AgentHistory;
+
+    const got = await readTranscriptPage(history, "/store/s-1", page);
+
+    expect(transcriptPage).toHaveBeenCalledWith("/store/s-1", page);
+    expect(transcript).not.toHaveBeenCalled();
+    // The mark only exists on this path — reaching for the legacy one would
+    // lose it while every visible entry stayed identical.
+    expect(got.shortfall).toEqual([{ kind: "bytes", size: 40, readBytes: 8 }]);
+  });
+
+  it("falls back to the legacy method when there is no twin", async () => {
+    const transcript = vi.fn(async () => entries);
+    const history = { transcript } as unknown as AgentHistory;
+
+    const got = await readTranscriptPage(history, "/store/s-1", page);
+
+    expect(transcript).toHaveBeenCalledWith("/store/s-1", page);
+    expect(got).toEqual({ entries });
+  });
+});
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
