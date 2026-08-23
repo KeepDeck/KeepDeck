@@ -24,6 +24,7 @@ import {
 import { createHostSessions } from "./hostSessions";
 import { createHostSubscriptions } from "./hostSubscriptions";
 import { createServiceHandlers } from "./hostServices";
+import { createPendingCalls } from "./hostPendingCalls";
 import {
   asRealmResult,
   requireHistoryResult,
@@ -76,147 +77,55 @@ export function createHostDispatch(
   const subscriptions = createHostSubscriptions(ctx, push);
   const sessions = createHostSessions(ctx, push);
 
-  // Agent-hook invocations awaiting their `agents.hookResult` reply. A hung
-  // or dead realm must not freeze the spawn pipeline: each call carries a
-  // timeout, and `dispose` fails whatever is still pending.
-  const HOOK_TIMEOUT_MS = 10_000;
-  let nextHookId = 1;
-  const pendingHooks = new Map<
-    number,
-    (result: { ok: true; output: unknown } | { ok: false; error: string }) => void
-  >();
+  // The four questions the host asks a realm and waits on. They differ only
+  // in channel, deadline and what a good answer means — the waiting itself
+  // lives in `hostPendingCalls`. Live-sessions rides its OWN channel rather
+  // than history's: a different question of a different capability, and
+  // keeping them apart is what keeps the history method union a promise every
+  // guest can honor. The file-open deadline is tighter than the rest because
+  // a user is watching a click.
+  const hooks = createPendingCalls<unknown>(push, hookChannel, 10_000);
+  const history = createPendingCalls<unknown>(push, historyChannel, 10_000);
+  const live = createPendingCalls<unknown>(push, livesessionsChannel, 10_000);
+  const opens = createPendingCalls<boolean>(push, openChannel, 5_000);
 
   /** Run ONE hook in the realm: push the call, await the correlated result,
    * copy the sanitized mutated output back into the caller's object — the
    * in-process mutate-in-place contract, preserved across the wire. */
-  function callHook(
+  async function callHook(
     agentId: string,
     hook: string,
     input: unknown,
     output: SpawnPlanOutput,
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const id = nextHookId++;
-      const timer = setTimeout(() => {
-        if (pendingHooks.delete(id))
-          reject(new Error(`${hook} timed out after ${HOOK_TIMEOUT_MS}ms`));
-      }, HOOK_TIMEOUT_MS);
-      pendingHooks.set(id, (result) => {
-        clearTimeout(timer);
-        if (!result.ok) return reject(new Error(result.error));
-        // The realm's word shapes a SPAWN — nothing but plain strings may
-        // come back, whatever a hostile realm actually sent.
-        const mutated = sanitizePlanOutput(result.output);
-        if (!mutated) return reject(new Error(`${hook} returned a malformed plan`));
-        Object.assign(output, mutated);
-        resolve();
-      });
-      const call: WireHookCall = { agentId, hook, input, output };
-      push(hookChannel(id), call);
-    });
+    const call: WireHookCall = { agentId, hook, input, output };
+    // The realm's word shapes a SPAWN — nothing but plain strings may come
+    // back, whatever a hostile realm actually sent.
+    const mutated = sanitizePlanOutput(await hooks.call(call, hook));
+    if (!mutated) throw new Error(`${hook} returned a malformed plan`);
+    Object.assign(output, mutated);
   }
-
-  // Agent-history reads use the same correlated host→realm request shape as
-  // hooks. They stay separate because their result is immutable data rather
-  // than a spawn plan that mutates an existing object.
-  const HISTORY_TIMEOUT_MS = 10_000;
-  let nextHistoryId = 1;
-  const pendingHistory = new Map<
-    number,
-    (result: { ok: true; value: unknown } | { ok: false; error: string }) => void
-  >();
 
   function callHistory(
     agentId: string,
     method: WireAgentHistoryCall["method"],
     args: unknown[],
   ): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const id = nextHistoryId++;
-      const timer = setTimeout(() => {
-        if (pendingHistory.delete(id))
-          reject(
-            new Error(
-              `agent history ${method} timed out after ${HISTORY_TIMEOUT_MS}ms`,
-            ),
-          );
-      }, HISTORY_TIMEOUT_MS);
-      pendingHistory.set(id, (result) => {
-        clearTimeout(timer);
-        if (!result.ok) return reject(new Error(result.error));
-        resolve(result.value);
-      });
-      const call: WireAgentHistoryCall = { agentId, method, args };
-      push(historyChannel(id), call);
-    });
+    const call: WireAgentHistoryCall = { agentId, method, args };
+    return history.call(call, `agent history ${method}`);
   }
-
-  // Live-sessions queries ride their OWN correlated request shape (not the
-  // history one): a different question asked of a different capability, and
-  // keeping the channels apart is what keeps the history method union a
-  // promise every guest can honor.
-  const LIVE_TIMEOUT_MS = 10_000;
-  let nextLiveId = 1;
-  const pendingLive = new Map<
-    number,
-    (result: { ok: true; value: unknown } | { ok: false; error: string }) => void
-  >();
 
   function callLiveSessions(agentId: string): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const id = nextLiveId++;
-      const timer = setTimeout(() => {
-        if (pendingLive.delete(id))
-          reject(
-            new Error(
-              `agent live-sessions timed out after ${LIVE_TIMEOUT_MS}ms`,
-            ),
-          );
-      }, LIVE_TIMEOUT_MS);
-      pendingLive.set(id, (result) => {
-        clearTimeout(timer);
-        if (!result.ok) return reject(new Error(result.error));
-        resolve(result.value);
-      });
-      const call: WireAgentLiveSessionsCall = { agentId };
-      push(livesessionsChannel(id), call);
-    });
+    const call: WireAgentLiveSessionsCall = { agentId };
+    return live.call(call, "agent live-sessions");
   }
 
-  // File-open invocations awaiting their `openers.openResult` reply — the
-  // agent-hook pattern, but the stake is a CLICK: a hung or dead realm must
-  // not strand it, so a timeout settles the proxy as a rejection, which the
-  // host's file-open chain logs and treats as a decline (the system opener
-  // takes the file). Tighter than the hook timeout — a user is watching.
-  const OPEN_TIMEOUT_MS = 5_000;
-  let nextOpenId = 1;
-  const pendingOpens = new Map<
-    number,
-    (result: { ok: true; handled: boolean } | { ok: false; error: string }) => void
-  >();
-
-  /** Ask the realm's handler about ONE file-open request. */
+  /** Ask the realm's handler about ONE file-open request. A timeout settles
+   * the proxy as a rejection, which the host's file-open chain logs and
+   * treats as a decline — the system opener takes the file. */
   function callOpen(handlerId: string, request: { path: string }): Promise<boolean> {
-    return new Promise((resolve, reject) => {
-      const id = nextOpenId++;
-      const timer = setTimeout(() => {
-        if (pendingOpens.delete(id))
-          reject(
-            new Error(
-              `file-open handler "${handlerId}" timed out after ${OPEN_TIMEOUT_MS}ms`,
-            ),
-          );
-      }, OPEN_TIMEOUT_MS);
-      pendingOpens.set(id, (result) => {
-        clearTimeout(timer);
-        if (!result.ok) return reject(new Error(result.error));
-        // A hostile realm's word only ever gets to be a BOOLEAN: anything
-        // but literal true is a decline.
-        resolve(result.handled === true);
-      });
-      const call: WireOpenCall = { handlerId, request };
-      push(openChannel(id), call);
-    });
+    const call: WireOpenCall = { handlerId, request };
+    return opens.call(call, `file-open handler "${handlerId}"`);
   }
 
   // Flipped by dispose(). Guards the speech capture — an async acquisition
@@ -371,11 +280,11 @@ export function createHostDispatch(
       );
     },
     "openers.openResult": ([id, result]) => {
-      const settle = pendingOpens.get(id as number);
-      if (!settle) return; // timed out, disposed, or never ours
-      pendingOpens.delete(id as number);
-      settle(
-        asRealmResult(result, (v) => ({ ok: true, handled: v.handled === true })),
+      // A hostile realm's word only ever gets to be a BOOLEAN: anything but
+      // literal true is a decline.
+      opens.settle(
+        id as number,
+        asRealmResult(result, (v) => ({ ok: true, value: v.handled === true })),
       );
     },
 
@@ -489,24 +398,21 @@ export function createHostDispatch(
         }),
       );
     },
-    "agents.hookResult": ([id, result]) => {
-      const settle = pendingHooks.get(id as number);
-      if (!settle) return; // timed out, disposed, or never ours
-      pendingHooks.delete(id as number);
-      settle(asRealmResult(result, (v) => ({ ok: true, output: v.output })));
-    },
-    "agents.historyResult": ([id, result]) => {
-      const settle = pendingHistory.get(id as number);
-      if (!settle) return;
-      pendingHistory.delete(id as number);
-      settle(asRealmResult(result, (v) => ({ ok: true, value: v.value })));
-    },
-    "agents.liveResult": ([id, result]) => {
-      const settle = pendingLive.get(id as number);
-      if (!settle) return;
-      pendingLive.delete(id as number);
-      settle(asRealmResult(result, (v) => ({ ok: true, value: v.value })));
-    },
+    "agents.hookResult": ([id, result]) =>
+      hooks.settle(
+        id as number,
+        asRealmResult(result, (v) => ({ ok: true, value: v.output })),
+      ),
+    "agents.historyResult": ([id, result]) =>
+      history.settle(
+        id as number,
+        asRealmResult(result, (v) => ({ ok: true, value: v.value })),
+      ),
+    "agents.liveResult": ([id, result]) =>
+      live.settle(
+        id as number,
+        asRealmResult(result, (v) => ({ ok: true, value: v.value })),
+      ),
 
     // ---- the one teardown path shared by every registration kind ----
     "registrations.dispose": ([regId]) => disposeRegistration(regId as number),
@@ -554,22 +460,9 @@ export function createHostDispatch(
         void capture.cancel().catch(() => {});
       }
       activeSpeechCaptures.clear();
-      for (const settle of pendingHooks.values()) {
-        settle({ ok: false, error: "plugin bridge disposed" });
+      for (const pending of [hooks, history, live, opens]) {
+        pending.failAll("plugin bridge disposed");
       }
-      pendingHooks.clear();
-      for (const settle of pendingHistory.values()) {
-        settle({ ok: false, error: "plugin bridge disposed" });
-      }
-      pendingHistory.clear();
-      for (const settle of pendingLive.values()) {
-        settle({ ok: false, error: "plugin bridge disposed" });
-      }
-      pendingLive.clear();
-      for (const settle of pendingOpens.values()) {
-        settle({ ok: false, error: "plugin bridge disposed" });
-      }
-      pendingOpens.clear();
       // Third-party braces from here down. One bad disposer must not abort
       // the sweep — the same per-item tolerance context.disposeAll applies.
       const swept = (label: string, run: () => void) => {
