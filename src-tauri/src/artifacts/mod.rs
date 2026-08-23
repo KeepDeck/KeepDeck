@@ -99,7 +99,18 @@ fn enable_at(
     let mut bound = state.root.lock().expect("artifacts root poisoned");
     let mut server = state.server.lock().expect("artifacts server poisoned");
     if let Some(live) = server.as_ref() {
-        return Ok(live.port());
+        if live.is_alive() {
+            return Ok(live.port());
+        }
+        // The accept loop died on its own and dropped its listener: that
+        // port answers nothing. Returning it would report success for a
+        // server that is gone — the toggle reads On, every page gets a
+        // refused connection, and the only trace is one log line. Bury it
+        // and bind again; the claim is this process's and stays held.
+        log::warn!("artifacts: display server had died — rebinding");
+        if let Some(dead) = server.take() {
+            dead.stop();
+        }
     }
 
     let claimed_here = bound.is_none();
@@ -432,6 +443,43 @@ pub fn artifact_drop_workspace(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A display server that died on its own must never be reported as
+    /// live. The accept loop self-destructs on a poll fault or on
+    /// ACCEPT_FAILURE_LIMIT consecutive accept failures — it sets the
+    /// dead flag and drops its listener, so the port answers nothing —
+    /// and nothing restarts it. `stop()` leaves the same state, which is
+    /// what makes it usable to stage the condition here.
+    #[test]
+    fn enable_rebinds_a_display_server_that_died_on_its_own() {
+        let state = ArtifactsState::new();
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("artifacts");
+
+        let first = enable_at(&state, &root, server::DisplayServer::start).expect("first enable");
+        {
+            let server = state.server.lock().expect("server lock");
+            server.as_ref().expect("a live server").stop();
+        }
+
+        let second = enable_at(&state, &root, server::DisplayServer::start).expect("re-enable");
+        assert_ne!(
+            first, second,
+            "a dead server's port must not be handed back as if it served",
+        );
+        assert!(state
+            .server
+            .lock()
+            .expect("server lock")
+            .as_ref()
+            .expect("a fresh server")
+            .is_alive());
+
+        if let Some(live) = state.server.lock().expect("server lock").take() {
+            live.stop();
+        }
+        state.store.disable();
+    }
 
     #[test]
     fn a_failed_display_server_start_rolls_back_the_claim_and_root() {

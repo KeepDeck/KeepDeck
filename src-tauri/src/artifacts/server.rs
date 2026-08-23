@@ -172,6 +172,15 @@ impl DisplayServer {
         self.shared.port
     }
 
+    /// Is the accept loop still serving? It can die on its OWN — a poll
+    /// fault or ACCEPT_FAILURE_LIMIT consecutive accept failures set the
+    /// flag and drop the listener, so the port stops answering — and
+    /// nothing restarts it. Without this, a later enable short-circuits
+    /// on the corpse and reports `Ok(dead port)`.
+    pub fn is_alive(&self) -> bool {
+        !self.shared.dead.load(Ordering::SeqCst)
+    }
+
     /// Teardown: bye to EVERY subscriber (Off means Off — subscribers
     /// close before anything they observe changes shape), then the wake
     /// drop ends the accept loop and the tick sees dead and exits.
