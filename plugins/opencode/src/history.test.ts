@@ -56,4 +56,55 @@ describe("opencode history", () => {
     expect(partText('{"type":"tool","x":1}')).toBeNull();
     expect(partText("{torn")).toBeNull();
   });
+
+  it("a page names the parts it could not read — a hole inside a shown turn", async () => {
+    const text = (t: string) => JSON.stringify({ type: "text", text: t });
+    const { ctx: c } = ctx([
+      [["m1", JSON.stringify({ role: "user" })]],
+      [
+        ["m1", text("first half")],
+        ["m1", "{torn"],
+        ["m1", text("second half")],
+      ],
+    ]);
+    const history = opencodeHistory(c);
+    const page = await history.transcriptPage!("ses_1", {
+      offset: 0,
+      limit: 10,
+    });
+    // The turn LOOKS whole — the gap is invisible in its text, which is
+    // exactly why the count has to travel beside it.
+    expect(page.entries).toEqual([
+      { role: "user", text: "first half\nsecond half" },
+    ]);
+    expect(page.shortfall).toEqual([{ kind: "parts", unreadableParts: 1 }]);
+  });
+
+  it("a clean page carries no shortfall — absence is not an empty one", async () => {
+    const text = (t: string) => JSON.stringify({ type: "text", text: t });
+    const { ctx: c } = ctx([
+      [["m1", JSON.stringify({ role: "user" })]],
+      [["m1", text("all of it")]],
+    ]);
+    const page = await opencodeHistory(c).transcriptPage!("ses_1", {
+      offset: 0,
+      limit: 10,
+    });
+    expect(page).toEqual({ entries: [{ role: "user", text: "all of it" }] });
+  });
+
+  it("the legacy method is the page unpacked — the two cannot disagree", async () => {
+    const text = (t: string) => JSON.stringify({ type: "text", text: t });
+    const rows: (string | null)[][][] = [
+      [["m1", JSON.stringify({ role: "user" })]],
+      [["m1", text("same either way")]],
+    ];
+    const viaPage = await opencodeHistory(
+      ctx(rows.map((r) => [...r])).ctx,
+    ).transcriptPage!("ses_1", { offset: 0, limit: 10 });
+    const viaLegacy = await opencodeHistory(
+      ctx(rows.map((r) => [...r])).ctx,
+    ).transcript("ses_1", { offset: 0, limit: 10 });
+    expect(viaLegacy).toEqual(viaPage.entries);
+  });
 });
