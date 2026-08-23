@@ -293,6 +293,16 @@ pub(super) fn artifact_url_for(shared: &Arc<Shared>, token: &str, slug: &str) ->
     format!("http://127.0.0.1:{}/a/{}/{}", shared.port, token, slug)
 }
 
+/// The artifact's live-events endpoint — the page's subscription target,
+/// and therefore what its CSP has to name. Composed FROM the artifact
+/// url, so the prefix and the token segment keep the one home the pair
+/// above promises; the `/events` suffix is the only new knowledge, and it
+/// belongs here beside the route that answers it. The page builder is
+/// handed the result and never learns the origin.
+pub(super) fn events_url_for(shared: &Arc<Shared>, token: &str, slug: &str) -> String {
+    format!("{}/events", artifact_url_for(shared, token, slug))
+}
+
 // ---- the accept loop (B1: poll(listener, wake) → verdict) ----
 
 fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
@@ -501,10 +511,11 @@ fn handle_connection(mut stream: TcpStream, shared: Arc<Shared>) {
         ["a", token, slug] => {
             match resolve_by_token(&shared, token, slug) {
                 Some((ws, manifest)) => {
+                    let events = events_url_for(&shared, &manifest.token, slug);
                     serve::serve_artifact(
                         &mut stream,
                         &shared.root,
-                        shared.port,
+                        &events,
                         &ws,
                         &manifest,
                         slug,
