@@ -1,6 +1,6 @@
 ---
 name: artifacts
-description: "Publish a visual presentation page (HTML/Markdown artifact) that opens in the user's browser and refreshes live while you iterate — for when the user asks to show/diagram something or a design is being worked through together; the terminal stays the default output channel."
+description: "Publish a visual presentation page (an html artifact) that opens in the user's browser and refreshes live while you iterate — for when the user asks to show/diagram something or a design is being worked through together; the terminal stays the default output channel."
 ---
 # Artifacts — visual presentation pages for your teammates and user
 
@@ -37,13 +37,11 @@ first. If a publish is refused with "needs one of `path` or `content`", the
 content never made it into the call: write the bytes to a file in your cwd and
 publish the path.
 
-The result carries TWO urls — the artifact's and the workspace index. PRINT BOTH, verbatim, so the user's scrollback is a recovery surface.
+The result carries TWO urls — the artifact's and the workspace index. PRINT BOTH, verbatim. They are SESSION-SCOPED: the port is fresh on every KeepDeck launch, so a url in scrollback works until KeepDeck restarts. What is durable is the id — say it too, and republish to hand out a live url again.
 
 The FIRST publish of a new artifact opens in the user's browser automatically (they can turn that off). Later versions NEVER re-open a tab: the open page refreshes by itself.
 
-**Write no refresh script.** The server adds one when it serves your page — every page, nothing for you to include. Do not write your own `EventSource`, polling loop, or reload timer: yours would run ALONGSIDE the server's and reload the page twice.
-
-The contract the server installs, so you know what your page does: reload on `version`, and on `bye` or `error` close the stream and show a note that the server went away. It never reconnects — the loop guard is that the server sends no unsolicited version events, and a page-side reconnect-with-replay would break that. An EXPORTED page carries no refresh at all: its session URL is dead by design, so the server strips the script on the way out rather than hand the reader a page that announces a server it can never reach.
+**Write no refresh script.** The server installs one on every page it serves — nothing for you to include, and nothing to copy from anywhere. Do not write your own `EventSource`, polling loop, or reload timer: the server cuts an authored one before installing its own, so yours is deleted rather than run.
 
 ## Working as a team
 

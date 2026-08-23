@@ -32,11 +32,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::state::write_atomic;
 
 use super::claim::{self, ClaimedRoot};
+use super::token::mint_token;
 
 /// Caps mirrored from the TS domain (its `model.ts` owns the canonical
 /// numbers and their tests; these must not drift).
@@ -266,7 +266,7 @@ impl ArtifactsStore {
                     let manifest = Manifest {
                         title: title.to_string(),
                         format,
-                        token: Uuid::new_v4().simple().to_string(),
+                        token: mint_token(),
                         created: now_ms,
                         versions: Vec::new(),
                     };

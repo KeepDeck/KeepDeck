@@ -487,7 +487,10 @@ export function createAppRuntime(
       mail.dispose();
       disposeArtifactCommands?.();
       for (const stop of stopArtifactWiring) stop();
-      artifactsPolicy.dispose({ disable: true });
+      // NO final disable: this runs from `beforeunload`, which fires on
+      // every window reload — the display server outlives the page and
+      // dies with the process.
+      artifactsPolicy.dispose();
       mcp.dispose();
       journalPersistence.dispose();
       sessionBinding?.dispose();

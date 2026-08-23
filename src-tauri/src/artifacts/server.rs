@@ -172,6 +172,15 @@ impl DisplayServer {
         self.shared.port
     }
 
+    /// Is the accept loop still serving? It can die on its OWN — a poll
+    /// fault or ACCEPT_FAILURE_LIMIT consecutive accept failures set the
+    /// flag and drop the listener, so the port stops answering — and
+    /// nothing restarts it. Without this, a later enable short-circuits
+    /// on the corpse and reports `Ok(dead port)`.
+    pub fn is_alive(&self) -> bool {
+        !self.shared.dead.load(Ordering::SeqCst)
+    }
+
     /// Teardown: bye to EVERY subscriber (Off means Off — subscribers
     /// close before anything they observe changes shape), then the wake
     /// drop ends the accept loop and the tick sees dead and exits.
@@ -282,6 +291,16 @@ pub(super) fn index_url_for(shared: &Arc<Shared>, ws: &str) -> String {
 /// a prefix or token-segment change cannot happen to one alone.
 pub(super) fn artifact_url_for(shared: &Arc<Shared>, token: &str, slug: &str) -> String {
     format!("http://127.0.0.1:{}/a/{}/{}", shared.port, token, slug)
+}
+
+/// The artifact's live-events endpoint — the page's subscription target,
+/// and therefore what its CSP has to name. Composed FROM the artifact
+/// url, so the prefix and the token segment keep the one home the pair
+/// above promises; the `/events` suffix is the only new knowledge, and it
+/// belongs here beside the route that answers it. The page builder is
+/// handed the result and never learns the origin.
+pub(super) fn events_url_for(shared: &Arc<Shared>, token: &str, slug: &str) -> String {
+    format!("{}/events", artifact_url_for(shared, token, slug))
 }
 
 // ---- the accept loop (B1: poll(listener, wake) → verdict) ----
@@ -492,9 +511,11 @@ fn handle_connection(mut stream: TcpStream, shared: Arc<Shared>) {
         ["a", token, slug] => {
             match resolve_by_token(&shared, token, slug) {
                 Some((ws, manifest)) => {
+                    let events = events_url_for(&shared, &manifest.token, slug);
                     serve::serve_artifact(
                         &mut stream,
                         &shared.root,
+                        &events,
                         &ws,
                         &manifest,
                         slug,
@@ -594,7 +615,15 @@ fn subscribe(
     // a fake value would read as a security property that isn't there.
     // Artifact-A-JS-reaching-B's stream is the per-artifact connect-src
     // pin's job, exactly as designed.)
-    let head = format!("HTTP/1.1 200 OK\r\nContent-Type: {MIME_SSE}\r\nConnection: close\r\n\r\n");
+    // The head carries an immediate `: ping` comment — a COMMENT, so the
+    // no-unsolicited-event rule above is untouched (nothing dispatches, no
+    // handler runs, no reload can fire). It exists because the keepalive
+    // is ONE global tick that sleeps first: a fresh subscriber would
+    // otherwise sit on a byte-less stream for anywhere up to 15 seconds
+    // before the first sign that this connection carries anything.
+    let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {MIME_SSE}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n: ping\n\n"
+    );
     if stream.write_all(head.as_bytes()).is_err() {
         return;
     }
@@ -834,17 +863,46 @@ mod tests {
         (status, headers, body.as_bytes().to_vec())
     }
 
-    /// The author's document reaches the reader untouched EXCEPT for the
-    /// live-refresh script the server installs — the one addition, and the
-    /// reason a page refreshes at all now that agents write no script.
-    /// Storage is still verbatim; this is a serve-time addition only.
+    /// The `connect-src` value, as the browser would read it.
+    fn connect_src(headers: &str) -> String {
+        let at = headers
+            .find("connect-src ")
+            .expect("the served CSP names connect-src");
+        let rest = &headers[at + "connect-src ".len()..];
+        rest.split(';').next().unwrap_or("").trim().to_string()
+    }
+
+    /// THE CSP PIN — a source-expression, not a spelling.
+    ///
+    /// Its ancestor asserted the header CONTAINED `connect-src /a/{token}/
+    /// {slug}/events` and passed for eight days while every browser
+    /// refused the subscription: a bare path is not a source-expression
+    /// (the grammar requires a host), so the directive named nothing and
+    /// blocked everything — including the artifact's own endpoint. A
+    /// containment check cannot see that; these assertions can.
     #[test]
     fn artifact_page_carries_the_path_pinned_csp_and_the_authors_bytes() {
         let (server, store, _root, _dir) = fixture("csp");
         let token = publish(&store, "auth-flow", b"<body><h1>v1</h1></body>");
         let (status, headers, body) = get(server.port(), &format!("/a/{token}/auth-flow"));
         assert!(status.starts_with("HTTP/1.1 200"), "{status}");
-        assert!(headers.contains(&format!("connect-src /a/{token}/auth-flow/events")), "{headers}");
+
+        let source = connect_src(&headers);
+        // The page subscribes to its own pathname + "/events"; the policy
+        // must name THAT url, absolutely.
+        assert_eq!(
+            source,
+            format!("http://127.0.0.1:{}/a/{token}/auth-flow/events", server.port()),
+            "connect-src must name the artifact's own events endpoint: {headers}",
+        );
+        // The regression itself: an origin is what makes it a source at
+        // all. A path-only value silently means "deny everything".
+        assert!(
+            source.starts_with("http://") && !source.starts_with('/'),
+            "a bare path is not a CSP source-expression: {source:?}",
+        );
+        // Still PINNED, not 'self': artifact A must not reach artifact B.
+        assert!(source.ends_with("/auth-flow/events"), "{source:?}");
         assert!(headers.contains("base-uri 'none'"));
         assert!(headers.contains("form-action 'none'"));
         assert!(headers.contains("referrer-policy: no-referrer"));
@@ -1162,6 +1220,57 @@ mod tests {
         let text = String::from_utf8_lossy(&body).into_owned();
         assert!(text.contains("&lt;script&gt;t&lt;/script&gt;"), "{text}");
         assert!(!text.contains("<script>"), "{text}");
+        server.stop();
+    }
+
+    /// THE `?v=` DOOR. The route has parsed the pin since the first
+    /// commit and the registry honours it, but nothing in the product
+    /// ever emitted such a url — a shipped server feature with no client
+    /// entry point, so version history was reachable by agents
+    /// (artifact_read) and by nobody else. The index is the door: one
+    /// link per version, and each one must actually serve THAT version.
+    #[test]
+    fn the_index_offers_a_working_link_per_version() {
+        let (server, store, _root, _dir) = fixture("versions");
+        let token = publish(&store, "many", b"<body>v1</body>");
+        for (n, body) in [(2u64, &b"<body>v2</body>"[..]), (3, &b"<body>v3</body>"[..])] {
+            store
+                .publish(
+                    &PublishIdentity {
+                        workspace_id: "ws-1".into(),
+                        pane_id: "p".into(),
+                        label: "l".into(),
+                    },
+                    PublishRequest {
+                        slug: Some("many"),
+                        title: "T",
+                        format: ArtifactFormat::Html,
+                        path: None,
+                        content: Some(body),
+                        message: None,
+                        cwd: None,
+                    },
+                    1000 + n,
+                )
+                .unwrap();
+        }
+        let index_url = server.compose_urls("ws-1", "many", &token).1;
+        let path = index_url.trim_start_matches("http://127.0.0.1:");
+        let path = path.trim_start_matches(&server.port().to_string());
+        let (_, _, body) = get(server.port(), path);
+        let listing = String::from_utf8_lossy(&body).into_owned();
+        for n in 1..=3 {
+            assert!(
+                listing.contains(&format!("/a/{token}/many?v={n}\">v{n}</a>")),
+                "the index must link version {n}:\n{listing}",
+            );
+        }
+        // Not decoration: the oldest link serves the OLDEST bytes, while
+        // the query-less title link stays latest.
+        let (_, _, pinned) = get(server.port(), &format!("/a/{token}/many?v=1"));
+        assert!(String::from_utf8_lossy(&pinned).contains("<body>v1"));
+        let (_, _, latest) = get(server.port(), &format!("/a/{token}/many"));
+        assert!(String::from_utf8_lossy(&latest).contains("<body>v3"));
         server.stop();
     }
 
