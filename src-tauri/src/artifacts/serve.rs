@@ -66,7 +66,7 @@ pub(super) fn serve_artifact(
     let body: Vec<u8> = {
         let ArtifactFormat::Html = manifest.format;
         {
-            let (page, placement) = with_live_refresh(&String::from_utf8_lossy(&bytes));
+            let (page, placement) = live_page(&String::from_utf8_lossy(&bytes));
             if matches!(placement, RefreshPlacement::Appended) {
                 // Served, not refused — but say so: a page that never
                 // closes its body is malformed enough that the author
@@ -181,14 +181,13 @@ fn live_refresh_snippet() -> String {
 
 /// Put the live-refresh script into an author's html page.
 ///
-/// UNCONDITIONAL, and that is the design rather than an oversight. The
-/// obvious alternative — look for a subscription and skip if one is
-/// there — cannot work, because the marker is CONTENT and these pages
-/// are frequently ABOUT KeepDeck: a page quoting the block in a `<pre>`
-/// would read as already subscribed and would never refresh again. The
-/// same check would also withhold a fixed script from exactly the pages
-/// carrying an old copy. So nothing is detected; the asset's own
-/// sentinel guard makes a second copy harmless instead.
+/// UNCONDITIONAL — never skipped, so every served page subscribes.
+/// Detect-and-SKIP was refused and stays refused: the marker is content,
+/// these pages are frequently about KeepDeck, and a page quoting the
+/// block in a `<pre>` would read as subscribed and never refresh again.
+/// The caller instead STRIPS the author's copy first (script elements
+/// only — quoted prose survives), so being wrong costs a page one of its
+/// own scripts rather than its refresh.
 ///
 /// Before `</body>` when there is one, appended when there is not: a
 /// page too malformed to close its body still gets served and still
@@ -203,6 +202,13 @@ fn live_refresh_snippet() -> String {
 pub(super) enum RefreshPlacement {
     BeforeBodyClose,
     Appended,
+}
+
+/// The serve-time page transform: cut the author's subscription, install
+/// ours. ONE function, so the pin exercises what the server does instead
+/// of re-assembling the two halves and drifting from it.
+fn live_page(html: &str) -> (String, RefreshPlacement) {
+    with_live_refresh(&strip_live_refresh(html))
 }
 
 fn with_live_refresh(html: &str) -> (String, RefreshPlacement) {
@@ -225,15 +231,18 @@ const SUBSCRIPTION_SIGNATURE: &str = "EventSource(location.pathname";
 
 /// Drop every `<script>` element that opens a live subscription.
 ///
-/// EXPORT ONLY, and the asymmetry is the whole licence for cutting at all:
-/// here a wrong cut degrades to a page that does not refresh, which is
-/// exactly what an exported page should do, while the same cut on the
-/// serve path would break a live page. So this recognises by content —
-/// tolerated where being wrong is harmless, and refused where it is not.
+/// BOTH PATHS. Export cuts so the reader's saved file never announces a
+/// server it cannot reach. Serve cuts so an author's own copy cannot
+/// subscribe ALONGSIDE the one we install — the sentinel guard cannot
+/// stop it, because a hand-written copy carries no sentinel, and every
+/// page published before the server took ownership is exactly that.
 ///
 /// Scoped to SCRIPT ELEMENTS on purpose: a page documenting the artifacts
 /// feature carries the signature as escaped text inside `<pre>`, which is
-/// prose and must survive the round trip untouched.
+/// prose and must survive the round trip untouched. The residual cost is
+/// a page whose own live script merely MENTIONS the signature — it loses
+/// that script; a double subscription costs every such page a permanent
+/// second stream, so the trade is taken knowingly.
 fn strip_live_refresh(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
@@ -295,7 +304,7 @@ fn respond_csp(
 #[cfg(test)]
 mod tests {
     use super::{
-        live_refresh_snippet, strip_live_refresh, with_live_refresh, RefreshPlacement,
+        live_page, live_refresh_snippet, strip_live_refresh, RefreshPlacement,
         SUBSCRIPTION_SIGNATURE,
     };
     use crate::skills::BUNDLED;
@@ -355,18 +364,26 @@ mod tests {
     }
 
 
+    /// The script agents were TAUGHT to paste before the server took
+    /// ownership. It carries NO sentinel — the sentinel arrived with the
+    /// server's own copy — and this is the shape every legacy page in the
+    /// store actually holds.
+    const PRE_SENTINEL: &str = "<script>(()=>{\
+const es=new EventSource(location.pathname+\"/events\"+location.search);\
+es.addEventListener(\"version\",()=>location.reload());})();</script>";
+
     /// THE BEHAVIOURAL SERVE PIN: what a reader's browser ends up doing.
     ///
-    /// Stated as the served page rather than as bytes, because the old
-    /// pin's lesson was that pinning bytes across two documents only ever
-    /// guarded the copying. There is one document now, so the property
-    /// worth holding is the outcome: a page that wrote no script gets
-    /// exactly one subscription, and a page that carries a pre-ownership
-    /// copy gets exactly one ACTIVE one — two script elements, one
-    /// subscriber, which is the guard's whole job.
+    /// Its ancestor built the "legacy" page out of the CURRENT asset
+    /// pasted twice — a page shape that has never existed, since a real
+    /// legacy copy carries no sentinel. It therefore proved only that the
+    /// guard defends against copies of itself, and passed while every
+    /// page in the store double-subscribed. The legacy case is built from
+    /// the pre-sentinel shape now, and the property is the outcome:
+    /// whatever was published, the reader's tab opens ONE stream.
     #[test]
     fn every_served_page_carries_exactly_one_live_subscription() {
-        let (plain, placement) = with_live_refresh("<html><body><h1>report</h1></body></html>");
+        let (plain, placement) = live_page("<html><body><h1>report</h1></body></html>");
         assert!(matches!(placement, RefreshPlacement::BeforeBodyClose));
         assert_eq!(
             plain.matches(SUBSCRIPTION_SIGNATURE).count(),
@@ -378,19 +395,33 @@ mod tests {
             "the script belongs at the end of the body, after the author's own",
         );
 
-        let (legacy, _) = with_live_refresh(&format!(
-            "<html><body>{}</body></html>",
-            live_refresh_snippet(),
-        ));
+        let (legacy, _) = live_page(&format!("<html><body>{PRE_SENTINEL}</body></html>"));
         assert_eq!(
             legacy.matches(SUBSCRIPTION_SIGNATURE).count(),
-            2,
-            "a pre-ownership page keeps its own copy — storage is untouched",
+            1,
+            "a sentinel-less author copy is CUT, not tolerated: one stream",
         );
+        assert!(
+            legacy.contains("window.__keepdeckRefresh"),
+            "and the surviving subscription is the server's own",
+        );
+    }
+
+    /// The serve-time cut is scoped like the export one: an author's
+    /// unrelated script keeps working, and a quoted block stays prose.
+    #[test]
+    fn the_serve_cut_spares_unrelated_scripts_and_quoted_prose() {
+        let (served, _) = live_page(&format!(
+            "<body><pre>&lt;script&gt;{sig}…&lt;/script&gt;</pre>\
+             <script>const chart=1;</script>{PRE_SENTINEL}</body>",
+            sig = SUBSCRIPTION_SIGNATURE,
+        ));
+        assert!(served.contains("<pre>&lt;script&gt;"), "quoted prose survives");
+        assert!(served.contains("const chart=1;"), "an unrelated script survives");
         assert_eq!(
-            legacy.matches("window.__keepdeckRefresh").count(),
-            4,
-            "and BOTH copies carry the sentinel, so only one subscribes",
+            served.matches(SUBSCRIPTION_SIGNATURE).count(),
+            2,
+            "the quoted mention plus exactly one live subscription",
         );
     }
 
@@ -398,7 +429,7 @@ mod tests {
     /// refreshes: refusing to display is the worse failure.
     #[test]
     fn a_page_without_a_body_close_is_still_served_subscribed() {
-        let (served, placement) = with_live_refresh("<h1>fragment</h1>");
+        let (served, placement) = live_page("<h1>fragment</h1>");
         assert!(served.starts_with("<h1>fragment</h1>"));
         assert_eq!(served.matches(SUBSCRIPTION_SIGNATURE).count(), 1);
         // The placement is REPORTED, not merely done: it is what lets the
