@@ -79,8 +79,12 @@ export function SessionViewer({
       .transcript(currentTarget.agent, currentTarget.reference, from, limit)
       .then((page) => {
         if (viewSeq.current !== seq) return;
-        setEntries((current) => (from === 0 ? page : [...current, ...page]));
-        setExhausted(page.length < limit);
+        const turns = page.entries;
+        setEntries((current) => (from === 0 ? turns : [...current, ...turns]));
+        setExhausted(turns.length < limit);
+        // `page.shortfall` — what THIS reading fell short by — arrives here
+        // and is not yet shown: the saying is stage 1's first item, and this
+        // is the surface it lands on.
         // A good page retires the row's failure mark — a link reads.
         for (const link of currentTarget.fallbacks) {
           setReadFailed((current) => {

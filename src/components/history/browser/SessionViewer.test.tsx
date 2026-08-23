@@ -146,7 +146,7 @@ describe("SessionViewer", () => {
   it("drops a stale page when the view sequence advances to a newer header", async () => {
     const resolvers = new Map<
       string,
-      (page: AgentTranscriptEntry[]) => void
+      (page: { entries: AgentTranscriptEntry[] }) => void
     >();
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(
       (_agent, reference) =>
@@ -175,13 +175,13 @@ describe("SessionViewer", () => {
     });
 
     await act(async () => {
-      resolvers.get("/first")!([entry("stale first page")]);
+      resolvers.get("/first")!({ entries: [entry("stale first page")] });
     });
     expect(document.body.textContent).toContain("second header");
     expect(document.body.textContent).not.toContain("stale first page");
 
     await act(async () => {
-      resolvers.get("/second")!([entry("current second page")]);
+      resolvers.get("/second")!({ entries: [entry("current second page")] });
     });
     expect(document.body.textContent).toContain("current second page");
   });
@@ -191,7 +191,7 @@ describe("SessionViewer", () => {
       (_agent, reference) =>
         reference === SHOWN
           ? Promise.reject(new Error("journal gone"))
-          : Promise.resolve([entry("spare page")]),
+          : Promise.resolve({ entries: [entry("spare page")] }),
     );
     const readFailed = vi.fn();
     const viewSeq = { current: 0 };
@@ -241,8 +241,10 @@ describe("SessionViewer", () => {
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(
       (_agent, _reference, from) =>
         from === 0
-          ? Promise.resolve(Array.from({ length: 50 }, (_, i) => entry(`turn ${i}`)))
-          : Promise.resolve([]),
+          ? Promise.resolve({
+              entries: Array.from({ length: 50 }, (_, i) => entry(`turn ${i}`)),
+            })
+          : Promise.resolve({ entries: [] }),
     );
     const readFailed = vi.fn();
     const viewSeq = { current: 0 };
@@ -257,14 +259,14 @@ describe("SessionViewer", () => {
   });
 
   it("requests the next page near the end of the viewport", async () => {
-    let resolveFirst!: (page: AgentTranscriptEntry[]) => void;
+    let resolveFirst!: (page: { entries: AgentTranscriptEntry[] }) => void;
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(
       (_agent, _reference, from) =>
         from === 0
           ? new Promise((resolve) => {
               resolveFirst = resolve;
             })
-          : Promise.resolve([]),
+          : Promise.resolve({ entries: [] }),
     );
     const readFailed = vi.fn();
     const viewSeq = { current: 0 };
@@ -273,7 +275,9 @@ describe("SessionViewer", () => {
     const body = document.querySelector(".browser__viewer-body")!;
     setViewerGeometry(body, { scrollHeight: 1000, scrollTop: 700, clientHeight: 200 });
     await act(async () => {
-      resolveFirst(Array.from({ length: 50 }, (_, i) => entry(`turn ${i}`)));
+      resolveFirst({
+        entries: Array.from({ length: 50 }, (_, i) => entry(`turn ${i}`)),
+      });
       await Promise.resolve();
     });
     await settle();
@@ -283,7 +287,7 @@ describe("SessionViewer", () => {
 
   it("back navigation is one browser step", async () => {
     const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
-      Promise.resolve([entry("page")]),
+      Promise.resolve({ entries: [entry("page")] }),
     );
     const readFailed = vi.fn();
     const onClose = vi.fn();

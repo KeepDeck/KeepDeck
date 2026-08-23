@@ -1,4 +1,5 @@
 import {
+  shortfallOfRead,
   textFromParts,
   type AgentHistory,
   type AgentSessionStub,
@@ -93,7 +94,23 @@ function errOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** The whole wire log a page is cut from — kimi reads it all and slices. */
+const BODY_CAP = 8 * 1024 * 1024;
+
 export function kimiHistory(ctx: PluginContext): AgentHistory {
+  /** One page of turns WITH what the reading fell short by. */
+  const readPage = async (
+    ref: string,
+    page: { offset: number; limit: number },
+  ) => {
+    const file = await ctx.services.fs.readFile(ref, { maxBytes: BODY_CAP });
+    const entries = parseWire(file.text ?? "")
+      .slice(page.offset, page.offset + page.limit)
+      .map((t) => ({ role: t.role, text: t.text }));
+    const shortfall = shortfallOfRead(file, BODY_CAP);
+    return { entries, ...(shortfall ? { shortfall } : {}) };
+  };
+
   /** Stubs for one working dir's `session_*` folders — shared by both
    * enumeration contracts; they differ only in what a WORKING-DIR read
    * refusal means, everything inside a read session list is common. */
@@ -219,11 +236,11 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
         .map((t) => t.text)
         .join("\n");
     },
+    // ONE reading, two contracts: the legacy method unpacks the honest one,
+    // so the pair cannot drift.
+    transcriptPage: readPage,
     async transcript(ref, page): Promise<AgentTranscriptEntry[]> {
-      const file = await ctx.services.fs.readFile(ref, { maxBytes: 8 * 1024 * 1024 });
-      return parseWire(file.text ?? "")
-        .slice(page.offset, page.offset + page.limit)
-        .map((t) => ({ role: t.role, text: t.text }));
+      return (await readPage(ref, page)).entries;
     },
   };
 }

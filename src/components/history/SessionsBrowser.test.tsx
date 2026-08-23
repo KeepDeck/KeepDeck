@@ -129,7 +129,7 @@ const api = (
   search: vi.fn(),
   ensureFresh: vi.fn(),
   transcript: vi.fn(() =>
-    Promise.resolve([{ role: "user" as const, text: "hello" }]),
+    Promise.resolve({ entries: [{ role: "user" as const, text: "hello" }] }),
   ),
   ...over,
 });
@@ -293,7 +293,7 @@ describe("SessionsBrowser", () => {
   });
 
   it("a stale transcript response never renders under a newer row's header", async () => {
-    type Page = { role: "user"; text: string }[];
+    type Page = { entries: { role: "user"; text: string }[] };
     const resolvers: ((page: Page) => void)[] = [];
     const a = api([hit(), hit({ sessionId: "u-2", title: "second" })]);
     a.transcript = vi.fn(
@@ -307,9 +307,13 @@ describe("SessionsBrowser", () => {
     await act(async () => opens[0].click()); // row A — response delayed
     await act(async () => opens[1].click()); // row B — response delayed
     // A's SLOW response lands after B was opened: it must be dropped.
-    await act(async () => resolvers[0]([{ role: "user", text: "A's page" }]));
+    await act(async () =>
+      resolvers[0]({ entries: [{ role: "user", text: "A's page" }] }),
+    );
     expect(document.body.textContent).not.toContain("A's page");
-    await act(async () => resolvers[1]([{ role: "user", text: "B's page" }]));
+    await act(async () =>
+      resolvers[1]({ entries: [{ role: "user", text: "B's page" }] }),
+    );
     expect(document.body.textContent).toContain("B's page");
   });
 
@@ -650,7 +654,7 @@ describe("SessionsBrowser", () => {
 
   it("an empty transcript reads as empty, not as loading forever", async () => {
     const a = api([hit()]);
-    a.transcript = vi.fn(() => Promise.resolve([]));
+    a.transcript = vi.fn(() => Promise.resolve({ entries: [] }));
     await mount(a);
     await act(async () =>
       document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
@@ -664,7 +668,7 @@ describe("SessionsBrowser", () => {
       other: laneOf([hit()], { total: 123, hasMore: true, loadingMore: true }),
     });
     a.transcript = vi.fn(
-      () => new Promise<AgentTranscriptEntry[]>(() => {}), // never resolves
+      () => new Promise<{ entries: AgentTranscriptEntry[] }>(() => {}), // never resolves
     );
     await mount(a);
     expect(
@@ -1387,7 +1391,9 @@ describe("SessionsBrowser journal join", () => {
       calls.push(ref);
       return ref === "/journal/dead.jsonl"
         ? Promise.reject(new Error("no such file"))
-        : Promise.resolve([{ role: "user" as const, text: "read by the spare link" }]);
+        : Promise.resolve({
+            entries: [{ role: "user" as const, text: "read by the spare link" }],
+          });
     });
     await mount(a, [
       closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" }),
@@ -1446,7 +1452,9 @@ describe("SessionsBrowser journal join", () => {
     a.transcript = vi.fn(() =>
       dead
         ? Promise.reject(new Error("no such file"))
-        : Promise.resolve([{ role: "user" as const, text: "back again" }]),
+        : Promise.resolve({
+            entries: [{ role: "user" as const, text: "back again" }],
+          }),
     );
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" })]);
     await act(async () =>

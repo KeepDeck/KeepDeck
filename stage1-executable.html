@@ -1,0 +1,298 @@
+<meta charset="utf-8">
+<title>Ступень 1 — исполнимая картина</title>
+<style>
+  :root{
+    --bg:#fbfaf8; --ink:#1a1a1a; --dim:#5f5b56; --line:#e0dcd5;
+    --card:#ffffff; --accent:#7a4a00; --accent-bg:#fdf3e3;
+    --ok:#1f6b3a; --ok-bg:#eef7f0; --warn:#8a2d2d; --warn-bg:#fdf0ef;
+    --code:#f4f1ec;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#16150f; --ink:#eceae4; --dim:#a49f95; --line:#33302a;
+      --card:#1e1c16; --accent:#e0a45c; --accent-bg:#2a2117;
+      --ok:#7fc79a; --ok-bg:#18261c; --warn:#e79a94; --warn-bg:#2a1a19;
+      --code:#252219;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#16150f; --ink:#eceae4; --dim:#a49f95; --line:#33302a;
+    --card:#1e1c16; --accent:#e0a45c; --accent-bg:#2a2117;
+    --ok:#7fc79a; --ok-bg:#18261c; --warn:#e79a94; --warn-bg:#2a1a19;
+    --code:#252219;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.62 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:0 20px 80px;
+  }
+  .wrap{max-width:1000px;margin:0 auto}
+  header{padding:44px 0 26px;border-bottom:2px solid var(--line);margin-bottom:32px}
+  h1{font-size:31px;line-height:1.2;margin:0 0 10px;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-size:15px;margin:0}
+  .meta{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{
+    font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    background:var(--code);border:1px solid var(--line);color:var(--dim);
+    padding:6px 9px;border-radius:4px;
+  }
+  .ver{
+    display:inline-block;background:var(--accent);color:var(--bg);
+    font:700 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    padding:7px 11px;border-radius:5px;letter-spacing:.03em;
+  }
+  .verline{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  .verline .when{color:var(--dim);font-size:13px}
+  h2{
+    font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);
+    margin:44px 0 14px;font-weight:700;
+  }
+  code{font:13.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--code);padding:1px 5px;border-radius:3px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:20px 22px;margin-bottom:14px;
+  }
+  .card.lead{border-left:3px solid var(--accent)}
+  .card.hazard{border-left:3px solid var(--warn);background:var(--warn-bg)}
+  .card.done{border-left:3px solid var(--ok)}
+  .n{
+    display:inline-block;min-width:26px;height:26px;line-height:26px;text-align:center;
+    background:var(--accent-bg);color:var(--accent);border-radius:5px;font-weight:700;
+    font-size:13px;margin-right:9px;
+  }
+  .t{font-size:17px;font-weight:650;margin:0 0 4px;display:flex;align-items:baseline}
+  .t span.txt{flex:1}
+  .row{display:grid;grid-template-columns:112px 1fr;gap:4px 14px;margin-top:14px}
+  .row dt{
+    font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);
+    padding-top:4px;font-weight:600;
+  }
+  .row dd{margin:0;font-size:14.5px}
+  .tbl{width:100%;border-collapse:collapse;font-size:14px;margin-top:6px}
+  .tbl th,.tbl td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .tbl th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  .scroll{overflow-x:auto}
+  ul{margin:8px 0 0;padding-left:20px}
+  li{margin-bottom:6px}
+  .note{color:var(--dim);font-size:14px;font-style:italic}
+  .tag{
+    display:inline-block;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 7px;border-radius:4px;font-weight:650;margin-left:8px;vertical-align:2px;
+  }
+  .tag.ok{background:var(--ok-bg);color:var(--ok)}
+  .tag.wait{background:var(--accent-bg);color:var(--accent)}
+  .tag.bad{background:var(--warn-bg);color:var(--warn)}
+  footer{margin-top:56px;padding-top:22px;border-top:1px solid var(--line);color:var(--dim);font-size:13.5px}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="verline">
+    <span class="ver">версия 19</span>
+    <span class="when">опубликована 23:52 · все решения закрыты, возражений нет; ждём только «начинай»</span>
+  </div>
+  <h1>Ступень 1 — честность чтения</h1>
+  <p class="sub">Исполнимая картина: что делаю, чем проверяюсь, где граница. Сведено кругом, все адреса перепроверены по коду после ребейза.</p>
+  <p class="sub" style="margin-top:8px"><strong>Оценка честная:</strong> это не «дни слов», как значилось раньше. В ступени Rust в двух пунктах, смена типа <code>partText</code> против закрепляющего теста и 13 точек контракта — малый этап, а не разговорная правка. Числа дней не называем: оно было бы выдумкой.</p>
+  <div class="meta">
+    <span class="chip">feat/history-polish @ 02be0fd6</span>
+    <span class="chip">main @ 0c04480c (+119)</span>
+    <span class="chip">откат: backup/pre-rebase-532a8508</span>
+    <span class="chip">код не тронут</span>
+  </div>
+</header>
+
+<h2>Что решил круг до исполнения</h2>
+
+<div class="card lead">
+  <p class="t"><span class="txt">Порядок внутри ступени: 6 → 1 → 4 → 2 → 3 → 5</span></p>
+  <p style="margin:0">Не удобство, а <strong>условие исполнимости</strong>. Пункты 1 и 4 кладут значения в поля контракта, которых до пункта 6 не существует: <code>AgentTranscriptEntry</code> сегодня — это ровно <code>{role, text}</code> (<code>agents.ts:254</code>), а <code>content()</code> отдаёт голую строку. Начав с пункта 1, упираешься в отсутствующую поверхность.</p>
+</div>
+
+<div class="card lead">
+  <p class="t"><span class="txt">Форма контракта — по прецеденту <code>listing?()</code></span></p>
+  <p style="margin:0">Задача «ответ несёт признак неполноты» в этом коде уже решена: <code>AgentHistory.listing?()</code> (<code>agents.ts:292-299</code>) — необязательный брат <code>list()</code>, отдающий <code>{stubs, complete}</code>, с формулой «<em>two honest contracts, not an old one and its replacement</em>». Пункт 6 идёт тем же родом: необязательный брат <code>transcript()</code>, старый метод остаётся честным как есть. Вторую конвенцию не изобретаем.</p>
+</div>
+
+<div class="card lead">
+  <p class="t"><span class="txt">Правило какого чтения</span></p>
+  <p style="margin:0 0 10px"><code>truncated</code> — свойство <strong>конкретного чтения</strong>, а не сессии. На одну сессию приходится три чтения с тремя потолками и <strong>двумя разными потребителями</strong>:</p>
+  <div class="scroll"><table class="tbl">
+    <tr><th>Чтение</th><th>Потолок</th><th>Потребитель</th><th>Обрезание значит</th></tr>
+    <tr><td>head <code>claude:252</code></td><td>64 KB</td><td>скан → <code>historyScan.ts:117</code></td><td>норма — ограничено нарочно, <strong>не помечается</strong></td></tr>
+    <tr><td>индекс <code>claude:131</code></td><td>512 KB</td><td>скан</td><td>норма — <strong>не помечается</strong></td></tr>
+    <tr><td>тело <code>:262,271,277</code></td><td>8 MB</td><td>просмотрщик → <code>SessionViewer.tsx:79</code></td><td><strong>потеря разговора — помечается</strong><br>слово пользователю: «Partly shown — file is X, read Y»</td></tr>
+  </table></div>
+  <p style="margin:10px 0 0">Слово в интерфейсе говорит о <strong>чтении</strong>, а не о сессии: не «truncated», не «incomplete session». Тем же словом метится и хвостовой ход — один словарь на оба уровня.</p>
+  <p style="margin:10px 0 0" class="note">Образец обращения с флагом уже живёт в дереве: <code>plugins/kimi/src/fork.ts:54</code> и <code>:113</code> читают <code>truncated</code> как «не доверять прочитанному» и отказываются работать. Ровно этот паттерн ступень 1 несёт в историю.</p>
+  <p style="margin:10px 0 0" class="note">Наследование метки умерло: быстрая дорожка <code>claude:252-261</code> возвращает Facts, вообще не читая тело — метка «Partly shown» над целым разговором. И наоборот: метка из вчерашнего скана молчит о том, что просмотрщик сегодня упёрся в потолок. Просмотрщик показывает метку своего чтения.</p>
+</div>
+
+<h2>Шесть пунктов, в порядке исполнения</h2>
+
+<div class="card">
+  <p class="t"><span class="n">6</span><span class="txt">Контрактная incomplete/truncated-семантика</span><span class="tag ok">цена известна</span></p>
+  <dl class="row">
+    <dt>Обещание</dt><dd>Операции и ответы несут признак неполноты — не UI-пометка, а поле контракта.</dd>
+    <dt>Что делаю</dt><dd><code>AgentSessionFacts</code> получает <code>shortfall</code>, описывающий <em>то</em> чтение, которое сделал <code>describe</code>. Плюс необязательный брат <code>transcript()</code> с тем же полем. Форма поля — ниже.</dd>
+    <dt>Граница</dt><dd>Старый <code>transcript()</code> не трогаю. Там, где мера — байты, словарь берётся у <code>FsFile</code> дословно: <code>truncated</code> и <code>size</code> (полная длина файла независимо от потолка — <code>project_fs.rs:97-98</code>, <code>services.ts:173-174</code>), новое имя ровно одно — <code>readBytes</code>.</dd>
+    <dt>Мера — не одна</dt><dd>У <strong>opencode байтов нет</strong>: он читает SQLite, слов <code>truncated</code> и <code>readFile</code> в его <code>history.ts</code> нет ни разу. Значит мера параметризуется — union по <code>kind</code> либо дженерик над мерой: <code>{kind:"bytes", size, readBytes}</code> для файловых, <code>{kind:"turns", total, returned}</code> для сторовых (данные уже есть из <code>COUNT(*) OVER</code>). Носитель один, по прецеденту <code>listing?()</code>: <code>{ entries, complete, shortfall? }</code>, UI-слово одно. Решается при написании, ценой в несколько строк. Обещание при этом звучит не «один словарь через весь стек», а <strong>«свой словарь на домен правды»</strong>: файл меряется байтами, разговор — ходами, и подставлять одно под другое было бы тем самым «одним числом для трёх назначений», которое мы похоронили в пункте 2.</dd>
+    <dt>Форма — массив, не одиночка</dt><dd>Одно чтение может нести <strong>два рода недостачи разом</strong>, и это норма, а не край: в одном вызове <code>opencode content()</code> цикл <code>:89-95</code> одновременно роняет нечитаемые части (<code>:91</code>) и упирается в потолок (<code>:84</code> / <code>:94</code>). Одиночный union заставил бы выбрать один род и молча уронить второй — ровно то молчание, которое ступень убирает. Поэтому <code>shortfall?: Shortfall[]</code>:<br>
+    <code>{kind:"bytes", size, readBytes}</code> · <code>{kind:"turns", total, returned}</code> · <code>{kind:"parts", unreadable}</code><br>
+    Носитель по-прежнему один — одно поле, одни переговоры. Единицы честны каждая о своём: <code>turns</code> говорит «недостаёт ходов с хвоста», <code>parts</code> — «в присутствующих ходах N нечитаемых частей». Ход с дырой <strong>присутствует</strong> и считается в <code>returned</code>: это и есть то различение, которого одиночная форма не выражала.</dd>
+    <dt>Два условия</dt><dd><strong>(1)</strong> Санитайзер валидирует <em>каждый элемент</em> строго: дискриминант плюс литеральные числа, чужой вид или не-число → отказ. <strong>(2)</strong> Отсутствие <code>shortfall</code> значит «<em>это</em> чтение ничего не недодало», а не «сессия полна» — то же правило какого чтения.</dd>
+    <dt>Почему третий вид обязателен</dt><dd>Он единственный из четырёх, который <strong>солгал бы как целый</strong>. Недостача записей говорит «N ходов нет», недостача текста — «показано X из Y», нечитаемость — «каталог молчит»: все трое честны вслух. А дыра внутри <em>видимого</em> хода молчит при видимом ходе — человек читает разговор, обрыв внутри реплики принимает за оборванную мысль агента и никогда не узнаёт, что оборвали <strong>мы</strong>, а не агент задумался. Это худшая ложь из четырёх: она не в числе, а в понимании чужой мысли. Хвостовое правило её не накрывает — ход-то не хвостовой; смена типа <code>partText</code> её различает, но молчит наружу. Свидетель краснеет, пользователь не видит — наш старый «флаг без читателя» в новой упаковке.<br>Форма: <code>{kind:"parts", unreadable: N}</code> — «внутри показанных ходов N нечитаемых частей: текст может обрываться не по вине автора».<br>Делать сейчас, а не потом, ещё и дешевле: смена типа <code>partText</code> уже входит в пункт 5, различение рождается тем же коммитом, оба вызывающих места тронуты. Цена добавки — один вариант в типе и один wire-пин.</dd>
+    <dt>Свидетель</dt><dd>Убрать любое из трёх полей → красный.</dd>
+    <dt>Цена</dt><dd><strong>Внутренние плагины — ноль лишних мест:</strong> ответ кладётся в реестр по ссылке и читается потребителями напрямую, поле доедет, как только вырастут типы. <strong>Внешние — трое ворот</strong>, и у каждых свой род отказа.</dd>
+  </dl>
+  <div class="scroll"><table class="tbl" style="margin-top:14px">
+    <tr><th>Ворота</th><th>Что делают</th><th>Что будет с меткой</th></tr>
+    <tr><td><code>sanitizeHistoryFacts</code><br><code>:922-938</code></td><td>пересобирают из белого списка <code>{cwd, title?, transcriptPath?}</code></td><td><strong>молча срезана</strong></td></tr>
+    <tr><td><code>sanitizeHistoryContent</code><br><code>:940-942</code></td><td>проверяют «это строка»</td><td>если <code>content()</code> начнёт отдавать объект — <code>null</code> → <code>requireHistoryResult:847</code> <strong>бросает</strong>, ломая <em>все</em> внешние чтения</td></tr>
+    <tr><td><code>sanitizeHistoryTranscript</code><br><code>:944-962</code></td><td>пересобирают входы <code>{role, text}</code>, чужой формы не терпят</td><td>обёртка страницы → <code>null</code> → <strong>бросает</strong>; лишнее поле входа <strong>молча срезано</strong></td></tr>
+  </table></div>
+  <p style="margin:12px 0 0"><strong>Отсюда вывод, который меняет не форму, а обязательность:</strong> прецедент <code>listing?()</code> — не вопрос вкуса. Менять тип возврата существующих методов нельзя: внешний ярус на этом <em>падает громко</em>. Новый необязательный брат — единственный безопасный путь, и он требует переговорного флага по образцу <code>hasListing</code> (<code>:396</code>, прокси <code>:441-448</code>), иначе старые гости бросают на неизвестном методе. Санитайзеры обязаны вырасти <strong>тем же коммитом</strong>.</p>
+  <p style="margin:12px 0 0">И следствие в нашу пользу: раз выбран парный метод, <code>content()</code> <strong>остаётся строкой</strong> — ворота <code>sanitizeHistoryContent</code> не трогаются вовсе, и риск громкого слома внешних content-чтений исчезает целиком.</p>
+  <dl class="row">
+    <dt>Цифра</dt><dd>Две поверхности: <strong>Facts</strong> (описывает своё тело-чтение) и <strong>парный transcript-метод</strong>. Внутренний ярус — типы плюс четыре плагина плюс два потребителя, <strong>≈7 точек, ноль ворот</strong>. Внешний — те же семь плюс <strong>≈6 в RPC-шве</strong>: пропуск поля в фактах, переговорный флаг, прокси, новый санитайзер парной формы, формы протокола, ветка в гостевом мосту. Wire-пины — <strong>три сценария</strong>: одиночный <code>bytes</code> (файловые), одиночный <code>turns</code>, и <code>turns + parts</code> вместе (большой стор opencode).</dd>
+    <dt>Решено кругом</dt><dd>Метка фактов живёт <strong>только в скане</strong>, в схему <code>index.sqlite</code> не пишется. Три причины. <em>Первая, решающая:</em> метка в хранилище без своего чтения — это похороненное наследование, воскрешённое в новом месте: строка индекса молчит о том, когда и какое чтение её породило, а просмотрщик показывает метку своего живого чтения — хранёная начнёт лгать после первого же перескана, ровно тем родом, который мы хоронили. <em>Вторая:</em> отложить схему ничего не стоит — индекс одноразовый по контракту (<code>SCHEMA_VERSION = 5</code>, <code>lib.rs:17</code>; смена схемы = бамп, удаление, перескан), так что это не долг, а бесплатная позиция. <em>Третья:</em> честность достижима и без схемы — <code>historyScan</code> при upsert неполного контента предупреждает в лог.</dd>
+    <dt>Когда пересмотреть</dt><dd>Если появится потребитель, которому метка нужна <strong>без свежего чтения</strong> — например, пометка «найденное неполно» на результатах поиска. Это продуктовый запрос, и тогда один дешёвый миграционный шаг.</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <p class="t"><span class="n">1</span><span class="txt">Truncated-читатель — двухуровневая метка</span></p>
+  <dl class="row">
+    <dt>Обещание</dt><dd>Обрезанное чтение называется обрезанным. Молчаливая потеря хвоста запрещена.</dd>
+    <dt>Факт сегодня</dt><dd>Флаг едет по IPC и не читается <strong>ни одним из трёх</strong> JSONL <code>history.ts</code> — все пишут <code>file.text ?? ""</code>. Но хвосты ведут себя <strong>по-разному</strong>: у claude/codex рваная строка → <code>continue</code>, ход <strong>пропадает</strong> (метка возможна только на сессии); у kimi накопленные фрагменты выливаются финальным <code>flushAssistant()</code> (<code>kimi:85</code>) в обычный ход, который <strong>молча укорачивается и выглядит целым</strong>.</dd>
+    <dt>Что делаю</dt><dd>Метка на сессии для всех трёх; для kimi — ещё и на хвостовом ходе.</dd>
+    <dt>Граница</dt><dd>Читатели флага <em>за пределами</em> history.ts не трогаю: <code>plugins/files/src/components/FileViewer.tsx:165,226</code> и <code>kimi/fork.ts:54</code> и <code>:113</code> — после ребейза их <strong>два</strong>, не один.</dd>
+    <dt>Свидетель</dt><dd>Мутация «снять читателя <em>в history.ts</em>» → красный. Для этого нужна парная ветка <code>truncated:true</code> — сегодня все фикстуры ставят <code>false</code>, покрытия нет вообще. Рваная строка в середине и рваная на обрезанном хвосте различимы <strong>только по флагу</strong>; старые torn-тесты остаются зелёными — они про середину.</dd>
+    <dt>Правило kimi</dt><dd>Хвостовой ход подозрителен ⟺ <code>truncated:true</code> <strong>и</strong> последний ход родился из финального flush'а (хвост файла — <code>append_loop_event</code>, а не завершённый <code>append_message</code>). Без этого условия мутация либо всегда красная, либо всегда зелёная.</dd>
+    <dt>Точность codex</dt><dd><code>describe</code> читает голову 256 KB (<code>codex:151</code>) — meta-строка и первый ход могут оказаться <strong>обрезаны</strong>, а заголовок (<code>:169</code>) выводится из обрезанного текста и выглядит целым. Тот же род, что kimi-flush: тихая неполнота под видом полноты. <strong>Действие — в пункте 4</strong>, не здесь: это названное исключение, а не метка чтения.</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <p class="t"><span class="n">4</span><span class="txt">Describe-fallback — названное исключение</span></p>
+  <dl class="row">
+    <dt>Обещание</dt><dd>Полное 8 MB-чтение в <code>describe</code> — только при промахе sessions-index; условие срабатывания названо в комментарии и в контракте. Быстрая дорожка (head + индекс) — норма.</dd>
+    <dt>Что делаю</dt><dd><code>indexedTitle</code> <strong>разводит два молчащих случая</strong>: «индекс не читался целиком» (<code>file.truncated</code> → явный отказ с причиной) и «записи нет» (честный <code>undefined</code>). При обрезанном индексе <code>describe</code> логирует «index truncated — fell back to full read» вместо тихого фолбэка. Раньше пункт весь состоял из «назвать условие в комментарии» — теперь у него есть работа над кодом.</dd>
+    <dt>Второй триггер — codex</dt><dd>Голова 256 KB обрезана почти всегда (корпус: 1112 файлов, средний 1.2 MB), поэтому «обрезана голова → читать тело» сделало бы исключение <strong>нормой</strong> и превратило скан codex из одного чтения 256 KB в полное 8 MB на сессию. Это регрессия в ступени, чьё определение — «ничего не ускоряется». Верное действие другое: метка достаётся <strong>бесплатно</strong> из пункта 6 (<code>shortfall</code> байтового рода говорит «прочитал 256 KB из X»), а дочитывать тело — <strong>только когда титула нет вовсе</strong> (<code>titleOf</code> вернул <code>undefined</code>). Заголовок «неверный, но есть» локально неотличим от верного: его не чинят, его <strong>метят</strong>.</dd>
+    <dt>Свидетель</dt><dd>Мутация «схлопнуть обратно в один <code>undefined</code>» → тест красный. У codex — мутация «дочитывать тело при обрезанной голове» → красный тест на то, что быстрая дорожка осталась быстрой.</dd>
+    <dt>Связь, которой не было в постановке</dt><dd>Обрезанный индекс <strong>сам является причиной</strong> фолбэка. Механика точная: <code>claude:131</code> читает <code>sessions-index.json</code> с потолком 512 KB, <code>:132</code> парсит его целиком, обрезание бросает — и <code>catch</code> на <code>:147-149</code> схлопывает «обрезан» и «нет записи» в одно <code>undefined</code> с комментарием «no index / foreign shape». Вот <em>почему</em> они неотличимы: не по недосмотру, а потому что оба ответа выходят одной дверью.</dd>
+    <dt>Свидетель</dt><dd>Греп-свидетель на текст контракта.</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <p class="t"><span class="n">2</span><span class="txt">Границы чтения названы в одном месте</span></p>
+  <dl class="row">
+    <dt>Обещание</dt><dd>Истина о пределах — поимённо в одном месте. <strong>Не «выравнивается»</strong>: потолков три, назначение разное, свести в одно число невозможно, и обещание выравнивания стало бы ложным.</dd>
+    <dt>Три потолка</dt><dd><code>8 MB</code> — <code>MAX_FILE_BYTES</code> (<code>project_fs.rs:55</code>), жёсткий; <code>1 MB</code> — <code>DEFAULT_MAX_FILE_BYTES</code> (<code>:50</code>), достаётся всякому, кто не просит явно (сюда попадает <code>kimi state.json</code>, <code>kimi:198</code>); <code>512 KB</code> — claude sessions-index (<code>claude:131</code>). Клэмп: <code>:157</code>.</dd>
+    <dt>Граница</dt><dd>Rust трогается — <strong>прежний зелёный недействителен независимо от размера правки</strong>. Гейт есть тройка: команда × набор таргетов × коммит; число прохождений — производное, само по себе не свидетель (наша же таблица ниже это показывает: 573 → 649). Команда обязана покрывать таргеты, где живёт изменение: <code>cargo build</code> тестовые таргеты не компилирует, и мёртвый код в test-only структурах для него невидим.</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <p class="t"><span class="n">3</span><span class="txt">Wipe-лог</span></p>
+  <dl class="row">
+    <dt>Обещание</dt><dd>Нечитаемый <code>index.sqlite</code> стирается <strong>с логом и причиной</strong>; пользователь видит, почему индекс пропал.</dd>
+    <dt>Факт</dt><dd><code>crates/keepdeck-index/src/lib.rs:223-231</code> — <code>pub fn open</code>, при ошибке <code>remove_file</code> на <code>:227</code>, «disposable by contract». Молча.</dd>
+    <dt>Цена</dt><dd><strong>Половина дешёвая, половина — настоящая постройка.</strong> Логовая: файловый sink готов и пишется всегда, нужна строка зависимости и исход <code>{Opened | WipedAndRecreated(reason)}</code> — он же тестовый шов. Статусная: готового канала Rust→UI <strong>нет</strong>. Индекс сегодня живёт без <code>AppHandle</code> (<code>lib.rs:101</code>); достройка — перенос в setup по прецеденту bridge, эмит события по образцу <code>PROJECT_FS_CHANGE_EVENT</code>, слушатель в webview, мапинг в notification center. Около четырёх производственных точек.</dd>
+    <dt>Решение</dt><dd>Круг должен знать до сборки: пункт 3 дёшев <em>только</em> в логовой половине. Статусная удваивает его цену.</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <p class="t"><span class="n">5</span><span class="txt">Молчания-сводка</span><span class="tag bad">постановка отстала</span></p>
+  <dl class="row">
+    <dt>Было</dt><dd>Постановка называла <strong>два</strong> молчания: opencode &gt;20k строк и kimi unreadable-dir.</dd>
+    <dt>Стало</dt><dd>У одного opencode их <strong>семь</strong>. Row-cap <code>LIMIT 20000</code> в <code>content()</code> <code>:84</code> и <code>transcript()</code> <code>:104</code>; аккумулятор текста <code>if (total &gt;= 2MB) break</code> <code>:94</code>; построчный дроп <code>partText</code> на <code>:91</code> и <code>:110</code>; исчезновение сообщения на <code>:118</code>; допущение <code>catch { return []; // no store }</code> на <code>:41-43</code>.</dd>
+    <dt>Два вранья от одного потолка</dt><dd>Запрос сообщений (<code>:99-101</code>) идёт <strong>без</strong> LIMIT, а их parts — с LIMIT. На границе: сообщение с частично срезанными parts рендерится <strong>частичным и выглядит целым</strong> (тот же род, что kimi-flush), а всё, что после границы, теряет parts полностью и <strong>исчезает</strong> на <code>:118</code>.</dd>
+    <dt>Цена счётчика</dt><dd>Счётчик «skipped: N parts (unreadable)» <strong>сегодня неисполним</strong>: <code>partText</code> возвращает <code>null</code> в трёх разных случаях — рваный JSON (потеря), не-текстовая часть (норма), пустой текст (норма) — и оба вызывающих места схлопывают их в один <code>continue</code>. Считать нечего, пока не изменён тип возврата, а его закрепляет тест <code>opencode/src/history.test.ts:55</code>.</dd>
+    <dt>Третье враньё</dt><dd>Неполнота хвостового хода узнаётся сравнением фактических частей с партиционным тоталом. Но если нечитаемы части <strong>самого</strong> хода (<code>partText</code> вернул <code>null</code>), счёт сойдётся и ход будет выглядеть полным — <strong>с дырой внутри</strong>. Третий лже-вид одного потолка, пограничный к обоим предыдущим.</dd>
+    <dt>Как лечится</dt><dd>Все три вранья закрываются решением круга: <code>content()</code> режется <strong>по границе сообщения</strong>, а не посреди него, и недостача считается в <strong>ходах</strong>, не в частях — «omitted: N turns (message boundary)». Просмотрщик <strong>не выбрасывает</strong> неполный хвостовой ход: он едет с той же меткой «Partly shown», потому что решать за пользователя, что неполный вид хуже отсутствия, — не наше дело. Свидетель обязан краснеть и на третьем случае: «дыра внутри хода, а частей вроде хватает».</dd>
+    <dt>Расщепление</dt><dd><strong>(i) opencode-счёт</strong> — зависимостей ноль, исполним в любом месте порядка. <strong>(ii) kimi-перечисление</strong> — жёсткая зависимость: сегодня честно перечислить нельзя, и <em>любой</em> из трёх честных вариантов лжёт (см. карточку хазарда). Уезжает к пользователю той же отдельной строкой.</dd>
+    <dt>Роды счётчиков</dt><dd><code>content()</code> — три: записи в ходах · текст · построчная негодность. Просмотрщик — четыре: те же плюс «ход неполон». Ни одно молчание не остаётся безликим.</dd>
+    <dt>У счётчика есть носитель</dt><dd>Старая формула «skipped: N parts (unparseable)» висела без адреса — теперь это <code>{kind:"parts"}</code> из пункта 6. Две работы — различить в <code>partText</code> и выразить наружу — ложатся одним коммитом.</dd>
+    <dt>Честность поискового корпуса</dt><dd>Индекс кормится через <code>content()</code>, а он остаётся строкой — значит недостаче там ехать не в чем. Носителя ей <strong>не строим</strong>: предупреждает <strong>сам плагин в момент чтения</strong>, потому что родами владеет он, а сканер получил бы голую строку и не знал бы даже, что чтение было неполным. Канал живой и уже используется для того же класса сообщений — <code>ctx.log.warn</code> в <code>codex:99,141</code> · <code>claude:203,219</code> · <code>kimi:168,184</code>, гостевой мост пробрасывает его на <code>:676</code>. Ноль точек контракта, ноль шва, все четыре плагина одинаково.<br>Пересмотр — по тому же триггеру, что и схема индекса: появится потребитель, которому недостача нужна <em>без свежего чтения</em> (пометка «найденное неполно» на результатах поиска) — тогда парный метод и миграция схемы делаются одним заходом. Два отложенных с одним триггером — это один долг, а не два.</dd>
+    <dt>Механика обоих</dt><dd>Одна дополнительная колонка <code>COUNT(*) OVER (PARTITION BY message_id)</code>, один снимок. Решение — peer-1 (слова) и peer-4 (механика).</dd>
+  </dl>
+</div>
+
+<h2>Вне ступени — но пользователь должен знать</h2>
+
+<div class="card hazard">
+  <p class="t"><span class="txt">kimi: живая сессия удаляется из индекса</span><span class="tag bad">потеря данных</span></p>
+  <p style="margin:0 0 10px">Код <strong>сам это называет</strong>: <code>plugins/kimi/src/history.ts:111-119</code> — «<em>PRUNE HAZARD, named rather than fixed</em>». Сессия, чей <code>agents/main</code> стал нечитаем, падает в <code>.catch(() =&gt; [])</code> на <code>:122</code> и выпадает из перечисления, а <code>listing()</code> ставит <code>complete=false</code> только на уровне выше (<code>:183</code>). Хост уверен, что видел весь стор, — и прунит живую сессию.</p>
+  <p style="margin:0 0 10px">Сторож хоста тут <strong>не помогает</strong>: <code>historyScan.ts:155-161</code> защищает только legacy-плагинов с пустым списком, а kimi не legacy и список не пуст.</p>
+  <p style="margin:0 0 10px"><strong>Почему сегодня нельзя починить дёшево:</strong> лгут <em>все три</em> честных варианта. Перечислить отказы — в них попадёт рутина, потому что never-spawned сессия выглядит так же. Посчитать — та же ложь числом. Поставить <code>complete:false</code> на этом уровне — прун kimi отключится навсегда. Потому в коде и стоит комментарий-хазард, а не фикс.</p>
+  <p style="margin:0 0 10px"><strong>Цена:</strong> роды ошибок fs через <strong>четыре шва</strong> — классификация в Rust, форма IPC-ошибки, слова контракта plugin-api, мапинг <code>services.fs</code> — плюс переписка <code>catch</code> у kimi. Это общая инфраструктура, а не локальный пластырь: оценивать как дешёвый точечный фикс неверно.</p>
+  <p style="margin:0"><strong>Почему не в ступени 1:</strong> ступень 1 про честность <em>чтения</em>, а это про <em>удаление</em>. Срок — слово пользователя.</p>
+</div>
+
+<div class="card done">
+  <p class="t"><span class="txt">opencode: заявленная вычистка индекса — <strong>опровергнута</strong></span><span class="tag ok">защищено</span></p>
+  <p style="margin:0">Утверждение «транзитная ошибка БД вычистит весь opencode-индекс» на текущем коде неверно. <code>historyScan.ts:155-161</code> держит сторож <code>legacy &amp;&amp; stubs.length===0 &amp;&amp; stored.size&gt;0 → prune skipped</code>, а комментарий <code>:145-154</code> описывает ровно этот сценарий. opencode — единственный из четырёх без <code>listing()</code>, то есть ровно та legacy-ветка, для которой сторож писался. Остаётся дефект честности (<code>:41-43</code> — допущение «no store», а запертая БД читается так же), но не потеря данных. Класс находки: обычный житель ступени 1.</p>
+</div>
+
+<h2>Ждёт слова пользователя</h2>
+<div class="card">
+  <ul>
+    <li><strong>Порядок ступеней</strong> — предложение 1→2→3. Без него ступень 1 не стартует.</li>
+    <li><strong>№9</strong> — incremental-refresh во время скана против одного финального: продуктовый выбор.</li>
+    <li><strong>Индекс-бюджет</strong> — политика после измерения на живом корпусе.</li>
+    <li><strong>Stream-handle</strong> в ступени 3 — с ценой, без подмены решения.</li>
+    <li><strong>Постоянный владелец зоны свидетелей</strong> на ступенях 2-3. На ступени 1 закрыто временно.</li>
+    <li><strong>kimi prune hazard</strong> — чинить сейчас или после трёх ступеней.</li>
+  </ul>
+</div>
+
+<h2>Последние пять решений</h2>
+<div class="card">
+  <p style="margin:0 0 12px">Мелочи, которые исполнитель иначе выбрал бы молча, — а молча выбранное становится архитектурой. Два решения из пяти <strong>убирают</strong> конструкцию, а не добавляют.</p>
+  <dl class="row">
+    <dt>Имена</dt><dd>Парный метод — <code>transcriptPage?()</code>, флаг переговоров — <code>hasTranscriptPage</code>. У <code>listing</code> имя было герундием от <code>list</code>; для <code>transcript</code> герундия нет, поэтому берём смысл прецедента, а не его грамматику.</dd>
+    <dt>Без <code>complete</code></dt><dd>Метод возвращает <code>{ entries, shortfall? }</code>. У перечисления <code>complete</code> уместен — оно бинарно: видел стор целиком или нет. У страницы транскрипта <code>shortfall</code> говорит и что недостаёт, и сколько, а <code>complete</code> из него выводится. Держать оба — завести <strong>две правды об одном</strong> и пригласить их разойтись. Свидетель: мутация «вернуть <code>complete</code> рядом» → красный, иначе кто-нибудь добавит «удобное поле» обратно.</dd>
+    <dt>Дом потолков</dt><dd>Именованный модуль в <code>@keepdeck/plugin-api</code>, где каждый потолок назван своим назначением — тело, голова, индекс; плагины импортируют вместо литералов. Rust <code>MAX_FILE_BYTES</code> сюда <strong>не сводится</strong> и остаётся независимым предохранителем: контракт уже говорит «host clamps it to its own ceiling», значит число в плагине есть <em>запрос</em>, а не потолок. «Названы в одном месте» ≠ «сведены в одно число».</dd>
+    <dt>Призрак ушёл</dt><dd>Отдельного состояния «тело не читалось» <strong>не будет</strong>. Вместо него фраза в контракт: <em>Facts говорят только о том чтении, которое describe сделал; полноту тела отвечает то чтение, которое тело читает.</em> На быстрой дорожке describe в тело не смотрел — заявлять ему нечего, и отсутствие метки честно. Третий случай существовал ровно пока мы думали, что Facts обязаны говорить о сессии; наследование мы похоронили — призрак ушёл следом.<br>Тёмный бок, подписать в контракте одной строкой: отсутствие метки читается как «<em>это чтение полно</em>» <strong>или</strong> «<em>оно молчит о том, чего не делало</em>» — и потребитель, которому важно различить, обязан знать, каким чтением он спросил. Не новое состояние, а подпись к существующему.</dd>
+    <dt>Граница пункта 3</dt><dd>В ступень 1 входит <strong>только лог с причиной</strong>. Строка в интерфейсе про пересозданный индекс — UI-работа на ≈4 производственные точки, и в ступени уже стоит граница «интерфейс не трогаем до ступени 2». Держим её и здесь: лог отвечает тому, кто диагностирует, витрина — ступенью позже. <strong>Отложено, не решено:</strong> статусная половина возвращается со ступенью 2 или отдельным словом — иначе отложенное прочтётся как закрытое.</dd>
+    <dt>Потолки: их шесть</dt><dd>Не три, как считалось: голова claude 64 KB (<code>:252</code>) · индекс claude 512 KB (<code>:131</code>) · тело claude 8 MB (<code>:262,271,277</code>) · голова codex 256 KB (<code>:151</code>) · тело codex 8 MB (<code>:172,178</code>) · тело kimi 8 MB (<code>:216,223</code>). Головы claude и codex различаются <strong>намеренно</strong> — у codex meta-строка идёт первой; свести их в одно число значило бы повторить ошибку пункта 2. Дефолт хоста в 1 MB в модуль <strong>не входит</strong>: плагины им не управляют.</dd>
+    <dt>Пустой массив запрещён</dt><dd><code>shortfall: []</code> — вторая орфография полноты, тот же род второй правды. Санитайзер: присутствует и пусто → отказ; присутствует значит минимум один валидный элемент.</dd>
+  </dl>
+</div>
+
+<h2>Опоры под приёмку</h2>
+<div class="card">
+  <p style="margin:0"><strong>Гейты перезачтены после ребейза</strong> — старые числа были мертвы, эти живые. База для приёмки ступени 1:</p>
+  <div class="scroll"><table class="tbl" style="margin-top:10px">
+    <tr><th>Гейт</th><th>Было (532a8508)</th><th>Стало (02be0fd6)</th></tr>
+    <tr><td><code>tsc --noEmit</code></td><td>0</td><td><strong>0 ошибок</strong></td></tr>
+    <tr><td><code>vitest run</code></td><td>408 файлов / 4524</td><td><strong>424 файла / 4684, ноль упавших</strong></td></tr>
+    <tr><td><code>cargo test --workspace</code></td><td>573</td><td><strong>649 прошло, 0 упало, 1 пропущен</strong></td></tr>
+    <tr><td><code>npm run build</code></td><td>8 плагинов</td><td><strong>собран, 8 плагинов</strong></td></tr>
+  </table></div>
+  <p style="margin:10px 0 0"><strong>Как читать эти числа.</strong> «Число или состав» — ложный выбор, у них разные слои. Метод по составу остаётся <em>определением</em> гейта: тройка команда × таргеты × коммит — это то, что делает прогон свидетельством. Число вписывается как <strong>базлайн тройки</strong>, и у него ровно одно законное применение: детекция регрессии между двумя прогонами <em>одной и той же</em> тройки — если на <code>02be0fd6+ε</code> вдруг 4680 без объявленной смены таргетов, значит тест тихо пропал. Сравнивать числа <em>разных</em> троек напрямую нельзя: дельта объясняется составом, и таблица выше именно это и делает — +76 в cargo, +16 файлов и +160 тестов пришли из main.</p>
+  <p style="margin:10px 0 0"><strong>Происхождение чисел:</strong> прогнал peer-3 (исполнитель) в worktree <code>test/kd-KeepDeck-12</code> на <code>02be0fd6</code>, 23 августа, командами ровно из таблицы. Число без подписи — слово, а не инструмент.</p>
+  <p style="margin:8px 0 0"><strong>Пропущенный тест назван:</strong> <code>realistic_store_timing</code> (<code>crates/keepdeck-index/src/lib.rs:1629</code>) — помечен <code>#[ignore]</code> намеренно, это замер времени на реалистичном сторе, а не забытый тест. Молчаливый skip был бы тем же молчанием, которое лечит эта ступень.</p>
+  <p style="margin:8px 0 0" class="note">Побочно: этот же <code>#[ignore]</code>-замер — готовый инструмент под точку «индекс-бюджет после измерения», которая ждёт слова. Мерить придётся не с нуля.</p>
+  <p style="margin:10px 0 0"><strong>Входная половина пути цела.</strong> Флаг от Rust до кода плагина не теряется нигде — ни у внутреннего яруса, ни у внешнего (там чтение идёт пасстру, без санитайзеров: они сторожат только обратное направление). Флаг умирает ровно в одной точке — на <code>file.text ?? ""</code> внутри каждого <code>history.ts</code>. Это и есть весь пункт 1.</p>
+</div>
+
+<footer>
+  Ступень 1 ничего не ускоряет — она перестаёт лгать. Все адреса перепроверены по коду на 02be0fd6 после ребейза: из тринадцати файлов, на которых стоят находки, изменился ровно один — <code>plugins/kimi/src/fork.ts</code>.
+</footer>
+</div>
+
+<script>
+(()=>{const note=()=>{const n=document.createElement("div");
+n.setAttribute("style","background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999");
+n.textContent="This page's server went away — republish or reopen from the agent's message.";
+document.body.appendChild(n);};
+const es=new EventSource(location.pathname+"/events"+location.search);
+es.addEventListener("version",()=>location.reload());
+es.addEventListener("bye",()=>{es.close();note();});
+es.addEventListener("error",()=>{es.close();note();});})();
+</script>

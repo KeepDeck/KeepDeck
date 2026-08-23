@@ -37,7 +37,7 @@ const sharedOf = (over: Partial<BrowserSharedSeam> = {}): BrowserSharedSeam => (
     declare: vi.fn(),
   },
   ensureFresh: vi.fn(),
-  transcript: vi.fn(() => Promise.resolve([])),
+  transcript: vi.fn(() => Promise.resolve({ entries: [] })),
   ...over,
 });
 

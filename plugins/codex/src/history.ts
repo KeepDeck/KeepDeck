@@ -1,5 +1,6 @@
 import {
   firstMeaningfulUserTurn,
+  shortfallOfRead,
   textFromParts,
   type AgentHistory,
   type AgentSessionStub,
@@ -57,7 +58,23 @@ export function titleOf(turns: ParsedTurn[]): string | undefined {
 
 const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
 
+/** The whole rollout a page is cut from — codex reads it all and slices. */
+const BODY_CAP = 8 * 1024 * 1024;
+
 export function codexHistory(ctx: PluginContext): AgentHistory {
+  /** One page of turns WITH what the reading fell short by. */
+  const readPage = async (
+    ref: string,
+    page: { offset: number; limit: number },
+  ) => {
+    const file = await ctx.services.fs.readFile(ref, { maxBytes: BODY_CAP });
+    const entries = parseRollout(file.text ?? "")
+      .slice(page.offset, page.offset + page.limit)
+      .map((t) => ({ role: t.role, text: t.text }));
+    const shortfall = shortfallOfRead(file, BODY_CAP);
+    return { entries, ...(shortfall ? { shortfall } : {}) };
+  };
+
   const walk = async (path: string): Promise<AgentSessionStub[]> => {
     const out: AgentSessionStub[] = [];
     // No catch: the store's root already answered, so a date partition that
@@ -174,11 +191,11 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
         .map((t) => t.text)
         .join("\n");
     },
+    // ONE reading, two contracts: the legacy method unpacks the honest one,
+    // so the pair cannot drift.
+    transcriptPage: readPage,
     async transcript(ref, page): Promise<AgentTranscriptEntry[]> {
-      const file = await ctx.services.fs.readFile(ref, { maxBytes: 8 * 1024 * 1024 });
-      return parseRollout(file.text ?? "")
-        .slice(page.offset, page.offset + page.limit)
-        .map((t) => ({ role: t.role, text: t.text }));
+      return (await readPage(ref, page)).entries;
     },
   };
 }
