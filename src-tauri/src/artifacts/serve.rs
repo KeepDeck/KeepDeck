@@ -81,6 +81,11 @@ pub(super) fn serve_artifact(
     };
     let _ = respond_csp(stream, 200, MIME_HTML, &body, &[
         ("Content-Security-Policy", csp.as_str()),
+        // The page is versioned in place and reloads itself on a version
+        // event. Nothing here offers a validator, so without this the
+        // reload's freshness is a browser heuristic — and a cached copy
+        // can paint a page whose server is not answering at all.
+        ("Cache-Control", "no-store"),
         ("Referrer-Policy", "no-referrer"),
         ("X-Content-Type-Options", "nosniff"),
     ]);
@@ -120,6 +125,9 @@ pub(super) fn serve_export(
     let disposition = format!("attachment; filename=\"{slug}.html\"");
     let _ = respond_csp(stream, 200, MIME_HTML, &body, &[
         ("Content-Disposition", disposition.as_str()),
+        // Same reason as the page: no validators anywhere, so a cached
+        // export would hand back a version the artifact has moved past.
+        ("Cache-Control", "no-store"),
         ("Referrer-Policy", "no-referrer"),
         ("X-Content-Type-Options", "nosniff"),
     ]);
@@ -153,6 +161,9 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
     let body = format!("{before}{entries}{after}");
     let _ = respond_csp(stream, 200, MIME_HTML, body.as_bytes(), &[
         ("Content-Security-Policy", INDEX_CSP),
+        // Refresh here IS the browser reload (zero-JS by design), so a
+        // cached copy would defeat the only way this page updates.
+        ("Cache-Control", "no-store"),
         ("Referrer-Policy", "no-referrer"),
         ("X-Content-Type-Options", "nosniff"),
     ]);

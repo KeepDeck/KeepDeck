@@ -604,7 +604,15 @@ fn subscribe(
     // a fake value would read as a security property that isn't there.
     // Artifact-A-JS-reaching-B's stream is the per-artifact connect-src
     // pin's job, exactly as designed.)
-    let head = format!("HTTP/1.1 200 OK\r\nContent-Type: {MIME_SSE}\r\nConnection: close\r\n\r\n");
+    // The head carries an immediate `: ping` comment — a COMMENT, so the
+    // no-unsolicited-event rule above is untouched (nothing dispatches, no
+    // handler runs, no reload can fire). It exists because the keepalive
+    // is ONE global tick that sleeps first: a fresh subscriber would
+    // otherwise sit on a byte-less stream for anywhere up to 15 seconds
+    // before the first sign that this connection carries anything.
+    let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {MIME_SSE}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n: ping\n\n"
+    );
     if stream.write_all(head.as_bytes()).is_err() {
         return;
     }
