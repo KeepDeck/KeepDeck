@@ -1,0 +1,957 @@
+<meta charset="utf-8">
+<title>Рез и заголовок — ступень 1, пункт 4</title>
+
+<style>
+:root {
+  --paper:      #f2f5f8;
+  --surface:    #ffffff;
+  --ink:        #161a20;
+  --ink-soft:   #3d4650;
+  --muted:      #6a7683;
+  --rule:       #d5dce3;
+  --rule-soft:  #e6ebf0;
+  --pencil:     #a8322a;
+  --pencil-dim: #a8322a1f;
+  --proved:     #2b6b58;
+  --proved-dim: #2b6b581a;
+  --shade:      #dfe5eb;
+
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #101319;
+    --surface:    #171b22;
+    --ink:        #e5eaf0;
+    --ink-soft:   #bcc6d1;
+    --muted:      #8b97a5;
+    --rule:       #2a323c;
+    --rule-soft:  #202730;
+    --pencil:     #e07a68;
+    --pencil-dim: #e07a6826;
+    --proved:     #62b096;
+    --proved-dim: #62b09622;
+    --shade:      #232b35;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:      #101319;
+  --surface:    #171b22;
+  --ink:        #e5eaf0;
+  --ink-soft:   #bcc6d1;
+  --muted:      #8b97a5;
+  --rule:       #2a323c;
+  --rule-soft:  #202730;
+  --pencil:     #e07a68;
+  --pencil-dim: #e07a6826;
+  --proved:     #62b096;
+  --proved-dim: #62b09622;
+  --shade:      #232b35;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.62;
+  margin: 0;
+  padding: 0 clamp(18px, 5vw, 48px) 96px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 47rem; margin: 0 auto; }
+
+/* ---------- header ---------- */
+
+header {
+  padding: clamp(40px, 8vw, 76px) 0 28px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.eyebrow {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+
+h1 {
+  font-family: var(--sans);
+  font-size: clamp(34px, 6.4vw, 52px);
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  line-height: 1.04;
+  text-wrap: balance;
+  margin: 0 0 20px;
+}
+
+.standfirst {
+  font-size: clamp(18px, 2.4vw, 21px);
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin: 0 0 30px;
+  max-width: 34rem;
+  text-wrap: pretty;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 26px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.meta b { color: var(--ink-soft); font-weight: 500; }
+
+/* ---------- sections ---------- */
+
+section { padding-top: 54px; }
+
+h2 {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--pencil);
+  margin: 0 0 22px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+h3 {
+  font-family: var(--sans);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.008em;
+  margin: 34px 0 10px;
+  text-wrap: balance;
+}
+
+p { margin: 0 0 16px; max-width: 40rem; text-wrap: pretty; }
+p:last-child { margin-bottom: 0; }
+
+strong { font-weight: 600; }
+em { font-style: italic; color: var(--ink-soft); }
+
+code, .num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+code {
+  font-size: 0.87em;
+  background: var(--shade);
+  padding: 0.1em 0.34em;
+  border-radius: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- the verdict block ---------- */
+
+.verdict {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--pencil);
+  padding: 24px 26px;
+  margin: 0 0 8px;
+}
+.verdict p { margin-bottom: 12px; }
+.verdict p:last-child { margin-bottom: 0; }
+
+/* ---------- ceiling bars ---------- */
+
+.gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  margin: 6px 0 32px;
+}
+
+.gauge-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 9px;
+}
+.gauge-head .what { color: var(--ink); }
+.gauge-head .cap {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.track {
+  position: relative;
+  height: 26px;
+  background: var(--shade);
+  border: 1px solid var(--rule-soft);
+}
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--proved-dim);
+  border-right: 2px solid var(--proved);
+}
+.fill.over { background: var(--pencil-dim); border-right-color: var(--pencil); }
+
+.track .ceiling {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 0;
+  border-left: 2px dashed var(--pencil);
+}
+
+.gauge-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.gauge-foot .obs { color: var(--proved); }
+.gauge-foot .obs.over { color: var(--pencil); }
+
+/* ---------- tables ---------- */
+
+.tablewrap { overflow-x: auto; margin: 0 0 26px; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--sans);
+  font-size: 14px;
+}
+th, td {
+  text-align: left;
+  padding: 9px 14px 9px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: baseline;
+}
+th {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+td.n, th.n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding-right: 0;
+  white-space: nowrap;
+}
+tr:last-child td { border-bottom: none; }
+.zero { color: var(--pencil); font-weight: 600; }
+
+/* ---------- finding rows ---------- */
+
+.finding {
+  display: grid;
+  grid-template-columns: 3.1rem 1fr;
+  gap: 0 18px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.finding:last-of-type { border-bottom: none; }
+
+.finding .tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding-top: 4px;
+}
+.finding h3 { margin: 0 0 8px; }
+.finding p { margin-bottom: 10px; }
+.finding p:last-child { margin-bottom: 0; }
+
+.cost {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--muted);
+  border-left: 2px solid var(--rule);
+  padding-left: 13px;
+  margin-top: 12px;
+}
+.cost b { color: var(--ink-soft); font-weight: 600; }
+
+/* ---------- glossary ---------- */
+
+dl { margin: 0; }
+dt {
+  font-family: var(--sans);
+  font-size: 14.5px;
+  font-weight: 600;
+  margin-top: 20px;
+}
+dt:first-of-type { margin-top: 0; }
+dd {
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+  font-size: 16px;
+  max-width: 39rem;
+}
+dd .src {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- decisions ---------- */
+
+ol.decisions { margin: 0; padding: 0; list-style: none; counter-reset: d; }
+ol.decisions li {
+  counter-increment: d;
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: 0 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+ol.decisions li:last-child { border-bottom: none; }
+ol.decisions li::before {
+  content: counter(d);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--pencil);
+  padding-top: 3px;
+}
+ol.decisions p { margin: 0; }
+ol.decisions .mine {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--muted);
+}
+ol.decisions .mine b { color: var(--ink-soft); font-weight: 600; }
+
+/* ---------- footer ---------- */
+
+footer {
+  margin-top: 64px;
+  padding-top: 22px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--muted);
+}
+footer p { max-width: 40rem; margin-bottom: 10px; }
+
+.pending {
+  background: var(--surface);
+  border: 1px dashed var(--rule);
+  padding: 16px 18px;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  margin-top: 30px;
+}
+
+a { color: var(--pencil); text-underline-offset: 2px; }
+a:focus-visible, li:focus-visible { outline: 2px solid var(--pencil); outline-offset: 3px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .fill { transition: width .4s ease; }
+}
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Ступень 1 · Пункт 4 · Проработка круга</p>
+  <h1>Рез и заголовок</h1>
+  <p class="standfirst">
+    Пункт целился в обрезанное чтение, отнимающее имя сессии. Замер трёх
+    хранилищ показал: такого не происходит ни разу — и объяснил, почему не
+    может.
+  </p>
+  <div class="meta">
+    <span><b>v4</b> · 24.08.2026 21:33</span>
+    <span><b>ЗАКРЫТ</b> словом пользователя</span>
+    <span><b>ветка</b> feat/history-polish @ 2d22e1df</span>
+    <span><b>код</b> не тронут</span>
+  </div>
+</header>
+
+<section>
+  <h2>Итог</h2>
+  <div class="verdict">
+    <p>
+      <strong>Пункт 4 в работу брать нечего.</strong> Обе его половины —
+      «развести обрезанный индекс и отсутствующую запись» у claude и
+      «дочитывать, когда заголовка нет» у codex — целятся в случай, которого
+      на живом корпусе нет ни разу.
+    </p>
+    <p>
+      Причина не в корпусе. <strong>Обрезка всегда отнимает хвост, а источник
+      заголовка у всех трёх плагинов лежит в начале чтения.</strong> Рез и
+      заголовок не встречаются по построению — на любом корпусе, не только на
+      этом.
+    </p>
+    <p>
+      <strong>Решение принято 24.08.2026: пункт закрыт без реализации.</strong>
+      Отметка стоит в постановке ступени, рядом с исходным текстом пункта —
+      он сохранён целиком, чтобы через месяц было видно не только «закрыт»,
+      но и что именно закрывали.
+    </p>
+    <p>
+      Цена решения, которую надо знать: <strong>словарь остался в этом
+      документе и НЕ лёг в код.</strong> Правило границы, answer-gated read и
+      три строки-судьбы существуют как слова, а не как строки контракта, —
+      значит следующий, кто придёт к этому месту, встретит код без них. Это
+      осознанное следствие «закрыть, раз делать нечего», а не упущение: любая
+      запись в контракт была бы той самой работой, которой решили не делать.
+    </p>
+  </div>
+</section>
+
+<section>
+  <h2>Замер: потолок против наблюдённого</h2>
+  <p>
+    Постановка опиралась на оценки («голова обрезана у большинства», «средний
+    корпус 1.2 MB»). Хранилища на машине пользователя — это и есть корпус, и
+    его можно измерить. Ниже — каждый потолок и максимум, который к нему
+    подошёл. Пунктир — потолок.
+  </p>
+
+  <div class="gauges">
+
+    <div class="gauge">
+      <div class="gauge-head">
+        <span class="what">claude · <code>sessions-index.json</code></span>
+        <span class="cap">потолок 512 KB</span>
+      </div>
+      <div class="track">
+        <div class="fill" style="width:15.4%"></div>
+        <div class="ceiling" style="left:100%"></div>
+      </div>
+      <div class="gauge-foot">
+        <span class="obs">максимум 80 648 B — 15% потолка</span>
+        <span>обрезано: 0 из 22</span>
+      </div>
+    </div>
+
+    <div class="gauge">
+      <div class="gauge-head">
+        <span class="what">kimi · <code>state.json</code></span>
+        <span class="cap">потолок 1 MB (по умолчанию)</span>
+      </div>
+      <div class="track">
+        <div class="fill" style="width:4%"></div>
+        <div class="ceiling" style="left:100%"></div>
+      </div>
+      <div class="gauge-foot">
+        <span class="obs">максимум 42 161 B — 4% потолка</span>
+        <span>обрезано: 0 из 81</span>
+      </div>
+    </div>
+
+    <div class="gauge">
+      <div class="gauge-head">
+        <span class="what">codex · голова rollout-файла</span>
+        <span class="cap">потолок 256 KB</span>
+      </div>
+      <div class="track">
+        <div class="fill over" style="width:100%"></div>
+        <div class="ceiling" style="left:26%"></div>
+      </div>
+      <div class="gauge-foot">
+        <span class="obs over">медиана файла 463 996 B — вдвое выше потолка</span>
+        <span>обрезано: 153 из 272</span>
+      </div>
+    </div>
+
+  </div>
+
+  <p>
+    Третья полоса — единственная, где постановка была права: голова
+    действительно режется у большинства сессий. Но режется голова, а не
+    заголовок.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th>codex — 272 файла, 419 MB</th>
+          <th class="n">сессий</th>
+          <th class="n">доля</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>заголовок получен из головы 256 KB</td><td class="n">179</td><td class="n">66%</td></tr>
+        <tr><td>заголовок получен из полного чтения 8 MB</td><td class="n">179</td><td class="n">66%</td></tr>
+        <tr><td><strong>спасено дочитыванием</strong></td><td class="n zero">0</td><td class="n zero">0%</td></tr>
+        <tr><td>без имени при любом чтении</td><td class="n">93</td><td class="n">34%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th>claude — 139 сессий</th>
+          <th class="n">сессий</th>
+          <th class="n">доля</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>имя из <code>sessions-index.json</code></td><td class="n zero">0</td><td class="n zero">0%</td></tr>
+        <tr><td>имя из сводки транскрипта</td><td class="n zero">0</td><td class="n zero">0%</td></tr>
+        <tr><td>имя из первого хода</td><td class="n">122</td><td class="n">88%</td></tr>
+        <tr><td>тело больше потолка 8 MB — разговор действительно недочитан</td><td class="n">23</td><td class="n">17%</td></tr>
+        <tr><td><strong>безымянных из-за реза</strong></td><td class="n zero">0</td><td class="n zero">0%</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="cost">
+    <b>Вселенная названа.</b> <code>find</code> даёт 1002 файла <code>.jsonl</code>,
+    но плагин перечисляет только глубину 2; остальные 854 лежат в
+    <code>&lt;slug&gt;/&lt;sessionId&gt;/subagents/</code> — это субагентские
+    транскрипты, и плагин их не видит намеренно. Счёт идёт по 139, которые он
+    видит.
+  </p>
+</section>
+
+<section>
+  <h2>Почему нулей три, а следствие одно</h2>
+  <p>
+    Три нуля в трёх плагинах выглядят как три совпадения — и тогда законен
+    вопрос «а вдруг на другом корпусе иначе». Но это одно следствие, и
+    выведено оно не из корпуса, а из строения чтений <span class="src">(проверено
+    по коду всех трёх плагинов)</span>:
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>плагин</th><th>откуда берётся имя</th><th>куда падает рез</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>claude</td><td>первый ход или строка сводки — начало файла</td><td>хвост чтения на 8 MB</td></tr>
+        <tr><td>codex</td><td>первый ход в голове — начало файла</td><td>хвост головы и хвост тела</td></tr>
+        <tr><td>kimi</td><td><code>state.json</code> — отдельный файл</td><td>хвост wire-файла, к имени не относится</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    <strong>Обрезка отнимает хвост; источник заголовка у всех трёх лежит в
+    начале чтения; потому рез и заголовок не встречаются.</strong> Это сильнее
+    оговорки про другой корпус: мы не «не нашли» — мы объяснили, почему найти
+    не могли.
+  </p>
+  <p>
+    Отсюда же следует, что рез не безобиден: у 23 claude-сессий тело
+    действительно недочитано и разговор действительно теряется. Но метка на
+    это уже стоит — её поставил пункт 1. Рез отнимает разговор, а не имя.
+  </p>
+</section>
+
+<section>
+  <h2>Что осталось от пункта 4</h2>
+
+  <div class="finding">
+    <span class="tag">claude</span>
+    <div>
+      <h3>Быстрая дорожка мертва с февраля</h3>
+      <p>
+        Постановка предлагала различать «индекс обрезан» и «записи нет».
+        Обнаружился третий случай, который вытеснил оба: <strong>индекса нет
+        вовсе.</strong> 22 файла индекса, 773 записи — ни одна не указывает на
+        существующий файл. Каталоги с индексом и каталоги с сессиями не
+        пересекаются ни в одном месте. Индексы датированы январём и февралём
+        2026, сессии — июлем и августом.
+      </p>
+      <p>
+        Значит быстрая дорожка <code>describe</code> не срабатывала ни разу за
+        полгода, и каждый describe уходит на полное чтение тела.
+      </p>
+      <p class="cost">
+        <b>Что это делает с пунктом:</b> различать нечего — обе ветки ведут в
+        одно место, и ведут туда всегда.
+      </p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="tag">codex</span>
+    <div>
+      <h3>Дочитывать нечего</h3>
+      <p>
+        Постановка предлагала дочитывать тело, когда заголовок отсутствует.
+        Триггер сработал бы <span class="num">93</span> раза у codex и
+        <span class="num">17</span> у claude — и не дал бы имени ни одной
+        сессии. Причём впустую навсегда: сессия не изменится, значит платить
+        пришлось бы при каждом её переиндексировании.
+      </p>
+      <p class="cost">
+        <b>Цена, которую считали неверно:</b> довод «фолбэк добавит полное
+        чтение» опирался на то, что полного чтения нет. Оно есть —
+        <code>content()</code> читает тело строкой ниже <code>describe</code>.
+        Ценой была бы не первая читка, а <b>вторая читка того же файла в той же
+        порции</b>.
+      </p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="tag">kimi</span>
+    <div>
+      <h3>Обрезки не наблюдается</h3>
+      <p>
+        <code>state.json</code> — единственный источник и рабочего каталога, и
+        имени; обрезка уронила бы оба и вышла бы той же дверью, что отсутствие
+        файла. Механизм реален, случай — нет: 42 KB при потолке в мегабайт.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Что нашлось вместо</h2>
+  <p>
+    Три самостоятельных предмета. Ни один не входит в пункт 4 — в них нет ни
+    одного реза.
+  </p>
+
+  <div class="finding">
+    <span class="tag">А</span>
+    <div>
+      <h3>Комментарий в коде лжёт уже сегодня</h3>
+      <p>
+        Пояснение к строке о недочитанном чтении обещает: «редкая строка о
+        редком чтении, может звучать только на медленной ветке claude», и
+        отдельно — что codex и kimi «сюда никогда не придут». Медленная ветка
+        оказалась единственной, сама строка звучит на каждой шестой сессии
+        (<span class="num">23 из 139</span>), а обещание о двух других плагинах
+        — обещание о чужом будущем.
+      </p>
+      <p class="cost">
+        <b>Ранг:</b> существующая ложь, не следствие правки. Чинится первой и
+        отдельно. <b>Цена:</b> перепись одного комментария — убрать перечень и
+        частоту, оставить механику.
+      </p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="tag">Б</span>
+    <div>
+      <h3>Мёртвая дорожка индекса</h3>
+      <p>
+        <code>indexedTitle</code> читает файл, которого нет ни в одном живом
+        каталоге, и делает это на каждую изменённую сессию. Ноль попаданий за
+        полгода. Дорожка статически достижима и динамически мертва.
+      </p>
+      <p class="cost">
+        <b>Развилка:</b> снять · оставить и научить говорить · оставить как
+        есть, потому что у другого пользователя другая версия CLI может её
+        оживить. <b>Проверить перед решением:</b> есть ли тест, закрепляющий
+        её работу — тогда фикстура окажется единственным местом, где она
+        исполняется.
+      </p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <span class="tag">В</span>
+    <div>
+      <h3>Картинка отнимает у сессии её первую фразу</h3>
+      <p>
+        Сообщение, начинающееся с метки вставленного изображения
+        (<code>[Image #1]</code>, дальше настоящий текст), режется фильтром за
+        первый символ <code>[</code>. Таких сообщений на корпусе
+        <span class="num">35</span> в 16 файлах, и в
+        <span class="num">30</span> из них за меткой стоит настоящая фраза
+        человека.
+      </p>
+      <p>
+        <strong>Замер поправил мою первую формулировку.</strong> Я сказал «сессия
+        теряет имя» — на этом корпусе она теряет не имя, а <em>первую
+        фразу</em>: заголовок достаётся более позднему сообщению. Безымянной
+        от метки картинки не осталась ни одна сессия
+        (<span class="num">0</span>); задето
+        <span class="num">2</span> сессии, и обе названы хуже, чем могли бы.
+        Потеря имени случилась бы, если бы такое сообщение было единственной
+        репликой человека, — механизм этого допускает, корпус не показывает.
+      </p>
+      <p>
+        Контрпример «вот безымянная сессия» был предъявлен и <em>разобран
+        предъявившим</em>: маркерная строка в том файле оказалась записью типа
+        <code>queue-operation</code> с текстом в поле вложения, а не ходом
+        разговора — разбор такие записи пропускает целиком, до выбора
+        заголовка они не доживают. Ранг предмета снижен своими же руками:
+        <strong>это улучшение качества заголовков, а не дефект с
+        жертвами.</strong>
+      </p>
+      <p>
+        Проверялась и соседняя развилка: в сыром claude-JSONL есть поле
+        <code>origin: {kind:"human"}</code>. Фильтровать по нему нельзя —
+        KeepDeck вставляет свои уведомления тем же набранным путём, поэтому
+        строка «A teammate&#39;s message is waiting for you» помечена
+        человеческой <span class="num">272</span> раза. Прогон правила дал 7
+        впервые названных сессий, и все семь получили заголовком нашу же
+        служебную строку, пять из них — одинаково.
+      </p>
+      <p class="cost">
+        <b>Форма без поля:</b> снять ведущую скобочную метку и назвать
+        остатком; не осталось ничего — идти к следующему ходу.
+        <b>Два предохранителя:</b> снимать метки циклом, иначе вторая снова
+        поймает фильтр; остаток, сам похожий на служебный, тоже ведёт к
+        следующему ходу; жадность ограничить одним токеном до первой
+        закрывающей скобки. <b>Трогается одно место</b> — общая функция
+        заголовка; выигрывают оба её потребителя, claude и codex. Контракт,
+        схема и Rust не задеты.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Родословная безымянности</h2>
+  <p>
+    Безымянность — не один род, и правка одного не должна обещать назвать
+    всех.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>род</th><th>claude</th><th>codex</th><th>заказывает правку</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>эвристика съела настоящий ход</td><td class="n">8</td><td class="n">89</td><td>да — предмет В</td></tr>
+        <tr><td>сессия из одних команд</td><td class="n">6</td><td class="n">—</td><td>нет, фильтр прав</td></tr>
+        <tr><td>честный ноль: ходов не было</td><td class="n">3</td><td class="n">4</td><td>нет, называть нечем</td></tr>
+        <tr><td>отнято резом</td><td class="n zero">0</td><td class="n zero">0</td><td>механизм жив, случая нет</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Словарь, выработанный кругом</h2>
+  <dl>
+    <dt>Правило границы: рез отнял ответ</dt>
+    <dd>
+      Недостача помечается не тогда, когда чтение обрезано, а когда обрезание
+      отняло ответ — разбор упал на границе — и молчание иначе неотличимо от
+      честного «записи нет». Рез, оставивший ответ живым, не помечается вовсе.
+      <span class="src">Флаг горит только в третьей клетке из трёх.</span>
+    </dd>
+
+    <dt>Answer-gated read</dt>
+    <dd>
+      Дочитывание разрешено единственно тогда, когда первичное чтение не дало
+      ответа вовсе. Медленный ответ, частичный ответ и некрасивый ответ —
+      каждый запрещает дочитывание.
+      <span class="src">Имя закрывает дверь, а не описывает действие.</span>
+    </dd>
+
+    <dt>Три строки-судьбы</dt>
+    <dd>
+      Обрезанная подсказка закрывает быстрый путь, ответ достижим иначе —
+      «дорога». Обрезанная голова у codex — единственный источник имени,
+      потеря окончательна. Обрезанный <code>state.json</code> — неизвестность,
+      которая пересчитается при следующем изменении. Различие живёт в
+      возвратности ответа.
+      <span class="src">Ни одна из трёх не произносится ни разу на этом корпусе:
+      0 из 272, 0 из 139, 0 из 81. Слово готово, повода нет.</span>
+    </dd>
+
+    <dt>Commanded-only session</dt>
+    <dd>
+      Сессия, в которой человек только командовал: обёртки команд отброшены
+      правильно, называть нечем. Не дефект и не пустота — отдельный род, чтобы
+      его не чинили заодно с первым.
+    </dd>
+
+    <dt>Вырожденная истинность</dt>
+    <dd>
+      Свидетель, доказывающий работу дорожки, не существующей вне фикстуры:
+      импликация истинна лишь потому, что посылка не выполняется на реальных
+      данных, а не потому, что проверено её тело.
+    </dd>
+
+    <dt>Постановка по достижимости, а не по частоте</dt>
+    <dd>
+      Род самого промаха. Постановка спрашивала «может ли путь сработать»,
+      а нужно было «срабатывает ли он хоть раз». Всё, что она говорила о коде,
+      верно; неверным оказалось то, чего в коде не видно.
+      <span class="src">Отсюда правило на следующий пункт: начинать с замера,
+      а не с чтения.</span>
+    </dd>
+  </dl>
+</section>
+
+<section>
+  <h2>Что решает пользователь</h2>
+  <ol class="decisions">
+    <li>
+      <p><s>Закрыть пункт 4 без реализации?</s> — <strong>РЕШЕНО
+      24.08.2026: закрыть.</strong></p>
+      <span class="mine">Отметка в постановке ступени поставлена, исходный
+      текст пункта сохранён рядом с причиной закрытия.</span>
+    </li>
+    <li>
+      <p>Комментарий, который лжёт сегодня (предмет А) — чинить сейчас
+      отдельным коммитом?</p>
+      <span class="mine"><b>Предложение:</b> да, до всего остального — он
+      неверен независимо от пункта.</span>
+    </li>
+    <li>
+      <p>Мёртвая дорожка индекса (предмет Б) — снять, научить говорить или
+      оставить как есть?</p>
+      <span class="mine"><b>Предложение изменилось после разбора:</b> не
+      снимать. Три теста оказались спецификацией для машин, где индекс жив;
+      мёртв он здесь, а не везде. Научить говорить — да; снять — только с
+      названной вселенной.</span>
+    </li>
+    <li>
+      <p>Картинка, отнимающая имя (предмет В) — брать в работу?</p>
+      <span class="mine"><b>Предложение:</b> да, это единственная правка,
+      которую видно на экране.</span>
+    </li>
+    <li>
+      <p>Порядок оставшихся пунктов ступени 1 — <span class="num">2</span>,
+      <span class="num">3</span>, <span class="num">5</span>.</p>
+      <span class="mine">Связи исполнимости между ними нет — порядок
+      свободен.</span>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <h2>Оговорка</h2>
+  <p>
+    Замер сделан на одном корпусе — машине пользователя, август 2026: 272
+    codex-сессии, 139 claude, 81 kimi. Обрезка индекса и
+    <code>state.json</code> не наблюдается, запас до потолков шести- и
+    двадцатикратный. <strong>Замер — не приговор механизму:</strong> индекс
+    пишет CLI, потолок ставим мы, и разойтись они могут при смене любого из
+    двух.
+  </p>
+  <p>
+    Один довод сильнее замера и от корпуса не зависит: <strong>рез съедает
+    хвост, а имя живёт в голове.</strong> Он выведен из строения чтений, и
+    поэтому переносится на любую машину.
+  </p>
+  <p class="cost">
+    <b>Две честности про сам замер.</b> Первая: перепроверка вторыми руками
+    дала ту же долю (85% и 86%) на <b>другой вселенной</b> — счёт
+    пользовательских записей разошёлся в 2.4 раза, потому что девять десятых
+    из них у claude суть результаты инструментов без единого слова текста.
+    Совпадение долей подтверждает вывод слабее, чем выглядит. Вторая:
+    хранилище живое — между двумя прогонами счёт сдвинулся на единицу, потому
+    что во время измерения в него писалась текущая сессия.
+  </p>
+  <p class="cost">
+    <b>Третье расхождение сошлось — и сошлось на том же резе.</b> Два счёта
+    меток изображения дали <span class="num">35</span> и
+    <span class="num">104</span> при одном и том же предикате. Разница — это
+    потолок: 35 записей лежат в пределах 8 MB, которые плагин вообще способен
+    прочесть, а <strong>69 остальных — за потолком, невидимые и плагину, и
+    хосту.</strong> Оба числа верны, они о разном: 35 — про заголовки,
+    104 — про то, сколько такого написал человек. Спор о числе оказался ещё
+    одной иллюстрацией тезиса документа.
+  </p>
+</section>
+
+<section>
+  <h2>Механика и гейты</h2>
+  <p>
+    Независимый счёт по коду: сколько стоит одна изменённая сессия сегодня.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th>плагин</th><th>чтений</th>
+          <th class="n">через IPC</th><th class="n">полных разборов</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>claude — голова 64 KB · промах индекса · тело на describe · тело на content</td>
+          <td class="n">4</td><td class="n">~16.1 MB</td><td class="n">2</td>
+        </tr>
+        <tr>
+          <td>codex — голова 256 KB · тело</td>
+          <td class="n">2</td><td class="n">~8.3 MB</td><td class="n">1</td>
+        </tr>
+        <tr>
+          <td>kimi — <code>state.json</code> · wire</td>
+          <td class="n">2</td><td class="n">~8.0 MB</td><td class="n">1</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    claude сегодня вдвое дороже остальных и по чтению, и по разбору — и это
+    ровно та ветка, которую снимает ступень 2, пункт 1.
+  </p>
+
+  <h3>Что закрепляет мёртвую дорожку</h3>
+  <p>
+    Три теста строят в фикстуре живой индекс: годная запись даёт заголовок и
+    экономит полное чтение; литерал <code>No prompt</code> проваливается к
+    полному чтению; преамбула в записи индекса тоже проваливается. Все три
+    проверены — существуют и опираются на подходящий индекс.
+  </p>
+  <p>
+    <strong>И здесь круг поправил мою рамку.</strong> Я вёл к тому, что
+    дорожка мертва и её место — на снятие. Но вселенная режет в обе стороны:
+    февральский труп — это <em>эта</em> машина. Там, где claude ведёт индекс,
+    дорожка работает и экономит ровно тот двойной разбор. Значит три теста —
+    не мусор, а спецификация задуманного поведения для другого мира, и
+    приговор о снятии не наш: это вопрос слова с названной вселенной обеих
+    сторон.
+  </p>
+  <p class="cost">
+    <b>Названные отсутствия.</b> Пина на промах индекса нет — ветка покрыта
+    косвенно, через describe-тесты без индексной фикстуры. У kimi
+    <code>describe</code> закреплена только счастливая форма: ни пустой рабочий
+    каталог, ни отсутствующий <code>state.json</code> не пришпилены.
+  </p>
+</section>
+
+<footer>
+  <p>
+    Проработка круга: замер и сводка — peer&#8209;3; слова, границы и словарь —
+    peer&#8209;1; устройство, свидетели и структурный разбор — peer&#8209;2;
+    механика и гейты — peer&#8209;4.
+  </p>
+  <p>
+    Код не изменён. Реализация любого предмета — только по отдельному слову
+    пользователя.
+  </p>
+</footer>
+
+</div>
