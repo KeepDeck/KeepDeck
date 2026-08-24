@@ -46,16 +46,23 @@ const row = (sessionId = "s-1"): UnifiedSessionRow => ({
   },
 });
 
-const target = (over: Partial<ViewerTarget> = {}): ViewerTarget => ({
-  agent: "claude",
-  sessionId: "s-1",
-  reference: SHOWN,
-  title: "session title",
-  fallbacks: [SHOWN],
-  tried: 0,
-  row: row(),
-  ...over,
-});
+/** A target as the join really builds one: the shown link IS the first of the
+ * union. Deriving it here rather than defaulting to a constant keeps a
+ * fixture from describing a row that cannot exist — the old default let
+ * `reference` and `fallbacks[0]` disagree, and a reading walking the union
+ * would then have skipped the very handle the row displays. */
+const target = (over: Partial<ViewerTarget> = {}): ViewerTarget => {
+  const base = {
+    agent: "claude",
+    sessionId: "s-1",
+    reference: SHOWN,
+    title: "session title",
+    tried: 0,
+    row: row(),
+    ...over,
+  };
+  return { ...base, fallbacks: over.fallbacks ?? [base.reference] };
+};
 
 const entry = (text: string): AgentTranscriptEntry => ({
   role: "user",
