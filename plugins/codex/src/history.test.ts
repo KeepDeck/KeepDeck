@@ -65,7 +65,10 @@ function ctx(
         },
         readFile: async (path: string) => {
           const text = files[path] ?? null;
-          const readBytes = text === null ? 0 : text.length;
+          // BYTES, not characters — see the note in claude's double: counting
+          // code units would describe a different world for any non-ASCII
+          // fixture, and the assertion would not notice.
+          const readBytes = text === null ? 0 : new TextEncoder().encode(text).length;
           const full = short[path];
           return {
             path,
@@ -189,7 +192,11 @@ describe("codex history", () => {
     );
     const page = await history.transcriptPage!("/r.jsonl", { offset: 0, limit: 10 });
     expect(page.shortfall).toEqual([
-      { kind: "bytes", size: 9_000_000, readBytes: LINES.length },
+      {
+        kind: "bytes",
+        size: 9_000_000,
+        readBytes: new TextEncoder().encode(LINES).length,
+      },
     ]);
   });
 

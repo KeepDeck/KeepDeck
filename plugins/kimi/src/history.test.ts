@@ -78,12 +78,16 @@ function ctx(
           if (!(path in files)) throw new Error("no file");
           const text = files[path];
           const full = short[path];
+          // BYTES, not characters. kimi's fixtures are Russian, so the two
+          // differ by roughly double here — and the assertion would compare
+          // the same wrong number to itself and stay green.
+          const readBytes = new TextEncoder().encode(text).length;
           return {
             path,
             text,
             isBinary: false,
-            size: full ?? text.length,
-            readBytes: text.length,
+            size: full ?? readBytes,
+            readBytes,
             truncated: full !== undefined,
           };
         },
@@ -205,7 +209,11 @@ describe("kimi history", () => {
     const history = kimiHistory(ctx({ [wire]: WIRE }, {}, vi.fn(), { [wire]: 9_000_000 }));
     const page = await history.transcriptPage!(wire, { offset: 0, limit: 10 });
     expect(page.shortfall).toEqual([
-      { kind: "bytes", size: 9_000_000, readBytes: WIRE.length },
+      {
+        kind: "bytes",
+        size: 9_000_000,
+        readBytes: new TextEncoder().encode(WIRE).length,
+      },
     ]);
   });
 

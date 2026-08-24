@@ -58,7 +58,11 @@ function ctx(
         },
         readFile: async (path: string) => {
           const text = files[path] ?? null;
-          const readBytes = text === null ? 0 : text.length;
+          // BYTES, not characters. The service measures what came off disk,
+          // and a double counting code units would describe a different world
+          // the moment a fixture holds anything but ASCII — quietly, since the
+          // assertion would compare the same wrong number to itself.
+          const readBytes = text === null ? 0 : new TextEncoder().encode(text).length;
           const full = short[path];
           return {
             path,
@@ -366,7 +370,11 @@ describe("claude history", () => {
     );
     const page = await history.transcriptPage!("/f.jsonl", { offset: 0, limit: 10 });
     expect(page.shortfall).toEqual([
-      { kind: "bytes", size: 9_000_000, readBytes: LINES.length },
+      {
+        kind: "bytes",
+        size: 9_000_000,
+        readBytes: new TextEncoder().encode(LINES).length,
+      },
     ]);
   });
 
