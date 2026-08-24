@@ -127,7 +127,16 @@ export function SessionViewer({
           // viewer's sentence "the rest did not arrive" — may be spoken only
           // once every handle has actually been tried. Limiting the walk to
           // page zero left the union half-walked and the sentence untrue.
-          loadMore({ ...currentTarget, reference: next, tried: currentTarget.tried + 1 }, from);
+          //
+          // And a new link ALWAYS starts at zero, even mid-scroll. The union
+          // is two RECORDED strings for one session — the journal's path and
+          // the index's reference — and nothing anywhere guarantees they name
+          // a byte-identical file with the same turn order. Handing the fresh
+          // link an offset earned by the old one would splice two readings
+          // into a conversation that never happened: not a loss, an invention,
+          // and worse than anything else this stage is here to stop. Re-reading
+          // pages the user has already seen is the cheap half of that trade.
+          loadMore({ ...currentTarget, reference: next, tried: currentTarget.tried + 1 }, 0);
           return;
         }
         // The read fell on the LAST link — every handle the row carries

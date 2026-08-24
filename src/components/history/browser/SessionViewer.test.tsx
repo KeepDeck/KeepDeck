@@ -356,6 +356,44 @@ describe("SessionViewer", () => {
     expect(document.body.textContent).not.toContain("No transcript content");
   });
 
+  it("restarts a fresh link from the beginning rather than splicing onto the old one's pages", async () => {
+    // Reachable only since the walk stopped being page-zero-only. The union is
+    // two RECORDED strings for one session, and nothing guarantees they name a
+    // byte-identical file: handing the spare an offset the first link earned
+    // would stitch two readings into a conversation that never happened. An
+    // invention is worse than a loss, so the fresh link starts at zero.
+    const transcript = vi.fn<SessionsBrowserApi["transcript"]>(
+      (_agent, reference, offset) => {
+        if (reference === SHOWN) {
+          return offset === 0
+            ? Promise.resolve({
+                entries: Array.from({ length: 50 }, (_, at) => entry(`shown ${at}`)),
+              })
+            : Promise.reject(new Error("journal vanished mid-scroll"));
+        }
+        return Promise.resolve({ entries: [entry("spare from the top")] });
+      },
+    );
+
+    await renderViewer({
+      root,
+      target: target({ fallbacks: [SHOWN, SPARE] }),
+      transcript,
+      viewSeq: { current: 0 },
+      readFailed: vi.fn(),
+    });
+    await settle();
+    await settle();
+
+    const spareAsks = transcript.mock.calls
+      .filter((call) => call[1] === SPARE)
+      .map((call) => call[2]);
+    expect(spareAsks).toEqual([0]);
+    // The old link's pages are gone, not stitched to the new link's.
+    expect(document.body.textContent).toContain("spare from the top");
+    expect(document.body.textContent).not.toContain("shown 0");
+  });
+
   it("keeps paging on the link that answered, not the one that refused", async () => {
     // The union's fall-through used to live only in a recursive argument, so
     // the next page asked the dead link again and condemned every handle of
