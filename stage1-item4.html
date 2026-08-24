@@ -343,7 +343,11 @@ ol.decisions li::before {
   padding-top: 3px;
 }
 ol.decisions p { margin: 0; }
+/* Приписка — ТРЕТИЙ элемент грида, а автопоток кладёт третий во вторую
+   строку ПЕРВОЙ колонки, шириной с цифру: текст рассыпается по слову на
+   строку. Колонку задаём явно. */
 ol.decisions .mine {
+  grid-column: 2;
   display: block;
   margin-top: 6px;
   font-family: var(--sans);
@@ -393,7 +397,7 @@ a:focus-visible, li:focus-visible { outline: 2px solid var(--pencil); outline-of
     может.
   </p>
   <div class="meta">
-    <span><b>v6</b> · 24.08.2026 21:40</span>
+    <span><b>v7</b> · 24.08.2026 22:08</span>
     <span><b>ЗАКРЫТ</b> словом пользователя</span>
     <span><b>ветка</b> feat/history-polish @ 2d22e1df</span>
     <span><b>код</b> не тронут</span>

@@ -1,0 +1,310 @@
+<meta charset="utf-8">
+<title>Заёмный потолок — ступень 1, пункт 2</title>
+
+<style>
+:root {
+  --paper:#f2f5f8; --surface:#fff; --ink:#161a20; --ink-soft:#3d4650;
+  --muted:#6a7683; --rule:#d5dce3; --rule-soft:#e6ebf0;
+  --pencil:#a8322a; --proved:#2b6b58; --shade:#dfe5eb;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --serif:Georgia,"Iowan Old Style","Times New Roman",serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:#101319; --surface:#171b22; --ink:#e5eaf0; --ink-soft:#bcc6d1;
+    --muted:#8b97a5; --rule:#2a323c; --rule-soft:#202730;
+    --pencil:#e07a68; --proved:#62b096; --shade:#232b35;
+  }
+}
+:root[data-theme="dark"] {
+  --paper:#101319; --surface:#171b22; --ink:#e5eaf0; --ink-soft:#bcc6d1;
+  --muted:#8b97a5; --rule:#2a323c; --rule-soft:#202730;
+  --pencil:#e07a68; --proved:#62b096; --shade:#232b35;
+}
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink); font-family:var(--serif);
+  font-size:16.5px; line-height:1.58; margin:0;
+  padding:0 clamp(18px,5vw,44px) 72px; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:44rem;margin:0 auto}
+header{padding:clamp(34px,7vw,58px) 0 22px;border-bottom:2px solid var(--ink)}
+.eyebrow{
+  font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 14px
+}
+h1{
+  font-family:var(--sans);font-size:clamp(30px,5.6vw,44px);font-weight:700;
+  letter-spacing:-.022em;line-height:1.05;text-wrap:balance;margin:0 0 16px
+}
+.standfirst{font-size:18px;line-height:1.45;color:var(--ink-soft);margin:0 0 22px;max-width:33rem}
+.meta{
+  display:flex;flex-wrap:wrap;gap:6px 22px;font-family:var(--mono);
+  font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums
+}
+.meta b{color:var(--ink-soft);font-weight:500}
+section{padding-top:40px}
+h2{
+  font-family:var(--sans);font-size:11.5px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--pencil);margin:0 0 16px;
+  padding-bottom:8px;border-bottom:1px solid var(--rule)
+}
+p{margin:0 0 13px;max-width:38rem;text-wrap:pretty}
+p:last-child{margin-bottom:0}
+code{
+  font-family:var(--mono);font-size:.86em;background:var(--shade);
+  padding:.08em .32em;border-radius:2px;overflow-wrap:anywhere
+}
+.verdict{
+  background:var(--surface);border:1px solid var(--rule);
+  border-left:3px solid var(--pencil);padding:20px 22px
+}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+table{width:100%;border-collapse:collapse;font-family:var(--sans);font-size:13px}
+th,td{text-align:left;padding:7px 12px 7px 0;border-bottom:1px solid var(--rule-soft);vertical-align:baseline}
+th{
+  font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);border-bottom:1px solid var(--rule);white-space:nowrap
+}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;padding-right:0;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+.bad{color:var(--pencil);font-weight:600}
+.ok{color:var(--proved);font-weight:600}
+.note{
+  font-family:var(--sans);font-size:12.5px;color:var(--muted);
+  border-left:2px solid var(--rule);padding-left:12px;margin:14px 0 0;max-width:38rem
+}
+.note b{color:var(--ink-soft);font-weight:600}
+ol{margin:0;padding:0;list-style:none;counter-reset:d}
+ol li{
+  counter-increment:d;display:grid;grid-template-columns:1.7rem 1fr;gap:0 14px;
+  padding:13px 0;border-bottom:1px solid var(--rule-soft)
+}
+ol li:last-child{border-bottom:none}
+ol li::before{content:counter(d);font-family:var(--mono);font-size:12.5px;color:var(--pencil);padding-top:2px}
+ol p{margin:0}
+/* Приписка — ТРЕТИЙ элемент грида, а автопоток кладёт третий во вторую
+   строку ПЕРВОЙ колонки, шириной с цифру: текст рассыпается по слову на
+   строку. Колонку задаём явно. */
+ol .mine{grid-column:2;display:block;margin-top:4px;font-family:var(--sans);font-size:12.5px;color:var(--muted)}
+ol .mine b{color:var(--ink-soft);font-weight:600}
+.pending{
+  background:var(--surface);border:1px dashed var(--rule);padding:13px 15px;
+  font-family:var(--sans);font-size:13px;color:var(--ink-soft);margin-top:24px
+}
+footer{
+  margin-top:44px;padding-top:18px;border-top:1px solid var(--rule);
+  font-family:var(--sans);font-size:12.5px;color:var(--muted)
+}
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Ступень 1 · Пункт 2 · Проработка круга</p>
+  <h1>Заёмный потолок</h1>
+  <p class="standfirst">
+    Три плагина объявляют своим числом чужой предел — потому что сказать «дай
+    сколько разрешишь» в контракте нечем.
+  </p>
+  <div class="meta">
+    <span><b>v7</b> · 24.08.2026 22:18</span>
+    <span><b>ветка</b> feat/history-polish @ 926c1ff6</span>
+    <span><b>код</b> не тронут</span>
+  </div>
+</header>
+
+<section>
+  <h2>Итог</h2>
+  <div class="verdict">
+    <p>
+      Пункт обещал назвать пределы чтения в одном месте. Главное, что видно
+      после инвентаря: <strong>решений четыре, а записей девять</strong> — и
+      собирать их в один список значило бы узаконить лишние пять, добавив к ним
+      десятую запись.
+    </p>
+    <p>
+      Настоящий предмет в другом. <code>BODY_CAP = 8 MB</code> у claude, codex и
+      kimi — жёсткий потолок хоста, переписанный чужой рукой. <strong>Пишут его
+      не потому, что выбрали, а потому, что иначе не сказать:</strong> пустая
+      просьба даёт мегабайт по умолчанию, а попросить максимум нечем. Намерений
+      три, выразимых два.
+    </p>
+    <p>
+      Значит работа — <strong>дать третьему намерению слово в контракте</strong>,
+      и она <em>убирает</em> места, а не добавляет: пять записей чужого числа
+      исчезают, оно остаётся у того, кто им владеет.
+    </p>
+  </div>
+</section>
+
+<section>
+  <h2>Девять чисел — четыре решения</h2>
+  <p>
+    Постановка считала пределы поштучно и насчитала три. Их девять — но не
+    потому, что решений девять. <strong>Решений четыре, а записей девять, и
+    разница есть размазывание.</strong>
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>решение</th><th class="n">мест</th><th>откуда лишнее</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>прочитать сессию целиком</td>
+          <td class="n bad">5</td>
+          <td>копия: три <code>BODY_CAP</code> плюс два голых литерала</td>
+        </tr>
+        <tr>
+          <td>дёшево прочесть начало, чтобы опознать сессию</td>
+          <td class="n bad">2</td>
+          <td>64 KB у claude, 256 KB у codex — разница вчетверо не объяснена</td>
+        </tr>
+        <tr>
+          <td>сколько текста удержать для поиска</td>
+          <td class="n bad">2</td>
+          <td>2 MB у хоста и 2 MB у opencode — одно число, одна единица, два слоя</td>
+        </tr>
+        <tr>
+          <td>сколько ходов за страницу</td>
+          <td class="n ok">1</td>
+          <td>50 и 20 — одна политика, одно место</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Сверх этих четырёх — два потолка самой службы (жёсткий и дефолтный): они
+    хостовые, к плагинам отношения не имеют. И <code>LIMIT 20000</code> у
+    opencode, написанный дважды в одном файле.
+  </p>
+  <p class="note">
+    <b>Три источника лишнего, и лечатся они по-разному.</b> Копия — устраняется
+    отказом от числа. Два слоя одного решения — корпус поиска режется дважды, у
+    плагина и у хоста, <em>и оба реза молчат</em>; это не именование, это
+    отдельный предмет. Одно назначение с двумя числами — после пункта 4 известно,
+    что заголовок codex лежит в самом начале файла, значит 256 KB могут быть
+    вчетверо больше нужного, и этого никто не мерил.
+  </p>
+  <p class="note">
+    <b>Единицы врут:</b> оба «2 MB» — кодовые единицы UTF-16, а не байты, при
+    том что контракт строкой рядом предупреждает ровно об этой подмене. Потому
+    два реза корпуса и выглядят одинаковыми, хотя измеряют разное.
+  </p>
+  <p class="note">
+    <b>Пять безымянных точек — два рода, лечатся противоположно.</b>
+    <code>FileViewer</code> и <code>DiffPeek</code> — ровно те, ради кого дефолт
+    написан («просмотрщику нужен текст, а не двухгигабайтная клякса»): им не
+    хватает строки, что это осознано. Три чтения <code>state.json</code> у kimi
+    — здесь не смотрели. Поэтому предложение «пустая просьба = дай всё»
+    отвергнуто: оно вывернуло бы сторож, и первым сломался бы просмотрщик.
+  </p>
+</section>
+
+<section>
+  <h2>Форма и цена</h2>
+  <p>Формы сравнивались по одному критерию — что будет при рассинхроне версий.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>форма</th><th>при рассинхроне</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>поле-флажок</td><td class="bad">старый хост не видит → молча даёт 1 MB</td><td class="bad">нет</td></tr>
+        <tr><td>литерал <code>"host-ceiling"</code></td><td class="ok">явный отказ с именем аргумента</td><td class="ok">да</td></tr>
+        <tr><td>отдельный метод</td><td>тоже громко</td><td>переразмер</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Флажок воспроизвёл бы <strong>в собственном контракте ту тихую подмену,
+    которую ступень ловит по чужим углам</strong>. Текст отказа проверен по
+    исходнику Tauri: называет и команду, и имя аргумента.
+  </p>
+  <p class="note">
+    <b>Цена, признанная против себя:</b> форма <strong>трогает Rust</strong> —
+    строку нельзя перевести в число на стороне TypeScript, иначе он снова обязан
+    знать чужой потолок. Первая оценка круга «правки Rust не требует» была
+    неверной и отозвана.
+  </p>
+</section>
+
+<section>
+  <h2>Свидетель</h2>
+  <p>
+    Страх был, что перечень констант проверяется сравнением копии с копией. Снят
+    разбиением, где <strong>число участвует ровно один раз</strong>: юнит у
+    плагина доказывает, что просьба уходит словом и число не вычисляется (чисел
+    в тесте нет); юнит рядом с константой — что просьба зажимается потолком;
+    плюс один смоук на трубу.
+  </p>
+  <p class="note">
+    <b>Смоук дороже, чем казалось.</b> Существующий пин закрепляет форму
+    <em>ответа</em> и идёт тем же путём, что настоящий IPC, — реализация одна,
+    разойтись не может. У <em>запроса</em> реализаций две: аргументы команды
+    идут через собственный десериализатор Tauri, а не через обычный serde.
+    Дешёвый тест проверил бы не тот путь. Зеркало есть, дешевизна не зеркалится.
+  </p>
+</section>
+
+<section>
+  <h2>Решения</h2>
+  <ol>
+    <li>
+      <p>Брать пункт в новой формулировке — слово для третьего намерения, а не перечень?</p>
+      <span class="mine"><b>Предложение:</b> да, повод ежедневный.</span>
+    </li>
+    <li>
+      <p>Согласен на правку Rust с полным перезачётом cargo?</p>
+      <span class="mine">Тип аргумента, строка зажима, девять тестовых вызовов, два типа в TS.</span>
+    </li>
+    <li>
+      <p><s>Каталог пределов — писать?</s> — <strong>ОТКЛОНЁН.</strong></p>
+      <span class="mine"><b>Это размазывание:</b> второе место, обязанное
+      совпадать с первым, и ничто их совпадать не заставляет. Обзор и адрес уже
+      даёт поиск по коду, и всегда актуальный. Вместо каталога — назвать каждый
+      предел на его месте: литералам имя, безымянным точкам строку. Ноль новых
+      мест.</span>
+    </li>
+    <li>
+      <p>Три дешёвые починки — сейчас или в очередь?</p>
+      <span class="mine">Голые литералы в codex и kimi, дубль предела строк в opencode. От Rust не зависят.</span>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <h2>В очередь</h2>
+  <p>
+    <strong>Обрезка заголовка в 120</strong> — три копии без общей константы;
+    род другой (предел ограничивает вход, обрезка показа — выход), но та же
+    ловушка единиц. · <strong>Столкновение имени <code>MAX_FILE_BYTES</code></strong>
+    — два разных числа под одним именем в одном крейте, 8 MB и 20 MB.
+  </p>
+  <p class="note">
+    <b>Правило, выведенное на отклонении каталога — порядок, а не разрешение.</b>
+    Сначала проверить, можно ли второе место <em>не заводить вовсе</em>; громкий
+    сторож — только когда устранение проверено и невозможно. Наша восьмёрка
+    дублировалась <em>невынужденно</em>: плагин мог спросить хост, а не хранить
+    своё мнение о его потолке. Числа <code>caps.json</code> дублируются
+    <em>вынужденно</em>: обеим сторонам они нужны для своей автономной работы,
+    спросить друг друга в момент использования нельзя. Правило наоборот —
+    «заведи тест и дублируй» — пропустит более дешёвый и более верный ответ.
+  </p>
+  <p class="note">
+    <b>Урок ступени, общий с пунктом 4:</b> верное утверждение на неверном
+    основании выглядит как верное, пока кто-то не проверит основание. Четвёртый
+    был прав о коде и слеп о мире; второй прав о цене и слеп о причине. Обе
+    слепоты вскрылись чтением того, что лежало рядом, — не разбором логики.
+  </p>
+</section>
+
+<div class="pending">
+  <strong>Не закрыто:</strong> пересчёт цены под выбранную форму — прежний счёт
+  относился к форме, от которой круг ушёл. Выводы не зависят, числа второго
+  решения зависят.
+</div>
+
+<footer>
+  Проработка круга вчетвером. Код не изменён; реализация — по отдельному слову.
+</footer>
+
+</div>
