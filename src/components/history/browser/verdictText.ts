@@ -22,6 +22,11 @@ import type { Shortfall } from "@keepdeck/plugin-api";
  * would not follow the deck's store. Two consumers move it because being the
  * vocabulary of two surfaces is itself the application layer's job.
  *
+ * What breaks if this is moved for proximity instead: the distinction between
+ * owning and reading stops being what places a module, and the layer starts
+ * admitting residents by address rather than by function. After that, "which
+ * layer is this?" has no answer but "wherever it was put".
+ *
  * These are verdicts about a READING, never about a session: the same session
  * read twice can fall short differently, and a mark inherited from yesterday's
  * scan would describe a file that has since grown. Every phrase here names

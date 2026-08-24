@@ -185,6 +185,48 @@ describe("useTranscriptReading", () => {
     expect(markLinks).toHaveBeenLastCalledWith([LIVE], false);
   });
 
+  it("calls the row-marking callback the caller has NOW, not the one it opened with", async () => {
+    // The second ref of the same kind as `seq`: always-fresh value without
+    // re-subscribing. One of the two had a witness and the other did not,
+    // because I fixed the one that fell over rather than looking for the
+    // pattern — an address treated instead of a genus.
+    const read = vi.fn<SessionsBrowserApi["transcript"]>(
+      async (_agent, _reference, offset) => ({ entries: page(offset, 50) }),
+    );
+    const first = vi.fn();
+    const second = vi.fn();
+    const seen: { current: TranscriptReading | null } = { current: null };
+    const opening = {};
+    const seq = { current: 0 };
+    const links = [LIVE];
+    function Probe({ mark }: { mark: (l: readonly string[], f: boolean) => void }) {
+      seen.current = useTranscriptReading({
+        read,
+        agent: "claude",
+        opening,
+        links,
+        seq,
+        markLinks: mark,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(createElement(Probe, { mark: first }));
+    });
+    await settle();
+    expect(first).toHaveBeenCalled();
+
+    await act(async () => {
+      root.render(createElement(Probe, { mark: second }));
+    });
+    second.mockClear();
+    await askForMore(seen);
+    await askForMore(seen);
+
+    expect(second).toHaveBeenCalledWith([LIVE], false);
+  });
+
   it("drops a page belonging to an older reading", async () => {
     // Ordering, not cancellation: a slow first answer must not land under a
     // reading that replaced it.
@@ -218,10 +260,12 @@ describe("useTranscriptReading", () => {
     expect(read).toHaveBeenCalledTimes(1);
   });
 
-  it("swallows exactly one ask per opening — the page it fetched itself", async () => {
-    // A caller that fills a viewport on mount asks immediately, and the
-    // opening read is already in flight. One no-op, not a policy of ignoring
-    // the caller: the second ask is served.
+  it("an ask racing the opening does not fetch page zero twice", async () => {
+    // Named from the CALLER's side on purpose: what is promised is that a
+    // viewport-filling ask right after opening costs nothing, not that some
+    // particular latch exists. The latch is free to be rewritten; this is
+    // not. And it is one no-op, not a policy of ignoring the caller — the
+    // second ask is served.
     const read = vi.fn<SessionsBrowserApi["transcript"]>(
       async (_agent, _reference, offset) => ({ entries: page(offset, 50) }),
     );

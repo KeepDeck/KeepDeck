@@ -70,7 +70,12 @@ export function useTranscriptReading(input: {
    * handle it had just used. */
   links: readonly string[];
   /** Orders answers: a page from an older reading must never land under a
-   * newer one. Shared with the surface that opens rows. */
+   * newer one. Shared with the surface that opens rows.
+   *
+   * ONE ref for the life of that surface — bump its value to order readings,
+   * never hand in a different ref object. A fresh one per render restarts the
+   * reading on every render; a fresh one between openings leaves this holding
+   * the old counter and ordering answers against a number nobody advances. */
   seq: MutableRefObject<number>;
   /** The ROW's verdict about its handles: every link of the union is marked
    * together, because the first must not read as alive when its spare has
@@ -97,6 +102,9 @@ export function useTranscriptReading(input: {
    * "ask for more" would otherwise race it and fetch page zero twice. */
   const openedFor = useRef<object | null>(null);
 
+  /** Always the caller's CURRENT callback, never the one captured when the
+   * reading began — the same always-fresh-without-resubscribing device as
+   * `seq`, and witnessed like it. */
   const markLinksRef = useRef(markLinks);
   markLinksRef.current = markLinks;
 
