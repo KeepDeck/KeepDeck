@@ -46,23 +46,18 @@ const row = (sessionId = "s-1"): UnifiedSessionRow => ({
   },
 });
 
-/** A target as the join really builds one: the shown link IS the first of the
- * union. Deriving it here rather than defaulting to a constant keeps a
- * fixture from describing a row that cannot exist — the old default let
- * `reference` and `fallbacks[0]` disagree, and a reading walking the union
- * would then have skipped the very handle the row displays. */
-const target = (over: Partial<ViewerTarget> = {}): ViewerTarget => {
-  const base = {
-    agent: "claude",
-    sessionId: "s-1",
-    reference: SHOWN,
-    title: "session title",
-    tried: 0,
-    row: row(),
-    ...over,
-  };
-  return { ...base, fallbacks: over.fallbacks ?? [base.reference] };
-};
+/** A target as the surface really builds one — a FRESH object per call. Its
+ * identity is what tells the reading that a new opening began, so a fixture
+ * that reused one would test a state the app cannot reach. */
+const target = (over: Partial<ViewerTarget> = {}): ViewerTarget => ({
+  agent: "claude",
+  sessionId: "s-1",
+  title: "session title",
+  fallbacks: [SHOWN],
+  tried: 0,
+  row: row(),
+  ...over,
+});
 
 const entry = (text: string): AgentTranscriptEntry => ({
   role: "user",
@@ -163,10 +158,10 @@ describe("SessionViewer", () => {
     );
     const readFailed = vi.fn();
     const viewSeq = { current: 0 };
-    const first = target({ reference: "/first", title: "first header" });
+    const first = target({ fallbacks: ["/first"], title: "first header" });
     const second = target({
       sessionId: "s-2",
-      reference: "/second",
+      fallbacks: ["/second"],
       title: "second header",
       row: row("s-2"),
     });

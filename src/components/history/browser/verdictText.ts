@@ -14,6 +14,14 @@ import type { Shortfall } from "@keepdeck/plugin-api";
  * next to that caller. Do not import it from anywhere else without moving it;
  * the move is then a decision, not a drift.
  *
+ * The count is a CONSEQUENCE, not the law. What puts a module in the
+ * application layer is OWNERSHIP — of state, of a lifecycle, of a port — and
+ * this owns none: it reads an owner's facts and says what is true of them. So
+ * proximity is not an argument either: the reading's owner moved to `src/app`
+ * and that changes nothing here, exactly as a pure function over deck state
+ * would not follow the deck's store. Two consumers move it because being the
+ * vocabulary of two surfaces is itself the application layer's job.
+ *
  * These are verdicts about a READING, never about a session: the same session
  * read twice can fall short differently, and a mark inherited from yesterday's
  * scan would describe a file that has since grown. Every phrase here names

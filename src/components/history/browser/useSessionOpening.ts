@@ -25,10 +25,15 @@ export function useSessionOpening() {
    * every row that receives it. */
   const openRow = useCallback((row: UnifiedSessionRow) => {
     if (row.read === null) return;
+    // A FRESH object every time, deliberately — do not memoize this and do
+    // not reuse one per row. Its IDENTITY is what tells the reading that a
+    // new opening began: reopening a row after both its links refused
+    // carries the very same links, so nothing else here distinguishes the
+    // retry from the reading that just failed. A type cannot express "a new
+    // reference", so this comment is the guard.
     openViewer({
       agent: row.agent,
       sessionId: row.sessionId,
-      reference: row.read.reference,
       title: row.title ?? null,
       fallbacks: row.readLinks,
       tried: 0,

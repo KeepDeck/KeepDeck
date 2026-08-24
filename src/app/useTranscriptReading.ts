@@ -52,6 +52,12 @@ export function useTranscriptReading(input: {
    * standing, mark and all, with no retry possible. Opening is an act, and
    * the act is what this watches; the caller holds whatever object stands
    * for it.
+   *
+   * IDENTITY, not shape: a caller must mint a FRESH object per opening, and
+   * reopening the same row must not reuse the old one. The type cannot say
+   * that — structural typing has no word for "a new reference" — so the
+   * guarantee lives at the one place that builds it and is named there too.
+   * Memoizing that object would silently kill every retry.
    */
   opening: object;
   /** The row's read links in TRY ORDER — the journal's path first, the
@@ -144,7 +150,13 @@ export function useTranscriptReading(input: {
           if (seq.current === at) setLoading(false);
         });
     },
-    [read, agent, links, seq],
+    // `seq` is a ref: stable by contract, so it is not a dependency. Listing
+    // it would make this callback — and the effect below — rebuild whenever a
+    // caller handed in a fresh ref object, restarting the reading on every
+    // render. A ref that is treated as data is a loop waiting for a careless
+    // caller.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [read, agent, links],
   );
 
   useEffect(() => {

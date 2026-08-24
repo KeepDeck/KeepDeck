@@ -21,12 +21,13 @@ import { readingVerdict } from "./verdictText";
 export interface ViewerTarget {
   agent: string;
   sessionId: string;
-  reference: string;
   title: string | null;
-  /** The row's read links in try order (the join's union: journal path
-   * first, the index's reference as the spare), plus how many have
-   * already refused. A failed page zero advances one link; the LAST
-   * link's failure is the row's failure. Singleton for hit rows. */
+  /** The row's read links in TRY ORDER (the join's union: journal path
+   * first, the index's reference as the spare) — the single source of which
+   * handle to ask, head included. The row's displayed link used to sit here
+   * too, as its own field; it agreed with the head by construction and was
+   * read by no one, which is how a field becomes a trap: loaded-looking,
+   * dead, and one day read again by someone who reintroduces the split. */
   fallbacks: string[];
   tried: number;
   /** The row this target was opened from — the header's actions live
