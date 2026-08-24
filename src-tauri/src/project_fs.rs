@@ -87,7 +87,10 @@ pub enum FsKind {
 /// binary — a NUL byte or invalid UTF-8), so the common code-viewer path
 /// carries a plain string across the wire rather than a byte array. `size` is
 /// the file's FULL length; `truncated` says the returned text stops at the
-/// read cap; `read_bytes` says where it stopped.
+/// read cap; `read_bytes` says where it stopped — and where the TEXT stops,
+/// which is the same thing except when a capped read split a multi-byte
+/// character: the dangling stub is dropped and `read_bytes` drops with it, so
+/// the number always describes the text actually handed over.
 ///
 /// `read_bytes` is REPORTED rather than left for the caller to infer. A caller
 /// knows only what it asked for, and the ask is clamped here — so inferring
@@ -168,16 +171,47 @@ pub fn project_fs_read_file(
         .take(cap)
         .read_to_end(&mut buf)
         .map_err(|e| format!("cannot read: {e}"))?;
-    let read_bytes = buf.len() as u64;
+    let mut read_bytes = buf.len() as u64;
     let truncated = size > read_bytes;
 
     // Binary detection, the git heuristic: a NUL byte means binary. Otherwise
     // try to decode UTF-8; invalid bytes are binary too (can't render as text).
+    //
+    // ONE exception, and it is about OUR cut rather than the file: a read
+    // stopped at the cap can land in the middle of a multi-byte character, and
+    // the dangling bytes are ours. Dropping the whole text for them turns a
+    // 10 MB conversation into "binary file" — the worst answer available,
+    // because it is not "less" but "nothing".
+    //
+    // BOTH guards are load-bearing, and each blocks a lie the other would let
+    // through. `error_len() == None` means the sequence ran out of INPUT
+    // rather than being wrong; `Some` is a genuinely bad byte, and rescuing
+    // that would let a corrupt file masquerade as a merely truncated one.
+    // `truncated` means the input ended because WE stopped it; a file read
+    // whole that ends mid-sequence is malformed on its own, and rescuing it
+    // would hand back text with `truncated: false` — no shortfall, no mark,
+    // a silent loss where today's `is_binary` at least shouts.
+    //
+    // The NUL branch above is untouched on purpose: a NUL byte says what the
+    // file IS, and this fixes what our READ did.
     let (text, is_binary) = if buf.contains(&0) {
         (None, true)
     } else {
         match String::from_utf8(buf) {
             Ok(text) => (Some(text), false),
+            Err(e) if truncated && e.utf8_error().error_len().is_none() => {
+                let keep = e.utf8_error().valid_up_to();
+                let mut bytes = e.into_bytes();
+                bytes.truncate(keep);
+                // `read_bytes` marks where the RETURNED TEXT stops, so the
+                // dropped stub leaves with it: a shortfall computed from a
+                // length the text does not have would be false by exactly the
+                // bytes we just refused to guess about.
+                read_bytes = keep as u64;
+                let text = String::from_utf8(bytes)
+                    .expect("valid_up_to() bounds the longest valid prefix");
+                (Some(text), false)
+            }
             Err(_) => (None, true),
         }
     };
@@ -480,6 +514,99 @@ mod tests {
         // from its own `max_bytes` would be right only until it asked above
         // the ceiling — which is clamped here, silently and by design.
         assert_eq!(file.read_bytes, 10);
+    }
+
+    /// A cap landing inside a multi-byte character must not cost the whole
+    /// text.
+    ///
+    /// This is the failure the mark exists to prevent, and it is live: a
+    /// Cyrillic-dense transcript over the ceiling breaks here roughly as often
+    /// as a coin lands heads, and the boundary moves with every append. Before
+    /// this, `text` came back `None`, every reader saw `is_binary`, and a ten
+    /// megabyte conversation rendered as "no content" — not "less", but
+    /// "nothing".
+    #[test]
+    fn read_file_rescues_a_tail_split_mid_character() {
+        let root = temp_root();
+        // Nine ASCII bytes then one two-byte character: a cap of ten stops
+        // between its lead byte and its continuation.
+        write(&root.join("ru.txt"), &format!("{}Д", "a".repeat(9)));
+
+        let file = project_fs_read_file(
+            root.join("ru.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            Some(10),
+        )
+        .unwrap();
+        assert_eq!(file.text.as_deref(), Some(&"a".repeat(9)[..]));
+        assert!(!file.is_binary);
+        // The read is STILL short, and says so: rescuing the prefix answers
+        // "what can be shown", never "the file was whole".
+        assert!(file.truncated);
+        assert_eq!(file.size, 11);
+        // The dropped stub leaves with the number. `read_bytes` marks where
+        // the TEXT stops, so reporting the cap here would overstate the read
+        // by exactly the bytes we refused to guess about — a false number in
+        // the field that exists to keep numbers honest.
+        assert_eq!(file.read_bytes, 9);
+    }
+
+    /// A genuinely bad byte stays binary even when the read was also short.
+    ///
+    /// Without this guard the rescue above would let corruption masquerade as
+    /// our own cut: a file damaged at byte three would come back as text with
+    /// a "partly shown" mark, and the reader would blame the ceiling for a
+    /// hole the ceiling did not make. `error_len()` tells the two apart —
+    /// `None` is "ran out of input", `Some` is "this byte is wrong" — and
+    /// only the first is ours to repair.
+    #[test]
+    fn read_file_keeps_a_corrupt_short_read_binary() {
+        let root = temp_root();
+        let mut bytes = b"abc".to_vec();
+        bytes.push(0xFF);
+        bytes.extend_from_slice(b"defghij");
+        fs::write(root.join("bad.txt"), &bytes).unwrap();
+
+        let file = project_fs_read_file(
+            root.join("bad.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            Some(8),
+        )
+        .unwrap();
+        assert!(file.is_binary);
+        assert_eq!(file.text, None);
+        assert!(file.truncated);
+    }
+
+    /// A file read WHOLE that ends mid-sequence is malformed on its own, and
+    /// stays binary.
+    ///
+    /// `error_len() == None` means "the sequence ran out of input" — and the
+    /// input ends either at our cap or at the file's own end; the error does
+    /// not distinguish them, so `truncated` must. Rescue here would hand back
+    /// text with `truncated: false`: no shortfall, no mark, and the lost tail
+    /// silent. That is worse than today's answer, which at least shouts "not
+    /// text".
+    #[test]
+    fn read_file_keeps_a_whole_file_ending_mid_character_binary() {
+        let root = temp_root();
+        let mut bytes = b"ok".to_vec();
+        bytes.push(0xD0); // lead byte of a two-byte character, never completed
+        fs::write(root.join("cut.txt"), &bytes).unwrap();
+
+        let file = project_fs_read_file(
+            root.join("cut.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            None,
+        )
+        .unwrap();
+        assert!(file.is_binary);
+        assert_eq!(file.text, None);
+        // Nothing was cut BY US — the file simply ends this way.
+        assert!(!file.truncated);
     }
 
     /// The wire shape of a file read, pinned key by key.
