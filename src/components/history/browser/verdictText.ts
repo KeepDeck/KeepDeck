@@ -20,6 +20,12 @@ import type { Shortfall } from "@keepdeck/plugin-api";
  * broken word. That is the opposite of the usual rule against a second copy —
  * two places obliged to agree BY THEMSELVES are a defect, while an outside
  * witness holding its own copy is the only way it can witness anything.
+ *
+ * If a second consumer of these sentences ever appears, that is a reason to
+ * re-read the split — not to open the export. The screen's words and the scan
+ * log's words are already separate for a reason (different reader, different
+ * reading), and a shared export would be the first step back toward one
+ * vocabulary answering to two audiences.
  */
 
 /** Not "the file is X": the size speaks for itself elsewhere, and this

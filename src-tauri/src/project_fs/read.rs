@@ -181,6 +181,12 @@ pub fn project_fs_read_file(
                 // length the text does not have would be false by exactly the
                 // bytes we just refused to guess about.
                 read_bytes = keep as u64;
+                // A second validation pass, on the rare branch only: the
+                // common path moves `buf` into the String with one check and
+                // no copy, and paying re-validation here buys a safe `expect`
+                // instead of an unchecked conversion. It cannot fire —
+                // `valid_up_to()` is by definition the length of the longest
+                // valid prefix.
                 let text = String::from_utf8(bytes)
                     .expect("valid_up_to() bounds the longest valid prefix");
                 (Some(text), false)
