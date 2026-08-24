@@ -50,6 +50,7 @@ function makeFs() {
       isBinary: false,
       size: 19,
       truncated: false,
+      readBytes: 19,
     },
   };
   const watchers = new Map<string, Set<() => void>>();

@@ -16,6 +16,7 @@ export type {
   PluginAgents,
   RemoteScheme,
   ResumePlanInput,
+  Shortfall,
   SpawnPlanInput,
   SpawnPlanOutput,
   McpServerSpec,
@@ -72,6 +73,7 @@ export type {
 } from "./commands.ts";
 export {
   firstMeaningfulUserTurn,
+  shortfallOfRead,
   textFromParts,
 } from "./historyText.ts";
 export type { PluginContext } from "./context.ts";

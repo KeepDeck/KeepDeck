@@ -1,0 +1,188 @@
+<meta charset="utf-8">
+<title>Ступень 1 — исполнимая картина</title>
+<style>
+  :root{
+    --bg:#fbfaf8; --ink:#1a1a1a; --dim:#5f5b56; --line:#e0dcd5;
+    --card:#ffffff; --accent:#7a4a00; --accent-bg:#fdf3e3;
+    --ok:#1f6b3a; --ok-bg:#eef7f0; --warn:#8a2d2d; --warn-bg:#fdf0ef;
+    --code:#f4f1ec;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#16150f; --ink:#eceae4; --dim:#a49f95; --line:#33302a;
+      --card:#1e1c16; --accent:#e0a45c; --accent-bg:#2a2117;
+      --ok:#7fc79a; --ok-bg:#18261c; --warn:#e79a94; --warn-bg:#2a1a19;
+      --code:#252219;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#16150f; --ink:#eceae4; --dim:#a49f95; --line:#33302a;
+    --card:#1e1c16; --accent:#e0a45c; --accent-bg:#2a2117;
+    --ok:#7fc79a; --ok-bg:#18261c; --warn:#e79a94; --warn-bg:#2a1a19;
+    --code:#252219;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.62 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:0 20px 80px;
+  }
+  .wrap{max-width:1000px;margin:0 auto}
+  header{padding:44px 0 26px;border-bottom:2px solid var(--line);margin-bottom:32px}
+  h1{font-size:31px;line-height:1.2;margin:0 0 10px;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-size:15px;margin:0}
+  .meta{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{
+    font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    background:var(--code);border:1px solid var(--line);color:var(--dim);
+    padding:6px 9px;border-radius:4px;
+  }
+  .ver{
+    display:inline-block;background:var(--accent);color:var(--bg);
+    font:700 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    padding:7px 11px;border-radius:5px;letter-spacing:.03em;
+  }
+  .verline{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  .verline .when{color:var(--dim);font-size:13px}
+  h2{
+    font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);
+    margin:44px 0 14px;font-weight:700;
+  }
+  code{font:13.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--code);padding:1px 5px;border-radius:3px}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:20px 22px;margin-bottom:14px;
+  }
+  .card.lead{border-left:3px solid var(--accent)}
+  .card.hazard{border-left:3px solid var(--warn);background:var(--warn-bg)}
+  .card.done{border-left:3px solid var(--ok)}
+  .n{
+    display:inline-block;min-width:26px;height:26px;line-height:26px;text-align:center;
+    background:var(--accent-bg);color:var(--accent);border-radius:5px;font-weight:700;
+    font-size:13px;margin-right:9px;
+  }
+  .t{font-size:17px;font-weight:650;margin:0 0 4px;display:flex;align-items:baseline}
+  .t span.txt{flex:1}
+  .row{display:grid;grid-template-columns:112px 1fr;gap:4px 14px;margin-top:14px}
+  .row dt{
+    font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);
+    padding-top:4px;font-weight:600;
+  }
+  .row dd{margin:0;font-size:14.5px}
+  .tbl{width:100%;border-collapse:collapse;font-size:14px;margin-top:6px}
+  .tbl th,.tbl td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  .tbl th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  .scroll{overflow-x:auto}
+  ul{margin:8px 0 0;padding-left:20px}
+  li{margin-bottom:6px}
+  .note{color:var(--dim);font-size:14px;font-style:italic}
+  .tag{
+    display:inline-block;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 7px;border-radius:4px;font-weight:650;margin-left:8px;vertical-align:2px;
+  }
+  .tag.ok{background:var(--ok-bg);color:var(--ok)}
+  .tag.wait{background:var(--accent-bg);color:var(--accent)}
+  .tag.bad{background:var(--warn-bg);color:var(--warn)}
+  footer{margin-top:56px;padding-top:22px;border-top:1px solid var(--line);color:var(--dim);font-size:13.5px}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="verline">
+    <span class="ver">ступень 1 · v26</span>
+    <span class="when">24.08.2026 21:45 · пункты 6 и 1 исполнены · 4 закрыт без работы · три ждут слова о порядке</span>
+  </div>
+  <h1>Ступень 1 — честность чтения</h1>
+  <p class="sub">Ступень ничего не ускоряет — она перестаёт лгать. Разборы исполненных пунктов — на своих страницах; здесь только картина ступени.</p>
+  <div class="meta">
+    <span class="chip">feat/history-polish @ 609a93ba</span>
+    <span class="chip">не запушено</span>
+  </div>
+</header>
+
+<h2>Где ступень стоит</h2>
+<div class="card done">
+  <p class="t"><span class="n">6</span><span class="txt">Контрактная семантика неполноты</span><span class="tag ok">СДЕЛАН</span></p>
+  <p style="margin:0">Ответы плагина получили место, где сказать «я отдал меньше, чем есть»: недостача едет полем контракта, мера — своя на домен правды (файл в байтах, разговор в ходах, дыры в частях), носитель один. Одиннадцать коммитов, разбор — <code>stage1-item6</code>.</p>
+</div>
+<div class="card done">
+  <p class="t"><span class="n">1</span><span class="txt">Читатель обрезанного чтения</span><span class="tag ok">СДЕЛАН</span></p>
+  <p style="margin:0">Метка обрела читателя и слова. По дороге оказалась <strong>починкой, а не пометкой</strong>: обрыв посреди многобайтовой буквы ронял весь текст, и десятимегабайтный разговор показывался как «здесь ничего нет» — у семи потребителей чтения файлов, не только у истории. Двенадцать коммитов, разбор — <code>stage1-item1</code>.</p>
+</div>
+
+<div class="card">
+  <p class="t"><span class="n">4</span><span class="txt">Describe-fallback — названное исключение</span><span class="tag wait">ЗАКРЫТ БЕЗ РАБОТЫ</span></p>
+  <p style="margin:0 0 10px">Пункт целился в обрезанное чтение, отнимающее имя сессии. Замер живых хранилищ нашёл такой случай <strong>ноль раз</strong>: дочитывание codex спасло бы 0 сессий из 272, индекс claude держится на 80 KB при потолке 512, kimi — на 42 KB при мегабайте.</p>
+  <p style="margin:0 0 10px">И это не удача корпуса. <strong>Рез отнимает хвост, а источник заголовка у всех четырёх плагинов лежит в начале чтения</strong> — у opencode это вообще колонка SQLite, префикс не разбирается. Рез и заголовок не встречаются по построению, на любой машине. Реализация как записана добавила бы ветку, которая не исполняется (строка про <em>обрезанный</em> индекс, тогда как индекса попросту нет), и второе полное чтение 8 MB на 93 сессиях, возвращающее ничего.</p>
+  <p style="margin:0"><strong>Цена закрытия названа:</strong> словарь пункта остался словами в разборе и не лёг в код. Разбор — <code>stage1-item4</code>; там же условия, при которых пункт воскрешают.</p>
+</div>
+
+<h2>Три пункта, ждущие слова о порядке</h2>
+
+<div class="card">
+  <p class="t"><span class="n">2</span><span class="txt">Границы чтения названы в одном месте</span></p>
+  <dl class="row">
+    <dt>Обещание</dt><dd>Истина о пределах — поимённо в одном месте. <strong>Не «выравнивается»</strong>: потолков шесть, назначение разное, свести в одно число нельзя.</dd>
+    <dt>Шесть, а не три</dt><dd>Голова claude 64 KB · индекс claude 512 KB · тело claude 8 MB · голова codex 256 KB · тело codex 8 MB · тело kimi 8 MB. Головы claude и codex различаются <strong>намеренно</strong>. Дефолт хоста в 1 MB в модуль не входит: плагины им не управляют.</dd>
+    <dt>Граница</dt><dd>Rust трогается — прежний зелёный недействителен независимо от размера правки. Гейт есть тройка: команда × набор таргетов × коммит.</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <p class="t"><span class="n">3</span><span class="txt">Wipe-лог</span></p>
+  <dl class="row">
+    <dt>Обещание</dt><dd>Нечитаемый индекс стирается <strong>с логом и причиной</strong>, а не молча.</dd>
+    <dt>Цена — половина дешёвая, половина постройка</dt><dd>Логовая: сток готов, нужна строка и исход <code>{Opened | WipedAndRecreated(reason)}</code> — он же тестовый шов. Статусная: канала Rust→UI <strong>нет</strong>; достройка — около четырёх производственных точек.</dd>
+    <dt>Решено</dt><dd>В ступень входит <strong>только лог</strong>. Строка в интерфейсе — ступенью позже. <strong>Отложено, не закрыто.</strong></dd>
+  </dl>
+</div>
+
+<div class="card">
+  <p class="t"><span class="n">5</span><span class="txt">Молчания opencode</span></p>
+  <dl class="row">
+    <dt>Их семь, а не два</dt><dd>Постановка называла два; у одного opencode их семь — потолок строк в двух местах, аккумулятор текста, построчный дроп в двух местах, исчезновение сообщения, допущение «нет стора» при запертой БД.</dd>
+    <dt>Два вранья от одного потолка</dt><dd>Сообщения запрашиваются <strong>без</strong> потолка, их части — с потолком. На границе: сообщение с частично срезанными частями рисуется <strong>частичным и выглядит целым</strong>, а всё, что дальше, <strong>исчезает</strong>.</dd>
+    <dt>Лечится</dt><dd>Резать <strong>по границе сообщения</strong>, недостачу считать в ходах. Просмотрщик не выбрасывает неполный хвостовой ход — он едет с меткой: решать за пользователя, что неполный вид хуже отсутствия, не наше дело.</dd>
+    <dt>Зависимость</dt><dd>Счётчик нечитаемых частей требует смены типа <code>partText</code> — сегодня он возвращает <code>null</code> по трём разным причинам, и оба вызывающих места схлопывают их в один <code>continue</code>.</dd>
+  </dl>
+</div>
+
+<h2>Вне ступени, но знать надо</h2>
+<div class="card hazard">
+  <p class="t"><span class="txt">kimi: живая сессия удаляется из индекса</span><span class="tag bad">потеря данных</span></p>
+  <p style="margin:0 0 10px">Код сам это называет хазардом. Сессия, чей каталог агента стал нечитаем, падает в <code>catch</code> и выпадает из перечисления, а «перечисление полно» ставится уровнем выше. Хост уверен, что видел весь стор, — и прунит живую сессию. Сторож хоста не помогает: он защищает только плагины без парного перечисления.</p>
+  <p style="margin:0 0 10px"><strong>Дёшево не чинится:</strong> лгут все три честных варианта. Перечислить отказы — попадёт рутина (никогда не запускавшаяся сессия выглядит так же). Посчитать — та же ложь числом. Пометить неполнотой — прун отключится навсегда.</p>
+  <p style="margin:0"><strong>Цена:</strong> роды ошибок файловой службы через четыре шва. Общая инфраструктура, не пластырь. <strong>Не в ступени:</strong> ступень про честность <em>чтения</em>, это про <em>удаление</em>.</p>
+</div>
+
+<h2>Ждёт слова</h2>
+<div class="card">
+  <ul>
+    <li><strong>Порядок оставшихся трёх — 2, 3, 5.</strong> Пункты 6 и 1 шли первыми по необходимости: остальные кладут значения в поля, которых до них не существовало. Между 2, 3 и 5 такой связи нет — порядок свободен.</li>
+    <li><strong>Три предмета, выпавшие из пункта 4</strong> (разбор — <code>stage1-item4</code>): комментарий у метки недостачи <em>лжёт уже сегодня</em>, независимо от любой правки — чинить первым и отдельно · дорожка индекса claude не срабатывала ни разу с февраля, но <strong>снимать нельзя</strong>: мертва она на этой машине, а тесты под ней — спецификация для машин, где индекс жив · ведущая скобочная метка (<code>[Image #1]</code> перед текстом) съедает первую фразу человека — ранг понижен до улучшения, не дефекта.</li>
+    <li><strong>Обновление списка во время скана</strong> против одного финального — продуктовый выбор.</li>
+    <li><strong>Бюджет индекса</strong> — политика после замера на живом корпусе. Инструмент готов: замер под <code>#[ignore]</code> уже написан.</li>
+    <li><strong>Статусная половина пункта 3</strong> — со ступенью 2 или отдельным словом.</li>
+    <li><strong>kimi prune hazard</strong> — сейчас или после трёх ступеней.</li>
+  </ul>
+  <p style="margin:12px 0 0"><strong>Очередь круга, слова не требует:</strong> честность поискового корпуса (режется дважды, оба раза молча) · перечитка обещания «рез по границе сообщения» — оно верно там, где есть структура · перебор запасных ссылок и мелкие размазанные литералы.</p>
+</div>
+
+<h2>Опоры под приёмку</h2>
+<div class="card">
+  <div class="scroll"><table class="tbl">
+    <tr><th>Гейт</th><th>База ступени</th><th>Измерено на <code>773e9f8c</code></th></tr>
+    <tr><td><code>tsc --noEmit</code></td><td>0 ошибок</td><td><strong>0 ошибок</strong></td></tr>
+    <tr><td><code>vitest run</code></td><td>424 ф / 4684</td><td><strong>428 ф / 4739</strong></td></tr>
+    <tr><td><code>cargo test --workspace</code></td><td>22 набора / 650</td><td><strong>22 набора / 653</strong></td></tr>
+    <tr><td><code>npm run build</code></td><td>8 плагинов</td><td><strong>9 плагинов</strong></td></tr>
+  </table></div>
+  <p style="margin:12px 0 0"><strong>Число — базлайн тройки, не свидетель сам по себе.</strong> Законное применение одно: регрессия между двумя прогонами <em>одной и той же</em> тройки. Дельту между разными тройками объясняет состав, и объяснять её обязана таблица, а не читатель.</p>
+  <p style="margin:8px 0 0" class="note">Одно из этих чисел я однажды подписал, не измерив: «653 до и после», то есть ноль новых Rust-тестов при трёх написанных. База была 650. Поймал не автор. <strong>Поэтому столбец назван «измерено на», а не «сейчас»:</strong> голова ветки с тех пор ушла на четыре коммита, но все четыре тронули только документы и страницы — кода не касались, и перемерять было нечего. Числа честны для своего коммита и только для него.</p>
+  <p style="margin:8px 0 0" class="note"><strong>Линза ревью — правило, а не совет:</strong> чистая архитектура, SOLID/DRY/KISS, логика не размазана и не дублируется, бизнес-логики во вьюхах нет. Ревьюят все, кроме реализатора, по набору и по документу.</p>
+</div>
+
+<footer>
+  Шесть отказов за две ступени, ни одного красного теста. Адрес у всех один: <strong>свидетель рождается на конце контракта — там, где значение потребляется, а не производится.</strong> Мы доказывали, что значение правильно сделано, и не спрашивали, читает ли его кто-нибудь.
+</footer>
+</div>

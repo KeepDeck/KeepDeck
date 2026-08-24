@@ -1,0 +1,246 @@
+<meta charset="utf-8">
+<title>Пункт 6 — контракт неполноты</title>
+<style>
+  :root{
+    --bg:#fbfaf8; --ink:#1a1a1a; --dim:#5f5b56; --line:#e0dcd5;
+    --card:#ffffff; --accent:#7a4a00; --accent-bg:#fdf3e3;
+    --warn:#8a2d2d; --warn-bg:#fdf0ef; --code:#f4f1ec;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#16150f; --ink:#eceae4; --dim:#a49f95; --line:#33302a;
+      --card:#1e1c16; --accent:#e0a45c; --accent-bg:#2a2117;
+      --warn:#e79a94; --warn-bg:#2a1a19; --code:#252219;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#16150f; --ink:#eceae4; --dim:#a49f95; --line:#33302a;
+    --card:#1e1c16; --accent:#e0a45c; --accent-bg:#2a2117;
+    --warn:#e79a94; --warn-bg:#2a1a19; --code:#252219;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:0 20px 80px}
+  .wrap{max-width:960px;margin:0 auto}
+  header{padding:40px 0 24px;border-bottom:2px solid var(--line);margin-bottom:28px}
+  .ver{display:inline-block;background:var(--accent);color:var(--bg);
+    font:700 13px/1 ui-monospace,Menlo,monospace;padding:7px 11px;border-radius:5px;margin-bottom:14px}
+  h1{font-size:29px;line-height:1.2;margin:0 0 8px;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-size:15px;margin:0}
+  h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);
+    margin:38px 0 12px;font-weight:700}
+  code{font:13.5px ui-monospace,Menlo,monospace;background:var(--code);padding:1px 5px;border-radius:3px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:14px 16px;
+    overflow-x:auto;font:13px/1.55 ui-monospace,Menlo,monospace;margin:10px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 20px;margin-bottom:12px}
+  .card.trap{border-left:3px solid var(--warn);background:var(--warn-bg)}
+  .tbl{width:100%;border-collapse:collapse;font-size:14px}
+  .tbl th,.tbl td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  .tbl th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  .scroll{overflow-x:auto}
+  ol{padding-left:22px}ol li{margin-bottom:9px}
+  ul{padding-left:20px;margin:6px 0}ul li{margin-bottom:5px}
+  .n{display:inline-block;min-width:22px;height:22px;line-height:22px;text-align:center;
+    background:var(--accent-bg);color:var(--accent);border-radius:4px;font-weight:700;font-size:12px;margin-right:7px}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="ver">версия 6 · 01:34 · проверен по SOLID · DRY · KISS · чистой архитектуре</div>
+  <h1>Пункт 6 — контракт неполноты</h1>
+  <p class="sub">Первый пункт ступени 1, разобранный до строк. Всё прочитано на HEAD <code>02be0fd6</code>.</p>
+</header>
+
+<h2>Что он делает</h2>
+<div class="card">
+  <p style="margin:0">Даёт ответам плагина место, где сказать: «я отдал меньше, чем есть». Сегодня такого места нет — <code>describe</code> отдаёт факты без признака неполноты, <code>transcript</code> отдаёт массив ходов, <code>content</code> отдаёт голую строку. Пункт 6 сам по себе ничего не чинит и пользователю не виден: он делает возможными пункты 1 и 4.</p>
+</div>
+
+<h2>Формы</h2>
+<pre>// packages/plugin-api/src/context/agents.ts
+
+/** Почему ответ короче, чем существует. kind называет меру:
+ *  файл меряется байтами, разговор — ходами. */
+export type Shortfall =
+  | { kind: "bytes";  size: number;   readBytes: number }
+  | { kind: "turns";  total: number;  returned: number }
+  | { kind: "parts";  unreadableParts: number };
+
+export interface AgentSessionFacts {
+  cwd: string;
+  title?: string;
+  transcriptPath?: string;
+  /** О ТОМ чтении, которое сделал этот describe. Отсутствует —
+   *  значит это чтение ничего не недодало ЛИБО молчит о том,
+   *  чего не делало (быстрая дорожка тела не читает). */
+  shortfall?: Shortfall[];
+}
+
+export interface AgentHistory {
+  // …list / listing? / describe / content / transcript без изменений…
+
+  /** Страница транскрипта С признаком неполноты. Старый
+   *  transcript() остаётся честным сам по себе — два честных
+   *  контракта, а не старый и его замена. */
+  transcriptPage?(
+    ref: string,
+    page: { offset: number; limit: number },
+  ): Promise&lt;{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }&gt;;
+}
+
+// В плагине — ОДНА реализация, старый метод её распаковывает:
+//   const readPage = async (ref, page) => { …вся работа… };
+//   transcriptPage: readPage,
+//   transcript: async (ref, page) => (await readPage(ref, page)).entries,
+// Разойтись они не могут: второй выведен из первого.</pre>
+<div class="card">
+  <p style="margin:0 0 8px"><strong>Массив, а не одиночка</strong> — одно чтение несёт два рода разом: у opencode в одном вызове <code>content()</code> цикл роняет нечитаемые части и упирается в потолок.</p>
+  <p style="margin:0 0 8px"><strong>Пустой массив запрещён</strong> — <code>[]</code> была бы вторая орфография полноты. Присутствует значит минимум один элемент.</p>
+  <p style="margin:0"><strong>Без <code>complete</code></strong> — у <code>listing()</code> он уместен, потому что перечисление бинарно; здесь он выводится из <code>shortfall</code> и стал бы второй правдой об одном.</p>
+</div>
+
+<h2>Ловушка: компилятор здесь не поможет</h2>
+<div class="card trap">
+  <p style="margin:0 0 8px">Потребитель транскрипта вызывает метод <strong>через приведение типа</strong>, а не через интерфейс:</p>
+  <pre style="margin:8px 0">// src/app/useSessionsBrowser.ts:123-130
+return (contribution.entry.history as {
+  transcript(ref: string, page: {offset: number; limit: number}):
+    Promise&lt;AgentTranscriptEntry[]&gt;;
+}).transcript(ref, { offset, limit });</pre>
+  <p style="margin:0">Приведение отсекает интерфейс. Если добавить <code>transcriptPage</code> и забыть научить это место — <strong><code>tsc</code> промолчит</strong>, просмотрщик тихо продолжит звать старый метод, и вся работа не доедет до экрана, не сломав ни одной сборки. Значит здесь нужен тест, а не типы: «плагин объявляет <code>transcriptPage</code> → браузер зовёт именно его».</p>
+</div>
+
+<h2>Что трогаем — поимённо</h2>
+<div class="scroll"><table class="tbl">
+  <tr><th>Место</th><th>Адрес</th><th>Что делаем</th></tr>
+  <tr><td>Контракт</td><td><code>plugin-api/context/agents.ts:246,290-309</code></td><td>тип <code>Shortfall</code>, поле в Facts, метод <code>transcriptPage?</code></td></tr>
+  <tr><td>Экспорт типа</td><td><code>plugin-api/context/index.ts:12-14</code></td><td>вывести <code>Shortfall</code> наружу</td></tr>
+  <tr><td>claude</td><td><code>history.ts:262-268, 276-281</code></td><td>метка на тело-чтении; парный метод</td></tr>
+  <tr><td>codex</td><td><code>history.ts:172-181</code></td><td>то же</td></tr>
+  <tr><td>kimi</td><td><code>history.ts:216-227</code></td><td>то же + правило хвостового хода</td></tr>
+  <tr><td>opencode</td><td><code>history.ts:98-131</code></td><td>парный метод с <code>turns</code>/<code>parts</code>; байтов у него нет</td></tr>
+  <tr><td>Скан</td><td><code>historyScan.ts:117</code></td><td>читает <code>facts.shortfall</code> — только лог, в схему не пишем</td></tr>
+  <tr><td>Браузер <span style="color:var(--warn)">⚠</span></td><td><code>useSessionsBrowser.ts:117-133</code></td><td>предпочесть <code>transcriptPage</code>; приведение типа не защитит</td></tr>
+  <tr><td>Просмотрщик</td><td><code>browser/SessionViewer.tsx:199</code></td><td>показать метку «Partly shown»</td></tr>
+  <tr><td colspan="3" style="background:var(--accent-bg);font-weight:650">Внешний ярус — без него метка молча срежется</td></tr>
+  <tr><td>Протокол</td><td><code>rpc/protocol.ts:222</code></td><td>добавить <code>"transcriptPage"</code> в объединение методов</td></tr>
+  <tr><td>Протокол</td><td><code>rpc/protocol.ts:218</code></td><td>флаг <code>hasTranscriptPage</code> в форму регистрации</td></tr>
+  <tr><td>Диспетч</td><td><code>hostDispatch.ts:388-398</code></td><td>достать флаг из entry</td></tr>
+  <tr><td>Прокси</td><td><code>hostDispatch.ts:441-448</code></td><td><code>...(hasTranscriptPage === true &amp;&amp; {…})</code> — по образцу <code>listing</code></td></tr>
+  <tr><td>Санитайзер</td><td><code>hostDispatch.ts:944</code> рядом</td><td>новый, по образцу <code>sanitizeHistoryListing</code></td></tr>
+  <tr><td>Гость: объявление</td><td><code>plugin-guest/context.ts:448-450</code></td><td>флаг тогда и только тогда, когда метод есть</td></tr>
+  <tr><td>Гость: ветка</td><td><code>plugin-guest/context.ts:710-736</code></td><td><code>case "transcriptPage"</code> с тем же отказом, что у <code>listing</code></td></tr>
+</table></div>
+<p style="margin:10px 0 0" class="sub">Итого ≈9 точек внутри и ≈6 в шве. <code>content()</code> остаётся строкой — <code>sanitizeHistoryContent</code> не трогаем вовсе, и риск громкого слома внешних чтений не возникает.</p>
+
+<h2>Вторая ловушка: шовный пин слеп</h2>
+<div class="card trap">
+  <p style="margin:0 0 8px">В шве уже есть тест, который прогоняет <code>describe</code> через границу и сверяет ответ целиком:</p>
+  <pre style="margin:8px 0">// src/plugins/external/rpc/hostDispatch.test.ts:290-294
+await expect(describe).resolves.toEqual({
+  cwd: "/repo", title: "Session", transcriptPath: "/transcript",
+});</pre>
+  <p style="margin:0">Кажется, что он и защищает границу. Не защищает: если санитайзер <strong>срежет</strong> новое поле, сравнение всё равно пройдёт — <code>toEqual</code> не замечает отсутствия необязательного поля. Тест зелёный, метка молча срезана, работа не доехала. Значит свидетель «санитайзер пропускает метку» — не один из списка, а <strong>единственный страж этой границы</strong>, и написан он должен быть так, чтобы <em>сперва покраснеть</em> на срезе, а не просто зафиксировать итоговую форму.</p>
+</div>
+
+<h2>Проверка на дублирование</h2>
+<div class="card trap">
+  <p style="margin:0 0 10px">План в первой редакции <strong>размазывал логику в трёх местах</strong>. Кодовая база уже обжигалась на этом: комментарий <code>plugin-api/context/historyText.ts</code> говорит прямо — «две частные копии эвристики заголовка уже разошлись», и модуль построен как их общий дом. Туда же идут наши помощники.</p>
+  <div class="scroll"><table class="tbl">
+    <tr><th>Что размазывалось</th><th>Как лечится</th></tr>
+    <tr><td><strong>Третье почти-одинаковое тело в каждом плагине.</strong> Сегодня <code>content</code> и <code>transcript</code> уже близнецы: то же чтение, тот же разбор, разный хвост. Отдельная реализация <code>transcriptPage</code> дала бы третью копию ×4 плагина.</td><td>Работа делается <strong>один раз</strong>; старый <code>transcript</code> — однострочная распаковка нового. Два контракта тогда не могут разойтись <em>по построению</em>, а не «пока их держат синхронными».</td></tr>
+    <tr><td><strong>Сборка <code>{kind:"bytes"}</code> втройне</strong> — claude, codex, kimi делают один и тот же шаг из <code>truncated</code> и <code>size</code>.</td><td>Один помощник в <code>historyText.ts</code>. Туда же правило «пустого массива не бывает»: иначе оно живёт в четырёх плагинах и в санитайзере, а так — в помощнике и на границе (границе доверять нельзя всё равно).</td></tr>
+    <tr><td><strong>Формулировка строки журнала ×4</strong> — каждый плагин сочиняет свою.</td><td>Один форматтер из <code>Shortfall[]</code>. Иначе выверенные слова разойдутся за неделю — тот же род, что уже случился с заголовком.</td></tr>
+    <tr><td><strong>Сам вызов журнала ×4</strong> — форматтер убирает расхождение слов, но <code>if (shortfall?.length) log.warn(…)</code> повторится в каждом плагине: тот же род этажом выше.</td><td>Помощник принимает журнал, метку сессии и <code>Shortfall[]</code> — слова <em>и</em> вызов живут ровно один раз.</td></tr>
+  </table></div>
+  <p style="margin:12px 0 0"><strong>Где чему жить.</strong> Граница проходит по вопросу «зовёт ли это хост», а не «есть ли уже рантайм в файле». <code>Shortfall</code> — контракт, его читают обе стороны провода, он остаётся в <code>agents.ts</code>. Сборка метки из прочитанного файла и строка журнала — поведение <em>плагинной</em> стороны, хост их не зовёт никогда: их дом <code>historyText.ts</code>, чья шапка ровно про общее поведение парсеров истории.</p>
+  <p style="margin:8px 0 0" class="sub">Оговорка, чтобы следующий не «дочистил»: <code>export function mapMcpServers</code> в <code>agents.ts:210</code> — рантайм в контрактном файле, попавший туда раньше правила. Это не прецедент к расширению. И сборка литерала в трёх <code>describe</code> — принятый осознанно шум: помощник ради неё был бы переусложнением.</p>
+  <p style="margin:10px 0 0">Обратная сторона: решение про <strong>дом потолков</strong> размазанность <em>убирает</em> — шесть литералов из трёх плагинов съезжаются в один именованный модуль. С тремя правками выше пункт 6 суммарно <strong>уменьшает</strong> дублирование, а не добавляет.</p>
+</div>
+
+<h2>Проверка по SOLID, DRY, KISS, чистой архитектуре</h2>
+<div class="card">
+  <div class="scroll"><table class="tbl">
+    <tr><th>Требование</th><th>Как решение ему отвечает</th></tr>
+    <tr><td><strong>S</strong> — одна ответственность</td><td>Держится. <code>Shortfall</code> отвечает на один вопрос: почему ответ короче, чем есть. Сборка, формат и запись в журнал — три отдельные маленькие обязанности, а не один «менеджер неполноты». Возврат «страница плюс её метка» — не две ответственности, а один ответ со своим признаком целостности: ровно как <code>listing()</code> отдаёт перечень вместе с <code>complete</code>.</td></tr>
+    <tr><td><strong>O</strong> — открыт для расширения</td><td>С честной оговоркой. Новый вид меры потребует правки санитайзера: на границе доверия иначе нельзя — валидировать неизвестную форму невозможно. Значит объединение на границе <em>закрыто намеренно</em>, и добавление вида есть сознательная правка контракта, а не бесплатное расширение. Это надо назвать, а не выдавать за открытость.</td></tr>
+    <tr><td><strong>L</strong> — подстановка</td><td>Держится <em>по построению</em>, и это главный довод за разворот зависимости. Старый <code>transcript</code> выведен из нового (<code>(await readPage()).entries</code>), поэтому для прежних потребителей он не может повести себя иначе, чем раньше. Две независимые реализации такой гарантии не дают — только обещание синхронности.</td></tr>
+    <tr><td><strong>I</strong> — разделение интерфейсов</td><td>Слабое место, называю прямо. <code>AgentHistory</code> растёт: шесть методов, из них два необязательных. Необязательность спасает реализатора — он берёт, что может, — но интерфейс копит пары «метод и его честный близнец». Дробить его сейчас значило бы ломать живой контракт ради чистоты; принимаем накопление осознанно и следим, чтобы третья пара потребовала разговора, а не появилась по инерции.</td></tr>
+    <tr><td><strong>D</strong> — инверсия зависимостей</td><td>Держится. Хост зависит от абстракции <code>AgentHistory</code>, плагины её реализуют. Помощники живут на плагинной стороне и зависят от типа-контракта, а не наоборот; обратного направления — чтобы контракт знал о поведении — не появляется нигде.</td></tr>
+    <tr><td><strong>DRY</strong></td><td>Держится после правок: четыре источника дублирования убраны, пятый принят осознанно и записан. Шесть литералов-потолков съезжаются в один дом. Суммарно дублирования становится меньше, чем было до пункта.</td></tr>
+    <tr><td><strong>KISS</strong></td><td>Держится, и решение <em>убрало</em> две сущности: поле <code>complete</code> (выводится из метки) и состояние «тело не читалось» (призрак похороненного наследования). Массив вместо одиночки — сложнее, но вынужденно: два рода недостачи в одном чтении доказаны кодом.<br><strong>Правка по KISS:</strong> наружу отдаём <em>одну</em> функцию — «предупреди о недостаче», — а форматирование прячем внутрь модуля. Три экспорта там, где потребителю нужен один, — лишняя поверхность.</td></tr>
+    <tr><td><strong>Чистая архитектура</strong></td><td>Держится. Контракт — порт: чистые данные, ни одной зависимости от реализаций. Плагины и потребители хоста — адаптеры по разные стороны. Граница между слоями проходит по вопросу «зовёт ли это хост».<br><strong>Оговорка на будущее:</strong> слова журнала у плагина и у сканера — <em>разные</em> предложения разных слоёв. Их нельзя «унифицировать»: плагин говорит о своём чтении, хост — о своей укладке.</td></tr>
+  </table></div>
+</div>
+
+<h2>Шов внешнего яруса — что выкопано</h2>
+<div class="card">
+  <p style="margin:0 0 10px"><strong>Срезание чужих полей — доктрина, а не недосмотр.</strong> В шве стоит тест с прямым текстом: «An unknown extra field in facts drops at the boundary — the answer is rebuilt from known fields only, never passed through» (<code>hostDispatch.test.ts:329-341</code>). Он шлёт лишнее поле и требует, чтобы его не было в ответе. Значит внесение метки в белый список — сознательная правка контракта, а не починка. Тест при этом останется зелёным: его поле так и осталось чужим.</p>
+  <ul>
+    <li><strong>Метод добавляется ровно в одном месте</strong> — объединение в <code>protocol.ts:222</code>. Строкового разбора на хосте нет: прокси передают литералы. Рантайм-охрана уже универсальная — <code>default</code> в госте бросает на неизвестный метод.</li>
+    <li><strong>Истории лимитер не касается</strong> — он живёт только в канале уведомлений.</li>
+    <li><strong>Скан выбирает поля вручную</strong> (<code>historyScan.ts:119-128</code>), так что метка не утечёт в схему индекса сама собой. Но и не доедет: лог обязан читать её явно.</li>
+    <li><strong>Флаг гостя выводится тогда и только тогда, когда метод есть на объекте</strong> — дословно как у <code>listing</code>. Явный отказ в <code>case</code> оставляем зеркально: у битого гостя иначе будет <code>TypeError</code> вместо внятного отказа.</li>
+    <li><strong>Готового валидатора юниона в дереве нет</strong> — собираем из трёх местных образцов: цикл с отказом на первом плохом элементе, литеральная строгость дискриминанта, мера через проверку на конечное число. Порядок величин (<code>returned ≤ total</code>) <strong>не</strong> валидируем: это дело свидетелей, а лишняя строгость откажет законной странности.</li>
+    <li><strong>Гонки в шве нет</strong>: корреляция вызовов по идентификатору, кэша между открытиями нет, времена чтений в ключи индекса не входят. Встреча двух чтений одного файла — присущая семантика, покрыта правилом какого чтения.</li>
+  </ul>
+</div>
+
+<h2>Свидетели</h2>
+<div class="card">
+  <ul>
+    <li><strong>Санитайзер пропускает метку</strong> → красный, если срезает. Главный: без него всё остальное зелено при потерянной метке.</li>
+    <li><strong>Точная форма на проводе</strong> — три сценария: одиночный <code>bytes</code>, одиночный <code>turns</code>, и <code>turns + parts</code> вместе.</li>
+    <li><strong>Санитайзер отказывает</strong>: неизвестный <code>kind</code> · не-число в мере · пустой массив.</li>
+    <li><strong>Мутация «вернуть <code>complete</code> рядом»</strong> → красный. Иначе кто-нибудь вернёт «удобное поле».</li>
+    <li><strong>Парный метод зовут оба потребителя</strong> — и браузер, и прокси внешнего яруса: точек вызова транскрипта <strong>две</strong>, не одна.</li>
+  </ul>
+</div>
+
+<h2>Что придётся править в тестах</h2>
+<div class="card">
+  <p style="margin:0 0 10px">Правка контракта ломает не код, а фикстуры. Перечень полный, с моментом срабатывания:</p>
+  <div class="scroll"><table class="tbl">
+    <tr><th>Место</th><th>Когда упадёт</th></tr>
+    <tr><td><code>claude/history.test.ts:231</code> · <code>codex:162</code> · <code>kimi:174</code></td><td>когда свой плагин обретёт метку — сверка идёт целиком</td></tr>
+    <tr><td><code>hostDispatch.test.ts:290</code></td><td><strong>обязан упасть</strong> в момент санитайзера; если не упал — санитайзер срезает, а пин слеп</td></tr>
+    <tr><td><code>guestContext.test.ts</code> — две встроенные заглушки</td><td>когда научим их нести метку; одним патчем</td></tr>
+    <tr><td>Пины транскрипта · <code>fakeHost</code> · тесты браузера и скана</td><td>переживут молча — форма старого метода не меняется</td></tr>
+  </table></div>
+</div>
+
+<h2>Порядок работы внутри пункта</h2>
+<div class="card">
+  <ol>
+    <li><span class="n">1</span>Типы в контракте. Поведения ноль, сборка зелёная.</li>
+    <li><span class="n">2</span>Шов внешнего яруса целиком — протокол, флаг, прокси, санитайзер, ветка гостя — <strong>вместе с пинами формы</strong>. Раньше плагинов, потому что иначе метка молча срежется и мы этого не увидим.</li>
+    <li><span class="n">3</span>Один плагин насквозь (claude) со своими тестами — проверить, что форма живая от плагина до просмотрщика.</li>
+    <li><span class="n">4</span>Остальные три плагина.</li>
+    <li><span class="n">5</span>Потребители: браузер и отрисовка метки.</li>
+  </ol>
+  <p style="margin:10px 0 0" class="sub">Каждый шаг — отдельный коммит, гейты после каждого.</p>
+</div>
+
+<h2>Границы</h2>
+<div class="card">
+  <ul>
+    <li>Метка <strong>не пишется</strong> в схему <code>index.sqlite</code>: индекс одноразовый, а хранёная метка начнёт лгать после первого перескана.</li>
+    <li>Старый <code>transcript()</code> <strong>не трогаем</strong> — он честен сам по себе.</li>
+    <li><code>content()</code> остаётся строкой; честность поискового корпуса — предупреждением плагина при чтении.</li>
+    <li>Отрисовка слова «Partly shown» — это пункт 1, здесь только поверхность, куда его положить.</li>
+  </ul>
+</div>
+
+</div>
+
+<script>
+(()=>{const note=()=>{const n=document.createElement("div");
+n.setAttribute("style","background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999");
+n.textContent="This page's server went away — republish or reopen from the agent's message.";
+document.body.appendChild(n);};
+const es=new EventSource(location.pathname+"/events"+location.search);
+es.addEventListener("version",()=>location.reload());
+es.addEventListener("bye",()=>{es.close();note();});
+es.addEventListener("error",()=>{es.close();note();});})();
+</script>

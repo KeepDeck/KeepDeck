@@ -216,10 +216,19 @@ export interface WireHookCall {
  * The method names are a CLOSED union: the guest dispatches by name, so
  * a name here is a promise every guest understands — `listing` joined
  * only when capability negotiation (the `hasListing` registration flag)
- * started shipping, and old guests must never be asked for it. */
+ * started shipping, and old guests must never be asked for it.
+ * `transcriptPage` joined the same way, behind `hasTranscriptPage`: a
+ * negotiated name is the ONLY kind that may be added here, because an
+ * unnegotiated one would be asked of guests that throw on it. */
 export interface WireAgentHistoryCall {
   agentId: string;
-  method: "list" | "listing" | "describe" | "content" | "transcript";
+  method:
+    | "list"
+    | "listing"
+    | "describe"
+    | "content"
+    | "transcript"
+    | "transcriptPage";
   args: unknown[];
 }
 

@@ -129,7 +129,7 @@ const api = (
   search: vi.fn(),
   ensureFresh: vi.fn(),
   transcript: vi.fn(() =>
-    Promise.resolve([{ role: "user" as const, text: "hello" }]),
+    Promise.resolve({ entries: [{ role: "user" as const, text: "hello" }] }),
   ),
   ...over,
 });
@@ -293,7 +293,7 @@ describe("SessionsBrowser", () => {
   });
 
   it("a stale transcript response never renders under a newer row's header", async () => {
-    type Page = { role: "user"; text: string }[];
+    type Page = { entries: { role: "user"; text: string }[] };
     const resolvers: ((page: Page) => void)[] = [];
     const a = api([hit(), hit({ sessionId: "u-2", title: "second" })]);
     a.transcript = vi.fn(
@@ -307,9 +307,13 @@ describe("SessionsBrowser", () => {
     await act(async () => opens[0].click()); // row A — response delayed
     await act(async () => opens[1].click()); // row B — response delayed
     // A's SLOW response lands after B was opened: it must be dropped.
-    await act(async () => resolvers[0]([{ role: "user", text: "A's page" }]));
+    await act(async () =>
+      resolvers[0]({ entries: [{ role: "user", text: "A's page" }] }),
+    );
     expect(document.body.textContent).not.toContain("A's page");
-    await act(async () => resolvers[1]([{ role: "user", text: "B's page" }]));
+    await act(async () =>
+      resolvers[1]({ entries: [{ role: "user", text: "B's page" }] }),
+    );
     expect(document.body.textContent).toContain("B's page");
   });
 
@@ -650,7 +654,7 @@ describe("SessionsBrowser", () => {
 
   it("an empty transcript reads as empty, not as loading forever", async () => {
     const a = api([hit()]);
-    a.transcript = vi.fn(() => Promise.resolve([]));
+    a.transcript = vi.fn(() => Promise.resolve({ entries: [] }));
     await mount(a);
     await act(async () =>
       document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
@@ -664,7 +668,7 @@ describe("SessionsBrowser", () => {
       other: laneOf([hit()], { total: 123, hasMore: true, loadingMore: true }),
     });
     a.transcript = vi.fn(
-      () => new Promise<AgentTranscriptEntry[]>(() => {}), // never resolves
+      () => new Promise<{ entries: AgentTranscriptEntry[] }>(() => {}), // never resolves
     );
     await mount(a);
     expect(
@@ -1387,7 +1391,9 @@ describe("SessionsBrowser journal join", () => {
       calls.push(ref);
       return ref === "/journal/dead.jsonl"
         ? Promise.reject(new Error("no such file"))
-        : Promise.resolve([{ role: "user" as const, text: "read by the spare link" }]);
+        : Promise.resolve({
+            entries: [{ role: "user" as const, text: "read by the spare link" }],
+          });
     });
     await mount(a, [
       closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" }),
@@ -1446,7 +1452,9 @@ describe("SessionsBrowser journal join", () => {
     a.transcript = vi.fn(() =>
       dead
         ? Promise.reject(new Error("no such file"))
-        : Promise.resolve([{ role: "user" as const, text: "back again" }]),
+        : Promise.resolve({
+            entries: [{ role: "user" as const, text: "back again" }],
+          }),
     );
     await mount(a, [closed({ sessionId: "s-1", transcriptPath: "/journal/dead.jsonl" })]);
     await act(async () =>
@@ -1913,6 +1921,36 @@ describe("virtualized list — the window, not the pile", () => {
     expect(rowTopOf("g-0")).toBe(beforeTop);
   });
 
+  it("C-vanished: when the remembered key disappears, the current offset is held instead of jumping to the top", async () => {
+    const a = api([], {
+      other: laneOf(manyHits(80, "g"), { total: 80 }),
+    });
+    restoreViewport();
+    restoreViewport = pinListViewport(600, 800, 72);
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+    Object.defineProperty(list, "scrollHeight", { value: 80 * 72, configurable: true });
+    Object.defineProperty(list, "clientHeight", { value: 600, configurable: true });
+
+    list.scrollTop = 30 * 72 + 37;
+    await act(async () => {
+      list.dispatchEvent(new Event("scroll"));
+    });
+    for (let i = 0; i < 3; i++) await act(async () => {});
+    const before = list.scrollTop;
+    expect(before).toBeGreaterThan(2000);
+
+    // The remembered row is removed from the queue entirely. The
+    // vanished-key branch must hold the live offset; a top reset is the
+    // visible failure, even though the old key can no longer be found.
+    a.other = laneOf(manyHits(80, "replacement"), { total: 80 });
+    await mountBrowser(a);
+    for (let i = 0; i < 3; i++) await act(async () => {});
+
+    expect(list.scrollTop).toBe(before);
+  });
+
   it("A-BLOCKER: an ordinary scroll STAYS — and a queue change holds the watched row's place (invariant, not number)", async () => {
     // The regression this pins: the merged effect compensated on
     // every range change — scrolling re-found the stale anchor and
@@ -1988,6 +2026,37 @@ describe("virtualized list — the window, not the pile", () => {
     // THE ANCHOR'S OWN CLAIM: the same key at the same offset.
     expect(visibleKeys()).toContain(watchedKey);
     expect(rowTopOf(watchedKey)).toBe(watchedBefore);
+  });
+
+  it("C-measure: measured row geometry replaces the estimate and an unrelated clock render does not reset the queue", async () => {
+    const nowMs = Date.now();
+    const a = api([], {
+      other: laneOf(
+        Array.from({ length: 10 }, (_, i) =>
+          hit({ sessionId: `measured-${i}`, mtime: nowMs - 59_500 }),
+        ),
+        { total: 10 },
+      ),
+    });
+    vi.useFakeTimers({ now: nowMs });
+    vi.setSystemTime(nowMs);
+    try {
+      await mountBrowser(a);
+      for (let i = 0; i < 3; i++) await act(async () => {});
+      const list = document.querySelector<HTMLUListElement>(".browser__list")!;
+      // The adapter reports 64px rows while the virtualizer's estimate is
+      // 72px: the list height proves measureElement supplied live geometry.
+      expect(list.style.height).toBe(`${10 * 64}px`);
+      const before = list.style.height;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+
+      expect(list.style.height).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("CLOCK: the tick is OBSERVED in the label — 59s→1m flips, hidden counts nothing, return recomputes at once, teardown leaves no timers", async () => {

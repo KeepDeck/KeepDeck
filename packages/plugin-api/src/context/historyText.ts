@@ -3,6 +3,28 @@
  * how a conversation gets a human title is not — and two private copies of
  * the title heuristic had already drifted apart. */
 
+import type { Shortfall } from "./agents.ts";
+
+/** What a capped file read fell short by, in the file's own measure.
+ *
+ * Every file-backed plugin does the same three steps — ask for at most N
+ * bytes, notice the flag, say how much of how much — so it is written once
+ * rather than three times. `undefined` when nothing was missed: an absent
+ * shortfall already spells that, and a second spelling would drift.
+ *
+ * Both numbers come FROM THE READ, never from the request. The host clamps a
+ * `maxBytes` to its own ceiling, so a plugin computing the length from what
+ * it asked for would overstate it precisely when it asked for too much — a
+ * false number in the field that exists to keep numbers honest. */
+export function shortfallOfRead(file: {
+  size: number;
+  truncated: boolean;
+  readBytes: number;
+}): Shortfall[] | undefined {
+  if (!file.truncated) return undefined;
+  return [{ kind: "bytes", size: file.size, readBytes: file.readBytes }];
+}
+
 /** The text of a content-parts array, whatever the CLI's part dialect:
  * every part carrying a string `text` contributes; tool calls/results and
  * other non-text parts are silently skipped. */

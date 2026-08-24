@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
+import { fsFileRead } from "@keepdeck/plugin-api/testing";
 import { claudeHistory } from "./history";
 
 const LINES = [
@@ -31,10 +32,16 @@ const LINES = [
   }),
 ].join("\n");
 
+/** Paths whose read came back SHORT, mapped to the file's full length. The
+ * answer itself is built by the contract's own double — see
+ * `@keepdeck/plugin-api/testing`. */
+type ShortReads = Record<string, number>;
+
 function ctx(
   files: Record<string, string>,
   dirs: Record<string, unknown[]>,
   warn: (message: string) => void = vi.fn(),
+  short: ShortReads = {},
 ) {
   return {
     log: { warn, info: vi.fn(), error: vi.fn() },
@@ -45,13 +52,8 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: async (path: string) => ({
-          path,
-          text: files[path] ?? null,
-          isBinary: false,
-          size: 0,
-          truncated: false,
-        }),
+        readFile: async (path: string) =>
+          fsFileRead(path, files[path] ?? null, short[path]),
       },
     },
   } as unknown as PluginContext;
@@ -334,6 +336,32 @@ describe("claude history", () => {
     expect(await history.content("/f.jsonl")).toContain("found it in refresh()");
     const page = await history.transcript("/f.jsonl", { offset: 0, limit: 10 });
     expect(page.map((e) => e.role)).toEqual(["user", "user", "user", "assistant"]);
+  });
+
+  it("a page cut short by the cap says so in bytes", async () => {
+    // The other half of the flag's journey. It has ridden in from Rust since
+    // before this stage, and until the shortfall landed nobody read it — the
+    // plugins all wrote `file.text ?? ""` and moved on. This is the assertion
+    // that the reading now speaks about itself, in the measure a file has.
+    const history = claudeHistory(
+      ctx({ "/f.jsonl": LINES }, {}, vi.fn(), { "/f.jsonl": 9_000_000 }),
+    );
+    const page = await history.transcriptPage!("/f.jsonl", { offset: 0, limit: 10 });
+    expect(page.shortfall).toEqual([
+      {
+        kind: "bytes",
+        size: 9_000_000,
+        readBytes: new TextEncoder().encode(LINES).length,
+      },
+    ]);
+  });
+
+  it("a page that read everything carries no shortfall at all", async () => {
+    // Absence is the ONLY spelling of "nothing was missed" — an empty array
+    // would be a second one, and two spellings of one truth drift apart.
+    const history = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
+    const page = await history.transcriptPage!("/f.jsonl", { offset: 0, limit: 10 });
+    expect(page.shortfall).toBeUndefined();
   });
 
   it("slash-command envelopes (plain user lines, NOT isMeta) stay out of content and transcript", async () => {

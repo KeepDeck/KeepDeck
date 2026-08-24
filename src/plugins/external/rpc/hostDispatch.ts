@@ -2,45 +2,43 @@ import type {
   AgentContribution,
   AgentHistory,
   AgentHooks,
-  AgentIcon,
-  AgentIconPath,
-  AgentLiveSession,
-  AgentSessionFacts,
-  AgentSessionStub,
-  AgentTranscriptEntry,
   Disposable,
-  DownloadRequest,
-  DownloadState,
-  DownloadTarget,
   DockTabContribution,
-  FsReadFileOptions,
-  GitDiffOptions,
-  GitHistoryOptions,
   PluginContext,
-  PluginSpawnOptions,
   SpeechCapture,
-  SpeechCaptureOptions,
   SettingsSectionContribution,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import {
   actionChannel,
   DECK_EVENT_CHANNELS,
-  downloadChannel,
-  fswatchChannel,
   historyChannel,
   hookChannel,
   livesessionsChannel,
   openChannel,
-  speechLevelChannel,
   type WireAgentHistoryCall,
   type WireAgentLiveSessionsCall,
   type WireHookCall,
   type WireOpenCall,
-  type WireSpawnPlanOutput,
 } from "./protocol";
 import { createHostSessions } from "./hostSessions";
 import { createHostSubscriptions } from "./hostSubscriptions";
+import { createServiceHandlers } from "./hostServices";
+import { createPendingCalls } from "./hostPendingCalls";
+import {
+  asRealmResult,
+  requireHistoryResult,
+  requireLiveResult,
+  sanitizeAgentIcon,
+  sanitizeHistoryContent,
+  sanitizeHistoryFacts,
+  sanitizeHistoryList,
+  sanitizeHistoryListing,
+  sanitizeHistoryTranscript,
+  sanitizeHistoryTranscriptPage,
+  sanitizeLiveSessions,
+  sanitizePlanOutput,
+} from "./hostSanitize";
 
 /**
  * The routing core of the host bridge: a flat `path → handler` table over the
@@ -80,147 +78,55 @@ export function createHostDispatch(
   const subscriptions = createHostSubscriptions(ctx, push);
   const sessions = createHostSessions(ctx, push);
 
-  // Agent-hook invocations awaiting their `agents.hookResult` reply. A hung
-  // or dead realm must not freeze the spawn pipeline: each call carries a
-  // timeout, and `dispose` fails whatever is still pending.
-  const HOOK_TIMEOUT_MS = 10_000;
-  let nextHookId = 1;
-  const pendingHooks = new Map<
-    number,
-    (result: { ok: true; output: unknown } | { ok: false; error: string }) => void
-  >();
+  // The four questions the host asks a realm and waits on. They differ only
+  // in channel, deadline and what a good answer means — the waiting itself
+  // lives in `hostPendingCalls`. Live-sessions rides its OWN channel rather
+  // than history's: a different question of a different capability, and
+  // keeping them apart is what keeps the history method union a promise every
+  // guest can honor. The file-open deadline is tighter than the rest because
+  // a user is watching a click.
+  const hooks = createPendingCalls<unknown>(push, hookChannel, 10_000);
+  const history = createPendingCalls<unknown>(push, historyChannel, 10_000);
+  const live = createPendingCalls<unknown>(push, livesessionsChannel, 10_000);
+  const opens = createPendingCalls<boolean>(push, openChannel, 5_000);
 
   /** Run ONE hook in the realm: push the call, await the correlated result,
    * copy the sanitized mutated output back into the caller's object — the
    * in-process mutate-in-place contract, preserved across the wire. */
-  function callHook(
+  async function callHook(
     agentId: string,
     hook: string,
     input: unknown,
     output: SpawnPlanOutput,
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const id = nextHookId++;
-      const timer = setTimeout(() => {
-        if (pendingHooks.delete(id))
-          reject(new Error(`${hook} timed out after ${HOOK_TIMEOUT_MS}ms`));
-      }, HOOK_TIMEOUT_MS);
-      pendingHooks.set(id, (result) => {
-        clearTimeout(timer);
-        if (!result.ok) return reject(new Error(result.error));
-        // The realm's word shapes a SPAWN — nothing but plain strings may
-        // come back, whatever a hostile realm actually sent.
-        const mutated = sanitizePlanOutput(result.output);
-        if (!mutated) return reject(new Error(`${hook} returned a malformed plan`));
-        Object.assign(output, mutated);
-        resolve();
-      });
-      const call: WireHookCall = { agentId, hook, input, output };
-      push(hookChannel(id), call);
-    });
+    const call: WireHookCall = { agentId, hook, input, output };
+    // The realm's word shapes a SPAWN — nothing but plain strings may come
+    // back, whatever a hostile realm actually sent.
+    const mutated = sanitizePlanOutput(await hooks.call(call, hook));
+    if (!mutated) throw new Error(`${hook} returned a malformed plan`);
+    Object.assign(output, mutated);
   }
-
-  // Agent-history reads use the same correlated host→realm request shape as
-  // hooks. They stay separate because their result is immutable data rather
-  // than a spawn plan that mutates an existing object.
-  const HISTORY_TIMEOUT_MS = 10_000;
-  let nextHistoryId = 1;
-  const pendingHistory = new Map<
-    number,
-    (result: { ok: true; value: unknown } | { ok: false; error: string }) => void
-  >();
 
   function callHistory(
     agentId: string,
     method: WireAgentHistoryCall["method"],
     args: unknown[],
   ): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const id = nextHistoryId++;
-      const timer = setTimeout(() => {
-        if (pendingHistory.delete(id))
-          reject(
-            new Error(
-              `agent history ${method} timed out after ${HISTORY_TIMEOUT_MS}ms`,
-            ),
-          );
-      }, HISTORY_TIMEOUT_MS);
-      pendingHistory.set(id, (result) => {
-        clearTimeout(timer);
-        if (!result.ok) return reject(new Error(result.error));
-        resolve(result.value);
-      });
-      const call: WireAgentHistoryCall = { agentId, method, args };
-      push(historyChannel(id), call);
-    });
+    const call: WireAgentHistoryCall = { agentId, method, args };
+    return history.call(call, `agent history ${method}`);
   }
-
-  // Live-sessions queries ride their OWN correlated request shape (not the
-  // history one): a different question asked of a different capability, and
-  // keeping the channels apart is what keeps the history method union a
-  // promise every guest can honor.
-  const LIVE_TIMEOUT_MS = 10_000;
-  let nextLiveId = 1;
-  const pendingLive = new Map<
-    number,
-    (result: { ok: true; value: unknown } | { ok: false; error: string }) => void
-  >();
 
   function callLiveSessions(agentId: string): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const id = nextLiveId++;
-      const timer = setTimeout(() => {
-        if (pendingLive.delete(id))
-          reject(
-            new Error(
-              `agent live-sessions timed out after ${LIVE_TIMEOUT_MS}ms`,
-            ),
-          );
-      }, LIVE_TIMEOUT_MS);
-      pendingLive.set(id, (result) => {
-        clearTimeout(timer);
-        if (!result.ok) return reject(new Error(result.error));
-        resolve(result.value);
-      });
-      const call: WireAgentLiveSessionsCall = { agentId };
-      push(livesessionsChannel(id), call);
-    });
+    const call: WireAgentLiveSessionsCall = { agentId };
+    return live.call(call, "agent live-sessions");
   }
 
-  // File-open invocations awaiting their `openers.openResult` reply — the
-  // agent-hook pattern, but the stake is a CLICK: a hung or dead realm must
-  // not strand it, so a timeout settles the proxy as a rejection, which the
-  // host's file-open chain logs and treats as a decline (the system opener
-  // takes the file). Tighter than the hook timeout — a user is watching.
-  const OPEN_TIMEOUT_MS = 5_000;
-  let nextOpenId = 1;
-  const pendingOpens = new Map<
-    number,
-    (result: { ok: true; handled: boolean } | { ok: false; error: string }) => void
-  >();
-
-  /** Ask the realm's handler about ONE file-open request. */
+  /** Ask the realm's handler about ONE file-open request. A timeout settles
+   * the proxy as a rejection, which the host's file-open chain logs and
+   * treats as a decline — the system opener takes the file. */
   function callOpen(handlerId: string, request: { path: string }): Promise<boolean> {
-    return new Promise((resolve, reject) => {
-      const id = nextOpenId++;
-      const timer = setTimeout(() => {
-        if (pendingOpens.delete(id))
-          reject(
-            new Error(
-              `file-open handler "${handlerId}" timed out after ${OPEN_TIMEOUT_MS}ms`,
-            ),
-          );
-      }, OPEN_TIMEOUT_MS);
-      pendingOpens.set(id, (result) => {
-        clearTimeout(timer);
-        if (!result.ok) return reject(new Error(result.error));
-        // A hostile realm's word only ever gets to be a BOOLEAN: anything
-        // but literal true is a decline.
-        resolve(result.handled === true);
-      });
-      const call: WireOpenCall = { handlerId, request };
-      push(openChannel(id), call);
-    });
+    const call: WireOpenCall = { handlerId, request };
+    return opens.call(call, `file-open handler "${handlerId}"`);
   }
 
   // Flipped by dispose(). Guards the speech capture — an async acquisition
@@ -375,11 +281,11 @@ export function createHostDispatch(
       );
     },
     "openers.openResult": ([id, result]) => {
-      const settle = pendingOpens.get(id as number);
-      if (!settle) return; // timed out, disposed, or never ours
-      pendingOpens.delete(id as number);
-      settle(
-        asRealmResult(result, (v) => ({ ok: true, handled: v.handled === true })),
+      // A hostile realm's word only ever gets to be a BOOLEAN: anything but
+      // literal true is a decline.
+      opens.settle(
+        id as number,
+        asRealmResult(result, (v) => ({ ok: true, value: v.handled === true })),
       );
     },
 
@@ -394,12 +300,14 @@ export function createHostDispatch(
         hookNames,
         hasHistory,
         hasListing,
+        hasTranscriptPage,
         hasLiveSessions,
         usage,
       } = entry as Omit<AgentContribution, "hooks" | "history"> & {
         hookNames?: string[];
         hasHistory?: boolean;
         hasListing?: boolean;
+        hasTranscriptPage?: boolean;
         hasLiveSessions?: boolean;
       };
       // Usage contributions cannot cross this boundary yet: the store calls
@@ -464,6 +372,20 @@ export function createHostDispatch(
                   await callHistory(id, "transcript", [ref, page]),
                   sanitizeHistoryTranscript,
                 ),
+              // Negotiated exactly like `listing`, and for the same reason:
+              // a standing proxy would make the method look present on every
+              // external plugin, including guests that throw on it.
+              ...(hasTranscriptPage === true && {
+                transcriptPage: async (
+                  ref: string,
+                  page: { offset: number; limit: number },
+                ) =>
+                  requireHistoryResult(
+                    "transcriptPage",
+                    await callHistory(id, "transcriptPage", [ref, page]),
+                    sanitizeHistoryTranscriptPage,
+                  ),
+              }),
             }
           : undefined;
       // Live-sessions capability, negotiated exactly like `listing`: the
@@ -493,187 +415,35 @@ export function createHostDispatch(
         }),
       );
     },
-    "agents.hookResult": ([id, result]) => {
-      const settle = pendingHooks.get(id as number);
-      if (!settle) return; // timed out, disposed, or never ours
-      pendingHooks.delete(id as number);
-      settle(asRealmResult(result, (v) => ({ ok: true, output: v.output })));
-    },
-    "agents.historyResult": ([id, result]) => {
-      const settle = pendingHistory.get(id as number);
-      if (!settle) return;
-      pendingHistory.delete(id as number);
-      settle(asRealmResult(result, (v) => ({ ok: true, value: v.value })));
-    },
-    "agents.liveResult": ([id, result]) => {
-      const settle = pendingLive.get(id as number);
-      if (!settle) return;
-      pendingLive.delete(id as number);
-      settle(asRealmResult(result, (v) => ({ ok: true, value: v.value })));
-    },
+    "agents.hookResult": ([id, result]) =>
+      hooks.settle(
+        id as number,
+        asRealmResult(result, (v) => ({ ok: true, value: v.output })),
+      ),
+    "agents.historyResult": ([id, result]) =>
+      history.settle(
+        id as number,
+        asRealmResult(result, (v) => ({ ok: true, value: v.value })),
+      ),
+    "agents.liveResult": ([id, result]) =>
+      live.settle(
+        id as number,
+        asRealmResult(result, (v) => ({ ok: true, value: v.value })),
+      ),
 
     // ---- the one teardown path shared by every registration kind ----
     "registrations.dispose": ([regId]) => disposeRegistration(regId as number),
 
-    // ---- services ----
-    "services.ports.allocate": ([key]) => ctx.services.ports.allocate(key as string),
-    "services.opener.openUrl": ([url]) => ctx.services.opener.openUrl(url as string),
-    "services.opener.openPath": ([path]) =>
-      ctx.services.opener.openPath(path as string),
-    "services.opener.openPathWith": ([path, application]) =>
-      ctx.services.opener.openPathWith(path as string, application as string),
-    "services.sessions.spawn": ([opts]) =>
-      sessions.spawn(opts as PluginSpawnOptions),
-    "services.sessions.write": ([id, data]) =>
-      sessions.write(id as string, data as string),
-    "services.sessions.resize": ([id, cols, rows]) =>
-      sessions.resize(id as string, cols as number, rows as number),
-    "services.sessions.close": ([id]) => sessions.close(id as string),
-    "services.fs.readDir": ([path]) => ctx.services.fs.readDir(path as string),
-    "services.fs.readFile": ([path, opts]) =>
-      ctx.services.fs.readFile(
-        path as string,
-        opts as FsReadFileOptions | undefined,
-      ),
-    // A watch is a subscription: the guest mints the id, the host holds the
-    // Disposable under it and pushes `fswatch:<id>` on each change.
-    "services.fs.watch": ([id, path]) => {
-      const key = id as number;
-      watches.get(key)?.dispose();
-      watches.set(
-        key,
-        ctx.services.fs.watch(path as string, () =>
-          push(fswatchChannel(key), undefined),
-        ),
-      );
-    },
-    "services.sqlite.query": ([dbPath, sql, params]) =>
-      ctx.services.sqlite.query(
-        dbPath as string,
-        sql as string,
-        params as string[] | undefined,
-      ),
-    "services.fsWrite.mkdir": ([path]) =>
-      ctx.services.fsWrite.mkdir(path as string),
-    "services.fsWrite.copyFile": ([src, dst]) =>
-      ctx.services.fsWrite.copyFile(src as string, dst as string),
-    "services.fsWrite.writeFile": ([path, text]) =>
-      ctx.services.fsWrite.writeFile(path as string, text as string),
-    "services.fsWrite.appendLine": ([path, line]) =>
-      ctx.services.fsWrite.appendLine(path as string, line as string),
-    "services.fs.unwatch": ([id]) => {
-      const key = id as number;
-      watches.get(key)?.dispose();
-      watches.delete(key);
-    },
-    "services.git.status": ([repo]) => ctx.services.git.status(repo as string),
-    "services.git.history": ([repo, opts]) =>
-      ctx.services.git.history(
-        repo as string,
-        opts as GitHistoryOptions | undefined,
-      ),
-    "services.git.branches": ([repo]) =>
-      ctx.services.git.branches(repo as string),
-    "services.git.changedFiles": ([repo, from, to]) =>
-      ctx.services.git.changedFiles(
-        repo as string,
-        from as string,
-        to as string | undefined,
-      ),
-    "services.git.diffFile": ([repo, file, opts]) =>
-      ctx.services.git.diffFile(
-        repo as string,
-        file as string,
-        opts as GitDiffOptions | undefined,
-      ),
-    // Git watches share the fs watches' plumbing: same guest-minted id space
-    // (one counter mints both), same retained-Disposable map, same
-    // `fswatch:<id>` push channel — a watch is a watch, only the backend
-    // differs.
-    "services.git.watch": ([id, repo]) => {
-      const key = id as number;
-      watches.get(key)?.dispose();
-      watches.set(
-        key,
-        ctx.services.git.watch(repo as string, () =>
-          push(fswatchChannel(key), undefined),
-        ),
-      );
-    },
-    "services.git.unwatch": ([id]) => {
-      const key = id as number;
-      watches.get(key)?.dispose();
-      watches.delete(key);
-    },
-    "services.downloads.start": ([raw]) => {
-      const request = raw as DownloadRequest;
-      const stream = ctx.services.downloads.start(request);
-      activeDownloads.add(request.id);
-      void (async () => {
-        try {
-          for await (const state of stream) {
-            push(downloadChannel(request.id), state);
-          }
-        } catch (error) {
-          const failed: DownloadState = {
-            id: request.id,
-            phase: "failed",
-            received: 0,
-            total: request.integrity?.bytes ?? null,
-            error: error instanceof Error ? error.message : String(error),
-          };
-          push(downloadChannel(request.id), failed);
-        } finally {
-          activeDownloads.delete(request.id);
-        }
-      })();
-    },
-    "services.downloads.cancel": ([id]) =>
-      ctx.services.downloads.cancel(id as string),
-    "services.downloads.exists": ([target, integrity]) =>
-      ctx.services.downloads.exists(
-        target as DownloadTarget,
-        integrity as DownloadRequest["integrity"],
-      ),
-    "services.downloads.remove": ([target]) =>
-      ctx.services.downloads.remove(target as DownloadTarget),
-    "services.speech.engines": () => ctx.services.speech.engines(),
-    "services.speech.start": async ([id]) => {
-      const key = id as number;
-      if (activeSpeechCaptures.has(key)) {
-        throw new Error(`speech capture id already active: ${key}`);
-      }
-      const capture = await ctx.services.speech.startCapture((level) =>
-        push(speechLevelChannel(key), level),
-      );
-      // The realm may have been disposed while the device was opening — its
-      // sweep already ran over a map this capture wasn't in yet. Storing it
-      // now would park a live microphone where nothing can ever cancel it
-      // (the built-in controller guards this same race; the RPC tier must
-      // too, since the app holds ONE capture slot process-wide).
-      if (disposed) {
-        void capture.cancel().catch(() => {});
-        throw new Error("plugin bridge disposed");
-      }
-      activeSpeechCaptures.set(key, capture);
-    },
-    "services.speech.stop": ([id, opts]) => {
-      const key = id as number;
-      const capture = activeSpeechCaptures.get(key);
-      if (!capture) throw new Error(`speech capture is not active: ${key}`);
-      activeSpeechCaptures.delete(key);
-      return capture.stop(opts as SpeechCaptureOptions);
-    },
-    "services.speech.cancel": ([id]) => {
-      const key = id as number;
-      const capture = activeSpeechCaptures.get(key);
-      if (!capture) return;
-      activeSpeechCaptures.delete(key);
-      return capture.cancel();
-    },
-    "services.clipboard.writeText": ([text]) =>
-      ctx.services.clipboard.writeText(text as string),
-    "services.clipboard.readText": () => ctx.services.clipboard.readText(),
+    // ---- services: a LIST, not logic — it lives in its own module ----
+    ...createServiceHandlers({
+      ctx,
+      push,
+      sessions,
+      watches,
+      activeDownloads,
+      activeSpeechCaptures,
+      isDisposed: () => disposed,
+    }),
 
     // ---- host facts ----
     "host.settings": () => ctx.host.settings(),
@@ -707,22 +477,9 @@ export function createHostDispatch(
         void capture.cancel().catch(() => {});
       }
       activeSpeechCaptures.clear();
-      for (const settle of pendingHooks.values()) {
-        settle({ ok: false, error: "plugin bridge disposed" });
+      for (const pending of [hooks, history, live, opens]) {
+        pending.failAll("plugin bridge disposed");
       }
-      pendingHooks.clear();
-      for (const settle of pendingHistory.values()) {
-        settle({ ok: false, error: "plugin bridge disposed" });
-      }
-      pendingHistory.clear();
-      for (const settle of pendingLive.values()) {
-        settle({ ok: false, error: "plugin bridge disposed" });
-      }
-      pendingLive.clear();
-      for (const settle of pendingOpens.values()) {
-        settle({ ok: false, error: "plugin bridge disposed" });
-      }
-      pendingOpens.clear();
       // Third-party braces from here down. One bad disposer must not abort
       // the sweep — the same per-item tolerance context.disposeAll applies.
       const swept = (label: string, run: () => void) => {
@@ -750,213 +507,3 @@ export function createHostDispatch(
   };
 }
 
-/**
- * Shape a realm's reply BEFORE it may settle a pending host→realm call. The
- * settle callbacks run after `clearTimeout` — a `result.ok` read throwing on
- * junk (`[id]` with no result, `null`, a primitive) would strand the pending
- * promise FOREVER, past the very timeout built to prevent hangs. So junk
- * becomes an explicit failure, and only a literal `ok: true` reaches `onOk`.
- */
-function asRealmResult<T extends { ok: true }>(
-  value: unknown,
-  onOk: (v: Record<string, unknown>) => T,
-): T | { ok: false; error: string } {
-  if (typeof value === "object" && value !== null) {
-    const v = value as Record<string, unknown>;
-    if (v.ok === true) return onOk(v);
-    if (v.ok === false) {
-      return {
-        ok: false,
-        error: typeof v.error === "string" ? v.error : "realm reported a failure",
-      };
-    }
-  }
-  return { ok: false, error: "malformed result from the realm" };
-}
-
-/** Accept a realm-supplied agent icon only in the contract's exact shape —
- * plain strings bound for SVG attributes; an off-shape layer drops, and an
- * icon with nothing left drops to `undefined` (no icon) rather than refusing
- * the registration. */
-function sanitizeAgentIcon(value: unknown): AgentIcon | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const v = value as Record<string, unknown>;
-  if (typeof v.viewBox !== "string" || !Array.isArray(v.paths))
-    return undefined;
-  const paths = v.paths.flatMap((layer): AgentIconPath[] => {
-    if (typeof layer !== "object" || layer === null) return [];
-    const l = layer as Record<string, unknown>;
-    if (typeof l.d !== "string") return [];
-    return [
-      {
-        d: l.d,
-        ...(typeof l.color === "string" ? { color: l.color } : {}),
-        ...(l.fillRule === "evenodd" ? { fillRule: l.fillRule } : {}),
-      },
-    ];
-  });
-  if (paths.length === 0) return undefined;
-  return { viewBox: v.viewBox, paths };
-}
-
-/** Validate a realm-returned plan output down to plain strings; `null` when
- * anything is off-shape. */
-function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
-  if (v.command !== null && typeof v.command !== "string") return null;
-  if (!Array.isArray(v.args) || !v.args.every((a) => typeof a === "string"))
-    return null;
-  if (
-    !Array.isArray(v.env) ||
-    !v.env.every(
-      (pair) =>
-        Array.isArray(pair) &&
-        pair.length === 2 &&
-        pair.every((x) => typeof x === "string"),
-    )
-  )
-    return null;
-  const pairs = (val: unknown): val is [string, string][] =>
-    Array.isArray(val) &&
-    val.every(
-      (pair) =>
-        Array.isArray(pair) &&
-        pair.length === 2 &&
-        pair.every((x) => typeof x === "string"),
-    );
-  if (v.envDefaults !== undefined && !pairs(v.envDefaults)) return null;
-  return {
-    command: v.command as string | null,
-    args: v.args as string[],
-    env: v.env as [string, string][],
-    ...(v.envDefaults !== undefined
-      ? { envDefaults: v.envDefaults as [string, string][] }
-      : {}),
-  };
-}
-
-function requireHistoryResult<T>(
-  method: WireAgentHistoryCall["method"],
-  value: unknown,
-  sanitize: (value: unknown) => T | null,
-): T {
-  const result = sanitize(value);
-  if (result === null)
-    throw new Error(`agent history ${method} returned malformed data`);
-  return result;
-}
-
-function sanitizeHistoryList(value: unknown): AgentSessionStub[] | null {
-  if (!Array.isArray(value)) return null;
-  const result: AgentSessionStub[] = [];
-  for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
-    if (
-      typeof v.sessionId !== "string" ||
-      typeof v.ref !== "string" ||
-      typeof v.mtime !== "number" ||
-      !Number.isFinite(v.mtime) ||
-      typeof v.size !== "number" ||
-      !Number.isFinite(v.size)
-    )
-      return null;
-    result.push({
-      sessionId: v.sessionId,
-      ref: v.ref,
-      mtime: v.mtime,
-      size: v.size,
-    });
-  }
-  return result;
-}
-
-/** A realm's `listing()` answer — the list sanitizer's shape plus the
- * integrity flag, which must be a LITERAL boolean: a hostile realm's
- * "complete": "yes" must fail the boundary, not read as a prune permit. */
-function sanitizeHistoryListing(
-  value: unknown,
-): { stubs: AgentSessionStub[]; complete: boolean } | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
-  if (typeof v.complete !== "boolean") return null;
-  const stubs = sanitizeHistoryList(v.stubs);
-  if (stubs === null) return null;
-  return { stubs, complete: v.complete };
-}
-
-/** A realm's live-sessions answer — rebuilt from known fields only, like
- * every other reply that crosses this boundary. Junk rows fail the WHOLE
- * answer (never a half-invented registry), and the optional strings drop
- * rather than pass through: a hostile realm's word about live processes
- * only ever gets to be plain data. */
-function sanitizeLiveSessions(value: unknown): AgentLiveSession[] | null {
-  if (!Array.isArray(value)) return null;
-  const result: AgentLiveSession[] = [];
-  for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
-    if (typeof v.sessionId !== "string" || typeof v.kind !== "string")
-      return null;
-    result.push({
-      sessionId: v.sessionId,
-      kind: v.kind,
-      ...(typeof v.name === "string" ? { name: v.name } : {}),
-      ...(typeof v.state === "string" ? { state: v.state } : {}),
-    });
-  }
-  return result;
-}
-
-function requireLiveResult<T>(
-  value: unknown,
-  sanitize: (value: unknown) => T | null,
-): T {
-  const result = sanitize(value);
-  if (result === null)
-    throw new Error("agent live-sessions returned malformed data");
-  return result;
-}
-
-function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
-  if (
-    typeof v.cwd !== "string" ||
-    (v.title !== undefined && typeof v.title !== "string") ||
-    (v.transcriptPath !== undefined && typeof v.transcriptPath !== "string")
-  )
-    return null;
-  return {
-    cwd: v.cwd,
-    ...(typeof v.title === "string" ? { title: v.title } : {}),
-    ...(typeof v.transcriptPath === "string"
-      ? { transcriptPath: v.transcriptPath }
-      : {}),
-  };
-}
-
-function sanitizeHistoryContent(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function sanitizeHistoryTranscript(
-  value: unknown,
-): AgentTranscriptEntry[] | null {
-  if (!Array.isArray(value)) return null;
-  const result: AgentTranscriptEntry[] = [];
-  for (const item of value) {
-    if (typeof item !== "object" || item === null) return null;
-    const v = item as Record<string, unknown>;
-    if (
-      (v.role !== "user" &&
-        v.role !== "assistant" &&
-        v.role !== "other") ||
-      typeof v.text !== "string"
-    )
-      return null;
-    result.push({ role: v.role, text: v.text });
-  }
-  return result;
-}

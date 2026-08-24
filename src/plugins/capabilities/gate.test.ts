@@ -69,6 +69,7 @@ function fakeBackend() {
         isBinary: false,
         size: 0,
         truncated: false,
+        readBytes: 0,
       })),
       watch: vi.fn(() => ({ dispose: vi.fn() })),
     },

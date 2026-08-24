@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
+import type {
+  AgentHistory,
+  AgentTranscriptEntry,
+  Shortfall,
+} from "@keepdeck/plugin-api";
 import {
   indexSearch,
   type IndexFolderScope,
@@ -67,7 +71,7 @@ export interface BrowserSharedSeam {
     ref: string,
     offset: number,
     limit: number,
-  ): Promise<AgentTranscriptEntry[]>;
+  ): Promise<{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }>;
 }
 
 export interface SessionsBrowserApi {
@@ -98,7 +102,29 @@ export interface SessionsBrowserApi {
     ref: string,
     offset: number,
     limit: number,
-  ): Promise<AgentTranscriptEntry[]>;
+  ): Promise<{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }>;
+}
+
+/**
+ * One transcript page from whichever contract the plugin offers.
+ *
+ * The honest twin when it has one, the legacy method when it does not — and
+ * reached through the CONTRACT rather than a cast. A cast names the single
+ * method it knows about and goes on calling it, so nothing would have failed
+ * when the twin appeared: the work would simply have stopped one call short
+ * of the screen, with every gate green.
+ *
+ * Named, and not inlined, so the choice can be witnessed. The two paths
+ * return the same entries for the same session, so a test comparing answers
+ * cannot tell them apart — only WHICH METHOD RAN separates them.
+ */
+export async function readTranscriptPage(
+  history: AgentHistory,
+  ref: string,
+  page: { offset: number; limit: number },
+): Promise<{ entries: AgentTranscriptEntry[]; shortfall?: Shortfall[] }> {
+  if (history.transcriptPage) return history.transcriptPage(ref, page);
+  return { entries: await history.transcript(ref, page) };
 }
 
 /** The shared seam's single owner: mount ONCE in the controller. */
@@ -119,15 +145,9 @@ export function useBrowserSharedSeam(): BrowserSharedSeam {
       const contribution = plugins.pluginRegistries.agents
         .list()
         .find((c) => c.entry.id === agent);
-      if (!contribution?.entry.history) return [];
-      return (
-        contribution.entry.history as {
-          transcript(
-            ref: string,
-            page: { offset: number; limit: number },
-          ): Promise<AgentTranscriptEntry[]>;
-        }
-      ).transcript(ref, { offset, limit });
+      const history = contribution?.entry.history as AgentHistory | undefined;
+      if (!history) return { entries: [] };
+      return readTranscriptPage(history, ref, { offset, limit });
     },
     [plugins],
   );

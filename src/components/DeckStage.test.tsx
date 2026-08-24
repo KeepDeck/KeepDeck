@@ -131,7 +131,7 @@ const browser = {
     declare: vi.fn(),
   },
   ensureFresh: vi.fn(),
-  transcript: vi.fn(() => Promise.resolve([])),
+  transcript: vi.fn(() => Promise.resolve({ entries: [] })),
 };
 
 const props = (overrides: Record<string, unknown> = {}) => ({

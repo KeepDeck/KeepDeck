@@ -1,47 +1,20 @@
 //! Reading PROJECT files for the plugin `fs` capability.
 //!
-//! This is the backend the `services.fs` plugin service lands on — distinct
-//! from [`crate::plugins_fs`], which serves a PLUGIN'S OWN bundle files over
-//! `kdplugin://`. Here a plugin reads the USER'S project tree: one directory's
-//! immediate children ([`project_fs_read_dir`]) and one file's contents
-//! ([`project_fs_read_file`]). Both are lazy and non-recursive — a file-tree
-//! UI expands a node by asking for that node's children, so a giant
+//! One directory's immediate children ([`project_fs_read_dir`]) and one file's
+//! contents ([`project_fs_read_file`]). Both are lazy and non-recursive — a
+//! file-tree UI expands a node by asking for that node's children, so a giant
 //! `node_modules` never loads until (and unless) someone opens it.
 //!
-//! ## The scope boundary
-//!
-//! The `fs` capability declares a scope (`packages/plugin-api`
-//! `capabilities.ts`): `workspace` = the workspace folder and its panes'
-//! worktrees, `everywhere` = no restriction (consent shouts it). The HOST
-//! resolves that scope into a concrete set of allowed roots from live deck
-//! state and passes them in with every call; this module enforces containment.
-//!
-//! Enforcement is [`crate::containment::resolve_within`] (shared with the
-//! other project-facing service backends), the same canonicalize-then-`starts_with`
-//! model [`crate::plugins_fs::safe_lookup`] uses: resolving `..` and symlinks
-//! ON DISK is the only reliable escape guard, so a `../../etc/passwd`, an
-//! absolute path outside the roots, or a symlink pointing out all resolve to a
-//! real location the containment check then rejects. `everywhere` skips the
-//! containment step but still canonicalizes (and still caps reads) — the
-//! difference between the two scopes is exactly whether the roots are
-//! consulted, nothing else.
-//!
-//! A workspace-scoped call with an EMPTY root set reads nothing: the safe
-//! default for a plugin whose deck currently has no eligible folder open.
-//!
-//! Read-only by design (v1): there is no write/create/delete surface here —
-//! that needs its own capability, deliberately absent until it exists.
+//! The scope boundary these enforce, and the reason it is enforced HERE rather
+//! than at the caller, is documented once in the parent module — it binds this
+//! half and the watching half identically.
 
 use std::fs;
 use std::io::Read as _;
-use std::path::Path;
 
-use notify::{Event, EventKind};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
 
 use crate::containment::{expand_home, resolve_within};
-use crate::fswatch;
 
 /// Default cap for a single [`project_fs_read_file`] read, when the caller
 /// names none. A code viewer wants text, not a 2 GB blob paged into the
@@ -87,7 +60,15 @@ pub enum FsKind {
 /// binary — a NUL byte or invalid UTF-8), so the common code-viewer path
 /// carries a plain string across the wire rather than a byte array. `size` is
 /// the file's FULL length; `truncated` says the returned text stops at the
-/// read cap.
+/// read cap; `read_bytes` says where it stopped — and where the TEXT stops,
+/// which is the same thing except when a capped read split a multi-byte
+/// character: the dangling stub is dropped and `read_bytes` drops with it, so
+/// the number always describes the text actually handed over.
+///
+/// `read_bytes` is REPORTED rather than left for the caller to infer. A caller
+/// knows only what it asked for, and the ask is clamped here — so inferring
+/// would overstate the read for exactly the callers who asked above the
+/// ceiling. The enforcer says what it actually did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FsFile {
@@ -96,6 +77,7 @@ pub struct FsFile {
     pub is_binary: bool,
     pub size: u64,
     pub truncated: bool,
+    pub read_bytes: u64,
 }
 
 /// List one directory's immediate children — non-recursive, one level. The
@@ -162,15 +144,53 @@ pub fn project_fs_read_file(
         .take(cap)
         .read_to_end(&mut buf)
         .map_err(|e| format!("cannot read: {e}"))?;
-    let truncated = size > buf.len() as u64;
+    let mut read_bytes = buf.len() as u64;
+    let truncated = size > read_bytes;
 
     // Binary detection, the git heuristic: a NUL byte means binary. Otherwise
     // try to decode UTF-8; invalid bytes are binary too (can't render as text).
+    //
+    // ONE exception, and it is about OUR cut rather than the file: a read
+    // stopped at the cap can land in the middle of a multi-byte character, and
+    // the dangling bytes are ours. Dropping the whole text for them turns a
+    // 10 MB conversation into "binary file" — the worst answer available,
+    // because it is not "less" but "nothing".
+    //
+    // BOTH guards are load-bearing, and each blocks a lie the other would let
+    // through. `error_len() == None` means the sequence ran out of INPUT
+    // rather than being wrong; `Some` is a genuinely bad byte, and rescuing
+    // that would let a corrupt file masquerade as a merely truncated one.
+    // `truncated` means the input ended because WE stopped it; a file read
+    // whole that ends mid-sequence is malformed on its own, and rescuing it
+    // would hand back text with `truncated: false` — no shortfall, no mark,
+    // a silent loss where today's `is_binary` at least shouts.
+    //
+    // The NUL branch above is untouched on purpose: a NUL byte says what the
+    // file IS, and this fixes what our READ did.
     let (text, is_binary) = if buf.contains(&0) {
         (None, true)
     } else {
         match String::from_utf8(buf) {
             Ok(text) => (Some(text), false),
+            Err(e) if truncated && e.utf8_error().error_len().is_none() => {
+                let keep = e.utf8_error().valid_up_to();
+                let mut bytes = e.into_bytes();
+                bytes.truncate(keep);
+                // `read_bytes` marks where the RETURNED TEXT stops, so the
+                // dropped stub leaves with it: a shortfall computed from a
+                // length the text does not have would be false by exactly the
+                // bytes we just refused to guess about.
+                read_bytes = keep as u64;
+                // A second validation pass, on the rare branch only: the
+                // common path moves `buf` into the String with one check and
+                // no copy, and paying re-validation here buys a safe `expect`
+                // instead of an unchecked conversion. It cannot fire —
+                // `valid_up_to()` is by definition the length of the longest
+                // valid prefix.
+                let text = String::from_utf8(bytes)
+                    .expect("valid_up_to() bounds the longest valid prefix");
+                (Some(text), false)
+            }
             Err(_) => (None, true),
         }
     };
@@ -181,120 +201,14 @@ pub fn project_fs_read_file(
         is_binary,
         size,
         truncated,
+        read_bytes,
     })
-}
-
-// ---------------------------------------------------------------- watching
-
-/// The Tauri event delivering "this watched directory's listing changed" to the
-/// webview. Payload is [`ProjectFsChange`]; mirrored by `src/ipc/projectFs.ts`.
-pub const PROJECT_FS_CHANGE_EVENT: &str = "deck://project-fs/change";
-
-/// One directory-changed notification. `path` is the directory AS REGISTERED by
-/// the webview — its join key back to the tree node, never canonicalized.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectFsChange {
-    pub path: String,
-}
-
-/// The live project-file watchers — a shared [`fswatch::WatchRegistry`] keyed by
-/// registered directory path. Tauri managed state; dropping an entry stops it.
-#[derive(Default)]
-pub struct ProjectFsWatchers(fswatch::WatchRegistry);
-
-/// Whether an event changes a directory's LISTING — a child created, removed, or
-/// renamed — versus mere content or access. A file tree shows names, not bytes,
-/// so a file being written (`Modify(Data)`) must NOT re-read the tree and spam
-/// the UI; only structural changes do. Unknown/coarse kinds count as structural
-/// (a spare re-read beats a missed rename).
-fn is_structural_change(event: &Event) -> bool {
-    use notify::event::ModifyKind;
-    !matches!(
-        event.kind,
-        EventKind::Access(_)
-            | EventKind::Modify(ModifyKind::Data(_))
-            | EventKind::Modify(ModifyKind::Metadata(_))
-    )
-}
-
-/// Watch `dir` for structural changes, calling `deliver(registered)` on each.
-/// Split from the command so the pipeline is testable without a Tauri app.
-fn spawn_project_watch(
-    dir: &Path,
-    registered: String,
-    deliver: impl Fn(String) + Send + 'static,
-) -> Result<notify::RecommendedWatcher, String> {
-    fswatch::watch_dir(dir, move |event| {
-        if is_structural_change(event) {
-            deliver(registered.clone());
-        }
-    })
-}
-
-/// Start watching one directory for entry changes, emitting
-/// [`PROJECT_FS_CHANGE_EVENT`] whenever its listing changes. Scoped exactly like
-/// a read: the path must sit inside the caller's fs roots ([`resolve_within`]).
-/// Idempotent per registered path — re-registering replaces the old watcher.
-#[tauri::command(async)]
-pub fn project_fs_watch(
-    app: AppHandle,
-    watchers: State<ProjectFsWatchers>,
-    path: String,
-    roots: Vec<String>,
-    everywhere: bool,
-) -> Result<(), String> {
-    // Same `~/` expansion as its read siblings — a dir a plugin can readDir
-    // must also be watchable by the same path string.
-    let dir = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
-    let emitter = app.clone();
-    let watcher = spawn_project_watch(&dir, path.clone(), move |registered| {
-        let _ = emitter.emit(
-            PROJECT_FS_CHANGE_EVENT,
-            &ProjectFsChange { path: registered },
-        );
-    })?;
-    watchers.0.insert(path, watcher);
-    Ok(())
-}
-
-/// Stop watching a directory (the tree collapsed it, re-rooted, or unmounted).
-/// An unknown path is a no-op.
-#[tauri::command]
-pub fn project_fs_unwatch(watchers: State<ProjectFsWatchers>, path: String) {
-    watchers.0.remove(&path);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::mpsc;
-    use std::time::Duration;
-
-    static SEQ: AtomicU32 = AtomicU32::new(0);
-
-    /// A unique temp root per test (std-only; no tempfile dependency), matching
-    /// `plugins_fs`'s test convention.
-    fn temp_root() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "kd-project-fs-test-{}-{}",
-            std::process::id(),
-            SEQ.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn write(path: &PathBuf, content: &str) {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, content).unwrap();
-    }
-
-    fn roots(root: &Path) -> Vec<String> {
-        vec![root.to_string_lossy().into_owned()]
-    }
+    use crate::project_fs::testing::{roots, temp_root, write};
 
     // ---- read_dir ----
 
@@ -468,6 +382,137 @@ mod tests {
         assert_eq!(file.text.as_deref(), Some(&"a".repeat(10)[..]));
         assert!(file.truncated);
         assert_eq!(file.size, 100);
+        // Where the read STOPPED, from the read itself. A caller inferring it
+        // from its own `max_bytes` would be right only until it asked above
+        // the ceiling — which is clamped here, silently and by design.
+        assert_eq!(file.read_bytes, 10);
+    }
+
+    /// A cap landing inside a multi-byte character must not cost the whole
+    /// text.
+    ///
+    /// This is the failure the mark exists to prevent, and it is live: a
+    /// Cyrillic-dense transcript over the ceiling breaks here roughly as often
+    /// as a coin lands heads, and the boundary moves with every append. Before
+    /// this, `text` came back `None`, every reader saw `is_binary`, and a ten
+    /// megabyte conversation rendered as "no content" — not "less", but
+    /// "nothing".
+    #[test]
+    fn read_file_rescues_a_tail_split_mid_character() {
+        let root = temp_root();
+        // Nine ASCII bytes then one two-byte character: a cap of ten stops
+        // between its lead byte and its continuation.
+        write(&root.join("ru.txt"), &format!("{}Д", "a".repeat(9)));
+
+        let file = project_fs_read_file(
+            root.join("ru.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            Some(10),
+        )
+        .unwrap();
+        assert_eq!(file.text.as_deref(), Some(&"a".repeat(9)[..]));
+        assert!(!file.is_binary);
+        // The read is STILL short, and says so: rescuing the prefix answers
+        // "what can be shown", never "the file was whole".
+        assert!(file.truncated);
+        assert_eq!(file.size, 11);
+        // The dropped stub leaves with the number. `read_bytes` marks where
+        // the TEXT stops, so reporting the cap here would overstate the read
+        // by exactly the bytes we refused to guess about — a false number in
+        // the field that exists to keep numbers honest.
+        assert_eq!(file.read_bytes, 9);
+    }
+
+    /// A genuinely bad byte stays binary even when the read was also short.
+    ///
+    /// Without this guard the rescue above would let corruption masquerade as
+    /// our own cut: a file damaged at byte three would come back as text with
+    /// a "partly shown" mark, and the reader would blame the ceiling for a
+    /// hole the ceiling did not make. `error_len()` tells the two apart —
+    /// `None` is "ran out of input", `Some` is "this byte is wrong" — and
+    /// only the first is ours to repair.
+    #[test]
+    fn read_file_keeps_a_corrupt_short_read_binary() {
+        let root = temp_root();
+        let mut bytes = b"abc".to_vec();
+        bytes.push(0xFF);
+        bytes.extend_from_slice(b"defghij");
+        fs::write(root.join("bad.txt"), &bytes).unwrap();
+
+        let file = project_fs_read_file(
+            root.join("bad.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            Some(8),
+        )
+        .unwrap();
+        assert!(file.is_binary);
+        assert_eq!(file.text, None);
+        assert!(file.truncated);
+    }
+
+    /// A file read WHOLE that ends mid-sequence is malformed on its own, and
+    /// stays binary.
+    ///
+    /// `error_len() == None` means "the sequence ran out of input" — and the
+    /// input ends either at our cap or at the file's own end; the error does
+    /// not distinguish them, so `truncated` must. Rescue here would hand back
+    /// text with `truncated: false`: no shortfall, no mark, and the lost tail
+    /// silent. That is worse than today's answer, which at least shouts "not
+    /// text".
+    #[test]
+    fn read_file_keeps_a_whole_file_ending_mid_character_binary() {
+        let root = temp_root();
+        let mut bytes = b"ok".to_vec();
+        bytes.push(0xD0); // lead byte of a two-byte character, never completed
+        fs::write(root.join("cut.txt"), &bytes).unwrap();
+
+        let file = project_fs_read_file(
+            root.join("cut.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            None,
+        )
+        .unwrap();
+        assert!(file.is_binary);
+        assert_eq!(file.text, None);
+        // Nothing was cut BY US — the file simply ends this way.
+        assert!(!file.truncated);
+    }
+
+    /// The wire shape of a file read, pinned key by key.
+    ///
+    /// Everything below this struct is a CAST on the other side: the webview
+    /// names these fields in TypeScript and nothing at runtime checks that
+    /// they arrived. So a rename here — or a serde attribute lost in an edit —
+    /// would not fail a build, a type-check or any existing test: the field
+    /// would simply be `undefined` wherever it is read, and the first sign of
+    /// it would be a blank in the interface. This test is the only thing that
+    /// notices.
+    #[test]
+    fn read_file_wire_json_names_every_field_in_camel_case() {
+        let root = temp_root();
+        write(&root.join("a.txt"), "hi");
+
+        let file = project_fs_read_file(
+            root.join("a.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            None,
+        )
+        .unwrap();
+
+        let wire = serde_json::to_value(&file).unwrap();
+        let mut keys: Vec<&str> = wire.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            ["isBinary", "path", "readBytes", "size", "text", "truncated"],
+        );
+        assert_eq!(wire["readBytes"], 2);
+        assert_eq!(wire["size"], 2);
+        assert_eq!(wire["truncated"], false);
     }
 
     #[test]
@@ -484,39 +529,4 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ---- watching ----
-
-    #[test]
-    fn structural_change_excludes_content_and_access() {
-        use notify::event::{AccessKind, CreateKind, DataChange, ModifyKind, RemoveKind};
-        assert!(is_structural_change(&Event::new(EventKind::Create(CreateKind::File))));
-        assert!(is_structural_change(&Event::new(EventKind::Remove(RemoveKind::File))));
-        // A content write must NOT count — else an actively-written file spams
-        // the tree with re-reads.
-        assert!(!is_structural_change(&Event::new(EventKind::Modify(
-            ModifyKind::Data(DataChange::Content)
-        ))));
-        assert!(!is_structural_change(&Event::new(EventKind::Access(AccessKind::Read))));
-    }
-
-    #[test]
-    fn project_watch_delivers_the_registered_path_on_a_child_change() {
-        let root = temp_root();
-        let (tx, rx) = mpsc::channel::<String>();
-        let _watcher =
-            spawn_project_watch(&root, "ui-key".to_string(), move |registered| {
-                let _ = tx.send(registered);
-            })
-            .expect("watch");
-
-        fs::write(root.join("added.txt"), "x").unwrap();
-
-        // fs delivery is async; a create may surface as several events — take
-        // the first within the window, assert it carries the REGISTERED path.
-        let got = rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("a change within 10s");
-        assert_eq!(got, "ui-key");
-        fs::remove_dir_all(&root).ok();
-    }
 }

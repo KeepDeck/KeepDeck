@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
+import { fsFileRead } from "@keepdeck/plugin-api/testing";
 import { kimiHistory, parseWire } from "./history";
 
 // Shapes mirror a REAL kimi 0.27 wire: the user opens turns in
@@ -53,10 +54,16 @@ const STATE = JSON.stringify({
   agents: { main: { homedir: "/x" } },
 });
 
+/** Paths whose read came back SHORT, mapped to the file's full length. The
+ * answer itself is built by the contract's own double — see
+ * `@keepdeck/plugin-api/testing`. */
+type ShortReads = Record<string, number>;
+
 function ctx(
   files: Record<string, string>,
   dirs: Record<string, unknown[]>,
   warn: (message: string) => void = vi.fn(),
+  short: ShortReads = {},
 ) {
   return {
     log: { warn, info: vi.fn(), error: vi.fn() },
@@ -68,8 +75,11 @@ function ctx(
           return entries;
         },
         readFile: async (path: string) => {
+          // The refusal is kimi's own: a missing path here means "no file",
+          // where the other two answer with null text. Only the ANSWER is
+          // shared; how a store refuses is the store's business.
           if (!(path in files)) throw new Error("no file");
-          return { path, text: files[path], isBinary: false, size: 0, truncated: false };
+          return fsFileRead(path, files[path], short[path]);
         },
       },
     },
@@ -177,6 +187,31 @@ describe("kimi history", () => {
       title: "test run",
       transcriptPath: "/k/wd_a_1/session_s1/agents/main/wire.jsonl",
     });
+  });
+
+  it("a page cut short by the cap says so in bytes", async () => {
+    // kimi is the store where a cut can land INSIDE an emitted turn: its
+    // parser accumulates fragments across lines, so the tail turn is short and
+    // looks whole. That specific loss is unprovable from the held bytes, so
+    // the honest claim is the one this page makes — the reading fell short,
+    // and there may be more beyond it.
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const history = kimiHistory(ctx({ [wire]: WIRE }, {}, vi.fn(), { [wire]: 9_000_000 }));
+    const page = await history.transcriptPage!(wire, { offset: 0, limit: 10 });
+    expect(page.shortfall).toEqual([
+      {
+        kind: "bytes",
+        size: 9_000_000,
+        readBytes: new TextEncoder().encode(WIRE).length,
+      },
+    ]);
+  });
+
+  it("a page that read everything carries no shortfall at all", async () => {
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const history = kimiHistory(ctx({ [wire]: WIRE }, {}));
+    const page = await history.transcriptPage!(wire, { offset: 0, limit: 10 });
+    expect(page.shortfall).toBeUndefined();
   });
 
   it("per-step assistant fragments join with a newline, split by user speech", () => {

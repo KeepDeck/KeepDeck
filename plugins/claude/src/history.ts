@@ -1,5 +1,6 @@
 import {
   firstMeaningfulUserTurn,
+  shortfallOfRead,
   textFromParts,
   type AgentHistory,
   type AgentSessionStub,
@@ -118,9 +119,26 @@ export function titleOf(turns: ParsedTurn[]): string | undefined {
   return firstMeaningfulUserTurn(turns);
 }
 
+/** The whole transcript file a page is cut from — claude reads it all and
+ * slices, so the cap is the session's, not the page's. */
+const BODY_CAP = 8 * 1024 * 1024;
+
 export function claudeHistory(ctx: PluginContext): AgentHistory {
   const read = (ref: string, maxBytes?: number) =>
     ctx.services.fs.readFile(ref, maxBytes === undefined ? undefined : { maxBytes });
+
+  /** One page of turns WITH what the reading fell short by. */
+  const readPage = async (
+    ref: string,
+    page: { offset: number; limit: number },
+  ) => {
+    const file = await read(ref, BODY_CAP);
+    const entries = parseTurns(file.text ?? "")
+      .slice(page.offset, page.offset + page.limit)
+      .map((t) => ({ role: t.role, text: t.text }));
+    const shortfall = shortfallOfRead(file);
+    return { entries, ...(shortfall ? { shortfall } : {}) };
+  };
   /** The slug dir's `sessions-index.json` firstPrompt for this session, run
    * through the same title heuristic — claude's own index is far cheaper
    * than scanning megabytes of transcript. `undefined` = no usable entry. */
@@ -259,25 +277,31 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
           transcriptPath: ref,
         };
       }
-      const file = await read(ref, 8 * 1024 * 1024);
+      const file = await read(ref, BODY_CAP);
       const text = file.text ?? "";
+      // Only THIS branch read the body, so only it may speak about it. The
+      // fast path above returns without a shortfall — not because the file
+      // is whole, but because it never looked.
+      const shortfall = shortfallOfRead(file);
       return {
         cwd: cwd || (cwdOf(text) ?? ""),
         title: summaryOf(text) ?? titleOf(parseTurns(text)),
         transcriptPath: ref,
+        ...(shortfall ? { shortfall } : {}),
       };
     },
     async content(ref) {
-      const file = await read(ref, 8 * 1024 * 1024);
+      const file = await read(ref, BODY_CAP);
       return parseTurns(file.text ?? "")
         .map((t) => t.text)
         .join("\n");
     },
+    // ONE reading, two contracts: the legacy method unpacks the honest one,
+    // so the pair cannot drift — `transcript` is DERIVED, never a parallel
+    // implementation kept in step by hand.
+    transcriptPage: readPage,
     async transcript(ref, page): Promise<AgentTranscriptEntry[]> {
-      const file = await read(ref, 8 * 1024 * 1024);
-      return parseTurns(file.text ?? "")
-        .slice(page.offset, page.offset + page.limit)
-        .map((t) => ({ role: t.role, text: t.text }));
+      return (await readPage(ref, page)).entries;
     },
   };
 }

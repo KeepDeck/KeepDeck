@@ -1,20 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type {
   Dispatch,
   MutableRefObject,
   SetStateAction,
 } from "react";
-import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../../domain/agents";
 import type { SessionsBrowserApi } from "../../../app/useSessionsBrowser";
+import { useTranscriptReading } from "../../../app/useTranscriptReading";
 import type { UnifiedSessionRow } from "../../../domain/journal";
 import { BackIcon } from "../../../ui/icons";
 import { NEAR_END } from "../../../ui/useScrollPaging";
 import { dirPresent } from "../useDirPresence";
 import { SessionRowActions } from "../SessionRowView";
-
-const FIRST_TURNS = 50;
-const NEXT_TURNS = 20;
+import { readingVerdict } from "./verdictText";
 
 /** What the transcript viewer reads — one row's read link, whichever list
  * the row came from (a journal row or an index hit). Carries the row
@@ -23,12 +21,13 @@ const NEXT_TURNS = 20;
 export interface ViewerTarget {
   agent: string;
   sessionId: string;
-  reference: string;
   title: string | null;
-  /** The row's read links in try order (the join's union: journal path
-   * first, the index's reference as the spare), plus how many have
-   * already refused. A failed page zero advances one link; the LAST
-   * link's failure is the row's failure. Singleton for hit rows. */
+  /** The row's read links in TRY ORDER (the join's union: journal path
+   * first, the index's reference as the spare) — the single source of which
+   * handle to ask, head included. The row's displayed link used to sit here
+   * too, as its own field; it agreed with the head by construction and was
+   * read by no one, which is how a field becomes a trap: loaded-looking,
+   * dead, and one day read again by someone who reintroduces the split. */
   fallbacks: string[];
   tried: number;
   /** The row this target was opened from — the header's actions live
@@ -48,6 +47,16 @@ export interface SessionViewerProps {
   onFork(row: UnifiedSessionRow): void;
 }
 
+/**
+ * The transcript surface: it RENDERS a reading and owns nothing of it.
+ *
+ * The reading itself — paging, the walk of the row's link union, the retry on
+ * refusal, when a reading is finished versus merely broken — lives in
+ * [`useTranscriptReading`], because that is a lifecycle and a view may not
+ * own one. What stays is the pair that is genuinely about this component:
+ * WHEN to ask for more (near the bottom of a box is a fact about a box) and
+ * how the answer reads on screen. The words are out too, in `verdictText`.
+ */
 export function SessionViewer({
   target,
   api,
@@ -59,103 +68,59 @@ export function SessionViewer({
   onResume,
   onFork,
 }: SessionViewerProps) {
-  const [entries, setEntries] = useState<AgentTranscriptEntry[]>([]);
-  const [exhausted, setExhausted] = useState(false);
-  const [loadingPage, setLoadingPage] = useState(false);
-  /** The viewer's own failure line — a refused read is named where it
-   * happened, not rendered as an empty transcript. */
-  const [viewerError, setViewerError] = useState<string | null>(null);
-
-  /** One transcript read of `target` at `from`. A page-zero refusal falls
-   * through to the row's NEXT read link (the union is a real fallback, not
-   * a display priority): both links are opaque handles the row merely
-   * carries — one can refuse while the other still serves the read. The
-   * failure mark lands only when the LAST link refused too. */
-  const loadMore = (currentTarget: ViewerTarget, from: number) => {
-    const seq = viewSeq.current;
-    const limit = from === 0 ? FIRST_TURNS : NEXT_TURNS;
-    setLoadingPage(true);
-    void api
-      .transcript(currentTarget.agent, currentTarget.reference, from, limit)
-      .then((page) => {
-        if (viewSeq.current !== seq) return;
-        setEntries((current) => (from === 0 ? page : [...current, ...page]));
-        setExhausted(page.length < limit);
-        // A good page retires the row's failure mark — a link reads.
-        for (const link of currentTarget.fallbacks) {
-          setReadFailed((current) => {
-            if (!current.has(link)) return current;
-            const next = new Set(current);
-            next.delete(link);
-            return next;
-          });
+  /** The ROW's verdict about its handles: marked together, because the first
+   * must not read as alive when its spare has just refused too. */
+  const markLinks = useCallback(
+    (links: readonly string[], failed: boolean) => {
+      setReadFailed((current) => {
+        const next = new Set(current);
+        for (const link of links) {
+          if (failed) next.add(link);
+          else next.delete(link);
         }
-      })
-      .catch((e: unknown) => {
-        if (viewSeq.current !== seq) return;
-        const next = currentTarget.fallbacks[currentTarget.tried + 1];
-        if (from === 0 && next !== undefined) {
-          // The refusal itself is not yet the row's verdict — a link of the
-          // union remains untried. Advance one and retry page zero;
-          // the viewer stays on the same row, so no state is reset.
-          // `tried` advances monotonically: each refusal moves the cursor
-          // past the link that refused, so the walk terminates on the
-          // last link however many fall.
-          loadMore({ ...currentTarget, reference: next, tried: currentTarget.tried + 1 }, 0);
-          return;
-        }
-        // The read fell on the LAST link — every handle the row carries
-        // refused its attempt. Named as itself, on the viewer AND on the
-        // row; the row keeps its place. The mark is the ROW's verdict, so
-        // it lands on every link
-        // of the union: the first link alone must not read as alive when
-        // its spare just refused too. Exhausted stops the viewer's fill-
-        // the-viewport effect from re-requesting a link that just
-        // refused — a retry comes from a fresh open.
-        setViewerError(e instanceof Error ? e.message : String(e));
-        setExhausted(true);
-        setReadFailed((current) => {
-          const nextState = new Set(current);
-          for (const link of currentTarget.fallbacks) nextState.add(link);
-          return nextState;
-        });
-      })
-      .finally(() => {
-        if (viewSeq.current === seq) setLoadingPage(false);
+        return next.size === current.size &&
+          [...next].every((link) => current.has(link))
+          ? current
+          : next;
       });
-  };
+    },
+    [setReadFailed],
+  );
 
-  const openingTargetRef = useRef<ViewerTarget | null>(null);
-  useEffect(() => {
-    openingTargetRef.current = target;
-    setEntries([]);
-    setExhausted(false);
-    setLoadingPage(false);
-    setViewerError(null);
-    loadMore(target, 0);
-    // The target changes only when a new row is opened; the sequence ref
-    // keeps an earlier response from landing during the replacement.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target]);
+  const reading = useTranscriptReading({
+    read: api.transcript,
+    agent: target.agent,
+    // The target IS the opening: a fresh one is minted per row click, so a
+    // reopen after a refusal starts a new reading even though the row's links
+    // are the very same array.
+    opening: target,
+    links: target.fallbacks,
+    seq: viewSeq,
+    markLinks,
+  });
+  const { entries } = reading;
 
-  // The transcript pages on scroll too (fill-then-increment, [F8]): nearing
-  // the bottom fetches the next page; the mount-time check below keeps
-  // filling while the loaded turns are shorter than the viewer.
+  const verdict = readingVerdict({
+    entries: entries.length,
+    exhausted: reading.exhausted,
+    shortfall: reading.shortfall,
+    viewerError: reading.error,
+    loading: reading.loading,
+  });
+
+  // WHEN to ask for more is the one part of the reading that is genuinely
+  // about this component: "near the bottom of the box" is a fact about a box.
+  // The mount-time run keeps filling while the loaded turns are shorter than
+  // the viewport (fill-then-increment, [F8]); the reading itself refuses a
+  // duplicate ask while a page is in flight.
   const viewerRef = useRef<HTMLDivElement | null>(null);
+  const { more } = reading;
   const maybeLoadPage = useCallback(() => {
-    // loadingPage doubles as the in-flight guard: a scroll storm must not
-    // fetch the same offset twice nor skip a page.
-    if (exhausted || loadingPage) return;
-    if (openingTargetRef.current === target) {
-      openingTargetRef.current = null;
-      return;
-    }
     const body = viewerRef.current;
     if (body && body.scrollHeight - body.scrollTop - body.clientHeight < NEAR_END) {
-      loadMore(target, entries.length);
+      more();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exhausted, loadingPage, entries.length, target]);
+  }, [more]);
   useEffect(() => {
     maybeLoadPage();
   }, [maybeLoadPage]);
@@ -204,17 +169,29 @@ export function SessionViewer({
             {entry.text}
           </div>
         ))}
-        {viewerError !== null && entries.length === 0 && (
-          // The read fell — named where it happened, never disguised
-          // as an empty transcript.
-          <div className="browser__empty">Read failed: {viewerError}</div>
+        {reading.error !== null && entries.length === 0 && (
+          // The read fell before anything appeared — named where it happened,
+          // never disguised as an empty transcript. Its twin, for a refusal
+          // AFTER turns were shown, is the verdict's `ending`: the pair is
+          // told apart by what was shown, not by cause.
+          <div className="browser__empty">Read failed: {reading.error}</div>
         )}
-        {entries.length === 0 && viewerError === null && !loadingPage && (
-          // A legitimately empty transcript (all lines were noise) must
-          // not read as a hang.
-          <div className="browser__empty">No transcript content</div>
+        {/* What this reading fell short by, one line per kind — listed, never
+         * joined. The verdict decides which sentences may speak at all; the
+         * order of its branches is the hierarchy, and emptiness comes last
+         * because "we did not read it all" explains why "there are no turns"
+         * might be an artefact. */}
+        {verdict.notices.map((line) => (
+          <div key={line} className="browser__verdict">
+            {line}
+          </div>
+        ))}
+        {verdict.ending !== null && (
+          <div className="browser__verdict browser__verdict--end">
+            {verdict.ending}
+          </div>
         )}
-        {loadingPage && (
+        {reading.loading && (
           <div className="browser__more" aria-label="Loading transcript">
             <span className="browser__spinner" />
           </div>

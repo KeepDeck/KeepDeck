@@ -278,7 +278,14 @@ describe("external plugin bridge", () => {
     };
     host.ctx.services.fs.readFile = async (path, opts) => {
       readFileCalls.push([path, opts]);
-      return { path, text: "fn main() {}", isBinary: false, size: 12, truncated: false };
+      return {
+        path,
+        text: "fn main() {}",
+        isBinary: false,
+        size: 12,
+        truncated: false,
+        readBytes: 12,
+      };
     };
     const { ctxReady } = wireCapturingCtx(host);
     const ctx = await ctxReady;
