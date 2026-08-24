@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
+import { fsFileRead } from "@keepdeck/plugin-api/testing";
 import { kimiHistory, parseWire } from "./history";
 
 // Shapes mirror a REAL kimi 0.27 wire: the user opens turns in
@@ -53,10 +54,9 @@ const STATE = JSON.stringify({
   agents: { main: { homedir: "/x" } },
 });
 
-/** Paths whose read came back SHORT, mapped to the file's full length — the
- * double could not express falling short at all before this: `truncated` was
- * hard-coded false and `readBytes` was missing outright, hidden by the cast to
- * `PluginContext`. */
+/** Paths whose read came back SHORT, mapped to the file's full length. The
+ * answer itself is built by the contract's own double — see
+ * `@keepdeck/plugin-api/testing`. */
 type ShortReads = Record<string, number>;
 
 function ctx(
@@ -75,21 +75,11 @@ function ctx(
           return entries;
         },
         readFile: async (path: string) => {
+          // The refusal is kimi's own: a missing path here means "no file",
+          // where the other two answer with null text. Only the ANSWER is
+          // shared; how a store refuses is the store's business.
           if (!(path in files)) throw new Error("no file");
-          const text = files[path];
-          const full = short[path];
-          // BYTES, not characters. kimi's fixtures are Russian, so the two
-          // differ by roughly double here — and the assertion would compare
-          // the same wrong number to itself and stay green.
-          const readBytes = new TextEncoder().encode(text).length;
-          return {
-            path,
-            text,
-            isBinary: false,
-            size: full ?? readBytes,
-            readBytes,
-            truncated: full !== undefined,
-          };
+          return fsFileRead(path, files[path], short[path]);
         },
       },
     },

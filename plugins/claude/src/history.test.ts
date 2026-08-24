@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
+import { fsFileRead } from "@keepdeck/plugin-api/testing";
 import { claudeHistory } from "./history";
 
 const LINES = [
@@ -31,14 +32,9 @@ const LINES = [
   }),
 ].join("\n");
 
-/** Paths whose read came back SHORT, mapped to the file's full length.
- *
- * The double used to hard-code `truncated: false` and omit `readBytes`
- * entirely — a field the contract has carried since the shortfall landed, and
- * one the cast to `PluginContext` hid from the type checker. So the path from
- * "the file was capped" to "the answer says so" had no test in any of the
- * three file-backed plugins, and the assertion could not have been written
- * without fixing the double first. */
+/** Paths whose read came back SHORT, mapped to the file's full length. The
+ * answer itself is built by the contract's own double — see
+ * `@keepdeck/plugin-api/testing`. */
 type ShortReads = Record<string, number>;
 
 function ctx(
@@ -56,26 +52,8 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: async (path: string) => {
-          const text = files[path] ?? null;
-          // BYTES, not characters. The service measures what came off disk,
-          // and a double counting code units would describe a different world
-          // the moment a fixture holds anything but ASCII — quietly, since the
-          // assertion would compare the same wrong number to itself.
-          const readBytes = text === null ? 0 : new TextEncoder().encode(text).length;
-          const full = short[path];
-          return {
-            path,
-            text,
-            isBinary: false,
-            // Both numbers come FROM THE READ: `size` is what the file holds,
-            // `readBytes` what came back. A double that reports one without
-            // the other cannot express falling short at all.
-            size: full ?? readBytes,
-            readBytes,
-            truncated: full !== undefined,
-          };
-        },
+        readFile: async (path: string) =>
+          fsFileRead(path, files[path] ?? null, short[path]),
       },
     },
   } as unknown as PluginContext;

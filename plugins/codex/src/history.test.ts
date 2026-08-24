@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
+import { fsFileRead } from "@keepdeck/plugin-api/testing";
 import { codexHistory, parseRollout } from "./history";
 
 const META = JSON.stringify({
@@ -42,10 +43,9 @@ const LINES = [
   }),
 ].join("\n");
 
-/** Paths whose read came back SHORT, mapped to the file's full length — the
- * double could not express falling short at all before this: `truncated` was
- * hard-coded false and `readBytes` was missing outright, hidden by the cast to
- * `PluginContext`. */
+/** Paths whose read came back SHORT, mapped to the file's full length. The
+ * answer itself is built by the contract's own double — see
+ * `@keepdeck/plugin-api/testing`. */
 type ShortReads = Record<string, number>;
 
 function ctx(
@@ -63,22 +63,8 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: async (path: string) => {
-          const text = files[path] ?? null;
-          // BYTES, not characters — see the note in claude's double: counting
-          // code units would describe a different world for any non-ASCII
-          // fixture, and the assertion would not notice.
-          const readBytes = text === null ? 0 : new TextEncoder().encode(text).length;
-          const full = short[path];
-          return {
-            path,
-            text,
-            isBinary: false,
-            size: full ?? readBytes,
-            readBytes,
-            truncated: full !== undefined,
-          };
-        },
+        readFile: async (path: string) =>
+          fsFileRead(path, files[path] ?? null, short[path]),
       },
     },
   } as unknown as PluginContext;

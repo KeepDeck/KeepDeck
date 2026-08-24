@@ -49,6 +49,24 @@ export interface SessionViewerProps {
   onFork(row: UnifiedSessionRow): void;
 }
 
+/**
+ * NAMED DEBT, not this item's to pay: this component owns a READ LIFECYCLE.
+ *
+ * Paging, the walk of the row's link union with its refusal counter, the
+ * scroll threshold that decides when to ask for more — a view is allowed
+ * simple mount-scoped presentation state, and this is none of those. It
+ * arrived whole when the viewer was extracted, so the category is not new;
+ * but the honesty work below grew it from four pieces of state to six
+ * (`entries`, `exhausted`, `loadingPage`, `viewerError`, `shortfall`,
+ * `serving`), and growth without a home is what makes the NEXT edit here more
+ * expensive than this one was.
+ *
+ * The cure is a hook that owns the reading and hands this component turns and
+ * a verdict — a subject of its own, larger than "a truncated read says so",
+ * and taken deliberately rather than smuggled in beside it. The choice of
+ * words below is already out (`verdictText`): a pure function, tested away
+ * from the render. That is the shape the rest should follow.
+ */
 export function SessionViewer({
   target,
   api,

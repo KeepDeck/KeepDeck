@@ -3,6 +3,17 @@ import type { Shortfall } from "@keepdeck/plugin-api";
 /**
  * What the transcript viewer SAYS about its own reading ([F8] browser).
  *
+ * APPLICATION LOGIC BY NATURE, PRESENTATION-HOMED WHILE IT HAS ONE CALLER.
+ * `readingVerdict` does not format or render — it DECIDES which verdict is
+ * true of a reading, over facts (`shortfall`, `exhausted`, `viewerError`) that
+ * the browser seam produces, not the screen. A second consumer moves it to
+ * `src/app` beside [`resumeOutcome`], which lives there for exactly that
+ * reason: its wording is shared by two surfaces and exists so they say the
+ * same thing about the same state. Until then this is the lightest form of
+ * application logic — one caller, no IPC, no deck access — and the file sits
+ * next to that caller. Do not import it from anywhere else without moving it;
+ * the move is then a decision, not a drift.
+ *
  * These are verdicts about a READING, never about a session: the same session
  * read twice can fall short differently, and a mark inherited from yesterday's
  * scan would describe a file that has since grown. Every phrase here names
