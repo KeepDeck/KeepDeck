@@ -1,4 +1,8 @@
-import type { AgentHistory, AgentSessionStub } from "@keepdeck/plugin-api";
+import type {
+  AgentHistory,
+  AgentSessionFacts,
+  AgentSessionStub,
+} from "@keepdeck/plugin-api";
 import {
   indexPrune,
   indexRefs,
@@ -19,6 +23,44 @@ const CONTENT_CAP = 2 * 1024 * 1024;
 export interface HistorySource {
   agentId: string;
   history: AgentHistory;
+}
+
+/**
+ * Give the facts' mark a reader.
+ *
+ * The circle traded the index schema for this line: the mark deliberately does
+ * NOT go into `index.sqlite`, because a stored mark outlives the reading that
+ * produced it and starts lying after the first rescan. The price of that
+ * refusal was saying it here — and until now the price went unpaid, so the
+ * field was produced and buried in one commit.
+ *
+ * A RARE LINE ABOUT A RARE READING, NOT A COMPLETENESS GAUGE. It can only
+ * speak on the slow branch of claude's describe, where a missing index entry
+ * forces the full read. codex describes from a 256 KB head and kimi from
+ * `state.json`; neither ever touches a body, so neither will ever reach this.
+ * Its ABSENCE therefore proves nothing about a session — do not build a
+ * watchdog on the silence. It is worth having anyway: without it the scan's
+ * vocabulary has no word at all for "describe under-read", and that event is
+ * real. A rarely spoken truth and a mute one are different things.
+ *
+ * The verb is the differentiator. `describe read` names the reading that fell
+ * short — the plugin's own — and never stands in for `indexed text capped`,
+ * which belongs to the host trimming an honest full answer afterwards. Two
+ * readings, two sentences; neither fits the other's place.
+ */
+function nameShortfall(
+  agentId: string,
+  sessionId: string,
+  facts: AgentSessionFacts,
+): void {
+  for (const short of facts.shortfall ?? []) {
+    if (short.kind !== "bytes") continue;
+    log.warn(
+      "web:history",
+      `${agentId} ${sessionId}: describe read ${short.readBytes} of ${short.size} bytes` +
+        ` — facts may be incomplete, indexing continued`,
+    );
+  }
 }
 
 /** Injected index ops (the ipc surface) — swapped in tests. */
@@ -115,6 +157,7 @@ export async function scanAgentHistories(
           batch.map(async (stub): Promise<IndexRowInput | null> => {
             try {
               const facts = await history.describe(stub.ref);
+              nameShortfall(agentId, stub.sessionId, facts);
               const content = await history.content(stub.ref);
               return {
                 sessionId: stub.sessionId,

@@ -315,4 +315,59 @@ describe("scanAgentHistories", () => {
     expect((upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual(["a", "b"]);
     expect(prunes).toEqual([["/s/a", "/s/b"]]);
   });
+
+  it("names a describe that under-read, and indexes it anyway", async () => {
+    // The mark on the facts was kept OUT of the index schema on the promise
+    // that the scan would say it here — a stored mark outlives the reading
+    // that made it and starts lying after the first rescan. Until this line
+    // the promise went unpaid and the field was produced and buried in one
+    // commit: no reader anywhere in production.
+    vi.mocked(log.warn).mockClear();
+    const { mock, upserts } = ops([]);
+    await scanAgentHistories(
+      [
+        {
+          agentId: "claude",
+          history: history({
+            list: async () => [{ sessionId: "big", ref: "/s/big", mtime: 1, size: 3 }],
+            describe: async () => ({
+              cwd: "/repo",
+              title: "huge session",
+              shortfall: [{ kind: "bytes", size: 10259690, readBytes: 8388608 }],
+            }),
+          }),
+        },
+      ],
+      mock,
+    );
+
+    const said = vi
+      .mocked(log.warn)
+      .mock.calls.map((c) => c.join(" "))
+      .find((m) => m.includes("describe read"));
+    // The verb is the differentiator: this reading is the plugin's own, and
+    // never stands in for the host's later trim of an honest full answer.
+    expect(said).toContain(
+      "claude big: describe read 8388608 of 10259690 bytes — facts may be incomplete, indexing continued",
+    );
+    // "indexing continued" is not decoration: the session still lands.
+    expect((upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual(["big"]);
+  });
+
+  it("stays silent when the describe read everything it looked at", async () => {
+    // Absence proves nothing about a session — most describes never touch a
+    // body at all — but it must at least mean "this reading did not fall
+    // short", or the line would cry on healthy data and be tuned out.
+    vi.mocked(log.warn).mockClear();
+    const { mock } = ops([]);
+    await scanAgentHistories(
+      [{ agentId: "claude", history: history({ list: async () => [stub("plain")] }) }],
+      mock,
+    );
+    const said = vi
+      .mocked(log.warn)
+      .mock.calls.map((c) => c.join(" "))
+      .find((m) => m.includes("describe read"));
+    expect(said).toBeUndefined();
+  });
 });
