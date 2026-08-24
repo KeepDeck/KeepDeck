@@ -4,7 +4,7 @@ import type {
   MutableRefObject,
   SetStateAction,
 } from "react";
-import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
+import type { AgentTranscriptEntry, Shortfall } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../../domain/agents";
 import type { SessionsBrowserApi } from "../../../app/useSessionsBrowser";
 import type { UnifiedSessionRow } from "../../../domain/journal";
@@ -12,6 +12,7 @@ import { BackIcon } from "../../../ui/icons";
 import { NEAR_END } from "../../../ui/useScrollPaging";
 import { dirPresent } from "../useDirPresence";
 import { SessionRowActions } from "../SessionRowView";
+import { readingVerdict } from "./verdictText";
 
 const FIRST_TURNS = 50;
 const NEXT_TURNS = 20;
@@ -65,6 +66,20 @@ export function SessionViewer({
   /** The viewer's own failure line — a refused read is named where it
    * happened, not rendered as an empty transcript. */
   const [viewerError, setViewerError] = useState<string | null>(null);
+  /** What the LAST page's reading fell short by. Replaced, not accumulated:
+   * every page of one session re-reads the same file under the same ceiling,
+   * so a later page restates that truth rather than adding to it. */
+  const [shortfall, setShortfall] = useState<Shortfall[] | undefined>(undefined);
+  /** The link that is actually SERVING this session.
+   *
+   * The union's fall-through advances a link when page zero refuses, and that
+   * advance used to live only in the recursive argument — so the next page
+   * asked the dead link again, refused, and marked every link of the row
+   * failed, including the one reading a second earlier. Silent while nothing
+   * was said about it; once the viewer SAYS "the rest did not arrive", the
+   * same bug becomes a spoken untruth. The advance is kept here so it outlives
+   * the page that made it. */
+  const serving = useRef<ViewerTarget>(target);
 
   /** One transcript read of `target` at `from`. A page-zero refusal falls
    * through to the row's NEXT read link (the union is a real fallback, not
@@ -82,9 +97,11 @@ export function SessionViewer({
         const turns = page.entries;
         setEntries((current) => (from === 0 ? turns : [...current, ...turns]));
         setExhausted(turns.length < limit);
-        // `page.shortfall` — what THIS reading fell short by — arrives here
-        // and is not yet shown: the saying is stage 1's first item, and this
-        // is the surface it lands on.
+        // What THIS reading fell short by, said by `readingVerdict` below.
+        setShortfall(page.shortfall);
+        // This link answered, so it is the one to ask next — the advance made
+        // by a fall-through must outlive the page that made it.
+        serving.current = currentTarget;
         // A good page retires the row's failure mark — a link reads.
         for (const link of currentTarget.fallbacks) {
           setReadFailed((current) => {
@@ -98,14 +115,19 @@ export function SessionViewer({
       .catch((e: unknown) => {
         if (viewSeq.current !== seq) return;
         const next = currentTarget.fallbacks[currentTarget.tried + 1];
-        if (from === 0 && next !== undefined) {
+        if (next !== undefined) {
           // The refusal itself is not yet the row's verdict — a link of the
-          // union remains untried. Advance one and retry page zero;
+          // union remains untried. Advance one and retry THE SAME page;
           // the viewer stays on the same row, so no state is reset.
           // `tried` advances monotonically: each refusal moves the cursor
           // past the link that refused, so the walk terminates on the
           // last link however many fall.
-          loadMore({ ...currentTarget, reference: next, tried: currentTarget.tried + 1 }, 0);
+          //
+          // Any page, not only the first: the row's verdict — and now the
+          // viewer's sentence "the rest did not arrive" — may be spoken only
+          // once every handle has actually been tried. Limiting the walk to
+          // page zero left the union half-walked and the sentence untrue.
+          loadMore({ ...currentTarget, reference: next, tried: currentTarget.tried + 1 }, from);
           return;
         }
         // The read fell on the LAST link — every handle the row carries
@@ -136,11 +158,23 @@ export function SessionViewer({
     setExhausted(false);
     setLoadingPage(false);
     setViewerError(null);
+    setShortfall(undefined);
+    // A new row starts its walk of the union from the top — the previous
+    // row's serving link says nothing about this one.
+    serving.current = target;
     loadMore(target, 0);
     // The target changes only when a new row is opened; the sequence ref
     // keeps an earlier response from landing during the replacement.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
+
+  const verdict = readingVerdict({
+    entries: entries.length,
+    exhausted,
+    shortfall,
+    viewerError,
+    loading: loadingPage,
+  });
 
   // The transcript pages on scroll too (fill-then-increment, [F8]): nearing
   // the bottom fetches the next page; the mount-time check below keeps
@@ -156,7 +190,10 @@ export function SessionViewer({
     }
     const body = viewerRef.current;
     if (body && body.scrollHeight - body.scrollTop - body.clientHeight < NEAR_END) {
-      loadMore(target, entries.length);
+      // The SERVING link, not the row's first one: page zero may have walked
+      // past a dead handle to get here, and asking the dead one again would
+      // condemn a link that reads.
+      loadMore(serving.current, entries.length);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exhausted, loadingPage, entries.length, target]);
@@ -209,14 +246,26 @@ export function SessionViewer({
           </div>
         ))}
         {viewerError !== null && entries.length === 0 && (
-          // The read fell — named where it happened, never disguised
-          // as an empty transcript.
+          // The read fell before anything appeared — named where it happened,
+          // never disguised as an empty transcript. Its twin, for a refusal
+          // AFTER turns were shown, is the verdict's `ending`: the pair is
+          // told apart by what was shown, not by cause.
           <div className="browser__empty">Read failed: {viewerError}</div>
         )}
-        {entries.length === 0 && viewerError === null && !loadingPage && (
-          // A legitimately empty transcript (all lines were noise) must
-          // not read as a hang.
-          <div className="browser__empty">No transcript content</div>
+        {/* What this reading fell short by, one line per kind — listed, never
+         * joined. The verdict decides which sentences may speak at all; the
+         * order of its branches is the hierarchy, and emptiness comes last
+         * because "we did not read it all" explains why "there are no turns"
+         * might be an artefact. */}
+        {verdict.notices.map((line) => (
+          <div key={line} className="browser__verdict">
+            {line}
+          </div>
+        ))}
+        {verdict.ending !== null && (
+          <div className="browser__verdict browser__verdict--end">
+            {verdict.ending}
+          </div>
         )}
         {loadingPage && (
           <div className="browser__more" aria-label="Loading transcript">

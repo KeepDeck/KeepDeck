@@ -307,4 +307,86 @@ describe("SessionViewer", () => {
     await act(async () => back.click());
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it("says what the reading fell short by instead of carrying it silently", async () => {
+    const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
+      Promise.resolve({
+        entries: [entry("first turn")],
+        shortfall: [{ kind: "bytes" as const, size: 10259690, readBytes: 8388608 }],
+      }),
+    );
+
+    await renderViewer({
+      root,
+      target: target(),
+      transcript,
+      viewSeq: { current: 0 },
+      readFailed: vi.fn(),
+    });
+    await settle();
+
+    expect(document.body.textContent).toContain(
+      "Partly shown — read 8388608 of 10259690",
+    );
+  });
+
+  it("does not let emptiness answer for a reading that fell short", async () => {
+    // The failure this replaces was the worst the stage could produce: a capped
+    // read that parsed to nothing rendered as "No transcript content" — not
+    // "less", but "nothing" — over a conversation of ten megabytes.
+    const transcript = vi.fn<SessionsBrowserApi["transcript"]>(() =>
+      Promise.resolve({
+        entries: [],
+        shortfall: [{ kind: "bytes" as const, size: 10259690, readBytes: 8388608 }],
+      }),
+    );
+
+    await renderViewer({
+      root,
+      target: target(),
+      transcript,
+      viewSeq: { current: 0 },
+      readFailed: vi.fn(),
+    });
+    await settle();
+
+    expect(document.body.textContent).toContain(
+      "Read cut short — nothing could be shown",
+    );
+    expect(document.body.textContent).not.toContain("No transcript content");
+  });
+
+  it("keeps paging on the link that answered, not the one that refused", async () => {
+    // The union's fall-through used to live only in a recursive argument, so
+    // the next page asked the dead link again and condemned every handle of
+    // the row — including the one reading a second earlier. Silent while
+    // nothing was said about it; once the viewer says "the rest did not
+    // arrive", the same bug becomes a spoken untruth.
+    // A full first page keeps the filler asking; the short second one ends the
+    // walk, so the test observes exactly one follow-up.
+    const page = (from: number, count: number) =>
+      Array.from({ length: count }, (_, at) => entry(`turn ${from + at}`));
+    const transcript = vi.fn<SessionsBrowserApi["transcript"]>(
+      (_agent, reference, offset) =>
+        reference === SHOWN
+          ? Promise.reject(new Error("journal gone"))
+          : Promise.resolve({ entries: page(offset, offset === 0 ? 50 : 3) }),
+    );
+
+    await renderViewer({
+      root,
+      target: target({ fallbacks: [SHOWN, SPARE] }),
+      transcript,
+      viewSeq: { current: 0 },
+      readFailed: vi.fn(),
+    });
+    await settle();
+    await settle();
+
+    const asked = transcript.mock.calls.map((call) => [call[1], call[2]]);
+    // The dead link is asked once, at the top of the walk, and never again.
+    expect(asked.filter(([reference]) => reference === SHOWN)).toHaveLength(1);
+    expect(asked).toContainEqual([SPARE, 50]);
+    expect(document.body.textContent).not.toContain("did not arrive");
+  });
 });
