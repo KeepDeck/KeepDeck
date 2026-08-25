@@ -253,6 +253,12 @@ export const pty = {
     env?: [string, string][];
   }[],
   live: new Set<string>(),
+  /** Panes whose process has printed something — the "the CLI painted"
+   *  signal, which a test sets by hand because no real bytes flow here. */
+  launched: new Set<string>(),
+  isLaunched(paneId: string) {
+    return pty.launched.has(paneId);
+  },
   acquire(
     paneId: string,
     spec: {
@@ -327,6 +333,8 @@ export let agentRun: AgentRunView &
     | "retryProvisioning"
     | "resumeSession"
     | "forkSession"
+    | "forkOccupiedSession"
+    | "forkStalledSession"
     | "suspend"
     | "restart"
     | "recoverRejectedResume"
@@ -399,6 +407,7 @@ export function Probe() {
         sessions: {
           subscribe: pty.subscribe,
           state: (paneId: string) => pty.state(paneId),
+          isLaunched: pty.isLaunched,
           acquire: pty.acquire,
           close: pty.close,
           runOnce: pty.runOnce,
@@ -447,6 +456,8 @@ export function Probe() {
     retryProvisioning: wiring.orchestrator.retryProvisioning,
     resumeSession: wiring.orchestrator.resumeSession,
     forkSession: wiring.orchestrator.forkSession,
+    forkOccupiedSession: wiring.orchestrator.forkOccupiedSession,
+    forkStalledSession: wiring.orchestrator.forkStalledSession,
     suspend: wiring.orchestrator.suspend,
     restart: wiring.orchestrator.restart,
     recoverRejectedResume: wiring.orchestrator.recoverRejectedResume,

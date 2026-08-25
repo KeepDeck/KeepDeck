@@ -161,6 +161,8 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   wakeFailed: {},
   occupiedPanes: {},
   onForkOccupied: () => {},
+  startupPanes: {},
+  onForkStalled: () => {},
   onDismissOccupied: () => {},
   specByPane: {
     "pane-1": { command: "codex", args: [], env: [] },
