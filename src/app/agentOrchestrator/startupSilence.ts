@@ -31,12 +31,14 @@ export const SLOW_START_MS = 10_000;
 const TICK_MS = 1_000;
 
 export interface StartupSilenceWatch {
-  /** Start watching a pane that has just been asked to continue a session. */
+  /** Start watching a pane that has just been asked to continue a session.
+   *
+   * There is no matching "stop watching": every way a wait can end — the pane
+   * paints, the process dies, the spawn fails, the pane closes — is already
+   * visible in what the registry says about it, so the watch lets go on its
+   * own. A second way to end a wait would be a second answer to when a wait
+   * is over. */
   arm(paneId: string): void;
-  /** Stop watching, and take back anything already said about this pane. */
-  disarm(paneId: string): void;
-  /** Drop every wait; used when the runtime itself goes away. */
-  stop(): void;
 }
 
 export interface StartupSilenceDeps {
@@ -98,14 +100,6 @@ export function createStartupSilenceWatch(
       view.markStartup(paneId, { since, slow: false });
       publish();
       stopTicker ??= startTicker(tick, TICK_MS);
-    },
-    disarm(paneId) {
-      if (forget(paneId)) publish();
-    },
-    stop() {
-      waiting.clear();
-      stopTicker?.();
-      stopTicker = null;
     },
   };
 }

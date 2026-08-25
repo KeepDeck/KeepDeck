@@ -290,13 +290,7 @@ impl PtySession {
         self.signal_stop()?;
         #[cfg(unix)]
         if let Some(pid) = self.pid {
-            let (pid, exited) = (pid as i32, self.exited.clone());
-            thread::spawn(move || {
-                thread::sleep(STOP_GRACE);
-                if !exited.load(Ordering::Relaxed) {
-                    signal_tree(pid, libc::SIGKILL);
-                }
-            });
+            force_stop_after_grace(pid as i32, self.exited.clone());
         }
         Ok(())
     }
@@ -324,13 +318,18 @@ fn spawn_pump(
                 Ok(n) => {
                     let outcome = producer.push(PtyEvent::Output(buf[..n].to_vec()));
                     if outcome == PushOutcome::ConsumerGone {
-                        // Nobody is listening (webview gone). Ask the child to
-                        // stop, then keep draining the master until it does: a
-                        // child blocked writing into a full buffer does not act
-                        // on the signal until that write can complete, so a
-                        // reader that stops here leaves the very orphan it was
-                        // trying to avoid. The bytes go nowhere, on purpose.
-                        let _ = child.kill();
+                        // Nobody is listening (webview gone). Stop the child's
+                        // whole tree — this crate already learned that
+                        // signalling the leader alone leaves a run command's
+                        // backgrounded children behind (`tests/kill_tree.rs`),
+                        // and one of those still holding the terminal open is
+                        // what would keep the drain below going. Then drain:
+                        // a child blocked writing into a full buffer does not
+                        // act on any signal until that write can complete, so
+                        // a reader that stops here leaves the very orphan it
+                        // was trying to avoid. The bytes go nowhere, on
+                        // purpose.
+                        stop_disowned(child.as_mut(), &exited);
                         while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
                         let _ = child.wait();
                         exited.store(true, Ordering::Relaxed);
@@ -353,6 +352,37 @@ fn spawn_pump(
         };
         exited.store(true, Ordering::Relaxed);
         producer.push(PtyEvent::Exited(info));
+    });
+}
+
+/// Stop a child nobody is listening to any more, tree and all.
+///
+/// The same escalation a closing pane gets, and for the reason that pane's
+/// path already documents: `child.kill()` reaches one process with one
+/// catchable signal, which is how a run command's backgrounded children used
+/// to outlive their pane. Here the stakes are the terminal itself — anything
+/// left holding it open keeps the drain that follows running.
+fn stop_disowned(child: &mut (dyn Child + Send + Sync), exited: &Arc<AtomicBool>) {
+    #[cfg(unix)]
+    if let Some(pid) = child.process_id() {
+        signal_tree(pid as i32, libc::SIGTERM);
+        force_stop_after_grace(pid as i32, exited.clone());
+        return;
+    }
+    let _ = child.kill();
+}
+
+/// End the tree led by `pid` outright once [`STOP_GRACE`] has gone by, unless
+/// it left on its own first. On its own thread: both callers — a pane closing
+/// a session, and the reader thread disowning one — must return without
+/// sitting through the grace period.
+#[cfg(unix)]
+fn force_stop_after_grace(pid: i32, exited: Arc<AtomicBool>) {
+    thread::spawn(move || {
+        thread::sleep(STOP_GRACE);
+        if !exited.load(Ordering::Relaxed) {
+            signal_tree(pid, libc::SIGKILL);
+        }
     });
 }
 

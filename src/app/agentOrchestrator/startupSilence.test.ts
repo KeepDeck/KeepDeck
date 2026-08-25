@@ -162,15 +162,4 @@ describe("startup silence watch", () => {
     expect(h.notes.get("pane-1")).toEqual({ since: 1_000, slow: true });
   });
 
-  it("takes back what it said when a pane is disarmed", () => {
-    h.starting("pane-1");
-    h.watch.arm("pane-1");
-    h.advance(SLOW_START_MS);
-    h.turn();
-
-    h.watch.disarm("pane-1");
-
-    expect(h.notes.has("pane-1")).toBe(false);
-    expect(h.stopTicker).toHaveBeenCalled();
-  });
 });

@@ -57,11 +57,12 @@ const MARKER_TAIL: &[u8] = b" bytes of output\r\n";
 /// What became of a pushed event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PushOutcome {
-    /// Queued — possibly merged into the chunk ahead of it.
+    /// Queued — possibly merged into the chunk ahead of it, possibly at the
+    /// cost of the oldest bytes if that put the queue over its cap. Either
+    /// way the producer's job is done and unchanged; a gap, if there was one,
+    /// travels to the consumer as a marker in the stream rather than as an
+    /// answer here, so there is one channel for it instead of two.
     Enqueued,
-    /// The cap was reached: `bytes` of the oldest output were dropped and a
-    /// marker now stands in their place.
-    Dropped { bytes: usize },
     /// Nobody is listening any more. The caller owns the child, so it is the
     /// caller's job to stop it.
     ConsumerGone,
@@ -155,10 +156,8 @@ impl Producer {
         let outcome = match event {
             PtyEvent::Output(bytes) => {
                 state.append(bytes);
-                match state.evict_to_cap() {
-                    0 => PushOutcome::Enqueued,
-                    bytes => PushOutcome::Dropped { bytes },
-                }
+                state.evict_to_cap();
+                PushOutcome::Enqueued
             }
             PtyEvent::Exited(info) => {
                 state.exited = Some(info);
@@ -256,8 +255,8 @@ impl State {
         }
     }
 
-    /// Drop the oldest chunks until the queue fits, and report how much went.
-    fn evict_to_cap(&mut self) -> usize {
+    /// Drop the oldest chunks until the queue fits again.
+    fn evict_to_cap(&mut self) {
         let mut dropped = 0;
         while self.queued > self.cap {
             match self.chunks.pop_front() {
@@ -271,7 +270,6 @@ impl State {
             }
         }
         self.dropped += dropped;
-        dropped
     }
 
     /// The next event to hand out, if there is one.
@@ -331,14 +329,13 @@ mod tests {
         // two chunks wide and the third one pushes the first out.
         let (producer, consumer) = queue(COALESCE_MAX_BYTES * 2);
         let chunk = vec![b'x'; COALESCE_MAX_BYTES];
-        producer.push(PtyEvent::Output(chunk.clone()));
-        producer.push(PtyEvent::Output(chunk.clone()));
-        assert_eq!(
-            producer.push(PtyEvent::Output(chunk.clone())),
-            PushOutcome::Dropped {
-                bytes: COALESCE_MAX_BYTES
-            }
-        );
+        for _ in 0..3 {
+            assert_eq!(
+                producer.push(PtyEvent::Output(chunk.clone())),
+                PushOutcome::Enqueued,
+                "the producer's answer does not change when the cap bites"
+            );
+        }
         drop(producer);
 
         let seen = drain_output(&consumer);
