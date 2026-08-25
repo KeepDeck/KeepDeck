@@ -1,6 +1,6 @@
 //! The bridge's WIRE layer: what an envelope is, and what it means.
 //!
-//! Format translation and nothing else — no filesystem, no watcher, no Tauri.
+//! Format translation and nothing else — no filesystem, no transport, no Tauri.
 //! It is also the only part of the bridge anyone outside it needs: the session
 //! tailer emits the same shapes for what it recovers from transcripts, so the
 //! webview sees one schema per event regardless of which side observed it.
