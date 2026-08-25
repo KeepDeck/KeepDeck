@@ -52,7 +52,7 @@ pub(super) fn serve_artifact(
 ) {
     let n = version.unwrap_or_else(|| manifest.versions.last().map(|v| v.n).unwrap_or(1));
     let Some(bytes) = read_version_bytes(root, ws, slug, manifest, n) else {
-        let _ = respond(stream, 404, MIME_HTML, b"version unavailable");
+        let _ = respond(stream, crate::http::Status::NotFound, MIME_HTML, b"version unavailable");
         return;
     };
     let csp = artifact_csp(events_url);
@@ -72,7 +72,7 @@ pub(super) fn serve_artifact(
             page.into_bytes()
         }
     };
-    let _ = crate::http::respond_with_body(stream, 200, MIME_HTML, &body, &[
+    let _ = crate::http::respond_with_body(stream, crate::http::Status::Ok, MIME_HTML, &body, &[
         ("Content-Security-Policy", csp.as_str()),
         // The page is versioned in place and reloads itself on a version
         // event. Nothing here offers a validator, so without this the
@@ -97,7 +97,7 @@ pub(super) fn serve_export(
 ) {
     let n = manifest.versions.last().map(|v| v.n).unwrap_or(1);
     let Some(bytes) = read_version_bytes(root, ws, slug, manifest, n) else {
-        let _ = respond(stream, 404, MIME_HTML, b"version unavailable");
+        let _ = respond(stream, crate::http::Status::NotFound, MIME_HTML, b"version unavailable");
         return;
     };
     let export_meta = EXPORT_META.trim_end_matches('\n');
@@ -116,7 +116,7 @@ pub(super) fn serve_export(
         body.extend_from_slice(strip_live_refresh(&String::from_utf8_lossy(&bytes)).as_bytes());
     }
     let disposition = format!("attachment; filename=\"{slug}.html\"");
-    let _ = crate::http::respond_with_body(stream, 200, MIME_HTML, &body, &[
+    let _ = crate::http::respond_with_body(stream, crate::http::Status::Ok, MIME_HTML, &body, &[
         ("Content-Disposition", disposition.as_str()),
         // Same reason as the page: no validators anywhere, so a cached
         // export would hand back a version the artifact has moved past.
@@ -163,7 +163,7 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
         .split_once(INDEX_ENTRIES)
         .expect("index asset has its entries marker");
     let body = format!("{before}{entries}{after}");
-    let _ = crate::http::respond_with_body(stream, 200, MIME_HTML, body.as_bytes(), &[
+    let _ = crate::http::respond_with_body(stream, crate::http::Status::Ok, MIME_HTML, body.as_bytes(), &[
         ("Content-Security-Policy", INDEX_CSP),
         // Refresh here IS the browser reload (zero-JS by design), so a
         // cached copy would defeat the only way this page updates.
@@ -281,7 +281,7 @@ const INDEX_ENTRIES: &str = "<!--KEEPDECK-INDEX-ENTRIES-->";
 
 fn respond(
     stream: &mut TcpStream,
-    status: u16,
+    status: crate::http::Status,
     mime: &str,
     body: &[u8],
 ) -> std::io::Result<()> {

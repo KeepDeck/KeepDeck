@@ -16,6 +16,8 @@
 //! policy sitting in everyone's path.
 
 use std::io::{BufRead, BufReader, Read};
+
+use crate::http::response::Status;
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -79,9 +81,9 @@ pub(crate) struct Request {
 /// Read one request head. `Err(status)` is the status to answer with — the
 /// caller writes it, because only the caller knows whether it also wants to
 /// say anything else first.
-pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Request, u16> {
+pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Request, Status> {
     let Ok(()) = stream.set_read_timeout(Some(HEAD_TIMEOUT)) else {
-        return Err(400);
+        return Err(Status::BadRequest);
     };
     // SO_SNDTIMEO here, on the ACCEPTED socket: socket options are
     // inherited by every try_clone (the mechanism the SSE path already
@@ -90,7 +92,7 @@ pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Req
     let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
     let cloned = match stream.try_clone() {
         Ok(c) => c,
-        Err(_) => return Err(400),
+        Err(_) => return Err(Status::BadRequest),
     };
     // Bounded from the FIRST byte: read_line buffers an entire line
     // before any cap check, so a peer streaming bytes with no newline
@@ -99,12 +101,12 @@ pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Req
     let mut reader = BufReader::new(cloned.take(HEAD_CAP as u64 + 1));
     let mut request_line = String::new();
     match reader.read_line(&mut request_line) {
-        Ok(0) => return Err(400),
+        Ok(0) => return Err(Status::BadRequest),
         Ok(_) => {}
-        Err(_) => return Err(400),
+        Err(_) => return Err(Status::BadRequest),
     }
     if request_line.len() > HEAD_CAP {
-        return Err(431);
+        return Err(Status::HeadersTooLarge);
     }
     // Drain the rest of the head (bounded), noting the one header a body
     // depends on. Nothing else is kept: a header this parser remembered
@@ -119,7 +121,7 @@ pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Req
             Ok(n) => {
                 total += n;
                 if total > HEAD_CAP {
-                    return Err(431);
+                    return Err(Status::HeadersTooLarge);
                 }
                 if header == "\r\n" || header == "\n" {
                     break;
@@ -129,31 +131,31 @@ pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Req
                         // Unparseable is refused, not treated as absent: a
                         // length nobody can read is a body nobody can frame.
                         let Ok(len) = value.trim().parse::<usize>() else {
-                            return Err(400);
+                            return Err(Status::BadRequest);
                         };
                         declared_len = Some(len);
                     }
                 }
             }
-            Err(_) => return Err(400),
+            Err(_) => return Err(Status::BadRequest),
         }
     }
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("");
     if method.is_empty() || target.is_empty() {
-        return Err(400);
+        return Err(Status::BadRequest);
     }
     // Refused here, once: a method this layer does not speak never reaches a
     // route table, so no surface can be the one that forgot about it.
     let Some(method) = Method::parse(method) else {
-        return Err(405);
+        return Err(Status::MethodNotAllowed);
     };
     let body = match declared_len {
         None | Some(0) => Vec::new(),
         Some(len) => {
             if len > limits.max_body {
-                return Err(413);
+                return Err(Status::PayloadTooLarge);
             }
             // The head cap was a cap on the WHOLE stream — `Take` does not
             // know where a head ends. Without lifting it here the body read
@@ -162,7 +164,7 @@ pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Req
             reader.get_mut().set_limit(len as u64);
             let mut body = vec![0u8; len];
             if reader.read_exact(&mut body).is_err() {
-                return Err(400);
+                return Err(Status::BadRequest);
             }
             body
         }
@@ -203,12 +205,12 @@ fn percent_decode(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{percent_decode, read_request, Limits, Method};
+    use super::{percent_decode, read_request, Limits, Method, Status};
     use std::io::Write as _;
     use std::net::{TcpListener, TcpStream};
 
     /// Send one request and read it back the way the accept loop would.
-    fn round_trip(head: &str, body: &[u8], limits: Limits) -> Result<super::Request, u16> {
+    fn round_trip(head: &str, body: &[u8], limits: Limits) -> Result<super::Request, Status> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let sent = body.to_vec();
@@ -249,21 +251,21 @@ mod tests {
         let head = "POST /bridge/envelope HTTP/1.1\r\nHost: x\r\nContent-Length: 4096\r\n\r\n";
         assert_eq!(
             round_trip(head, &vec![b'x'; 4096], Limits { max_body: 1024 }).err(),
-            Some(413)
+            Some(Status::PayloadTooLarge)
         );
     }
 
     #[test]
     fn a_surface_that_takes_no_body_refuses_one() {
         let head = "POST /a/tok/slug HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\n\r\n";
-        assert_eq!(round_trip(head, b"x", Limits::NO_BODY).err(), Some(413));
+        assert_eq!(round_trip(head, b"x", Limits::NO_BODY).err(), Some(Status::PayloadTooLarge));
     }
 
     #[test]
     fn a_content_length_that_is_not_a_number_is_refused() {
         // Not treated as absent: a length nobody can read frames nothing.
         let head = "POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: many\r\n\r\n";
-        assert_eq!(round_trip(head, b"", Limits { max_body: 16 }).err(), Some(400));
+        assert_eq!(round_trip(head, b"", Limits { max_body: 16 }).err(), Some(Status::BadRequest));
     }
 
     #[test]
@@ -271,7 +273,7 @@ mod tests {
         // Not carried through as an unknown: the first surface to forget
         // about it would have undefined behaviour instead of a refusal.
         let head = "DELETE /x HTTP/1.1\r\nHost: x\r\n\r\n";
-        assert_eq!(round_trip(head, b"", Limits::NO_BODY).err(), Some(405));
+        assert_eq!(round_trip(head, b"", Limits::NO_BODY).err(), Some(Status::MethodNotAllowed));
     }
 
     #[test]

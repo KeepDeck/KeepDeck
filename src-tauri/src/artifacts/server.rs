@@ -36,7 +36,7 @@ use crate::artifacts::serve;
 use crate::artifacts::store::{manifest_for, Manifest};
 use crate::artifacts::token::{mint_token, token_eq};
 use crate::http::request::Request;
-use crate::http::respond_empty;
+use crate::http::{respond_empty, Status};
 
 const KEEPALIVE_TICK: Duration = Duration::from_secs(15);
 
@@ -285,7 +285,7 @@ pub(super) fn events_url_for(shared: &Arc<Shared>, token: &str, slug: &str) -> S
 /// digit-shaped `v` that fails a u64 parse once answered 200-latest on VALID
 /// pairs, which is a token-guessing oracle. `u64::MAX` is never found in a
 /// manifest's dense 1..n, so every consumer treats it as a 404 pin instead.
-fn version_pin(query: Option<&str>) -> Result<Option<u64>, u16> {
+fn version_pin(query: Option<&str>) -> Result<Option<u64>, Status> {
     let Some(raw) = query.and_then(|q| {
         q.split('&').find_map(|pair| {
             let (k, v) = pair.split_once('=')?;
@@ -295,7 +295,7 @@ fn version_pin(query: Option<&str>) -> Result<Option<u64>, u16> {
         return Ok(None);
     };
     if raw.is_empty() || !raw.chars().all(|c| c.is_ascii_digit()) {
-        return Err(400);
+        return Err(Status::BadRequest);
     }
     Ok(Some(raw.parse::<u64>().unwrap_or(u64::MAX)))
 }
@@ -305,7 +305,7 @@ fn handle_connection(mut stream: TcpStream, request: Request, shared: Arc<Shared
     // to live in the shared parser, which made it every surface's rule; it
     // belongs here, where the reason for it is.
     if request.method != crate::http::Method::Get {
-        let _ = respond_empty(&mut stream, 405);
+        let _ = respond_empty(&mut stream, Status::MethodNotAllowed);
         return;
     }
     // Before the dead check and before routing, exactly where the shared
@@ -319,13 +319,13 @@ fn handle_connection(mut stream: TcpStream, request: Request, shared: Arc<Shared
         }
     };
     if shared.dead.load(Ordering::SeqCst) {
-        let _ = respond_empty(&mut stream, 404);
+        let _ = respond_empty(&mut stream, Status::NotFound);
         return;
     }
     let segments: Vec<&str> = request.path.trim_matches('/').split('/').collect();
     // NO-ORACLE: unknown token and valid-token-unknown-id answer
     // byte-identical 404s — nothing distinguishes them.
-    let not_found = |stream: &mut TcpStream| respond_empty(stream, 404);
+    let not_found = |stream: &mut TcpStream| respond_empty(stream, Status::NotFound);
 
     match segments.as_slice() {
         // Artifact routes: the TOKEN is the first segment under /a/.

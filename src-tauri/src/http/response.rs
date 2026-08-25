@@ -12,27 +12,62 @@
 use std::io::Write;
 use std::net::TcpStream;
 
-/// The reason phrase for a status. Kept in ONE place because the two
-//  writers used to disagree: the empty one spelled four statuses out and
-/// the body one answered "Error" to everything but 200.
-fn reason(status: u16) -> &'static str {
-    match status {
-        200 => "OK",
-        400 => "Bad Request",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        431 => "Request Header Fields Too Large",
-        _ => "Error",
+/// Every status this HTTP can answer with, as a closed set.
+///
+/// Closed for the same reason the method is: a bare number is a number
+/// somebody eventually writes without a reason phrase to match, and the
+/// catch-all arm that used to cover them answered "Error" to anything it did
+/// not recognise. There is no catch-all now — a status that needs adding is
+/// added here, and the compiler finds every place that has to know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Status {
+    Ok,
+    /// Accepted, with nothing to say back.
+    NoContent,
+    BadRequest,
+    NotFound,
+    MethodNotAllowed,
+    /// A declared body larger than the surface takes.
+    PayloadTooLarge,
+    HeadersTooLarge,
+}
+
+impl Status {
+    fn code(self) -> u16 {
+        match self {
+            Self::Ok => 200,
+            Self::NoContent => 204,
+            Self::BadRequest => 400,
+            Self::NotFound => 404,
+            Self::MethodNotAllowed => 405,
+            Self::PayloadTooLarge => 413,
+            Self::HeadersTooLarge => 431,
+        }
+    }
+
+    /// One table, exhaustive. The two writers this module replaced disagreed
+    /// about 200 — one said "OK", the other's default arm said "Error".
+    fn reason(self) -> &'static str {
+        match self {
+            Self::Ok => "OK",
+            Self::NoContent => "No Content",
+            Self::BadRequest => "Bad Request",
+            Self::NotFound => "Not Found",
+            Self::MethodNotAllowed => "Method Not Allowed",
+            Self::PayloadTooLarge => "Payload Too Large",
+            Self::HeadersTooLarge => "Request Header Fields Too Large",
+        }
     }
 }
 
 /// A status and nothing else. No `Content-Type`: there is no content, and
 /// naming a type for an empty body invites a consumer to sniff one.
-pub(crate) fn respond_empty(stream: &mut TcpStream, status: u16) -> std::io::Result<()> {
+pub(crate) fn respond_empty(stream: &mut TcpStream, status: Status) -> std::io::Result<()> {
     stream.write_all(
         format!(
-            "HTTP/1.1 {status} {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            reason(status)
+            "HTTP/1.1 {} {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            status.code(),
+            status.reason()
         )
         .as_bytes(),
     )?;
@@ -45,14 +80,15 @@ pub(crate) fn respond_empty(stream: &mut TcpStream, status: u16) -> std::io::Res
 /// every consumer at once.
 pub(crate) fn respond_with_body(
     stream: &mut TcpStream,
-    status: u16,
+    status: Status,
     mime: &str,
     body: &[u8],
     headers: &[(&str, &str)],
 ) -> std::io::Result<()> {
     let mut head = format!(
-        "HTTP/1.1 {status} {}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n",
-        reason(status),
+        "HTTP/1.1 {} {}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n",
+        status.code(),
+        status.reason(),
         body.len()
     );
     for (name, value) in headers {
@@ -69,21 +105,25 @@ pub(crate) fn respond_with_body(
 
 #[cfg(test)]
 mod tests {
-    use super::reason;
+    use super::Status;
 
     #[test]
-    fn the_reason_table_covers_every_status_both_writers_used() {
-        // The drift this table exists to end: 200 read "OK" from one
-        // writer and "Error" from the other's default arm.
-        assert_eq!(reason(200), "OK");
-        assert_eq!(reason(400), "Bad Request");
-        assert_eq!(reason(404), "Not Found");
-        assert_eq!(reason(405), "Method Not Allowed");
-        assert_eq!(reason(431), "Request Header Fields Too Large");
-    }
-
-    #[test]
-    fn an_unlisted_status_still_gets_a_phrase() {
-        assert_eq!(reason(418), "Error");
+    fn every_status_carries_a_phrase_and_a_code() {
+        // The drift this table ended: 200 read "OK" from one writer and
+        // "Error" from the other's default arm. There is no default arm now.
+        for status in [
+            Status::Ok,
+            Status::NoContent,
+            Status::BadRequest,
+            Status::NotFound,
+            Status::MethodNotAllowed,
+            Status::PayloadTooLarge,
+            Status::HeadersTooLarge,
+        ] {
+            assert!(!status.reason().is_empty(), "{status:?}");
+            assert!((200..=599).contains(&status.code()), "{status:?}");
+        }
+        assert_eq!(Status::Ok.reason(), "OK");
+        assert_eq!(Status::NoContent.code(), 204);
     }
 }

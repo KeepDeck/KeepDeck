@@ -16,7 +16,7 @@ use tauri::AppHandle;
 
 use crate::bridge::wire::{interpret, Inbound};
 use crate::http::request::{Limits, Method, Request};
-use crate::http::{bind, respond_empty, Listener};
+use crate::http::{bind, respond_empty, Listener, Status};
 
 /// Where a reporter posts an envelope. One route, because the bridge speaks
 /// one sentence: here is something that happened.
@@ -62,7 +62,7 @@ fn handle(stream: &mut TcpStream, request: Request, emit: &dyn Fn(Inbound)) {
     // Matched as a pair: an unknown path and a wrong method answer the same
     // 404, so probing tells a caller nothing it did not already know.
     if !matches!((&request.method, request.path.as_str()), (Method::Post, ENVELOPE_PATH)) {
-        let _ = respond_empty(stream, 404);
+        let _ = respond_empty(stream, Status::NotFound);
         return;
     }
     // Invalid UTF-8 is malformed, not empty — the file lane reads to a
@@ -70,7 +70,7 @@ fn handle(stream: &mut TcpStream, request: Request, emit: &dyn Fn(Inbound)) {
     // counts as an envelope is the drift this route exists to avoid.
     let Ok(content) = std::str::from_utf8(&request.body) else {
         log::warn!("bridge: dropped envelope: not utf-8");
-        let _ = respond_empty(stream, 400);
+        let _ = respond_empty(stream, Status::BadRequest);
         return;
     };
     match interpret(content) {
@@ -80,13 +80,13 @@ fn handle(stream: &mut TcpStream, request: Request, emit: &dyn Fn(Inbound)) {
             // question a hook asks at a turn boundary — is not this route
             // and does not exist yet; a hook still collects its answer the
             // old way until the adapter lands.
-            let _ = respond_empty(stream, 204);
+            let _ = respond_empty(stream, Status::NoContent);
         }
         // Dropped-and-logged, exactly as a garbage file is: a reporter that
         // wrote nonsense gets told, and nothing retries into a loop.
         Err(reason) => {
             log::warn!("bridge: dropped envelope: {reason}");
-            let _ = respond_empty(stream, 400);
+            let _ = respond_empty(stream, Status::BadRequest);
         }
     }
 }

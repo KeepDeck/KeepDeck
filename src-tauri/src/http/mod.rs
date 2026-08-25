@@ -22,4 +22,4 @@ pub(crate) mod response;
 
 pub(crate) use listener::{bind, Listener};
 pub(crate) use request::{read_request, Limits, Method};
-pub(crate) use response::{respond_empty, respond_with_body};
+pub(crate) use response::{respond_empty, respond_with_body, Status};
