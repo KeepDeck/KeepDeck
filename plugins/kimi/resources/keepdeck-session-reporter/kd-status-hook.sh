@@ -66,15 +66,16 @@ ask=""
 # delayed message, a short window is a lost one.
 ASK_TRIES=40
 ASK_SLEEP=0.05
-# The same patience on the direct lane, spent WAITING rather than polling —
-# one number for one rule, so the two lanes cannot disagree about how long a
-# deck gets to answer. Kept slightly over the poll budget: the deck's own
-# side of the rendezvous times out first, and the answer to a question should
-# come from the deck, not from whoever gave up sooner.
-ASK_MAX=3
 
+# Reading what the deck told this pane about itself.
+#
+# One extractor, one set of names. It was written out three times before this
+# file existed — identically, which is the only reason nothing had drifted yet
+# — and `url` arriving as a fourth field is exactly the moment a fourth copy
+# would have been made.
+#
 # The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a path
-# without quotes — extracting quoted JSON strings with sed is safe here.
+# without quotes, so pulling quoted JSON strings out with sed is safe here.
 field() {
   printf '%s' "$KEEPDECK_BRIDGE" \
     | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
@@ -83,8 +84,9 @@ field() {
 dir=$(field dir)
 pane=$(field pane)
 token=$(field token)
-# Absent on an older deck, or on one whose surface never came up. Whole, not
-# assembled: this script does not know the route and must not learn it.
+# Absent on a deck too old to publish one, or on one whose surface never came
+# up. Whole rather than assembled: a reporter that built an address would be a
+# second thing to edit the day the route moves.
 url=$(field url)
 [ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
@@ -107,6 +109,66 @@ esac
 # Deliberately no fallback when it is empty: guessing an identity is worse
 # than admitting there is none, since the deck reads a wrong one as a
 # DIFFERENT process and would lock a pane out of its own conversation.
+
+# Handing one envelope to the deck, whichever way it can be reached.
+#
+# Two lanes, and the direct one is tried first. The inbox is not a fallback in
+# the sense of "the worse option we keep around" — it is the only lane a deck
+# too old to publish an address has, and the only lane left when the address
+# is there but nothing answers on it. Both are normal.
+#
+# Needs `url` and `dir` in scope, both read from KEEPDECK_BRIDGE by the caller:
+# `url` may be empty (an older deck, or a surface that never came up), `dir`
+# never is — a reporter with no inbox has already exited.
+#
+# `curl` is the one client that can be relied on here. `nc` on macOS races its
+# own stdin EOF and leaves without waiting for a reply, and there is no flag
+# that stops it doing so.
+
+# How long the deck gets to answer. Kept slightly over the poll budget the
+# inbox lane uses, so the deck's own side of a rendezvous times out first: an
+# answer to a question should come from the deck rather than from whichever
+# side gave up sooner.
+SEND_MAX=3
+
+# send_envelope <kind> <envelope>
+#
+# Prints the deck's answer when there is one, and nothing at all otherwise —
+# so a caller with no question to ask can ignore the output entirely.
+#
+# The status code decides, and the three cases are genuinely different:
+#   200 — an answer with something in it. Printed verbatim: the deck rendered
+#         it through the asking agent's own plugin, so the schema is that
+#         CLI's and this function stays ignorant of it.
+#   204 — heard, and there was nothing to say back. The common case.
+#   504 — heard, and the deck never answered in time. NOT a retry: writing a
+#         file now would deliver the same envelope twice.
+# Anything else, or no code at all, means the deck never heard us — and that
+# is what the inbox is for.
+send_envelope() {
+  send_kind=$1
+  send_body=$2
+  if [ -n "$url" ] && command -v curl >/dev/null 2>&1; then
+    send_answer=$(printf '%s' "$send_body" \
+      | curl -s --max-time "$SEND_MAX" -w '\n%{http_code}' \
+          -X POST --data-binary @- "$url" 2>/dev/null)
+    case "$(printf '%s' "$send_answer" | tail -n 1)" in
+      200)
+        printf '%s' "$send_answer" | sed '$d'
+        return 0
+        ;;
+      204 | 504)
+        return 0
+        ;;
+    esac
+  fi
+  # mktemp = the unique name AND the tmp stage; the rename to .json publishes.
+  # `send_file` is global on purpose: a caller that set a trap before calling
+  # reaps the staging file if this process is killed mid-write.
+  send_file=$(mktemp "$dir/$send_kind-XXXXXXXX" 2>/dev/null) || return 0
+  printf '%s' "$send_body" > "$send_file" && mv "$send_file" "$send_file.json"
+  return 0
+}
 
 payload=$(cat)
 [ -n "$payload" ] || exit 0
@@ -175,7 +237,7 @@ fi
 # The trap reaps the staging file if this process is killed mid-write (kimi
 # enforces a hook timeout with a signal) — after a successful mv there is
 # nothing at $f and the rm is a no-op. The inbox never sweeps strays itself.
-trap 'rm -f ${f:+"$f"} ${reserved:+"$reserved"}' EXIT INT TERM
+trap 'rm -f ${send_file:+"$send_file"} ${reserved:+"$reserved"}' EXIT INT TERM
 # The host-owned keys that may or may not be there, built as one fragment so
 # the envelope stays a SINGLE printf. A branch per combination would be four
 # copies of one line, in a file three plugins carry byte-for-byte.
@@ -190,40 +252,7 @@ extra=""
 envelope=$(printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s",%s"event":%s}}' \
   "$pane" "$token" "$agent" "$extra" "$payload")
 
-# THE DIRECT LANE. Try the deck's own address first; fall back to the inbox
-# only when the connection never happened. `curl` is the one client that can
-# be relied on here: `nc` on macOS races its own stdin EOF and leaves without
-# waiting, and there is no flag to stop it.
-#
-# The status code decides, and the three cases are genuinely different:
-#   200 — an answer with mail in it. Printed verbatim.
-#   204 — answered, and nothing was waiting. The common end to a turn.
-#   504 — the deck took the envelope and never answered. NOT a retry: writing
-#         a file now would deliver the same report twice.
-#   anything else, or no code at all — the deck never heard us. The inbox is
-#         still there, and that is what it is for.
-if [ -n "$url" ] && command -v curl >/dev/null 2>&1; then
-  answer=$(printf '%s' "$envelope" \
-    | curl -s --max-time "$ASK_MAX" -w '\n%{http_code}' \
-        -X POST --data-binary @- "$url" 2>/dev/null)
-  code=$(printf '%s' "$answer" | tail -n 1)
-  case "$code" in
-    200)
-      # Printed verbatim, exactly as the file lane prints it: the deck
-      # rendered this through the agent's own plugin and the schema is the
-      # CLI's, not this script's.
-      printf '%s' "$answer" | sed '$d'
-      exit 0
-      ;;
-    204|504)
-      exit 0
-      ;;
-  esac
-fi
-
-# mktemp = the unique name AND the tmp stage; the rename to .json publishes.
-f=$(mktemp "$dir/agent.status-XXXXXXXX" 2>/dev/null) || exit 0
-printf '%s' "$envelope" > "$f" && mv "$f" "$f.json"
+send_envelope agent.status "$envelope"
 
 # Wait for the answer, if one was asked for. Everything about this loop is
 # built to FAIL OPEN: a deck that has quit, a reply that never comes, a

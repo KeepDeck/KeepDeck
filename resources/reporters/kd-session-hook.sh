@@ -37,19 +37,12 @@ case $agent in
   *\"*|*\\*) exit 0 ;;
 esac
 
-# The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a path
-# without quotes — extracting quoted JSON strings with sed is safe here.
-field() {
-  printf '%s' "$KEEPDECK_BRIDGE" \
-    | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    | head -n 1
-}
-dir=$(field dir)
-pane=$(field pane)
-token=$(field token)
+# @include lib/reporter-bridge.sh
 [ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
 # @include lib/reporter-identity.sh
+
+# @include lib/reporter-send.sh
 
 payload=$(cat)
 # session ids are UUIDs — no escapes inside the quoted value, sed is safe.
@@ -136,8 +129,6 @@ body=$(printf '{"agent":"%s","sessionId":"%s"' "$agent" "$sid")
 [ -n "$reporter" ] && body=$(printf '%s,"reporter":"%s"' "$body" "$reporter")
 body="$body}"
 
-# mktemp = the unique name AND the tmp stage; the rename to .json publishes.
-f=$(mktemp "$dir/session.bound-XXXXXXXX") || exit 0
-printf '{"v":1,"type":"session.bound","paneId":"%s","token":"%s","payload":%s}' \
-  "$pane" "$token" "$body" > "$f" && mv "$f" "$f.json"
+send_envelope session.bound "$(printf '{"v":1,"type":"session.bound","paneId":"%s","token":"%s","payload":%s}' \
+  "$pane" "$token" "$body")"
 exit 0
