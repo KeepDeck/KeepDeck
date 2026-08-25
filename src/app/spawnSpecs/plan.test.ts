@@ -10,7 +10,11 @@ import type {
   SpawnSkillsInput,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "./plans";
+import {
+  BRIDGE_PROTOCOL_VERSION,
+  EMPTY_SPAWN_CONTEXT,
+  type SpawnPlan,
+} from "./plans";
 import type { Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createContributionRegistries } from "../../plugins/registries/contributions";
@@ -170,14 +174,21 @@ describe("building one plan through the agent hook", () => {
     // Host-owned arming: the ONE bridge var, token echoed in the plan.
     const env = Object.fromEntries(plan.env);
     const bridge = JSON.parse(env.KEEPDECK_BRIDGE);
-    // The pane's OWN inbox, not the run root: an answer is addressed by pane,
-    // so a correlation aimed at somebody else's pane reaches nobody.
+    // The pane's OWN directory, not the run root: the deck's doorbell is
+    // addressed by pane, so a knock meant for another reaches nobody.
+    //
+    // The version is the CONSTANT, never a literal. Written as `1` here, this
+    // assertion did not witness the field — it agreed with a stale value and
+    // held it in place while the deck moved on. What ties the constant to the
+    // deck's own number, and to every reporter's envelopes, is the pin in
+    // scripts/reporterScripts.test.mjs; this checks only that what the app
+    // speaks is what it arms panes with.
     expect(bridge).toMatchObject({
-      v: 1,
+      v: BRIDGE_PROTOCOL_VERSION,
       dir: "/bridge/run-1/pane-1",
       pane: "pane-1",
-      // The address travels with the inbox, not instead of it: a reporter
-      // that cannot reach it still has a directory to write into.
+      // The address is the only lane a reporter has; the directory beside it
+      // carries the doorbell, which runs the other way.
       url: "http://127.0.0.1:51611/envelope",
     });
     expect(plan.token).toBe(bridge.token);

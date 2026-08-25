@@ -18,10 +18,17 @@
  */
 import type { ResumeOrigin } from "../../domain/agents";
 
-/** Bridge protocol version this app speaks — mirrors `BRIDGE_PROTOCOL_VERSION`
- * in src-tauri/src/bridge/wire.rs (a plain change counter over the env schema AND
- * the envelope schema). */
-export const BRIDGE_PROTOCOL_VERSION = 1;
+/** Bridge protocol version this app speaks — a plain change counter over the
+ * env schema AND the envelope schema.
+ *
+ * One number, three languages, and nothing but a comment held them together
+ * until `scripts/reporterScripts.test.mjs` started pinning them. It said
+ * "mirrors wire.rs" while wire.rs had moved on: the deck refused every
+ * version but 2, this armed panes with 1, and it went unnoticed because
+ * nothing reads the field — reporters carry the version in the envelope
+ * themselves. A var that lies about its own protocol is a var the first
+ * reporter to check it would refuse. */
+export const BRIDGE_PROTOCOL_VERSION = 2;
 
 /** Per-install constants, resolved once at boot (`session_spawn_context`). */
 export interface SpawnPlanContext {

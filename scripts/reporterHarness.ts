@@ -74,27 +74,6 @@ export async function startDeck(
   return {
     url: `http://127.0.0.1:${port}/envelope`,
     envelopes,
-    /**
-     * Wait until `count` envelopes have arrived.
-     *
-     * A reporter that fires and forgets used to be testable the instant it
-     * returned, because its write was synchronous. A post is not, and a test
-     * that asserted straight after the call would be asserting on a request
-     * still in flight. Explicit rather than a sleep: a count is what the test
-     * actually means, and it fails with the count it got.
-     */
-    waitFor: async (count: number, timeoutMs = 2000) => {
-      const until = Date.now() + timeoutMs;
-      while (envelopes.length < count) {
-        if (Date.now() > until) {
-          throw new Error(
-            `waited ${timeoutMs}ms for ${count} envelope(s), got ${envelopes.length}`,
-          );
-        }
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
-      return envelopes;
-    },
     /** Give anything already in flight time to land — for asserting that
      * NOTHING was reported, where there is no count to wait for. */
     idle: () => new Promise((resolve) => setTimeout(resolve, 40)),

@@ -195,6 +195,51 @@ describe("reporter shell scripts", () => {
     expect(pluginWaitMs - deckWaitMs).toBeLessThan(1000);
   });
 
+  it("speaks ONE protocol version, in every language that names it", () => {
+    // The number lives in three places that cannot import each other: the
+    // deck decides it, the app stamps it into KEEPDECK_BRIDGE, and every
+    // reporter writes it into the envelopes it sends. A comment saying
+    // "mirrors wire.rs" is not a mechanism — it went stale the moment the
+    // deck moved to 2 while the app still armed panes with 1, and nothing
+    // noticed, because no reporter reads the field it lied in.
+    const wire = readFileSync("src-tauri/src/bridge/wire.rs", "utf8");
+    const deck = Number(
+      wire.match(/BRIDGE_PROTOCOL_VERSION: u64 = (\d+)/)?.[1],
+    );
+    expect(deck, "no BRIDGE_PROTOCOL_VERSION in wire.rs").toBeGreaterThan(0);
+
+    const plans = readFileSync("src/app/spawnSpecs/plans.ts", "utf8");
+    expect(
+      Number(plans.match(/BRIDGE_PROTOCOL_VERSION = (\d+)/)?.[1]),
+      "the app arms panes with a version the deck does not speak",
+    ).toBe(deck);
+
+    // Every envelope any reporter sends, canonical shell and plugin alike.
+    const senders = [
+      ...readdirSync(CANONICAL_DIR)
+        .filter((name) => name.endsWith(".sh"))
+        .map((name) => join(CANONICAL_DIR, name)),
+      "plugins/opencode/resources/mail-courier.js",
+      "plugins/opencode/resources/session-reporter.js",
+    ];
+    let stamped = 0;
+    for (const path of senders) {
+      const body = readFileSync(path, "utf8");
+      for (const [, version] of body.matchAll(/"v":\s*(\d+)|\bv:\s*(\d+),/g)) {
+        stamped += 1;
+      }
+      for (const match of body.matchAll(/"v":(\d+)|\bv: (\d+),/g)) {
+        expect(
+          Number(match[1] ?? match[2]),
+          `${path} stamps a version the deck refuses`,
+        ).toBe(deck);
+      }
+    }
+    // The guard has to SEE something, or a renamed field would empty it and
+    // it would pass by finding nothing to check.
+    expect(stamped, "no envelope versions found to check").toBeGreaterThan(4);
+  });
+
   it("leaves no reporter writing into the run directory", () => {
     // The cutoff, pinned. Every lane a reporter had for REACHING the deck is
     // the connection now; the run directory carries the doorbell and nothing
