@@ -2,7 +2,6 @@
 //! per-format CSP, the index page, and the export pipeline's byte-zero
 //! meta injection.
 
-use std::io::Write;
 use std::net::TcpStream;
 use std::path::Path;
 
@@ -73,7 +72,7 @@ pub(super) fn serve_artifact(
             page.into_bytes()
         }
     };
-    let _ = respond_csp(stream, 200, MIME_HTML, &body, &[
+    let _ = crate::http::respond_with_body(stream, 200, MIME_HTML, &body, &[
         ("Content-Security-Policy", csp.as_str()),
         // The page is versioned in place and reloads itself on a version
         // event. Nothing here offers a validator, so without this the
@@ -117,7 +116,7 @@ pub(super) fn serve_export(
         body.extend_from_slice(strip_live_refresh(&String::from_utf8_lossy(&bytes)).as_bytes());
     }
     let disposition = format!("attachment; filename=\"{slug}.html\"");
-    let _ = respond_csp(stream, 200, MIME_HTML, &body, &[
+    let _ = crate::http::respond_with_body(stream, 200, MIME_HTML, &body, &[
         ("Content-Disposition", disposition.as_str()),
         // Same reason as the page: no validators anywhere, so a cached
         // export would hand back a version the artifact has moved past.
@@ -164,7 +163,7 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
         .split_once(INDEX_ENTRIES)
         .expect("index asset has its entries marker");
     let body = format!("{before}{entries}{after}");
-    let _ = respond_csp(stream, 200, MIME_HTML, body.as_bytes(), &[
+    let _ = crate::http::respond_with_body(stream, 200, MIME_HTML, body.as_bytes(), &[
         ("Content-Security-Policy", INDEX_CSP),
         // Refresh here IS the browser reload (zero-JS by design), so a
         // cached copy would defeat the only way this page updates.
@@ -286,32 +285,9 @@ fn respond(
     mime: &str,
     body: &[u8],
 ) -> std::io::Result<()> {
-    respond_csp(stream, status, mime, body, &[])
+    crate::http::respond_with_body(stream, status, mime, body, &[])
 }
 
-fn respond_csp(
-    stream: &mut TcpStream,
-    status: u16,
-    mime: &str,
-    body: &[u8],
-    headers: &[(&str, &str)],
-) -> std::io::Result<()> {
-    let reason = if status == 200 { "OK" } else { "Error" };
-    let mut head = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n",
-        body.len()
-    );
-    for (name, value) in headers {
-        head.push_str(name);
-        head.push_str(": ");
-        head.push_str(value);
-        head.push_str("\r\n");
-    }
-    head.push_str("\r\n");
-    stream.write_all(head.as_bytes())?;
-    stream.write_all(body)?;
-    stream.flush()
-}
 
 #[cfg(test)]
 mod tests {

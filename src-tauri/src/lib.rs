@@ -11,6 +11,7 @@ mod downloads;
 mod fswatch;
 mod fs_names;
 mod head_watch;
+mod http;
 mod kimi_usage;
 mod links;
 mod logging;

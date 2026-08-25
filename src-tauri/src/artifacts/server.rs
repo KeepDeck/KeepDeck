@@ -25,7 +25,7 @@
 //! units. Reviewers may ask for the split.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,12 +35,8 @@ use std::time::Duration;
 use crate::artifacts::serve;
 use crate::artifacts::store::{manifest_for, Manifest};
 use crate::artifacts::token::{mint_token, token_eq};
+use crate::http::{read_request, respond_empty};
 
-const HEAD_CAP: usize = 8 * 1024;
-const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
-/// Write bound for every socket op (set once at accept; inherited by
-/// clones) — the value the SSE path already used per-subscriber.
-const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const KEEPALIVE_TICK: Duration = Duration::from_secs(15);
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 const ACCEPT_FAILURE_LIMIT: u32 = 10;
@@ -372,126 +368,44 @@ fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
     }
 }
 
-// ---- HTTP (B2): bounded head parse, GET-only, one request per conn ----
+// ---- routes (B3) ----
 
-struct Request {
-    path: String,
-    /// The `?v=` pin, parsed ONCE here — u64, saturating: every consumer
-    /// gets the same value, and an overflowing pin (25 nines) is a 404
-    /// rather than a silent fall-back-to-latest (the no-oracle rule: a
-    /// digit-shaped v that fails u64 parse once answered 200-latest on
-    /// VALID pairs — a token-guessing oracle).
-    query_v: Option<u64>,
-}
-
-fn read_request(stream: &mut TcpStream) -> Result<Request, u16> {
-    let Ok(()) = stream.set_read_timeout(Some(HEAD_TIMEOUT)) else {
-        return Err(400);
-    };
-    // SO_SNDTIMEO here, on the ACCEPTED socket: socket options are
-    // inherited by every try_clone (the mechanism the SSE path already
-    // relies on) — one set covers the head read, every body write, and
-    // the stored subscriber clone. A stalled peer errors instead of
-    // pinning the connection thread forever.
-    let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
-    let cloned = match stream.try_clone() {
-        Ok(c) => c,
-        Err(_) => return Err(400),
-    };
-    // Bounded from the FIRST byte: read_line buffers an entire line
-    // before any cap check, so a peer streaming bytes with no newline
-    // would grow memory unbounded — Take enforces the 8 KiB cap DURING
-    // the read, not after it.
-    let mut reader = BufReader::new(cloned.take(HEAD_CAP as u64 + 1));
-    let mut request_line = String::new();
-    match reader.read_line(&mut request_line) {
-        Ok(0) => return Err(400),
-        Ok(_) => {}
-        Err(_) => return Err(400),
-    }
-    if request_line.len() > HEAD_CAP {
-        return Err(431);
-    }
-    // Drain the rest of the head (bounded): we never read a body.
-    let mut total = request_line.len();
-    let mut header = String::new();
-    loop {
-        header.clear();
-        match reader.read_line(&mut header) {
-            Ok(0) => break,
-            Ok(n) => {
-                total += n;
-                if total > HEAD_CAP {
-                    return Err(431);
-                }
-                if header == "\r\n" || header == "\n" {
-                    break;
-                }
-            }
-            Err(_) => return Err(400),
-        }
-    }
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("");
-    let target = parts.next().unwrap_or("");
-    if method != "GET" {
-        return Err(405);
-    }
-    let (path, query) = match target.split_once('?') {
-        Some((p, q)) => (p, Some(q)),
-        None => (target, None),
-    };
-    let query_v = query.and_then(|q| {
+/// The `?v=` pin, this surface's own vocabulary — read ONCE, before any
+/// route is chosen, so every consumer downstream gets the same value and a
+/// malformed pin is refused at the same moment it always was.
+///
+/// Saturating rather than rejecting on overflow (the no-oracle rule): a
+/// digit-shaped `v` that fails a u64 parse once answered 200-latest on VALID
+/// pairs, which is a token-guessing oracle. `u64::MAX` is never found in a
+/// manifest's dense 1..n, so every consumer treats it as a 404 pin instead.
+fn version_pin(query: Option<&str>) -> Result<Option<u64>, u16> {
+    let Some(raw) = query.and_then(|q| {
         q.split('&').find_map(|pair| {
             let (k, v) = pair.split_once('=')?;
             (k == "v").then(|| v.to_string())
         })
-    });
-    if let Some(v) = &query_v {
-        if v.is_empty() || !v.chars().all(|c| c.is_ascii_digit()) {
-            return Err(400);
-        }
-    }
-    let query_v = match query_v {
-        None => None,
-        // Digits that don't fit u64: None pin → latest semantics would
-        // be the 200-oracle; Some-impossible instead — treated as a 404
-        // pin by every consumer (never found in a manifest's dense 1..n).
-        Some(text) => Some(text.parse::<u64>().unwrap_or(u64::MAX)),
+    }) else {
+        return Ok(None);
     };
-    Ok(Request {
-        path: percent_decode(path),
-        query_v,
-    })
-}
-
-fn percent_decode(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        // Decode-BEFORE-split: a %2f becomes a separator, so encoding
-        // cannot smuggle extra structure INTO a segment — routes only
-        // match literal shapes.
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hex = |b: u8| (b as char).to_digit(16);
-            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                out.push((hi * 16 + lo) as u8);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
+    if raw.is_empty() || !raw.chars().all(|c| c.is_ascii_digit()) {
+        return Err(400);
     }
-    String::from_utf8_lossy(&out).into_owned()
+    Ok(Some(raw.parse::<u64>().unwrap_or(u64::MAX)))
 }
-
-// ---- routes (B3) ----
 
 fn handle_connection(mut stream: TcpStream, shared: Arc<Shared>) {
     let request = match read_request(&mut stream) {
         Ok(request) => request,
+        Err(status) => {
+            let _ = respond_empty(&mut stream, status);
+            return;
+        }
+    };
+    // Before the dead check and before routing, exactly where the shared
+    // parser used to do it — so a malformed pin still answers 400 whatever
+    // the path was, and the status never depends on route knowledge.
+    let query_v = match version_pin(request.query.as_deref()) {
+        Ok(pin) => pin,
         Err(status) => {
             let _ = respond_empty(&mut stream, status);
             return;
@@ -519,7 +433,7 @@ fn handle_connection(mut stream: TcpStream, shared: Arc<Shared>) {
                         &ws,
                         &manifest,
                         slug,
-                        request.query_v,
+                        query_v,
                     );
                 }
                 None => {
@@ -530,7 +444,7 @@ fn handle_connection(mut stream: TcpStream, shared: Arc<Shared>) {
         ["a", token, slug, "events"] => {
             match resolve_by_token(&shared, token, slug) {
                 Some((ws, manifest)) => {
-                    subscribe(stream, &shared, ws, slug, manifest, request.query_v);
+                    subscribe(stream, &shared, ws, slug, manifest, query_v);
                 }
                 None => {
                     let _ = not_found(&mut stream);
@@ -709,24 +623,13 @@ fn tick_loop(shared: Arc<Shared>) {
     }
 }
 
-fn respond_empty(stream: &mut TcpStream, status: u16) -> std::io::Result<()> {
-    let reason = match status {
-        400 => "Bad Request",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        431 => "Request Header Fields Too Large",
-        _ => "Error",
-    };
-    stream.write_all(
-        format!("HTTP/1.1 {status} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .as_bytes(),
-    )?;
-    stream.flush()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The traits the file itself no longer needs: the head parse that used
+    // them moved to `crate::http`, but these tests still speak to sockets
+    // directly.
+    use std::io::{BufRead, BufReader, Read};
     use crate::artifacts::store::{
         ArtifactFormat, ArtifactsStore, PublishIdentity, PublishRequest,
     };
