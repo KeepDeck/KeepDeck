@@ -224,8 +224,19 @@ pub fn session_spawn(
     let session_id = id.clone();
     std::thread::spawn(move || {
         let registry = app.state::<SessionRegistry>();
-        for event in events {
+        while let Some(event) = events.recv() {
             let is_exit = matches!(event, PtyEvent::Exited(_));
+            // The queue marks output it had to drop; this is the one place that
+            // reads the mark, so a stall long enough to lose bytes leaves a
+            // trace in the log and not only on the screen. It arrives when the
+            // mark is finally drained — i.e. once delivery is moving again.
+            if let PtyEvent::Output(bytes) = &event {
+                if let Some(lost) = keepdeck_pty::parse_drop_marker(bytes) {
+                    log::warn!(
+                        "session {session_id}: output dropped — {lost} bytes lost to a stalled consumer"
+                    );
+                }
+            }
             if on_event.send(SessionEvent::from(event)).is_err() {
                 // Webview dropped the channel (reload/close). Kill the child so
                 // its reader/reaper thread sees EOF and exits — otherwise we leak
@@ -278,15 +289,14 @@ pub fn session_close(registry: State<SessionRegistry>, id: String) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keepdeck_pty::ExitInfo;
-    use std::sync::mpsc::Receiver;
+    use keepdeck_pty::{Consumer, ExitInfo};
 
-    /// A real session running `script`. The receiver is handed back and MUST
-    /// be held: the pump thread kills its child the moment a send fails, so a
-    /// dropped receiver would end the process for reasons that have nothing
-    /// to do with what is being tested.
+    /// A real session running `script`. The reading end is handed back and MUST
+    /// be held: the pump thread kills its child the moment nobody is listening,
+    /// so a dropped consumer would end the process for reasons that have
+    /// nothing to do with what is being tested.
     #[cfg(unix)]
-    fn session(script: &str) -> (PtySession, Receiver<PtyEvent>) {
+    fn session(script: &str) -> (PtySession, Consumer) {
         PtySession::spawn(PtySpec {
             command: "/bin/sh".into(),
             args: vec!["-c".into(), script.into()],
@@ -301,10 +311,10 @@ mod tests {
     /// Wait for a session's final exit event, or fail. Output events on the
     /// way are discarded — only the ending is the claim.
     #[cfg(unix)]
-    fn expect_exit(events: &Receiver<PtyEvent>, within: Duration) {
+    fn expect_exit(events: &Consumer, within: Duration) {
         let started = Instant::now();
         while started.elapsed() < within {
-            if let Ok(PtyEvent::Exited(_)) = events.recv_timeout(Duration::from_millis(50)) {
+            if let Some(PtyEvent::Exited(_)) = events.recv_timeout(Duration::from_millis(50)) {
                 return;
             }
         }

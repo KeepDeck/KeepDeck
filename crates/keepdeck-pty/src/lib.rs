@@ -18,7 +18,6 @@ pub use output::{parse_drop_marker, Consumer, OutputQueue, Producer, PushOutcome
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -26,11 +25,6 @@ use std::time::Duration;
 use portable_pty::{
     native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize,
 };
-
-/// Cap on buffered PTY events per session. Bounds memory under a flooding child
-/// (each event is one read of up to 4 KiB) while leaving generous headroom; a
-/// full channel backpressures the pump thread instead of growing without limit.
-const EVENT_CHANNEL_CAP: usize = 1024;
 
 /// How long a child gets between being asked to stop and being made to.
 ///
@@ -134,10 +128,13 @@ pub struct PtySession {
 }
 
 impl PtySession {
-    /// Spawn `spec` in a fresh PTY. Returns the session handle and a receiver of
-    /// its events: zero or more [`PtyEvent::Output`] chunks followed by exactly
-    /// one final [`PtyEvent::Exited`].
-    pub fn spawn(spec: PtySpec) -> io::Result<(Self, Receiver<PtyEvent>)> {
+    /// Spawn `spec` in a fresh PTY. Returns the session handle and the reading
+    /// end of its events: zero or more [`PtyEvent::Output`] chunks followed by
+    /// exactly one final [`PtyEvent::Exited`].
+    ///
+    /// Dropping the [`Consumer`] tells the reader thread nobody is listening,
+    /// and it stops and reaps the child rather than reading into a void.
+    pub fn spawn(spec: PtySpec) -> io::Result<(Self, Consumer)> {
         let pty = native_pty_system();
         let pair = pty
             .openpty(pty_size(spec.size.cols, spec.size.rows))
@@ -197,8 +194,8 @@ impl PtySession {
         };
 
         let exited = Arc::new(AtomicBool::new(false));
-        let (tx, rx) = mpsc::sync_channel::<PtyEvent>(EVENT_CHANNEL_CAP);
-        spawn_pump(reader, child, tx, exited.clone());
+        let (producer, consumer) = OutputQueue::new(OUTPUT_CAP_BYTES).split();
+        spawn_pump(reader, child, producer, exited.clone());
 
         Ok((
             Self {
@@ -208,7 +205,7 @@ impl PtySession {
                 pid,
                 exited,
             },
-            rx,
+            consumer,
         ))
     }
 
@@ -308,10 +305,15 @@ impl PtySession {
 /// Reader + reaper thread: streams output, then waits for exit and emits it last.
 /// Owning `child` here (rather than a separate waiter thread) is what guarantees
 /// every `Output` precedes the `Exited` event.
+///
+/// The loop never waits on the queue. That is the whole point of the queue: a
+/// master left unread stalls the child within a kilobyte, so anything that can
+/// pause this thread can freeze a live agent. Output lost to the queue's cap is
+/// marked in the stream and is not this thread's concern.
 fn spawn_pump(
     mut reader: Box<dyn Read + Send>,
     mut child: Box<dyn Child + Send + Sync>,
-    tx: SyncSender<PtyEvent>,
+    producer: Producer,
     exited: Arc<AtomicBool>,
 ) {
     thread::spawn(move || {
@@ -320,10 +322,11 @@ fn spawn_pump(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if tx.send(PtyEvent::Output(buf[..n].to_vec())).is_err() {
-                        // Receiver dropped (webview gone): kill the child first so
-                        // it stops writing — otherwise wait() blocks forever on an
-                        // undrained PTY the child keeps filling — then reap it.
+                    let outcome = producer.push(PtyEvent::Output(buf[..n].to_vec()));
+                    if outcome == PushOutcome::ConsumerGone {
+                        // Nobody is listening (webview gone): kill the child first
+                        // so it stops writing — otherwise wait() blocks forever on
+                        // an undrained PTY the child keeps filling — then reap it.
                         let _ = child.kill();
                         let _ = child.wait();
                         exited.store(true, Ordering::Relaxed);
@@ -345,7 +348,7 @@ fn spawn_pump(
             },
         };
         exited.store(true, Ordering::Relaxed);
-        let _ = tx.send(PtyEvent::Exited(info));
+        producer.push(PtyEvent::Exited(info));
     });
 }
 

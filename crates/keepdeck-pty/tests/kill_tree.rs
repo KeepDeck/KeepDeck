@@ -4,37 +4,36 @@
 
 #![cfg(unix)]
 
-use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use keepdeck_pty::{PtyEvent, PtySession, PtySpec, TermSize};
+use keepdeck_pty::{Consumer, PtyEvent, PtySession, PtySpec, TermSize};
 
 /// Accumulate PTY output until `pattern` shows up, or panic at `deadline`.
-fn read_until(events: &Receiver<PtyEvent>, pattern: &str, deadline: Duration) -> String {
+fn read_until(events: &Consumer, pattern: &str, deadline: Duration) -> String {
     let started = Instant::now();
     let mut seen = String::new();
     while started.elapsed() < deadline {
         match events.recv_timeout(Duration::from_millis(200)) {
-            Ok(PtyEvent::Output(bytes)) => {
+            Some(PtyEvent::Output(bytes)) => {
                 seen.push_str(&String::from_utf8_lossy(&bytes));
                 if seen.contains(pattern) {
                     return seen;
                 }
             }
-            Ok(PtyEvent::Exited(info)) => {
+            Some(PtyEvent::Exited(info)) => {
                 panic!("child exited ({info:?}) before {pattern:?}; output: {seen}")
             }
-            Err(_) => {}
+            None => {}
         }
     }
     panic!("timed out waiting for {pattern:?}; output so far: {seen}");
 }
 
 /// Wait for the final `Exited` event, or panic at `deadline`.
-fn wait_exit(events: &Receiver<PtyEvent>, deadline: Duration) {
+fn wait_exit(events: &Consumer, deadline: Duration) {
     let started = Instant::now();
     while started.elapsed() < deadline {
-        if let Ok(PtyEvent::Exited(_)) = events.recv_timeout(Duration::from_millis(200)) {
+        if let Some(PtyEvent::Exited(_)) = events.recv_timeout(Duration::from_millis(200)) {
             return;
         }
     }
@@ -47,7 +46,7 @@ fn alive(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 }
 }
 
-fn spawn_sh(script: &str) -> (PtySession, Receiver<PtyEvent>) {
+fn spawn_sh(script: &str) -> (PtySession, Consumer) {
     PtySession::spawn(PtySpec {
         command: "/bin/sh".into(),
         args: vec!["-c".into(), script.into()],

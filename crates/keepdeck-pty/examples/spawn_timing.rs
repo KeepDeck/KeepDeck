@@ -28,11 +28,11 @@ fn main() {
 
     for (i, (_session, rx, since)) in sessions.iter().enumerate() {
         match rx.recv_timeout(Duration::from_secs(15)) {
-            Ok(PtyEvent::Output(bytes)) => {
+            Some(PtyEvent::Output(bytes)) => {
                 println!("#{i:>2} first output: {:?} ({} bytes)", since.elapsed(), bytes.len());
             }
-            Ok(PtyEvent::Exited(_)) => println!("#{i:>2} exited before output"),
-            Err(_) => println!("#{i:>2} NO output within 15s"),
+            Some(PtyEvent::Exited(_)) => println!("#{i:>2} exited before output"),
+            None => println!("#{i:>2} NO output within 15s"),
         }
     }
 }

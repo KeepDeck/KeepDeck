@@ -1,10 +1,9 @@
 //! Integration tests for [`PtySession`] — they spawn real processes in a PTY and
 //! assert the streamed events. Unix-only commands (`echo`, `sh`, `cat`).
 
-use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use keepdeck_pty::{ExitInfo, PtyEvent, PtySession, PtySpec, TermSize};
+use keepdeck_pty::{Consumer, ExitInfo, PtyEvent, PtySession, PtySpec, TermSize};
 
 fn spec(command: &str, args: &[&str]) -> PtySpec {
     PtySpec {
@@ -19,14 +18,14 @@ fn spec(command: &str, args: &[&str]) -> PtySpec {
 
 /// Drain events until `Exited` (or timeout), returning accumulated output and the
 /// exit info if the session ended in time.
-fn run_to_exit(rx: &Receiver<PtyEvent>, timeout: Duration) -> (Vec<u8>, Option<ExitInfo>) {
+fn run_to_exit(rx: &Consumer, timeout: Duration) -> (Vec<u8>, Option<ExitInfo>) {
     let mut out = Vec::new();
     let deadline = Instant::now() + timeout;
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         match rx.recv_timeout(remaining) {
-            Ok(PtyEvent::Output(bytes)) => out.extend_from_slice(&bytes),
-            Ok(PtyEvent::Exited(info)) => return (out, Some(info)),
-            Err(_) => break,
+            Some(PtyEvent::Output(bytes)) => out.extend_from_slice(&bytes),
+            Some(PtyEvent::Exited(info)) => return (out, Some(info)),
+            None => break,
         }
     }
     (out, None)
@@ -65,14 +64,14 @@ fn echoes_written_input() {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         match rx.recv_timeout(Duration::from_millis(200)) {
-            Ok(PtyEvent::Output(bytes)) => {
+            Some(PtyEvent::Output(bytes)) => {
                 seen.push_str(&String::from_utf8_lossy(&bytes));
                 if seen.contains("ping") {
                     break;
                 }
             }
-            Ok(PtyEvent::Exited(_)) => break,
-            Err(_) => {}
+            Some(PtyEvent::Exited(_)) => break,
+            None => {}
         }
     }
     assert!(seen.contains("ping"), "expected echoed input, saw: {seen:?}");
