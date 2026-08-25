@@ -179,16 +179,6 @@ struct ReplyUncollected {
 /// Errors are surfaced: a spawn whose reporters have nowhere to write should
 /// be armed without a bridge rather than armed with a path that does not
 /// exist, and only the caller can make that choice.
-/// Where a reporter reaches the deck without touching the inbox.
-///
-/// The port is minted at boot and dies with the run, so it is asked for
-/// rather than remembered: a number cached across runs would name whatever
-/// took the port next.
-#[tauri::command]
-pub fn bridge_endpoint(bridge: tauri::State<Bridge>) -> u16 {
-    bridge.port
-}
-
 #[tauri::command]
 pub fn bridge_pane_dir(bridge: tauri::State<Bridge>, pane: String) -> Result<String, String> {
     spool::pane_dir(&bridge.run_dir, &pane).map(|dir| dir.to_string_lossy().into_owned())

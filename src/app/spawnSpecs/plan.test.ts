@@ -69,6 +69,7 @@ const runtime = { plugins } as unknown as AppRuntime;
 const ctx = {
   ...EMPTY_SPAWN_CONTEXT,
   bridgeDir: "/bridge/run-1",
+  bridgePort: 51611,
   paneBridgeDir: (paneId: string) => Promise.resolve(`/bridge/run-1/${paneId}`),
 };
 const W1: WorkspaceRef = { id: "ws-1", instance: "workspace-instance-1" };
@@ -133,14 +134,17 @@ describe("building one plan through the agent hook", () => {
   /** Build every live pane's plan, the way the orchestrator's reconcile does,
    *  and collect what landed in the cache. No render: deciding what a pane
    *  runs stopped needing one. */
-  const mount = async (workspaces: Workspace[]) => {
+  const mount = async (
+    workspaces: Workspace[],
+    context: typeof ctx = ctx,
+  ) => {
     for (const workspace of workspaces) {
       for (const pane of workspace.panes) {
         await buildLivePaneSpec(
           runtime.plugins,
           workspace,
           pane,
-          ctx,
+          context,
           { stagedSkills, mcpAccess },
         );
       }
@@ -172,8 +176,25 @@ describe("building one plan through the agent hook", () => {
       v: 1,
       dir: "/bridge/run-1/pane-1",
       pane: "pane-1",
+      // The address travels with the inbox, not instead of it: a reporter
+      // that cannot reach the port still has a directory to write into.
+      port: 51611,
     });
     expect(plan.token).toBe(bridge.token);
+  });
+
+  it("leaves the port out entirely when the bridge has no surface", async () => {
+    // Absent rather than zero: a reporter tests for the field, and a `0`
+    // that reads as present is a reporter dialling a port nobody holds.
+    register(adopting);
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]), {
+      ...ctx,
+      bridgePort: 0,
+    });
+    await settle();
+
+    const env = Object.fromEntries(seen["pane-1"].env);
+    expect(JSON.parse(env.KEEPDECK_BRIDGE)).not.toHaveProperty("port");
   });
 
   it("a pane's YOLO mode reaches the hook input on spawn AND resume", async () => {

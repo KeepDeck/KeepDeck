@@ -258,6 +258,11 @@ export async function buildPlan(
               dir: paneDir,
               pane: paneId,
               token,
+              // ADDITIVE, so the version does not move: a reporter that
+              // knows nothing of `port` reads the fields it knows and
+              // writes a file, exactly as it does today. The version is
+              // for changes that would make an old reporter WRONG.
+              ...(ctx.bridgePort ? { port: ctx.bridgePort } : {}),
             }),
           ],
         ]

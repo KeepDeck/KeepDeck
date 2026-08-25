@@ -46,8 +46,16 @@ export function onSessionBound(
 }
 
 /** The per-install spawn-plan context (mirrors the Rust `SpawnContextDto`):
- * this run's bridge inbox, resolved once at boot. */
-export function spawnContext(): Promise<{ bridgeDir: string }> {
+ * this run's bridge inbox and the port its surface answers on, resolved
+ * once at boot. */
+export interface SpawnContextDto {
+  /** This run's bridge inbox; "" = unavailable. */
+  bridgeDir: string;
+  /** The port its surface answers on; 0 = unavailable. */
+  bridgePort: number;
+}
+
+export function spawnContext(): Promise<SpawnContextDto> {
   return invoke("session_spawn_context");
 }
 
@@ -64,13 +72,3 @@ export function paneBridgeDir(paneId: string): Promise<string> {
   return invoke("bridge_pane_dir", { pane: paneId });
 }
 
-/**
- * The port this run's bridge answers on, for reporters that speak to the
- * deck directly rather than through the inbox.
- *
- * Asked for rather than remembered: the port is minted at boot and dies with
- * the run, so a cached number would eventually name whatever took it next.
- */
-export function bridgeEndpoint(): Promise<number> {
-  return invoke("bridge_endpoint");
-}

@@ -17,19 +17,31 @@ pub struct SpawnContextDto {
     /// This run's bridge inbox — spawn plans advertise it (with the pane id
     /// and a per-spawn token) through the single `KEEPDECK_BRIDGE` env var.
     pub bridge_dir: String,
+    /// The port this run's bridge answers on, advertised through the same
+    /// var. Zero means unavailable, the same way an empty dir does — a
+    /// reporter that finds no port writes a file, which still works.
+    pub bridge_port: u16,
 }
 
 /// The spawn-plan context, resolved once at webview boot.
 #[tauri::command]
 pub fn session_spawn_context(app: AppHandle) -> Result<SpawnContextDto, String> {
+    // Managed at setup; absent only if the bridge failed to start, in which
+    // case identity mechanisms are off ("" / 0 = unavailable).
+    let bridge = app.try_state::<crate::bridge::Bridge>();
     let dto = SpawnContextDto {
-        // Managed at setup; absent only if the bridge failed to start, in
-        // which case identity mechanisms are off ("" = unavailable).
-        bridge_dir: app
-            .try_state::<crate::bridge::Bridge>()
+        // Both read from ONE state lookup: a dir without its port, or the
+        // other way round, would be a half-armed bridge nobody declared.
+        bridge_dir: bridge
+            .as_ref()
             .map(|b| b.run_dir.to_string_lossy().into_owned())
             .unwrap_or_default(),
+        bridge_port: bridge.as_ref().map(|b| b.port).unwrap_or_default(),
     };
-    log::info!("spawn-context: bridge={}", !dto.bridge_dir.is_empty());
+    log::info!(
+        "spawn-context: bridge={} port={}",
+        !dto.bridge_dir.is_empty(),
+        dto.bridge_port
+    );
     Ok(dto)
 }

@@ -27,6 +27,9 @@ export interface SpawnPlanContext {
   /** This run's bridge inbox — the root the panes' own inboxes live under;
    * "" = bridge unavailable, identity mechanisms off. */
   bridgeDir: string;
+  /** The port this run's bridge surface answers on; 0 = unavailable, and a
+   * reporter that finds none writes a file instead — which still works. */
+  bridgePort: number;
   /** Create (or reuse) the inbox belonging to ONE pane and answer its path.
    * Asked per spawn, because the directory has to exist before the agent
    * that writes into it. */
@@ -36,6 +39,7 @@ export interface SpawnPlanContext {
 /** A context with the bridge off — safe boot fallback. */
 export const EMPTY_SPAWN_CONTEXT: SpawnPlanContext = {
   bridgeDir: "",
+  bridgePort: 0,
   paneBridgeDir: () => Promise.reject(new Error("the bridge is unavailable")),
 };
 
