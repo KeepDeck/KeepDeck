@@ -16,6 +16,10 @@
  */
 import { randomUUID } from "node:crypto";
 import { renameSync, writeFileSync } from "node:fs";
+// Built in, like everything else this file leans on: a reporter that needed
+// a dependency installed would be a reporter that stops working the moment
+// somebody ships without it.
+import { request as httpRequest } from "node:http";
 import { join } from "node:path";
 
 /**
@@ -44,8 +48,12 @@ export function readBridge() {
   } catch {
     return null;
   }
-  const { dir, pane, token } = bridge ?? {};
-  return dir && pane && token ? { dir, pane, token } : null;
+  const { dir, pane, token, url } = bridge ?? {};
+  // `url` is optional: a deck too old to publish one, or one whose surface
+  // never came up, still hands out an inbox — and the inbox still works.
+  return dir && pane && token
+    ? { dir, pane, token, url: typeof url === "string" ? url : "" }
+    : null;
 }
 
 /**
@@ -65,6 +73,91 @@ export function publish(dir, envelope) {
   } catch {
     return false;
   }
+}
+
+
+/**
+ * Hand one envelope to the deck, whichever way it can be reached.
+ *
+ * The direct lane first, the inbox when the deck was never heard from. The
+ * inbox is not the worse option kept around — it is the only lane an older
+ * deck has, and the only one left when an address is published but nothing
+ * answers there.
+ *
+ * `answer` is the deck's reply when it had one to give, and `null` otherwise.
+ * A caller with no question to ask can ignore it entirely.
+ *
+ * The status code decides, and the three cases differ in what the caller must
+ * then do:
+ *   200 — an answer with something in it, carried back verbatim.
+ *   204 — heard, nothing to say back. The common case.
+ *   504 — heard, and the deck never answered in time.
+ * Anything else, or no response at all, means the deck never heard us.
+ *
+ * 204 and 504 mean different things and are DELIBERATELY treated alike here,
+ * because the only decision at this point is whether to write a file — and
+ * for that they are the same: the deck has the envelope, so writing one now
+ * would deliver it twice.
+ *
+ * Nothing is lost by not telling them apart. The deck logs the timeout on
+ * its own side, where something actually went wrong and where there is a log
+ * to put it in; these plugins have none. And a caller has nothing to do
+ * differently: if the deck answers late, its reply finds no one waiting,
+ * falls through to a file, and its own watchdog puts the messages back.
+ */
+export async function sendEnvelope(bridge, envelope) {
+  if (bridge.url) {
+    const posted = await post(bridge.url, JSON.stringify(envelope));
+    if (posted.status === 200) return { delivered: true, answer: posted.body };
+    if (posted.status === 204 || posted.status === 504) {
+      return { delivered: true, answer: null };
+    }
+  }
+  return { delivered: publish(bridge.dir, envelope), answer: null };
+}
+
+/** How long the deck gets to answer, matching the shell reporters' patience:
+ * one number for one rule, so no two lanes disagree about it. */
+const SEND_TIMEOUT_MS = 3000;
+
+/** One POST, resolving to `{ status, body }` — `status` is 0 when nothing
+ * answered at all, which is the case the inbox exists for. */
+function post(url, body) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    try {
+      const request = httpRequest(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(body),
+          },
+        },
+        (response) => {
+          let text = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => (text += chunk));
+          response.on("end", () => done({ status: response.statusCode ?? 0, body: text }));
+          response.on("error", () => done({ status: 0, body: "" }));
+        },
+      );
+      request.setTimeout(SEND_TIMEOUT_MS, () => {
+        request.destroy();
+        done({ status: 0, body: "" });
+      });
+      request.on("error", () => done({ status: 0, body: "" }));
+      request.end(body);
+    } catch {
+      done({ status: 0, body: "" });
+    }
+  });
 }
 
 /**

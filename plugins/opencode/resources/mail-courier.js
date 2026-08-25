@@ -37,8 +37,8 @@ import { join } from "node:path";
 import {
   REPORTER,
   createSubagentIndex,
-  publish,
   readBridge,
+  sendEnvelope,
 } from "./keepdeck-bridge.js";
 
 /** The answer shape this courier understands. The deck stamps it; a shape
@@ -96,7 +96,7 @@ export default async (input = {}) => {
    */
   const ask = async () => {
     const correlation = randomUUID();
-    const sent = publish(dir, {
+    const envelope = {
       v: 1,
       type: "agent.status",
       paneId: pane,
@@ -107,8 +107,18 @@ export default async (input = {}) => {
         reply: correlation,
         event: { type: "mail.ask" },
       },
-    });
-    if (!sent) return null;
+    };
+    // The direct lane answers on the same call, so there is no file to poll
+    // for and no window in which an answer exists that nobody has come for.
+    // What comes back is the deck's own rendering, read exactly as the file
+    // lane reads it below — one parser, whichever way the bytes arrived.
+    const sent = await sendEnvelope(bridge, envelope);
+    if (!sent.delivered) return null;
+    if (sent.answer !== null) return readAnswer(sent.answer);
+    // Delivered with nothing to collect: either there was no mail, or the
+    // deck went quiet. Both mean this turn has nothing to inject, and the
+    // queue keeps whatever it kept.
+    if (bridge.url) return null;
     const path = join(dir, `${correlation}.reply`);
     for (let tries = ASK_TRIES; tries > 0; tries--) {
       let body;
@@ -124,16 +134,21 @@ export default async (input = {}) => {
         await sleep(ASK_SLEEP_MS);
         continue;
       }
-      // An EMPTY answer is the common one and a real one: nothing waiting.
-      if (body === "") return null;
-      try {
-        const answer = JSON.parse(body);
-        return answer?.v === REPLY_VERSION ? answer : null;
-      } catch {
-        return null;
-      }
+      return readAnswer(body);
     }
     return null; // the deck never answered — the message stays in its queue
+  };
+
+  /** One reading of an answer, whichever lane carried it. An EMPTY one is
+   * the common case and a real one: nothing was waiting. */
+  const readAnswer = (body) => {
+    if (body === "") return null;
+    try {
+      const answer = JSON.parse(body);
+      return answer?.v === REPLY_VERSION ? answer : null;
+    } catch {
+      return null;
+    }
   };
 
   const textPart = (text, synthetic) => ({

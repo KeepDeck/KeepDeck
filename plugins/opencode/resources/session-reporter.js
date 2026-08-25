@@ -26,7 +26,7 @@
 import {
   REPORTER,
   createSubagentIndex,
-  publish as publishTo,
+  sendEnvelope,
   readBridge,
 } from "./keepdeck-bridge.js";
 
@@ -37,8 +37,15 @@ export default async (input = {}) => {
 
   const client = input?.client;
 
-  /** Atomically drop one bridge envelope into this pane's inbox. */
-  const publish = (envelope) => publishTo(dir, envelope);
+  /** Hand one envelope to the deck — the direct lane when there is an
+   * address, the inbox when there is not.
+   *
+   * Fire-and-forget: no caller here asks a question, and none reads the
+   * result. Awaiting it would make every turn-lifecycle edge wait on a round
+   * trip it has nothing to do with. */
+  const publish = (envelope) => {
+    void sendEnvelope(bridge, envelope);
+  };
 
   // Per-message latest snapshot for the ACTIVE ROOT session and all of its
   // descendants, summed into the session cumulative. A new root session owns a
