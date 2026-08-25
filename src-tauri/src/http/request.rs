@@ -10,10 +10,10 @@
 //! vocabulary, and parsing it here would put a consumer's dialect in the
 //! shared parser.
 //!
-//! So is the METHOD. GET-only is a rule the artifacts surface keeps for its
-//! own reasons; the bridge takes envelopes by POST. A parser that refused
-//! anything but GET would be one surface's policy sitting in everyone's
-//! path, so the method is reported and the surface decides.
+//! So is the METHOD — reported, never judged. GET-only is a rule the
+//! artifacts surface keeps for its own reasons; the bridge takes envelopes
+//! by POST. A parser that refused anything but GET would be one surface's
+//! policy sitting in everyone's path.
 
 use std::io::{BufRead, BufReader, Read};
 use std::net::TcpStream;
@@ -26,6 +26,32 @@ pub(crate) const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// Write bound for every socket op (set once at accept; inherited by
 /// clones) — a stalled peer errors instead of pinning a thread forever.
 pub(crate) const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The methods this HTTP speaks, as a closed set.
+///
+/// Closed with no escape hatch: anything else is refused by the parser
+/// before a surface sees it. Carrying an unknown token through would leave
+/// every surface to decide about a method nobody designed for, and the first
+/// one to forget would have undefined behaviour rather than a refusal.
+///
+/// This is vocabulary, not policy. WHICH of these a surface accepts stays
+/// its own rule — artifacts answers reads only, the bridge takes envelopes
+/// — and both refuse in their own words, for their own reasons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Method {
+    Get,
+    Post,
+}
+
+impl Method {
+    fn parse(token: &str) -> Option<Self> {
+        match token {
+            "GET" => Some(Self::Get),
+            "POST" => Some(Self::Post),
+            _ => None,
+        }
+    }
+}
 
 /// How much body a surface will take. Zero means it takes none — a request
 /// that carries one is refused rather than silently truncated, because a
@@ -41,7 +67,7 @@ impl Limits {
 }
 
 pub(crate) struct Request {
-    pub(crate) method: String,
+    pub(crate) method: Method,
     pub(crate) path: String,
     /// Everything after `?`, undecoded and uninterpreted. Absent when the
     /// target carried none; present-but-empty when it ended in a bare `?`.
@@ -113,11 +139,16 @@ pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Req
         }
     }
     let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("").to_string();
+    let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("");
     if method.is_empty() || target.is_empty() {
         return Err(400);
     }
+    // Refused here, once: a method this layer does not speak never reaches a
+    // route table, so no surface can be the one that forgot about it.
+    let Some(method) = Method::parse(method) else {
+        return Err(405);
+    };
     let body = match declared_len {
         None | Some(0) => Vec::new(),
         Some(len) => {
@@ -172,7 +203,7 @@ fn percent_decode(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{percent_decode, read_request, Limits};
+    use super::{percent_decode, read_request, Limits, Method};
     use std::io::Write as _;
     use std::net::{TcpListener, TcpStream};
 
@@ -207,7 +238,7 @@ mod tests {
         );
         let request = round_trip(&head, &body, Limits { max_body: 256 * 1024 })
             .expect("a body inside the limit must parse");
-        assert_eq!(request.method, "POST");
+        assert_eq!(request.method, Method::Post);
         assert_eq!(request.path, "/bridge/envelope");
         assert_eq!(request.body.len(), body.len());
         assert!(request.body.iter().all(|b| *b == b'x'));
@@ -236,11 +267,18 @@ mod tests {
     }
 
     #[test]
-    fn the_method_is_reported_rather_than_judged() {
-        // GET-only is one surface's rule, so the parser must not keep it.
+    fn a_method_this_layer_does_not_speak_never_reaches_a_surface() {
+        // Not carried through as an unknown: the first surface to forget
+        // about it would have undefined behaviour instead of a refusal.
         let head = "DELETE /x HTTP/1.1\r\nHost: x\r\n\r\n";
-        let request = round_trip(head, b"", Limits::NO_BODY).expect("method is not policy here");
-        assert_eq!(request.method, "DELETE");
+        assert_eq!(round_trip(head, b"", Limits::NO_BODY).err(), Some(405));
+    }
+
+    #[test]
+    fn the_methods_it_does_speak_arrive_typed() {
+        let get = round_trip("GET /x HTTP/1.1\r\nHost: x\r\n\r\n", b"", Limits::NO_BODY)
+            .expect("GET is spoken here");
+        assert_eq!(get.method, Method::Get);
     }
 
 

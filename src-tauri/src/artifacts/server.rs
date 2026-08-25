@@ -304,7 +304,7 @@ fn handle_connection(mut stream: TcpStream, request: Request, shared: Arc<Shared
     // INVARIANT: this surface answers reads and nothing else. The rule used
     // to live in the shared parser, which made it every surface's rule; it
     // belongs here, where the reason for it is.
-    if request.method != "GET" {
+    if request.method != crate::http::Method::Get {
         let _ = respond_empty(&mut stream, 405);
         return;
     }

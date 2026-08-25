@@ -15,7 +15,7 @@ use std::net::TcpStream;
 use tauri::AppHandle;
 
 use crate::bridge::wire::{interpret, Inbound};
-use crate::http::request::{Limits, Request};
+use crate::http::request::{Limits, Method, Request};
 use crate::http::{bind, respond_empty, Listener};
 
 /// Where a reporter posts an envelope. One route, because the bridge speaks
@@ -59,9 +59,9 @@ pub(super) fn serve(app: AppHandle) -> Result<Surface, String> {
 /// Tauri handle cannot be built in a unit test, and a route nobody can
 /// exercise is a route nobody has checked.
 fn handle(stream: &mut TcpStream, request: Request, emit: &dyn Fn(Inbound)) {
-    if request.method != "POST" || request.path != ENVELOPE_PATH {
-        // No oracle here either: an unknown path and a wrong method answer
-        // the same 404, so probing tells a caller nothing it did not know.
+    // Matched as a pair: an unknown path and a wrong method answer the same
+    // 404, so probing tells a caller nothing it did not already know.
+    if !matches!((&request.method, request.path.as_str()), (Method::Post, ENVELOPE_PATH)) {
         let _ = respond_empty(stream, 404);
         return;
     }
