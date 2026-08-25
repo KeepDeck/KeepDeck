@@ -187,13 +187,13 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
   };
   entries.set(paneId, entry);
   setSessionState(paneId, { kind: "starting" });
-  // The three lines this module logs for a starting pane — `spawn`, `spawn
-  // resolved`, `first output` — form a diagnostic chain, and whichever one a
-  // pane's log ends at names what happened. Nothing at all: the acquire never
-  // ran. `spawn` alone: the spawn call never settled. Through `spawn
-  // resolved`: the process exists but has printed nothing — alive and stuck.
-  // All three: a healthy launch. Each fires at most once per session, and
-  // none of them carries output bytes.
+  // These three lines — `spawn`, `spawn resolved`, `first output` — form a
+  // diagnostic chain for a starting pane, and whichever one a pane's log ends
+  // at names what happened. Nothing at all: the acquire never ran. `spawn`
+  // alone, with no `spawn failed` after it: the spawn call never settled.
+  // Through `spawn resolved`: the process exists but has printed nothing —
+  // alive and stuck. All three: a healthy launch. Each fires at most once per
+  // session, and none of them carries output bytes.
   log.info("web:pty", `${paneId}: spawn ${spec.command ?? "(shell)"} in ${spec.cwd ?? "(app cwd)"}`);
 
   spawnSession(
