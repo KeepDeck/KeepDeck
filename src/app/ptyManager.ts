@@ -63,7 +63,15 @@ export interface PaneSink {
   onLaunched(): void;
 }
 
-/** Replay budget per pane; oldest chunks fall off first. */
+/**
+ * Replay budget per pane; oldest chunks fall off first.
+ *
+ * Deliberately unrelated to the delivery cap in `keepdeck-pty`. That one
+ * bounds output nobody has seen yet, on the far side of the IPC; this one
+ * bounds how much history a remounting terminal can repaint. The two never
+ * meet at real volumes, so tying them together would invent a relationship
+ * that does not exist — they are free to move independently.
+ */
 const MAX_BUFFER_BYTES = 1024 * 1024;
 
 interface Entry {
