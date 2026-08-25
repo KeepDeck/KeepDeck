@@ -291,6 +291,31 @@ describe("attachPane", () => {
   });
 });
 
+describe("startup diagnostics", () => {
+  const messages = () =>
+    vi.mocked(log.info).mock.calls.map(([, message]) => message as string);
+
+  it("logs the spawn resolution once, and only after the spawn settles", async () => {
+    acquirePane("pane-1", SPEC);
+    expect(messages().some((m) => m.includes("spawn resolved"))).toBe(false);
+
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+
+    expect(messages().filter((m) => m.includes("pane-1: spawn resolved"))).toHaveLength(1);
+  });
+
+  it("logs the first output once, not once per chunk, and without the bytes", () => {
+    acquirePane("pane-1", SPEC);
+    output(0, 65, 66);
+    output(0, 67);
+
+    expect(messages().filter((m) => m.includes("pane-1: first output"))).toHaveLength(1);
+    expect(messages().some((m) => /6[567]/.test(m))).toBe(false);
+  });
+
+});
+
 describe("launch signal", () => {
   it("reports launch on the first output only, and marks the pane launched", () => {
     acquirePane("pane-1", SPEC);

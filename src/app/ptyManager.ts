@@ -187,6 +187,13 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
   };
   entries.set(paneId, entry);
   setSessionState(paneId, { kind: "starting" });
+  // The three lines this module logs for a starting pane — `spawn`, `spawn
+  // resolved`, `first output` — form a diagnostic chain, and whichever one a
+  // pane's log ends at names what happened. Nothing at all: the acquire never
+  // ran. `spawn` alone: the spawn call never settled. Through `spawn
+  // resolved`: the process exists but has printed nothing — alive and stuck.
+  // All three: a healthy launch. Each fires at most once per session, and
+  // none of them carries output bytes.
   log.info("web:pty", `${paneId}: spawn ${spec.command ?? "(shell)"} in ${spec.cwd ?? "(app cwd)"}`);
 
   spawnSession(
@@ -208,7 +215,10 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         // leave the pane "not launched" forever while its process is alive and
         // printing, nor to swallow the chunk the replay buffer owes a remount.
         const firstOutput = !entry.launched;
-        if (firstOutput) entry.launched = true;
+        if (firstOutput) {
+          entry.launched = true;
+          log.info("web:pty", `${paneId}: first output`);
+        }
         try {
           sinks.get(paneId)?.onOutput(bytes);
         } catch (err) {
@@ -245,6 +255,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         return;
       }
       entry.session = session;
+      log.info("web:pty", `${paneId}: spawn resolved`);
       // An exit can land before the spawn promise settles (a process that dies
       // immediately) — the death is the later truth, so it must not be undone.
       if (!entry.exited) setSessionState(paneId, { kind: "live" });
