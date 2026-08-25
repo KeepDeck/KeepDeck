@@ -187,24 +187,36 @@ describe("answerMailAsk", () => {
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
   });
 
-  it("refuses to hand anything over on a correlation the transport cannot answer", () => {
-    // The correlation is the AGENT's word. This side accepted any non-empty
-    // string while the transport accepted only a filename-safe one, so an ask
-    // carrying a space made the deck empty the pane's queue, render it, and
-    // hand it to a write that refused — no file, no watchdog, no report, and
-    // the messages aged out of the hand-over memory with every sender told
-    // they had been delivered. Repeatable by whatever runs in that pane.
+  it("treats an envelope with no correlation as one that only reports", () => {
+    // Most envelopes are this: a reporter states a fact and asks nothing.
+    // Nothing is taken from the queue and nothing is answered.
     //
-    // An unanswerable correlation now reads as "this envelope reports and
-    // asks nothing": nothing is taken, and nothing is written back.
+    // The shapes below were REFUSED until the cutoff, by a permit-list
+    // mirroring what the transport could turn into a filename. There is no
+    // filename any more, so a correlation is an opaque token and the deck's
+    // contract is the transport's: non-empty. What made the old gate worth
+    // removing rather than keeping is that it had become the only way to
+    // lose a turn — an ask the transport would have carried got no answer
+    // and the pane simply never heard back.
     const h = setup();
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
-    for (const hostile of ["a b", "../escape", "", "x".repeat(65), "ask\0"]) {
-      h.channel.answer("pane-2", asking({ reply: hostile }));
+    for (const empty of ["", 7, null, undefined]) {
+      h.channel.answer("pane-2", asking({ reply: empty }));
     }
     expect(h.replies).toEqual([]);
-    // Still waiting, for an ask that can actually be answered.
+    // And the message is untouched, still waiting for the terminal.
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
+  });
+
+  it("answers on a correlation no filename could have held", () => {
+    // The other half, and the reason the gate went: these reach the deck
+    // now instead of being turned away by a rule about names.
+    const h = setup();
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    h.channel.answer("pane-2", asking({ reply: "a b/../x".padEnd(70, "!") }));
+    expect(h.replies).toHaveLength(1);
+    expect(h.replies[0].id).toBe("a b/../x".padEnd(70, "!"));
+    expect(h.replies[0].body).toContain("take the parser");
   });
 
   it("keeps an agent's own words out of the log line about it", () => {

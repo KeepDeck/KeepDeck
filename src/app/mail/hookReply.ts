@@ -49,33 +49,30 @@ export interface HookReplies {
   answer(paneId: string, payload: unknown): void;
 }
 
-/**
- * What a correlation may be — the SAME permit-list the transport applies
- * (`spool::is_usable_name`), because the two grammars disagreeing is how mail
- * gets destroyed.
+/** The correlation a payload is asking on, or null when it only reports.
  *
- * The correlation comes out of an envelope, so it is the agent's word. This
- * side used to accept any non-empty string and the transport only
- * `[A-Za-z0-9_-]{1,64}` — so an ask carrying `"a b"` made the deck empty the
- * pane's queue, render it, and hand it to a write that refused, and the
- * messages were gone with every sender told they had been delivered.
- * Repeatable at will by whatever is running in that pane. A refusal is
- * observable now rather than silent, but a name this side would send and the
- * transport would reject is still a question that gets no answer.
+ * Non-empty and nothing more, which is the whole of the transport's contract
+ * (`Report::correlation` in bridge/wire.rs): a correlation is an opaque token
+ * the deck hands straight back, a key in a map on the way, and a string in a
+ * log line at the end.
  *
- * `scripts/reporterScripts.test.mjs` pins this against the Rust rule.
+ * It used to be a permit-list, `[A-Za-z0-9_-]{1,64}`, mirroring the rule the
+ * transport applied before it could write an answer to a file. That is worth
+ * one sentence because the reason DIED rather than weakened: there is no file
+ * and no write to refuse, so the gate had stopped protecting anything and had
+ * become the only thing that could lose a turn — a correlation of 70
+ * characters got no answer from a deck whose transport would have carried it
+ * without complaint. The one place a correlation is still dangerous is the
+ * log line, and that is answered at the log line, with `printable`.
+ *
+ * Should a correlation ever become a name again — a file, a directory — the
+ * grammar is born again THERE, with its own reason. It does not come back
+ * from here.
  */
-const USABLE_CORRELATION = /^[A-Za-z0-9_-]{1,64}$/;
-
-/** The correlation a payload is asking on, or null when it only reports —
- * and null for one the transport could not answer on, which reads as "this
- * envelope reports and asks nothing". The mail then stays in its queue. */
 export function correlationOf(payload: unknown): string | null {
   if (!isRecord(payload)) return null;
   const reply = payload.reply;
-  return typeof reply === "string" && USABLE_CORRELATION.test(reply)
-    ? reply
-    : null;
+  return typeof reply === "string" && reply !== "" ? reply : null;
 }
 
 /** One message as a plugin renderer sees it: who spoke, flattened to a name,
@@ -137,12 +134,10 @@ function answerMailAsk(
     log.info("web:mail", `${paneId} asked on ${asking} → ${why}`);
 
   const correlation = correlationOf(payload);
-  // An answer is ADDRESSED by correlation, so one the transport cannot carry
-  // leaves nothing to reply to — but it is still an ask, and the log is the
-  // only place it can show up. Silence here would leave a reporter with a
-  // different alphabet looking at a pane that never receives mail and a log
-  // with nothing in it.
-  if (!correlation) return said("unusable correlation — nothing to answer on");
+  // No correlation at all: this envelope reports and asks nothing, which is
+  // most of them. Still logged — a hook that asked and a hook that never ran
+  // look identical from outside, and the difference is the whole diagnosis.
+  if (!correlation) return said("no correlation — this envelope only reports");
   // The same correlation twice, with the first ask still waiting, is refused
   // by the TRANSPORT and never arrives here: it holds a slot per pane and
   // correlation, and turns the second one away rather than announcing it.

@@ -6,19 +6,19 @@
 //! turn a pane id into a path, so the rule for what may become one is
 //! answered once, here.
 //!
-//! It served a third caller until the file lane was cut — the reply a hook
-//! polled for — and that is why the naming rule is stricter than a doorbell
-//! alone would need: a correlation came from a hook, so it was the agent's
-//! word. The rule stays as written rather than being relaxed to fit the
-//! callers that happen to remain.
+//! The naming rule is stricter than either caller strictly needs, and it is
+//! kept that way on purpose: a permit-list refuses `..`, `/`, NUL and every
+//! unicode look-alike in one clause, and it cannot be outgrown by a separator
+//! nobody thought of. Both names it guards are the DECK's own — a pane id it
+//! minted, a filename this module chose — so nothing outside decides what
+//! reaches the filesystem here.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The longest name worth accepting. Correlations are minted per hook
-/// invocation and pane ids per pane; neither has to be unique beyond one run
-/// directory, and neither has any business being longer than this.
-pub const MAX_NAME_LEN: usize = 64;
+/// The longest name worth accepting. A pane id has to be unique within one
+/// run directory and nowhere else, and has no business being longer.
+const MAX_NAME_LEN: usize = 64;
 
 /// Whether `name` may become part of a filename.
 ///

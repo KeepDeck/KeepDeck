@@ -84,43 +84,19 @@ describe("reporter shell scripts", () => {
     expect(Number(threshold[1])).toBeGreaterThan(capBytes - 2048);
   });
 
-  it("agrees with the transport on what a correlation may be", () => {
-    // Two grammars for one name. The deck decides whether an envelope is
-    // ASKING (and empties the pane's queue to answer it); the transport
-    // decides whether the answer can be written at all. They disagreed once:
-    // the deck accepted any non-empty string, Rust accepted
-    // [A-Za-z0-9_-]{1,64}, and an ask carrying a space made the deck hand
-    // over every waiting message to a write that refused — no file, no
-    // watchdog, no report, mail gone with the senders told otherwise.
-    const rust = readFileSync("src-tauri/src/bridge/spool.rs", "utf8");
-    const maxLen = Number(rust.match(/MAX_NAME_LEN:\s*usize\s*=\s*(\d+)/)?.[1]);
-    expect(maxLen, "no MAX_NAME_LEN in spool.rs").toBeGreaterThan(0);
-    // The permit-list, read out of the predicate rather than assumed — and
-    // read WHOLE. Matching two `b == b'X'` clauses out of however many exist
-    // would let a third permitted byte be added on the Rust side while this
-    // still compared the first two and passed, which is the divergence it is
-    // here to catch.
-    const predicate = rust.match(
-      /pub fn is_usable_name[\s\S]*?\n\}/,
-    )?.[0];
-    expect(predicate, "no is_usable_name in spool.rs").toBeTruthy();
-    const permits = [...predicate.matchAll(/b\s*==\s*b'(.)'/g)].map((m) => m[1]);
-    expect(permits.length, "unreadable permit-list").toBeGreaterThan(0);
-    expect(predicate, "is_usable_name has grown a rule this guard cannot see")
-      .toContain("is_ascii_alphanumeric()");
-
-    const ts = readFileSync("src/app/mail/hookReply.ts", "utf8");
-    const deck = ts.match(/USABLE_CORRELATION\s*=\s*\/\^\[([^\]]*)\]\{1,(\d+)\}\$\//);
-    expect(deck, "no USABLE_CORRELATION in hookReply.ts").not.toBeNull();
-
-    expect(Number(deck[2])).toBe(maxLen);
-    // Same alphabet: alphanumerics plus exactly the Rust permits, however
-    // many there are. Compared as a SET — inside a character class the order
-    // of `-` and `_` is a spelling choice, and a guard that fails on spelling
-    // teaches people to edit the guard.
-    const extras = (chars) => [...chars.replace("A-Za-z0-9", "")].sort().join("");
-    expect(extras(deck[1])).toBe(extras(permits.join("")));
-  });
+  // A correlation is an OPAQUE TOKEN: the deck hands it straight back, and
+  // the only contract on it is non-empty (`Report::correlation` in
+  // bridge/wire.rs, `correlationOf` in src/app/mail/hookReply.ts). There is
+  // no pin here because there is nothing to hold in step.
+  //
+  // One stood here, tying the deck's grammar to `spool::is_usable_name`, and
+  // it outlived its subject: the transport applied that rule before writing
+  // an answer to a FILE, and once no answer was a file the rule stopped
+  // governing correlations at all — the pin stayed green because the two
+  // alphabets happened to match, certifying agreement with a predicate that
+  // no longer had an opinion. Should a correlation become a name again, the
+  // grammar is born again at whatever owns that name, with its own reason.
+  // It does not come back from here.
 
   it("has the courier and the renderer agreeing on the ask they exchange", () => {
     // Two halves of one round trip that cannot import each other: the
