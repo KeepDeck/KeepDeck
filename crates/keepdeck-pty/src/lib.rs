@@ -11,6 +11,10 @@
 //! `Exited` are emitted from the same reader thread, so all output is guaranteed
 //! to arrive before the exit event.
 
+mod output;
+
+pub use output::{parse_drop_marker, Consumer, OutputQueue, Producer, PushOutcome, OUTPUT_CAP_BYTES};
+
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
