@@ -52,9 +52,10 @@ const MAX_ENVELOPE_BYTES: u64 = 256 * 1024;
 /// This run's live bridge — kept in Tauri managed state so the lock fd and
 /// the watcher survive for the app's lifetime.
 pub struct Bridge {
-    /// The port this run's bridge surface answers on. Published to every
-    /// pane at spawn so a reporter can reach the deck without a file.
-    pub port: u16,
+    /// Where this run's bridge answers, whole. Published to every pane at
+    /// spawn so a reporter can reach the deck without a file — and composed
+    /// once, so nothing downstream assembles an address of its own.
+    pub url: String,
     /// Hooks parked on an open connection, waiting for the deck's answer.
     /// Shared with the surface: the route parks, `bridge_reply` unparks.
     waiters: std::sync::Arc<waiters::Waiters>,
@@ -106,10 +107,10 @@ pub fn start(app: &AppHandle) -> Result<Bridge, String> {
     // a pane's environment is built, or that pane never learns it.
     let waiters = std::sync::Arc::new(waiters::Waiters::default());
     let surface = http::serve(app.clone(), std::sync::Arc::clone(&waiters))?;
-    log::info!("bridge: surface on 127.0.0.1:{}", surface.port);
+    log::info!("bridge: surface at {}", surface.url);
 
     Ok(Bridge {
-        port: surface.port,
+        url: surface.url.clone(),
         waiters,
         _surface: surface,
         run_dir,

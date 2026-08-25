@@ -27,7 +27,7 @@ describe("createSpawnContextSource", () => {
     const source = createSpawnContextSource(() => promise, perPaneDir);
     expect(source.get()).toBeNull();
 
-    resolve({ bridgeDir: "/bridge/run-1", bridgePort: 51000 });
+    resolve({ bridgeDir: "/bridge/run-1", bridgeUrl: "http://127.0.0.1:51000/envelope" });
     await settle();
     expect(source.get()?.bridgeDir).toBe("/bridge/run-1");
     // The per-pane inbox rides along as a call, so a plan built from this
@@ -43,7 +43,7 @@ describe("createSpawnContextSource", () => {
     const listener = vi.fn();
     source.subscribe(listener);
 
-    resolve({ bridgeDir: "/bridge/run-1", bridgePort: 51000 });
+    resolve({ bridgeDir: "/bridge/run-1", bridgeUrl: "http://127.0.0.1:51000/envelope" });
     await settle();
     expect(listener).toHaveBeenCalledTimes(1);
   });
@@ -68,7 +68,7 @@ describe("createSpawnContextSource", () => {
     const listener = vi.fn();
     source.subscribe(listener)();
 
-    resolve({ bridgeDir: "/bridge/run-1", bridgePort: 51000 });
+    resolve({ bridgeDir: "/bridge/run-1", bridgeUrl: "http://127.0.0.1:51000/envelope" });
     await settle();
     expect(listener).not.toHaveBeenCalled();
   });

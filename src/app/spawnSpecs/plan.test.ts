@@ -69,7 +69,7 @@ const runtime = { plugins } as unknown as AppRuntime;
 const ctx = {
   ...EMPTY_SPAWN_CONTEXT,
   bridgeDir: "/bridge/run-1",
-  bridgePort: 51611,
+  bridgeUrl: "http://127.0.0.1:51611/envelope",
   paneBridgeDir: (paneId: string) => Promise.resolve(`/bridge/run-1/${paneId}`),
 };
 const W1: WorkspaceRef = { id: "ws-1", instance: "workspace-instance-1" };
@@ -177,24 +177,24 @@ describe("building one plan through the agent hook", () => {
       dir: "/bridge/run-1/pane-1",
       pane: "pane-1",
       // The address travels with the inbox, not instead of it: a reporter
-      // that cannot reach the port still has a directory to write into.
-      port: 51611,
+      // that cannot reach it still has a directory to write into.
+      url: "http://127.0.0.1:51611/envelope",
     });
     expect(plan.token).toBe(bridge.token);
   });
 
-  it("leaves the port out entirely when the bridge has no surface", async () => {
-    // Absent rather than zero: a reporter tests for the field, and a `0`
-    // that reads as present is a reporter dialling a port nobody holds.
+  it("leaves the address out entirely when the bridge has no surface", async () => {
+    // Absent rather than empty: a reporter tests for the field, and an ""
+    // that reads as present is a reporter dialling nowhere.
     register(adopting);
     await mount(ws([{ id: "pane-1", agentType: "claude" }]), {
       ...ctx,
-      bridgePort: 0,
+      bridgeUrl: "",
     });
     await settle();
 
     const env = Object.fromEntries(seen["pane-1"].env);
-    expect(JSON.parse(env.KEEPDECK_BRIDGE)).not.toHaveProperty("port");
+    expect(JSON.parse(env.KEEPDECK_BRIDGE)).not.toHaveProperty("url");
   });
 
   it("a pane's YOLO mode reaches the hook input on spawn AND resume", async () => {

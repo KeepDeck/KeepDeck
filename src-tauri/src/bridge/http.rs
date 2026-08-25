@@ -24,12 +24,21 @@ use crate::http::{bind, respond_empty, respond_with_body, Listener, Status};
 /// one sentence: here is something that happened.
 const ENVELOPE_PATH: &str = "/envelope";
 
-/// A bound bridge surface and the port it answers on.
+/// Compose the address a reporter posts to.
+///
+/// Built HERE because the path is this module's constant: a caller that
+/// assembled its own would be a second place that has to be told when the
+/// route moves, and reporters carry the result byte-for-byte.
+fn envelope_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}{ENVELOPE_PATH}")
+}
+
+/// A bound bridge surface and the address it answers on.
 pub(super) struct Surface {
     /// Held, never read: dropping it stops the accept loop, so the surface
     /// lives exactly as long as the `Bridge` that owns this value.
     _listener: Listener,
-    pub(super) port: u16,
+    pub(super) url: String,
 }
 
 /// Bind and serve. Called during boot, BEFORE any pane is spawned — a pane
@@ -58,7 +67,7 @@ pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, St
     )?;
     Ok(Surface {
         _listener: listener,
-        port,
+        url: envelope_url(port),
     })
 }
 

@@ -259,10 +259,14 @@ export async function buildPlan(
               pane: paneId,
               token,
               // ADDITIVE, so the version does not move: a reporter that
-              // knows nothing of `port` reads the fields it knows and
-              // writes a file, exactly as it does today. The version is
-              // for changes that would make an old reporter WRONG.
-              ...(ctx.bridgePort ? { port: ctx.bridgePort } : {}),
+              // knows nothing of `url` reads the fields it knows and writes
+              // a file, exactly as it does today. The version is for
+              // changes that would make an old reporter WRONG.
+              //
+              // Whole, not a port: assembling an address means knowing the
+              // route, and a reporter that knew it would have to be told
+              // when it moves.
+              ...(ctx.bridgeUrl ? { url: ctx.bridgeUrl } : {}),
             }),
           ],
         ]

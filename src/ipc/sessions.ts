@@ -46,13 +46,13 @@ export function onSessionBound(
 }
 
 /** The per-install spawn-plan context (mirrors the Rust `SpawnContextDto`):
- * this run's bridge inbox and the port its surface answers on, resolved
+ * this run's bridge inbox and the address its surface answers on, resolved
  * once at boot. */
 export interface SpawnContextDto {
   /** This run's bridge inbox; "" = unavailable. */
   bridgeDir: string;
-  /** The port its surface answers on; 0 = unavailable. */
-  bridgePort: number;
+  /** Where its surface answers, whole; "" = unavailable. */
+  bridgeUrl: string;
 }
 
 export function spawnContext(): Promise<SpawnContextDto> {
