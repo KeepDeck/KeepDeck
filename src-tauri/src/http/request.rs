@@ -9,6 +9,11 @@
 //! the route — the version pin the artifacts surface reads is its own
 //! vocabulary, and parsing it here would put a consumer's dialect in the
 //! shared parser.
+//!
+//! So is the METHOD. GET-only is a rule the artifacts surface keeps for its
+//! own reasons; the bridge takes envelopes by POST. A parser that refused
+//! anything but GET would be one surface's policy sitting in everyone's
+//! path, so the method is reported and the surface decides.
 
 use std::io::{BufRead, BufReader, Read};
 use std::net::TcpStream;
@@ -22,17 +27,33 @@ pub(crate) const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// clones) — a stalled peer errors instead of pinning a thread forever.
 pub(crate) const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How much body a surface will take. Zero means it takes none — a request
+/// that carries one is refused rather than silently truncated, because a
+/// half-read envelope is worse than a rejected one.
+#[derive(Clone, Copy)]
+pub(crate) struct Limits {
+    pub(crate) max_body: usize,
+}
+
+impl Limits {
+    /// For a surface that only ever answers reads.
+    pub(crate) const NO_BODY: Self = Self { max_body: 0 };
+}
+
 pub(crate) struct Request {
+    pub(crate) method: String,
     pub(crate) path: String,
     /// Everything after `?`, undecoded and uninterpreted. Absent when the
     /// target carried none; present-but-empty when it ended in a bare `?`.
     pub(crate) query: Option<String>,
+    /// Empty unless the surface allowed a body and the peer sent one.
+    pub(crate) body: Vec<u8>,
 }
 
 /// Read one request head. `Err(status)` is the status to answer with — the
 /// caller writes it, because only the caller knows whether it also wants to
 /// say anything else first.
-pub(crate) fn read_request(stream: &mut TcpStream) -> Result<Request, u16> {
+pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Request, u16> {
     let Ok(()) = stream.set_read_timeout(Some(HEAD_TIMEOUT)) else {
         return Err(400);
     };
@@ -59,9 +80,12 @@ pub(crate) fn read_request(stream: &mut TcpStream) -> Result<Request, u16> {
     if request_line.len() > HEAD_CAP {
         return Err(431);
     }
-    // Drain the rest of the head (bounded): we never read a body.
+    // Drain the rest of the head (bounded), noting the one header a body
+    // depends on. Nothing else is kept: a header this parser remembered
+    // would be a header every surface then had to reason about.
     let mut total = request_line.len();
     let mut header = String::new();
+    let mut declared_len: Option<usize> = None;
     loop {
         header.clear();
         match reader.read_line(&mut header) {
@@ -74,23 +98,53 @@ pub(crate) fn read_request(stream: &mut TcpStream) -> Result<Request, u16> {
                 if header == "\r\n" || header == "\n" {
                     break;
                 }
+                if let Some((name, value)) = header.split_once(':') {
+                    if name.trim().eq_ignore_ascii_case("content-length") {
+                        // Unparseable is refused, not treated as absent: a
+                        // length nobody can read is a body nobody can frame.
+                        let Ok(len) = value.trim().parse::<usize>() else {
+                            return Err(400);
+                        };
+                        declared_len = Some(len);
+                    }
+                }
             }
             Err(_) => return Err(400),
         }
     }
     let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("");
+    let method = parts.next().unwrap_or("").to_string();
     let target = parts.next().unwrap_or("");
-    if method != "GET" {
-        return Err(405);
+    if method.is_empty() || target.is_empty() {
+        return Err(400);
     }
+    let body = match declared_len {
+        None | Some(0) => Vec::new(),
+        Some(len) => {
+            if len > limits.max_body {
+                return Err(413);
+            }
+            // The head cap was a cap on the WHOLE stream — `Take` does not
+            // know where a head ends. Without lifting it here the body read
+            // would stop at the head's remaining allowance and report a
+            // short read as a malformed request.
+            reader.get_mut().set_limit(len as u64);
+            let mut body = vec![0u8; len];
+            if reader.read_exact(&mut body).is_err() {
+                return Err(400);
+            }
+            body
+        }
+    };
     let (path, query) = match target.split_once('?') {
         Some((p, q)) => (p, Some(q.to_string())),
         None => (target, None),
     };
     Ok(Request {
+        method,
         path: percent_decode(path),
         query,
+        body,
     })
 }
 
@@ -118,7 +172,77 @@ fn percent_decode(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::percent_decode;
+    use super::{percent_decode, read_request, Limits};
+    use std::io::Write as _;
+    use std::net::{TcpListener, TcpStream};
+
+    /// Send one request and read it back the way the accept loop would.
+    fn round_trip(head: &str, body: &[u8], limits: Limits) -> Result<super::Request, u16> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let sent = body.to_vec();
+        let head = head.to_string();
+        let writer = std::thread::spawn(move || {
+            let mut peer = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            peer.write_all(head.as_bytes()).unwrap();
+            peer.write_all(&sent).unwrap();
+            peer.flush().unwrap();
+            // Hold the connection open: a dropped peer would race the read.
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        });
+        let (mut accepted, _) = listener.accept().unwrap();
+        let result = read_request(&mut accepted, limits);
+        let _ = writer.join();
+        result
+    }
+
+    #[test]
+    fn a_body_larger_than_the_head_cap_still_arrives_whole() {
+        // The regression this pins: the head cap was a cap on the WHOLE
+        // stream, so a body past 8 KiB read short and looked malformed.
+        let body = vec![b'x'; 32 * 1024];
+        let head = format!(
+            "POST /bridge/envelope HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        );
+        let request = round_trip(&head, &body, Limits { max_body: 256 * 1024 })
+            .expect("a body inside the limit must parse");
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/bridge/envelope");
+        assert_eq!(request.body.len(), body.len());
+        assert!(request.body.iter().all(|b| *b == b'x'));
+    }
+
+    #[test]
+    fn a_body_over_the_limit_is_refused_before_it_is_read() {
+        let head = "POST /bridge/envelope HTTP/1.1\r\nHost: x\r\nContent-Length: 4096\r\n\r\n";
+        assert_eq!(
+            round_trip(head, &vec![b'x'; 4096], Limits { max_body: 1024 }).err(),
+            Some(413)
+        );
+    }
+
+    #[test]
+    fn a_surface_that_takes_no_body_refuses_one() {
+        let head = "POST /a/tok/slug HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\n\r\n";
+        assert_eq!(round_trip(head, b"x", Limits::NO_BODY).err(), Some(413));
+    }
+
+    #[test]
+    fn a_content_length_that_is_not_a_number_is_refused() {
+        // Not treated as absent: a length nobody can read frames nothing.
+        let head = "POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: many\r\n\r\n";
+        assert_eq!(round_trip(head, b"", Limits { max_body: 16 }).err(), Some(400));
+    }
+
+    #[test]
+    fn the_method_is_reported_rather_than_judged() {
+        // GET-only is one surface's rule, so the parser must not keep it.
+        let head = "DELETE /x HTTP/1.1\r\nHost: x\r\n\r\n";
+        let request = round_trip(head, b"", Limits::NO_BODY).expect("method is not policy here");
+        assert_eq!(request.method, "DELETE");
+    }
+
 
     #[test]
     fn percent_decoding_turns_an_encoded_slash_into_a_separator() {

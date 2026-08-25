@@ -108,7 +108,7 @@ impl DisplayServer {
         });
         let serving = Arc::clone(&shared);
         let listener =
-            crate::http::Listener::serve(bound, "artifacts", move |stream, request| {
+            crate::http::Listener::serve(bound, "artifacts", crate::http::Limits::NO_BODY, move |stream, request| {
                 handle_connection(stream, request, Arc::clone(&serving))
             })?;
         Self::with_tick(shared, listener, |shared| {
@@ -301,6 +301,13 @@ fn version_pin(query: Option<&str>) -> Result<Option<u64>, u16> {
 }
 
 fn handle_connection(mut stream: TcpStream, request: Request, shared: Arc<Shared>) {
+    // INVARIANT: this surface answers reads and nothing else. The rule used
+    // to live in the shared parser, which made it every surface's rule; it
+    // belongs here, where the reason for it is.
+    if request.method != "GET" {
+        let _ = respond_empty(&mut stream, 405);
+        return;
+    }
     // Before the dead check and before routing, exactly where the shared
     // parser used to do it — so a malformed pin still answers 400 whatever
     // the path was, and the status never depends on route knowledge.
@@ -526,10 +533,9 @@ fn tick_loop(shared: Arc<Shared>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // The traits the file itself no longer needs: the head parse that used
-    // them moved to `crate::http`, but these tests still speak to sockets
-    // directly.
-    use std::io::{BufRead, BufReader, Read};
+    // The trait the file itself no longer needs: the head parse that used it
+    // moved to `crate::http`, but these tests still read sockets directly.
+    use std::io::Read;
     use crate::artifacts::store::{
         ArtifactFormat, ArtifactsStore, PublishIdentity, PublishRequest,
     };
@@ -595,7 +601,7 @@ mod tests {
         });
         let serving = Arc::clone(&shared);
         let listener =
-            crate::http::Listener::serve(bound, "artifacts test", move |stream, request| {
+            crate::http::Listener::serve(bound, "artifacts test", crate::http::Limits::NO_BODY, move |stream, request| {
                 handle_connection(stream, request, Arc::clone(&serving))
             })
             .unwrap();

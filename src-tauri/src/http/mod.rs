@@ -21,5 +21,5 @@ pub(crate) mod request;
 pub(crate) mod response;
 
 pub(crate) use listener::{bind, Listener};
-pub(crate) use request::read_request;
+pub(crate) use request::{read_request, Limits};
 pub(crate) use response::{respond_empty, respond_with_body};

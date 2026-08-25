@@ -14,7 +14,8 @@
 
 use std::net::{TcpListener, TcpStream};
 
-use crate::http::{read_request, respond_empty, request::Request};
+use crate::http::request::{Limits, Request};
+use crate::http::{read_request, respond_empty};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -85,6 +86,7 @@ impl Listener {
     pub(crate) fn serve<H>(
         bound: Bound,
         label: &'static str,
+        limits: Limits,
         handler: H,
     ) -> Result<Self, String>
     where
@@ -102,7 +104,7 @@ impl Listener {
         let loop_shared = Arc::clone(&shared);
         let accept = std::thread::Builder::new()
             .name(format!("keepdeck {label} accept"))
-            .spawn(move || accept_loop(listener, loop_shared, handler))
+            .spawn(move || accept_loop(listener, loop_shared, limits, handler))
             .map_err(|e| format!("spawning the {label} accept loop failed: {e}"))?;
         Ok(Self {
             shared,
@@ -134,7 +136,7 @@ impl Listener {
     }
 }
 
-fn accept_loop<H>(listener: TcpListener, shared: Arc<Shared>, handler: H)
+fn accept_loop<H>(listener: TcpListener, shared: Arc<Shared>, limits: Limits, handler: H)
 where
     H: Fn(TcpStream, Request) + Send + Sync + 'static,
 {
@@ -201,7 +203,7 @@ where
             .name(format!("keepdeck {label} conn"))
             .spawn(move || {
                 let mut stream = stream;
-                match read_request(&mut stream) {
+                match read_request(&mut stream, limits) {
                     Ok(request) => handler(stream, request),
                     Err(status) => {
                         let _ = respond_empty(&mut stream, status);
