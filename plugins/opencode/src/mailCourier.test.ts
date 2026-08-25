@@ -17,14 +17,18 @@ import { startDeck } from "../../../scripts/reporterHarness";
 /**
  * This suite runs the courier on its REAL clock.
  *
- * It polls the deck for an answer over a 2s window (ASK_TRIES × ASK_SLEEP_MS)
- * and the fake deck below is a polling loop of its own, so a single doorbell
- * can legitimately take seconds — and under the full parallel suite, several.
- * Vitest's 5s default made that a failure that reproduces nowhere else.
+ * A doorbell ring travels through the filesystem and the ask that follows is
+ * a real HTTP round trip to the stand-in deck below, so a single delivery
+ * takes tens of milliseconds — and under the full parallel suite, more.
  * Nothing here is a latency assertion, so the ceiling is generous and the
  * waits below stay well inside it.
+ *
+ * It used to be far slower and this ceiling used to say why: the courier
+ * polled a directory for its answer over a two-second window and the fake
+ * deck was a polling loop of its own. Neither exists — the answer comes back
+ * on the connection the question went out on.
  */
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: 10_000 });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const last = <T,>(items: T[]): T | undefined => items[items.length - 1];

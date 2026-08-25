@@ -17,10 +17,10 @@
 //!
 //! The file carries NOTHING. Not the message, not the sender, not a count:
 //! this is a doorbell, and every fact about the mail is already an answer the
-//! reporter will get by asking through [`super::reply`]. Keeping it empty is
-//! what stops a second, unlabelled delivery path growing here — one where
-//! messages would arrive without ever passing the rules that decide whether
-//! they may be delivered at all.
+//! reporter gets by ASKING, on its own connection. Keeping it empty is what
+//! stops a second, unlabelled delivery path growing here — one where messages
+//! would arrive without ever passing the rules that decide whether they may
+//! be delivered at all.
 
 use super::spool;
 use std::path::Path;
@@ -57,13 +57,15 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn a_ring_lands_whole_and_out_of_the_watcher_s_way() {
+    fn a_ring_lands_whole_and_is_not_shaped_like_an_envelope() {
         let dir = tempfile::tempdir().unwrap();
         ring(dir.path(), "pane-1").unwrap();
         let path = dir.path().join("pane-1").join(WAKE_FILE);
         assert!(path.exists());
-        // The inbox watcher only consumes `*.json` — a doorbell must not read
-        // as an envelope arriving, or it would be parsed and logged as junk.
+        // Not `.json`: envelopes arrived as files here once, and a doorbell
+        // that looked like one was parsed and logged as junk. Nothing reads
+        // this directory for envelopes any more, and the name stays distinct
+        // anyway — the courier looks for exactly `mail.wake`.
         assert_ne!(path.extension().unwrap(), "json");
         // Empty on purpose: everything about the mail is an answer the
         // reporter gets by asking, and content here would be a second

@@ -35,8 +35,8 @@ pub(super) fn restrict(dir: &Path) {
     }
 }
 
-/// Sweep, then publish this run's inbox — under a root-wide boot lock, so
-/// the two are one atomic step ACROSS instances. The per-inbox lock cannot
+/// Sweep, then publish this run's directory — under a root-wide boot lock, so
+/// the two are one atomic step ACROSS instances. The per-run lock cannot
 /// cover the moment before it exists (a dir is created before its lock
 /// file), which is exactly the window where a concurrently booting sweeper
 /// could eat a sibling's half-built staging dir. The gate is held for
@@ -52,10 +52,10 @@ pub(super) fn boot(root: &Path) -> Result<(PathBuf, File, usize), String> {
     // `gate` drops here — boot section over, the next instance may proceed.
 }
 
-/// Build this run's inbox under `.staging/`, take its lock THERE, then
+/// Build this run's directory under `.staging/`, take its lock THERE, then
 /// atomically rename it into the root. Publication happens already-locked,
 /// so a sweeper OUTSIDE the boot gate (there are none today — sweeping only
-/// happens inside `boot`) could still never mistake a published live inbox
+/// happens inside `boot`) could still never mistake a published live run dir
 /// for an orphan.
 fn create_run_dir(root: &Path) -> Result<(PathBuf, File), String> {
     let staging = root.join(STAGING_DIR);
@@ -66,13 +66,13 @@ fn create_run_dir(root: &Path) -> Result<(PathBuf, File), String> {
     restrict(&staged);
     let lock = File::create(staged.join(LOCK_FILE)).map_err(|e| e.to_string())?;
     lock.try_lock()
-        .map_err(|e| format!("locking a fresh inbox failed: {e:?}"))?;
+        .map_err(|e| format!("locking a fresh run dir failed: {e:?}"))?;
     let run_dir = root.join(&name);
     fs::rename(&staged, &run_dir).map_err(|e| e.to_string())?;
     Ok((run_dir, lock))
 }
 
-/// Delete inboxes whose owners are gone, in the root and in `.staging`.
+/// Delete run dirs whose owners are gone, in the root and in `.staging`.
 /// Returns how many were swept.
 fn sweep_orphans(root: &Path) -> usize {
     let mut swept = 0;
@@ -98,11 +98,11 @@ fn sweep_orphans(root: &Path) -> usize {
 /// A dir is an orphan when nobody holds its lock. A live owner ALWAYS holds
 /// one (taken before publication); the kernel releases it on any process
 /// death. Busy — or unprobeable — locks leave the dir alone: deleting a live
-/// instance's inbox is the one unacceptable failure mode.
+/// instance's run dir is the one unacceptable failure mode.
 fn is_orphan(dir: &Path) -> bool {
     match File::open(dir.join(LOCK_FILE)) {
         // No lock file at all: a torn boot's leftovers (the rename that
-        // publishes a live inbox only ever runs after its lock exists).
+        // publishes a live run dir only ever runs after its lock exists).
         Err(_) => true,
         Ok(file) => file.try_lock().is_ok(),
     }
@@ -113,7 +113,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_fresh_inbox_is_published_locked_with_empty_staging() {
+    fn a_fresh_run_dir_is_published_locked_with_empty_staging() {
         let root = tempfile::tempdir().unwrap();
         let (dir, _lock) = create_run_dir(root.path()).unwrap();
         assert!(
@@ -131,11 +131,11 @@ mod tests {
     }
 
     #[test]
-    fn sweep_removes_dead_inboxes_and_spares_live_ones() {
+    fn sweep_removes_dead_run_dirs_and_spares_live_ones() {
         let root = tempfile::tempdir().unwrap();
-        // A live inbox: lock held by this process.
+        // A live run dir: lock held by this process.
         let (live, _held) = create_run_dir(root.path()).unwrap();
-        // A dead inbox: lock file exists but nobody holds it.
+        // A dead run dir: lock file exists but nobody holds it.
         let dead = root.path().join("run-dead");
         fs::create_dir(&dead).unwrap();
         File::create(dead.join(LOCK_FILE)).unwrap();
@@ -146,8 +146,8 @@ mod tests {
         fs::write(root.path().join("stray.txt"), "x").unwrap();
 
         assert_eq!(sweep_orphans(root.path()), 2);
-        assert!(live.is_dir(), "live inbox survives");
-        assert!(!dead.exists(), "dead inbox swept");
+        assert!(live.is_dir(), "live run dir survives");
+        assert!(!dead.exists(), "dead run dir swept");
         assert!(!torn.exists(), "torn staging leftover swept");
         assert!(root.path().join("stray.txt").is_file());
     }
@@ -157,7 +157,7 @@ mod tests {
         // Regression for the boot race: a sweeping instance must never
         // observe (and delete) a sibling's half-built staging dir. The boot
         // gate serializes sweep+publish, so every one of these succeeds and
-        // every published inbox stays alive.
+        // every published run dir stays alive.
         let root = tempfile::tempdir().unwrap();
         let handles: Vec<_> = (0..8)
             .map(|_| {
@@ -171,7 +171,7 @@ mod tests {
             .collect();
         assert_eq!(live.len(), 8);
         for (dir, _lock, _swept) in &live {
-            assert!(dir.is_dir(), "published inbox survives: {}", dir.display());
+            assert!(dir.is_dir(), "published run dir survives: {}", dir.display());
             assert!(!is_orphan(dir));
         }
     }

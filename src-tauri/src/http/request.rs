@@ -235,20 +235,20 @@ mod tests {
         // stream, so a body past 8 KiB read short and looked malformed.
         let body = vec![b'x'; 32 * 1024];
         let head = format!(
-            "POST /bridge/envelope HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
+            "POST /take HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
             body.len()
         );
         let request = round_trip(&head, &body, Limits { max_body: 256 * 1024 })
             .expect("a body inside the limit must parse");
         assert_eq!(request.method, Method::Post);
-        assert_eq!(request.path, "/bridge/envelope");
+        assert_eq!(request.path, "/take");
         assert_eq!(request.body.len(), body.len());
         assert!(request.body.iter().all(|b| *b == b'x'));
     }
 
     #[test]
     fn a_body_over_the_limit_is_refused_before_it_is_read() {
-        let head = "POST /bridge/envelope HTTP/1.1\r\nHost: x\r\nContent-Length: 4096\r\n\r\n";
+        let head = "POST /take HTTP/1.1\r\nHost: x\r\nContent-Length: 4096\r\n\r\n";
         assert_eq!(
             round_trip(head, &vec![b'x'; 4096], Limits { max_body: 1024 }).err(),
             Some(Status::PayloadTooLarge)
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn a_surface_that_takes_no_body_refuses_one() {
-        let head = "POST /a/tok/slug HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\n\r\n";
+        let head = "POST /take HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\n\r\n";
         assert_eq!(round_trip(head, b"x", Limits::NO_BODY).err(), Some(Status::PayloadTooLarge));
     }
 
@@ -288,12 +288,12 @@ mod tests {
     fn percent_decoding_turns_an_encoded_slash_into_a_separator() {
         // The whole reason decoding happens before the split: a segment
         // cannot hide structure behind an escape.
-        assert_eq!(percent_decode("/a/tok%2fslug"), "/a/tok/slug");
+        assert_eq!(percent_decode("/one%2ftwo"), "/one/two");
     }
 
     #[test]
     fn a_truncated_or_invalid_escape_survives_verbatim() {
-        assert_eq!(percent_decode("/a/100%"), "/a/100%");
-        assert_eq!(percent_decode("/a/%zz"), "/a/%zz");
+        assert_eq!(percent_decode("/100%"), "/100%");
+        assert_eq!(percent_decode("/%zz"), "/%zz");
     }
 }

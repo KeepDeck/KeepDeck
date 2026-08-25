@@ -66,8 +66,8 @@ pub fn pane_dir(run_dir: &Path, pane_id: &str) -> Result<PathBuf, String> {
 ///
 /// Staged beside the target so the rename stays within one filesystem, then
 /// renamed — the same tmp + rename discipline the reporters use coming the
-/// other way, and for the same reason: the readers here poll a directory and
-/// must never open a file mid-write. `file` is the FULL name including its
+/// other way, and for a reason that still holds: the reader watches this
+/// directory and may look the instant a name appears. `file` is the FULL name including its
 /// extension; the caller has already decided what kind of file this is.
 ///
 /// `Err` is a message for the log. Nothing on this path can be raised at a
