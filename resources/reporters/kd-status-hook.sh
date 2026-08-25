@@ -175,8 +175,8 @@ envelope=$(printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payl
 # waiting, and there is no flag to stop it.
 #
 # The status code decides, and the three cases are genuinely different:
-#   200 — an answer, possibly empty. Empty means nothing was waiting, which
-#         loses nothing, so printing nothing is correct.
+#   200 — an answer with mail in it. Printed verbatim.
+#   204 — answered, and nothing was waiting. The common end to a turn.
 #   504 — the deck took the envelope and never answered. NOT a retry: writing
 #         a file now would deliver the same report twice.
 #   anything else, or no code at all — the deck never heard us. The inbox is

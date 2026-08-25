@@ -111,6 +111,13 @@ fn handle(
                     let _ = respond_empty(stream, Status::NoContent);
                 }
                 Some(correlation) => match waiters.wait(&correlation, super::reply::HOOK_WAIT) {
+                    // Answered, and there was nothing waiting. That is the
+                    // common end to a turn, and 204 is what it means — the
+                    // deck already treats an empty answer as a thing that
+                    // loses nothing and needs no collecting.
+                    Some(answer) if answer.is_empty() => {
+                        let _ = respond_empty(stream, Status::NoContent);
+                    }
                     // The answer, verbatim: the deck rendered it through the
                     // asking agent's own plugin, so this carries bytes and
                     // never reads them.
@@ -298,6 +305,28 @@ mod tests {
             answer.ends_with("[mail-7] read me"),
             "the answer travels verbatim: {answer}"
         );
+    }
+
+    #[test]
+    fn an_answer_that_is_empty_says_so_with_its_own_code() {
+        // "Nothing was waiting" is not "here is your mail, it is blank".
+        let waiters = Arc::new(Waiters::default());
+        let answering = Arc::clone(&waiters);
+        std::thread::spawn(move || {
+            for _ in 0..200 {
+                if answering.resolve("corr-empty", String::new()) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        });
+        let (status, _) = post_with(
+            "POST",
+            ENVELOPE_PATH,
+            asking_envelope("pane-1", "corr-empty").as_bytes(),
+            &waiters,
+        );
+        assert!(status.starts_with("HTTP/1.1 204"), "{status}");
     }
 
     #[test]
