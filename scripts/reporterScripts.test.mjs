@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -191,12 +191,32 @@ describe("reporter shell scripts", () => {
     ).toBe(deck);
 
     // Every envelope any reporter sends, canonical shell and plugin alike.
+    // FOUND, not listed. The shell half always walked its directory; the
+    // plugin half was two paths written by hand, so a third sender would
+    // stamp whatever it liked and this would go on checking the two it knew
+    // about — the same shape of blindness that let the app fall behind the
+    // deck in the first place.
+    //
+    // A sender is a file that reaches the deck: it either imports the shared
+    // client or posts an envelope itself. Both are searched for, so a plugin
+    // that grows its own client is still caught.
     const senders = [
       ...readdirSync(CANONICAL_DIR)
         .filter((name) => name.endsWith(".sh"))
         .map((name) => join(CANONICAL_DIR, name)),
-      "plugins/opencode/resources/mail-courier.js",
-      "plugins/opencode/resources/session-reporter.js",
+      ...readdirSync("plugins", { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .flatMap((entry) => {
+          const dir = join("plugins", entry.name, "resources");
+          if (!existsSync(dir)) return [];
+          return readdirSync(dir)
+            .filter((name) => name.endsWith(".js"))
+            .map((name) => join(dir, name))
+            .filter((path) => {
+              const body = readFileSync(path, "utf8");
+              return /sendEnvelope|KEEPDECK_BRIDGE/.test(body);
+            });
+        }),
     ];
     let stamped = 0;
     for (const path of senders) {
