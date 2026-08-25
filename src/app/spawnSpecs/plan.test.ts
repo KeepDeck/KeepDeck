@@ -10,7 +10,11 @@ import type {
   SpawnSkillsInput,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "./plans";
+import {
+  BRIDGE_PROTOCOL_VERSION,
+  EMPTY_SPAWN_CONTEXT,
+  type SpawnPlan,
+} from "./plans";
 import type { Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createContributionRegistries } from "../../plugins/registries/contributions";
@@ -69,6 +73,7 @@ const runtime = { plugins } as unknown as AppRuntime;
 const ctx = {
   ...EMPTY_SPAWN_CONTEXT,
   bridgeDir: "/bridge/run-1",
+  bridgeUrl: "http://127.0.0.1:51611/envelope",
   paneBridgeDir: (paneId: string) => Promise.resolve(`/bridge/run-1/${paneId}`),
 };
 const W1: WorkspaceRef = { id: "ws-1", instance: "workspace-instance-1" };
@@ -133,14 +138,17 @@ describe("building one plan through the agent hook", () => {
   /** Build every live pane's plan, the way the orchestrator's reconcile does,
    *  and collect what landed in the cache. No render: deciding what a pane
    *  runs stopped needing one. */
-  const mount = async (workspaces: Workspace[]) => {
+  const mount = async (
+    workspaces: Workspace[],
+    context: typeof ctx = ctx,
+  ) => {
     for (const workspace of workspaces) {
       for (const pane of workspace.panes) {
         await buildLivePaneSpec(
           runtime.plugins,
           workspace,
           pane,
-          ctx,
+          context,
           { stagedSkills, mcpAccess },
         );
       }
@@ -166,14 +174,40 @@ describe("building one plan through the agent hook", () => {
     // Host-owned arming: the ONE bridge var, token echoed in the plan.
     const env = Object.fromEntries(plan.env);
     const bridge = JSON.parse(env.KEEPDECK_BRIDGE);
-    // The pane's OWN inbox, not the run root: an answer is addressed by pane,
-    // so a correlation aimed at somebody else's pane reaches nobody.
+    // The pane's OWN directory, not the run root: the deck's doorbell is
+    // addressed by pane, so a knock meant for another reaches nobody.
+    //
+    // The version is the CONSTANT, never a literal. Written as `1` here, this
+    // assertion did not witness the field — it agreed with a stale value and
+    // held it in place while the deck moved on. What ties the constant to the
+    // deck's own number, and to every reporter's envelopes, is the pin in
+    // scripts/reporterScripts.test.mjs; this checks only that what the app
+    // speaks is what it arms panes with.
     expect(bridge).toMatchObject({
-      v: 1,
+      v: BRIDGE_PROTOCOL_VERSION,
       dir: "/bridge/run-1/pane-1",
       pane: "pane-1",
+      // The address is the only lane a reporter has; the directory beside it
+      // carries the doorbell, which runs the other way.
+      url: "http://127.0.0.1:51611/envelope",
     });
     expect(plan.token).toBe(bridge.token);
+  });
+
+  it("arms nothing at all when the bridge has no surface", async () => {
+    // The address is the only lane a reporter has since the cutoff, so a
+    // pane armed without one would spend its whole life reporting into
+    // nowhere and looking alive doing it. No var at all is what says so:
+    // a reporter finds nothing and stays inert.
+    register(adopting);
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]), {
+      ...ctx,
+      bridgeUrl: "",
+    });
+    await settle();
+
+    const env = Object.fromEntries(seen["pane-1"].env);
+    expect(env).not.toHaveProperty("KEEPDECK_BRIDGE");
   });
 
   it("a pane's YOLO mode reaches the hook input on spawn AND resume", async () => {

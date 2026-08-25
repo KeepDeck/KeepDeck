@@ -53,7 +53,6 @@ import { subscribePaneKeys } from "./paneKeys";
 import { subscribePaneInput } from "./paneInput";
 import {
   nudgeBridgePane,
-  onBridgeReplyUncollected,
   replyToBridgeHook,
 } from "../ipc/status";
 import { createSessionBinding } from "./sessionBinding";
@@ -325,11 +324,7 @@ export function createAppRuntime(
       // hand every teamed pane an unsolicited briefing per launch.
       onRoleCatalogChanged: subscribeRoleCatalogChanges,
       terminal: { deliver: deliverMailThroughPty, wake: wakePaneForMail },
-      bridge: {
-        reply: replyToBridgeHook,
-        nudge: nudgeBridgePane,
-        onReplyUncollected: onBridgeReplyUncollected,
-      },
+      bridge: { reply: replyToBridgeHook, nudge: nudgeBridgePane },
     },
   );
   // Where an arming pass's refusals land for the skills surface to read.

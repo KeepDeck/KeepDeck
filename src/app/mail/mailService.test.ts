@@ -108,9 +108,11 @@ function setup(initial: boolean | null) {
         wake: () => true,
       },
       bridge: {
-        reply: (paneId, id, body) => replies.push({ paneId, id, body }),
+        reply: (paneId, id, body) => {
+          replies.push({ paneId, id, body });
+          return Promise.resolve(true);
+        },
         nudge: () => {},
-        onReplyUncollected: () => Promise.resolve(() => {}),
       },
     },
   );

@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 /**
  * Session-binding events ([F7]/[F8] session identity v2). A pane's own agent
  * process reports its session id through the CLI bridge (hook/plugin armed
- * at spawn via the `KEEPDECK_BRIDGE` env var); the Rust watcher parses the
+ * at spawn via the `KEEPDECK_BRIDGE` env var); the Rust route parses the
  * envelope and emits this event. The constant mirrors `SESSION_BOUND_EVENT`
  * in src-tauri/src/bridge/wire.rs.
  */
@@ -46,8 +46,16 @@ export function onSessionBound(
 }
 
 /** The per-install spawn-plan context (mirrors the Rust `SpawnContextDto`):
- * this run's bridge inbox, resolved once at boot. */
-export function spawnContext(): Promise<{ bridgeDir: string }> {
+ * this run's bridge inbox and the address its surface answers on, resolved
+ * once at boot. */
+export interface SpawnContextDto {
+  /** This run's bridge inbox; "" = unavailable. */
+  bridgeDir: string;
+  /** Where its surface answers, whole; "" = unavailable. */
+  bridgeUrl: string;
+}
+
+export function spawnContext(): Promise<SpawnContextDto> {
   return invoke("session_spawn_context");
 }
 

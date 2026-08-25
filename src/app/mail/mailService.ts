@@ -32,7 +32,6 @@ import type { CommandRegistry } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
 import { teamMembers, type Mail } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
-import { describeError, log } from "../../ipc/log";
 import { createHookReplies, type HookReplies } from "./hookReply";
 import { registerMailCommands, type MailCommandDeps } from "./mailCommands";
 import { createMailManager, type MailManager } from "./mailManager";
@@ -105,12 +104,10 @@ export interface MailServiceDeps {
     wake(paneId: string): boolean;
   };
   bridge: {
-    reply(paneId: string, correlation: string, body: string): void;
+    /** Answers whether the reply reached the waiting hook. False means those
+     * messages went nowhere and are still the deck's to put back. */
+    reply(paneId: string, correlation: string, body: string): Promise<boolean>;
     nudge(paneId: string): void;
-    /** An answer nobody read: its messages must go back in the queue. */
-    onReplyUncollected(
-      handler: (reply: { pane: string; id: string }) => void,
-    ): Promise<() => void>;
   };
 }
 
@@ -141,8 +138,8 @@ export function createMailService(
   };
 
   /** The panes that exist right now. Sweeping is CORRECTNESS, not hygiene:
-   * `pane-N` is a reusable slot, so a queue or inbox left behind by a closed
-   * pane would be handed to whoever inherits its number. */
+   * `pane-N` is a reusable slot, so a queue left behind by a closed pane
+   * would be handed to whoever inherits its number. */
   const livePaneIds = () =>
     new Set(
       deps.deck
@@ -228,25 +225,22 @@ export function createMailService(
    * Take the feature down: everything `settle` built, in the one order that
    * is safe.
    *
-   * Written once because it is now four steps, and it was written twice —
-   * the toggle-off branch and `dispose` — with the orders already differing.
-   * The next step added to one and not the other is a leak or a call into a
-   * disposed manager, and nothing about two copies makes them stay in step.
+   * Written once because it was written twice — the toggle-off branch and
+   * `dispose` — with the orders already differing. The next step added to one
+   * and not the other is a leak or a call into a disposed manager, and
+   * nothing about two copies makes them stay in step.
    *
    * Commands FIRST: an in-flight call must not reach a manager that is
    * already disposed, and unregistering is what makes the tool stop existing
    * for anyone still holding a `tools/list` from a moment ago. Then the
    * presence, so nothing announces into what is about to go. Then the
-   * hand-over memory, because the queues those messages came from are the
-   * next thing to be destroyed and a late report must not put them into
-   * whatever queue exists next time.
+   * manager itself.
    */
   function tearDown(): void {
     unregister?.();
     unregister = null;
     presence?.dispose();
     presence = null;
-    hookReplies.forgetAll();
     manager?.dispose();
     manager = null;
   }
@@ -308,24 +302,6 @@ export function createMailService(
     if (!manager) return;
     learnLiveVersions();
   });
-  let stopUncollected: (() => void) | null = null;
-  void deps.bridge
-    .onReplyUncollected(({ pane, id }) => hookReplies.uncollected(pane, id))
-    .then((stop) => {
-      // Disposed while the subscription was still being set up: stop it
-      // rather than leave a listener behind a dead service.
-      if (disposed) stop();
-      else stopUncollected = stop;
-    })
-    .catch((error: unknown) => {
-      // Without it, an answer nobody reads is simply lost — the same outcome
-      // as before this report existed. Mail keeps working; say so once
-      // rather than take the feature down over a listener.
-      log.warn(
-        "web:mail",
-        `no report of unread answers: ${describeError(error)}`,
-      );
-    });
   settle();
 
   return {
@@ -339,7 +315,6 @@ export function createMailService(
       unsubscribeSettings();
       unsubscribePanes();
       unsubscribeAgents();
-      stopUncollected?.();
       tearDown();
     },
   };

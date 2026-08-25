@@ -9,10 +9,12 @@
  * is a second thing to keep in step and they disagree exactly when it
  * matters.
  *
- * It is where the MESSAGES live, and the only place they do. What sits
- * elsewhere is a hand-over in flight (`hookReply`'s memory of a batch given
- * to a transport that has not confirmed it), which is a fact about that
- * round trip rather than about the mail.
+ * It is where the MESSAGES live, and now the only place they do. A batch
+ * being handed to a hook used to sit outside it too, remembered by
+ * `hookReply` until a transport got round to saying whether anyone had come
+ * for it. The transport answers that on the call, so nothing has to be
+ * remembered anywhere: a batch either reached the hook or comes straight
+ * back here.
  *
  * A FACTORY, like both its siblings: the app's one instance lives in
  * `createAppRuntime` and reaches consumers as a value, while each test
@@ -663,6 +665,72 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     deps.subscribeChannels(() => drain()),
   ];
 
+  /**
+   * Take from the head of a pane's queue, under the turn budget, marking
+   * each one read on the way out — the ONE place mail leaves a queue.
+   *
+   * Both doors an agent can ask through end here. They used to be two copies
+   * of this loop, and the copies had already begun to drift: the same budget
+   * rule was spelled "stop when it does not fit" in one and "go while it
+   * does" in the other. Nothing had broken yet, which is the point — that is
+   * what the day before a divergence looks like.
+   *
+   * What genuinely differs between them is passed in, so the difference is
+   * visible at the call rather than buried in a second implementation.
+   *
+   * `collected` is appended to rather than returned fresh: an explicit read
+   * has usually taken some journal entries already, and the budget covers
+   * the whole answer, not the queue's share of it.
+   */
+  function drainQueue(
+    paneId: string,
+    collected: Mail[],
+    opts: {
+      /** Whether the two hold clauses apply. They do when the deck is about
+       * to push at a pane; they do not when the pane is the one asking. */
+      holds: boolean;
+      /** Names the lane in the log — the only window onto which door a
+       * message left through. */
+      lane: string;
+    },
+  ): void {
+    const queue = queues.get(paneId);
+    if (!queue) return;
+    let carried = collected.reduce((sum, mail) => sum + mail.body.length, 0);
+    while (queue.length > 0) {
+      const head = queue[0];
+      // Enough for this turn. The receiver pays for every character in its
+      // next turn and the SENDER chooses how many there are, so a loop of
+      // sends would otherwise arrive as one enormous injection. What is left
+      // keeps its place at the head and goes at the next boundary — nothing
+      // is dropped.
+      //
+      // Checked AFTER at least one message is taken: a single message longer
+      // than the whole budget must still be delivered, or it would sit at the
+      // head forever and block everything behind it.
+      if (collected.length > 0 && carried + head.body.length > limits.handoverChars) {
+        log.info(
+          "web:mail",
+          `handing over ${collected.length} of ${collected.length + queue.length} — ${carried} chars is enough for one turn`,
+        );
+        break;
+      }
+      // A pane parked on a permission prompt is unsafe to push at through
+      // either door. Asked rather than repeated: copied once, it became a
+      // fifth reason to hold that the terminal honoured and the briefing
+      // path silently ignored.
+      if (opts.holds && decideHandover(deps.activityOf(paneId)) === "hold") break;
+      queue.shift();
+      // Asking for it IS reading it — the one moment the deck can witness
+      // rather than assume.
+      remember(paneId, head, "read");
+      log.info("web:mail", `handed to ${opts.lane}: ${trace(head)}`);
+      collected.push(head);
+      carried += head.body.length;
+    }
+    if (queue.length === 0) queues.delete(paneId);
+  }
+
   return {
     send(request) {
       const refusal = sendRefusal(request.from, request.toPaneId, request.kind);
@@ -703,45 +771,8 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     takeAtTurnEnd(paneId) {
-      const queue = queues.get(paneId);
-      if (!queue) return [];
       const taken: Mail[] = [];
-      let carried = 0;
-      while (queue.length > 0) {
-        const head = queue[0];
-        // Enough for this turn. The receiver pays for every character in its
-        // next turn and the SENDER chooses how many there are, so a loop of
-        // sends would otherwise arrive as one enormous injection. What is
-        // left keeps its place at the head of the queue and goes at the next
-        // boundary — nothing is dropped, because by here it has already left
-        // the queue's protection.
-        //
-        // Checked AFTER at least one message is taken: a single message
-        // longer than the whole budget must still be delivered, or it would
-        // sit at the head forever and block everything behind it.
-        if (taken.length > 0 && carried + head.body.length > limits.handoverChars) {
-          log.info(
-            "web:mail",
-            `handing over ${taken.length} of ${taken.length + queue.length} — ${carried} chars is enough for one turn`,
-          );
-          break;
-        }
-        // The same two clauses the other channel obeys, asked rather than
-        // repeated: a pane parked on a permission prompt is unsafe to push at
-        // through either door. Copied here once, it made a fifth reason to
-        // hold something the terminal would honour and this — the path a
-        // briefing exclusively uses — would silently ignore.
-        if (decideHandover(deps.activityOf(paneId)) === "hold") break;
-        queue.shift();
-        // The agent's own hook asked for this and is about to be handed it,
-        // so it lands in context: read, by the only definition the deck can
-        // witness.
-        remember(paneId, head, "read");
-        log.info("web:mail", `handed to the turn-end hook: ${trace(head)}`);
-        taken.push(head);
-        carried += head.body.length;
-      }
-      if (queue.length === 0) queues.delete(paneId);
+      drainQueue(paneId, taken, { holds: true, lane: "the turn-end hook" });
       // Whatever is left (a held prompt, a fresh notice) still needs its
       // timer, and the queue just moved under it.
       drain();
@@ -829,20 +860,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // behind was stranded there, out of reach of the turn-boundary
       // hand-over, which reads the queue and nothing else.
       //
-      // Taking from the queue at all is what a cursor over the journal could
-      // never do. The two refusals a hand-over honours do not apply: a
-      // permission prompt is about pushing AT a pane and this is the pane
-      // asking, and standing context is held back from the TERMINAL, while
-      // this answer travels as the call's own result.
-      const queue = queues.get(paneId) ?? [];
-      while (queue.length > 0 && fits(queue[0].body)) {
-        const head = queue[0];
-        queue.shift();
-        remember(paneId, head, "read");
-        log.info("web:mail", `handed to an explicit read: ${trace(head)}`);
-        take(head);
-      }
-      if (queue.length === 0) queues.delete(paneId);
+      // The two refusals a hand-over honours do not apply here: a permission
+      // prompt is about pushing AT a pane and this is the pane asking, and
+      // standing context is held back from the TERMINAL, while this answer
+      // travels as the call's own result.
+      drainQueue(paneId, messages, { holds: false, lane: "an explicit read" });
 
       // Re-reading the journal is a different question, and it is asked from
       // the OTHER end: an agent whose context was rebuilt wants where things

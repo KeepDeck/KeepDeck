@@ -37,6 +37,8 @@ function setup(
     render?: MailReplyRenderer | undefined;
     off?: boolean;
     cliVersion?: string;
+    /** The answer reaches nobody — the hook timed out, or its process died. */
+    lost?: boolean;
   } = {},
 ) {
   const pasted: Mail[] = [];
@@ -58,11 +60,12 @@ function setup(
     mail: () => (options.off ? null : manager),
     rendererFor: () => ("render" in options ? options.render : RENDER),
     versionOf: () => options.cliVersion ?? null,
-    reply: (paneId: string, id: string, body: string) =>
-      replies.push({ paneId, id, body }),
-    // No clock: the hand-over memory ages out on a timer these tests never
-    // need to run, and a real setTimeout would keep the suite awake.
-    schedule: () => () => {},
+    reply: (paneId: string, id: string, body: string) => {
+      replies.push({ paneId, id, body });
+      // Delivered unless a test says otherwise: the transport answers this,
+      // and answering it is what replaced the memory that used to guess.
+      return Promise.resolve(options.lost !== true);
+    },
   };
   const channel = createHookReplies(deps);
   return { manager, replies, pasted, deps, channel };
@@ -184,64 +187,36 @@ describe("answerMailAsk", () => {
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
   });
 
-  it("refuses to hand anything over on a correlation the transport cannot answer", () => {
-    // The correlation is the AGENT's word. This side accepted any non-empty
-    // string while the transport accepted only a filename-safe one, so an ask
-    // carrying a space made the deck empty the pane's queue, render it, and
-    // hand it to a write that refused — no file, no watchdog, no report, and
-    // the messages aged out of the hand-over memory with every sender told
-    // they had been delivered. Repeatable by whatever runs in that pane.
+  it("treats an envelope with no correlation as one that only reports", () => {
+    // Most envelopes are this: a reporter states a fact and asks nothing.
+    // Nothing is taken from the queue and nothing is answered.
     //
-    // An unanswerable correlation now reads as "this envelope reports and
-    // asks nothing": nothing is taken, and nothing is written back.
+    // The shapes below were REFUSED until the cutoff, by a permit-list
+    // mirroring what the transport could turn into a filename. There is no
+    // filename any more, so a correlation is an opaque token and the deck's
+    // contract is the transport's: non-empty. What made the old gate worth
+    // removing rather than keeping is that it had become the only way to
+    // lose a turn — an ask the transport would have carried got no answer
+    // and the pane simply never heard back.
     const h = setup();
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
-    for (const hostile of ["a b", "../escape", "", "x".repeat(65), "ask\0"]) {
-      h.channel.answer("pane-2", asking({ reply: hostile }));
+    for (const empty of ["", 7, null, undefined]) {
+      h.channel.answer("pane-2", asking({ reply: empty }));
     }
     expect(h.replies).toEqual([]);
-    // Still waiting, for an ask that can actually be answered.
+    // And the message is untouched, still waiting for the terminal.
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
   });
 
-  it("refuses a second ask while an answer is still awaiting collection", () => {
-    // The second answer REPLACES the first file. The common second answer is
-    // EMPTY — nothing waiting — and the transport arms no collection watchdog
-    // for an empty one, because an empty one carries nothing to lose. So a
-    // reporter reusing a correlation could overwrite a reply full of messages
-    // with a blank, and those messages would sit booked, unwatched, and be
-    // gone in thirty seconds with their senders told they were delivered.
-    //
-    // Both shipped reporters mint a fresh id per ask, so this needs a
-    // modified one — which is exactly the threat this channel is written for.
+  it("answers on a correlation no filename could have held", () => {
+    // The other half, and the reason the gate went: these reach the deck
+    // now instead of being turned away by a rule about names.
     const h = setup();
-    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "first" });
-    h.channel.answer("pane-2", asking());
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    h.channel.answer("pane-2", asking({ reply: "a b/../x".padEnd(70, "!") }));
     expect(h.replies).toHaveLength(1);
-
-    h.channel.answer("pane-2", asking());
-    // Nothing written over the outstanding answer.
-    expect(h.replies).toHaveLength(1);
-    // And the first ask's messages are still recoverable.
-    h.channel.uncollected("pane-2", "askABC");
-    expect(h.manager.takeAtTurnEnd("pane-2").map((mail) => mail.body)).toEqual([
-      "first",
-    ]);
-  });
-
-  it("answers again on a correlation whose answer was already reported unread", () => {
-    // The other side of the same rule: once the transport says nobody came
-    // for an answer, that correlation is free. A hook that retries after its
-    // own timeout must not be stonewalled — the messages are back in the
-    // queue and this is the ask that carries them.
-    const h = setup();
-    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "first" });
-    h.channel.answer("pane-2", asking());
-    h.channel.uncollected("pane-2", "askABC");
-
-    h.channel.answer("pane-2", asking());
-    expect(h.replies).toHaveLength(2);
-    expect(h.replies[1].body).toContain("first");
+    expect(h.replies[0].id).toBe("a b/../x".padEnd(70, "!"));
+    expect(h.replies[0].body).toContain("take the parser");
   });
 
   it("keeps an agent's own words out of the log line about it", () => {
@@ -263,44 +238,40 @@ describe("answerMailAsk", () => {
     expect(lines[0]).toContain("an unreadable event");
   });
 
-  it("puts the messages back when nobody read the answer", () => {
-    // The messages left the queue to be written into a file. If that file is
-    // never opened — the hook timed out, the process died, something removed
-    // it — they are gone and nobody is told. This is the only path that can
-    // undo that, and the transport is the only thing that can see it happen.
-    const h = setup();
+  it("puts the messages back when the answer reached nobody", () => {
+    // The messages left the queue to travel in that answer. If it reaches
+    // nobody — the hook timed out, the process died — they are gone and
+    // nobody is told. The transport used to guess at this by waiting out a
+    // window; it now says so, and this is what the deck does about it.
+    const h = setup({ lost: true });
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
     h.channel.answer("pane-2", asking());
-    expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
+    expect(h.replies).toHaveLength(1);
 
-    h.channel.uncollected("pane-2", "askABC");
-    const back = h.manager.takeAtTurnEnd("pane-2");
-    expect(back.map((mail) => mail.body)).toEqual(["take the parser"]);
+    return Promise.resolve().then(() => {
+      const back = h.manager.takeAtTurnEnd("pane-2");
+      expect(back.map((mail) => mail.body)).toEqual(["take the parser"]);
+    });
   });
 
-  it("will not let one pane reclaim another's hand-over", () => {
-    // The correlation comes out of an envelope, so it is the sender's word.
-    // Remembering the PAIR is what stops a pane naming somebody else's
-    // correlation and pulling their messages back into its own queue.
+  it("keeps the messages taken when the answer landed", () => {
+    // The other half, and the one that must NOT put anything back: a
+    // delivered answer means the hook has them.
     const h = setup();
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
     h.channel.answer("pane-2", asking());
 
-    h.channel.uncollected("pane-3", "askABC");
-    expect(h.manager.takeAtTurnEnd("pane-3")).toEqual([]);
-    expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
-    // And the rightful owner can still get them back afterwards.
-    h.channel.uncollected("pane-2", "askABC");
-    expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
+    return Promise.resolve().then(() => {
+      expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
+    });
   });
 
   it("puts messages back into the queue they came from, not into a later one", () => {
-    // The report arrives seconds after the hand-over, and the feature can be
-    // switched off in between — which destroys the queues. Restoring into
-    // whatever manager is live NOW would take mail out of a queue the user
-    // cleared and put it into a fresh one, delivering messages that were
-    // deliberately thrown away.
-    const h = setup();
+    // The answer resolves a moment after the hand-over, and the feature can
+    // be switched off in between — which destroys the queues. Restoring into
+    // whatever manager is live NOW would put messages into a fresh queue the
+    // user had deliberately cleared.
+    const h = setup({ lost: true });
     const replaced = createMailManager({
       activityOf: () => WORKING,
       subscribeActivity: () => () => {},
@@ -318,48 +289,8 @@ describe("answerMailAsk", () => {
     channel.answer("pane-2", asking());
     live = replaced; // the toggle went off and on again
 
-    channel.uncollected("pane-2", "askABC");
-    expect(replaced.takeAtTurnEnd("pane-2")).toEqual([]);
-  });
-
-  it("forgets every hand-over when the queues behind them are destroyed", () => {
-    // `forgetAll` is what the owner calls as it disposes a manager. Without
-    // it the memory outlives what it describes, and its timers outlive the
-    // service.
-    const h = setup();
-    let cancelled = 0;
-    const channel = createHookReplies({
-      ...h.deps,
-      schedule: () => () => {
-        cancelled += 1;
-      },
+    return Promise.resolve().then(() => {
+      expect(replaced.takeAtTurnEnd("pane-2")).toEqual([]);
     });
-    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
-    channel.answer("pane-2", asking());
-
-    channel.forgetAll();
-    expect(cancelled).toBe(1);
-    channel.uncollected("pane-2", "askABC");
-    expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
-  });
-
-  it("forgets a hand-over nobody reported, so the map cannot grow forever", () => {
-    // Success is never confirmed — the transport reports only failure — so
-    // the memory has to age out on its own.
-    let expire: (() => void) | null = null;
-    const h = setup();
-    const channel = createHookReplies({
-      ...h.deps,
-      schedule: (fn) => {
-        expire = fn;
-        return () => {};
-      },
-    });
-    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
-    channel.answer("pane-2", asking());
-    expire!();
-
-    channel.uncollected("pane-2", "askABC");
-    expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 });

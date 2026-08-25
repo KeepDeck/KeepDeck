@@ -14,9 +14,10 @@
  * relative import between them resolves the same way in the repo and in the
  * bundle.
  */
-import { randomUUID } from "node:crypto";
-import { renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+// Built in, like everything else this file leans on: a reporter that needed
+// a dependency installed would be a reporter that stops working the moment
+// somebody ships without it.
+import { request as httpRequest } from "node:http";
 
 /**
  * Which process is reporting, on every lane either plugin publishes.
@@ -34,8 +35,10 @@ export const REPORTER = String(process.pid);
 /**
  * This pane's bridge, or null when nothing spawned us from KeepDeck.
  *
- * `dir` is the pane's OWN inbox — one directory per pane, so an answer is
- * addressed by pane and a correlation naming somebody else's reaches nobody.
+ * `dir` is the pane's OWN directory. It used to be an inbox this plugin
+ * dropped envelopes into; since the cutoff the only thing that lands there is
+ * the deck's doorbell, which runs the other way — the surface takes envelopes
+ * from panes and cannot push to them, so a knock still needs a file.
  */
 export function readBridge() {
   let bridge;
@@ -44,27 +47,88 @@ export function readBridge() {
   } catch {
     return null;
   }
-  const { dir, pane, token } = bridge ?? {};
-  return dir && pane && token ? { dir, pane, token } : null;
+  const { dir, pane, token, url } = bridge ?? {};
+  // All four required now. `url` was optional while a reporter that had never
+  // heard of it could still write a file; nothing reads those files, so a
+  // pane without an address has nowhere to report and should say so by being
+  // absent rather than by looking armed.
+  return dir && pane && token && typeof url === "string" && url
+    ? { dir, pane, token, url }
+    : null;
 }
 
 /**
- * Atomically drop one envelope into the inbox: uniquely named (so parallel
- * events never collide), written as `.tmp` and renamed, so the deck's
- * watcher never reads a torn file. Answers whether it landed.
+ * Hand one envelope to the deck.
  *
- * Best-effort like everything on this path — a full disk must not break the
- * user's session.
+ * One lane. There used to be two — this, and dropping a file in a directory
+ * the deck watched — and the file was not the worse option kept around: it
+ * was the whole transport first, and the only lane a deck too old to publish
+ * an address had. It is gone, and with it the reason this plugin had to know
+ * how to write an inbox at all.
+ *
+ * `answer` is the deck's reply when it had one to give, and `null` otherwise.
+ * A caller with no question to ask can ignore it entirely.
+ *
+ * ONLY 200 CARRIES A BODY. What the other codes mean is decided by
+ * src-tauri/src/bridge/http.rs and written down there, once; a table repeated
+ * here would go on describing the contract after the deck changed it, and
+ * nothing holds prose in step. Nothing here would act on the difference
+ * anyway: the deck logs its own timeout, on the side that knows something
+ * went wrong, and it puts back any messages whose answer reached nobody —
+ * because the send tells it so.
  */
-export function publish(dir, envelope) {
-  try {
-    const base = join(dir, `${envelope.type}-${randomUUID()}`);
-    writeFileSync(`${base}.tmp`, JSON.stringify(envelope));
-    renameSync(`${base}.tmp`, `${base}.json`);
-    return true;
-  } catch {
-    return false;
-  }
+export async function sendEnvelope(bridge, envelope) {
+  const posted = await post(bridge.url, JSON.stringify(envelope));
+  return { answer: posted.status === 200 ? posted.body : null };
+}
+
+/** How long to give the whole round trip, matching the shell reporters'
+ * `SEND_MAX`: one number for one rule, so no two lanes disagree about it.
+ *
+ * Deliberately LONGER than the deck's own patience (`HOOK_WAIT` in
+ * bridge/waiters.rs), so the deck runs out first and answers 504 rather than
+ * leaving this side timing out against a silent socket.
+ * `scripts/reporterScripts.test.mjs` pins that ordering. */
+const SEND_TIMEOUT_MS = 3000;
+
+/** One POST, resolving to `{ status, body }` — `status` is 0 when nothing
+ * answered at all, which since the cutoff means this report is lost. */
+function post(url, body) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    try {
+      const request = httpRequest(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(body),
+          },
+        },
+        (response) => {
+          let text = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => (text += chunk));
+          response.on("end", () => done({ status: response.statusCode ?? 0, body: text }));
+          response.on("error", () => done({ status: 0, body: "" }));
+        },
+      );
+      request.setTimeout(SEND_TIMEOUT_MS, () => {
+        request.destroy();
+        done({ status: 0, body: "" });
+      });
+      request.on("error", () => done({ status: 0, body: "" }));
+      request.end(body);
+    } catch {
+      done({ status: 0, body: "" });
+    }
+  });
 }
 
 /**

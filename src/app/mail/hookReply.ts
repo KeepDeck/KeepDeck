@@ -12,6 +12,14 @@
  * reporting and the mail question it is asking arrive in one envelope and
  * are answered in one handler, so a pane can never be marked finished by
  * one half while the other half is still deciding to keep it running.
+ *
+ * There used to be more here: a memory of what every outstanding answer
+ * carried, a timer to expire it, and a handler for the transport's report
+ * that nobody had collected one. All of it existed to answer a single
+ * question — did the hook actually get this — which the transport could not
+ * answer while an answer was a file somebody might or might not come for. A
+ * hook parked on an open connection is either still there or not, so the
+ * send answers it, and the machinery that guessed is gone.
  */
 import { isRecord } from "../../domain/json";
 import type { DeliverableMail, MailReplyRenderer } from "@keepdeck/plugin-api";
@@ -29,71 +37,42 @@ export interface HookReplyDeps {
    * could not be read. A hook-output schema belongs to a RELEASE — codex
    * changed its whole shape at 0.147 — so the renderer needs it to pick. */
   versionOf(agentId: string): string | null;
-  /** Hand the rendered answer back to the waiting hook. The pane travels
-   * with it: the ANSWER is addressed by pane, so an envelope naming another
-   * pane's correlation cannot be used to reach that pane. */
-  reply(paneId: string, correlation: string, body: string): void;
-  /** `setTimeout`, injected so tests drive the clock. Returns its cancel. */
-  schedule?(fn: () => void, ms: number): () => void;
+  /** Hand the rendered answer back to the waiting hook, and say whether it
+   * got there. The pane travels with it: the ANSWER is addressed by pane, so
+   * an envelope naming another pane's correlation cannot reach that pane. */
+  reply(paneId: string, correlation: string, body: string): Promise<boolean>;
 }
 
-/**
- * How long an answer with content is remembered after it is handed over.
- *
- * The transport reports only FAILURE — it waits its own window and then says
- * "nobody came for this one" — so a successful hand-over is never confirmed
- * and has to age out. Comfortably past that window: too short and a genuine
- * report arrives to find nothing to put back; too long only holds a few
- * messages in a map.
- */
-const HANDOVER_MEMORY_MS = 30_000;
-
-/** The labelled channel, as one owner: it answers asks, and it remembers what
- * each answer carried for exactly as long as that answer can still be
- * reported unread. */
+/** The labelled channel, as one owner: it answers asks. */
 export interface HookReplies {
   /** Answer one asking payload from `paneId`. */
   answer(paneId: string, payload: unknown): void;
-  /** The transport saw an answer nobody collected. The messages it carried
-   * left the queue to be written there, so they go back. */
-  uncollected(paneId: string, correlation: string): void;
-  /** Forget every outstanding hand-over, cancelling its timer.
-   *
-   * Called when the queues those messages came from are destroyed — the
-   * feature toggling off, or the owner disposing. Without it the memory
-   * outlives what it describes: a report arriving after a toggle would put
-   * messages taken from a dead queue into a live one, resurrecting mail into
-   * a pane that was deliberately cleared. */
-  forgetAll(): void;
 }
 
-/**
- * What a correlation may be — the SAME permit-list the transport applies
- * (`spool::is_usable_name`), because the two grammars disagreeing is how mail
- * gets destroyed.
+/** The correlation a payload is asking on, or null when it only reports.
  *
- * The correlation comes out of an envelope, so it is the agent's word. This
- * side used to accept any non-empty string and the transport only
- * `[A-Za-z0-9_-]{1,64}` — so an ask carrying `"a b"` made the deck empty the
- * pane's queue, render it, and hand it to a write that refused. No file, so
- * no watchdog, so no uncollected report: the messages aged out of the
- * hand-over memory and were gone, with every sender told they had been
- * delivered. Repeatable at will by whatever is running in that pane.
+ * Non-empty and nothing more, which is the whole of the transport's contract
+ * (`Report::correlation` in bridge/wire.rs): a correlation is an opaque token
+ * the deck hands straight back, a key in a map on the way, and a string in a
+ * log line at the end.
  *
- * `scripts/reporterScripts.test.mjs` pins this against the Rust rule, the
- * same way it pins the ask window.
+ * It used to be a permit-list, `[A-Za-z0-9_-]{1,64}`, mirroring the rule the
+ * transport applied before it could write an answer to a file. That is worth
+ * one sentence because the reason DIED rather than weakened: there is no file
+ * and no write to refuse, so the gate had stopped protecting anything and had
+ * become the only thing that could lose a turn — a correlation of 70
+ * characters got no answer from a deck whose transport would have carried it
+ * without complaint. The one place a correlation is still dangerous is the
+ * log line, and that is answered at the log line, with `printable`.
+ *
+ * Should a correlation ever become a name again — a file, a directory — the
+ * grammar is born again THERE, with its own reason. It does not come back
+ * from here.
  */
-const USABLE_CORRELATION = /^[A-Za-z0-9_-]{1,64}$/;
-
-/** The correlation a payload is asking on, or null when it only reports —
- * and null for one the transport could not answer on, which reads as "this
- * envelope reports and asks nothing". The mail then stays in its queue. */
 export function correlationOf(payload: unknown): string | null {
   if (!isRecord(payload)) return null;
   const reply = payload.reply;
-  return typeof reply === "string" && USABLE_CORRELATION.test(reply)
-    ? reply
-    : null;
+  return typeof reply === "string" && reply !== "" ? reply : null;
 }
 
 /** One message as a plugin renderer sees it: who spoke, flattened to a name,
@@ -112,6 +91,10 @@ function forAgent(mail: Mail): DeliverableMail {
   };
 }
 
+export function createHookReplies(deps: HookReplyDeps): HookReplies {
+  return { answer: (paneId, payload) => answerMailAsk(deps, paneId, payload) };
+}
+
 /**
  * Answer one asking payload. Silence is a real answer and the common one —
  * most turns end with nothing waiting.
@@ -122,83 +105,10 @@ function forAgent(mail: Mail): DeliverableMail {
  * cannot carry mail (a `PostToolUse` armed for asking, a plugin that renders
  * nothing) from swallowing it.
  */
-export function createHookReplies(deps: HookReplyDeps): HookReplies {
-  const schedule =
-    deps.schedule ??
-    ((fn: () => void, ms: number) => {
-      const timer = setTimeout(fn, ms);
-      return () => clearTimeout(timer);
-    });
-  /** What each outstanding answer carried, keyed by pane AND correlation —
-   * the same pair the transport reports back, and the reason a correlation
-   * borrowed from another pane cannot reclaim that pane's messages. Each
-   * entry also remembers WHICH manager it was taken from, because that is
-   * the only queue it may go back into. */
-  const handedOver = new Map<
-    string,
-    { messages: Mail[]; from: MailManager; forget: () => void }
-  >();
-  const key = (paneId: string, correlation: string) =>
-    `${paneId}\0${correlation}`;
-
-  const handovers: Handovers = {
-    book(paneId, correlation, messages, from) {
-      const at = key(paneId, correlation);
-      handedOver.get(at)?.forget();
-      handedOver.set(at, {
-        messages,
-        from,
-        forget: schedule(() => handedOver.delete(at), HANDOVER_MEMORY_MS),
-      });
-    },
-    outstanding: (paneId, correlation) => handedOver.has(key(paneId, correlation)),
-  };
-
-  return {
-    answer: (paneId, payload) =>
-      answerMailAsk(deps, paneId, payload, handovers),
-    forgetAll() {
-      for (const outstanding of handedOver.values()) outstanding.forget();
-      handedOver.clear();
-    },
-    uncollected(paneId, correlation) {
-      const outstanding = handedOver.get(key(paneId, correlation));
-      if (!outstanding) return;
-      outstanding.forget();
-      handedOver.delete(key(paneId, correlation));
-      // Restored into the manager the messages CAME FROM, not into whatever
-      // is live now. The two differ whenever the feature toggled between the
-      // hand-over and the report, and putting them into a fresh manager
-      // would resurrect mail into a queue the user had cleared.
-      log.warn(
-        "web:mail",
-        `${paneId} never read its answer — putting back ${outstanding.messages
-          .map((mail) => mail.id)
-          .join(" ")}`,
-      );
-      outstanding.from.restore(outstanding.messages);
-    },
-  };
-}
-
-/** The hand-over memory, as the asking path needs it: book what one answer
- * carried against the queue it came out of, and say whether an answer is
- * still awaiting collection on a given correlation. */
-interface Handovers {
-  book(
-    paneId: string,
-    correlation: string,
-    messages: Mail[],
-    from: MailManager,
-  ): void;
-  outstanding(paneId: string, correlation: string): boolean;
-}
-
 function answerMailAsk(
   deps: HookReplyDeps,
   paneId: string,
   payload: unknown,
-  handovers: Handovers,
 ): void {
   const manager = deps.mail();
   // Named by whichever field this reporter's CLI uses. The hook CLIs send
@@ -224,27 +134,22 @@ function answerMailAsk(
     log.info("web:mail", `${paneId} asked on ${asking} → ${why}`);
 
   const correlation = correlationOf(payload);
-  // An answer is ADDRESSED by correlation, so one the transport cannot write
-  // leaves nothing to reply to — but it is still an ask, and the log is the
-  // only place it can show up. Silence here would leave a reporter with a
-  // different alphabet looking at a pane that never receives mail and a log
-  // with nothing in it.
-  if (!correlation) return said("unusable correlation — nothing to answer on");
-  // The same correlation twice, with an answer still outstanding on it. The
-  // second answer REPLACES the first file, so if this one is empty — the
-  // common case, nothing waiting — it overwrites a reply carrying messages
-  // and the transport arms no watchdog for an empty one. The first ask's
-  // messages would be booked, unwatched, and gone in thirty seconds with
-  // their senders told otherwise. Only a reporter that reuses a correlation
-  // reaches this; both shipped ones mint a fresh id per ask.
-  if (handovers.outstanding(paneId, correlation)) {
-    return said(`correlation ${correlation} is already awaiting collection`);
-  }
+  // No correlation at all: this envelope reports and asks nothing, which is
+  // most of them. Still logged — a hook that asked and a hook that never ran
+  // look identical from outside, and the difference is the whole diagnosis.
+  if (!correlation) return said("no correlation — this envelope only reports");
+  // The same correlation twice, with the first ask still waiting, is refused
+  // by the TRANSPORT and never arrives here: it holds a slot per pane and
+  // correlation, and turns the second one away rather than announcing it.
+  // This side used to guard that with a memory of what was outstanding —
+  // the memory that went away with the file it described.
   const answer = (body: string, why: string) => {
     said(why);
-    deps.reply(paneId, correlation, body);
+    // Nothing to lose: an empty answer means "nothing was waiting for you",
+    // so whether it lands changes nothing that has to be put back.
+    void deps.reply(paneId, correlation, body);
   };
-  // Always answer, even with nothing: a hook that gets no file waits out its
+  // Always answer, even with nothing: a hook that gets no reply waits out its
   // whole timeout, and doing that on every turn end would tax every pane for
   // the sake of the rare one with mail.
   if (!manager || !isRecord(payload)) return answer("", "mail is off");
@@ -268,22 +173,35 @@ function answerMailAsk(
     // This event cannot carry mail after all. Give it back rather than drop
     // it — the pane will ask again at an event that can.
     //
-    // Empty counts as null, not as "an answer that happens to be blank". The
-    // transport arms its collection watchdog only for an answer WITH content,
-    // because an empty one carries nothing to lose — so handing messages over
-    // and then writing "" would book them against a reply nobody watches, and
-    // they would age out of the hand-over memory with every sender told they
-    // were delivered. That is the hole the write-failure report closed, one
-    // branch over, and a third-party renderer is all it takes to reach it.
+    // Empty counts as null, not as "an answer that happens to be blank":
+    // answering "" would tell the hook nothing was waiting while the deck
+    // had already taken these out of the queue to hand over.
     manager.restore(taken);
     return answer("", `${agent} cannot carry mail on this event`);
   }
-  // Remembered BEFORE the answer goes out: the transport starts its own
-  // clock the moment it writes, and a report that beat this line would find
-  // nothing to put back.
-  handovers.book(paneId, correlation, taken, manager);
-  answer(
-    rendered,
-    `injecting ${taken.length} message(s), ${rendered.length} bytes: ${taken.map((mail) => `${mail.id}/${mail.kind}`).join(" ")}`,
+  said(
+    `injecting ${taken.length} message(s), ${rendered.length} bytes: ${taken
+      .map((mail) => `${mail.id}/${mail.kind}`)
+      .join(" ")}`,
   );
+  // The one answer that CAN be lost — those messages left the queue to travel
+  // in it — and so the one that is watched. Not with a timer and a guess, as
+  // a file needed: the send itself either reaches the parked hook or says it
+  // did not.
+  //
+  // Put back into the manager they CAME FROM, captured here rather than
+  // looked up again. The two differ if the feature toggled in between, and
+  // restoring into a fresh manager would resurrect mail into a queue the
+  // user had deliberately cleared; a disposed one takes them back inertly,
+  // which is the right ending for messages whose queue no longer exists.
+  void deps.reply(paneId, correlation, rendered).then((delivered) => {
+    if (delivered) return;
+    log.warn(
+      "web:mail",
+      `${paneId} was gone before its answer arrived — putting back ${taken
+        .map((mail) => mail.id)
+        .join(" ")}`,
+    );
+    manager.restore(taken);
+  });
 }

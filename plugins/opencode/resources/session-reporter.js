@@ -9,9 +9,9 @@
  * attribution is exact even when several agents spawn in parallel, and `/new`
  * typed inside the TUI is caught too.
  *
- * Two jobs, both best-effort (a KeepDeck-less environment, or a full disk,
- * must never break the user's session):
- *  - Every ROOT `session.created` becomes a bridge-protocol-v1 `session.bound`
+ * Two jobs, both best-effort (a KeepDeck-less environment, or a deck that
+ * went away, must never break the user's session):
+ *  - Every ROOT `session.created` becomes a bridge-protocol-v2 `session.bound`
  *    envelope — the pane ⇄ session identity. A resumed session is also bound
  *    when its first completed message (or child-session event) reveals it.
  *  - Every COMPLETED assistant `message.updated` becomes a `usage.report`
@@ -20,13 +20,13 @@
  *    Context-window limits are keyed by provider + model. OpenCode exposes no
  *    account rate-limit windows, so the report is pane usage only.
  *
- * Envelopes are uniquely named (randomUUID, so parallel events never collide),
- * written as `.tmp` and renamed so the watcher never sees a torn file.
+ * Envelopes are posted to the deck's own surface, whose address arrives in
+ * `KEEPDECK_BRIDGE` at spawn.
  */
 import {
   REPORTER,
   createSubagentIndex,
-  publish as publishTo,
+  sendEnvelope,
   readBridge,
 } from "./keepdeck-bridge.js";
 
@@ -37,8 +37,14 @@ export default async (input = {}) => {
 
   const client = input?.client;
 
-  /** Atomically drop one bridge envelope into this pane's inbox. */
-  const publish = (envelope) => publishTo(dir, envelope);
+  /** Hand one envelope to the deck.
+   *
+   * Fire-and-forget: no caller here asks a question, and none reads the
+   * result. Awaiting it would make every turn-lifecycle edge wait on a round
+   * trip it has nothing to do with. */
+  const publish = (envelope) => {
+    void sendEnvelope(bridge, envelope);
+  };
 
   // Per-message latest snapshot for the ACTIVE ROOT session and all of its
   // descendants, summed into the session cumulative. A new root session owns a
@@ -158,7 +164,7 @@ export default async (input = {}) => {
   // after a publish that silently failed.
   const bind = (sessionID, continuing) =>
     publish({
-      v: 1,
+      v: 2,
       type: "session.bound",
       paneId: pane,
       token,
@@ -230,7 +236,7 @@ export default async (input = {}) => {
    * in this process. */
   const reportStatus = (type, extra = {}) =>
     publish({
-      v: 1,
+      v: 2,
       type: "agent.status",
       paneId: pane,
       token,
@@ -367,7 +373,7 @@ export default async (input = {}) => {
       currentRoot.modelID,
     );
     publish({
-      v: 1,
+      v: 2,
       type: "usage.report",
       paneId: pane,
       token,

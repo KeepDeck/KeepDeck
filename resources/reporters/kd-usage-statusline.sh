@@ -45,18 +45,11 @@ esac
 # already published this very payload, and a second envelope would double the
 # same reading.
 if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
-  # The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a
-  # path without quotes — extracting quoted JSON strings with sed is safe.
-  field() {
-    printf '%s' "$KEEPDECK_BRIDGE" \
-      | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-      | head -n 1
-  }
-  dir=$(field dir)
-  pane=$(field pane)
-  token=$(field token)
+# @include lib/reporter-bridge.sh
 # @include lib/reporter-identity.sh
-  if [ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ]; then
+
+# @include lib/reporter-send.sh
+  if [ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ]; then
     # The session's last-turn time, stamped onto the report so the webview's
     # freshest-wins ranks account windows by WHEN the data was captured, not
     # when this envelope arrived. Claude's `rate_limits` only move on a real
@@ -85,21 +78,16 @@ if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
       case $secs in '' | *[!0-9]*) secs=$(stat -c %Y "$transcript" 2>/dev/null) ;; esac
       case $secs in '' | *[!0-9]*) ;; *) mtime="${secs}000" ;; esac
     fi
-    # mktemp = the unique name AND the tmp stage; the rename to .json
-    # publishes.
-    if f=$(mktemp "$dir/usage.report-XXXXXXXX"); then
-      {
-        printf '{"v":1,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":' \
-          "$pane" "$token"
-        printf '%s' "$payload"
-        [ -n "$mtime" ] && printf ',"sourceMtimeMs":%s' "$mtime"
-        # The reporting process, for the same reason the binding carries it:
-        # a nested run's statusline holds a valid secret and would otherwise
-        # overwrite this pane's numbers with another session's.
-        [ -n "$reporter" ] && printf ',"reporter":"%s"' "$reporter"
-        printf '}}'
-      } > "$f" && mv "$f" "$f.json"
-    fi
+    # Assembled into a value rather than streamed into a file: the direct
+    # lane needs the whole envelope in hand, and a report is small.
+    extra=""
+    [ -n "$mtime" ] && extra="$extra,\"sourceMtimeMs\":$mtime"
+    # The reporting process, for the same reason the binding carries it: a
+    # nested run's statusline holds a valid secret and would otherwise
+    # overwrite this pane's numbers with another session's.
+    [ -n "$reporter" ] && extra="$extra,\"reporter\":\"$reporter\""
+    send_envelope "$(printf '{"v":2,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":%s%s}}' \
+      "$pane" "$token" "$payload" "$extra")"
   fi
 fi
 
