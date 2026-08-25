@@ -71,4 +71,3 @@ export function spawnContext(): Promise<SpawnContextDto> {
 export function paneBridgeDir(paneId: string): Promise<string> {
   return invoke("bridge_pane_dir", { pane: paneId });
 }
-
