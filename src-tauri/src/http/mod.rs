@@ -16,8 +16,10 @@
 //! std-only, like the code it came from: there is no HTTP crate in the tree
 //! and this is not the commit that adds one.
 
+pub(crate) mod listener;
 pub(crate) mod request;
 pub(crate) mod response;
 
+pub(crate) use listener::{bind, Listener};
 pub(crate) use request::read_request;
 pub(crate) use response::{respond_empty, respond_with_body};

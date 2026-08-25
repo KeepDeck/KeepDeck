@@ -26,7 +26,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -38,8 +38,6 @@ use crate::artifacts::token::{mint_token, token_eq};
 use crate::http::{read_request, respond_empty};
 
 const KEEPALIVE_TICK: Duration = Duration::from_secs(15);
-const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
-const ACCEPT_FAILURE_LIMIT: u32 = 10;
 
 /// INVARIANT (2): the only MIMEs this server may ever answer with.
 const MIME_SSE: &str = "text/event-stream";
@@ -79,89 +77,64 @@ pub(super) struct Shared {
     /// the port (B5 — born together, dead together).
     index_tokens: Mutex<HashMap<String, String>>,
     subs: Mutex<HashMap<SubKey, Vec<SubEntry>>>,
+    /// Set by `stop` alone. The LISTENER has its own liveness — this one
+    /// says the feature was torn down, which the tick loop and any
+    /// in-flight connection read while the accept loop is winding up.
     dead: AtomicBool,
-    /// The teardown wake pair: the NEAR end is HELD here for the
-    /// server's life (dropping it in `stop` is the poll-wake — if it
-    /// dropped at `start`'s return the accept loop would see instant EOF
-    /// and exit); the far end is what the loop polls.
-    wake_keep: Mutex<Option<std::os::unix::net::UnixStream>>,
-    wake_poll: Mutex<Option<std::os::unix::net::UnixStream>>,
 }
 
 pub struct DisplayServer {
     pub(super) shared: Arc<Shared>,
+    listener: crate::http::Listener,
 }
 
 impl DisplayServer {
-    /// Bind, spawn the accept and keepalive-tick threads. The caller
-    /// (mod.rs's enable) has ALREADY claimed the store root — the read
-    /// path goes to disk per request (the no-cache rule), so the server
+    /// Bind first, then serve. The port is minted before the state because
+    /// the state is built AROUND it — every URL this surface composes
+    /// carries the port, so the handler cannot exist before the bind does.
+    ///
+    /// The caller (mod.rs's enable) has ALREADY claimed the store root — the
+    /// read path goes to disk per request (the no-cache rule), so the server
     /// needs only the root, not the store object.
     pub fn start(root: &Path) -> Result<Self, String> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))
-            .map_err(|e| format!("binding the display server failed: {e}"))?;
-        let port = listener
-            .local_addr()
-            .map_err(|e| e.to_string())?
-            .port();
-        listener
-            .set_nonblocking(true)
-            .map_err(|e| format!("nonblocking listener: {e}"))?;
-        let (wake_near, wake_far) = std::os::unix::net::UnixStream::pair()
-            .map_err(|e| format!("wake pair: {e}"))?;
+        let bound = crate::http::bind("artifacts")?;
         let shared = Arc::new(Shared {
             root: root.to_path_buf(),
-            port,
+            port: bound.port,
             index_tokens: Mutex::new(HashMap::new()),
             subs: Mutex::new(HashMap::new()),
             dead: AtomicBool::new(false),
-            wake_keep: Mutex::new(Some(wake_near)),
-            wake_poll: Mutex::new(Some(wake_far)),
         });
-        Self::start_threads(listener, shared)
+        let serving = Arc::clone(&shared);
+        let listener = crate::http::Listener::serve(bound, "artifacts", move |stream| {
+            handle_connection(stream, Arc::clone(&serving))
+        })?;
+        Self::with_tick(shared, listener, |shared| {
+            std::thread::Builder::new()
+                .name("keepdeck artifacts tick".into())
+                .spawn(move || tick_loop(shared))
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        })
     }
 
-    fn start_threads(listener: TcpListener, shared: Arc<Shared>) -> Result<Self, String> {
-        Self::start_threads_with(
-            listener,
-            shared,
-            |listener, shared| {
-                std::thread::Builder::new()
-                    .name("keepdeck artifacts accept".into())
-                    .spawn(move || accept_loop(listener, shared))
-                    .map_err(|e| format!("spawning the accept loop failed: {e}"))
-            },
-            |shared| {
-                std::thread::Builder::new()
-                    .name("keepdeck artifacts tick".into())
-                    .spawn(move || tick_loop(shared))
-                    .map_err(|e| format!("spawning the keepalive tick failed: {e}"))
-            },
-        )
-    }
-
-    fn start_threads_with<Accept, Tick>(
-        listener: TcpListener,
+    /// The tick spawn is injected so a test can fail it. A keepalive thread
+    /// that never started must take the listener down with it: a port that
+    /// answers while nobody minds the subscribers is worse than no port.
+    fn with_tick<Tick>(
         shared: Arc<Shared>,
-        spawn_accept: Accept,
+        listener: crate::http::Listener,
         spawn_tick: Tick,
     ) -> Result<Self, String>
     where
-        Accept: FnOnce(TcpListener, Arc<Shared>) -> Result<std::thread::JoinHandle<()>, String>,
-        Tick: FnOnce(Arc<Shared>) -> Result<std::thread::JoinHandle<()>, String>,
+        Tick: FnOnce(Arc<Shared>) -> Result<(), String>,
     {
-        let accept_thread = spawn_accept(listener, Arc::clone(&shared))?;
         if let Err(error) = spawn_tick(Arc::clone(&shared)) {
-            // `Self` is not constructed on this error path, so mirror stop's
-            // teardown here: mark dead before dropping the wake pair, then
-            // join the already-running accept loop before returning Err.
             shared.dead.store(true, Ordering::SeqCst);
-            drop(shared.wake_keep.lock().expect("wake poisoned").take());
-            drop(shared.wake_poll.lock().expect("wake poisoned").take());
-            let _ = accept_thread.join();
+            listener.stop();
             return Err(format!("spawning the keepalive tick failed: {error}"));
         }
-        Ok(Self { shared })
+        Ok(Self { shared, listener })
     }
 
     pub fn port(&self) -> u16 {
@@ -174,7 +147,7 @@ impl DisplayServer {
     /// nothing restarts it. Without this, a later enable short-circuits
     /// on the corpse and reports `Ok(dead port)`.
     pub fn is_alive(&self) -> bool {
-        !self.shared.dead.load(Ordering::SeqCst)
+        self.listener.is_alive() && !self.shared.dead.load(Ordering::SeqCst)
     }
 
     /// Teardown: bye to EVERY subscriber (Off means Off — subscribers
@@ -189,10 +162,10 @@ impl DisplayServer {
             let _ = entry.write.shutdown(std::net::Shutdown::Both);
         }
         self.shared.dead.store(true, Ordering::SeqCst);
-        // Dropping the NEAR end is the poll-wake: the far end polls EOF
-        // and the accept loop exits.
-        drop(self.shared.wake_keep.lock().expect("wake poisoned").take());
-        drop(self.shared.wake_poll.lock().expect("wake poisoned").take());
+        // Subscribers first, listener second: Off means Off, and a tab that
+        // learned the server is going away before the port stops answering
+        // closes on its own terms instead of on a refused reconnect.
+        self.listener.stop();
     }
 
     /// compose_urls (B10): the ONE URL builder, the publish path's entry
@@ -299,74 +272,6 @@ pub(super) fn events_url_for(shared: &Arc<Shared>, token: &str, slug: &str) -> S
     format!("{}/events", artifact_url_for(shared, token, slug))
 }
 
-// ---- the accept loop (B1: poll(listener, wake) → verdict) ----
-
-fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
-    use std::os::fd::AsRawFd as _;
-    let mut failures = 0u32;
-    loop {
-        // Stop() may race a poll iteration: the dead-flag check here is
-        // the exit when the wake pair is already dropped (fd -1 ignored).
-        if shared.dead.load(Ordering::SeqCst) {
-            return;
-        }
-        let mut fds = [
-            libc::pollfd {
-                fd: listener.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            },
-            libc::pollfd {
-                fd: shared
-                    .wake_poll
-                    .lock()
-                    .expect("wake poisoned")
-                    .as_ref()
-                    .map(|w| w.as_raw_fd())
-                    .unwrap_or(-1),
-                events: libc::POLLIN,
-                revents: 0,
-            },
-        ];
-        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, -1) };
-        if ready < 0 {
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            log::warn!("artifacts: poll failed, accept loop exiting: {error}");
-            shared.dead.store(true, Ordering::SeqCst);
-            return;
-        }
-        if fds[1].revents != 0 {
-            // Teardown wins over a pending connection.
-            return;
-        }
-        if fds[0].revents == 0 {
-            continue;
-        }
-        let Ok((stream, _)) = listener.accept() else {
-            failures += 1;
-            if failures >= ACCEPT_FAILURE_LIMIT {
-                log::error!("artifacts: accept failed {failures} times, loop dead");
-                shared.dead.store(true, Ordering::SeqCst);
-                return;
-            }
-            log::warn!("artifacts: accept failed, backing off");
-            std::thread::sleep(ACCEPT_BACKOFF);
-            continue;
-        };
-        failures = 0;
-        let _ = stream.set_nonblocking(false);
-        let shared = Arc::clone(&shared);
-        let spawned = std::thread::Builder::new()
-            .name("keepdeck artifacts conn".into())
-            .spawn(move || handle_connection(stream, shared));
-        if let Err(e) = spawned {
-            log::warn!("artifacts: dropping connection, no thread: {e}");
-        }
-    }
-}
 
 // ---- routes (B3) ----
 
@@ -681,36 +586,27 @@ mod tests {
 
     #[test]
     fn tick_spawn_failure_tears_down_the_accept_loop() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (wake_near, wake_far) = std::os::unix::net::UnixStream::pair().unwrap();
+        // A keepalive thread that never started leaves subscribers unminded,
+        // so the listener must come down with it — and the port must be free
+        // by the time the error is returned, not eventually.
+        let bound = crate::http::bind("artifacts test").unwrap();
+        let port = bound.port;
         let shared = Arc::new(Shared {
             root: std::env::temp_dir(),
             port,
             index_tokens: Mutex::new(HashMap::new()),
             subs: Mutex::new(HashMap::new()),
             dead: AtomicBool::new(false),
-            wake_keep: Mutex::new(Some(wake_near)),
-            wake_poll: Mutex::new(Some(wake_far)),
         });
-        let accept_exited = Arc::new(AtomicBool::new(false));
-        let exited = Arc::clone(&accept_exited);
+        let serving = Arc::clone(&shared);
+        let listener = crate::http::Listener::serve(bound, "artifacts test", move |stream| {
+            handle_connection(stream, Arc::clone(&serving))
+        })
+        .unwrap();
 
-        let error = DisplayServer::start_threads_with(
-            listener,
-            Arc::clone(&shared),
-            move |listener, shared| {
-                std::thread::Builder::new()
-                    .name("keepdeck artifacts accept test".into())
-                    .spawn(move || {
-                        accept_loop(listener, shared);
-                        exited.store(true, Ordering::SeqCst);
-                    })
-                    .map_err(|e| e.to_string())
-            },
-            |_| Err("injected tick spawn failure".into()),
-        )
+        let error = DisplayServer::with_tick(Arc::clone(&shared), listener, |_| {
+            Err("injected tick spawn failure".into())
+        })
         .err()
         .expect("injected tick failure must return Err");
 
@@ -718,7 +614,8 @@ mod tests {
             error,
             "spawning the keepalive tick failed: injected tick spawn failure"
         );
-        assert!(accept_exited.load(Ordering::SeqCst));
+        // stop() joins the accept thread, so a refused connection here means
+        // the loop is gone, not merely asked to go.
         assert!(TcpStream::connect_timeout(
             &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
             Duration::from_millis(250),
