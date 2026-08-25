@@ -24,6 +24,7 @@
 //! per-spawn token the webview verifies against the pane's own spawn plan
 //! before applying anything.
 
+mod http;
 mod inbox;
 mod nudge;
 mod reply;
@@ -50,6 +51,11 @@ const MAX_ENVELOPE_BYTES: u64 = 256 * 1024;
 /// This run's live bridge — kept in Tauri managed state so the lock fd and
 /// the watcher survive for the app's lifetime.
 pub struct Bridge {
+    /// The port this run's bridge surface answers on. Published to every
+    /// pane at spawn so a reporter can reach the deck without a file.
+    pub port: u16,
+    /// Held for the run: dropping it would take the surface down.
+    _surface: http::Surface,
     /// The inbox spawns advertise via `KEEPDECK_BRIDGE`.
     pub run_dir: PathBuf,
     _lock: File,
@@ -92,7 +98,14 @@ pub fn start(app: &AppHandle) -> Result<Bridge, String> {
         .watch(&run_dir, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
 
+    // Before anything can be spawned: the address has to exist by the time
+    // a pane's environment is built, or that pane never learns it.
+    let surface = http::serve(app.clone())?;
+    log::info!("bridge: surface on 127.0.0.1:{}", surface.port);
+
     Ok(Bridge {
+        port: surface.port,
+        _surface: surface,
         run_dir,
         _lock: lock,
         _watcher: watcher,
@@ -166,6 +179,16 @@ struct ReplyUncollected {
 /// Errors are surfaced: a spawn whose reporters have nowhere to write should
 /// be armed without a bridge rather than armed with a path that does not
 /// exist, and only the caller can make that choice.
+/// Where a reporter reaches the deck without touching the inbox.
+///
+/// The port is minted at boot and dies with the run, so it is asked for
+/// rather than remembered: a number cached across runs would name whatever
+/// took the port next.
+#[tauri::command]
+pub fn bridge_endpoint(bridge: tauri::State<Bridge>) -> u16 {
+    bridge.port
+}
+
 #[tauri::command]
 pub fn bridge_pane_dir(bridge: tauri::State<Bridge>, pane: String) -> Result<String, String> {
     spool::pane_dir(&bridge.run_dir, &pane).map(|dir| dir.to_string_lossy().into_owned())
@@ -205,7 +228,27 @@ fn deliver(app: &AppHandle, path: &Path) {
         return; // tmp staging files, the lock, and strays
     }
     match consume_file(path) {
-        Ok(Inbound::SessionBound(bound)) => {
+        Ok(inbound) => emit_inbound(app, inbound),
+        Err(Rejected::Transient) => return,
+        // A reporter wrote garbage — consumed and dropped by design, but a
+        // trace is the difference between "hook broken" and "hook never ran".
+        Err(Rejected::Dropped(reason)) => log::warn!("bridge: dropped envelope: {reason}"),
+    }
+    if let Err(e) = fs::remove_file(path) {
+        // A stuck envelope re-fires on every inbox event until it's gone.
+        log::warn!("bridge: consuming {} failed: {e}", path.display());
+    }
+}
+
+/// One interpreted envelope → one event, whatever carried it here.
+///
+/// The file watcher and the http route both end HERE, and that is the point:
+/// an envelope means the same thing and lands in the same place regardless of
+/// which door it arrived through. A second copy of this match would be two
+/// definitions of what a report IS, drifting apart one lane at a time.
+fn emit_inbound(app: &AppHandle, inbound: Inbound) {
+    match inbound {
+        Inbound::SessionBound(bound) => {
             log::info!(
                 "bridge: bound pane={} session={}",
                 printable(&bound.pane_id),
@@ -217,20 +260,12 @@ fn deliver(app: &AppHandle, path: &Path) {
         }
         // Opaque reports arrive continuously (per statusline update / turn
         // transition) — debug, not info, or they'd dominate keepdeck.log.
-        Ok(Inbound::Opaque { event, report }) => {
+        Inbound::Opaque { event, report } => {
             log::debug!("bridge: {event} pane={}", printable(&report.pane_id));
             if let Err(e) = app.emit(event, &report) {
                 log::warn!("bridge: emitting {event} failed: {e}");
             }
         }
-        Err(Rejected::Transient) => return,
-        // A reporter wrote garbage — consumed and dropped by design, but a
-        // trace is the difference between "hook broken" and "hook never ran".
-        Err(Rejected::Dropped(reason)) => log::warn!("bridge: dropped envelope: {reason}"),
-    }
-    if let Err(e) = fs::remove_file(path) {
-        // A stuck envelope re-fires on every inbox event until it's gone.
-        log::warn!("bridge: consuming {} failed: {e}", path.display());
     }
 }
 
