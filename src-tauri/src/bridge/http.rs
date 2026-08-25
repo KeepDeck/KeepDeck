@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tauri::AppHandle;
 
 use crate::bridge::waiters::{Waiters, HOOK_WAIT};
-use crate::bridge::wire::{interpret, Inbound};
+use crate::bridge::wire::{interpret, printable, Inbound};
 use crate::http::request::{Limits, Method, Request};
 use crate::http::{bind, respond_empty, respond_with_body, Listener, Status};
 
@@ -104,6 +104,11 @@ fn handle(
             //
             // The PANE travels with it: an answer is addressed, and the pane
             // that asked is half that address.
+            //
+            // Neither is trusted text. Both come out of an envelope a pane's
+            // own process wrote, so every line below that logs one strips it
+            // first — a newline in a correlation forges a second entry in
+            // keepdeck.log, and the log is the only window onto this lane.
             let asked = match &inbound {
                 Inbound::Opaque { report, .. } => report
                     .correlation()
@@ -123,7 +128,10 @@ fn handle(
                     // answer would be handed to the first asker, which is
                     // still parked on that pair.
                     let Some(parked) = waiters.park(&pane, &correlation) else {
-                        log::warn!("bridge: {correlation} is already being asked on");
+                        log::warn!(
+                            "bridge: {} is already being asked on",
+                            printable(&correlation)
+                        );
                         let _ = respond_empty(stream, Status::Conflict);
                         return;
                     };
@@ -153,7 +161,10 @@ fn handle(
                     // deck may already have handed messages over, and the
                     // hook must not read silence as emptiness.
                     None => {
-                        log::warn!("bridge: nobody answered {correlation} in time");
+                        log::warn!(
+                            "bridge: nobody answered {} in time",
+                            printable(&correlation)
+                        );
                         let _ = respond_empty(stream, Status::GatewayTimeout);
                     }
                     }
@@ -364,6 +375,72 @@ mod tests {
         assert!(status.starts_with("HTTP/1.1 409"), "{status}");
         assert_eq!(emitted, 0, "the deck must not hear an ask it may not answer");
         drop(held);
+    }
+
+    /// Every line this route hands the logger, in this test binary.
+    ///
+    /// A route's log output IS the consumed end of the stripping: asserting
+    /// that `printable` works proves nothing about whether anyone called it.
+    /// Other tests log into this too, so a case filters for its own marker.
+    static CAPTURED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    struct Capture;
+
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            CAPTURED
+                .lock()
+                .expect("capture poisoned")
+                .push(record.args().to_string());
+        }
+        fn flush(&self) {}
+    }
+
+    fn capture_logs() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            // Best-effort: a binary that already has a logger keeps it, and
+            // the assertion below then finds no marker and says so.
+            let _ = log::set_boxed_logger(Box::new(Capture));
+            log::set_max_level(log::LevelFilter::Warn);
+        });
+    }
+
+    #[test]
+    fn a_correlation_cannot_forge_a_second_line_in_the_log() {
+        // The correlation comes out of an envelope, so it is whatever the
+        // pane's process wrote. A newline in it appends an entry of the
+        // agent's own composing to keepdeck.log — which is the only window
+        // onto this lane, and the place an operator looks to find out what a
+        // pane did.
+        capture_logs();
+        let hostile = "corr-FORGERYMARK\n[bridge] pane-9 bound session=stolen";
+        let (status, _) = post_with(
+            "POST",
+            ENVELOPE_PATH,
+            asking_envelope("pane-1", hostile).as_bytes(),
+            &Waiters::default(),
+        );
+        // Nobody answers, so the timeout line is the one that gets written.
+        assert!(status.starts_with("HTTP/1.1 504"), "{status}");
+
+        let lines = CAPTURED.lock().expect("capture poisoned");
+        let ours: Vec<&String> = lines
+            .iter()
+            .filter(|line| line.contains("FORGERYMARK"))
+            .collect();
+        // The guard has to SEE the line, or it passes by finding nothing —
+        // exactly what would happen if the route stopped logging at all.
+        assert!(!ours.is_empty(), "the timeout line was never logged");
+        for line in ours {
+            assert!(
+                !line.chars().any(char::is_control),
+                "a control character reached the log: {line:?}"
+            );
+        }
     }
 
     #[test]
