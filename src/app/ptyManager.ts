@@ -203,12 +203,25 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       if (entry.closed) return;
       if (event.type === "output") {
         const bytes = new Uint8Array(event.bytes);
-        sinks.get(paneId)?.onOutput(bytes);
-        if (!entry.launched) {
-          // First byte from the process: the CLI has painted — announce the
-          // launch once, then never again for this session.
-          entry.launched = true;
-          sinks.get(paneId)?.onLaunched();
+        // First byte from the process: the CLI has painted. The flag is set
+        // BEFORE the view is touched — a sink that throws must not be able to
+        // leave the pane "not launched" forever while its process is alive and
+        // printing, nor to swallow the chunk the replay buffer owes a remount.
+        const firstOutput = !entry.launched;
+        if (firstOutput) entry.launched = true;
+        try {
+          sinks.get(paneId)?.onOutput(bytes);
+        } catch (err) {
+          log.error("web:pty", `${paneId}: onOutput threw: ${describeError(err)}`);
+        }
+        if (firstOutput) {
+          // Announced after the output, matching [`attachPane`]'s replay order:
+          // the view paints its first frame, then drops the launch overlay.
+          try {
+            sinks.get(paneId)?.onLaunched();
+          } catch (err) {
+            log.error("web:pty", `${paneId}: onLaunched threw: ${describeError(err)}`);
+          }
         }
         remember(entry, bytes);
       } else {

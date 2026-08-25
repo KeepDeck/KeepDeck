@@ -37,6 +37,7 @@ vi.mock("../ipc/log", () => ({
   describeError: (e: unknown) => String(e),
 }));
 
+import { log } from "../ipc/log";
 import {
   acquirePane,
   attachPane,
@@ -302,6 +303,40 @@ describe("launch signal", () => {
 
     expect(sink.onLaunched).toHaveBeenCalledTimes(1);
     expect(isPaneLaunched("pane-1")).toBe(true);
+  });
+
+  it("marks the pane launched even when the sink's onOutput throws", () => {
+    acquirePane("pane-1", SPEC);
+    const sink = makeSink();
+    sink.onOutput.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    attachPane("pane-1", sink);
+
+    output(0, 1);
+
+    expect(isPaneLaunched("pane-1")).toBe(true);
+    expect(sink.onLaunched).toHaveBeenCalledTimes(1);
+    expect(log.error).toHaveBeenCalledWith(
+      "web:pty",
+      expect.stringContaining("onOutput threw"),
+    );
+  });
+
+  it("keeps buffering for replay when the sink throws on every chunk", () => {
+    acquirePane("pane-1", SPEC);
+    const throwing = makeSink();
+    throwing.onOutput.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    attachPane("pane-1", throwing);
+
+    output(0, 7);
+
+    const late = makeSink();
+    attachPane("pane-1", late);
+    expect(late.onOutput).toHaveBeenCalledTimes(1);
+    expect((late.onOutput.mock.calls[0][0] as Uint8Array)[0]).toBe(7);
   });
 
   it("does not report launch before any output — a spawned PTY has not yet painted", async () => {
