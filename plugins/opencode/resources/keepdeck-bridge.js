@@ -69,19 +69,13 @@ export function readBridge() {
  * `answer` is the deck's reply when it had one to give, and `null` otherwise.
  * A caller with no question to ask can ignore it entirely.
  *
- * The status code decides:
- *   200 — an answer with something in it, carried back verbatim.
- *   204 — heard, nothing to say back. The common case.
- *   409 — this correlation is already in flight. Only a reporter that reused
- *         one gets this; the ask holding the slot is the one being answered.
- *   504 — heard, and the deck never answered in time.
- * Anything else, or no response at all, means the deck never heard us.
- *
- * Only 200 carries anything. Every other outcome is `null`, and the reason
- * they are not told apart HERE is that nothing here would do anything
- * different with them: the deck logs its own timeout, on the side that knows
- * something went wrong and has a log to put it in, and it puts back any
- * messages whose answer reached nobody — because the send tells it so.
+ * ONLY 200 CARRIES A BODY. What the other codes mean is decided by
+ * src-tauri/src/bridge/http.rs and written down there, once; a table repeated
+ * here would go on describing the contract after the deck changed it, and
+ * nothing holds prose in step. Nothing here would act on the difference
+ * anyway: the deck logs its own timeout, on the side that knows something
+ * went wrong, and it puts back any messages whose answer reached nobody —
+ * because the send tells it so.
  */
 export async function sendEnvelope(bridge, envelope) {
   const posted = await post(bridge.url, JSON.stringify(envelope));

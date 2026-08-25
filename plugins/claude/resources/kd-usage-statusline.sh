@@ -123,18 +123,13 @@ SEND_MAX=3
 # It took a `kind` until the cutoff, and that argument was the inbox filename
 # — the envelope has always carried its own `type`.
 #
-# The status code decides:
-#   200 — an answer with something in it. Printed verbatim: the deck rendered
-#         it through the asking agent's own plugin, so the schema is that
-#         CLI's and this function stays ignorant of it.
-#   204 — heard, and there was nothing to say back. The common case.
-#   409 — this correlation is already in flight. Only a reporter that reused
-#         one gets this, and printing nothing is right: the ask that holds
-#         the slot is the one being answered.
-#   504 — heard, and the deck never answered in time.
-# Anything else, or no code at all, means the deck never heard us. There is
-# nothing to be done about it here either way, which is why every arm ends
-# the same: silence, which every CLI reads as "the hook had nothing to add".
+# ONLY 200 CARRIES A BODY. What the other codes mean is decided by
+# src-tauri/src/bridge/http.rs and is written down there, once: a table
+# repeated here would go on describing the contract long after the deck
+# changed it, and nothing can hold prose in step. Everything that is not a
+# 200 ends the same way regardless of why — silence, which every CLI reads
+# as "the hook had nothing to add" — so this side does not need to know the
+# difference, and a reader who does has one place to look.
 send_envelope() {
   send_body=$1
   [ -n "$url" ] || return 0
