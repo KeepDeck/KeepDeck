@@ -30,6 +30,9 @@ pub(crate) enum Status {
     /// A declared body larger than the surface takes.
     PayloadTooLarge,
     HeadersTooLarge,
+    /// The deck did not answer a question in time. Distinct from an empty
+    /// answer on purpose: empty loses nothing, this may have lost mail.
+    GatewayTimeout,
 }
 
 impl Status {
@@ -42,6 +45,7 @@ impl Status {
             Self::MethodNotAllowed => 405,
             Self::PayloadTooLarge => 413,
             Self::HeadersTooLarge => 431,
+            Self::GatewayTimeout => 504,
         }
     }
 
@@ -56,6 +60,7 @@ impl Status {
             Self::MethodNotAllowed => "Method Not Allowed",
             Self::PayloadTooLarge => "Payload Too Large",
             Self::HeadersTooLarge => "Request Header Fields Too Large",
+            Self::GatewayTimeout => "Gateway Timeout",
         }
     }
 }
@@ -119,6 +124,7 @@ mod tests {
             Status::MethodNotAllowed,
             Status::PayloadTooLarge,
             Status::HeadersTooLarge,
+            Status::GatewayTimeout,
         ] {
             assert!(!status.reason().is_empty(), "{status:?}");
             assert!((200..=599).contains(&status.code()), "{status:?}");

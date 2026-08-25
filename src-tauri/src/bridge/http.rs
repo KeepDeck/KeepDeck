@@ -11,12 +11,14 @@
 //! is the only difference between the two doors, and it stops at this file.
 
 use std::net::TcpStream;
+use std::sync::Arc;
 
 use tauri::AppHandle;
 
+use crate::bridge::waiters::Waiters;
 use crate::bridge::wire::{interpret, Inbound};
 use crate::http::request::{Limits, Method, Request};
-use crate::http::{bind, respond_empty, Listener, Status};
+use crate::http::{bind, respond_empty, respond_with_body, Listener, Status};
 
 /// Where a reporter posts an envelope. One route, because the bridge speaks
 /// one sentence: here is something that happened.
@@ -33,7 +35,7 @@ pub(super) struct Surface {
 /// Bind and serve. Called during boot, BEFORE any pane is spawned — a pane
 /// started earlier would inherit an environment with no address in it and
 /// fall back to writing files, silently and for its whole life.
-pub(super) fn serve(app: AppHandle) -> Result<Surface, String> {
+pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, String> {
     let bound = bind("bridge")?;
     let port = bound.port;
     let listener = Listener::serve(
@@ -46,7 +48,12 @@ pub(super) fn serve(app: AppHandle) -> Result<Surface, String> {
         },
         move |mut stream, request| {
             let app = app.clone();
-            handle(&mut stream, request, &move |inbound| super::emit_inbound(&app, inbound));
+            handle(
+                &mut stream,
+                request,
+                &waiters,
+                &move |inbound| super::emit_inbound(&app, inbound),
+            );
         },
     )?;
     Ok(Surface {
@@ -58,7 +65,12 @@ pub(super) fn serve(app: AppHandle) -> Result<Surface, String> {
 /// Route one request. The EFFECT is injected rather than reached for: a
 /// Tauri handle cannot be built in a unit test, and a route nobody can
 /// exercise is a route nobody has checked.
-fn handle(stream: &mut TcpStream, request: Request, emit: &dyn Fn(Inbound)) {
+fn handle(
+    stream: &mut TcpStream,
+    request: Request,
+    waiters: &Waiters,
+    emit: &dyn Fn(Inbound),
+) {
     // Matched as a pair: an unknown path and a wrong method answer the same
     // 404, so probing tells a caller nothing it did not already know.
     if !matches!((&request.method, request.path.as_str()), (Method::Post, ENVELOPE_PATH)) {
@@ -75,12 +87,43 @@ fn handle(stream: &mut TcpStream, request: Request, emit: &dyn Fn(Inbound)) {
     };
     match interpret(content) {
         Ok(inbound) => {
+            // A report that asks holds the connection until the deck answers
+            // it. The correlation is read where envelope shape is known, not
+            // here — a route reaching into the payload would be a second
+            // reader of the same field.
+            let asked = match &inbound {
+                Inbound::Opaque { report, .. } => report.correlation().map(str::to_string),
+                Inbound::SessionBound(_) => None,
+            };
             emit(inbound);
-            // 204: accepted, nothing to say back. The reply half — the
-            // question a hook asks at a turn boundary — is not this route
-            // and does not exist yet; a hook still collects its answer the
-            // old way until the adapter lands.
-            let _ = respond_empty(stream, Status::NoContent);
+            match asked {
+                None => {
+                    // Accepted, nothing to say back. Most reports are this.
+                    let _ = respond_empty(stream, Status::NoContent);
+                }
+                Some(correlation) => match waiters.wait(&correlation, super::reply::HOOK_WAIT) {
+                    // The answer, verbatim: the deck rendered it through the
+                    // asking agent's own plugin, so this carries bytes and
+                    // never reads them.
+                    Some(answer) => {
+                        let _ = respond_with_body(
+                            stream,
+                            Status::Ok,
+                            "text/plain; charset=utf-8",
+                            answer.as_bytes(),
+                            &[],
+                        );
+                    }
+                    // Nobody answered in time. NOT an empty answer, which
+                    // means "nothing was waiting for you" — this means the
+                    // deck may already have handed messages over, and the
+                    // hook must not read silence as emptiness.
+                    None => {
+                        log::warn!("bridge: nobody answered {correlation} in time");
+                        let _ = respond_empty(stream, Status::GatewayTimeout);
+                    }
+                },
+            }
         }
         // Dropped-and-logged, exactly as a garbage file is: a reporter that
         // wrote nonsense gets told, and nothing retries into a loop.
@@ -96,11 +139,22 @@ mod tests {
     use super::*;
     use std::io::{Read as _, Write as _};
     use std::net::TcpListener;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     /// Post one request at `handle` over a real socket and read the status
     /// line back, recording whatever it chose to emit.
     fn post(method: &str, path: &str, body: &[u8]) -> (String, usize) {
+        post_with(method, path, body, &Waiters::default())
+    }
+
+    /// The same round trip, against a chosen set of waiters — so a test can
+    /// have somebody already parked, or nobody at all.
+    fn post_with(
+        method: &str,
+        path: &str,
+        body: &[u8],
+        waiters: &Waiters,
+    ) -> (String, usize) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         let head = format!(
@@ -126,7 +180,7 @@ mod tests {
         )
         .expect("the head must parse");
         let seen = Mutex::new(0usize);
-        handle(&mut accepted, request, &|_| {
+        handle(&mut accepted, request, waiters, &|_| {
             *seen.lock().unwrap() += 1;
         });
         drop(accepted);
@@ -174,5 +228,81 @@ mod tests {
         let (status, emitted) = post("POST", ENVELOPE_PATH, &[0xff, 0xfe, 0xfd]);
         assert!(status.starts_with("HTTP/1.1 400"), "{status}");
         assert_eq!(emitted, 0);
+    }
+
+    fn asking_envelope(pane: &str, correlation: &str) -> String {
+        serde_json::json!({
+            "v": 1,
+            "type": "agent.status",
+            "paneId": pane,
+            "token": "tok",
+            "payload": {
+                "agent": "claude",
+                "reply": correlation,
+                "event": { "type": "Stop" }
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn a_report_that_asks_gets_the_decks_answer_on_the_same_connection() {
+        let waiters = Arc::new(Waiters::default());
+        let answering = Arc::clone(&waiters);
+        std::thread::spawn(move || {
+            for _ in 0..200 {
+                if answering.resolve("corr-1", "[mail-7] read me".into()) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        });
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let envelope = asking_envelope("pane-1", "corr-1");
+        let head = format!(
+            "POST {ENVELOPE_PATH} HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
+            envelope.len()
+        );
+        let peer = std::thread::spawn(move || {
+            let mut peer = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            peer.write_all(head.as_bytes()).unwrap();
+            peer.write_all(envelope.as_bytes()).unwrap();
+            peer.flush().unwrap();
+            let mut answer = String::new();
+            let _ = peer.read_to_string(&mut answer);
+            answer
+        });
+        let (mut accepted, _) = listener.accept().unwrap();
+        let request = crate::http::read_request(
+            &mut accepted,
+            Limits {
+                max_body: super::super::MAX_ENVELOPE_BYTES as usize,
+            },
+        )
+        .unwrap();
+        handle(&mut accepted, request, &waiters, &|_| {});
+        drop(accepted);
+        let answer = peer.join().unwrap();
+        assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+        assert!(
+            answer.ends_with("[mail-7] read me"),
+            "the answer travels verbatim: {answer}"
+        );
+    }
+
+    #[test]
+    fn silence_is_not_reported_as_an_empty_answer() {
+        // Empty means "nothing was waiting for you" and loses nothing. A
+        // deck that never answered may already have handed messages over,
+        // so the hook must be able to tell the two apart.
+        let waiters = Waiters::default();
+        let (status, _) = post_with(
+            "POST",
+            ENVELOPE_PATH,
+            asking_envelope("pane-1", "corr-nobody").as_bytes(),
+            &waiters,
+        );
+        assert!(status.starts_with("HTTP/1.1 504"), "{status}");
     }
 }

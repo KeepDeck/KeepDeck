@@ -96,6 +96,21 @@ pub struct Report {
     pub payload: serde_json::Value,
 }
 
+impl Report {
+    /// The correlation this report is ASKING on, when it asks at all.
+    ///
+    /// Read here rather than at a transport, because the field's place in an
+    /// envelope is this module's knowledge: a route that reached into the
+    /// payload itself would be a second reader of the same shape, free to
+    /// disagree with this one the day the shape moves.
+    pub(super) fn correlation(&self) -> Option<&str> {
+        self.payload
+            .get("reply")
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+    }
+}
+
 /// The opaque channels: envelope `type` → the webview event carrying it.
 /// A new lane is one row here — validation and delivery are shared, so the
 /// correlation contract cannot drift between lanes.

@@ -29,6 +29,7 @@ mod inbox;
 mod nudge;
 mod reply;
 mod spool;
+mod waiters;
 mod wire;
 
 use notify::{Event, EventKind, RecursiveMode, Watcher};
@@ -54,6 +55,9 @@ pub struct Bridge {
     /// The port this run's bridge surface answers on. Published to every
     /// pane at spawn so a reporter can reach the deck without a file.
     pub port: u16,
+    /// Hooks parked on an open connection, waiting for the deck's answer.
+    /// Shared with the surface: the route parks, `bridge_reply` unparks.
+    waiters: std::sync::Arc<waiters::Waiters>,
     /// Held for the run: dropping it would take the surface down.
     _surface: http::Surface,
     /// The inbox spawns advertise via `KEEPDECK_BRIDGE`.
@@ -100,11 +104,13 @@ pub fn start(app: &AppHandle) -> Result<Bridge, String> {
 
     // Before anything can be spawned: the address has to exist by the time
     // a pane's environment is built, or that pane never learns it.
-    let surface = http::serve(app.clone())?;
+    let waiters = std::sync::Arc::new(waiters::Waiters::default());
+    let surface = http::serve(app.clone(), std::sync::Arc::clone(&waiters))?;
     log::info!("bridge: surface on 127.0.0.1:{}", surface.port);
 
     Ok(Bridge {
         port: surface.port,
+        waiters,
         _surface: surface,
         run_dir,
         _lock: lock,
@@ -127,6 +133,15 @@ pub fn bridge_reply(
     id: String,
     body: String,
 ) {
+    // A hook parked on an open connection is answered THERE, and no file is
+    // written at all. Note what disappears with it: the file lane cannot tell
+    // "the hook took the answer" from "the hook died before coming for it",
+    // so it waits out a window and reports uncollected on a guess. A send
+    // that succeeds on a live connection is the hook having it — the window
+    // does not narrow here, it stops existing.
+    if bridge.waiters.resolve(&id, body.clone()) {
+        return;
+    }
     if let Err(e) = reply::write(&bridge.run_dir, &pane, &id, &body) {
         log::warn!("bridge: {e}");
         // The deck has already taken those messages out of its queue. A
