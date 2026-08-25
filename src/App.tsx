@@ -332,6 +332,12 @@ function App() {
               );
             }}
             onDismissOccupied={orchestrator.dismissOccupied}
+            startupPanes={runView.startup}
+            onForkStalled={(wsId, paneId) => {
+              void orchestrator.forkStalledSession(wsId, paneId).catch((e: unknown) =>
+                pushAlert("Could not fork the session", describeError(e)),
+              );
+            }}
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={orchestrator.startFresh}

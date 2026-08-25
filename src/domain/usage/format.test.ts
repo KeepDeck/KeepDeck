@@ -4,6 +4,7 @@ import {
   contextLevel,
   formatAge,
   formatBucket,
+  formatElapsed,
   formatCountdown,
   formatMoment,
   formatPct,
@@ -410,5 +411,24 @@ describe("tokenBreakdown", () => {
     // Cache is the exception: it is absent far more often than it is zero,
     // and a "cache 0" on every codex row would be noise.
     expect(tokenBreakdown({ input: 900, cacheRead: 0 })).toBe("↑ 900");
+  });
+});
+
+describe("formatElapsed", () => {
+  it("counts seconds below a minute — the range a live wait lives in", () => {
+    expect(formatElapsed(0)).toBe("0s");
+    expect(formatElapsed(999)).toBe("0s");
+    expect(formatElapsed(18_400)).toBe("18s");
+    expect(formatElapsed(59_999)).toBe("59s");
+  });
+
+  it("switches to minutes and pads the seconds so the width stops jumping", () => {
+    expect(formatElapsed(60_000)).toBe("1:00");
+    expect(formatElapsed(64_000)).toBe("1:04");
+    expect(formatElapsed(600_000)).toBe("10:00");
+  });
+
+  it("reads a clock that went backwards as no time at all", () => {
+    expect(formatElapsed(-5_000)).toBe("0s");
   });
 });

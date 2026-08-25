@@ -37,6 +37,7 @@ vi.mock("../ipc/log", () => ({
   describeError: (e: unknown) => String(e),
 }));
 
+import { log } from "../ipc/log";
 import {
   acquirePane,
   attachPane,
@@ -290,6 +291,31 @@ describe("attachPane", () => {
   });
 });
 
+describe("startup diagnostics", () => {
+  const messages = () =>
+    vi.mocked(log.info).mock.calls.map(([, message]) => message as string);
+
+  it("logs the spawn resolution once, and only after the spawn settles", async () => {
+    acquirePane("pane-1", SPEC);
+    expect(messages().some((m) => m.includes("spawn resolved"))).toBe(false);
+
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+
+    expect(messages().filter((m) => m.includes("pane-1: spawn resolved"))).toHaveLength(1);
+  });
+
+  it("logs the first output once, not once per chunk, and without the bytes", () => {
+    acquirePane("pane-1", SPEC);
+    output(0, 65, 66);
+    output(0, 67);
+
+    expect(messages().filter((m) => m.includes("pane-1: first output"))).toHaveLength(1);
+    expect(messages().some((m) => /6[567]/.test(m))).toBe(false);
+  });
+
+});
+
 describe("launch signal", () => {
   it("reports launch on the first output only, and marks the pane launched", () => {
     acquirePane("pane-1", SPEC);
@@ -302,6 +328,40 @@ describe("launch signal", () => {
 
     expect(sink.onLaunched).toHaveBeenCalledTimes(1);
     expect(isPaneLaunched("pane-1")).toBe(true);
+  });
+
+  it("marks the pane launched even when the sink's onOutput throws", () => {
+    acquirePane("pane-1", SPEC);
+    const sink = makeSink();
+    sink.onOutput.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    attachPane("pane-1", sink);
+
+    output(0, 1);
+
+    expect(isPaneLaunched("pane-1")).toBe(true);
+    expect(sink.onLaunched).toHaveBeenCalledTimes(1);
+    expect(log.error).toHaveBeenCalledWith(
+      "web:pty",
+      expect.stringContaining("onOutput threw"),
+    );
+  });
+
+  it("keeps buffering for replay when the sink throws on every chunk", () => {
+    acquirePane("pane-1", SPEC);
+    const throwing = makeSink();
+    throwing.onOutput.mockImplementation(() => {
+      throw new Error("boom");
+    });
+    attachPane("pane-1", throwing);
+
+    output(0, 7);
+
+    const late = makeSink();
+    attachPane("pane-1", late);
+    expect(late.onOutput).toHaveBeenCalledTimes(1);
+    expect((late.onOutput.mock.calls[0][0] as Uint8Array)[0]).toBe(7);
   });
 
   it("does not report launch before any output — a spawned PTY has not yet painted", async () => {

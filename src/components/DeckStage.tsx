@@ -169,6 +169,12 @@ interface DeckStageProps {
   >;
   /** Fork the occupied card's live session into a copy (same directory). */
   onForkOccupied(wsId: string, paneId: string): void;
+  /** Panes waiting on a continuation to paint: paneId → when the wait began
+   * and whether it has already outlasted a healthy start. */
+  startupPanes: Record<string, { since: number; slow: boolean }>;
+  /** Fork the session of a pane whose start has gone quiet (same directory,
+   * nothing killed). */
+  onForkStalled(wsId: string, paneId: string): void;
   /** Stop offering the occupied choice (pane stays visible and bound). */
   onDismissOccupied(paneId: string): void;
   /** Spawn plan per live pane — args + env carrying its session identity
@@ -252,6 +258,8 @@ export function DeckStage({
   wakeFailed,
   occupiedPanes,
   onForkOccupied,
+  startupPanes,
+  onForkStalled,
   onDismissOccupied,
   specByPane,
   failedPanes,
@@ -570,6 +578,8 @@ export function DeckStage({
               occupied={occupiedPanes[pane.id] ?? null}
               onForkOccupied={() => onForkOccupied(ws.id, pane.id)}
               onDismissOccupied={() => onDismissOccupied(pane.id)}
+              startup={startupPanes[pane.id] ?? null}
+              onForkStalled={() => onForkStalled(ws.id, pane.id)}
               provisioning={pane.provisioning}
               unavailableAgent={unavailableAgent}
               colSpan={layout.colSpan}

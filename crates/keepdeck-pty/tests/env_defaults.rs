@@ -29,7 +29,7 @@ fn env_defaults_yield_to_the_inherited_environment() {
     spec.env.push(("KD_PTY_TEST_NOISE".into(), "x".into()));
     let (_session, rx) = PtySession::spawn(spec).expect("spawn sh");
     let mut out = Vec::new();
-    while let Ok(event) = rx.recv_timeout(Duration::from_secs(5)) {
+    while let Some(event) = rx.recv_timeout(Duration::from_secs(5)) {
         match event {
             PtyEvent::Output(bytes) => out.extend_from_slice(&bytes),
             PtyEvent::Exited(_) => break,

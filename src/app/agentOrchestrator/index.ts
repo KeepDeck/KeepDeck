@@ -55,6 +55,10 @@ export interface AgentOrchestrator {
    * SAME directory (the card never chooses one) — a new pane, the binding
    * untouched. */
   forkOccupiedSession(wsId: string, paneId: string): Promise<void>;
+  /** Fork the session a pane is bound to when its start has gone quiet: the
+   * same directory, nothing killed, so a person who cannot wait any longer
+   * has a way forward that costs nothing if the start was about to finish. */
+  forkStalledSession(wsId: string, paneId: string): Promise<void>;
   /** Stop offering the occupied choice: the pane stays visible and bound,
    * nothing is erased — the ordinary exit card takes over. */
   dismissOccupied(paneId: string): void;
@@ -84,12 +88,30 @@ export interface AgentRunView {
   wakeFailed: Record<string, string>;
   /** paneId → the live-outside note whose choice the pane's card offers. */
   occupied: Record<string, OccupiedNote>;
+  /** paneId → the wait a continuation's start is in. */
+  startup: Record<string, StartupNote>;
   /** Current cached spawn plans. */
   specs: Record<string, SpawnPlan>;
   /** Panes whose plan build failed before a process started. */
   planFailed: ReadonlySet<string>;
   /** paneId → terminal mount generation. */
   epochs: Record<string, number>;
+}
+
+/**
+ * A continuation that has been asked to start and has not painted yet.
+ *
+ * The MOMENT the wait began is published, never the elapsed time: the view
+ * counts the seconds off it, so the application publishes twice per wait —
+ * once when the wait starts, once when it outlasts a healthy one — instead of
+ * once a second.
+ */
+export interface StartupNote {
+  /** When this pane was asked to continue its session. */
+  since: number;
+  /** The wait has already gone on longer than a healthy start takes, so the
+   * pane says so and offers a way out. */
+  slow: boolean;
 }
 
 /** A refused boot resume that turned out to be a live outside session —
@@ -173,6 +195,10 @@ export interface SuspendPolicyPort {
 export interface SessionRegistryPort {
   subscribe(listener: () => void): () => void;
   state(paneId: string): PaneSessionState;
+  /** Whether this pane's process has produced any output yet — the CLI has
+   * painted. Separate from [`state`] because the first byte and the spawn
+   * promise are independent notifications with no guaranteed order. */
+  isLaunched(paneId: string): boolean;
   acquire(paneId: string, spec: PaneSpawnSpec): void;
   close(paneId: string): Promise<void>;
   runOnce(

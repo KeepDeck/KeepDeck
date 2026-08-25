@@ -11,10 +11,13 @@
 //! `Exited` are emitted from the same reader thread, so all output is guaranteed
 //! to arrive before the exit event.
 
+mod output;
+
+pub use output::{parse_drop_marker, Consumer, OutputQueue, Producer, PushOutcome, OUTPUT_CAP_BYTES};
+
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -22,11 +25,6 @@ use std::time::Duration;
 use portable_pty::{
     native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize,
 };
-
-/// Cap on buffered PTY events per session. Bounds memory under a flooding child
-/// (each event is one read of up to 4 KiB) while leaving generous headroom; a
-/// full channel backpressures the pump thread instead of growing without limit.
-const EVENT_CHANNEL_CAP: usize = 1024;
 
 /// How long a child gets between being asked to stop and being made to.
 ///
@@ -130,10 +128,13 @@ pub struct PtySession {
 }
 
 impl PtySession {
-    /// Spawn `spec` in a fresh PTY. Returns the session handle and a receiver of
-    /// its events: zero or more [`PtyEvent::Output`] chunks followed by exactly
-    /// one final [`PtyEvent::Exited`].
-    pub fn spawn(spec: PtySpec) -> io::Result<(Self, Receiver<PtyEvent>)> {
+    /// Spawn `spec` in a fresh PTY. Returns the session handle and the reading
+    /// end of its events: zero or more [`PtyEvent::Output`] chunks followed by
+    /// exactly one final [`PtyEvent::Exited`].
+    ///
+    /// Dropping the [`Consumer`] tells the reader thread nobody is listening,
+    /// and it stops and reaps the child rather than reading into a void.
+    pub fn spawn(spec: PtySpec) -> io::Result<(Self, Consumer)> {
         let pty = native_pty_system();
         let pair = pty
             .openpty(pty_size(spec.size.cols, spec.size.rows))
@@ -193,8 +194,8 @@ impl PtySession {
         };
 
         let exited = Arc::new(AtomicBool::new(false));
-        let (tx, rx) = mpsc::sync_channel::<PtyEvent>(EVENT_CHANNEL_CAP);
-        spawn_pump(reader, child, tx, exited.clone());
+        let (producer, consumer) = OutputQueue::new(OUTPUT_CAP_BYTES).split();
+        spawn_pump(reader, child, producer, exited.clone());
 
         Ok((
             Self {
@@ -204,7 +205,7 @@ impl PtySession {
                 pid,
                 exited,
             },
-            rx,
+            consumer,
         ))
     }
 
@@ -289,13 +290,7 @@ impl PtySession {
         self.signal_stop()?;
         #[cfg(unix)]
         if let Some(pid) = self.pid {
-            let (pid, exited) = (pid as i32, self.exited.clone());
-            thread::spawn(move || {
-                thread::sleep(STOP_GRACE);
-                if !exited.load(Ordering::Relaxed) {
-                    signal_tree(pid, libc::SIGKILL);
-                }
-            });
+            force_stop_after_grace(pid as i32, self.exited.clone());
         }
         Ok(())
     }
@@ -304,10 +299,15 @@ impl PtySession {
 /// Reader + reaper thread: streams output, then waits for exit and emits it last.
 /// Owning `child` here (rather than a separate waiter thread) is what guarantees
 /// every `Output` precedes the `Exited` event.
+///
+/// The loop never waits on the queue. That is the whole point of the queue: a
+/// master left unread stalls the child within a kilobyte, so anything that can
+/// pause this thread can freeze a live agent. Output lost to the queue's cap is
+/// marked in the stream and is not this thread's concern.
 fn spawn_pump(
     mut reader: Box<dyn Read + Send>,
     mut child: Box<dyn Child + Send + Sync>,
-    tx: SyncSender<PtyEvent>,
+    producer: Producer,
     exited: Arc<AtomicBool>,
 ) {
     thread::spawn(move || {
@@ -316,11 +316,21 @@ fn spawn_pump(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    if tx.send(PtyEvent::Output(buf[..n].to_vec())).is_err() {
-                        // Receiver dropped (webview gone): kill the child first so
-                        // it stops writing — otherwise wait() blocks forever on an
-                        // undrained PTY the child keeps filling — then reap it.
-                        let _ = child.kill();
+                    let outcome = producer.push(PtyEvent::Output(buf[..n].to_vec()));
+                    if outcome == PushOutcome::ConsumerGone {
+                        // Nobody is listening (webview gone). Stop the child's
+                        // whole tree — this crate already learned that
+                        // signalling the leader alone leaves a run command's
+                        // backgrounded children behind (`tests/kill_tree.rs`),
+                        // and one of those still holding the terminal open is
+                        // what would keep the drain below going. Then drain:
+                        // a child blocked writing into a full buffer does not
+                        // act on any signal until that write can complete, so
+                        // a reader that stops here leaves the very orphan it
+                        // was trying to avoid. The bytes go nowhere, on
+                        // purpose.
+                        stop_disowned(child.as_mut(), &exited);
+                        while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
                         let _ = child.wait();
                         exited.store(true, Ordering::Relaxed);
                         return;
@@ -341,7 +351,38 @@ fn spawn_pump(
             },
         };
         exited.store(true, Ordering::Relaxed);
-        let _ = tx.send(PtyEvent::Exited(info));
+        producer.push(PtyEvent::Exited(info));
+    });
+}
+
+/// Stop a child nobody is listening to any more, tree and all.
+///
+/// The same escalation a closing pane gets, and for the reason that pane's
+/// path already documents: `child.kill()` reaches one process with one
+/// catchable signal, which is how a run command's backgrounded children used
+/// to outlive their pane. Here the stakes are the terminal itself — anything
+/// left holding it open keeps the drain that follows running.
+fn stop_disowned(child: &mut (dyn Child + Send + Sync), exited: &Arc<AtomicBool>) {
+    #[cfg(unix)]
+    if let Some(pid) = child.process_id() {
+        signal_tree(pid as i32, libc::SIGTERM);
+        force_stop_after_grace(pid as i32, exited.clone());
+        return;
+    }
+    let _ = child.kill();
+}
+
+/// End the tree led by `pid` outright once [`STOP_GRACE`] has gone by, unless
+/// it left on its own first. On its own thread: both callers — a pane closing
+/// a session, and the reader thread disowning one — must return without
+/// sitting through the grace period.
+#[cfg(unix)]
+fn force_stop_after_grace(pid: i32, exited: Arc<AtomicBool>) {
+    thread::spawn(move || {
+        thread::sleep(STOP_GRACE);
+        if !exited.load(Ordering::Relaxed) {
+            signal_tree(pid, libc::SIGKILL);
+        }
     });
 }
 

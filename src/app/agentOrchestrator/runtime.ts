@@ -22,6 +22,7 @@ import {
   subscribeSpawnSpecs,
 } from "../spawnSpecs";
 import { createRunViewStore } from "./view";
+import { createStartupSilenceWatch } from "./startupSilence";
 import type {
   AgentOrchestrator,
   AgentOrchestratorDeps,
@@ -59,6 +60,16 @@ export function createAgentOrchestratorRuntime(
   const actions: DeckActions = createDeckActions(deck);
   const runView = createRunViewStore(deck);
   const publish = runView.publish;
+  const startupSilence = createStartupSilenceWatch({
+    sessions,
+    view: runView,
+    publish: () => publish(),
+    now: () => Date.now(),
+    startTicker: (tick, everyMs) => {
+      const handle = setInterval(tick, everyMs);
+      return () => clearInterval(handle);
+    },
+  });
   const startOwed = new Set<string>();
   /** Attempts in flight — a notification while one is pending must not
    * double-run it. */
@@ -397,6 +408,13 @@ export function createAgentOrchestratorRuntime(
             cwd: paneExecutionCwd(ws, pane),
             ...SPAWN_PLACEHOLDER_SIZE,
           });
+          // Only a continuation gets the silence watch. A fresh start paints
+          // sooner still, and telling someone their new agent is taking its
+          // time — with an offer to fork a session that does not exist yet —
+          // would be a hint about the wrong thing.
+          if (spec.resumeOf !== undefined || spec.forkOf !== undefined) {
+            startupSilence.arm(pane.id);
+          }
           continue;
         }
         if (!pane.idle || inFlight.has(pane.id)) continue;
@@ -479,6 +497,7 @@ export function createAgentOrchestratorRuntime(
     recoverRejectedResume: restart.recoverRejectedResume,
     retryPlanBuild: restart.retryPlanBuild,
     forkOccupiedSession: restart.forkOccupiedSession,
+    forkStalledSession: restart.forkStalledSession,
     dismissOccupied: restart.dismissOccupied,
     resumeSession: continuations.resumeSession,
     forkSession: continuations.forkSession,

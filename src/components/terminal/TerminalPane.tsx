@@ -15,6 +15,7 @@ import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerTerminalPaneInput } from "./paneInputBinding";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
+import { formatElapsed } from "../../domain/usage/format";
 import {
   createPasteHandler,
   createRefitPump,
@@ -69,6 +70,16 @@ interface TerminalPaneProps {
   /** Called when the terminal title changes (OSC 0/1/2) — drives auto-naming
    * ([F11]). */
   onTitle?: (title: string) => void;
+  /** When this pane's continuation began waiting to paint. Absent for a start
+   * nobody is counting — a fresh spawn, or one already done. The moment, not
+   * the elapsed time: the counter ticks here, so the application publishes a
+   * handful of times per wait instead of once a second. */
+  startupSince?: number;
+  /** The application has judged this wait longer than a healthy start. */
+  startupSlow?: boolean;
+  /** Fork the session this pane is bound to, into the same directory. Offered
+   * beside the slow-start hint; the view only says it was asked for. */
+  onForkStalled?: () => void;
 }
 
 /** Whether the host has real layout size. A grid re-tile can pass through a
@@ -105,6 +116,9 @@ export function TerminalPane({
   onExit,
   onSpawnError,
   onTitle,
+  startupSince,
+  startupSlow = false,
+  onForkStalled,
 }: TerminalPaneProps) {
   const { fileOpen, paneInputFocus } = useAppRuntime();
   // Scrollback comes straight from the settings store ([F6]) — no prop
@@ -436,12 +450,49 @@ export function TerminalPane({
           aria-label="Starting session"
         >
           <LaunchSpinner />
-          <span className="terminal-pane__launching-label">Starting…</span>
+          <span className="terminal-pane__launching-label">
+            Starting…
+            {startupSince !== undefined && (
+              <ElapsedSeconds className="terminal-pane__launching-elapsed" since={startupSince} />
+            )}
+          </span>
+          {startupSlow && (
+            <>
+              <span className="terminal-pane__launching-slow">
+                Taking longer than usual
+              </span>
+              <button
+                type="button"
+                className="terminal-pane__launching-fork"
+                onClick={onForkStalled}
+              >
+                Fork
+              </button>
+            </>
+          )}
         </div>
       )}
       <PaneHintView hint={hint} />
     </div>
   );
+}
+
+/**
+ * A wait, counted in place: "18s", then "1:04".
+ *
+ * The interval is mount-scoped and dies with the overlay, and the overlay is
+ * already taken down by the launch signal — so there is no second listener for
+ * the first byte and nothing to unsubscribe. It counts off a moment handed to
+ * it, never one it picked itself: a terminal that remounts mid-wait would
+ * otherwise start again from zero and say something untrue.
+ */
+function ElapsedSeconds({ since, className }: { since: number; className?: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const handle = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(handle);
+  }, []);
+  return <span className={className}>{formatElapsed(now - since)}</span>;
 }
 
 /**

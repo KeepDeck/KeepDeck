@@ -33,6 +33,38 @@
   font-size: 13px;
 }
 
+/* The seconds tick, so they get tabular figures — otherwise the label jitters
+   sideways once a second while a person is watching it. */
+.terminal-pane__launching-elapsed {
+  margin-left: 6px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Said only when the wait has already outlasted a healthy start. It names the
+   wait, never a cause: the hang it catches is silent by definition, so
+   pointing someone at the terminal would point them at nothing. */
+.terminal-pane__launching-slow {
+  margin-top: 8px;
+  color: #6b7280;
+  font-size: 11.5px;
+}
+
+.terminal-pane__launching-fork {
+  margin-top: 11px;
+  padding: 4px 13px;
+  border: 1px solid #3a5372;
+  border-radius: 6px;
+  background-color: #17233a;
+  color: #cfe0ff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.terminal-pane__launching-fork:hover {
+  background-color: #1d2c48;
+}
+
 /* Transient notice over a terminal surface ([F16]) — e.g. "File not found"
    after a Cmd+click on a stale path. Shared by every xterm host (agent panes,
    the Run log — PaneHint.tsx). Anchored next to the clicked link (left/top set

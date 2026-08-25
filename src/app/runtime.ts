@@ -44,6 +44,7 @@ import { createPluginManager } from "./pluginManager";
 import {
   acquirePane,
   closePane,
+  isPaneLaunched,
   paneSessionState,
   runPaneOnce,
   subscribeSessions,
@@ -365,6 +366,7 @@ export function createAppRuntime(
     sessions: {
       subscribe: subscribeSessions,
       state: paneSessionState,
+      isLaunched: isPaneLaunched,
       acquire: acquirePane,
       close: closePane,
       runOnce: runPaneOnce,

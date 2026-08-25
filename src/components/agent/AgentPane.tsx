@@ -154,6 +154,14 @@ export interface AgentPaneProps {
   onForkOccupied?(): void;
   /** Stop offering the choice; the pane stays visible and bound. */
   onDismissOccupied?(): void;
+  /** This pane's continuation is still waiting to paint: when the wait began,
+   * and whether it has already outlasted a healthy start. Passed straight
+   * through to the terminal's launch overlay — the pane makes no decision
+   * about it. */
+  startup?: { since: number; slow: boolean } | null;
+  /** Fork the session this pane is bound to, same directory, nothing killed —
+   * the way out offered beside a start that has gone quiet. */
+  onForkStalled?(): void;
   /** Manually restart an exited agent, either from its binding or fresh. */
   /** Answers what it did. NOT optional-returning: a caller that resolved with
    * nothing would leave the card promising a restart that stood down, which is
@@ -209,6 +217,8 @@ export function AgentPane({
   occupied,
   onForkOccupied,
   onDismissOccupied,
+  startup,
+  onForkStalled,
   onRestart,
   onStartFresh,
   onResume,
@@ -373,6 +383,8 @@ export function AgentPane({
               if (!replayed) onSpawnFailed?.(message);
             }}
             onTitle={onTitle}
+            {...(startup ? { startupSince: startup.since, startupSlow: startup.slow } : {})}
+            {...(onForkStalled ? { onForkStalled } : {})}
           />
         ) : body === "provisioning" ||
           body === "agent-unavailable" ||

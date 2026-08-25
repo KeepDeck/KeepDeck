@@ -63,7 +63,15 @@ export interface PaneSink {
   onLaunched(): void;
 }
 
-/** Replay budget per pane; oldest chunks fall off first. */
+/**
+ * Replay budget per pane; oldest chunks fall off first.
+ *
+ * Deliberately unrelated to the delivery cap in `keepdeck-pty`. That one
+ * bounds output nobody has seen yet, on the far side of the IPC; this one
+ * bounds how much history a remounting terminal can repaint. The two never
+ * meet at real volumes, so tying them together would invent a relationship
+ * that does not exist — they are free to move independently.
+ */
 const MAX_BUFFER_BYTES = 1024 * 1024;
 
 interface Entry {
@@ -187,6 +195,13 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
   };
   entries.set(paneId, entry);
   setSessionState(paneId, { kind: "starting" });
+  // These three lines — `spawn`, `spawn resolved`, `first output` — form a
+  // diagnostic chain for a starting pane, and whichever one a pane's log ends
+  // at names what happened. Nothing at all: the acquire never ran. `spawn`
+  // alone, with no `spawn failed` after it: the spawn call never settled.
+  // Through `spawn resolved`: the process exists but has printed nothing —
+  // alive and stuck. All three: a healthy launch. Each fires at most once per
+  // session, and none of them carries output bytes.
   log.info("web:pty", `${paneId}: spawn ${spec.command ?? "(shell)"} in ${spec.cwd ?? "(app cwd)"}`);
 
   spawnSession(
@@ -203,12 +218,28 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       if (entry.closed) return;
       if (event.type === "output") {
         const bytes = new Uint8Array(event.bytes);
-        sinks.get(paneId)?.onOutput(bytes);
-        if (!entry.launched) {
-          // First byte from the process: the CLI has painted — announce the
-          // launch once, then never again for this session.
+        // First byte from the process: the CLI has painted. The flag is set
+        // BEFORE the view is touched — a sink that throws must not be able to
+        // leave the pane "not launched" forever while its process is alive and
+        // printing, nor to swallow the chunk the replay buffer owes a remount.
+        const firstOutput = !entry.launched;
+        if (firstOutput) {
           entry.launched = true;
-          sinks.get(paneId)?.onLaunched();
+          log.info("web:pty", `${paneId}: first output`);
+        }
+        try {
+          sinks.get(paneId)?.onOutput(bytes);
+        } catch (err) {
+          log.error("web:pty", `${paneId}: onOutput threw: ${describeError(err)}`);
+        }
+        if (firstOutput) {
+          // Announced after the output, matching [`attachPane`]'s replay order:
+          // the view paints its first frame, then drops the launch overlay.
+          try {
+            sinks.get(paneId)?.onLaunched();
+          } catch (err) {
+            log.error("web:pty", `${paneId}: onLaunched threw: ${describeError(err)}`);
+          }
         }
         remember(entry, bytes);
       } else {
@@ -232,6 +263,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         return;
       }
       entry.session = session;
+      log.info("web:pty", `${paneId}: spawn resolved`);
       // An exit can land before the spawn promise settles (a process that dies
       // immediately) — the death is the later truth, so it must not be undone.
       if (!entry.exited) setSessionState(paneId, { kind: "live" });

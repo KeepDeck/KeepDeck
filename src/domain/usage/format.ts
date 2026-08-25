@@ -170,6 +170,19 @@ export function formatAge(
   return `${Math.floor(s / 86_400)}d${suffix}`;
 }
 
+/**
+ * "18s" / "1:04" — a wait a person is watching tick, not a past moment.
+ *
+ * Distinct from [`formatAge`] on purpose: that one answers "when did this
+ * happen" and floors to "now" below a minute, which is exactly the range a
+ * live counter spends most of its life in.
+ */
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}:${two(s % 60)}`;
+}
+
 const two = (n: number): string => String(n).padStart(2, "0");
 
 /**

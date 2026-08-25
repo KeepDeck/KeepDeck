@@ -13,12 +13,13 @@
 import type { SpawnPlan } from "../spawnSpecs";
 import { peekPanePlanError, peekPaneSpawnSpec } from "../spawnSpecs";
 import type { DeckStore } from "../deckStore";
-import type { AgentRunView, OccupiedNote } from ".";
+import type { AgentRunView, OccupiedNote, StartupNote } from ".";
 
 const EMPTY_VIEW: AgentRunView = {
   blocked: {},
   wakeFailed: {},
   occupied: {},
+  startup: {},
   specs: {},
   planFailed: new Set(),
   epochs: {},
@@ -38,12 +39,22 @@ export interface RunViewStore {
    * `registry` names whether the registry PROVED it live or merely failed
    * to answer — the card words the difference. */
   markOccupied(paneId: string, note: OccupiedNote): void;
+  /** Where this pane's continuation start has got to. The note carries the
+   * moment the wait began, so a terminal mounted later still counts from the
+   * right one. */
+  markStartup(paneId: string, note: StartupNote): void;
   blockedDir(paneId: string): string | null;
   /** Whether this pane's directory is gone — the question the suspend refusal
    * and the resume claimant both ask. */
   isBlocked(paneId: string): boolean;
   /** The occupied note, when the pane's card is offering the choice. */
   occupiedNote(paneId: string): OccupiedNote | null;
+  /** This pane's continuation-start note, while it is waiting. */
+  startupNote(paneId: string): StartupNote | null;
+  /** Forget this pane's start; `true` when there was one. Narrower than
+   * [`clearNotes`] on purpose — a start that came good says nothing about a
+   * missing directory or a live outside session. */
+  clearStartup(paneId: string): boolean;
   /** Forget both notes for one pane; `true` when anything was there. */
   clearNotes(paneId: string): boolean;
   /** Re-mount this pane's terminal: a restart bumps its mount generation.
@@ -59,6 +70,7 @@ export function createRunViewStore(deck: DeckStore): RunViewStore {
   const blocked = new Map<string, string>();
   const wakeFailed = new Map<string, string>();
   const occupied = new Map<string, OccupiedNote>();
+  const startup = new Map<string, StartupNote>();
   const epochs = new Map<string, number>();
   const listeners = new Set<() => void>();
   let view: AgentRunView = EMPTY_VIEW;
@@ -80,6 +92,7 @@ export function createRunViewStore(deck: DeckStore): RunViewStore {
       blocked: Object.fromEntries(blocked),
       wakeFailed: Object.fromEntries(wakeFailed),
       occupied: Object.fromEntries(occupied),
+      startup: Object.fromEntries(startup),
       specs,
       planFailed,
       epochs: Object.fromEntries(epochs),
@@ -103,13 +116,19 @@ export function createRunViewStore(deck: DeckStore): RunViewStore {
     markOccupied: (paneId, note) => {
       occupied.set(paneId, note);
     },
+    markStartup: (paneId, note) => {
+      startup.set(paneId, note);
+    },
     blockedDir: (paneId) => blocked.get(paneId) ?? null,
     isBlocked: (paneId) => blocked.has(paneId),
     occupiedNote: (paneId) => occupied.get(paneId) ?? null,
+    startupNote: (paneId) => startup.get(paneId) ?? null,
+    clearStartup: (paneId) => startup.delete(paneId),
     clearNotes(paneId) {
       let changed = blocked.delete(paneId);
       changed = wakeFailed.delete(paneId) || changed;
       changed = occupied.delete(paneId) || changed;
+      changed = startup.delete(paneId) || changed;
       return changed;
     },
     bumpEpoch(paneId) {
@@ -118,7 +137,7 @@ export function createRunViewStore(deck: DeckStore): RunViewStore {
     },
     forgetGone(live) {
       let dropped = false;
-      for (const map of [blocked, wakeFailed, occupied, epochs]) {
+      for (const map of [blocked, wakeFailed, occupied, startup, epochs]) {
         for (const paneId of [...map.keys()]) {
           if (!live.has(paneId)) {
             map.delete(paneId);
