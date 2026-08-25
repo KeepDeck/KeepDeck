@@ -3,8 +3,9 @@
  * constants it is built against.
  *
  * Application shapes, deliberately here and not in the domain. A plan is
- * argv, environment and two process credentials; the context is a bridge
- * inbox path; the protocol version mirrors a constant in the Rust bridge.
+ * argv, environment and two process credentials; the context is the bridge's
+ * address and directory; the protocol version mirrors a constant in the Rust
+ * bridge.
  * Every one of those changes when a MECHANISM changes — a CLI's flags, the
  * bridge's envelope — never when a product rule does, and no domain module
  * consumes any of them. (They were in `domain/agents` because they are plain
@@ -24,15 +25,18 @@ export const BRIDGE_PROTOCOL_VERSION = 1;
 
 /** Per-install constants, resolved once at boot (`session_spawn_context`). */
 export interface SpawnPlanContext {
-  /** This run's bridge inbox — the root the panes' own inboxes live under;
+  /** This run's bridge directory — the root the panes' own live under;
    * "" = bridge unavailable, identity mechanisms off. */
   bridgeDir: string;
-  /** Where this run's bridge surface answers; "" = unavailable, and a
-   * reporter that finds no address writes a file — which still works. */
+  /** Where this run's bridge surface answers, and the only lane a reporter
+   * has. "" = unavailable, and a pane is then armed with nothing at all: a
+   * reporter with no address has nowhere to report, and arming one anyway
+   * would leave it looking alive for its whole life. */
   bridgeUrl: string;
-  /** Create (or reuse) the inbox belonging to ONE pane and answer its path.
-   * Asked per spawn, because the directory has to exist before the agent
-   * that writes into it. */
+  /** Create (or reuse) the directory belonging to ONE pane and answer its
+   * path. It carries the deck's doorbell — the one thing still travelling as
+   * a file, because it runs deck-to-pane and the surface cannot push. Asked
+   * per spawn, because it has to exist before the agent that watches it. */
   paneBridgeDir(paneId: string): Promise<string>;
 }
 
@@ -55,7 +59,7 @@ export interface SpawnPlan {
   envDefaults?: [string, string][];
   /** The PER-PANE bridge secret — NOT per build. A reporter must echo it in
    * its postback; the binding hook refuses postbacks whose token doesn't
-   * match — writing a file into the inbox is not enough to bind a pane.
+   * match — reaching the surface is not enough to bind a pane.
    *
    * INVARIANT: rebuilding a plan for a pane whose process is still alive
    * must REUSE the cached token (`buildPlan` does; any new plan-building

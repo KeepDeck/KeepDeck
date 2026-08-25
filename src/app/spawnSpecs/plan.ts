@@ -241,14 +241,22 @@ export async function buildPlan(
   const token = ctx.bridgeDir
     ? (peekPaneSpawnSpec(paneId)?.token ?? mintBridgeToken())
     : null;
-  // The pane's OWN inbox under this run's, created before the agent is, so a
-  // reporter writes where it was told and never has to know the layout. A
-  // failure here disarms the bridge for this spawn rather than arming it with
-  // a path nothing can write to — an agent that cannot report is recoverable,
-  // one reporting into nowhere looks alive and is not.
+  // The pane's OWN directory under this run's, created before the agent is,
+  // so a reporter watches where it was told and never has to know the layout.
+  // A failure here disarms the bridge for this spawn rather than arming it
+  // with a path that does not exist — an agent that cannot be reached is
+  // recoverable, one looking reachable and not being is not.
   const paneDir = token ? await ctx.paneBridgeDir(paneId).catch(() => null) : null;
+  // The address is REQUIRED, not additive. It was additive at protocol 1,
+  // when a reporter that had never heard of `url` fell back to writing a file
+  // — that lane is gone, so a pane armed without an address would run its
+  // whole life reporting into nowhere and looking alive doing it. Arming
+  // nothing says so instead.
+  //
+  // Whole, not a port: assembling an address means knowing the route, and a
+  // reporter that knew it would have to be told when the route moves.
   const env: [string, string][] =
-    token && paneDir
+    token && paneDir && ctx.bridgeUrl
       ? [
           ...output.env,
           [
@@ -258,15 +266,7 @@ export async function buildPlan(
               dir: paneDir,
               pane: paneId,
               token,
-              // ADDITIVE, so the version does not move: a reporter that
-              // knows nothing of `url` reads the fields it knows and writes
-              // a file, exactly as it does today. The version is for
-              // changes that would make an old reporter WRONG.
-              //
-              // Whole, not a port: assembling an address means knowing the
-              // route, and a reporter that knew it would have to be told
-              // when it moves.
-              ...(ctx.bridgeUrl ? { url: ctx.bridgeUrl } : {}),
+              url: ctx.bridgeUrl,
             }),
           ],
         ]

@@ -2,7 +2,6 @@ import {
   existsSync,
   mkdtempSync,
   readdirSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -13,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // user's opencode process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
 import courierPlugin from "../resources/mail-courier.js";
+import { startDeck } from "../../../scripts/reporterHarness";
 
 /**
  * This suite runs the courier on its REAL clock.
@@ -87,53 +87,45 @@ describe("opencode mail courier", () => {
   let pending: unknown[];
   /** Every question the courier asked, in order. */
   let asked: { paneId: string; payload: Record<string, string> }[];
-  let deckRunning: boolean;
+
+  let deck: Awaited<ReturnType<typeof startDeck>>;
 
   /**
-   * Stand in for the deck's side of the bridge: consume every question and
+   * Stand in for the deck's side of the bridge: take every question and
    * ALWAYS answer it. Answering everything is not test convenience — it is
-   * what the deck does, because a hook left with no file waits out its whole
-   * timeout, and a test that answered selectively would leave the courier
-   * polling for two seconds on every turn that had no mail.
+   * what the deck does, because an asker left unanswered waits out its whole
+   * timeout, and a test that answered selectively would stall the courier on
+   * every turn that had no mail.
    */
-  const runDeck = async () => {
-    while (deckRunning) {
-      for (const name of readdirSync(dir)) {
-        if (!name.startsWith("agent.status-") || !name.endsWith(".json")) {
-          continue;
-        }
-        const path = join(dir, name);
-        const envelope = JSON.parse(readFileSync(path, "utf8"));
-        rmSync(path, { force: true });
-        asked.push(envelope);
-        const answer = pending.shift();
-        writeFileSync(
-          join(dir, `${envelope.payload.reply}.reply`),
-          answer === undefined
-            ? ""
-            : typeof answer === "string"
-              ? answer
-              : JSON.stringify(answer),
-        );
-      }
-      await sleep(2);
-    }
+  const answerAsk = (envelope: any) => {
+    if (envelope?.payload?.event?.type !== "mail.ask") return { status: 204 };
+    asked.push(envelope);
+    const answer = pending.shift();
+    const body =
+      answer === undefined
+        ? ""
+        : typeof answer === "string"
+          ? answer
+          : JSON.stringify(answer);
+    // 204 for an empty answer, exactly as the deck's own route does: nothing
+    // was waiting, and that is a different thing from an answer that is blank.
+    return body ? { status: 200, body } : { status: 204 };
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "kd-courier-"));
+    deck = await startDeck(answerAsk);
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
-      v: 1,
+      v: 2,
       dir,
       pane: "pane-3",
       token: "tok",
+      url: deck.url,
     });
     prompts = [];
     submitted = [];
     pending = [];
     asked = [];
-    deckRunning = true;
-    void runDeck();
     parents = {};
     client = {
       session: {
@@ -167,9 +159,9 @@ describe("opencode mail courier", () => {
     };
   });
 
-  afterEach(() => {
-    deckRunning = false;
+  afterEach(async () => {
     delete process.env.KEEPDECK_BRIDGE;
+    await deck.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -294,16 +286,17 @@ describe("opencode mail courier", () => {
     expect(prompts).toEqual([]);
   });
 
-  it("collects the answer file so the deck knows the mail was taken", async () => {
-    // The removal is the ONLY evidence the deck has. A reply left on disk
-    // means the messages in it were handed over and lost, and it puts them
-    // back — so a courier that read without removing would silently
-    // duplicate every message it ever delivered.
+  it("asks on the connection and leaves nothing in the run directory", async () => {
+    // The cutoff. The answer used to be a file this had to read AND remove,
+    // where the removal was the deck's only evidence that anyone had taken
+    // the mail — a courier that read without removing silently duplicated
+    // every message. There is no file: the deck learns from the send, and
+    // the run directory holds nothing but the doorbell.
     const courier = await start();
     pending.push({ v: 1, context: "brief" });
     await courier.event(created("ses_root"));
     const envelope = last(asked)!;
-    expect(existsSync(join(dir, `${envelope.payload.reply}.reply`))).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
     // And the question named this pane, with the same process the reporter
     // beside it names — the deck pins a pane's identity to one process.
     expect(envelope.paneId).toBe("pane-3");

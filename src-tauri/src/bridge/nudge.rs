@@ -30,9 +30,9 @@ use std::path::Path;
 /// replaces it rather than piling up, and one pane cannot be more woken than
 /// woken (one ask returns everything waiting anyway).
 ///
-/// The extension keeps it out of the inbox watcher's way, exactly as `.reply`
-/// does: the watcher only consumes `*.json`, so a signal going out is never
-/// mistaken for an envelope coming in.
+/// The name is fixed and carries no `.json`, which is what it kept from the
+/// days when envelopes arrived as files here: a signal going OUT was never to
+/// be read as one coming in.
 const WAKE_FILE: &str = "mail.wake";
 
 /// Ring one pane's doorbell.

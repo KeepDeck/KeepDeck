@@ -9,10 +9,12 @@
  * is a second thing to keep in step and they disagree exactly when it
  * matters.
  *
- * It is where the MESSAGES live, and the only place they do. What sits
- * elsewhere is a hand-over in flight (`hookReply`'s memory of a batch given
- * to a transport that has not confirmed it), which is a fact about that
- * round trip rather than about the mail.
+ * It is where the MESSAGES live, and now the only place they do. A batch
+ * being handed to a hook used to sit outside it too, remembered by
+ * `hookReply` until a transport got round to saying whether anyone had come
+ * for it. The transport answers that on the call, so nothing has to be
+ * remembered anywhere: a batch either reached the hook or comes straight
+ * back here.
  *
  * A FACTORY, like both its siblings: the app's one instance lives in
  * `createAppRuntime` and reaches consumers as a value, while each test

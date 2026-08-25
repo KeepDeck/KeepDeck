@@ -5,17 +5,17 @@
 # — and `url` arriving as a fourth field is exactly the moment a fourth copy
 # would have been made.
 #
-# The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a path
-# without quotes, so pulling quoted JSON strings out with sed is safe here.
+# The values are minted by KeepDeck, so the sed below is safe on them.
 field() {
   printf '%s' "$KEEPDECK_BRIDGE" \
     | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -n 1
 }
-dir=$(field dir)
 pane=$(field pane)
 token=$(field token)
-# Absent on a deck too old to publish one, or on one whose surface never came
-# up. Whole rather than assembled: a reporter that built an address would be a
-# second thing to edit the day the route moves.
+# Whole rather than assembled: a reporter that built an address would be a
+# second thing to edit the day the route moves. Empty means the deck's surface
+# never came up, and since the cutoff that means there is nowhere to report —
+# `dir` is still in the env, but it now holds nothing but a doorbell, which
+# only an in-process reporter watches.
 url=$(field url)

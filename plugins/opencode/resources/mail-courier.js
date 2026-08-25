@@ -32,7 +32,7 @@
  * user's session, so every failure here ends in silence.
  */
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, rmSync, watch } from "node:fs";
+import { existsSync, rmSync, watch } from "node:fs";
 import { join } from "node:path";
 import {
   REPORTER,
@@ -46,15 +46,6 @@ import {
  * rather than half-applied — a pane spawned before an update is still running
  * this exact file. */
 const REPLY_VERSION = 1;
-
-/** How long to wait for the deck's answer: 40 × 50ms = 2s, the same window
- * the shell hooks poll, and inside the 2.5s the deck waits before deciding
- * nobody came for it. Longer would hold up `chat.message`, which is the one
- * place this sits in front of the user's own keystroke. */
-const ASK_TRIES = 40;
-const ASK_SLEEP_MS = 50;
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default async (input = {}) => {
   const bridge = readBridge();
@@ -89,15 +80,15 @@ export default async (input = {}) => {
    * carries is ours (`mail.ask`) and the status normalizer ignores it: this
    * envelope reports nothing, it only asks.
    *
-   * The reply file is read AND removed, exactly as the shell hooks do it.
-   * That removal is the only evidence the deck has that its answer was
-   * collected — a file still sitting there means the messages in it were
-   * handed over and lost, and it puts them back.
+   * The answer comes back on the same call. It used to come as a file this
+   * polled for and removed, where the removal was the deck's only evidence
+   * that anyone had collected it; the deck now learns that from the send
+   * itself, and puts the messages back when nobody was there.
    */
   const ask = async () => {
     const correlation = randomUUID();
     const envelope = {
-      v: 1,
+      v: 2,
       type: "agent.status",
       paneId: pane,
       token,
@@ -108,39 +99,18 @@ export default async (input = {}) => {
         event: { type: "mail.ask" },
       },
     };
-    // The direct lane answers on the same call, so there is no file to poll
-    // for and no window in which an answer exists that nobody has come for.
-    // What comes back is the deck's own rendering, read exactly as the file
-    // lane reads it below — one parser, whichever way the bytes arrived.
+    // Answered on the same call, so there is no file to poll for and no
+    // window in which an answer exists that nobody has come for.
     const sent = await sendEnvelope(bridge, envelope);
-    if (!sent.delivered) return null;
-    if (sent.answer !== null) return readAnswer(sent.answer);
-    // Delivered with nothing to collect: either there was no mail, or the
-    // deck went quiet. Both mean this turn has nothing to inject, and the
-    // queue keeps whatever it kept.
-    if (bridge.url) return null;
-    const path = join(dir, `${correlation}.reply`);
-    for (let tries = ASK_TRIES; tries > 0; tries--) {
-      let body;
-      try {
-        if (existsSync(path)) {
-          body = readFileSync(path, "utf8");
-          rmSync(path, { force: true });
-        }
-      } catch {
-        return null;
-      }
-      if (body === undefined) {
-        await sleep(ASK_SLEEP_MS);
-        continue;
-      }
-      return readAnswer(body);
-    }
-    return null; // the deck never answered — the message stays in its queue
+    // Null covers every ending but an answer with content: nothing was
+    // waiting, the deck went quiet, nothing was listening. They differ in
+    // diagnosis and not in what this turn does — there is nothing to inject
+    // either way, and the queue keeps whatever it kept.
+    return sent.answer === null ? null : readAnswer(sent.answer);
   };
 
-  /** One reading of an answer, whichever lane carried it. An EMPTY one is
-   * the common case and a real one: nothing was waiting. */
+  /** One reading of the deck's answer. An EMPTY one is a real answer and the
+   * common one: nothing was waiting. */
   const readAnswer = (body) => {
     if (body === "") return null;
     try {

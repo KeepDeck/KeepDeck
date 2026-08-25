@@ -27,8 +27,8 @@ export interface SpawnContextSource {
 }
 
 export function createSpawnContextSource(
-  // The DTO half only — the per-pane inbox is a CALL, not a constant, so it
-  // is composed here rather than carried across the IPC boundary.
+  // The DTO half only — a pane's own directory is a CALL, not a constant,
+  // so it is composed here rather than carried across the IPC boundary.
   load: () => Promise<SpawnContextDto> = spawnContext,
   perPaneDir: (paneId: string) => Promise<string> = paneBridgeDir,
 ): SpawnContextSource {

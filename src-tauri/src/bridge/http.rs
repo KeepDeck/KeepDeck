@@ -6,16 +6,17 @@
 //! origin — so the control plane does not share it. Two ports is a wall the
 //! browser enforces without being asked, and it costs one bind.
 //!
-//! What arrives here goes to the SAME place a file in the inbox goes:
-//! `wire::interpret` to read it, `emit_inbound` to act on it. The transport
-//! is the only difference between the two doors, and it stops at this file.
+//! This is now the ONLY way an envelope reaches the deck. It was one of two
+//! — the other was a file a reporter dropped in a watched directory — and
+//! both ended at `wire::interpret` and `emit_inbound` on purpose, so that
+//! when one went away nothing downstream had to notice.
 
 use std::net::TcpStream;
 use std::sync::Arc;
 
 use tauri::AppHandle;
 
-use crate::bridge::waiters::Waiters;
+use crate::bridge::waiters::{Waiters, HOOK_WAIT};
 use crate::bridge::wire::{interpret, Inbound};
 use crate::http::request::{Limits, Method, Request};
 use crate::http::{bind, respond_empty, respond_with_body, Listener, Status};
@@ -42,8 +43,9 @@ pub(super) struct Surface {
 }
 
 /// Bind and serve. Called during boot, BEFORE any pane is spawned — a pane
-/// started earlier would inherit an environment with no address in it and
-/// fall back to writing files, silently and for its whole life.
+/// started earlier would inherit an environment with no address in it, and
+/// since the file lane was cut there is nothing else for it to use: its
+/// reporters would report nothing for that pane's whole life.
 pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, String> {
     let bound = bind("bridge")?;
     let port = bound.port;
@@ -51,8 +53,8 @@ pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, St
         bound,
         "bridge",
         Limits {
-            // The same cap the inbox enforces on a file. One number for one
-            // rule: an envelope is an envelope whichever door it came in.
+            // Reporters send small JSON — a statusline payload runs a few
+            // KB — and anything past this is not ours.
             max_body: super::MAX_ENVELOPE_BYTES as usize,
         },
         move |mut stream, request| {
@@ -86,9 +88,8 @@ fn handle(
         let _ = respond_empty(stream, Status::NotFound);
         return;
     }
-    // Invalid UTF-8 is malformed, not empty — the file lane reads to a
-    // String and refuses the same way, and two lanes disagreeing about what
-    // counts as an envelope is the drift this route exists to avoid.
+    // Invalid UTF-8 is malformed, not empty: an envelope is JSON, and a body
+    // that cannot be text was never one.
     let Ok(content) = std::str::from_utf8(&request.body) else {
         log::warn!("bridge: dropped envelope: not utf-8");
         let _ = respond_empty(stream, Status::BadRequest);
@@ -100,17 +101,34 @@ fn handle(
             // it. The correlation is read where envelope shape is known, not
             // here — a route reaching into the payload would be a second
             // reader of the same field.
+            //
+            // The PANE travels with it: an answer is addressed, and the pane
+            // that asked is half that address.
             let asked = match &inbound {
-                Inbound::Opaque { report, .. } => report.correlation().map(str::to_string),
+                Inbound::Opaque { report, .. } => report
+                    .correlation()
+                    .map(|correlation| (report.pane_id.clone(), correlation.to_string())),
                 Inbound::SessionBound(_) => None,
             };
-            emit(inbound);
             match asked {
                 None => {
+                    emit(inbound);
                     // Accepted, nothing to say back. Most reports are this.
                     let _ = respond_empty(stream, Status::NoContent);
                 }
-                Some(correlation) => match waiters.wait(&correlation, super::reply::HOOK_WAIT) {
+                Some((pane, correlation)) => {
+                    // The slot is taken BEFORE the deck is told, so an ask
+                    // reusing a correlation that is still in flight is
+                    // refused without the deck ever answering it — its
+                    // answer would be handed to the first asker, which is
+                    // still parked on that pair.
+                    let Some(parked) = waiters.park(&pane, &correlation) else {
+                        log::warn!("bridge: {correlation} is already being asked on");
+                        let _ = respond_empty(stream, Status::Conflict);
+                        return;
+                    };
+                    emit(inbound);
+                    match parked.wait(HOOK_WAIT) {
                     // Answered, and there was nothing waiting. That is the
                     // common end to a turn, and 204 is what it means — the
                     // deck already treats an empty answer as a thing that
@@ -138,11 +156,12 @@ fn handle(
                         log::warn!("bridge: nobody answered {correlation} in time");
                         let _ = respond_empty(stream, Status::GatewayTimeout);
                     }
-                },
+                    }
+                }
             }
         }
-        // Dropped-and-logged, exactly as a garbage file is: a reporter that
-        // wrote nonsense gets told, and nothing retries into a loop.
+        // Dropped-and-logged: a reporter that wrote nonsense gets told, and
+        // nothing retries into a loop.
         Err(reason) => {
             log::warn!("bridge: dropped envelope: {reason}");
             let _ = respond_empty(stream, Status::BadRequest);
@@ -208,7 +227,7 @@ mod tests {
 
     fn status_envelope(pane: &str) -> String {
         serde_json::json!({
-            "v": 1,
+            "v": 2,
             "type": "agent.status",
             "paneId": pane,
             "token": "tok",
@@ -218,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn a_posted_envelope_reaches_the_same_place_a_file_would() {
+    fn a_posted_envelope_is_acted_on_not_merely_accepted() {
         let (status, emitted) = post("POST", ENVELOPE_PATH, status_envelope("pane-1").as_bytes());
         assert!(status.starts_with("HTTP/1.1 204"), "{status}");
         assert_eq!(emitted, 1, "the envelope must be acted on, not just accepted");
@@ -248,7 +267,7 @@ mod tests {
 
     fn asking_envelope(pane: &str, correlation: &str) -> String {
         serde_json::json!({
-            "v": 1,
+            "v": 2,
             "type": "agent.status",
             "paneId": pane,
             "token": "tok",
@@ -267,7 +286,7 @@ mod tests {
         let answering = Arc::clone(&waiters);
         std::thread::spawn(move || {
             for _ in 0..200 {
-                if answering.resolve("corr-1", "[mail-7] read me".into()) {
+                if answering.resolve("pane-1", "corr-1", "[mail-7] read me".into()) {
                     return;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(5));
@@ -314,7 +333,7 @@ mod tests {
         let answering = Arc::clone(&waiters);
         std::thread::spawn(move || {
             for _ in 0..200 {
-                if answering.resolve("corr-empty", String::new()) {
+                if answering.resolve("pane-1", "corr-empty", String::new()) {
                     return;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(5));
@@ -327,6 +346,24 @@ mod tests {
             &waiters,
         );
         assert!(status.starts_with("HTTP/1.1 204"), "{status}");
+    }
+
+    #[test]
+    fn a_second_ask_on_a_live_correlation_never_reaches_the_deck() {
+        // The deck would answer it "nothing waiting" — the first ask having
+        // just emptied the queue — and that answer would go to the FIRST
+        // asker, which is still parked on this pair.
+        let waiters = Waiters::default();
+        let held = waiters.park("pane-1", "corr-busy").expect("the slot is free");
+        let (status, emitted) = post_with(
+            "POST",
+            ENVELOPE_PATH,
+            asking_envelope("pane-1", "corr-busy").as_bytes(),
+            &waiters,
+        );
+        assert!(status.starts_with("HTTP/1.1 409"), "{status}");
+        assert_eq!(emitted, 0, "the deck must not hear an ask it may not answer");
+        drop(held);
     }
 
     #[test]

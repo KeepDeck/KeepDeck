@@ -1,19 +1,22 @@
-//! The bridge's inbox on disk: minting a run's directory, holding its lock,
-//! and reaping the ones whose owners are gone.
+//! The run directory's life: minting one, holding its lock, and reaping the
+//! ones whose owners are gone.
 //!
-//! Filesystem and OS locks only — it never learns what an envelope contains.
+//! Filesystem and OS locks only — it never learns what travels through the
+//! directory it makes. It was named `inbox` while envelopes arrived as files
+//! in it; nothing arrives here any more, and what is left is the lifecycle
+//! that was always a separate concern from the transport riding on it.
 //!
-//! Per-run dirs mean two KeepDeck instances never share an inbox. Orphans
-//! from crashed runs are swept at boot by probing their locks: the kernel
-//! releases a dead process's lock unconditionally, so "lock acquirable" ==
-//! "owner dead" — no PID files, no age heuristics. A new inbox is built under
+//! Per-run dirs mean two KeepDeck instances never share one. Orphans from
+//! crashed runs are swept at boot by probing their locks: the kernel releases
+//! a dead process's lock unconditionally, so "lock acquirable" == "owner
+//! dead" — no PID files, no age heuristics. A new one is built under
 //! `.staging/` and lock-acquired BEFORE the atomic rename publishes it, so a
-//! concurrently booting sweeper can never catch a live inbox unlocked.
+//! concurrently booting sweeper can never catch a live directory unlocked.
 
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
-/// The staging area inboxes are built (and locked) in before publication.
+/// The staging area run dirs are built (and locked) in before publication.
 const STAGING_DIR: &str = ".staging";
 
 /// The lock file a live instance holds inside its run dir.
@@ -22,7 +25,7 @@ const LOCK_FILE: &str = "lock";
 /// The root-wide lock serializing boot (sweep + publish) across instances.
 const BOOT_LOCK: &str = ".boot-lock";
 
-/// Owner-only permissions — other users never see the inbox. Best-effort:
+/// Owner-only permissions — other users never see it. Best-effort:
 /// the home is usually 0700 already.
 pub(super) fn restrict(dir: &Path) {
     #[cfg(unix)]

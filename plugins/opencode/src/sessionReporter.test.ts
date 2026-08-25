@@ -1,7 +1,9 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { startDeck } from "../../../scripts/reporterHarness";
 // The reporter is untyped resource JS — it is shipped to, and loaded by, the
 // user's opencode process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
@@ -50,30 +52,41 @@ const client = {
 
 describe("opencode session reporter", () => {
   let dir: string;
+  let deck: Awaited<ReturnType<typeof startDeck>>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "kd-reporter-"));
+    deck = await startDeck();
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
-      v: 1,
+      v: 2,
       dir,
       pane: "pane-3",
       token: "tok",
+      url: deck.url,
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env.KEEPDECK_BRIDGE;
+    await deck.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  /** The envelopes the reporter dropped in the bridge inbox. */
-  const envelopes = () =>
-    readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
+  /**
+   * The envelopes the reporter posted to the deck.
+   *
+   * Async, and that is the shape of the change: this reporter fires and
+   * forgets, and it used to forget a synchronous file write. A post is still
+   * in flight when the call returns, so reading what was reported means
+   * waiting for it to land.
+   */
+  const envelopes = async (): Promise<any[]> => {
+    await deck.idle();
+    return deck.envelopes as any[];
+  };
 
-  const usageReports = () =>
-    envelopes()
+  const usageReports = async () =>
+    (await envelopes())
       .filter((envelope) => envelope.type === "usage.report")
       .sort((a, b) => a.payload.sequence - b.payload.sequence);
 
@@ -81,9 +94,9 @@ describe("opencode session reporter", () => {
     const { event } = await reporter();
     await event(created("ses_root"));
 
-    expect(envelopes()).toEqual([
+    expect((await envelopes())).toEqual([
       {
-        v: 1,
+        v: 2,
         type: "session.bound",
         paneId: "pane-3",
         token: "tok",
@@ -107,12 +120,12 @@ describe("opencode session reporter", () => {
     await event(created("ses_root"));
     await event(created("ses_second"));
 
-    // Keyed by session, not positional: the inbox is a directory and
-    // `readdirSync` promises no creation order (which is why the usage
+    // Keyed by session, not positional: these are posted concurrently and
+    // arrive in whatever order the deck accepts them (which is why the usage
     // helper sorts by sequence — a binding carries none).
     expect(
       Object.fromEntries(
-        envelopes().map(({ payload }) => [payload.sessionId, payload.source]),
+        (await envelopes()).map(({ payload }) => [payload.sessionId, payload.source]),
       ),
     ).toEqual({ ses_root: "startup", ses_second: "new" });
   });
@@ -121,7 +134,7 @@ describe("opencode session reporter", () => {
     const { event } = await reporter();
     await event(created("ses_child", "ses_root"));
 
-    expect(envelopes()).toEqual([
+    expect((await envelopes())).toEqual([
       expect.objectContaining({
         type: "session.bound",
         payload: {
@@ -168,7 +181,7 @@ describe("opencode session reporter", () => {
       { path: { id: "ses_root" } },
     ]);
     expect(
-      envelopes().find((envelope) => envelope.type === "session.bound")?.payload
+      (await envelopes()).find((envelope) => envelope.type === "session.bound")?.payload
         .sessionId,
     ).toBe("ses_root");
   });
@@ -197,7 +210,7 @@ describe("opencode session reporter", () => {
     await event(assistantMessage({ id: "msg_2", sessionID: "ses_child" }));
     await event(assistantMessage({ id: "msg_3", sessionID: "ses_root" }));
 
-    const reports = usageReports();
+    const reports = (await usageReports());
     // All three turns, at 0.1 each. Two means the middle one was lost.
     expect(reports[reports.length - 1]?.payload.costUsd).toBeCloseTo(0.3);
   });
@@ -228,10 +241,10 @@ describe("opencode session reporter", () => {
     await event(assistantMessage({ id: "msg_4", sessionID: "ses_root" }));
 
     expect(
-      envelopes().find((envelope) => envelope.type === "session.bound")?.payload
+      (await envelopes()).find((envelope) => envelope.type === "session.bound")?.payload
         .sessionId,
     ).toBe("ses_root");
-    const reports = usageReports();
+    const reports = (await usageReports());
     expect(reports[reports.length - 1]?.payload.costUsd).toBeCloseTo(0.4);
   });
 
@@ -279,7 +292,7 @@ describe("opencode session reporter", () => {
     await event(assistantMessage({ sessionID: "ses_resumed" }));
 
     expect(
-      envelopes().find((envelope) => envelope.type === "session.bound")?.payload
+      (await envelopes()).find((envelope) => envelope.type === "session.bound")?.payload
         .sessionId,
     ).toBe("ses_resumed");
   });
@@ -289,7 +302,7 @@ describe("opencode session reporter", () => {
     await event(created("ses_root"));
     await event(created("ses_other_child", "ses_other_root"));
 
-    expect(envelopes()).toEqual([
+    expect((await envelopes())).toEqual([
       expect.objectContaining({
         type: "session.bound",
         payload: {
@@ -308,7 +321,7 @@ describe("opencode session reporter", () => {
     const { event } = await reporter();
     await event({ event: { type: "session.updated", properties: { info: { id: "ses_x" } } } });
 
-    expect(envelopes()).toEqual([]);
+    expect((await envelopes())).toEqual([]);
   });
 
   it("stays inert outside KeepDeck", async () => {
@@ -317,7 +330,7 @@ describe("opencode session reporter", () => {
   });
 
   it("stays inert when the bridge envelope is incomplete", async () => {
-    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 1, dir });
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir });
     expect(await reporter()).toEqual({});
   });
 
@@ -325,9 +338,9 @@ describe("opencode session reporter", () => {
     const { event } = await reporter({ client });
     await event(assistantMessage());
 
-    expect(usageReports()).toEqual([
+    expect((await usageReports())).toEqual([
       {
-        v: 1,
+        v: 2,
         type: "usage.report",
         paneId: "pane-3",
         token: "tok",
@@ -361,7 +374,7 @@ describe("opencode session reporter", () => {
     );
 
     // Inbox filenames are random UUIDs, so order by the reporter sequence.
-    const reports = usageReports();
+    const reports = (await usageReports());
     const last = reports[reports.length - 1];
     expect(last.payload.totals).toEqual({
       input: 1500,
@@ -394,7 +407,7 @@ describe("opencode session reporter", () => {
       }),
     );
 
-    const reports = usageReports();
+    const reports = (await usageReports());
     expect(reports).toHaveLength(2);
     expect(reports.find((report) => report.payload.sessionId === "ses_new")?.payload).toMatchObject({
       sessionId: "ses_new",
@@ -449,7 +462,7 @@ describe("opencode session reporter", () => {
       }),
     );
 
-    expect(usageReports()[0].payload).toMatchObject({
+    expect((await usageReports())[0].payload).toMatchObject({
       sessionId: "ses_root",
       totals: { input: 170, output: 17 },
       lastTurn: { input: 20, output: 2 },
@@ -474,7 +487,7 @@ describe("opencode session reporter", () => {
     await event(
       assistantMessage({ providerID: "provider-a", modelID: "shared" }),
     );
-    expect(usageReports()[0].payload.windowTokens).toBe(100);
+    expect((await usageReports())[0].payload.windowTokens).toBe(100);
   });
 
   it("serializes callbacks that OpenCode itself invokes without awaiting", async () => {
@@ -525,7 +538,7 @@ describe("opencode session reporter", () => {
     await Promise.all([first, second]);
 
     expect(calls).toBe(1);
-    expect(usageReports().map((report) => report.payload)).toMatchObject([
+    expect((await usageReports()).map((report) => report.payload)).toMatchObject([
       { model: "model-a", windowTokens: 100, contextTokens: 11, sequence: 1 },
       { model: "model-b", windowTokens: 200, contextTokens: 22, sequence: 2 },
     ]);
@@ -534,13 +547,13 @@ describe("opencode session reporter", () => {
   it("ignores a streaming (not-yet-completed) assistant message", async () => {
     const { event } = await reporter({ client });
     await event(assistantMessage({ time: {} }));
-    expect(envelopes()).toEqual([]);
+    expect((await envelopes())).toEqual([]);
   });
 
   it("ignores a non-assistant message", async () => {
     const { event } = await reporter({ client });
     await event(assistantMessage({ role: "user" }));
-    expect(envelopes()).toEqual([]);
+    expect((await envelopes())).toEqual([]);
   });
 
   it("degrades to no window size when the provider catalog fails", async () => {
@@ -555,7 +568,7 @@ describe("opencode session reporter", () => {
     });
     await event(assistantMessage());
 
-    const [envelope] = usageReports();
+    const [envelope] = (await usageReports());
     expect(envelope.payload.windowTokens).toBeUndefined();
     expect(envelope.payload.contextTokens).toBe(6200);
   });
@@ -584,7 +597,7 @@ describe("opencode session reporter", () => {
     await event(assistantMessage()); // call 1 throws → window unresolved
     await event(assistantMessage({ id: "msg_2" })); // call 2 succeeds → resolved
 
-    const reports = usageReports();
+    const reports = (await usageReports());
     expect(reports[0].payload.windowTokens).toBeUndefined();
     expect(reports[reports.length - 1].payload.windowTokens).toBe(200_000);
   });
@@ -617,7 +630,7 @@ describe("opencode session reporter", () => {
       }),
     );
 
-    const reports = usageReports();
+    const reports = (await usageReports());
     const last = reports[reports.length - 1];
     // The cumulative INCLUDES the subagent's real spend.
     expect(last.payload.costUsd).toBeCloseTo(0.5);
@@ -633,7 +646,7 @@ describe("opencode session reporter", () => {
     await event(assistantMessage()); // the SAME id (msg_1) again
 
     // Both envelopes carry msg_1's cumulative — the map replaced, not stacked.
-    for (const r of usageReports()) expect(r.payload.totals.input).toBe(1000);
+    for (const r of (await usageReports())) expect(r.payload.totals.input).toBe(1000);
   });
 
   it("reads a message that sits directly on properties (no info nesting)", async () => {
@@ -653,12 +666,12 @@ describe("opencode session reporter", () => {
         },
       },
     });
-    expect(usageReports()).toHaveLength(1);
+    expect((await usageReports())).toHaveLength(1);
   });
 
-  /** The agent.status envelopes the reporter dropped, in event order. */
-  const statusEvents = () =>
-    envelopes()
+  /** The agent.status envelopes the reporter posted, in event order. */
+  const statusEvents = async () =>
+    (await envelopes())
       .filter((envelope) => envelope.type === "agent.status")
       .map((envelope) => envelope.payload.event);
 
@@ -682,7 +695,7 @@ describe("opencode session reporter", () => {
     });
     // Inbox filenames are random (mktemp-style), so readdir order proves
     // nothing — assert the set; ordering is the deliverer's job.
-    const events = statusEvents();
+    const events = (await statusEvents());
     expect(events).toHaveLength(3);
     expect(events).toContainEqual({ type: "session.status" });
     expect(events).toContainEqual({ type: "session.idle" });
@@ -691,7 +704,7 @@ describe("opencode session reporter", () => {
       error: "ProviderAuthError",
     });
     // Every envelope carries the pane's own correlation.
-    for (const envelope of envelopes()) {
+    for (const envelope of (await envelopes())) {
       expect(envelope.paneId).toBe("pane-3");
       expect(envelope.token).toBe("tok");
     }
@@ -714,7 +727,7 @@ describe("opencode session reporter", () => {
     await event({
       event: { type: "session.idle", properties: { sessionID: "ses_other" } },
     });
-    expect(statusEvents()).toEqual([]);
+    expect((await statusEvents())).toEqual([]);
   });
 
   it("forwards permission edges without a session filter", async () => {
@@ -722,7 +735,7 @@ describe("opencode session reporter", () => {
     await event(created("ses_root"));
     await event({ event: { type: "permission.asked", properties: {} } });
     await event({ event: { type: "permission.replied", properties: {} } });
-    const events = statusEvents();
+    const events = (await statusEvents());
     expect(events).toHaveLength(2);
     expect(events).toContainEqual({ type: "permission.asked" });
     expect(events).toContainEqual({ type: "permission.replied" });
@@ -737,6 +750,6 @@ describe("opencode session reporter", () => {
         properties: { sessionID: "ses_root", status: { type: "idle" } },
       },
     });
-    expect(statusEvents()).toEqual([]);
+    expect((await statusEvents())).toEqual([]);
   });
 });

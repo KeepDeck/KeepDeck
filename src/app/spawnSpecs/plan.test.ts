@@ -183,9 +183,11 @@ describe("building one plan through the agent hook", () => {
     expect(plan.token).toBe(bridge.token);
   });
 
-  it("leaves the address out entirely when the bridge has no surface", async () => {
-    // Absent rather than empty: a reporter tests for the field, and an ""
-    // that reads as present is a reporter dialling nowhere.
+  it("arms nothing at all when the bridge has no surface", async () => {
+    // The address is the only lane a reporter has since the cutoff, so a
+    // pane armed without one would spend its whole life reporting into
+    // nowhere and looking alive doing it. No var at all is what says so:
+    // a reporter finds nothing and stays inert.
     register(adopting);
     await mount(ws([{ id: "pane-1", agentType: "claude" }]), {
       ...ctx,
@@ -194,7 +196,7 @@ describe("building one plan through the agent hook", () => {
     await settle();
 
     const env = Object.fromEntries(seen["pane-1"].env);
-    expect(JSON.parse(env.KEEPDECK_BRIDGE)).not.toHaveProperty("url");
+    expect(env).not.toHaveProperty("KEEPDECK_BRIDGE");
   });
 
   it("a pane's YOLO mode reaches the hook input on spawn AND resume", async () => {

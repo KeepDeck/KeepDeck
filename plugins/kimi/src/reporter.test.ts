@@ -1,18 +1,10 @@
-import { execFileSync } from "node:child_process";
-import {
-  closeSync,
-  mkdirSync,
-  mkdtempSync,
-  openSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { runReporter, startDeck } from "../../../scripts/reporterHarness";
 
 const SCRIPT = fileURLToPath(
   new URL(
@@ -34,49 +26,61 @@ function scratch(): string {
   return dir;
 }
 
-// Stdin comes from a file, not execFileSync's `input` pipe: the hook's inert
-// path exits without ever reading stdin, and a pipe writer racing that exit
-// gets EPIPE on loaded CI runners. A file-backed stdin has no writer to break.
-//
-// The `kimi` argument is what kimi.plugin.json arms the hook with, and it is
-// what selects the session-index branch below — the reporter is one shared
-// script and the agent id is how it knows whose payload it is holding.
-function runHook(payload: unknown, env: Record<string, string>): void {
-  const file = join(scratch(), "payload.json");
-  writeFileSync(file, JSON.stringify(payload));
-  const stdin = openSync(file, "r");
-  try {
-    execFileSync("/bin/sh", [SCRIPT, "kimi"], {
-      stdio: [stdin, "pipe", "pipe"],
-      env,
-    });
-  } finally {
-    closeSync(stdin);
-  }
+/** The deck this reporter posts to. It used to drop a file in a directory the
+ * deck watched; that lane is gone. */
+let deck: Awaited<ReturnType<typeof startDeck>>;
+beforeEach(async () => {
+  deck = await startDeck();
+});
+afterEach(() => deck.close());
+
+/**
+ * The `kimi` argument is what kimi.plugin.json arms the hook with, and it is
+ * what selects the session-index branch below — the reporter is one shared
+ * script and the agent id is how it knows whose payload it is holding.
+ *
+ * `armed: false` where a case composes the environment itself: these exercise
+ * the inert path and kimi's own $HOME, so the bridge var is theirs to set.
+ */
+function runHook(payload: unknown, env: Record<string, string>) {
+  return runReporter(SCRIPT, {
+    stdin: JSON.stringify(payload),
+    args: ["kimi"],
+    baseEnv: env,
+    armed: false,
+  });
 }
 
-/** The published payload minus the reporting process, whose value is a live
- * process group — asserted for shape once, below, rather than in every case. */
-function publishedPayload(dir: string, file: string): Record<string, unknown> {
-  const parsed = JSON.parse(readFileSync(join(dir, file), "utf8"));
-  const { reporter, ...payload } = parsed.payload as Record<string, unknown>;
+/** The bridge env a KeepDeck-spawned kimi carries, pointed at this deck. */
+const bridge = () =>
+  JSON.stringify({
+    v: 2,
+    dir: scratch(),
+    pane: "pane-kimi",
+    token: "token-kimi",
+    url: deck.url,
+  });
+
+/** The posted payload minus the reporting process, whose value is a live
+ * process group — asserted for shape here rather than in every case. */
+function publishedPayload(nth = 0): Record<string, unknown> {
+  const posted = deck.envelopes[nth] as Record<string, unknown>;
+  const { reporter, ...payload } = posted.payload as Record<string, unknown>;
   expect(reporter, "the reporting process group").toMatch(/^\d+$/);
   return payload;
 }
 
 describe("Kimi SessionStart reporter", () => {
-  it("is inert outside a KeepDeck-spawned Kimi process", () => {
-    const dir = scratch();
-    runHook(
+  it("is inert outside a KeepDeck-spawned Kimi process", async () => {
+    await runHook(
       { session_id: "session_outside" },
       { PATH: process.env.PATH ?? "/usr/bin:/bin" },
     );
-    expect(readdirSync(dir)).toEqual([]);
+    expect(deck.envelopes).toEqual([]);
   });
 
-  it("publishes one atomic bridge-v1 session binding", () => {
-    const dir = scratch();
-    runHook(
+  it("reports one bridge-v2 session binding", async () => {
+    await runHook(
       {
         hook_event_name: "SessionStart",
         session_id: "session_24f9c57a",
@@ -85,21 +89,14 @@ describe("Kimi SessionStart reporter", () => {
       },
       {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
-        KEEPDECK_BRIDGE: JSON.stringify({
-          v: 1,
-          dir,
-          pane: "pane-kimi",
-          token: "token-kimi",
-        }),
+        KEEPDECK_BRIDGE: bridge(),
       },
     );
 
-    const files = readdirSync(dir);
-    expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/^session\.bound-.+\.json$/);
-    const parsed = JSON.parse(readFileSync(join(dir, files[0]), "utf8"));
-    expect({ ...parsed, payload: publishedPayload(dir, files[0]) }).toEqual({
-      v: 1,
+    expect(deck.envelopes).toHaveLength(1);
+    const parsed = deck.envelopes[0] as Record<string, unknown>;
+    expect({ ...parsed, payload: publishedPayload() }).toEqual({
+      v: 2,
       type: "session.bound",
       paneId: "pane-kimi",
       token: "token-kimi",
@@ -111,8 +108,7 @@ describe("Kimi SessionStart reporter", () => {
     });
   });
 
-  it("resolves the wire.jsonl transcript through the session index", () => {
-    const dir = scratch();
+  it("resolves the wire.jsonl transcript through the session index", async () => {
     // A fake $HOME carrying kimi's session index; the LAST line for the id
     // wins (kimi appends on every open).
     const home = scratch();
@@ -135,31 +131,24 @@ describe("Kimi SessionStart reporter", () => {
       ].join("\n"),
     );
 
-    runHook(
+    await runHook(
       { hook_event_name: "SessionStart", session_id: "session_abc" },
       {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
         HOME: home,
-        KEEPDECK_BRIDGE: JSON.stringify({
-          v: 1,
-          dir,
-          pane: "pane-kimi",
-          token: "token-kimi",
-        }),
+        KEEPDECK_BRIDGE: bridge(),
       },
     );
 
-    const files = readdirSync(dir);
-    expect(files).toHaveLength(1);
-    expect(publishedPayload(dir, files[0])).toEqual({
+    expect(deck.envelopes).toHaveLength(1);
+    expect(publishedPayload()).toEqual({
       agent: "kimi",
       sessionId: "session_abc",
       transcriptPath: `${home}/sessions/wd_repo/session_abc/agents/main/wire.jsonl`,
     });
   });
 
-  it("drops a JSON-hostile session dir rather than the whole binding", () => {
-    const dir = scratch();
+  it("drops a JSON-hostile session dir rather than the whole binding", async () => {
     const home = scratch();
     const kimiDir = join(home, ".kimi-code");
     mkdirSync(kimiDir, { recursive: true });
@@ -171,46 +160,33 @@ describe("Kimi SessionStart reporter", () => {
         workDir: "/repo",
       }) + "\n",
     );
-    runHook(
+    await runHook(
       { hook_event_name: "SessionStart", session_id: "session_abc" },
       {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
         HOME: home,
-        KEEPDECK_BRIDGE: JSON.stringify({
-          v: 1,
-          dir,
-          pane: "pane-kimi",
-          token: "token-kimi",
-        }),
+        KEEPDECK_BRIDGE: bridge(),
       },
     );
-    const files = readdirSync(dir);
-    expect(files).toHaveLength(1);
-    expect(publishedPayload(dir, files[0])).toEqual({
+    expect(deck.envelopes).toHaveLength(1);
+    expect(publishedPayload()).toEqual({
       agent: "kimi",
       sessionId: "session_abc",
     });
   });
 
-  it("binds bare when the index has not recorded the session yet", () => {
-    const dir = scratch();
+  it("binds bare when the index has not recorded the session yet", async () => {
     const home = scratch(); // no .kimi-code at all
-    runHook(
+    await runHook(
       { hook_event_name: "SessionStart", session_id: "session_new" },
       {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
         HOME: home,
-        KEEPDECK_BRIDGE: JSON.stringify({
-          v: 1,
-          dir,
-          pane: "pane-kimi",
-          token: "token-kimi",
-        }),
+        KEEPDECK_BRIDGE: bridge(),
       },
     );
-    const files = readdirSync(dir);
-    expect(files).toHaveLength(1);
-    expect(publishedPayload(dir, files[0])).toEqual({
+    expect(deck.envelopes).toHaveLength(1);
+    expect(publishedPayload()).toEqual({
       agent: "kimi",
       sessionId: "session_new",
     });

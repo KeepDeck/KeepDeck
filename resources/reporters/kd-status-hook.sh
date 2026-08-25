@@ -6,9 +6,10 @@
 # $1 because the payload does not name its CLI and the webview dispatches
 # normalizers by agent.
 #
-# Speaks bridge protocol v1: the whole hook payload (JSON on stdin) rides
+# Speaks bridge protocol v2: the whole hook payload (JSON on stdin) rides
 # VERBATIM under payload.event — no field extraction, so this script never
-# chases a CLI's schema. Same tmp + rename discipline as the session hook.
+# chases a CLI's schema. Posted to the deck, which answers on the same
+# connection when this hook asked a question.
 #
 # The ONE exception is the oversize path below, which cannot forward a
 # payload whole and reduces it to its event name. It extracts nothing else:
@@ -47,25 +48,27 @@ agent="$1"
 ask=""
 [ "$2" = "--ask" ] && ask="yes"
 
-# How long to wait for the deck.
+# How long this hook waits for the deck is no longer decided here: the answer
+# comes back on the connection the envelope went out on, so it is the round
+# trip's own timeout (`SEND_MAX`, in the sender below).
 #
-# This was cut to 600ms on a guess — that a hook holding a shutting-down CLI
-# open was why codex could not resume a thread with "an active writer". The
-# guess was never tested, and the cut broke delivery that WORKED: the host
-# books a message the moment it hands it over, so a hook that gives up first
-# leaves it marked delivered and unread in the inbox. Claude stopped picking
-# up its context, and the message sat there. Two seconds is what worked.
+# Worth keeping the history, because the number was got wrong once in a way
+# that looked like something else. It was cut to 600ms on a guess — that a
+# hook holding a shutting-down CLI open was why codex could not resume a
+# thread with "an active writer". The guess was never tested, and the cut
+# broke delivery that WORKED: the deck hands a message over the moment it
+# answers, so a hook that gave up first left it marked delivered and unread.
+# Claude stopped picking up its context and the message sat there.
 #
-# The real fix is not a number. The hook removes the reply file once it has
-# read it, so a file still sitting there means nobody took the message — the
-# host can check that and put it back in the queue instead of believing its
-# own hand-over. Until then, do NOT shorten this: a slow round trip is a
-# delayed message, a short window is a lost one.
-ASK_TRIES=40
-ASK_SLEEP=0.05
+# What made that failure silent is gone. The deck learns from the send itself
+# whether the hook was still there, and puts the messages back when it was
+# not — so a window that is too short is now a delayed message rather than a
+# lost one.
 
 # @include lib/reporter-bridge.sh
-[ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
+# `url` rather than `dir`: this reporter has not written a file since the
+# cutoff, and a pane whose deck published no address has nowhere to report.
+[ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
 # @include lib/reporter-identity.sh
 
@@ -113,32 +116,24 @@ fi
 # touching the filesystem.
 #
 # It used to be an `mktemp` in the inbox, which minted the name and reserved
-# it in one step. The reservation was the problem: it announced, for the whole
-# two seconds this hook then waits, the exact filename the deck was about to
-# write and this script would `cat` verbatim into the CLI. Anything else on
-# the machine could read that name and put its own text there first. Panes run
-# as one OS user, so nothing stops a process reading this directory — but a
-# name it cannot learn until the answer already exists is a far narrower
-# window than a name posted in advance.
+# it in one step. The reservation was the problem: it announced, for as long
+# as this hook then waited, the exact filename the deck was about to write and
+# this script would print verbatim into the CLI. Anything else on the machine
+# could read that name and put its own text there first. There is no file to
+# race for any more — the answer arrives on this process's own connection —
+# but the name still has to be unique, and randomness is the cheapest way.
 #
-# Alphanumeric on purpose: the deck refuses a correlation that could not
-# safely become a filename, and a rejected one would just time out below for
-# no reason. Collision needs no reservation at 64 bits.
+# Alphanumeric on purpose: the deck refuses a correlation it could not have
+# used as a filename, and a rejected one would just go unanswered.
 correlation=""
 if [ -n "$ask" ]; then
   correlation=ask$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
-  # No usable randomness (no /dev/urandom, no od): fall back to the reserved
-  # name. Announced, and better than an agent that stops receiving mail.
-  if [ "$correlation" = "ask" ]; then
-    reserved=$(mktemp "$dir/askXXXXXXXX" 2>/dev/null) && correlation=${reserved##*/}
-  fi
+  # No usable randomness (no /dev/urandom, no od). The pid plus the clock is
+  # not secret, and no longer needs to be: it only has to be different from
+  # this pane's other asks, and a pane asks once per turn boundary.
+  [ "$correlation" = "ask" ] && correlation="ask$$_$(date +%s 2>/dev/null)"
 fi
 
-# mktemp = the unique name AND the tmp stage; the rename to .json publishes.
-# The trap reaps the staging file if this process is killed mid-write (kimi
-# enforces a hook timeout with a signal) — after a successful mv there is
-# nothing at $f and the rm is a no-op. The inbox never sweeps strays itself.
-trap 'rm -f ${send_file:+"$send_file"} ${reserved:+"$reserved"}' EXIT INT TERM
 # The host-owned keys that may or may not be there, built as one fragment so
 # the envelope stays a SINGLE printf. A branch per combination would be four
 # copies of one line, in a file three plugins carry byte-for-byte.
@@ -150,30 +145,13 @@ trap 'rm -f ${send_file:+"$send_file"} ${reserved:+"$reserved"}' EXIT INT TERM
 extra=""
 [ -n "$reporter" ] && extra="$extra\"reporter\":\"$reporter\","
 [ -n "$correlation" ] && extra="$extra\"reply\":\"$correlation\","
-envelope=$(printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s",%s"event":%s}}' \
+envelope=$(printf '{"v":2,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s",%s"event":%s}}' \
   "$pane" "$token" "$agent" "$extra" "$payload")
 
-send_envelope agent.status "$envelope"
-
-# Wait for the answer, if one was asked for. Everything about this loop is
-# built to FAIL OPEN: a deck that has quit, a reply that never comes, a
-# `sleep` that cannot take a fraction — each ends the same way, silently and
-# with nothing printed, which every CLI reads as "the hook had nothing to
-# add". The alternative failure, a hook that hangs, holds up the CLI itself.
-if [ -n "$correlation" ]; then
-  reply="$dir/$correlation.reply"
-  tries=$ASK_TRIES
-  while [ "$tries" -gt 0 ]; do
-    if [ -f "$reply" ]; then
-      # Printed verbatim: the deck rendered it through this agent's own
-      # plugin, so the schema is the CLI's and this script stays ignorant
-      # of it — the same division it keeps for payloads on the way in.
-      cat "$reply" 2>/dev/null
-      rm -f "$reply"
-      break
-    fi
-    sleep "$ASK_SLEEP" 2>/dev/null
-    tries=$((tries - 1))
-  done
-fi
+# Sent, and ANSWERED on the same connection when an answer was asked for:
+# `send_envelope` prints the deck's reply and nothing otherwise, so there is
+# no loop here to fail open. What this used to be — poll a directory for a
+# file, print it, remove it, give up after forty tries — was two seconds of
+# guessing at a question the connection answers by existing.
+send_envelope "$envelope"
 exit 0

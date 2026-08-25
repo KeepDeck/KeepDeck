@@ -13,8 +13,14 @@ use serde::{Deserialize, Serialize};
 /// Bridge protocol version — covers the `KEEPDECK_BRIDGE` env schema AND the
 /// envelope schema, incremented on ANY change to either (a plain change
 /// counter, plugin-API style). The host accepts the versions it supports;
-/// everything else is logged and consumed.
-pub const BRIDGE_PROTOCOL_VERSION: u64 = 1;
+/// everything else is logged and refused.
+///
+/// 2 dropped the file lane. Until then `url` was additive and an old reporter
+/// that had never heard of it wrote a file instead — which is exactly why the
+/// version had to move now: nothing watches for that file any more, so a
+/// reporter left behind by an older install would report into nowhere and
+/// look alive doing it. Refusing its envelopes is how it says so out loud.
+pub const BRIDGE_PROTOCOL_VERSION: u64 = 2;
 
 /// Event delivering one session binding to the webview (`src/ipc/sessions.ts`).
 pub const SESSION_BOUND_EVENT: &str = "deck://session/bound";
@@ -232,7 +238,7 @@ pub(super) mod tests {
 
     fn usage_envelope(pane: &str, token: &str, agent: &str) -> String {
         serde_json::json!({
-            "v": 1, "type": "usage.report", "paneId": pane, "token": token,
+            "v": 2, "type": "usage.report", "paneId": pane, "token": token,
             "payload": { "agent": agent, "statusline": { "rate_limits": { "five_hour": { "used_percentage": 42 } } } },
         })
         .to_string()
@@ -240,7 +246,7 @@ pub(super) mod tests {
 
     fn status_envelope(pane: &str, token: &str, agent: &str) -> String {
         serde_json::json!({
-            "v": 1, "type": "agent.status", "paneId": pane, "token": token,
+            "v": 2, "type": "agent.status", "paneId": pane, "token": token,
             "payload": { "agent": agent, "event": { "hook_event_name": "Stop", "session_id": "abc" } },
         })
         .to_string()
@@ -252,7 +258,7 @@ pub(super) mod tests {
         // unknown extra on purpose — `agent` is a PAYLOAD field, so one
         // sitting at envelope level must not be mistaken for the real one.
         let mut value: serde_json::Value =
-            serde_json::from_str(&envelope(1, "session.bound", "pane-3", "tok", "abc")).unwrap();
+            serde_json::from_str(&envelope(2, "session.bound", "pane-3", "tok", "abc")).unwrap();
         value["agent"] = "codex".into();
         value["payload"]["agent"] = "claude".into();
         assert_eq!(
@@ -349,9 +355,13 @@ pub(super) mod tests {
 
     #[test]
     fn rejects_unsupported_versions_and_unknown_types() {
-        assert!(interpret(&envelope(2, "session.bound", "p", "t", "s"))
-            .is_err_and(|e| e.contains("version 2")));
-        assert!(interpret(&envelope(1, "session.stopped", "p", "t", "s"))
+        // 1 is not merely "not current": it is a reporter left behind by an
+        // older install, which would have written a file nothing watches.
+        assert!(interpret(&envelope(1, "session.bound", "p", "t", "s"))
+            .is_err_and(|e| e.contains("version 1")));
+        assert!(interpret(&envelope(3, "session.bound", "p", "t", "s"))
+            .is_err_and(|e| e.contains("version 3")));
+        assert!(interpret(&envelope(2, "session.stopped", "p", "t", "s"))
             .is_err_and(|e| e.contains("session.stopped")));
     }
 
@@ -359,9 +369,9 @@ pub(super) mod tests {
     fn rejects_garbage_and_empty_fields() {
         assert!(interpret("not json").is_err());
         assert!(interpret("{}").is_err());
-        assert!(interpret(&envelope(1, "session.bound", "", "t", "s")).is_err());
-        assert!(interpret(&envelope(1, "session.bound", "p", "", "s")).is_err());
-        assert!(interpret(&envelope(1, "session.bound", "p", "t", "")).is_err());
+        assert!(interpret(&envelope(2, "session.bound", "", "t", "s")).is_err());
+        assert!(interpret(&envelope(2, "session.bound", "p", "", "s")).is_err());
+        assert!(interpret(&envelope(2, "session.bound", "p", "t", "")).is_err());
     }
 
     // The webview listens for this exact wire shape — pin it. An unreported
@@ -409,7 +419,7 @@ pub(super) mod tests {
     #[test]
     fn a_session_bound_without_an_agent_is_refused() {
         let content = serde_json::json!({
-            "v": 1,
+            "v": 2,
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",
@@ -425,7 +435,7 @@ pub(super) mod tests {
     #[test]
     fn session_bound_carries_the_reporters_attribution() {
         let content = serde_json::json!({
-            "v": 1,
+            "v": 2,
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",
@@ -454,7 +464,7 @@ pub(super) mod tests {
     #[test]
     fn an_empty_attribution_reads_as_unreported() {
         let content = serde_json::json!({
-            "v": 1,
+            "v": 2,
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",

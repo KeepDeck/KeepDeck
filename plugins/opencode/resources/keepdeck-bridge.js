@@ -14,13 +14,10 @@
  * relative import between them resolves the same way in the repo and in the
  * bundle.
  */
-import { randomUUID } from "node:crypto";
-import { renameSync, writeFileSync } from "node:fs";
 // Built in, like everything else this file leans on: a reporter that needed
 // a dependency installed would be a reporter that stops working the moment
 // somebody ships without it.
 import { request as httpRequest } from "node:http";
-import { join } from "node:path";
 
 /**
  * Which process is reporting, on every lane either plugin publishes.
@@ -38,8 +35,10 @@ export const REPORTER = String(process.pid);
 /**
  * This pane's bridge, or null when nothing spawned us from KeepDeck.
  *
- * `dir` is the pane's OWN inbox — one directory per pane, so an answer is
- * addressed by pane and a correlation naming somebody else's reaches nobody.
+ * `dir` is the pane's OWN directory. It used to be an inbox this plugin
+ * dropped envelopes into; since the cutoff the only thing that lands there is
+ * the deck's doorbell, which runs the other way — the surface takes envelopes
+ * from panes and cannot push to them, so a knock still needs a file.
  */
 export function readBridge() {
   let bridge;
@@ -49,79 +48,57 @@ export function readBridge() {
     return null;
   }
   const { dir, pane, token, url } = bridge ?? {};
-  // `url` is optional: a deck too old to publish one, or one whose surface
-  // never came up, still hands out an inbox — and the inbox still works.
-  return dir && pane && token
-    ? { dir, pane, token, url: typeof url === "string" ? url : "" }
+  // All four required now. `url` was optional while a reporter that had never
+  // heard of it could still write a file; nothing reads those files, so a
+  // pane without an address has nowhere to report and should say so by being
+  // absent rather than by looking armed.
+  return dir && pane && token && typeof url === "string" && url
+    ? { dir, pane, token, url }
     : null;
 }
 
 /**
- * Atomically drop one envelope into the inbox: uniquely named (so parallel
- * events never collide), written as `.tmp` and renamed, so the deck's
- * watcher never reads a torn file. Answers whether it landed.
+ * Hand one envelope to the deck.
  *
- * Best-effort like everything on this path — a full disk must not break the
- * user's session.
- */
-export function publish(dir, envelope) {
-  try {
-    const base = join(dir, `${envelope.type}-${randomUUID()}`);
-    writeFileSync(`${base}.tmp`, JSON.stringify(envelope));
-    renameSync(`${base}.tmp`, `${base}.json`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-
-/**
- * Hand one envelope to the deck, whichever way it can be reached.
- *
- * The direct lane first, the inbox when the deck was never heard from. The
- * inbox is not the worse option kept around — it is the only lane an older
- * deck has, and the only one left when an address is published but nothing
- * answers there.
+ * One lane. There used to be two — this, and dropping a file in a directory
+ * the deck watched — and the file was not the worse option kept around: it
+ * was the whole transport first, and the only lane a deck too old to publish
+ * an address had. It is gone, and with it the reason this plugin had to know
+ * how to write an inbox at all.
  *
  * `answer` is the deck's reply when it had one to give, and `null` otherwise.
  * A caller with no question to ask can ignore it entirely.
  *
- * The status code decides, and the three cases differ in what the caller must
- * then do:
+ * The status code decides:
  *   200 — an answer with something in it, carried back verbatim.
  *   204 — heard, nothing to say back. The common case.
+ *   409 — this correlation is already in flight. Only a reporter that reused
+ *         one gets this; the ask holding the slot is the one being answered.
  *   504 — heard, and the deck never answered in time.
  * Anything else, or no response at all, means the deck never heard us.
  *
- * 204 and 504 mean different things and are DELIBERATELY treated alike here,
- * because the only decision at this point is whether to write a file — and
- * for that they are the same: the deck has the envelope, so writing one now
- * would deliver it twice.
- *
- * Nothing is lost by not telling them apart. The deck logs the timeout on
- * its own side, where something actually went wrong and where there is a log
- * to put it in; these plugins have none. And a caller has nothing to do
- * differently: if the deck answers late, its reply finds no one waiting,
- * falls through to a file, and its own watchdog puts the messages back.
+ * Only 200 carries anything. Every other outcome is `null`, and the reason
+ * they are not told apart HERE is that nothing here would do anything
+ * different with them: the deck logs its own timeout, on the side that knows
+ * something went wrong and has a log to put it in, and it puts back any
+ * messages whose answer reached nobody — because the send tells it so.
  */
 export async function sendEnvelope(bridge, envelope) {
-  if (bridge.url) {
-    const posted = await post(bridge.url, JSON.stringify(envelope));
-    if (posted.status === 200) return { delivered: true, answer: posted.body };
-    if (posted.status === 204 || posted.status === 504) {
-      return { delivered: true, answer: null };
-    }
-  }
-  return { delivered: publish(bridge.dir, envelope), answer: null };
+  const posted = await post(bridge.url, JSON.stringify(envelope));
+  return { answer: posted.status === 200 ? posted.body : null };
 }
 
-/** How long the deck gets to answer, matching the shell reporters' patience:
- * one number for one rule, so no two lanes disagree about it. */
+/** How long to give the whole round trip, matching the shell reporters'
+ * `SEND_MAX`: one number for one rule, so no two lanes disagree about it.
+ *
+ * Deliberately LONGER than the deck's own patience (`HOOK_WAIT` in
+ * bridge/waiters.rs), so the deck runs out first and answers 504 rather than
+ * leaving this side timing out against a silent socket.
+ * `scripts/reporterScripts.test.mjs` pins that ordering. */
 const SEND_TIMEOUT_MS = 3000;
 
 /** One POST, resolving to `{ status, body }` — `status` is 0 when nothing
- * answered at all, which is the case the inbox exists for. */
+ * answered at all, which since the cutoff means this report is lost. */
 function post(url, body) {
   return new Promise((resolve) => {
     let settled = false;

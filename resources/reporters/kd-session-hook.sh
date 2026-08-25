@@ -17,14 +17,11 @@
 # into the one bit it needs — a fresh start against a mid-life swap. A CLI
 # that reports none simply omits it.
 #
-# Speaks bridge protocol v1: the spawn's single KEEPDECK_BRIDGE env var
-# carries {v, dir, pane, token}; the hook payload arrives as JSON on stdin.
-# The payload's session_id becomes a `session.bound` envelope dropped into
-# the bridge inbox — a uniquely named file (mktemp reserves the name
-# atomically, so parallel events never collide) written next to its final
-# name and renamed, so the watcher never sees a torn file. SessionStart also
-# fires for resume, /clear and compaction, so a mid-life session swap rebinds
-# the pane automatically.
+# Speaks bridge protocol v2: the spawn's single KEEPDECK_BRIDGE env var
+# carries {v, dir, pane, token, url}; the hook payload arrives as JSON on
+# stdin. The payload's session_id becomes a `session.bound` envelope posted
+# to the deck. SessionStart also fires for resume, /clear and compaction, so
+# a mid-life session swap rebinds the pane automatically.
 #
 # Inert without the KeepDeck env; best-effort by design (exit 0 always).
 
@@ -38,7 +35,7 @@ case $agent in
 esac
 
 # @include lib/reporter-bridge.sh
-[ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
+[ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
 # @include lib/reporter-identity.sh
 
@@ -129,6 +126,6 @@ body=$(printf '{"agent":"%s","sessionId":"%s"' "$agent" "$sid")
 [ -n "$reporter" ] && body=$(printf '%s,"reporter":"%s"' "$body" "$reporter")
 body="$body}"
 
-send_envelope session.bound "$(printf '{"v":1,"type":"session.bound","paneId":"%s","token":"%s","payload":%s}' \
+send_envelope "$(printf '{"v":2,"type":"session.bound","paneId":"%s","token":"%s","payload":%s}' \
   "$pane" "$token" "$body")"
 exit 0

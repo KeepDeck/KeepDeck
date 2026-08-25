@@ -49,7 +49,7 @@ if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
 # @include lib/reporter-identity.sh
 
 # @include lib/reporter-send.sh
-  if [ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ]; then
+  if [ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ]; then
     # The session's last-turn time, stamped onto the report so the webview's
     # freshest-wins ranks account windows by WHEN the data was captured, not
     # when this envelope arrived. Claude's `rate_limits` only move on a real
@@ -86,7 +86,7 @@ if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
     # nested run's statusline holds a valid secret and would otherwise
     # overwrite this pane's numbers with another session's.
     [ -n "$reporter" ] && extra="$extra,\"reporter\":\"$reporter\""
-    send_envelope usage.report "$(printf '{"v":1,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":%s%s}}' \
+    send_envelope "$(printf '{"v":2,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":%s%s}}' \
       "$pane" "$token" "$payload" "$extra")"
   fi
 fi

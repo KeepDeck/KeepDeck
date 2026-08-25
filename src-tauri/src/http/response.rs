@@ -27,6 +27,9 @@ pub(crate) enum Status {
     BadRequest,
     NotFound,
     MethodNotAllowed,
+    /// Somebody is already asking this exact question and has not been
+    /// answered yet.
+    Conflict,
     /// A declared body larger than the surface takes.
     PayloadTooLarge,
     HeadersTooLarge,
@@ -43,6 +46,7 @@ impl Status {
             Self::BadRequest => 400,
             Self::NotFound => 404,
             Self::MethodNotAllowed => 405,
+            Self::Conflict => 409,
             Self::PayloadTooLarge => 413,
             Self::HeadersTooLarge => 431,
             Self::GatewayTimeout => 504,
@@ -58,6 +62,7 @@ impl Status {
             Self::BadRequest => "Bad Request",
             Self::NotFound => "Not Found",
             Self::MethodNotAllowed => "Method Not Allowed",
+            Self::Conflict => "Conflict",
             Self::PayloadTooLarge => "Payload Too Large",
             Self::HeadersTooLarge => "Request Header Fields Too Large",
             Self::GatewayTimeout => "Gateway Timeout",
@@ -122,6 +127,7 @@ mod tests {
             Status::BadRequest,
             Status::NotFound,
             Status::MethodNotAllowed,
+            Status::Conflict,
             Status::PayloadTooLarge,
             Status::HeadersTooLarge,
             Status::GatewayTimeout,

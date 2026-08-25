@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -154,48 +154,69 @@ describe("reporter shell scripts", () => {
     expect(rendererVersion[1]).toBe(courierVersion[1]);
   });
 
-  it("keeps the ask window shorter than the deck's patience, in every language", () => {
-    // One number with three homes: how long a reporter waits for the deck's
-    // answer. The shell hooks poll for it, opencode's courier polls for it in
-    // JS, and Rust decides from ITS number when nobody came for the answer
-    // and throws it away.
+  it("keeps the deck's patience shorter than every asker's, in every language", () => {
+    // One relationship with three homes: how long a reporter waits for the
+    // deck's answer, against how long the deck holds the connection open.
     //
-    // Nothing links them. Lengthen the shell wait past the Rust window and
-    // the deck discards a reply the hook is still polling for — messages it
-    // has already booked as handed over, lost in silence, which is the exact
-    // failure the collected-check exists to prevent. Shorten it and delivery
-    // breaks; the script's own comment records that regression happening.
-    const shell = readFileSync(join(CANONICAL_DIR, "kd-status-hook.sh"), "utf8");
-    const tries = Number(shell.match(/^ASK_TRIES=(\d+)/m)?.[1]);
-    const sleep = Number(shell.match(/^ASK_SLEEP=([\d.]+)/m)?.[1]);
-    expect(tries, "no ASK_TRIES in the reporter").toBeGreaterThan(0);
-    expect(sleep, "no ASK_SLEEP in the reporter").toBeGreaterThan(0);
-    const shellWaitMs = tries * sleep * 1000;
+    // The ordering INVERTED at the cutoff, and it is worth saying why. While
+    // an answer was a file, the asker had to give up first: the deck started
+    // its own clock when it wrote, and an asker still polling after the deck
+    // had discarded the file would find nothing, with the messages already
+    // marked handed over. Now the answer travels on the connection, so the
+    // deck must give up first — then it answers 504, which an asker can read,
+    // instead of leaving it timing out against a socket that says nothing.
+    const shell = readFileSync(join(CANONICAL_DIR, "lib/reporter-send.sh"), "utf8");
+    const shellWaitMs = Number(shell.match(/^SEND_MAX=([\d.]+)/m)?.[1]) * 1000;
+    expect(shellWaitMs, "no SEND_MAX in the shared sender").toBeGreaterThan(0);
 
-    const courier = readFileSync(
-      "plugins/opencode/resources/mail-courier.js",
+    const plugin = readFileSync(
+      "plugins/opencode/resources/keepdeck-bridge.js",
       "utf8",
     );
-    const courierTries = Number(courier.match(/ASK_TRIES\s*=\s*(\d+)/)?.[1]);
-    const courierSleep = Number(courier.match(/ASK_SLEEP_MS\s*=\s*(\d+)/)?.[1]);
-    expect(courierTries, "no ASK_TRIES in the courier").toBeGreaterThan(0);
-    expect(courierSleep, "no ASK_SLEEP_MS in the courier").toBeGreaterThan(0);
-    const courierWaitMs = courierTries * courierSleep;
+    const pluginWaitMs = Number(
+      plugin.match(/SEND_TIMEOUT_MS\s*=\s*(\d[\d_]*)/)?.[1]?.replace(/_/g, ""),
+    );
+    expect(pluginWaitMs, "no SEND_TIMEOUT_MS in the plugin").toBeGreaterThan(0);
 
-    const reply = readFileSync("src-tauri/src/bridge/reply.rs", "utf8");
+    const waiters = readFileSync("src-tauri/src/bridge/waiters.rs", "utf8");
     const deckWaitMs = Number(
-      reply.match(/HOOK_WAIT[^=]*=\s*Duration::from_millis\((\d[\d_]*)\)/)?.[1]
+      waiters
+        .match(/HOOK_WAIT[^=]*=\s*Duration::from_millis\((\d[\d_]*)\)/)?.[1]
         ?.replace(/_/g, ""),
     );
     expect(deckWaitMs, "no HOOK_WAIT in the bridge").toBeGreaterThan(0);
 
-    // Every asker gives up BEFORE the deck stops waiting for it, or the deck
-    // reclaims an answer somebody is still reading.
-    expect(shellWaitMs).toBeLessThan(deckWaitMs);
-    expect(courierWaitMs).toBeLessThan(deckWaitMs);
-    // And not so far under that a slow round trip is called a miss: the deck
-    // errs long on purpose, by room for one last poll and a teardown.
-    expect(deckWaitMs - shellWaitMs).toBeLessThan(1000);
-    expect(deckWaitMs - courierWaitMs).toBeLessThan(1000);
+    // The deck runs out first, so silence always arrives with a status on it.
+    expect(deckWaitMs).toBeLessThan(shellWaitMs);
+    expect(deckWaitMs).toBeLessThan(pluginWaitMs);
+    // And not so far under that a slow round trip is called a miss: the gap
+    // is room for the deck's own answer to travel, not a second budget.
+    expect(shellWaitMs - deckWaitMs).toBeLessThan(1000);
+    expect(pluginWaitMs - deckWaitMs).toBeLessThan(1000);
+  });
+
+  it("leaves no reporter writing into the run directory", () => {
+    // The cutoff, pinned. Every lane a reporter had for REACHING the deck is
+    // the connection now; the run directory carries the doorbell and nothing
+    // else. A reporter that started writing envelopes again would be
+    // reporting into a directory nothing watches — alive-looking and silent,
+    // which is the failure this whole channel exists to make impossible.
+    for (const name of readdirSync(CANONICAL_DIR)) {
+      if (!name.endsWith(".sh")) continue;
+      const body = readFileSync(join(CANONICAL_DIR, name), "utf8");
+      const staging = body.match(/^\s*[^#\n]*mktemp\s+"?\$dir/m);
+      expect(staging, `${name} still stages a file in the inbox`).toBeNull();
+    }
+    const shared = readFileSync(
+      join(CANONICAL_DIR, "lib/reporter-send.sh"),
+      "utf8",
+    );
+    expect(shared).not.toMatch(/mktemp/);
+    const plugin = readFileSync(
+      "plugins/opencode/resources/keepdeck-bridge.js",
+      "utf8",
+    );
+    expect(plugin, "the plugin still knows how to write an inbox")
+      .not.toMatch(/writeFileSync|renameSync/);
   });
 });

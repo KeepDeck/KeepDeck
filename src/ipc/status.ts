@@ -36,33 +36,24 @@ export function onAgentStatus(
  * and the common one: it lets a waiting hook stop waiting immediately
  * instead of sitting out its whole timeout on every turn that had no mail.
  *
- * Fire and forget by design. A reply that cannot be written leaves the hook
- * to time out, which every CLI reads as "the hook had nothing to add" —
- * the recoverable direction, and the same one the bridge chooses everywhere
- * else.
+ * Answers whether it REACHED the hook. That single bit used to be
+ * unobtainable: the answer went to a file, and the only way to guess whether
+ * anyone had come for it was to wait out a window and look. A hook parked on
+ * an open connection is either still there or not, and the send says which —
+ * so a batch that went nowhere can be put back while the deck is still the
+ * only thing holding it.
+ *
+ * A failed call reads as not delivered. That is the recoverable direction:
+ * the messages go back in the queue, and the hook that got no answer times
+ * out, which every CLI reads as "the hook had nothing to add".
  */
 export function replyToBridgeHook(
   paneId: string,
   id: string,
   body: string,
-): void {
-  void invoke("bridge_reply", { pane: paneId, id, body }).catch(() => {});
-}
-
-/**
- * A reply nobody came for: the messages it carried left the deck's queue and
- * are gone unless they are put back.
- *
- * The observation belongs to the transport — only it can see whether the file
- * was consumed — and the decision belongs here, which is why it arrives as an
- * event rather than being handled where it is noticed.
- */
-export function onBridgeReplyUncollected(
-  handler: (reply: { pane: string; id: string }) => void,
-): Promise<() => void> {
-  return listen<{ pane: string; id: string }>(
-    "deck://bridge/reply-uncollected",
-    (event) => handler(event.payload),
+): Promise<boolean> {
+  return invoke<boolean>("bridge_reply", { pane: paneId, id, body }).catch(
+    () => false,
   );
 }
 
@@ -73,6 +64,9 @@ export function onBridgeReplyUncollected(
  * This says the same thing to an agent whose reporter is INSIDE the process
  * — it is already running and already watching the run directory — and says
  * it where no model can mistake it for its user speaking.
+ *
+ * The one thing still travelling as a file, because it runs the other way:
+ * the bridge surface takes envelopes from panes and cannot push to them.
  *
  * Fire and forget, and it carries nothing: the reporter answers by ASKING,
  * through the same labelled channel every other agent uses, and that answer
