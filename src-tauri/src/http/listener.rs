@@ -13,6 +13,8 @@
 //! listener's life; dropping it is the wake.
 
 use std::net::{TcpListener, TcpStream};
+
+use crate::http::{read_request, respond_empty, request::Request};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -70,16 +72,23 @@ pub(crate) struct Listener {
 }
 
 impl Listener {
-    /// Bind and start accepting. `handler` takes each connection whole: the
-    /// SSE case keeps its socket alive past the call, so handing over a
-    /// borrow would be a lie about who owns it.
+    /// Start accepting on a bound port.
+    ///
+    /// The head is read HERE, once, for every consumer: a request that never
+    /// parses is answered with its status and never reaches a route table,
+    /// so no surface has to own that failure twice. What the request MEANS
+    /// stays with the consumer — this loop matches nothing.
+    ///
+    /// The handler takes the connection whole because the SSE case keeps its
+    /// socket alive past the call; handing over a borrow would be a lie
+    /// about who owns it.
     pub(crate) fn serve<H>(
         bound: Bound,
         label: &'static str,
         handler: H,
     ) -> Result<Self, String>
     where
-        H: Fn(TcpStream) + Send + Sync + 'static,
+        H: Fn(TcpStream, Request) + Send + Sync + 'static,
     {
         let Bound { listener, .. } = bound;
         let (wake_near, wake_far) =
@@ -127,7 +136,7 @@ impl Listener {
 
 fn accept_loop<H>(listener: TcpListener, shared: Arc<Shared>, handler: H)
 where
-    H: Fn(TcpStream) + Send + Sync + 'static,
+    H: Fn(TcpStream, Request) + Send + Sync + 'static,
 {
     use std::os::fd::AsRawFd as _;
     let label = shared.label;
@@ -190,7 +199,15 @@ where
         let handler = Arc::clone(&handler);
         let spawned = std::thread::Builder::new()
             .name(format!("keepdeck {label} conn"))
-            .spawn(move || handler(stream));
+            .spawn(move || {
+                let mut stream = stream;
+                match read_request(&mut stream) {
+                    Ok(request) => handler(stream, request),
+                    Err(status) => {
+                        let _ = respond_empty(&mut stream, status);
+                    }
+                }
+            });
         if let Err(e) = spawned {
             log::warn!("{label}: dropping connection, no thread: {e}");
         }

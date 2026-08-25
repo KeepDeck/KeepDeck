@@ -35,7 +35,8 @@ use std::time::Duration;
 use crate::artifacts::serve;
 use crate::artifacts::store::{manifest_for, Manifest};
 use crate::artifacts::token::{mint_token, token_eq};
-use crate::http::{read_request, respond_empty};
+use crate::http::request::Request;
+use crate::http::respond_empty;
 
 const KEEPALIVE_TICK: Duration = Duration::from_secs(15);
 
@@ -106,9 +107,10 @@ impl DisplayServer {
             dead: AtomicBool::new(false),
         });
         let serving = Arc::clone(&shared);
-        let listener = crate::http::Listener::serve(bound, "artifacts", move |stream| {
-            handle_connection(stream, Arc::clone(&serving))
-        })?;
+        let listener =
+            crate::http::Listener::serve(bound, "artifacts", move |stream, request| {
+                handle_connection(stream, request, Arc::clone(&serving))
+            })?;
         Self::with_tick(shared, listener, |shared| {
             std::thread::Builder::new()
                 .name("keepdeck artifacts tick".into())
@@ -298,14 +300,7 @@ fn version_pin(query: Option<&str>) -> Result<Option<u64>, u16> {
     Ok(Some(raw.parse::<u64>().unwrap_or(u64::MAX)))
 }
 
-fn handle_connection(mut stream: TcpStream, shared: Arc<Shared>) {
-    let request = match read_request(&mut stream) {
-        Ok(request) => request,
-        Err(status) => {
-            let _ = respond_empty(&mut stream, status);
-            return;
-        }
-    };
+fn handle_connection(mut stream: TcpStream, request: Request, shared: Arc<Shared>) {
     // Before the dead check and before routing, exactly where the shared
     // parser used to do it — so a malformed pin still answers 400 whatever
     // the path was, and the status never depends on route knowledge.
@@ -599,10 +594,11 @@ mod tests {
             dead: AtomicBool::new(false),
         });
         let serving = Arc::clone(&shared);
-        let listener = crate::http::Listener::serve(bound, "artifacts test", move |stream| {
-            handle_connection(stream, Arc::clone(&serving))
-        })
-        .unwrap();
+        let listener =
+            crate::http::Listener::serve(bound, "artifacts test", move |stream, request| {
+                handle_connection(stream, request, Arc::clone(&serving))
+            })
+            .unwrap();
 
         let error = DisplayServer::with_tick(Arc::clone(&shared), listener, |_| {
             Err("injected tick spawn failure".into())
