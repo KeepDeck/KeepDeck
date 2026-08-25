@@ -324,10 +324,14 @@ fn spawn_pump(
                 Ok(n) => {
                     let outcome = producer.push(PtyEvent::Output(buf[..n].to_vec()));
                     if outcome == PushOutcome::ConsumerGone {
-                        // Nobody is listening (webview gone): kill the child first
-                        // so it stops writing — otherwise wait() blocks forever on
-                        // an undrained PTY the child keeps filling — then reap it.
+                        // Nobody is listening (webview gone). Ask the child to
+                        // stop, then keep draining the master until it does: a
+                        // child blocked writing into a full buffer does not act
+                        // on the signal until that write can complete, so a
+                        // reader that stops here leaves the very orphan it was
+                        // trying to avoid. The bytes go nowhere, on purpose.
                         let _ = child.kill();
+                        while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
                         let _ = child.wait();
                         exited.store(true, Ordering::Relaxed);
                         return;
