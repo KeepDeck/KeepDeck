@@ -98,6 +98,14 @@ interface Entry {
    * workspace switch back to a running agent must not replay the launch
    * animation. */
   launched: boolean;
+  /**
+   * The tail of this session's writes — see [`writePane`].
+   *
+   * On the ENTRY rather than beside the map, so it dies with the session it
+   * orders. A restart mints a new entry, and bytes queued for the process
+   * that just retired can never be handed to the one replacing it.
+   */
+  writes: Promise<void>;
 }
 
 /**
@@ -192,6 +200,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     failedAnnounced: false,
     closed: false,
     launched: false,
+    writes: Promise.resolve(),
   };
   entries.set(paneId, entry);
   setSessionState(paneId, { kind: "starting" });
@@ -332,10 +341,44 @@ export function isPaneLaunched(paneId: string): boolean {
   return entries.get(paneId)?.launched ?? false;
 }
 
-/** Write keystrokes/text into the pane's PTY. No-op without a live session
- * (writes racing a close are normal noise, deliberately unlogged). */
+/**
+ * Write keystrokes/text into the pane's PTY, IN ORDER. No-op without a live
+ * session (writes racing a close are normal noise, deliberately unlogged).
+ *
+ * Order is not free, and nothing below this function provides it. Each write
+ * is its own `session_write`, the Rust command is `#[tauri::command(async)]`,
+ * so every invocation is an independent task on Tauri's runtime, and they meet
+ * at a `std::sync::Mutex` around the PTY writer — which is not FIFO. Whichever
+ * task reaches the lock first writes first, whatever order they were issued
+ * in. Two writes issued in one synchronous breath are the case that matters,
+ * because that is the shape of the submit gesture: a paste and then a bare CR.
+ * Inverted, the CR spends itself on an empty composer and the text arrives
+ * after it and stays — which is what "the nudge is sitting in the input line"
+ * looks like from the outside.
+ *
+ * So each write waits for the one before it. The session is captured, not
+ * re-read: a write queued behind a slow one must reach the process it was
+ * meant for or none at all, never the process that replaced it. A closed or
+ * replaced session drops the rest of its tail instead of delivering it late —
+ * `closePane` does not wait for this queue, and must not: one shared lock
+ * across write and close is what once turned a hung agent into a pane that
+ * could not be closed.
+ *
+ * This is ordering only. Whether the bytes were ACCEPTED is a different
+ * question with a different answer, and this function still does not answer
+ * it — a write into a session that is gone is silently dropped exactly as it
+ * was before.
+ */
 export function writePane(paneId: string, data: string): void {
-  void entries.get(paneId)?.session?.write(data).catch(() => {});
+  const entry = entries.get(paneId);
+  const session = entry?.session;
+  if (!entry || !session) return;
+  entry.writes = entry.writes
+    .then(() => {
+      if (entry.closed || entry.session !== session) return;
+      return session.write(data);
+    })
+    .catch(() => {});
 }
 
 /** Sync the PTY grid to the view. Same no-op semantics as [`writePane`]. */
