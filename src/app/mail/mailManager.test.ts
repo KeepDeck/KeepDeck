@@ -1274,3 +1274,97 @@ describe("a journal that cannot hold everything", () => {
     expect(notices[0].body).not.toContain("never collected");
   });
 });
+
+describe("taking a message back", () => {
+  it("cancels one still waiting in the queue", () => {
+    // The plain case: nobody has come for it, so nobody has seen it.
+    const h = harness();
+    const sent = h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "ship it" });
+    expect(sent.ok).toBe(true);
+    const id = sent.ok ? sent.id : "";
+
+    expect(h.manager.cancel(A.paneId, id)).toEqual({ kind: "cancelled" });
+    expect(h.manager.inbox(B.paneId).messages).toEqual([]);
+    expect(h.manager.waiting(B.paneId)).toBe(0);
+  });
+
+  it("refuses once the message is in a running process's context", () => {
+    // Asking for it IS reading it, and the deck does not rewrite what an
+    // agent has already read.
+    const h = harness();
+    const sent = h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "ship it" });
+    const id = sent.ok ? sent.id : "";
+    h.manager.inbox(B.paneId);
+
+    expect(h.manager.cancel(A.paneId, id)).toEqual({ kind: "too-late" });
+  });
+
+  it("cancels a message whose reader has since restarted", () => {
+    // The whole reason `unread` is cancellable: the process that read it is
+    // gone and its context with it, so the words are in nobody's head. Only a
+    // catch-up could put them back in one, and that is what this stops.
+    const h = harness();
+    const sent = h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "ship it" });
+    const id = sent.ok ? sent.id : "";
+    h.manager.inbox(B.paneId);
+    h.manager.clear(B.paneId);
+
+    expect(h.manager.cancel(A.paneId, id)).toEqual({ kind: "cancelled" });
+    // And the catch-up it would have arrived on now carries nothing.
+    expect(h.manager.inbox(B.paneId, { all: true }).messages).toEqual([]);
+    expect(h.manager.waiting(B.paneId)).toBe(0);
+  });
+
+  it("will not let a pane cancel what it did not send", () => {
+    // The id is the agent's word. Without this, a pane could walk the ids and
+    // destroy a conversation it was never part of.
+    const h = harness();
+    const sent = h.manager.send({ from: A, toPaneId: B.paneId, kind: "task", body: "ship it" });
+    const id = sent.ok ? sent.id : "";
+
+    expect(h.manager.findSent(C.paneId, id)).toBeUndefined();
+    expect(h.manager.cancel(C.paneId, id)).toEqual({ kind: "too-late" });
+    // Untouched: still waiting for the pane it was addressed to.
+    expect(h.manager.inbox(B.paneId).messages.map((mail) => mail.body)).toEqual(["ship it"]);
+  });
+
+  it("gives the asker its debt back when an answer is cancelled", () => {
+    // The edge is drawn when an answer is SENT, not when it lands. Taking the
+    // answer back without this leaves the asker marked answered, no longer
+    // counted as waiting, and owed a correction nobody knows to write.
+    const h = harness();
+    const ask = h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    const askId = ask.ok ? ask.id : "";
+    h.manager.inbox(B.paneId);
+    const answer = h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+
+    expect(h.manager.cancel(B.paneId, answer.ok ? answer.id : "")).toEqual({
+      kind: "cancelled",
+    });
+    // B owes A an answer again: a second one draws the edge back to the same
+    // ask, which it could not do if that ask were still marked answered.
+    h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8081" });
+    expect(edgeOn(h, "8081")).toBe(askId);
+  });
+
+  it("leaves an unrelated ask alone when one answer is cancelled", () => {
+    // Two teammates waiting on the same pane. Reopening must find the debt
+    // the cancelled answer closed and no other.
+    const h = harness();
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
+    h.manager.send({ from: C, toPaneId: B.paneId, kind: "question", body: "which host?" });
+    h.manager.inbox(B.paneId);
+    const toA = h.manager.send({ from: B, toPaneId: A.paneId, kind: "answer", body: "8080" });
+    h.manager.send({ from: B, toPaneId: C.paneId, kind: "answer", body: "localhost" });
+
+    h.manager.cancel(B.paneId, toA.ok ? toA.id : "");
+    // C's ask stays closed — B answered it and did not take that back, so a
+    // second message to C answers nothing and carries no edge.
+    h.manager.send({ from: B, toPaneId: C.paneId, kind: "answer", body: "127.0.0.1" });
+    const toCagain = h.manager
+      .takeAtTurnEnd(C.paneId)
+      .filter((mail) => mail.body === "127.0.0.1");
+    expect(toCagain).toHaveLength(1);
+    expect(toCagain[0].replyTo).toBeUndefined();
+  });
+});

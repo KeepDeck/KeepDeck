@@ -477,3 +477,125 @@ describe("registerMailCommands", () => {
     }
   });
 });
+
+describe("mail.cancel", () => {
+  /** Send one message and hand back the id the tool answered with. */
+  async function sent(registry: CommandRegistry, body = "ship it") {
+    const result = await run(
+      registry,
+      "mail.send",
+      { to: "pane-2", kind: "task", body },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(true);
+    return result.ok ? (result.value as { id: string }).id : "";
+  }
+
+  it("takes back a message nobody has come for", async () => {
+    const { registry, mail } = setup();
+    const id = await sent(registry);
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id, to: "pane-2" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: { status: "cancelled", note: expect.any(String) },
+    });
+    expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
+  });
+
+  it("says too-late once the recipient has read it", async () => {
+    const { registry, mail } = setup();
+    const id = await sent(registry);
+    mail.inbox("pane-2");
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id, to: "pane-2" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toMatchObject({ status: "too-late" });
+  });
+
+  it("names a role as what it is, rather than calling it a missing message", async () => {
+    // Every other mail argument is an address, so this is the likeliest slip.
+    // Telling the agent "no such message" would send it hunting for the wrong
+    // problem entirely.
+    const { registry } = setup();
+    await sent(registry);
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id: "impl-1", to: "pane-2" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("is not a message id");
+  });
+
+  it("answers a borrowed id exactly as it answers one that never existed", async () => {
+    // The whole point of merging those refusals. If somebody else's id read
+    // differently from a made-up one, an agent could walk the ids until the
+    // wording changed and count a conversation it never saw.
+    const { registry } = setup();
+    const real = await sent(registry);
+    const borrowed = await run(
+      registry,
+      "mail.cancel",
+      { id: real, to: "pane-1" },
+      from("pane-2", "ws-1", "Agent 2"),
+    );
+    const invented = await run(
+      registry,
+      "mail.cancel",
+      { id: "mail-999", to: "pane-1" },
+      from("pane-2", "ws-1", "Agent 2"),
+    );
+    expect(borrowed.ok).toBe(false);
+    expect(invented.ok).toBe(false);
+    if (!borrowed.ok && !invented.ok) {
+      expect(borrowed.error.message).toBe(
+        invented.error.message.replace("mail-999", real),
+      );
+    }
+  });
+
+  it("refuses an address that reaches nobody before it looks at the route", async () => {
+    // Step three, and it is reached only because the id already proved to be
+    // the caller's — so the answer says something about the caller's own
+    // address book and nothing about anyone else's traffic.
+    const { registry, mail } = setup();
+    const id = await sent(registry);
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id, to: "impl-9" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("impl-9");
+    expect(mail.takeAtTurnEnd("pane-2")).toHaveLength(1);
+  });
+
+  it("refuses when the recipient named is not the one it went to", async () => {
+    // The confirmation earns its place here: a mistyped id would otherwise
+    // reach into a message the caller never meant to touch. Its own traffic,
+    // so this refusal may be plain.
+    const { registry, mail } = setup();
+    const id = await sent(registry);
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id, to: "pane-1" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("went somewhere else");
+    // And the message is untouched.
+    expect(mail.takeAtTurnEnd("pane-2")).toHaveLength(1);
+  });
+});

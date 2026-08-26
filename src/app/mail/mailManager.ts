@@ -37,6 +37,7 @@ import {
   isStandingContext,
   overdueNotice,
   senderName,
+  type CancelOutcome,
   type Mail,
   type MailKind,
   type MailLimits,
@@ -206,6 +207,40 @@ export interface MailManager {
    * never asked for. Read after a hand-over to tell the agent what its
    * turn's budget left behind. */
   waiting(paneId: string): number;
+  /**
+   * One message this pane SENT, wherever it now stands — or undefined.
+   *
+   * Read-only, and separate from [`cancel`] because the ladder of refusals
+   * has to run between them: whether the id is the caller's is decided
+   * before the address it named is resolved, so an agent probing with a
+   * borrowed id learns nothing about a team it is not on.
+   *
+   * Safe to split in two calls only because nothing here yields: see the
+   * note on [`cancel`].
+   */
+  findSent(fromPaneId: string, id: string): Mail | undefined;
+  /**
+   * Take back a message this pane sent, if it is not in a live process yet.
+   *
+   * Cancellable means NOT IN ANYBODY'S CONTEXT: still queued, or delivered to
+   * a process that has since restarted — the restart un-read it, so the words
+   * went with that process's context and only a future catch-up could put
+   * them in a head again. Once a running process has it, it is too late; the
+   * deck does not rewrite what an agent has already read.
+   *
+   * Cancelling an ANSWER reopens the debt it closed. The edge is drawn when
+   * the answer is SENT, not when it lands, so an answer taken back would
+   * otherwise leave the asker marked answered and waiting for nothing.
+   *
+   * SYNCHRONOUS, and that is a contract rather than an accident. The deck's
+   * whole mail state is mutated on one thread, and every operation here runs
+   * to completion without yielding, so a cancel and a read cannot interleave
+   * — whichever arrives first finishes first. An `await` anywhere in this
+   * file would silently end that guarantee, which is why a guard watches for
+   * one. Anything slow a cancel needs to do belongs AFTER the state already
+   * says the message is gone.
+   */
+  cancel(fromPaneId: string, id: string): CancelOutcome;
   /** Forget everything belonging to panes that no longer exist. */
   retain(liveIds: ReadonlySet<string>): void;
   /** The pane's process was retired (restart, suspend). Its delivery spacing
@@ -446,6 +481,46 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     const owed = owedTo(fromPaneId, toPaneId);
     for (const entry of owed) entry.state = "answered";
     return owed.length === 1 ? owed[0].mail.id : undefined;
+  }
+
+  /**
+   * Give back the debt an answer closed, because the answer is being taken
+   * back.
+   *
+   * The edge above is drawn when an answer is SENT, not when it lands — the
+   * one place in this file where a fact is booked ahead of the event it
+   * describes. That is harmless while every sent answer eventually arrives.
+   * Cancelling makes it a hole: the asker would keep an entry marked
+   * `answered` for an answer nobody will ever read, stop counting as waiting,
+   * and be owed a correction that its sender has no reason to write.
+   *
+   * Only `read` is restored. An entry that has since been evicted is gone and
+   * nothing here can bring it back, and one already un-read by a restart is
+   * in the state this would put it in anyway.
+   */
+  function reopenDebt(cancelled: Mail): void {
+    if (!cancelled.replyTo || cancelled.from.kind !== "pane") return;
+    const asker = inboxes.get(cancelled.from.pane.paneId);
+    const entry = asker?.find(
+      (held) => held.mail.id === cancelled.replyTo && held.state === "answered",
+    );
+    if (!entry) return;
+    entry.state = "read";
+    log.info(
+      "web:mail",
+      `answer cancelled, ${cancelled.replyTo} is owed one again: ${trace(cancelled)}`,
+    );
+  }
+
+  /** Whether `mail` is the one `fromPaneId` sent under `id`. Both halves
+   * matter: the id alone would let a pane cancel by guessing at somebody
+   * else's traffic, which is what the refusal ladder refuses to confirm. */
+  function sentBy(mail: Mail, fromPaneId: string, id: string): boolean {
+    return (
+      mail.id === id &&
+      mail.from.kind === "pane" &&
+      mail.from.pane.paneId === fromPaneId
+    );
   }
 
   /**
@@ -806,6 +881,57 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         if (held && at >= 0) held.splice(at, 1);
       }
       drain();
+    },
+
+    findSent(fromPaneId, id) {
+      for (const queue of queues.values()) {
+        const found = queue.find((mail) => sentBy(mail, fromPaneId, id));
+        if (found) return found;
+      }
+      for (const held of inboxes.values()) {
+        const found = held.find((entry) => sentBy(entry.mail, fromPaneId, id));
+        if (found) return found.mail;
+      }
+      return undefined;
+    },
+
+    cancel(fromPaneId, id) {
+      // The queue first, because that is where a message nobody has come for
+      // still is. Found here, it never reached anyone.
+      for (const [paneId, queue] of queues) {
+        const at = queue.findIndex((mail) => sentBy(mail, fromPaneId, id));
+        if (at < 0) continue;
+        const [mail] = queue.splice(at, 1);
+        if (queue.length === 0) queues.delete(paneId);
+        reopenDebt(mail);
+        log.info("web:mail", `cancelled before delivery: ${trace(mail)}`);
+        drain();
+        return { kind: "cancelled" };
+      }
+      // Then the journal. `unread` there means a process read it and then
+      // died: the words went with its context, and the only thing that could
+      // put them in a head again is a catch-up that has not happened. Taking
+      // the entry away is what stops it.
+      for (const [paneId, held] of inboxes) {
+        const at = held.findIndex((entry) => sentBy(entry.mail, fromPaneId, id));
+        if (at < 0) continue;
+        const entry = held[at];
+        if (entry.state !== "unread") {
+          log.info("web:mail", `too late to cancel, already read: ${trace(entry.mail)}`);
+          return { kind: "too-late" };
+        }
+        held.splice(at, 1);
+        if (held.length === 0) inboxes.delete(paneId);
+        reopenDebt(entry.mail);
+        log.info("web:mail", `cancelled before a restarted pane caught up: ${trace(entry.mail)}`);
+        drain();
+        return { kind: "cancelled" };
+      }
+      // Neither place. The caller has already been told this id is theirs, so
+      // the message was evicted between that answer and this call — the same
+      // ending as too-late, and for the same reason: the deck cannot take
+      // back what it no longer has.
+      return { kind: "too-late" };
     },
 
     inbox(paneId, options) {
