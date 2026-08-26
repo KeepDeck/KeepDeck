@@ -141,13 +141,37 @@
   position: absolute;
 }
 
+/* The LEVEL sets the period; the CARD says how far off it this badge runs
+   and where on the border it starts. Both arrive on the rim element from
+   Achievements.tsx (`rimDrift`, `rimPhase`), because both are per-badge and
+   a stylesheet has no per-badge. Without them every epic card ran one
+   duration and every legendary another, all from zero at the moment the
+   gallery mounted — a row of badges turning in lockstep reads as one
+   animation drawn five times.
+
+   The offset is a NEGATIVE delay, which is how CSS says "already under way"
+   rather than "starts later": at `-0.3 × turn` the light is three tenths
+   round the border on the first frame. It has to be spelled AFTER the
+   shorthand above — `animation` resets the delay to zero, so the two in the
+   other order would leave every card starting from the same corner again.
+
+   Both read `--rim-turn` rather than the period, and that is the point of
+   naming it: the phase is a fraction of THIS badge's turn, so it has to be
+   measured against the duration the badge actually runs, drift included.
+   Off the raw period it would land a few percent from where it says.
+
+   Every fallback keeps a rim that arrives without these running the level's
+   own pace from the top, rather than not running at all. */
 .stats__achievement-rim::before {
   top: 50%;
   left: 50%;
   width: 260%;
   margin: -130% 0 0 -130%;
   aspect-ratio: 1;
-  animation: stats-achievement-rim 5.5s linear infinite;
+  --rim-period: 5.5s;
+  --rim-turn: calc(var(--rim-period) * var(--rim-drift, 1));
+  animation: stats-achievement-rim var(--rim-turn) linear infinite;
+  animation-delay: calc(var(--rim-turn) * var(--rim-phase, 0) * -1);
 }
 
 .stats__achievement-rim::after {
@@ -167,7 +191,7 @@
 }
 
 .stats__achievement--legendary .stats__achievement-rim::before {
-  animation-duration: 3.4s;
+  --rim-period: 3.4s;
   background: conic-gradient(
     from 0deg,
     transparent 0 64%,
