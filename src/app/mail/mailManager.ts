@@ -185,6 +185,18 @@ export interface MailManager {
    * withdrawn too, or a later read would show a message never delivered. */
   restore(messages: readonly Mail[]): void;
   /**
+   * Walk the queues again, because something OUTSIDE the manager changed
+   * what a pass would decide.
+   *
+   * The subscriptions do this for the two changes the manager can see for
+   * itself — activity and input channels. This is the third: a hand-over
+   * that was in flight has finished, and until it did, the terminal leg of
+   * `wake` was deliberately refusing (see `createMailService`). A pass that
+   * ran while it refused reached no conclusion worth keeping, and nothing
+   * else would come back for it — the refusal arms no timer.
+   */
+  reconsider(): void;
+  /**
    * Everything this pane has not been given yet, oldest first — and asking
    * is what makes it READ.
    *
@@ -832,6 +844,10 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // timer, and the queue just moved under it.
       drain();
       return taken;
+    },
+
+    reconsider() {
+      drain();
     },
 
     restore(messages) {

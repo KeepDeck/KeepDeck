@@ -449,6 +449,11 @@ describe("writePane", () => {
     harness.spawns[0].resolve(session);
     await settle();
     writePane("pane-1", "ls\n");
+    // A write joins the pane's queue rather than going out on the spot — see
+    // `writePane` for why order has to be built here. It reaches the session
+    // a turn of the loop later, and never later than that when nothing is
+    // ahead of it.
+    await settle();
     expect(session.write).toHaveBeenCalledWith("ls\n");
   });
 
@@ -516,5 +521,80 @@ describe("runPaneOnce", () => {
     await closePane("pane-1");
 
     await expect(run).resolves.toMatchObject({ ok: false });
+  });
+});
+
+describe("write ordering", () => {
+  /** A session whose writes finish only when the test says so — and the test
+   * finishes them LAST first. Two writes in flight at once is the only way an
+   * inversion can happen, and it is what the deck used to allow: each write
+   * was its own fire-and-forget invoke, and the Rust side takes a writer lock
+   * that is not FIFO, so whichever task reached it first won. */
+  function hostileSession() {
+    const pending: { data: string; done: () => void }[] = [];
+    const landed: string[] = [];
+    const session = {
+      id: "hostile",
+      write: vi.fn(
+        (data: string) =>
+          new Promise<void>((resolve) => {
+            pending.push({
+              data,
+              done: () => {
+                landed.push(data);
+                resolve();
+              },
+            });
+          }),
+      ),
+      resize: vi.fn(() => Promise.resolve()),
+      close: vi.fn(() => Promise.resolve()),
+    };
+    return { session, pending, landed };
+  }
+
+  it("lands two writes issued in one tick in the order they were issued", async () => {
+    // The submit gesture is exactly this shape: the paste, then a bare CR, both
+    // out in the same synchronous breath. A CR that overtakes its paste spends
+    // itself on an empty composer, and the text then arrives and SITS there —
+    // indistinguishable, from up here, from a delivery.
+    const { session, pending, landed } = hostileSession();
+    acquirePane("pane-1", SPEC);
+    harness.spawns[0].resolve(session);
+    await settle();
+
+    writePane("pane-1", "the paste");
+    writePane("pane-1", "\r");
+    await settle();
+
+    // One at a time is the whole fix: with two in flight the environment
+    // decides the order, and this environment decides it badly.
+    expect(pending).toHaveLength(1);
+
+    for (let guard = 0; pending.length > 0 && guard < 4; guard += 1) {
+      pending.pop()?.done();
+      await settle();
+    }
+
+    expect(landed).toEqual(["the paste", "\r"]);
+  });
+
+  it("drops a queued write when the pane closes instead of sending it late", async () => {
+    // The queue must not become a way for a retired session to keep receiving
+    // bytes: a close is immediate and the tail goes with it.
+    const { session, pending } = hostileSession();
+    acquirePane("pane-1", SPEC);
+    harness.spawns[0].resolve(session);
+    await settle();
+
+    writePane("pane-1", "first");
+    writePane("pane-1", "second");
+    await settle();
+
+    await closePane("pane-1");
+    pending.pop()?.done();
+    await settle();
+
+    expect(session.write).toHaveBeenCalledTimes(1);
   });
 });

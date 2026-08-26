@@ -32,7 +32,7 @@ import type { CommandRegistry } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
 import { teamMembers } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
-import { createHookReplies, type HookReplies } from "./hookReply";
+import { correlationOf, createHookReplies, type HookReplies } from "./hookReply";
 import { registerMailCommands, type MailCommandDeps } from "./mailCommands";
 import { createMailManager, type MailManager } from "./mailManager";
 import { createMailWake } from "./wakeChannel";
@@ -118,6 +118,26 @@ export interface MailService {
   /** Answer one asking payload from a pane's reporter. Handed to the status
    * lane, which is where the question arrives. */
   answerAsk(paneId: string, payload: unknown): void;
+  /**
+   * Declare that this envelope is about to be ANSWERED, before anything else
+   * reacts to it. Returns the disarm; a payload that asks nothing arms
+   * nothing and disarms nothing.
+   *
+   * It exists because of an order that is right for a different reason. The
+   * status lane folds an envelope BEFORE answering it, so the answer reads a
+   * fresh status — and the fold, synchronously, wakes everything subscribed
+   * to activity, this manager included. A pane whose turn just ended looks
+   * idle with mail queued, so the pass types a nudge at it, and only then
+   * does the same envelope hand that mail over through the hook for free.
+   * Observed on 42 of 188 nudged messages: a line left in a composer for a
+   * message that was already leaving by another door.
+   *
+   * Between these two calls the terminal leg of `wake` refuses. Nothing else
+   * changes: the bridge doorbell is untouched, the queue is untouched, and a
+   * hand-over that fails leaves the message exactly where a refused wake
+   * leaves it.
+   */
+  expectAsk(paneId: string, payload: unknown): () => void;
   dispose(): void;
 }
 
@@ -129,6 +149,10 @@ export function createMailService(
   let unregister: (() => void) | null = null;
   let presence: { dispose(): void } | null = null;
   let disposed = false;
+  /** Panes whose asking envelope is being answered RIGHT NOW — see
+   * [`MailService.expectAsk`]. Never more than one at a time in practice:
+   * the transport holds a slot per pane and correlation. */
+  const answering = new Set<string>();
 
   /** What THIS pane's agent contributes about mail. */
   const statusOfPane = (paneId: string): AgentStatus | undefined => {
@@ -258,7 +282,12 @@ export function createMailService(
         subscribeChannels: deps.subscribeChannels,
         wake: createMailWake({
           channelOf: (paneId) => statusOfPane(paneId)?.wake,
-          throughTerminal: deps.terminal.wake,
+          // Refuse while this pane's own asking envelope is mid-answer: the
+          // words are already leaving through the hook, and a line typed now
+          // says nothing and stays. A refusal keeps the message queued, which
+          // is exactly where the hand-over is about to find it.
+          throughTerminal: (paneId) =>
+            answering.has(paneId) ? false : deps.terminal.wake(paneId),
           throughBridge: deps.bridge.nudge,
         }),
         // A pane whose CLI plugin renders mail will come asking at its turn
@@ -305,6 +334,19 @@ export function createMailService(
   return {
     current: () => manager,
     answerAsk: hookReplies.answer,
+    expectAsk(paneId, payload) {
+      if (!correlationOf(payload)) return () => {};
+      answering.add(paneId);
+      return () => {
+        if (!answering.delete(paneId)) return;
+        // A pass that ran while we refused reached no conclusion, and a
+        // refusal arms no timer — so the walk has to be re-run by hand. The
+        // usual case finds an empty queue and does nothing; the case that
+        // matters is a hand-over that gave the messages back, which must not
+        // wait out `hookWaitMs` for a nudge it could have had now.
+        manager?.reconsider();
+      };
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

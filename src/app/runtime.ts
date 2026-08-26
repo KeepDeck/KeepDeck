@@ -439,6 +439,7 @@ export function createAppRuntime(
         attribution,
         { subscribe: subscribePaneKeys },
         mail.answerAsk,
+        mail.expectAsk,
       );
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,
