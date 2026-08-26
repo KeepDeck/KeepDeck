@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createCommandRegistry } from "../../domain/commands";
 import type { Pane, Workspace } from "../../domain/deck";
-import type { Mail } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createMailService } from "./mailService";
@@ -35,7 +34,7 @@ function setup(initial: boolean | null) {
   const settingsListeners = new Set<() => void>();
   const paneListeners = new Set<() => void>();
   const activityListeners = new Set<() => void>();
-  const delivered: Mail[] = [];
+  const woken: string[] = [];
   const replies: { paneId: string; id: string; body: string }[] = [];
   const sessionListeners = new Set<(paneId: string) => void>();
   const learned: string[] = [];
@@ -101,11 +100,10 @@ function setup(initial: boolean | null) {
       },
       onRoleCatalogChanged: () => () => {},
       terminal: {
-        deliver: (mail) => {
-          delivered.push(mail);
+        wake: (paneId: string) => {
+          woken.push(paneId);
           return true;
         },
-        wake: () => true,
       },
       bridge: {
         reply: (paneId, id, body) => {
@@ -120,7 +118,7 @@ function setup(initial: boolean | null) {
   return {
     service,
     registry,
-    delivered,
+    woken,
     replies,
     learned,
     /** The plugin registry changed — a Rescan, an agent plugin arriving. */
@@ -182,18 +180,18 @@ describe("createMailService", () => {
     expect(h.registry.has("mail.inbox")).toBe(false);
   });
 
-  it("stops DELIVERY too, not just sending", async () => {
+  it("stops WAKING the pane too, not just sending", async () => {
     const h = setup(true);
     h.reports("pane-2", APPROVING);
     await h.send("held");
-    expect(h.delivered).toHaveLength(0);
+    expect(h.woken).toHaveLength(0);
 
     h.set(false);
-    // The pane becomes able to take it — and nothing arrives. A gate over
+    // The pane becomes able to take it — and nothing wakes it. A gate over
     // only the sending half would leave a pane receiving messages it has no
     // command left to answer.
     h.reports("pane-2", READY);
-    expect(h.delivered).toHaveLength(0);
+    expect(h.woken).toHaveLength(0);
   });
 
   it("does not hand a closed pane's mail to whoever inherits its id", async () => {
@@ -235,11 +233,11 @@ describe("createMailService", () => {
     expect(h.service.current()).toBeNull();
   });
 
-  it("stops delivering after dispose, not just unregistering", () => {
+  it("stops waking the pane after dispose, not just unregistering", () => {
     // `dispose` runs when the app runtime is torn down — a test harness, a
     // hot reload. Everything it drops is a live subscription into a deck that
-    // no longer exists, and the delivery half is the one that WRITES: a queue
-    // still draining after dispose types into panes belonging to a session
+    // no longer exists, and the wake half is the one that WRITES: a queue
+    // still draining after dispose would nudge panes belonging to a session
     // nobody is watching. Unregistering the commands only stops new sends.
     const h = setup(true);
     h.reports("pane-2", APPROVING);
@@ -247,7 +245,7 @@ describe("createMailService", () => {
 
     h.service.dispose();
     h.reports("pane-2", READY);
-    expect(h.delivered).toHaveLength(0);
+    expect(h.woken).toHaveLength(0);
     // And nothing is left listening for the deck to change under it.
     expect(h.sessionListeners()).toBe(0);
   });

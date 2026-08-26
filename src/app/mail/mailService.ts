@@ -30,7 +30,7 @@
 import type { AgentStatus } from "@keepdeck/plugin-api";
 import type { CommandRegistry } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
-import { teamMembers, type Mail } from "../../domain/mail";
+import { teamMembers } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createHookReplies, type HookReplies } from "./hookReply";
 import { registerMailCommands, type MailCommandDeps } from "./mailCommands";
@@ -100,7 +100,6 @@ export interface MailServiceDeps {
    * presence re-states each member's briefing. */
   onRoleCatalogChanged(listener: () => void): () => void;
   terminal: {
-    deliver(mail: Mail): boolean;
     wake(paneId: string): boolean;
   };
   bridge: {
@@ -257,7 +256,6 @@ export function createMailService(
         activityOf: deps.status.activityOf,
         subscribeActivity: deps.status.subscribe,
         subscribeChannels: deps.subscribeChannels,
-        deliver: deps.terminal.deliver,
         wake: createMailWake({
           channelOf: (paneId) => statusOfPane(paneId)?.wake,
           throughTerminal: deps.terminal.wake,

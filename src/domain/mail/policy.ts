@@ -173,22 +173,25 @@ export function kindGuidance(kinds: readonly MailKind[]): string {
   return `while a teammate is working, ${named(asks)} ${one(asks, "interrupts", "interrupt")} it and ${one(asks, "costs", "cost")} it a turn, and ${named(rest)} ${one(rest, "waits", "wait")} for the turn boundary it is already heading for. A teammate that is idle is roused for any of them, because nothing else will bring it back.`;
 }
 export type MailVerdict =
-  /** Push the message itself into the pane's terminal. Only for an agent
-   * with no labelled channel at all — for everyone else, see `wake`. */
-  | { kind: "deliver" }
   /**
    * Nudge the pane into taking a turn, and leave the message where it is.
    *
-   * The terminal's ONE remaining job for an agent that can receive mail
-   * properly. A turn beginning fires the hook that asks the deck what is
-   * waiting, and the message then arrives through the labelled channel —
-   * so the crude channel carries a wake and never the words.
+   * The terminal's ONE job, for every agent without exception. A turn
+   * beginning fires the hook that asks the deck what is waiting, and the
+   * message then arrives through the labelled channel — so the crude channel
+   * carries a wake and never the words.
    *
-   * That split is what makes a lost keystroke survivable. Pushing the
-   * message itself meant the submit could fail and leave a teammate's task
-   * sitting in a composer, unsent, looking to the deck exactly like a
-   * delivery: observed twice on claude. A wake that fails to submit loses a
-   * nudge, and the message is still in the queue for the next turn.
+   * That split is what makes a lost keystroke survivable. A second verdict
+   * used to push the MESSAGE into the terminal, and it meant the submit could
+   * fail and leave a teammate's task sitting in a composer, unsent, looking
+   * to the deck exactly like a delivery: observed twice on claude. A wake
+   * that fails to submit loses a nudge, and the message is still in the queue
+   * for the next turn.
+   *
+   * The other half of why it is gone: a body could reach an agent that never
+   * asked for one, and the deck then had to book it as delivered-but-unread.
+   * A message is read when the agent came for it, and nothing the deck types
+   * into a terminal can make that true.
    */
   | { kind: "wake" }
   | { kind: "hold"; reason: MailHoldReason };
@@ -270,7 +273,8 @@ export function decideDelivery(
   limits: MailLimits = MAIL_LIMITS,
   /** Whether this pane's agent ASKS the deck for its mail when a turn ends.
    * False for a CLI with no such hook, and for one whose plugin does not
-   * render mail — either way the terminal is the only way in. */
+   * render mail — either way nothing collects at that pane's boundaries and
+   * the words have to be fetched through MCP. */
   asksAtTurnEnd = false,
 ): MailVerdict {
   // No clause for age. A message that has waited too long is a fact its
@@ -296,8 +300,14 @@ export function decideDelivery(
   if (isStandingContext(mail.kind)) {
     return { kind: "hold", reason: "labelled-only" };
   }
-  // An agent with NO labelled channel has the terminal or nothing.
-  if (!asksAtTurnEnd) return { kind: "deliver" };
+  // An agent with NO labelled channel gets the nudge and nothing else: it
+  // has to come and ask through MCP, and the wake line says so in words.
+  //
+  // Straight to the nudge, skipping every deferral below, because each of
+  // them is a bet that a turn boundary will collect the message for free.
+  // Nothing collects at this pane's boundaries — that is what having no
+  // labelled channel MEANS — so deferring to one strands the message.
+  if (!asksAtTurnEnd) return { kind: "wake" };
   if (activity?.state === "working") {
     // A turn is running, so a boundary is coming by definition and the
     // message can ride it for free. What decides whether it is worth paying

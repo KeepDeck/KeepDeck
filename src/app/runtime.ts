@@ -25,11 +25,7 @@ import {
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { commands } from "./commandRegistry";
-import {
-  createMailService,
-  deliverMailThroughPty,
-  wakePaneForMail,
-} from "./mail";
+import { createMailService, wakePaneForMail } from "./mail";
 import { createMcpService } from "./mcp";
 import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
@@ -323,7 +319,7 @@ export function createAppRuntime(
       // catalog the panes were last briefed from, and re-stating it would
       // hand every teamed pane an unsolicited briefing per launch.
       onRoleCatalogChanged: subscribeRoleCatalogChanges,
-      terminal: { deliver: deliverMailThroughPty, wake: wakePaneForMail },
+      terminal: { wake: wakePaneForMail },
       bridge: { reply: replyToBridgeHook, nudge: nudgeBridgePane },
     },
   );

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { MailReplyRenderer } from "@keepdeck/plugin-api";
 import { log } from "../../ipc/log";
-import type { Mail, MailSender } from "../../domain/mail";
+import type { MailSender } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createHookReplies } from "./hookReply";
 import { createMailManager, type MailManager } from "./mailManager";
@@ -41,15 +41,10 @@ function setup(
     lost?: boolean;
   } = {},
 ) {
-  const pasted: Mail[] = [];
   const manager: MailManager = createMailManager({
     activityOf: () => WORKING,
     subscribeActivity: () => () => {},
     subscribeChannels: () => () => {},
-    deliver: (mail) => {
-      pasted.push(mail);
-      return true;
-    },
     wake: () => true,
     asksAtTurnEnd: () => true,
     now: () => 1_000,
@@ -68,7 +63,7 @@ function setup(
     },
   };
   const channel = createHookReplies(deps);
-  return { manager, replies, pasted, deps, channel };
+  return { manager, replies, deps, channel };
 }
 
 function asking(extra: Record<string, unknown> = {}) {
@@ -84,8 +79,9 @@ describe("answerMailAsk", () => {
   it("hands over what is waiting, rendered by the agent's own plugin", () => {
     const h = setup();
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
-    // Held rather than pasted: a running turn is worth waiting out.
-    expect(h.pasted).toHaveLength(0);
+    // Held, not pushed: a running turn is worth waiting out, and nothing has
+    // left the queue for it.
+    expect(h.manager.waiting("pane-2")).toBe(1);
 
     h.channel.answer("pane-2", asking());
     // The whole mapping, not just the body: the sender arrives as a name the
@@ -101,7 +97,7 @@ describe("answerMailAsk", () => {
         }),
       },
     ]);
-    // Booked, so the terminal cannot deliver it a second time.
+    // Booked as handed to the hook, so nothing is left to give out twice.
     expect(h.manager.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 
@@ -124,8 +120,7 @@ describe("answerMailAsk", () => {
 
   it("gives mail back when the event cannot carry it after all", () => {
     // An armed event whose renderer declines — the message must survive to
-    // be handed over at an event that can, or through the terminal behind
-    // that.
+    // be handed over at an event that can, or at a later ask.
     const h = setup({ render: () => null });
     h.manager.send({ from: A, toPaneId: "pane-2", kind: "note", body: "careful" });
     h.channel.answer("pane-2",asking());
@@ -183,7 +178,7 @@ describe("answerMailAsk", () => {
     expect(h.replies).toEqual([
       { paneId: "pane-2", id: "askABC", body: "" },
     ]);
-    // And the message is untouched, still waiting for the terminal.
+    // And the message is untouched, still in the queue for a later ask.
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
   });
 
@@ -204,7 +199,7 @@ describe("answerMailAsk", () => {
       h.channel.answer("pane-2", asking({ reply: empty }));
     }
     expect(h.replies).toEqual([]);
-    // And the message is untouched, still waiting for the terminal.
+    // And the message is untouched, still in the queue for a later ask.
     expect(h.manager.takeAtTurnEnd("pane-2")).toHaveLength(1);
   });
 
@@ -276,7 +271,6 @@ describe("answerMailAsk", () => {
       activityOf: () => WORKING,
       subscribeActivity: () => () => {},
       subscribeChannels: () => () => {},
-      deliver: () => true,
       wake: () => true,
       asksAtTurnEnd: () => true,
       now: () => 1_000,

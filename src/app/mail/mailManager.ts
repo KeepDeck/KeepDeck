@@ -46,16 +46,6 @@ import {
 import type { PaneActivity } from "../../domain/status";
 import { log } from "../../ipc/log";
 
-/**
- * The smallest gap between two deliveries into the SAME pane.
- *
- * Two blocks pasted back to back land in one input buffer and reach the
- * agent as a single garbled prompt. There is no delivery acknowledgement to
- * wait on — the deck cannot see the agent read anything — so spacing is the
- * only thing that keeps consecutive messages apart.
- */
-const SERIALIZE_MS = 400;
-
 /** How much HISTORY a pane keeps for catch-up reads. Bounded because nothing
  * prunes it otherwise and a long-lived pane would grow one without limit. */
 const INBOX_LIMIT = 50;
@@ -150,12 +140,11 @@ export interface MailManagerDeps {
    * nothing has become writable — and a pane that reports nothing is
    * precisely the one waiting on this. */
   subscribeChannels(listener: () => void): () => void;
-  /** Hand one message to its pane. False means the pane has no live input
-   * channel at this instant — a retry, not a failure. */
-  deliver(mail: Mail): boolean;
-  /** Nudge a pane into taking a turn WITHOUT handing it anything. For an
-   * agent that can receive mail properly: the turn fires the hook, and the
-   * hook is what carries the words. Same false-means-retry contract. */
+  /** Nudge a pane into taking a turn WITHOUT handing it anything. The one
+   * thing the terminal does: the turn fires the hook, and the hook is what
+   * carries the words — or, for an agent with no hook, the nudge tells it to
+   * come and ask. False means the pane has no live input channel at this
+   * instant, which is a retry rather than a failure. */
   wake(paneId: string): boolean;
   /** Whether this pane's agent asks the deck for its mail when a turn ends.
    * True means a running turn is worth waiting out — the answer given at
@@ -249,8 +238,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   /** Delivered mail per receiver, for catch-up reads and for working out who
    * owes whom an answer. */
   const inboxes = new Map<string, InboxEntry[]>();
-  /** When each pane last took delivery, for spacing. */
-  const lastDeliveryAt = new Map<string, number>();
   /** When each pane was last nudged into a turn.
    *
    * A wake hands nothing over, so nothing about the queue changes to stop
@@ -361,6 +348,20 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   function isHistory(entry: InboxEntry): boolean {
     if (isStandingContext(entry.mail.kind)) return false;
     return entry.state === "answered" || !awaitsAnswer(entry.mail.kind);
+  }
+
+  /**
+   * Asking for it IS reading it — the one moment the deck can witness rather
+   * than assume.
+   *
+   * The entries this applies to are ones a previous process generation read
+   * and `clear` un-read, so the pane about to start can catch up. Two places
+   * in one call need it: the ordinary read, and the `all` re-read from the
+   * other end. It was written out at both, one of them without saying why,
+   * which is two chances for the rule to drift from itself.
+   */
+  function witnessRead(entry: InboxEntry): void {
+    if (entry.state === "unread") entry.state = "read";
   }
 
   /** Book a delivery, saying whether the receiver ASKED for it — see
@@ -612,27 +613,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         lastWakeAt.set(paneId, at);
         return at + limits.hookWaitMs;
       }
-      const last = lastDeliveryAt.get(paneId);
-      if (last !== undefined && at - last < SERIALIZE_MS) {
-        return last + SERIALIZE_MS;
-      }
-      // No input channel: the pane is starting, or stopped. This is the ONE
-      // refusal that says so — a pane can be perfectly alive and report no
-      // activity at all — and it resolves through `subscribeChannels`, not
-      // through activity, because a terminal mounting emits no status. There
-      // is nothing to schedule: a channel appearing is an event, not an
-      // instant this pass could name.
-      if (!deps.deliver(head)) {
-        log.debug("web:mail", `no input channel yet: ${trace(head)}`);
-        return null;
-      }
-      log.info("web:mail", `pasted into the pane: ${trace(head)}`);
-      queue.splice(index, 1);
-      lastDeliveryAt.set(paneId, at);
-      // Pushed, not asked for: nothing answers a paste, and a pane mid-turn
-      // will not look at it until the turn after next.
-      remember(paneId, head, "unread");
-      return queue.length > 0 ? at + SERIALIZE_MS : null;
     }
     return null;
   }
@@ -841,15 +821,13 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         carried += mail.body.length;
       };
 
-      // Anything already delivered and never asked for comes first — it has
-      // been waiting longest by definition.
+      // Anything this pane was handed but has not confirmed comes first — it
+      // has been waiting longest by definition.
       const held = inboxes.get(paneId) ?? [];
       const unread = held.filter((entry) => entry.state === "unread");
       for (const entry of unread) {
         if (!fits(entry.mail.body)) break;
-        // Asking for it IS reading it — the one moment the deck can witness
-        // rather than assume.
-        entry.state = "read";
+        witnessRead(entry);
         take(entry.mail);
       }
 
@@ -879,7 +857,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
           if (recent.length > 0 && carriedBack + entry.mail.body.length > limits.handoverChars) {
             break;
           }
-          if (entry.state === "unread") entry.state = "read";
+          witnessRead(entry);
           carriedBack += entry.mail.body.length;
           recent.unshift(entry.mail);
         }
@@ -907,7 +885,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
        * next agent to occupy it was handed a delivery report about a message
        * it never sent. */
       const orphaned: Mail[] = [];
-      for (const map of [queues, inboxes, lastDeliveryAt, lastWakeAt]) {
+      for (const map of [queues, inboxes, lastWakeAt]) {
         for (const id of [...map.keys()]) {
           if (!liveIds.has(id)) {
             if (map === queues) orphaned.push(...(queues.get(id) ?? []));
@@ -940,7 +918,6 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     clear(paneId) {
-      lastDeliveryAt.delete(paneId);
       // The process that read this pane's mail is gone, and its context with
       // it — so as far as the agent about to start is concerned, none of it
       // has been read. Saying so is what lets it catch up on its first ask
