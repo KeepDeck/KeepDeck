@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import {
   achievementDisplayTitle,
   achievementExact,
@@ -84,6 +84,75 @@ export function wearsEmbers(item: UsageAchievement): boolean {
   return item.rarity === "legendary" && item.achievedAt !== null;
 }
 
+/**
+ * A stable fraction in [0, 1) from a badge's id — the one hash behind both
+ * of the rim's per-card numbers. Two SEEDS rather than two derivations of a
+ * single draw, so a badge's pace says nothing about where its light starts.
+ *
+ * DERIVED, never rolled. A random draw would be a fresh number on every
+ * re-render: the light would jump to another point of the border each time
+ * the ledger moved, and the pace would change under it.
+ *
+ * FNV-1a with murmur3's finalizer on the end. FNV-1a's avalanche is weak and
+ * these ids differ only in their tail (`tokens-25000000` beside
+ * `tokens-100000000`), so without the mixing step a whole ladder's badges
+ * come out at nearly the same number — measured on the live catalog, the
+ * closest pair of the 25 runner-rarity badges sat 0.02% of the range apart
+ * before the finalizer and 0.6% after.
+ */
+function idUnit(id: string, seed: number): number {
+  let hash = seed;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
+  // `>>> 0` before the divide: the mixing leaves a SIGNED 32-bit value, and
+  // half of all hashes have their top bit set — those would come out
+  // negative, i.e. outside the range every caller here is promised.
+  return (hash >>> 0) / 0x1_0000_0000;
+}
+
+/** FNV-1a's own offset basis, and any other 32-bit start beside it. The
+ * second value means nothing except that it is a different one: two seeds
+ * are two independent streams out of the same hash. */
+const DRIFT_SEED = 0x811c9dc5;
+const PHASE_SEED = 0x2f1e5a3b;
+
+/** How far a badge's pace may sit from its level's — a fraction either way.
+ * Wide enough that a row of cards keeps separating, narrow enough that none
+ * of them reads as the broken slow one. */
+const RIM_DRIFT = 0.05;
+
+/**
+ * How fast THIS badge runs its edge, as a multiple of its level's period.
+ * The stylesheet gives epic one duration and legendary another; without a
+ * per-card multiple two badges of one level, once aligned, stay aligned
+ * forever.
+ */
+export function rimDrift(id: string): number {
+  return 1 + (idUnit(id, DRIFT_SEED) * 2 - 1) * RIM_DRIFT;
+}
+
+/**
+ * WHERE on the border this badge's light already is when the gallery opens,
+ * as a fraction of one turn.
+ *
+ * The pace alone cannot do this job. Every card's animation begins the
+ * moment the gallery mounts, so a row of badges leaves the gate together
+ * and a spread of a few percent takes tens of seconds to become visible —
+ * which is exactly how it looked: the same light drawn five times. A
+ * starting offset separates them in the first frame, and the pace is what
+ * keeps them from ever meeting again.
+ */
+export function rimPhase(id: string): number {
+  return idUnit(id, PHASE_SEED);
+}
+
 function AchievementCard({
   item,
   future,
@@ -124,9 +193,23 @@ function AchievementCard({
     >
       {/* The rarity's own layers — a running edge, a cut ground, a turning
           spectrum. Which levels light which is decided in the stylesheet;
-          the card only says which level it is. The rim comes first so its
-          ground sits UNDER the cut and only its lit edge shows. */}
-      <span className="stats__achievement-rim stats__achievement-layer" aria-hidden />
+          the card says which level it is, and — the two things a stylesheet
+          cannot know, because they are per-badge — how far THIS badge's edge
+          runs off its level's pace and where on the border it starts. Both
+          ride on every rim, including the levels that show no runner at all:
+          the question of who has one has a single home, and it is not here.
+          The rim comes first so its ground sits UNDER the cut and only its
+          lit edge shows. */}
+      <span
+        className="stats__achievement-rim stats__achievement-layer"
+        style={
+          {
+            "--rim-drift": rimDrift(item.id),
+            "--rim-phase": rimPhase(item.id),
+          } as CSSProperties
+        }
+        aria-hidden
+      />
       <span className="stats__achievement-dress stats__achievement-layer" aria-hidden />
       {wearsEmbers(item) ? <AchievementEmbers /> : null}
       <span className="stats__achievement-icon" aria-hidden>

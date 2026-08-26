@@ -7,6 +7,7 @@ import {
   TEST_NOW,
   usageEvent as baseEvent,
 } from "../../domain/usage/history/event.testSupport";
+import { readStyles, ruleBody } from "../../styles/testSupport";
 import { Achievements } from "./Achievements";
 
 /** The gallery takes one prop and computes everything else from the ledger,
@@ -126,6 +127,104 @@ describe("Achievements", () => {
     )) {
       expect(layer.classList.contains("stats__achievement-layer")).toBe(true);
     }
+  });
+
+  /** The widest a badge may sit from its level's pace. Written out rather
+   * than imported from the component: the requirement is that no card runs
+   * MORE than a twentieth off, and a test that imports the constant it is
+   * checking only restates the formula. */
+  const DRIFT_BAND = 0.05;
+
+  const rimOf = (item: Element) =>
+    item.querySelector(".stats__achievement-rim") as HTMLElement;
+
+  /** The rims of the levels that actually light a runner. The two numbers
+   * ride EVERY rim — which levels show one is the stylesheet's question, not
+   * this file's — but these are the cards where a shared animation was the
+   * visible defect. */
+  const runnerRims = () =>
+    cards()
+      .filter((item) => /stats__achievement--(epic|legendary)\b/.test(item.className))
+      .map(rimOf);
+
+  const valuesOf = (property: string) =>
+    runnerRims().map((rim) => Number(rim.style.getPropertyValue(property)));
+
+  it("starts each running badge somewhere of its own, at a pace of its own", () => {
+    render();
+
+    const phases = valuesOf("--rim-phase");
+    const drifts = valuesOf("--rim-drift");
+    expect(drifts.length).toBeGreaterThan(1);
+
+    // WHERE it starts. This is what a reader sees in the first frame: at one
+    // shared phase the whole row leaves the top corner together, and a few
+    // percent of pace difference takes tens of seconds to show. A fraction
+    // of one turn, so anything outside [0, 1) is a bug in the derivation.
+    for (const phase of phases) {
+      expect(Number.isFinite(phase)).toBe(true);
+      expect(phase).toBeGreaterThanOrEqual(0);
+      expect(phase).toBeLessThan(1);
+    }
+    // Spread across the border, not merely unequal: values differing in the
+    // twelfth decimal are the same lockstep with a longer number in it.
+    // Two thirds is the loosest claim worth making — it says "spread"
+    // without pinning today's catalog.
+    expect(Math.max(...phases) - Math.min(...phases)).toBeGreaterThan(2 / 3);
+
+    // HOW FAST. The phase separates them now; the pace is what stops them
+    // meeting again, so both have to hold.
+    for (const drift of drifts) {
+      expect(Number.isFinite(drift)).toBe(true);
+      expect(Math.abs(drift - 1)).toBeLessThanOrEqual(DRIFT_BAND);
+    }
+    expect(new Set(drifts).size).toBe(drifts.length);
+    expect(Math.max(...drifts) - Math.min(...drifts)).toBeGreaterThan(DRIFT_BAND);
+
+    // Derived from the badge, never rolled: a fresh draw per render would
+    // move the light to another point of the border, mid-flight, every time
+    // the ledger moved.
+    render();
+    expect(valuesOf("--rim-phase")).toEqual(phases);
+    expect(valuesOf("--rim-drift")).toEqual(drifts);
+  });
+
+  it("hands both numbers to the very properties the stylesheet reads", () => {
+    // Two languages, one pair of names, and each half is self-consistent
+    // without the other: a test per side would keep passing through a
+    // rename, while the sheet's `var()` quietly fell back — every card at
+    // its level's pace, from the top, which is the lockstep this removed.
+    // So ONE test reads the names off the rendered card and looks for THOSE
+    // names in the sheet.
+    render();
+    const style = rimOf(card("First Million")).getAttribute("style") ?? "";
+    const properties = [...style.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]);
+    expect(properties.length, `no custom property in "${style}"`).toBeGreaterThan(0);
+
+    const css = readStyles("stats-achievements.css");
+    const rim = ruleBody(css, ".stats__achievement-rim::before");
+    const read = Object.values(rim).join(" ");
+    for (const property of properties) {
+      expect(read, `${property} is written but never read`).toContain(`var(${property}`);
+    }
+
+    // The offset is a delay the shorthand above would reset to zero, so the
+    // order of these two declarations is the whole effect — and source order
+    // is a thing no rendered DOM can be asked about.
+    const declarations = Object.keys(rim);
+    expect(declarations.indexOf("animation-delay")).toBeGreaterThan(
+      declarations.indexOf("animation"),
+    );
+
+    // A level states its PERIOD and never a duration: an `animation-duration`
+    // here would win over the shorthand above and drop the drift for this
+    // level alone — half the gallery back in step, the other half not.
+    const legendary = ruleBody(
+      css,
+      ".stats__achievement--legendary .stats__achievement-rim::before",
+    );
+    expect(legendary["animation-duration"]).toBeUndefined();
+    expect(legendary["--rim-period"]).toBeDefined();
   });
 
   it("lights embers on an earned legendary alone, never on the promise of one", () => {
