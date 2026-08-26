@@ -21,6 +21,7 @@ import {
 import { findWorkspaceOfPane, type Pane, type Workspace } from "../../domain/deck";
 import {
   SENDABLE_KINDS,
+  isMessageId,
   kindGuidance,
   planTeam,
   teamMembers,
@@ -260,6 +261,76 @@ export function registerMailCommands(
               ? `${waiting} more waiting — read them with another mail.inbox call`
               : "nothing else is waiting for you",
         };
+      },
+    }),
+    registry.register({
+      id: "mail.cancel",
+      title:
+        "Take back a message you sent, if the recipient has not read it yet. It does NOT stop or interrupt the recipient — a working teammate keeps working, and the fix for a message already read is a new message, not this tool",
+      args: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          description:
+            "The id mail.send answered with, passed through unchanged (mail-7)",
+        },
+        {
+          name: "to",
+          type: "string",
+          required: true,
+          // Both, always. An agent that mistyped an id would otherwise reach
+          // into a message it never meant; naming the recipient as well turns
+          // that slip into a refusal instead of somebody else's mail
+          // disappearing.
+          description:
+            "Who you sent it to, as the address that reaches them today — confirms you mean this message and not another",
+        },
+      ],
+      run: (args, source) => {
+        const from = requireSender(source);
+        const id = str(args, "id") ?? "";
+        // Shape first, so a caller that passed a ROLE — the likeliest slip,
+        // since every other mail argument is an address — is told what it did
+        // rather than told its message does not exist.
+        if (!isMessageId(id)) {
+          throw new Error(
+            `${JSON.stringify(id)} is not a message id — pass the id exactly as mail.send answered`,
+          );
+        }
+        // Ownership BEFORE the address is resolved, and that order is the
+        // rule rather than a preference. "That message is not yours" would
+        // confirm the id exists, and an agent could walk the ids until the
+        // wording changed and count a conversation it never saw. One answer
+        // covers not-yours, never-existed and long-forgotten alike.
+        const mail = deps.mail.findSent(from.paneId, id);
+        if (!mail) {
+          throw new Error(
+            `no message of yours with id ${JSON.stringify(id)} — it may never have existed, or the deck may no longer be tracking it`,
+          );
+        }
+        const { workspace, pane } = callerWorkspace(deps, from);
+        const resolved = resolveMailTarget(
+          workspace,
+          deps.agents(),
+          pane,
+          str(args, "to") ?? "",
+        );
+        if (!resolved.ok) throw new Error(resolved.message);
+        // Its own traffic, so this one may be plain: the sender is being told
+        // where its own message went.
+        if (mail.toPaneId !== resolved.value.id) {
+          throw new Error(
+            `${id} is yours but went somewhere else — check which message you meant`,
+          );
+        }
+        const outcome = deps.mail.cancel(from.paneId, id);
+        return outcome.kind === "cancelled"
+          ? { status: "cancelled", note: "it will not be delivered" }
+          : {
+              status: "too-late",
+              note: `${id} has left the deck and cannot be taken back — send a correction as a new message if it matters`,
+            };
       },
     }),
     registry.register({

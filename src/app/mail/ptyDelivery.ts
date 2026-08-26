@@ -1,47 +1,23 @@
 /**
- * Mail delivered the only way that works in every CLI today: as a paste into
- * the pane's terminal, exactly how the spawn task is delivered.
+ * The one thing KeepDeck types into a pane's terminal: a line saying mail is
+ * waiting. Never the mail itself.
  *
  * This channel has a known and UNFIXABLE weakness, and naming it here is the
  * point. Text arriving through a terminal is indistinguishable from text the
  * user typed — there is no envelope, no tag, and no way to tell the model
- * that what follows is another agent's output rather than an instruction
- * from its human. The header below is a CONVENTION: it helps a cooperative
- * model, and it is not a guarantee against an uncooperative one, because the
- * sender's own body could just as easily contain a line that looks like it.
+ * that what follows is another agent's output rather than an instruction from
+ * its human. That is survivable for a nudge, which says nothing that matters
+ * and only has to make a turn begin. It was NOT survivable for the messages
+ * themselves, which is why they no longer travel this way.
  *
- * The hook channel is what fixes this properly (claude's `additionalContext`,
- * codex's `continuation_fragments`), and it arrives as a second adapter
- * behind the same port. Until then this is the honest floor: it works
- * everywhere, and it promises exactly as much as it can keep.
+ * Two failures ended that. A submit that did not land left a teammate's task
+ * sitting in a composer, unsent, and the deck could not tell that from a
+ * delivery. And a body pushed at an agent that never asked for it had to be
+ * booked as delivered-yet-unread — a state that existed only to describe this
+ * channel's ignorance. The words now travel through the labelled channel the
+ * turn opens, or through an MCP call the agent makes itself.
  */
-import { senderName, type Mail } from "../../domain/mail";
 import { paneInputReady, paneInputSettled, submitToPane } from "../paneInput";
-
-/**
- * The text one message becomes in a terminal.
- *
- * One header line, then the body verbatim. The header says three things the
- * receiver cannot work out for itself: that this came through KeepDeck, who
- * sent it, and how to answer. Keeping it to one line is deliberate — it
- * rides in front of every message, and a paragraph of preamble per note
- * would cost more context than the notes are worth.
- *
- * It no longer asks for the id back. The deck draws that edge itself from
- * what the pane was handed, so the only thing the header owes a reply is
- * the address to send it to.
- */
-export function renderMail(mail: Mail): string {
-  // Named by ROLE, never by pane title — [`senderName`] is the domain's one
-  // answer to that, which every read path asks rather than each deciding.
-  const from = senderName(mail);
-  const origin =
-    from === null
-      ? "from KeepDeck itself"
-      : `from ${from}, another agent in this deck and not your user`;
-  const answer = from === null ? "" : `; answer with mail.send to="${from}"`;
-  return `[keepdeck mail ${mail.id} — ${mail.kind}, ${origin}${answer}]\n${mail.body}`;
-}
 
 /**
  * The whole of what the terminal says to an agent that can receive mail
@@ -64,29 +40,16 @@ const WAKE_LINE =
 /**
  * Nudge a pane into taking a turn, without saying anything that matters.
  *
- * Same channel and same caveats as a delivery, and the same answer: false
- * means nothing was written and the caller should try again later.
+ * False means nothing was written and the caller should try again later.
+ *
+ * A pane that has only just become writable is not yet READING: writing then
+ * puts the line in the composer and loses the submit after it, which is how
+ * KeepDeck's own words came to sit in an agent's input box unsent. The deck
+ * cannot tell that from a landed nudge — nothing answers a keystroke — so the
+ * settle window is checked rather than guessed at, and a refusal here is a
+ * retry rather than a loss.
  */
 export function wakePaneForMail(paneId: string, now?: number): boolean {
   if (!paneInputReady(paneId) || !paneInputSettled(paneId, now)) return false;
   return submitToPane(paneId, WAKE_LINE);
-}
-
-/**
- * Deliver through the pane's terminal. False means the pane has no live
- * input channel right now, which the owner treats as a retry.
- */
-export function deliverMailThroughPty(mail: Mail, now?: number): boolean {
-  if (!paneInputReady(mail.toPaneId)) return false;
-  // A pane that has only just become writable is not yet READING. Pasting
-  // then puts the text in the composer and loses the submit after it, which
-  // is how a briefing came to sit in an agent's input box unsent — and the
-  // deck could not tell that from a delivery, because a paste is answered by
-  // nothing at all. Reported as a retry, which is exactly what it is.
-  if (!paneInputSettled(mail.toPaneId, now)) return false;
-  // The paste channel, framed by the renderer, so a body carrying its own
-  // newlines or a CR arrives whole instead of submitting itself halfway
-  // through — and the submit after it stays a separate keystroke, which is
-  // what [`submitToPane`] owns.
-  return submitToPane(mail.toPaneId, renderMail(mail));
 }

@@ -6,7 +6,6 @@ import {
   type CommandSource,
 } from "../../domain/commands";
 import type { Pane, Workspace } from "../../domain/deck";
-import type { Mail } from "../../domain/mail";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import type { PaneActivity } from "../../domain/status";
 import { registerMailCommands } from "./mailCommands";
@@ -42,15 +41,10 @@ function setup() {
     workspace("ws-1", "web", [pane("pane-1"), pane("pane-2")]),
     workspace("ws-2", "api", [pane("pane-9")]),
   ];
-  const delivered: Mail[] = [];
   const mail = createMailManager({
     activityOf: () => READY,
     subscribeActivity: () => () => {},
     subscribeChannels: () => () => {},
-    deliver: (message) => {
-      delivered.push(message);
-      return true;
-    },
     wake: () => true,
     now: () => 1_000,
     schedule: () => () => {},
@@ -77,7 +71,7 @@ function setup() {
     agents: () => [{ id: "claude", label: "Claude" }],
     setPaneTeam,
   });
-  return { registry, mail, delivered, dispose, workspaces };
+  return { registry, mail, dispose, workspaces };
 }
 
 async function run(
@@ -91,7 +85,7 @@ async function run(
 
 describe("mail.send", () => {
   it("carries a message to a pane in the caller's own workspace", async () => {
-    const { registry, delivered } = setup();
+    const { registry, mail } = setup();
     const result = await run(
       registry,
       "mail.send",
@@ -100,10 +94,12 @@ describe("mail.send", () => {
     );
     expect(result).toEqual({
       ok: true,
-      value: { id: "mail-1", status: "delivered", note: expect.any(String) },
+      value: { id: "mail-1", status: "queued", note: expect.any(String) },
     });
-    expect(delivered).toHaveLength(1);
-    expect(delivered[0].toPaneId).toBe("pane-2");
+    // Nothing is pushed into the pane any more: the message waits in the
+    // queue for pane-2 to come and ask.
+    const [m] = mail.takeAtTurnEnd("pane-2");
+    expect(m.toPaneId).toBe("pane-2");
   });
 
   it("calls an undelivered message QUEUED, and says it needs nothing", async () => {
@@ -132,7 +128,7 @@ describe("mail.send", () => {
     // weighed against. Without one there is nothing to answer and no way to
     // ask whose task this is, so the message is refused rather than sent
     // anonymously.
-    const { registry, delivered } = setup();
+    const { registry, mail } = setup();
     const result = await run(
       registry,
       "mail.send",
@@ -140,14 +136,14 @@ describe("mail.send", () => {
       ANONYMOUS,
     );
     expect(result.ok).toBe(false);
-    expect(delivered).toHaveLength(0);
+    expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 
   it("cannot reach a pane in another workspace", async () => {
     // The workspace is the feature's hard boundary, and with no permission
     // gate in the registry yet, this resolution IS the boundary. pane-9
     // exists — it is simply not the caller's business.
-    const { registry, delivered } = setup();
+    const { registry, mail } = setup();
     const result = await run(
       registry,
       "mail.send",
@@ -156,14 +152,14 @@ describe("mail.send", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain("pane-9");
-    expect(delivered).toHaveLength(0);
+    expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 
   it("refuses to let a sender forge a delivery report", async () => {
     // `undelivered` is the deck's own word for a fact about the mail system.
     // A sender able to mint one could dress a message as something the host
     // said.
-    const { registry, delivered } = setup();
+    const { registry, mail } = setup();
     const result = await run(
       registry,
       "mail.send",
@@ -171,7 +167,7 @@ describe("mail.send", () => {
       from("pane-1", "ws-1", "Agent 1"),
     );
     expect(result.ok).toBe(false);
-    expect(delivered).toHaveLength(0);
+    expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 
   it("says plainly why a self-addressed message was not sent", async () => {
@@ -227,7 +223,7 @@ describe("mail.inbox", () => {
     // address. Shown a pane title, an agent sent to the title and was
     // refused — it got through only on a second try after being told the
     // roles.
-    const { registry, workspaces, delivered } = setup();
+    const { registry, workspaces, mail } = setup();
     const lead = from("pane-1", "ws-1", "Структура команды и количество подчинённых");
     workspaces[0].panes[0].team = { name: "test", role: "lead" };
     await run(
@@ -236,7 +232,8 @@ describe("mail.inbox", () => {
       { to: "pane-2", kind: "note", body: "ping" },
       lead,
     );
-    expect(delivered[0].from).toEqual({
+    const [sent] = mail.takeAtTurnEnd("pane-2");
+    expect(sent.from).toEqual({
       kind: "pane",
       pane: {
         paneId: "pane-1",
@@ -246,10 +243,16 @@ describe("mail.inbox", () => {
       },
     });
     // And the READ path says the same. It did not: the message carried the
-    // role and both delivery channels showed it, while this projection —
-    // the one the briefing points an agent at — handed back a window title
-    // and an opaque id, so a receiver had nothing to put in `to`.
-    const read = await run(registry, "mail.inbox", {}, from("pane-2", "ws-1", "Agent 2"));
+    // role, while this projection — the one the briefing points an agent at
+    // — used to hand back a window title and an opaque id, so a receiver had
+    // nothing to put in `to`. Re-read from the journal, because the take
+    // above already booked it as read.
+    const read = await run(
+      registry,
+      "mail.inbox",
+      { all: true },
+      from("pane-2", "ws-1", "Agent 2"),
+    );
     expect(read.ok).toBe(true);
     if (read.ok) {
       const { messages } = read.value as {
@@ -279,7 +282,7 @@ describe("mail.inbox", () => {
     // an unknown one is the right answer rather than a silent drop: an agent
     // still carrying the old instruction learns in one round trip, instead
     // of believing it linked a message it did not.
-    const { registry, delivered } = setup();
+    const { registry, mail } = setup();
     const result = await run(
       registry,
       "mail.send",
@@ -287,7 +290,7 @@ describe("mail.inbox", () => {
       from("pane-1", "ws-1", "Agent 1"),
     );
     expect(result.ok).toBe(false);
-    expect(delivered).toHaveLength(0);
+    expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
   });
 
   it("gives a host notice no address, because there is nobody to answer", async () => {
@@ -312,7 +315,7 @@ describe("mail.inbox", () => {
 
 describe("team.assign", () => {
   it("puts an agent on a team, and lets a teammate address it by role", async () => {
-    const { registry, delivered } = setup();
+    const { registry, mail } = setup();
     const lead = from("pane-1", "ws-1", "Agent 1");
     await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
     await run(registry, "team.assign", { agent: "pane-2", team: "api", role: "impl-1" }, lead);
@@ -324,7 +327,8 @@ describe("team.assign", () => {
       lead,
     );
     expect(sent.ok).toBe(true);
-    expect(delivered[0].toPaneId).toBe("pane-2");
+    const [m] = mail.takeAtTurnEnd("pane-2");
+    expect(m.toPaneId).toBe("pane-2");
   });
 
   it("refuses a role another pane already answers to", async () => {
@@ -471,5 +475,127 @@ describe("registerMailCommands", () => {
     for (const id of ["mail.send", "mail.inbox", "team.assign"]) {
       expect(registry.has(id)).toBe(false);
     }
+  });
+});
+
+describe("mail.cancel", () => {
+  /** Send one message and hand back the id the tool answered with. */
+  async function sent(registry: CommandRegistry, body = "ship it") {
+    const result = await run(
+      registry,
+      "mail.send",
+      { to: "pane-2", kind: "task", body },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(true);
+    return result.ok ? (result.value as { id: string }).id : "";
+  }
+
+  it("takes back a message nobody has come for", async () => {
+    const { registry, mail } = setup();
+    const id = await sent(registry);
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id, to: "pane-2" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: { status: "cancelled", note: expect.any(String) },
+    });
+    expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
+  });
+
+  it("says too-late once the recipient has read it", async () => {
+    const { registry, mail } = setup();
+    const id = await sent(registry);
+    mail.inbox("pane-2");
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id, to: "pane-2" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toMatchObject({ status: "too-late" });
+  });
+
+  it("names a role as what it is, rather than calling it a missing message", async () => {
+    // Every other mail argument is an address, so this is the likeliest slip.
+    // Telling the agent "no such message" would send it hunting for the wrong
+    // problem entirely.
+    const { registry } = setup();
+    await sent(registry);
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id: "impl-1", to: "pane-2" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("is not a message id");
+  });
+
+  it("answers a borrowed id exactly as it answers one that never existed", async () => {
+    // The whole point of merging those refusals. If somebody else's id read
+    // differently from a made-up one, an agent could walk the ids until the
+    // wording changed and count a conversation it never saw.
+    const { registry } = setup();
+    const real = await sent(registry);
+    const borrowed = await run(
+      registry,
+      "mail.cancel",
+      { id: real, to: "pane-1" },
+      from("pane-2", "ws-1", "Agent 2"),
+    );
+    const invented = await run(
+      registry,
+      "mail.cancel",
+      { id: "mail-999", to: "pane-1" },
+      from("pane-2", "ws-1", "Agent 2"),
+    );
+    expect(borrowed.ok).toBe(false);
+    expect(invented.ok).toBe(false);
+    if (!borrowed.ok && !invented.ok) {
+      expect(borrowed.error.message).toBe(
+        invented.error.message.replace("mail-999", real),
+      );
+    }
+  });
+
+  it("refuses an address that reaches nobody before it looks at the route", async () => {
+    // Step three, and it is reached only because the id already proved to be
+    // the caller's — so the answer says something about the caller's own
+    // address book and nothing about anyone else's traffic.
+    const { registry, mail } = setup();
+    const id = await sent(registry);
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id, to: "impl-9" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("impl-9");
+    expect(mail.takeAtTurnEnd("pane-2")).toHaveLength(1);
+  });
+
+  it("refuses when the recipient named is not the one it went to", async () => {
+    // The confirmation earns its place here: a mistyped id would otherwise
+    // reach into a message the caller never meant to touch. Its own traffic,
+    // so this refusal may be plain.
+    const { registry, mail } = setup();
+    const id = await sent(registry);
+    const result = await run(
+      registry,
+      "mail.cancel",
+      { id, to: "pane-1" },
+      from("pane-1", "ws-1", "Agent 1"),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("went somewhere else");
+    // And the message is untouched.
+    expect(mail.takeAtTurnEnd("pane-2")).toHaveLength(1);
   });
 });

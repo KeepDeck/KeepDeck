@@ -80,17 +80,20 @@ describe("what a kind means for an answer", () => {
 });
 
 describe("decideDelivery", () => {
-  it("delivers into a running turn — steering is the normal mode, not an intrusion", () => {
-    expect(decideDelivery(mail(), working, SENT_AT)).toEqual({ kind: "deliver" });
+  it("wakes into a running turn — the nudge is the only thing the terminal carries", () => {
+    // An agent with no labelled channel gets the wake and nothing else, and
+    // gets it at once: none of the deferrals below can ever be repaid at
+    // that pane's boundaries.
+    expect(decideDelivery(mail(), working, SENT_AT)).toEqual({ kind: "wake" });
   });
 
-  it("delivers to a pane parked on a question, which the message probably answers", () => {
-    expect(decideDelivery(mail(), asking, SENT_AT)).toEqual({ kind: "deliver" });
+  it("wakes a pane parked on a question, which the message probably answers", () => {
+    expect(decideDelivery(mail(), asking, SENT_AT)).toEqual({ kind: "wake" });
   });
 
-  it("delivers to a finished pane, starting a new turn", () => {
-    expect(decideDelivery(mail(), done, SENT_AT)).toEqual({ kind: "deliver" });
-    expect(decideDelivery(mail(), failed, SENT_AT)).toEqual({ kind: "deliver" });
+  it("wakes a finished pane, starting a new turn", () => {
+    expect(decideDelivery(mail(), done, SENT_AT)).toEqual({ kind: "wake" });
+    expect(decideDelivery(mail(), failed, SENT_AT)).toEqual({ kind: "wake" });
   });
 
   it("holds a briefing whatever the pane is doing — it may only arrive labelled", () => {
@@ -132,14 +135,14 @@ describe("decideDelivery", () => {
     ).toEqual({ kind: "hold", reason: "labelled-only" });
   });
 
-  it("still types in what a pane is meant to ACT on", () => {
+  it("still wakes what a pane is meant to ACT on", () => {
     // The counterpart, and the reason the rule above is about kinds rather
     // than about the deck being the speaker: a task, an answer or a delivery
-    // report exists to move the receiver, and the terminal is the only thing
-    // that wakes an idle CLI.
+    // report exists to move the receiver, and the wake is the only thing
+    // that rouses an idle CLI so it can come and be moved.
     for (const kind of ["task", "question", "answer", "note", "undelivered"] as const) {
       expect(decideDelivery(mail({ kind }), done, SENT_AT)).toEqual({
-        kind: "deliver",
+        kind: "wake",
       });
     }
   });
@@ -156,10 +159,10 @@ describe("decideDelivery", () => {
     // on turn events, so a pane sitting idle at its prompt reports NOTHING
     // — and holding it meant waiting for an activity change a silent pane
     // never produces. Observed live: a task to an idle teammate sat
-    // undelivered until a person typed into it by hand. Whether it can
-    // actually take the message is the channel's question, and the channel
-    // is the one thing that can answer it.
-    expect(decideDelivery(mail(), undefined, SENT_AT)).toEqual({ kind: "deliver" });
+    // undelivered until a person typed into it by hand. Whether the nudge
+    // can actually be typed is the channel's question, and the channel is
+    // the one thing that can answer it.
+    expect(decideDelivery(mail(), undefined, SENT_AT)).toEqual({ kind: "wake" });
   });
 
   it("decides the same thing however long a message has waited", () => {
@@ -186,7 +189,7 @@ describe("decideDelivery", () => {
       kind: "hold",
       reason: "permission",
     });
-    expect(decideDelivery(mail(), working, justInTime)).toEqual({ kind: "deliver" });
+    expect(decideDelivery(mail(), working, justInTime)).toEqual({ kind: "wake" });
   });
 
   it("waits for a turn boundary when the agent will come asking", () => {
@@ -304,7 +307,7 @@ describe("decideHandover", () => {
     const old = mail({ at: 0 });
     const now = MAIL_LIMITS.undeliveredMs * 10;
     expect(decideHandover(done)).toBe("hand");
-    expect(decideDelivery(old, done, now)).toEqual({ kind: "deliver" });
+    expect(decideDelivery(old, done, now)).toEqual({ kind: "wake" });
     expect(isOverdue(old, now)).toBe(true);
   });
 
