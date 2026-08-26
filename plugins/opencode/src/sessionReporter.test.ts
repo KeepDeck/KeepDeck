@@ -675,7 +675,15 @@ describe("opencode session reporter", () => {
       .filter((envelope) => envelope.type === "agent.status")
       .map((envelope) => envelope.payload.event);
 
-  it("reports the root session's turn edges as agent.status envelopes", async () => {
+  /**
+   * The payload travels WHOLE. What used to leave this process was a reduced
+   * copy — `session.status` only when busy, `error.name` flattened to a bare
+   * string — and both reductions were decisions about meaning taken a process
+   * away from where meaning is decided. The retry state disappeared behind
+   * the first, and the eight error names apart from which an abort cannot be
+   * told from a failure disappeared behind the second.
+   */
+  it("forwards the pane's turn events verbatim, properties and all", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
     await event({
@@ -690,24 +698,65 @@ describe("opencode session reporter", () => {
     await event({
       event: {
         type: "session.error",
-        properties: { sessionID: "ses_root", error: { name: "ProviderAuthError" } },
+        properties: {
+          sessionID: "ses_root",
+          error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+        },
       },
     });
-    // Inbox filenames are random (mktemp-style), so readdir order proves
-    // nothing — assert the set; ordering is the deliverer's job.
     const events = (await statusEvents());
     expect(events).toHaveLength(3);
-    expect(events).toContainEqual({ type: "session.status" });
-    expect(events).toContainEqual({ type: "session.idle" });
+    expect(events).toContainEqual({
+      type: "session.status",
+      properties: { sessionID: "ses_root", status: { type: "busy" } },
+    });
+    expect(events).toContainEqual({
+      type: "session.idle",
+      properties: { sessionID: "ses_root" },
+    });
     expect(events).toContainEqual({
       type: "session.error",
-      error: "ProviderAuthError",
+      properties: {
+        sessionID: "ses_root",
+        error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+      },
     });
     // Every envelope carries the pane's own correlation.
     for (const envelope of (await envelopes())) {
       expect(envelope.paneId).toBe("pane-3");
       expect(envelope.token).toBe("tok");
     }
+  });
+
+  it("forwards an idle STATUS too — which of the three kinds it is, is not this side's call", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "retry", attempt: 2 } },
+      },
+    });
+    expect((await statusEvents())).toEqual([
+      {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "retry", attempt: 2 } },
+      },
+    ]);
+  });
+
+  it("reports an error the CLI attached to no session — this process serves one pane", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event({
+      event: {
+        type: "session.error",
+        properties: { error: { name: "UnknownError" } },
+      },
+    });
+    expect((await statusEvents())).toEqual([
+      { type: "session.error", properties: { error: { name: "UnknownError" } } },
+    ]);
   });
 
   it("ignores a child session's busy/idle — a subagent is not the pane's turn", async () => {
@@ -730,26 +779,88 @@ describe("opencode session reporter", () => {
     expect((await statusEvents())).toEqual([]);
   });
 
-  it("forwards permission edges without a session filter", async () => {
+  /**
+   * A dialog parks the TERMINAL, whichever session put it up: a subagent's
+   * request holds the frame of the turn that spawned it, so "waiting for a
+   * human" is true of the pane either way. A root filter here would
+   * manufacture a turn that never ends.
+   */
+  it("forwards dialogs without a session filter — including a subagent's", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
-    await event({ event: { type: "permission.asked", properties: {} } });
-    await event({ event: { type: "permission.replied", properties: {} } });
+    await event(created("ses_child", "ses_root"));
+    await event({
+      event: { type: "permission.asked", properties: { sessionID: "ses_child" } },
+    });
+    await event({
+      event: { type: "permission.replied", properties: { sessionID: "ses_child" } },
+    });
+    await event({
+      event: { type: "question.asked", properties: { sessionID: "ses_child" } },
+    });
+    await event({
+      event: { type: "question.rejected", properties: { sessionID: "ses_child" } },
+    });
     const events = (await statusEvents());
-    expect(events).toHaveLength(2);
-    expect(events).toContainEqual({ type: "permission.asked" });
-    expect(events).toContainEqual({ type: "permission.replied" });
+    expect(events.map((e: any) => e.type)).toEqual([
+      "permission.asked",
+      "permission.replied",
+      "question.asked",
+      "question.rejected",
+    ]);
   });
 
-  it("only busy marks a turn start — an idle STATUS is not an edge", async () => {
+  /**
+   * The question surface was not forwarded at all, and nothing else on the
+   * bus reports it: while a choice stands open no idle arrives and the status
+   * does not change, so the pane read "Working" at a terminal that was
+   * waiting on its user.
+   */
+  it("forwards a question, the one wait nothing else on the bus reports", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
     await event({
       event: {
-        type: "session.status",
-        properties: { sessionID: "ses_root", status: { type: "idle" } },
+        type: "question.asked",
+        properties: {
+          sessionID: "ses_root",
+          questions: [{ question: "colour?", options: [{ label: "red" }] }],
+        },
       },
     });
+    expect((await statusEvents())).toEqual([
+      {
+        type: "question.asked",
+        properties: {
+          sessionID: "ses_root",
+          questions: [{ question: "colour?", options: [{ label: "red" }] }],
+        },
+      },
+    ]);
+  });
+
+  /**
+   * An interrupt caught between steps writes its name onto the message and
+   * publishes no error event at all — so a FINISHED message has to travel,
+   * or that turn reads as an ordinary Done. A streaming frame does not: it is
+   * a fragment of content, not a fact about the turn.
+   */
+  it("forwards a finished message, which carries endings no event does", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event(assistantMessage({ error: { name: "MessageAbortedError" } }));
+    const forwarded = (await statusEvents());
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0].type).toBe("message.updated");
+    expect(forwarded[0].properties.info.error).toEqual({
+      name: "MessageAbortedError",
+    });
+  });
+
+  it("does not forward a message still streaming", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event(assistantMessage({ time: {} }));
     expect((await statusEvents())).toEqual([]);
   });
 
@@ -799,9 +910,9 @@ describe("opencode session reporter", () => {
     }
 
     expect(deck.peakInFlight()).toBe(1);
-    expect((await statusEvents())).toEqual([
-      { type: "session.error", error: "MessageAbortedError" },
-      { type: "session.idle" },
+    expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+      "session.error",
+      "session.idle",
     ]);
   });
 });

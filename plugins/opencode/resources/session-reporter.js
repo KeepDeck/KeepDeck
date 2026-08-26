@@ -224,11 +224,26 @@ export default async (input = {}) => {
     return windowByModel.get(modelKey(providerID, modelID));
   };
 
-  /** One turn-lifecycle edge for the pane — `agent.status` protocol. Only
-   * the fields the status normalizer reads travel; the raw bus event stays
-   * in this process. */
-  const reportStatus = (type, extra = {}) =>
-    publish("agent.status", { event: { type, ...extra } });
+  /**
+   * One bus event, VERBATIM, on the `agent.status` protocol.
+   *
+   * The payload travels whole. This process answers one question about an
+   * event — whose it is — and nothing about what it means: the session tree,
+   * the process boundary and the window before the pane is bound exist only
+   * here, and the deck cannot reconstruct them. Everything else is the
+   * normalizer's, because it can change its mind about a payload it has and
+   * never about one that was reduced on the way.
+   *
+   * Which is why the reduction that used to happen here was a defect and not
+   * a saving. Forwarding `session.status` only when busy hid the retry state
+   * behind it; flattening `error.name` to a string threw away the eight names
+   * apart from which an abort cannot be told from a failure. Both decisions
+   * were about MEANING, made a process away from where meaning is decided.
+   */
+  const forward = (event) =>
+    publish("agent.status", {
+      event: { type: event.type, properties: event.properties ?? {} },
+    });
 
   /** Whether a session-scoped event describes the PANE's conversation: the
    * active root itself — never a subagent child (a child going busy/idle is
@@ -240,50 +255,46 @@ export default async (input = {}) => {
     return !activeRoot || sessionID === activeRoot;
   };
 
+  /**
+   * Whose event this is — the only question answered on this side.
+   *
+   * An attribution mistake is silent and unrecoverable: a dropped event is
+   * one the deck never hears about and cannot ask for. A translation mistake
+   * is fixed in one file. So the doubt goes one way — overboard goes only
+   * what certainly belongs to another conversation.
+   */
+  const belongsHere = (event) => {
+    const props = event.properties ?? {};
+    switch (event.type) {
+      case "session.status":
+      case "session.idle":
+        return concernsPane(props.sessionID);
+      case "session.error":
+        // opencode declares sessionID OPTIONAL on this event, and the
+        // publishers that omit it are process-wide — a plugin crash, a failed
+        // skill. This process serves exactly one pane, so an error with no
+        // session named can only be its own; only one attributed to some
+        // OTHER session is filtered.
+        return !props.sessionID || concernsPane(props.sessionID);
+      case "permission.asked":
+      case "permission.replied":
+      case "question.asked":
+      case "question.replied":
+      case "question.rejected":
+        // A dialog parks the TERMINAL, whichever session put it up: a
+        // subagent's request holds the frame of the turn that spawned it, so
+        // "waiting for a human" is true of the PANE either way. Measured. A
+        // root filter here would manufacture a turn that never ends —
+        // eternally working while the terminal stands still.
+        return true;
+      default:
+        return false;
+    }
+  };
+
   const handle = async (event) => {
-    if (event?.type === "session.status") {
-      const props = event.properties ?? {};
-      const status =
-        typeof props.status === "object" ? props.status?.type : props.status;
-      // Only `busy` marks a turn starting; the idle STATUS is redundant with
-      // the explicit session.idle event below.
-      if (status === "busy" && concernsPane(props.sessionID)) {
-        reportStatus("session.status");
-      }
-      return;
-    }
-    if (event?.type === "session.idle") {
-      // Fires on completion AND on a user interrupt — either way the turn
-      // is over, which is why opencode needs no transcript-marker recovery.
-      if (concernsPane(event.properties?.sessionID)) {
-        reportStatus("session.idle");
-      }
-      return;
-    }
-    if (event?.type === "session.error") {
-      const props = event.properties ?? {};
-      // opencode declares sessionID OPTIONAL on this event. A session-less
-      // error still concerns the pane — this process serves exactly one —
-      // so only an error attributed to some OTHER session is filtered.
-      if (!props.sessionID || concernsPane(props.sessionID)) {
-        const name = props.error?.name;
-        reportStatus(
-          "session.error",
-          typeof name === "string" && name !== "" ? { error: name } : {},
-        );
-      }
-      return;
-    }
-    // Permission prompts park the whole TUI regardless of which session
-    // asked — no root filter.
-    if (event?.type === "permission.asked") {
-      reportStatus("permission.asked");
-      return;
-    }
-    if (event?.type === "permission.replied") {
-      // Even a REJECT keeps the turn in flight (the model receives the
-      // denial, produces text, then idles) — every reply reads as resumed.
-      reportStatus("permission.replied");
+    if (belongsHere(event)) {
+      forward(event);
       return;
     }
 
@@ -342,6 +353,13 @@ export default async (input = {}) => {
     // Once a root is explicitly active, events for unrelated root sessions
     // in the same OpenCode server are not this pane's conversation.
     if (owningRoot !== activeRoot) return;
+    // A FINISHED message is a fact about the turn, and it carries endings
+    // that no event does: an interrupt caught between steps writes its name
+    // here and publishes no `session.error` at all, and a structured-output
+    // failure exists nowhere else. A streaming frame is not a fact — it is a
+    // fragment of content, filtered here for the same reason the part deltas
+    // never travel. What a finished message MEANS stays the normalizer's.
+    forward(event);
     if (hydration) await hydration;
     // Every assistant turn — ROOT or subagent — is real session spend and
     // sums into the cumulative. But a subagent's context is ITS own, not the
