@@ -340,4 +340,41 @@ describe("createMailService", () => {
     });
     expect(h.replies).toEqual([{ paneId: "pane-2", id: "askABC", body: "" }]);
   });
+
+  it("holds the terminal while a pane's own ask is being answered", () => {
+    // The status lane folds an envelope before answering it, and the fold
+    // wakes this manager in the same breath — one call before the answer
+    // takes the mail out of the queue. Left alone, the pass types at a pane
+    // that is about to be served for free, and the line stays in a composer
+    // saying nothing. Measured at 42 of 188 nudged messages.
+    const h = setup(true);
+    const answered = h.service.expectAsk("pane-2", {
+      agent: "claude",
+      reply: "askABC",
+      event: { hook_event_name: "Stop" },
+    });
+
+    h.send("hi");
+    expect(h.woken).toEqual([]);
+
+    // A refusal is not a loss: the message never left the queue, so the pass
+    // has to run again the moment the answer is done — a refused wake arms no
+    // timer, and nothing else would come back for it.
+    answered();
+    expect(h.woken).toEqual(["pane-2"]);
+  });
+
+  it("arms nothing for an envelope that only reports", () => {
+    // Most envelopes carry no question at all. Holding the terminal for those
+    // would silence the pane for its whole life rather than for one answer.
+    const h = setup(true);
+    const answered = h.service.expectAsk("pane-2", {
+      agent: "claude",
+      event: { hook_event_name: "PostToolUse" },
+    });
+
+    h.send("hi");
+    expect(h.woken).toEqual(["pane-2"]);
+    answered();
+  });
 });

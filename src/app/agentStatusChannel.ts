@@ -64,6 +64,11 @@ export function createAgentStatusChannel(
    * tests and while the feature is off; a payload that asks nothing never
    * reaches it. */
   answerAsk: (paneId: string, payload: unknown) => void = () => {},
+  /** Tell the mail side an answer is coming, BEFORE the fold that wakes its
+   * subscribers — otherwise it types a nudge at a pane it is about to serve
+   * for free. Returns the disarm; a payload that asks nothing arms nothing.
+   * See [`MailService.expectAsk`] for why the fold cannot simply move. */
+  expectAsk: (paneId: string, payload: unknown) => () => void = () => () => {},
 ): AgentStatusChannel {
   let disposed = false;
   let normalizerDisposers: (() => void)[] = [];
@@ -113,8 +118,19 @@ export function createAgentStatusChannel(
       // about the pane (a turn that has ended is a turn that can be told
       // to keep going), and reading a status one edge stale is exactly the
       // divergence one round trip exists to prevent.
-      tracker.report(paneId, payload);
-      answerAsk(paneId, payload);
+      //
+      // The fold's cost is that it wakes mail's own subscription in the same
+      // breath, one call before the answer empties the queue — so the mail
+      // side is told an answer is coming and stops typing at this pane until
+      // it has. Marking it here rather than reordering the two: swapping them
+      // would answer against a stale status, which is the divergence above.
+      const answered = expectAsk(paneId, payload);
+      try {
+        tracker.report(paneId, payload);
+        answerAsk(paneId, payload);
+      } finally {
+        answered();
+      }
     },
   });
 
