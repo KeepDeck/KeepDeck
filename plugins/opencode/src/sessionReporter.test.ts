@@ -752,4 +752,56 @@ describe("opencode session reporter", () => {
     });
     expect((await statusEvents())).toEqual([]);
   });
+
+  /**
+   * An abort states two facts a fraction of a millisecond apart — the error
+   * first, then the idle behind it — and the deck keeps whichever it reads
+   * first. Posting both without waiting hands that choice to the network:
+   * measured on the real reporter, 3 of 50 aborts arrived inverted, and the
+   * deck then read a finished turn where an interrupted one was reported.
+   *
+   * Held responses are what makes this visible. With them, a sender that
+   * fires-and-forgets has both posts open at once; a sender that queues never
+   * has more than one, whatever the timings.
+   */
+  it("states one fact at a time, so the deck reads an abort in the order it happened", async () => {
+    await deck.close();
+    // 25ms is wide enough that an unqueued second post lands inside the first
+    // one's window, and narrow enough to keep the suite quick.
+    deck = await startDeck(undefined, 25);
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({
+      v: 2,
+      dir,
+      pane: "pane-3",
+      token: "tok",
+      url: deck.url,
+    });
+
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID: "ses_root",
+          error: { name: "MessageAbortedError" },
+        },
+      },
+    });
+    await event({
+      event: { type: "session.idle", properties: { sessionID: "ses_root" } },
+    });
+
+    // Three envelopes, each held 25ms — poll rather than guess a total.
+    const deadline = Date.now() + 2000;
+    while (deck.envelopes.length < 3 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(deck.peakInFlight()).toBe(1);
+    expect((await statusEvents())).toEqual([
+      { type: "session.error", error: "MessageAbortedError" },
+      { type: "session.idle" },
+    ]);
+  });
 });

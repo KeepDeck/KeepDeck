@@ -58,7 +58,26 @@ export function readBridge() {
 }
 
 /**
- * Hand one envelope to the deck.
+ * One envelope, addressed to this pane's deck.
+ *
+ * Every lane either plugin publishes carries the same five things — the
+ * protocol version, the type, the pane, its secret, and who is reporting —
+ * and they were written out four times. A wire format spelled once is a wire
+ * format that cannot half-change: the deck refuses an envelope whose shape it
+ * does not know, and it refuses it silently.
+ */
+export function makeEnvelope(bridge, type, payload) {
+  return {
+    v: 2,
+    type,
+    paneId: bridge.pane,
+    token: bridge.token,
+    payload: { agent: "opencode", reporter: REPORTER, ...payload },
+  };
+}
+
+/**
+ * Hand one envelope to the deck and wait for what it answers.
  *
  * One lane. There used to be two — this, and dropping a file in a directory
  * the deck watched — and the file was not the worse option kept around: it
@@ -76,10 +95,42 @@ export function readBridge() {
  * anyway: the deck logs its own timeout, on the side that knows something
  * went wrong, and it puts back any messages whose answer reached nobody —
  * because the send tells it so.
+ *
+ * For a caller that ASKS. A caller that only states a fact wants `publish`
+ * below, which keeps the deck's reading of those facts in the order they
+ * happened.
  */
 export async function sendEnvelope(bridge, envelope) {
   const posted = await post(bridge.url, JSON.stringify(envelope));
   return { answer: posted.status === 200 ? posted.body : null };
+}
+
+/**
+ * State one fact, in its turn.
+ *
+ * The bus hands this process its events in one order and that order is the
+ * truth — an abort's error is published before the idle that follows it, by
+ * the CLI's own code. Two posts fired without waiting lose that: the deck
+ * takes each connection on its own thread, so the second can be read first.
+ * Measured on the real reporter against a local deck: 3 inversions in 50
+ * aborts, on a pair 0-3ms apart. The deck then reads a finished turn where an
+ * interrupted one was reported, and absorbs the correction as an echo.
+ *
+ * So the posts queue. The queue is the WIRE's, not the caller's: the event
+ * handler hands its envelope over and returns, exactly as before — what waits
+ * is the next post, not the next event. The old comment defended
+ * fire-and-forget by saying a turn-lifecycle edge must not wait on a round
+ * trip it has nothing to do with, and that is still true of the HANDLER. It
+ * was never true of the wire.
+ *
+ * Nothing is retried and nothing is reported back: a send that fails is one
+ * fact the deck never hears, and a caller stating facts has nothing to do
+ * about that. A failure must not stall the ones behind it either, which is
+ * why the tail swallows.
+ */
+let outbound = Promise.resolve();
+export function publish(bridge, envelope) {
+  outbound = outbound.then(() => sendEnvelope(bridge, envelope)).catch(() => {});
 }
 
 /** How long to give the whole round trip, matching the shell reporters'

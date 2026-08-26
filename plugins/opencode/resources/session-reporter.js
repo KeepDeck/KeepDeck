@@ -24,26 +24,27 @@
  * `KEEPDECK_BRIDGE` at spawn.
  */
 import {
-  REPORTER,
   createSubagentIndex,
-  sendEnvelope,
+  makeEnvelope,
+  publish as publishEnvelope,
   readBridge,
 } from "./keepdeck-bridge.js";
 
 export default async (input = {}) => {
   const bridge = readBridge();
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
-  const { dir, pane, token } = bridge;
+  const { dir } = bridge;
 
   const client = input?.client;
 
-  /** Hand one envelope to the deck.
+  /** State one fact about this pane.
    *
-   * Fire-and-forget: no caller here asks a question, and none reads the
-   * result. Awaiting it would make every turn-lifecycle edge wait on a round
-   * trip it has nothing to do with. */
-  const publish = (envelope) => {
-    void sendEnvelope(bridge, envelope);
+   * The handler is not kept waiting — it hands the envelope over and returns.
+   * What waits is the next POST, so the deck reads these facts in the order
+   * the bus stated them; see `publish` in keepdeck-bridge.js for why that
+   * ordering is not free. */
+  const publish = (type, payload) => {
+    publishEnvelope(bridge, makeEnvelope(bridge, type, payload));
   };
 
   // Per-message latest snapshot for the ACTIVE ROOT session and all of its
@@ -163,17 +164,9 @@ export default async (input = {}) => {
   // that answer to be wrong, and this one would keep saying "continuing"
   // after a publish that silently failed.
   const bind = (sessionID, continuing) =>
-    publish({
-      v: 2,
-      type: "session.bound",
-      paneId: pane,
-      token,
-      payload: {
-        sessionId: sessionID,
-        agent: "opencode",
-        source: continuing ? "new" : "startup",
-        reporter: REPORTER,
-      },
+    publish("session.bound", {
+      sessionId: sessionID,
+      source: continuing ? "new" : "startup",
     });
 
   /** `keep` is the ancestry the caller has already established for the
@@ -235,13 +228,7 @@ export default async (input = {}) => {
    * the fields the status normalizer reads travel; the raw bus event stays
    * in this process. */
   const reportStatus = (type, extra = {}) =>
-    publish({
-      v: 2,
-      type: "agent.status",
-      paneId: pane,
-      token,
-      payload: { agent: "opencode", reporter: REPORTER, event: { type, ...extra } },
-    });
+    publish("agent.status", { event: { type, ...extra } });
 
   /** Whether a session-scoped event describes the PANE's conversation: the
    * active root itself — never a subagent child (a child going busy/idle is
@@ -372,35 +359,27 @@ export default async (input = {}) => {
       currentRoot.providerID,
       currentRoot.modelID,
     );
-    publish({
-      v: 2,
-      type: "usage.report",
-      paneId: pane,
-      token,
-      payload: {
-        agent: "opencode",
-        reporter: REPORTER,
-        sessionId: currentRoot.sessionID,
-        model: currentRoot.modelID,
-        sequence: ++sequence,
-        ...(windowTokens !== undefined ? { windowTokens } : {}),
-        contextTokens,
-        totals: {
-          input: sum("input"),
-          output: sum("output"),
-          reasoning: sum("reasoning"),
-          cacheRead: sum("cacheRead"),
-          cacheWrite: sum("cacheWrite"),
-        },
-        lastTurn: {
-          input: occ.input,
-          output: occ.output,
-          reasoning: occ.reasoning,
-          cacheRead: occ.cacheRead,
-          cacheWrite: occ.cacheWrite,
-        },
-        costUsd: sum("cost"),
+    publish("usage.report", {
+      sessionId: currentRoot.sessionID,
+      model: currentRoot.modelID,
+      sequence: ++sequence,
+      ...(windowTokens !== undefined ? { windowTokens } : {}),
+      contextTokens,
+      totals: {
+        input: sum("input"),
+        output: sum("output"),
+        reasoning: sum("reasoning"),
+        cacheRead: sum("cacheRead"),
+        cacheWrite: sum("cacheWrite"),
       },
+      lastTurn: {
+        input: occ.input,
+        output: occ.output,
+        reasoning: occ.reasoning,
+        cacheRead: occ.cacheRead,
+        cacheWrite: occ.cacheWrite,
+      },
+      costUsd: sum("cost"),
     });
   };
 

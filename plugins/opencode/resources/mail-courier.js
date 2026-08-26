@@ -35,8 +35,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, rmSync, watch } from "node:fs";
 import { join } from "node:path";
 import {
-  REPORTER,
   createSubagentIndex,
+  makeEnvelope,
   readBridge,
   sendEnvelope,
 } from "./keepdeck-bridge.js";
@@ -50,7 +50,7 @@ const REPLY_VERSION = 1;
 export default async (input = {}) => {
   const bridge = readBridge();
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
-  const { dir, pane, token } = bridge;
+  const { dir } = bridge;
   const client = input?.client;
   // Without the client there is no way to put anything into the session, and
   // asking would take messages out of the deck's queue to drop them.
@@ -87,18 +87,10 @@ export default async (input = {}) => {
    */
   const ask = async () => {
     const correlation = randomUUID();
-    const envelope = {
-      v: 2,
-      type: "agent.status",
-      paneId: pane,
-      token,
-      payload: {
-        agent: "opencode",
-        reporter: REPORTER,
-        reply: correlation,
-        event: { type: "mail.ask" },
-      },
-    };
+    const envelope = makeEnvelope(bridge, "agent.status", {
+      reply: correlation,
+      event: { type: "mail.ask" },
+    });
     // Answered on the same call, so there is no file to poll for and no
     // window in which an answer exists that nobody has come for.
     const sent = await sendEnvelope(bridge, envelope);
