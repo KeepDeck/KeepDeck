@@ -51,27 +51,27 @@ describe("sliceChangelog", () => {
 
   it("includes releases strictly after current and up to the target", () => {
     const slice = sliceChangelog(entries, "0.14.0", "0.16.0");
-    expect(slice.map((e) => e.version)).toEqual(["0.15.0", "0.16.0"]);
+    expect(slice.map((e) => e.version)).toEqual(["0.16.0", "0.15.0"]);
   });
 
-  it("sorts oldest-first regardless of input order", () => {
+  it("sorts newest-first regardless of input order", () => {
     const shuffled: ChangelogEntry[] = [
-      { version: "0.16.0", notes: "sixteen" },
       { version: "0.15.0", notes: "fifteen" },
+      { version: "0.16.0", notes: "sixteen" },
     ];
     expect(sliceChangelog(shuffled, "0.14.0", "0.16.0").map((e) => e.version)).toEqual([
-      "0.15.0",
       "0.16.0",
+      "0.15.0",
     ]);
   });
 
   it("spans an arbitrary gap — every intermediate release shows", () => {
     const slice = sliceChangelog(entries, "0.13.0", "0.17.0");
     expect(slice.map((e) => e.version)).toEqual([
-      "0.14.0",
-      "0.15.0",
-      "0.16.0",
       "0.17.0",
+      "0.16.0",
+      "0.15.0",
+      "0.14.0",
     ]);
   });
 
@@ -106,8 +106,8 @@ describe("sliceChangelog", () => {
       { version: "0.16.0", notes: "sixteen" },
     ];
     expect(sliceChangelog(oldestFirst, "0.14.0", "0.16.0").map((e) => e.version)).toEqual([
-      "0.15.0",
       "0.16.0",
+      "0.15.0",
     ]);
   });
 });

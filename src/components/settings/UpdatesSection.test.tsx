@@ -174,7 +174,7 @@ describe("UpdatesSection", () => {
     const versions = [...host.querySelectorAll(".settings__changelog-version span")].map(
       (el) => el.textContent,
     );
-    expect(versions).toEqual(["1.0.0", "1.2.0"]);
+    expect(versions).toEqual(["1.2.0", "1.0.0"]);
     // Markdown renders: bold becomes <strong>, a bullet list becomes <ul><li>.
     expect(host.querySelector(".settings__changelog-entry strong")).not.toBeNull();
     expect(host.querySelectorAll(".settings__changelog-entry li")).toHaveLength(2);
