@@ -43,22 +43,6 @@
   min-width: 0;
 }
 
-.bar__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #6b7280;
-  cursor: pointer;
-}
-
-.bar__icon:hover {
-  background-color: #1b2230;
-  color: #c5c8c6;
-}
 
 /* Where you are — shown only while the rail is hidden, which is also why it
    carries no leading separator: there is nothing in front of it to come

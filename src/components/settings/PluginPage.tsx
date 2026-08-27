@@ -4,6 +4,7 @@ import type {
   SettingsSectionContribution,
 } from "@keepdeck/plugin-api";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
+import { Button } from "../../ui/Button";
 import { useAppRuntime } from "../../app/runtimeContext";
 import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
@@ -184,13 +185,14 @@ export function RescanButton() {
   };
 
   return (
-    <button
-      type="button"
-      className="bar__icon settings__rescan"
+    <Button
+      variant="ghost"
+      size="sm"
+      className="settings__rescan"
       onClick={rescan}
       disabled={scanning}
       title="Rescan the plugins folder (~/.config/keepdeck/plugins)"
-      aria-label="Rescan plugins"
+      label="Rescan plugins"
     >
       {/* The wrapper is ALWAYS inline-flex; only the animation toggles, so
           switching scan state never changes the icon's box (which would
@@ -200,7 +202,7 @@ export function RescanButton() {
       >
         <RefreshIcon />
       </span>
-    </button>
+    </Button>
   );
 }
 

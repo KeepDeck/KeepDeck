@@ -55,7 +55,9 @@ export interface ButtonProps {
    *  caller rendering its own `<button>` to add three attributes — which is
    *  how a primitive stops being the only button. */
   hasPopup?: "menu" | "listbox";
-  /** Whether that layer is open right now. */
+  /** Whether the layer is open right now. Meaningful WITHOUT `hasPopup` too:
+   *  a disclosure reveals plain content rather than a menu or a listbox, so it
+   *  has an open state to report and no popup role to claim. */
   expanded?: boolean;
   /** The open layer's id, while it exists. Omitted when closed so the
    *  reference never dangles. */
@@ -96,7 +98,11 @@ export function Button({
       title={title}
       aria-label={label ?? title}
       aria-haspopup={hasPopup}
-      aria-expanded={hasPopup ? Boolean(expanded) : undefined}
+      aria-expanded={
+        hasPopup !== undefined || expanded !== undefined
+          ? Boolean(expanded)
+          : undefined
+      }
       aria-controls={controls}
     >
       {children}

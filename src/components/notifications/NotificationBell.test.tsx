@@ -59,6 +59,21 @@ describe("NotificationBell", () => {
     expect(document.querySelector(".bell__badge")?.textContent).toBe("2");
   });
 
+  it("says whether its panel is open, and names its unread count", () => {
+    // A disclosure, not a menu: it reveals plain content, so it reports an
+    // open state and claims no popup role. Worth holding down — the shared
+    // Button used to tie `aria-expanded` to having a popup, which would have
+    // dropped this silently when the bell adopted it.
+    expect(bellButton().getAttribute("aria-expanded")).toBe("false");
+    expect(bellButton().getAttribute("aria-haspopup")).toBeNull();
+    act(() => bellButton().click());
+    expect(bellButton().getAttribute("aria-expanded")).toBe("true");
+    act(() => notify({ title: "one", source: paneSource }));
+    expect(bellButton().getAttribute("aria-label")).toBe(
+      "Notifications (1 unread)",
+    );
+  });
+
   it("opens an empty panel with the empty state", () => {
     act(() => bellButton().click());
     expect(document.querySelector(".bell__empty")?.textContent).toBe(
