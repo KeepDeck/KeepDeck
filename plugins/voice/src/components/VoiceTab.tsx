@@ -5,9 +5,10 @@ import { runtime } from "../runtime";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
 
 /**
- * The Voice dock tab: the chat-log of what was heard and what was done, the
- * mic toggle for command mode, and the model manager (download-on-demand —
- * weights are never bundled, the picker IS the install surface).
+ * The Voice dock tab: the log of what was heard and what was done — newest
+ * first, as the controller hands it over — the mic toggle for command mode,
+ * and the model manager (download-on-demand — weights are never bundled, the
+ * picker IS the install surface).
  */
 export function VoiceTab() {
   const { ctx, controller, downloads, models: store, bindings: bindingsStore } =
@@ -37,8 +38,11 @@ export function VoiceTab() {
   useEffect(() => helpHold, []);
   const logRef = useRef<HTMLDivElement | null>(null);
 
+  // Follow the newest entry. It is prepended, so "newest" is the TOP of the
+  // scroller — a reader who had scrolled back into older lines is returned to
+  // the fresh one, the same intent the old scroll-to-bottom served.
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+    logRef.current?.scrollTo({ top: 0 });
   }, [snap.history.length]);
 
   // Click-to-copy: a row copies its text on click, briefly REPLACING the row's

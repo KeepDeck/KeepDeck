@@ -12,7 +12,11 @@ import type { VoiceModelInfo } from "./modelCatalog";
  * handler, the mic button, the dock tab, and the overlay pill. Everything an
  * utterance becomes flows through here: capture → transcript → (command
  * grammar → deck command | dictation → pane.write) → a history entry per
- * step, so the tab reads like a chat log of what was heard and what was done.
+ * step, so the tab reads as a log of what was heard and what was done.
+ *
+ * The log runs NEWEST-FIRST: what was just said sits at the top, where it is
+ * read and copied from, instead of scrolling away downwards. `at` still
+ * carries the real timestamp, so chronology is never inferred from position.
  */
 export type VoiceMode = "command" | "dictation";
 export type VoicePhase = "idle" | "listening" | "transcribing";
@@ -84,7 +88,9 @@ export function createVoiceController(
   }
 
   function push(tone: HistoryEntry["tone"], text: string): void {
-    history = [...history, { at: now(), tone, text }].slice(-HISTORY_CAP);
+    // Newest first (see the module note) — so the cap keeps the HEAD and the
+    // oldest entries fall off the tail.
+    history = [{ at: now(), tone, text }, ...history].slice(0, HISTORY_CAP);
   }
 
   async function workspaces(): Promise<WorkspaceRow[]> {
