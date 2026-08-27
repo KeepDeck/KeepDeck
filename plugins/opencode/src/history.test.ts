@@ -29,6 +29,29 @@ describe("opencode history", () => {
     expect(await opencodeHistory(c).list()).toEqual([]);
   });
 
+  /**
+   * Two readers take these rows for different questions — one pages turns and
+   * counts what it could not parse, the other pours the text into the search
+   * corpus — and the bound they read within used to be written out for each.
+   * Raise it in one and the two readings of the same session start disagreeing
+   * about where it ends: nothing fails, the answers just stop matching.
+   */
+  it("bounds both readings of a session the same way", async () => {
+    const { ctx: c, query } = ctx([[], [], []]);
+    const history = opencodeHistory(c);
+    await history.content("ses_1");
+    await history.transcriptPage!("ses_1", { offset: 0, limit: 10 });
+
+    const partQueries = query.mock.calls
+      .map(([, sql]) => sql as string)
+      .filter((sql) => sql.includes("FROM part"));
+    expect(partQueries).toHaveLength(2);
+    const bounds = partQueries.map((sql) => sql.replace(/^SELECT .*? FROM/, "FROM"));
+    expect(new Set(bounds).size).toBe(1);
+    // And it is a real bound, not two matching absences.
+    expect(bounds[0]).toMatch(/ORDER BY id LIMIT \d+/);
+  });
+
   it("content keeps only text parts; transcript groups parts per message", async () => {
     const text = (t: string) => JSON.stringify({ type: "text", text: t });
     const tool = JSON.stringify({ type: "tool", tool: "bash" });
