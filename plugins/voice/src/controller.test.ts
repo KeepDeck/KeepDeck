@@ -29,7 +29,10 @@ function hostWithSettings(settingsValues: Record<string, unknown>): FakeHost {
 
 /** A fake host whose speech service yields scripted transcripts and whose
  * command results are primeable — the controller under real wiring. */
-function setup(partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text" | "silence">) {
+function setup(
+  partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text" | "silence">,
+  now: () => number = () => 42,
+) {
   const transcript: SpeechTranscript = { seconds: 1.2, level: 0.05, ...partial };
   const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
   const cancelCapture = vi.fn(async () => {});
@@ -69,7 +72,7 @@ function setup(partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text
     ok: true,
     value: { workspaceId: "ws-1", paneId: "p1" },
   });
-  const controller = createVoiceController(ctx, () => 42, installedModels);
+  const controller = createVoiceController(ctx, now, installedModels);
   return {
     host,
     controller,
@@ -79,6 +82,8 @@ function setup(partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text
   };
 }
 
+// History is NEWEST-FIRST, so a multi-step utterance reads bottom-up here:
+// the last thing that happened is index 0.
 const texts = (c: ReturnType<typeof createVoiceController>) =>
   c.snapshot().history.map((e) => [e.tone, e.text]);
 
@@ -101,8 +106,8 @@ describe("createVoiceController", () => {
       },
     ]);
     expect(texts(controller)).toEqual([
-      ["heard", "Create an agent in keep deck with task fix the header."],
       ["done", "agent spawned, task queued"],
+      ["heard", "Create an agent in keep deck with task fix the header."],
     ]);
     expect(controller.snapshot().phase).toBe("idle");
   });
@@ -163,8 +168,8 @@ describe("createVoiceController", () => {
       },
     ]);
     expect(texts(controller)).toEqual([
-      ["heard", "please refactor the parser"],
       ["done", "typed into the input"],
+      ["heard", "please refactor the parser"],
     ]);
   });
 
@@ -355,7 +360,8 @@ describe("createVoiceController", () => {
 
     // One list call (the vocabulary prompt) — no resolution, no execution.
     expect(host.executedCommands.map((e) => e.id)).toEqual(["workspace.list"]);
-    expect(texts(controller)[1][0]).toBe("info");
+    // Newest first: the verdict on the transcript sits above the transcript.
+    expect(texts(controller)[0][0]).toBe("info");
   });
 
   it("says 'didn't catch that' on silence and never executes", async () => {
@@ -409,6 +415,28 @@ describe("createVoiceController", () => {
       id: "agent.close",
       args: { agent: "p1" },
     });
+  });
+
+  it("keeps the newest entries when the history overruns its cap", async () => {
+    // The cap drops from the TAIL now that entries are prepended — the
+    // direction is invisible until the log actually overruns, so overrun it.
+    let tick = 0;
+    const { controller } = setup(
+      { text: "", silence: true, seconds: 0, level: 0 },
+      () => ++tick,
+    );
+    // Silence yields exactly one "didn't catch that" entry per cycle.
+    for (let i = 0; i < 120; i++) {
+      await controller.start("dictation");
+      await controller.stop();
+    }
+    const history = controller.snapshot().history;
+    expect(history).toHaveLength(100);
+    // Head is the very last thing said; the 20 oldest are gone, not the newest.
+    expect(history[0].at).toBe(tick);
+    expect(history.map((e) => e.at)).toEqual(
+      [...history].map((e) => e.at).sort((a, b) => b - a),
+    );
   });
 
   it("clears the history on demand", async () => {
