@@ -57,7 +57,21 @@ export function MenuButton({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLUListElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuId = useId();
+
+  // Closing unmounts whatever was focused in the menu, and focus lands on
+  // `<body>` — from where the next Tab restarts at the top of the page. So
+  // when the menu goes away by the user's own doing (a pick, an Escape),
+  // focus goes back where it started.
+  //
+  // Not on pointer-away: there the browser is already giving focus to whatever
+  // was pressed, and taking it back would be the menu having the last word
+  // over the thing the user actually reached for.
+  const closeAndRestore = () => {
+    triggerRef.current?.focus();
+    setOpen(false);
+  };
 
   // An empty action set has no menu to show, and saying otherwise would leave
   // `aria-expanded` claiming a layer that is not rendered.
@@ -74,11 +88,12 @@ export function MenuButton({
         // is inside it, so modal layers keep their own Esc semantics.
         if (event.key === "Escape" && open) {
           event.stopPropagation();
-          setOpen(false);
+          closeAndRestore();
         }
       }}
     >
       <Button
+        ref={triggerRef}
         variant={variant}
         size={size}
         label={ariaLabel}
@@ -108,7 +123,10 @@ export function MenuButton({
                 disabled={action.disabled}
                 title={action.title}
                 onClick={() => {
-                  setOpen(false);
+                  // Focus first, then act: whatever the action opens is free
+                  // to take focus for itself, and nothing follows behind it
+                  // to pull focus back out.
+                  closeAndRestore();
                   action.onSelect();
                 }}
               >

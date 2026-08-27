@@ -78,6 +78,42 @@ describe("MenuButton", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("hands focus back to the trigger after a pick", () => {
+    // The picked item is unmounted with the menu. Without this, focus falls to
+    // <body> and the next Tab restarts at the top of the page.
+    render({ actions: ACTIONS([]) });
+    act(() => trigger().click());
+    act(() => items()[0].focus());
+    act(() => items()[0].click());
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it("hands focus back to the trigger after Escape", () => {
+    render({ actions: ACTIONS([]) });
+    act(() => trigger().click());
+    act(() => items()[1].focus());
+    act(() => {
+      items()[1].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it("lets the pointer keep what it pressed", () => {
+    // Pointer-away is the one close that does NOT restore: the browser is
+    // already focusing what was pressed, and the menu does not get the last
+    // word over the thing the user reached for.
+    render({ actions: ACTIONS([]) });
+    act(() => trigger().click());
+    const outside = document.body.appendChild(document.createElement("button"));
+    act(() => {
+      outside.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      outside.focus();
+    });
+    expect(document.activeElement).toBe(outside);
+  });
+
   it("lets go when the pointer presses something else", () => {
     // Shared with Dropdown through `useAwayClose`, and asserted on both sides:
     // the point of one implementation is that neither consumer drifts, which

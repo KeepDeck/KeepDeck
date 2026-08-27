@@ -26,7 +26,7 @@
  * The classNames are the host stylesheet's to dress, per this package's rule:
  * ui-kit is shared chrome, styled once by the app for every consumer.
  */
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 /** The priority of the action, which is what picks the appearance. */
 export type ButtonVariant = "primary" | "secondary" | "ghost";
@@ -60,6 +60,12 @@ export interface ButtonProps {
   /** The open layer's id, while it exists. Omitted when closed so the
    *  reference never dangles. */
   controls?: string;
+  /** For a button that opens a layer and has to take focus BACK when that
+   *  layer goes away. Closing unmounts whatever was focused inside it, and
+   *  focus then falls to `<body>` — from where the next Tab restarts at the
+   *  top of the page. Not a general handle on the DOM: this is the one thing
+   *  a caller cannot do from the outside. */
+  ref?: Ref<HTMLButtonElement>;
   children: ReactNode;
 }
 
@@ -74,6 +80,7 @@ export function Button({
   hasPopup,
   expanded,
   controls,
+  ref,
   children,
 }: ButtonProps) {
   const classes = ["kd-btn", `kd-btn--${variant}`];
@@ -81,6 +88,7 @@ export function Button({
   if (className) classes.push(className);
   return (
     <button
+      ref={ref}
       type="button"
       className={classes.join(" ")}
       onClick={onClick}
