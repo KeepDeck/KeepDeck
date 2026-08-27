@@ -14,7 +14,7 @@ import {
   type AccountUsage,
 } from "../../domain/usage";
 import { ledgerSeriesColors } from "../../domain/usage/chartPalette";
-import { usagePanelLeft } from "../../domain/usage/panelPlacement";
+import { useUsagePanelAnchor } from "./useUsagePanelAnchor";
 import { useSettings } from "../../app/useSettings";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useUsage } from "../../app/useUsage";
@@ -157,41 +157,10 @@ export function UsageChips({
   // Light-dismiss: any pointer press outside (or Escape) closes the panel.
   const open = openProvider !== null;
 
-  // Where the panel hangs. It is positioned inside the chip group, so the
-  // answer is an offset from the group's own left edge — the RULE is pure
-  // (`usagePanelLeft`), and all that happens here is the measuring. Re-run on
-  // every open and on resize: a chip's position moves with the window, and a
-  // panel still hanging where the chip used to be is the bug this replaced.
-  const [panelLeft, setPanelLeft] = useState<number | null>(null);
-  useEffect(() => {
-    if (openProvider === null) {
-      setPanelLeft(null);
-      return;
-    }
-    const place = () => {
-      const group = rootRef.current;
-      const chip = group?.querySelector<HTMLElement>(
-        `[data-usage-chip="${CSS.escape(openProvider)}"]`,
-      );
-      // The panel's width is the stylesheet's to decide, so it is measured
-      // rather than restated here — a second copy of that number would drift
-      // the first time the panel is resized.
-      const panel = group?.querySelector<HTMLElement>(".usage-panel");
-      if (!group || !chip || !panel) return;
-      setPanelLeft(
-        usagePanelLeft({
-          chipLeft: chip.getBoundingClientRect().left,
-          groupLeft: group.getBoundingClientRect().left,
-          panelWidth: panel.getBoundingClientRect().width,
-          viewportWidth:
-            document.documentElement.clientWidth || window.innerWidth,
-        }),
-      );
-    };
-    place();
-    window.addEventListener("resize", place);
-    return () => window.removeEventListener("resize", place);
-  }, [openProvider]);
+  // Where the panel hangs — measuring is its own job, with its own listener to
+  // keep and drop, so it lives in its own hook.
+  const panelLeft = useUsagePanelAnchor(rootRef, openProvider, providersKey);
+
   useEffect(() => {
     if (!open) return;
     // Yields to a dialog stacked over the panel, for the reason spelled out
