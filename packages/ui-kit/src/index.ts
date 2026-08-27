@@ -37,6 +37,12 @@ export {
   type TeamBadgeProps,
   type YoloBadgeProps,
 } from "./badges.tsx";
+export {
+  Button,
+  type ButtonProps,
+  type ButtonSize,
+  type ButtonVariant,
+} from "./Button.tsx";
 export { Chip, type ChipProps } from "./Chip.tsx";
 export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
 export { Combobox, fuzzyFilter } from "./Combobox.tsx";

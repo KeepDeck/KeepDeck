@@ -24,46 +24,10 @@ import type { NotificationCenter } from "../../app/notificationCenter";
 import type { UpdateAction, UpdateActionView } from "../../app/updateAction";
 import type { Contribution } from "../../plugins/registries/contributions";
 import type { TopBarActionContribution } from "@keepdeck/plugin-api";
+import { Button } from "../../ui/Button";
 import { DockIcon, GearIcon, SidebarIcon, SkillsIcon, StatsIcon } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { UsageChips } from "../usage/UsageChips";
-
-/**
- * One quiet icon control in the bar.
- *
- * Seven of the bar's nine buttons were this exact node written out seven
- * times — `type`, class, handler, tooltip, label — and the two that differ
- * differ only in carrying a label that does NOT track their tooltip (a
- * toggle's tooltip flips with its state; what it IS does not). So `label`
- * falls back to `title` and the toggles pass both.
- */
-function BarIcon({
-  title,
-  label = title,
-  onClick,
-  disabled,
-  children,
-}: {
-  title: string;
-  /** Accessible name, when it must stay put while `title` flips. */
-  label?: string;
-  onClick(): void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="bar__icon"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      aria-label={label}
-    >
-      {children}
-    </button>
-  );
-}
 
 export interface DeckBarProps {
   /** Whether the workspaces rail is hidden — the toggle's own state. */
@@ -140,13 +104,15 @@ export function DeckBar({
   return (
     <header className="deck__bar">
       <div className="deck__bar-left">
-        <BarIcon
+        <Button
+          variant="ghost"
+          size="sm"
           title={railCollapsed ? "Show workspaces" : "Hide workspaces"}
           label="Toggle workspaces panel"
           onClick={onToggleRail}
         >
           <SidebarIcon />
-        </BarIcon>
+        </Button>
         <span className="deck__brand">KeepDeck</span>
         {workspaceName !== null && (
           <span className="deck__active-ws" title={workspaceName}>
@@ -204,16 +170,20 @@ export function DeckBar({
           {version ? ` · ${version}` : ""}
         </span>
         {dock && (
-          <BarIcon
+          <Button
+            variant="ghost"
+            size="sm"
             title={dock.open ? "Hide the dock" : "Show the dock"}
             label="Toggle dock panel"
             onClick={dock.onToggle}
           >
             <DockIcon />
-          </BarIcon>
+          </Button>
         )}
         {pluginActions.map((contribution) => (
-          <BarIcon
+          <Button
+            variant="ghost"
+            size="sm"
             key={`${contribution.pluginId}:${contribution.entry.id}`}
             title={contribution.entry.title}
             onClick={() => contribution.entry.run()}
@@ -223,38 +193,44 @@ export function DeckBar({
             ) : (
               contribution.entry.title.slice(0, 1)
             )}
-          </BarIcon>
+          </Button>
         ))}
-        <BarIcon
+        <Button
+          variant="ghost"
+          size="sm"
           title="Statistics"
           label="Open statistics"
           onClick={onOpenStats}
           disabled={!canOpenDialog}
         >
           <StatsIcon />
-        </BarIcon>
+        </Button>
         {notifications && (
           <NotificationBell
             center={notifications.center}
             onOpen={notifications.onOpen}
           />
         )}
-        <BarIcon
+        <Button
+          variant="ghost"
+          size="sm"
           title="Skills"
           label="Open skills"
           onClick={onOpenSkills}
           disabled={!canOpenDialog}
         >
           <SkillsIcon />
-        </BarIcon>
-        <BarIcon
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           title="Settings"
           label="Open settings"
           onClick={onOpenSettings}
           disabled={!canOpenDialog}
         >
           <GearIcon />
-        </BarIcon>
+        </Button>
       </div>
     </header>
   );

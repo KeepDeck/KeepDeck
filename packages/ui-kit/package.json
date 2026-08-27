@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./AgentGlyph": "./src/AgentGlyph.tsx",
     "./badges": "./src/badges.tsx",
+    "./Button": "./src/Button.tsx",
     "./Chip": "./src/Chip.tsx",
     "./icons": "./src/icons.tsx",
     "./Dropdown": "./src/Dropdown.tsx",
