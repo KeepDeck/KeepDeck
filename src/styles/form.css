@@ -512,6 +512,51 @@
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
 }
 
+/* The floating list arrives instead of appearing: a layer that snaps into
+   existence reads as a glitch, and the eye loses where it came from.
+
+   Keyed to `data-placed`, not to mounting — the list spends its first frame
+   hidden while it is measured, so an entrance started at mount would play
+   against nothing and land already finished. It leans from whichever side the
+   list actually opened, so the motion points back at the control that opened
+   it. Short enough (120ms) to stay under the threshold where a menu starts
+   feeling slow to a repeat user. */
+.dropdown__menu--floating[data-placed] {
+  animation: kd-floating-in 120ms ease-out;
+}
+
+@keyframes kd-floating-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dropdown__menu--floating[data-placed][data-side="above"] {
+  animation-name: kd-floating-in-above;
+}
+
+@keyframes kd-floating-in-above {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dropdown__menu--floating[data-placed] {
+    animation: none;
+  }
+}
+
 .dropdown__option {
   display: block;
   width: 100%;

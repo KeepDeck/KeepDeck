@@ -270,6 +270,13 @@ export function FloatingListbox({
         ref={attachListRef}
         role={role}
         className={`dropdown__menu dropdown__menu--floating${className ? ` ${className}` : ""}`}
+        // Which side won, and whether a side has been chosen at all. The list
+        // spends its first frame hidden while it is measured, so an entrance
+        // keyed to mounting would play against an invisible element; keyed to
+        // this it starts when there is something to see, and can lean from
+        // the direction the list actually opened.
+        data-placed={placement ? "" : undefined}
+        data-side={placement?.side}
         style={{
           ...style,
           position: "fixed",
