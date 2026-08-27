@@ -7,6 +7,10 @@
    stylesheet in its bundle (plugins/<name>/src/styles.css), loaded after all
    of these — the same tail position the old run/files/git imports held. */
 @import "./base.css";
+/* Shared primitives before the feature areas: the vocabulary a screen is
+   built FROM, so a feature file that has a genuine one-off still wins on
+   source order. */
+@import "./button.css";
 @import "./chip.css";
 @import "./deck.css";
 @import "./rail.css";

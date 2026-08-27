@@ -1,0 +1,137 @@
+/* The shared button (@keepdeck/ui-kit Button), dressed once for every
+   consumer — host chrome and built-in plugins alike.
+
+   TWO axes, kept apart on purpose, because mixing them is how the app ended
+   up with a different button per screen: SIZE owns geometry (how tall a row
+   it sits in), VARIANT owns chrome (how loudly it asks). A primary and a
+   secondary of the same size are the same box; a small and a medium primary
+   are the same colour. Neither axis may reach into the other.
+
+   The values are not new: `md` is the dialogs' create/cancel geometry and
+   `sm` is the deck bar's, and the primary tone is the one the forms already
+   call an affirmative action. Adopting the primitive somewhere therefore
+   changes nothing about how that place looks — which is the only way a
+   primitive spreads without a redesign attached. */
+
+.kd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Disabled said ONCE. It was said five ways before (opacity .4 / .45 / .5 /
+   .55) and, in the deck bar, not at all — a refused control there looked
+   exactly like an available one. */
+.kd-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── size: geometry ───────────────────────────────────────────────── */
+
+.kd-btn {
+  font-size: 13px;
+  padding: 9px 18px;
+  border-radius: 8px;
+}
+
+.kd-btn--sm {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 6px;
+}
+
+/* ── variant: chrome ──────────────────────────────────────────────── */
+
+.kd-btn--primary {
+  border: 0;
+  background-color: #2f6f4f;
+  color: #eafff3;
+  font-weight: 500;
+}
+
+.kd-btn--primary:hover:not(:disabled) {
+  background-color: #38855f;
+}
+
+.kd-btn--secondary {
+  border: 1px solid #2a3343;
+  background-color: #161b26;
+  color: #c5c8c6;
+}
+
+.kd-btn--secondary:hover:not(:disabled) {
+  background-color: #1b2230;
+  border-color: #3a4658;
+}
+
+/* Chrome that should disappear until reached for. Its padding is symmetric
+   because what it wraps is an icon, not a label — a ghost with a text label
+   is not a control this app has. */
+.kd-btn--ghost {
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  padding: 4px;
+  border-radius: 5px;
+}
+
+.kd-btn--ghost:hover:not(:disabled) {
+  background-color: #1b2230;
+  color: #c5c8c6;
+}
+
+/* ── the menu a button opens (@keepdeck/ui-kit MenuButton) ────────── */
+
+/* The wrapper is the anchor the floating list follows; it adds no box of its
+   own, so a menu button sits in a row exactly like a plain one. */
+.kd-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The list itself reuses the floating layer's chrome (dropdown__menu), so a
+   menu and a select popup are the same surface — only their contents differ.
+   These are the ITEMS, which a listbox option is not: nothing here is
+   selected, so nothing wears a selected state. */
+.kd-menu__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kd-menu__item:hover:not([aria-disabled="true"]) {
+  background-color: #1b2230;
+}
+
+/* A refused item stays in the menu and stays reachable — it is the only place
+   the rule that refused it is written down. So it dims its LABEL and keeps its
+   reason legible; dimming the whole item would half-hide the one thing worth
+   reading on it. */
+.kd-menu__item[aria-disabled="true"] {
+  cursor: default;
+}
+
+.kd-menu__item[aria-disabled="true"] .kd-menu__label {
+  opacity: 0.5;
+}
+
+.kd-menu__refusal {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #8b93a3;
+  max-width: 34ch;
+  text-wrap: pretty;
+}

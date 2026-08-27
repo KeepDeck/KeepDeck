@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { FloatingListbox } from "./FloatingListbox";
 import { ChevronDownIcon } from "./icons";
+import { useAwayClose } from "./useAwayClose";
 
 export interface DropdownOption {
   value: string;
@@ -46,26 +47,7 @@ export function Dropdown({
   // a listbox that isn't rendered and `aria-controls` never dangles.
   const menuOpen = open && options.length > 0;
 
-  // Pointer-away closes before the outside control acts; focus-away covers
-  // keyboard Tab now that the list is portaled out of the local DOM order.
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: Event) => {
-      const target = event.target as Node;
-      if (
-        !rootRef.current?.contains(target) &&
-        !menuRef.current?.contains(target)
-      ) {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("pointerdown", away, true);
-    window.addEventListener("focusin", away, true);
-    return () => {
-      window.removeEventListener("pointerdown", away, true);
-      window.removeEventListener("focusin", away, true);
-    };
-  }, [open]);
+  useAwayClose(open, () => setOpen(false), rootRef, menuRef);
 
   const current = options.find((o) => o.value === value);
 
@@ -78,6 +60,10 @@ export function Dropdown({
         // focus is inside it, so modal layers keep their own Esc semantics.
         if (e.key === "Escape" && open) {
           e.stopPropagation();
+          // Same reason as after a pick, and it was missing here: the option
+          // holding focus is unmounted with the list, and focus falls to
+          // <body> unless it is put back first.
+          buttonRef.current?.focus();
           setOpen(false);
         }
       }}

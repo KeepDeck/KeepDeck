@@ -16,9 +16,19 @@
      that detail by @media breakpoint — so shrinking is how it behaved before
      the rule existed and nothing here relies on it keeping a fixed width. */
   flex: 0 1 auto;
-  padding: 0 8px;
-  border-color: #242a37;
-  background-color: rgba(255, 255, 255, 0.03);
+  padding: 0 7px;
+  /* FLAT: no border, no fill of its own — the plate appears under the pointer
+     and nowhere else. A pill drew a box around numbers that already read as a
+     group, and three such boxes in a 30px bar look like buttons floating on a
+     rule rather than like a reading of the fleet.
+
+     Not a one-off: this is exactly how the bar's other quiet controls behave
+     (`kd-btn--ghost`), so the strip has ONE way of saying "pressable, but not
+     shouting". What separates one account from the next is the gap and the
+     agent glyph, which always leads. */
+  border-color: transparent;
+  background: transparent;
+  border-radius: 5px;
   color: #8b93a3;
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;

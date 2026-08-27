@@ -32,6 +32,15 @@ interface WorkspacesRailProps {
   onRename(id: string, name: string): void;
   /** Move workspace `id` to `toIndex` (long-press drag reorder). */
   onReorder(id: string, toIndex: number): void;
+  /** The running build, or null until `app_info` answers.
+   *
+   * Here rather than in the deck bar: a build number is read when something
+   * has gone wrong and a report needs writing, which is a handful of times a
+   * year — it has no business in the strip that answers what to do next. But
+   * it also has no business being hidden behind a dialog, because the moment
+   * it IS wanted, hunting for it is the last thing anyone wants to do. The
+   * rail's own footer is the compromise: on screen, and out of the way. */
+  version: string | null;
 }
 
 /** Hold this long before a press turns into a reorder drag (vs. a select click). */
@@ -78,6 +87,7 @@ export function WorkspacesRail({
   onClose,
   onRename,
   onReorder,
+  version,
 }: WorkspacesRailProps) {
   // Empty commit = back to the auto name; the domain rename implements it.
   const rename = useInlineRename(onRename);
@@ -255,6 +265,12 @@ export function WorkspacesRail({
           );
         })}
       </ul>
+
+      {version !== null && (
+        <footer className="rail__foot" title={`KeepDeck ${version}`}>
+          {version}
+        </footer>
+      )}
 
       {ghost &&
         createPortal(

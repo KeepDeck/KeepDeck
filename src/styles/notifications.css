@@ -1,5 +1,7 @@
-/* Notification bell + anchored panel (components/notifications/). The bell
-   sits among the top bar's .bar__icon cluster; the panel drops below it. */
+/* Notification bell + anchored panel (components/notifications/). The bell is
+   one of the bar's quiet controls (a ghost Button, like its neighbours); what
+   is here is only what makes it a BELL — the badge it carries and the panel
+   that drops below it. */
 
 .bell {
   position: relative;

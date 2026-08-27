@@ -6,10 +6,15 @@
 }
 
 /* Top bar */
+/* Three zones, not two halves. A grid rather than a flex row because the
+   middle has to be centred against the WINDOW, not against whatever the two
+   sides happen to weigh — `1fr auto 1fr` gives the outer zones equal claim
+   and leaves the centre where the eye expects it, however long the workspace
+   name or however many icons the right-hand groups hold. */
 .deck__bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   padding: 0 12px;
   height: 36px;
   flex: none;
@@ -17,35 +22,31 @@
   background-color: #0e121a;
 }
 
+/* The outer zones are runs of groups, seamed the same way — so a boundary
+   means the same thing wherever it appears in the strip. */
 .deck__bar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  justify-self: start;
+  min-width: 0;
 }
 
-.bar__icon {
-  display: inline-flex;
+/* The middle zone holds one thing and never grows into its neighbours: the
+   grid's `auto` column is only as wide as the chips are, and the chips
+   already shrink by their own rule. */
+.deck__bar-center {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #6b7280;
-  cursor: pointer;
+  gap: 8px;
+  justify-self: center;
+  min-width: 0;
 }
 
-.bar__icon:hover {
-  background-color: #1b2230;
-  color: #c5c8c6;
-}
 
-.deck__brand {
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-/* Active workspace, surfaced in the bar only while the rail is collapsed ([U7]). */
+/* Where you are — shown only while the rail is hidden, which is also why it
+   carries no leading separator: there is nothing in front of it to come
+   apart from. */
 .deck__active-ws {
   font-size: 13px;
   color: #8b93a3;
@@ -55,16 +56,40 @@
   white-space: nowrap;
 }
 
-.deck__active-ws::before {
-  content: "·";
-  margin-right: 10px;
-  color: #3b4658;
-}
 
+/* Groups, not one run. The bar answers two questions — what to do, where to
+   go — and the eye needs to see that before it reads any control: inside a
+   group the gap is tight, between groups it is wide enough to read as a
+   break. The seam is drawn, not merely spaced, because gap alone stops
+   reading as a boundary the moment a group holds one item. */
 .deck__bar-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  justify-self: end;
+}
+
+.bar__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* The left half holds words, not icons: two pixels between a switch and a
+   name reads as a collision. Icons can sit tight because their own padding
+   already parts them. */
+.deck__bar-left .bar__group {
+  gap: 8px;
+}
+
+/* The seam sits between two groups, and the air around it is what makes it
+   read as a boundary rather than as decoration. Eight on each side: enough to
+   part the groups, little enough that the whole run still reads as one strip.
+   It was eighteen, which put thirty-six pixels between neighbours and made
+   four icons look like four unrelated things. */
+.bar__group + .bar__group {
+  padding-left: 8px;
+  border-left: 1px solid #1c2230;
 }
 
 .bar__action {
@@ -88,22 +113,23 @@
   cursor: default;
 }
 
-/* The "Update ready" affordance: the one green action in the bar — an update
- * sits downloaded and verified, and a single click restarts into it. */
-.bar__action--update {
-  border-color: #2c5136;
-  color: var(--kd-ok);
-}
-
-.bar__action--update:hover:not(:disabled) {
-  background-color: #16241b;
-  border-color: var(--kd-ok);
-}
 
 .deck__status {
   font-size: 12px;
   color: #6b7280;
   font-variant-numeric: tabular-nums;
+}
+
+/* An update sits downloaded and verified, and a single press restarts into
+   it — the one thing in the bar worth a colour of its own. */
+.bar__update {
+  border-color: #2c5136;
+  color: var(--kd-ok);
+}
+
+.bar__update:hover:not(:disabled) {
+  background-color: #16241b;
+  border-color: var(--kd-ok);
 }
 
 /* Body: workspaces rail + agent grid */

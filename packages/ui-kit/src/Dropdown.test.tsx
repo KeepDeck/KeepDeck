@@ -149,4 +149,23 @@ describe("Dropdown", () => {
     expect(menu()).toBeNull();
     expect(seen).not.toHaveBeenCalled();
   });
+
+  it("keeps focus on the trigger after Escape from an option", () => {
+    // The half of the going-away discipline that was missing here while a
+    // pick already had it: Escape unmounts the focused option just the same,
+    // and focus falls to <body> unless it is put back.
+    mount();
+    act(() => button().click());
+    const option = document.querySelectorAll<HTMLButtonElement>(
+      '[role="option"]',
+    )[1];
+    act(() => option.focus());
+    act(() => {
+      option.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(button());
+  });
 });

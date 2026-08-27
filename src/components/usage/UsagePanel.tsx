@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { AgentInfo } from "../../domain/agents";
 import type { UsageDisplay } from "../../domain/settings";
 import {
@@ -34,6 +35,7 @@ export function UsagePanel({
   seriesColors,
   onOpenStats,
   onClose,
+  style,
 }: {
   providers: AgentInfo[];
   openProvider: string;
@@ -45,6 +47,10 @@ export function UsagePanel({
   seriesColors: ReadonlyMap<string, string>;
   onOpenStats(): void;
   onClose(): void;
+  /** Placement handed down by the owner: the panel hangs from the chip that
+   *  opened it, and only the owner can measure where that chip is. Absent on
+   *  the first frame, before the measurement has been taken. */
+  style?: CSSProperties;
 }) {
   return (
     <div
@@ -52,6 +58,7 @@ export function UsagePanel({
       id="usage-panel"
       role="group"
       aria-label="Account limits"
+      style={style}
     >
       <div className="usage-panel__head">
         <span className="usage-panel__title">Account limits</span>

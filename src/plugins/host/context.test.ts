@@ -236,6 +236,68 @@ describe("buildPluginContext", () => {
     ).toThrow("settings");
   });
 
+  it("refuses a second LIVE registration under a name already taken", () => {
+    // The chrome keys its lists by plugin and contribution id, so two live
+    // entries under one name are two elements React cannot tell apart.
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    const tab = { id: "t", label: "T", Component: () => null };
+    const handle = ctx.ui.registerDockTab(tab);
+    expect(() => ctx.ui.registerDockTab(tab)).toThrow(
+      'contribution already registered: dockTabs "t"',
+    );
+    expect(registries.dockTabs.list()).toHaveLength(1);
+
+    // Disposing frees the name again — re-registering as a plugin's own state
+    // changes is ordinary, and by then there is nothing to collide with.
+    handle.dispose();
+    expect(registries.dockTabs.list()).toEqual([]);
+    ctx.ui.registerDockTab(tab);
+    expect(registries.dockTabs.list()).toHaveLength(1);
+  });
+
+  it("does not hold a name for a registration that threw", () => {
+    // The refusal comes from INSIDE the registration — an empty title is
+    // caught by the title gate, after the name has been taken. Held on to,
+    // the plugin's corrected second attempt would be refused against an empty
+    // registry, and only a restart would clear it.
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(
+      manifest("p", { contributes: { topBarActions: [{ id: "a", label: "A" }] } }),
+      "builtin",
+      registries,
+      deps,
+    );
+
+    expect(() =>
+      ctx.ui.registerTopBarAction({ id: "a", title: "  ", run() {} }),
+    ).toThrow('contribution has no title: topBarActions "a"');
+    expect(registries.topBarActions.list()).toEqual([]);
+
+    // The name is free, so the fixed registration goes through.
+    ctx.ui.registerTopBarAction({ id: "a", title: "Run", run() {} });
+    expect(registries.topBarActions.list()).toHaveLength(1);
+  });
+
+  it("frees every claimed name when the plugin is swept", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const first = buildPluginContext(declaring("p"), "builtin", registries, deps);
+    first.ctx.ui.registerDockTab({ id: "t", label: "T", Component: () => null });
+    first.disposeAll();
+
+    // A fresh activation is a fresh context, so a reload cannot be refused by
+    // the names its own previous life was holding.
+    const second = buildPluginContext(declaring("p"), "builtin", registries, deps);
+    expect(() =>
+      second.ctx.ui.registerDockTab({ id: "t", label: "T", Component: () => null }),
+    ).not.toThrow();
+    expect(registries.dockTabs.list()).toHaveLength(1);
+  });
+
   it("agent registration passes the same declaration gate", () => {
     const registries = createContributionRegistries();
     const { deps } = fakeDeps();

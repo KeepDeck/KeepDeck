@@ -25,6 +25,11 @@ export interface FloatingListboxPlacementInput {
   anchorRect: FloatingListboxAnchorRect;
   /** The list's full, un-clipped content height. */
   listHeight: number;
+  /** The width the content wants, when the caller is not matching the anchor.
+   *  Zero (the default) keeps the anchor's width, which is what a field-shaped
+   *  anchor needs; a small anchor — a `+` button opening a menu — would
+   *  otherwise clip every label to its own few pixels. */
+  contentWidth?: number;
   viewportWidth: number;
   viewportHeight: number;
   gap?: number;
@@ -41,6 +46,33 @@ export interface FloatingListboxPlacement {
 }
 
 /**
+ * How wide the list ends up: never narrower than its anchor, never wider than
+ * the viewport leaves room for.
+ *
+ * Said once because width decides wrapping, wrapping decides height, and the
+ * height is measured before the placement is asked for. Computing it twice —
+ * once un-clamped to measure against, once clamped to place with — measures
+ * the list at a width it will not be drawn at, and the first change to the
+ * clamp turns that from harmless into a menu that jumps on its second frame.
+ */
+export function floatingListboxWidth({
+  anchorWidth,
+  contentWidth = 0,
+  viewportWidth,
+  viewportMargin = FLOATING_LISTBOX_VIEWPORT_MARGIN,
+}: {
+  anchorWidth: number;
+  contentWidth?: number;
+  viewportWidth: number;
+  viewportMargin?: number;
+}): number {
+  return Math.min(
+    Math.max(0, anchorWidth, contentWidth),
+    Math.max(0, viewportWidth - viewportMargin * 2),
+  );
+}
+
+/**
  * Place a listbox against its anchor in viewport coordinates. The menu keeps
  * the anchor's width and prefers the space below it. If its content would not
  * fit there and the upper side has more room, it flips above; whichever side
@@ -49,13 +81,19 @@ export interface FloatingListboxPlacement {
 export function calculateFloatingListboxPlacement({
   anchorRect,
   listHeight,
+  contentWidth = 0,
   viewportWidth,
   viewportHeight,
   gap = FLOATING_LISTBOX_GAP,
   viewportMargin = FLOATING_LISTBOX_VIEWPORT_MARGIN,
   maxHeight = FLOATING_LISTBOX_MAX_HEIGHT,
 }: FloatingListboxPlacementInput): FloatingListboxPlacement {
-  const width = Math.max(0, anchorRect.width);
+  const width = floatingListboxWidth({
+    anchorWidth: anchorRect.width,
+    contentWidth,
+    viewportWidth,
+    viewportMargin,
+  });
   const availableBelow = Math.max(
     0,
     viewportHeight - viewportMargin - anchorRect.bottom - gap,
@@ -104,6 +142,17 @@ export interface FloatingListboxProps
   anchorRef: RefObject<HTMLElement | null>;
   /** Optional access to the actual portaled `<ul>`. */
   listRef?: Ref<HTMLUListElement>;
+  /** What the list IS, which this component has no opinion about: following
+   *  an anchor, escaping a clipping ancestor and flipping when the viewport
+   *  runs out are the same work for a list of states and a list of actions.
+   *  Narrow on purpose — the two roles that need this placement, not any
+   *  string. Defaults to the listbox every earlier caller relies on. */
+  role?: "listbox" | "menu";
+  /** Where the list's width comes from. `anchor` (the default) matches the
+   *  control, which is right when the anchor is a field the list stands in
+   *  for. `content` sizes to the widest item instead — the only honest answer
+   *  when the anchor is a small button that opens a list of longer labels. */
+  widthFrom?: "anchor" | "content";
 }
 
 function samePlacement(
@@ -131,6 +180,8 @@ export function FloatingListbox({
   className,
   children,
   style,
+  role = "listbox",
+  widthFrom = "anchor",
   ...listProps
 }: FloatingListboxProps) {
   const ownListRef = useRef<HTMLUListElement | null>(null);
@@ -174,21 +225,35 @@ export function FloatingListbox({
     if (!anchor || !list) return;
 
     const anchorRect = anchor.getBoundingClientRect();
-    // Width affects wrapping and therefore scrollHeight. Apply the anchor
-    // width before measuring so even the first layout is based on the menu's
-    // real geometry (including in browsers without ResizeObserver).
-    list.style.width = `${Math.max(0, anchorRect.width)}px`;
+    // What the content wants, measured before anything is imposed on it —
+    // and only when the caller asked, so a field-anchored list never pays a
+    // second layout for an answer it will not use.
+    let contentWidth = 0;
+    if (widthFrom === "content") {
+      list.style.width = "max-content";
+      contentWidth = list.getBoundingClientRect().width;
+    }
+    const viewportWidth =
+      document.documentElement.clientWidth || window.innerWidth;
+    // Width affects wrapping and therefore scrollHeight, so the list is
+    // measured at the width it will actually be drawn at — the SAME rule the
+    // placement will apply, not an un-clamped stand-in for it.
+    list.style.width = `${floatingListboxWidth({
+      anchorWidth: anchorRect.width,
+      contentWidth,
+      viewportWidth,
+    })}px`;
     const listRect = list.getBoundingClientRect();
     const next = calculateFloatingListboxPlacement({
       anchorRect,
       listHeight: Math.max(list.scrollHeight, listRect.height),
-      viewportWidth:
-        document.documentElement.clientWidth || window.innerWidth,
+      contentWidth,
+      viewportWidth,
       viewportHeight:
         document.documentElement.clientHeight || window.innerHeight,
     });
     setPlacement((current) => (samePlacement(current, next) ? current : next));
-  }, [anchorRef]);
+  }, [anchorRef, widthFrom]);
 
   useLayoutEffect(() => {
     const anchor = anchorRef.current;
@@ -236,8 +301,15 @@ export function FloatingListbox({
       <ul
         {...listProps}
         ref={attachListRef}
-        role="listbox"
+        role={role}
         className={`dropdown__menu dropdown__menu--floating${className ? ` ${className}` : ""}`}
+        // Which side won, and whether a side has been chosen at all. The list
+        // spends its first frame hidden while it is measured, so an entrance
+        // keyed to mounting would play against an invisible element; keyed to
+        // this it starts when there is something to see, and can lean from
+        // the direction the list actually opened.
+        data-placed={placement ? "" : undefined}
+        data-side={placement?.side}
         style={{
           ...style,
           position: "fixed",

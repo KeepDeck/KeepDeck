@@ -105,9 +105,25 @@ export function Tooltip({
       }}
       onMouseLeave={() => {
         cancelEnter();
-        // A focus-opened tip belongs to the FOCUS: brushing the cursor
-        // across the anchor must not steal it from the keyboard.
+        // A focus-opened tip survives the CURSOR LEAVING: brushing past the
+        // anchor on the way somewhere else must not close what the keyboard
+        // opened. Narrowly that, and not "focus owns the tip" — a press on
+        // the same anchor still closes it, because a press is a thing the
+        // user meant to do and a passing cursor is not.
         if (anchorRef.current !== document.activeElement) hide();
+      }}
+      // A press ends the question the tip was answering. It stays on the
+      // anchor after a click — the pointer has not moved — and whatever the
+      // press opened arrives UNDER it: a menu button's own menu came up
+      // behind its explanation. Nothing the tip could say is worth covering
+      // the thing the user just asked for.
+      //
+      // On pointerdown rather than click, so the tip is gone before the menu
+      // paints, and in the capture phase so a child that stops the event
+      // (a button minding its own press) cannot leave the card standing.
+      onPointerDownCapture={() => {
+        cancelEnter();
+        hide();
       }}
     >
       {children}

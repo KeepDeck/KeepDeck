@@ -45,6 +45,21 @@ describe("Tooltip", () => {
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 
+  it("gets out of the way when the anchor is pressed", () => {
+    // The failure this exists for: a menu button's own menu came up BEHIND
+    // its explanation. The pointer has not moved, so nothing else was going
+    // to dismiss the card, and it covered the thing the press had just asked
+    // for.
+    const host = render();
+    const anchor = host.querySelector(".kd-tip__anchor")!;
+    over(anchor, "mouseover");
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+    act(() => {
+      anchor.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    });
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
   it("keeps ONE tip open — a second anchor steals the spotlight", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

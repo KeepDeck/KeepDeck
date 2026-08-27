@@ -14,6 +14,23 @@
   padding: 12px 12px 8px;
 }
 
+/* The build number, parked at the bottom of the rail.
+   `margin-top: auto` pins it to the floor however short the workspace list
+   is — the rail is a column, and this is the only thing in it that belongs
+   at the end rather than after the last item. Quiet on purpose: it is read
+   a few times a year, when something has gone wrong and a report needs
+   writing, and it should cost nothing on every other day. */
+.rail__foot {
+  margin-top: auto;
+  padding: 8px 12px 10px;
+  font-size: 11px;
+  color: #4b5362;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .rail__title {
   font-size: 11px;
   letter-spacing: 0.08em;

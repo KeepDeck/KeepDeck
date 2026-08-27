@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BellIcon } from "@keepdeck/ui-kit/icons";
+import { Button } from "../../ui/Button";
 import type { NotificationCenter } from "../../app/notificationCenter";
 import { useNotifications } from "../../app/useNotifications";
 import { unreadCount, type Notification } from "../../domain/notifications";
@@ -57,16 +58,17 @@ export function NotificationBell({ center, onOpen }: NotificationBellProps) {
 
   return (
     <span className="bell" ref={rootRef}>
-      <button
+      <Button
         ref={bellButtonRef}
-        type="button"
-        className="bar__icon bell__button"
+        variant="ghost"
+        size="sm"
+        className="bell__button"
         onClick={() => setOpen((o) => !o)}
         title="Notifications"
-        aria-label={
+        label={
           unread > 0 ? `Notifications (${unread} unread)` : "Notifications"
         }
-        aria-expanded={open}
+        expanded={open}
       >
         <BellIcon />
         {unread > 0 && (
@@ -74,7 +76,7 @@ export function NotificationBell({ center, onOpen }: NotificationBellProps) {
             {unread > 99 ? "99+" : unread}
           </span>
         )}
-      </button>
+      </Button>
       {open && (
         // Not role="menu": these are plain buttons in a disclosure, with no
         // menuitem semantics or roving focus — a "menu" announcement would

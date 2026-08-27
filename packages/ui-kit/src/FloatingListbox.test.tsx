@@ -41,6 +41,46 @@ describe("calculateFloatingListboxPlacement", () => {
     });
   });
 
+  it("widens past a small anchor when the content asks for it", () => {
+    // The bug this fixes: a `+` button opening a menu clipped every label to
+    // the button's own few pixels, so "Agent" read as "Ag".
+    expect(
+      calculateFloatingListboxPlacement({
+        anchorRect: rect({ width: 28 }),
+        listHeight: 60,
+        contentWidth: 160,
+        viewportWidth: 600,
+        viewportHeight: 500,
+      }).width,
+    ).toBe(160);
+  });
+
+  it("never narrows below the anchor to please the content", () => {
+    // A field-shaped anchor still stands in for its list: matching it is the
+    // point, and a short option must not shrink the popup under the control.
+    expect(
+      calculateFloatingListboxPlacement({
+        anchorRect: rect(),
+        listHeight: 60,
+        contentWidth: 40,
+        viewportWidth: 600,
+        viewportHeight: 500,
+      }).width,
+    ).toBe(200);
+  });
+
+  it("refuses a content width the viewport cannot hold", () => {
+    expect(
+      calculateFloatingListboxPlacement({
+        anchorRect: rect({ width: 28 }),
+        listHeight: 60,
+        contentWidth: 5000,
+        viewportWidth: 600,
+        viewportHeight: 500,
+      }).width,
+    ).toBe(584);
+  });
+
   it("keeps the list inside the horizontal viewport margin", () => {
     expect(
       calculateFloatingListboxPlacement({

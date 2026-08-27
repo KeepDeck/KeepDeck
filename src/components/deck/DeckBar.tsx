@@ -1,0 +1,317 @@
+/**
+ * The deck's top bar: the one strip of chrome the window carries.
+ *
+ * It lived inline in `App`, which is why it grew the way it did — a bar with
+ * no file of its own has no place to state what belongs in it, and every
+ * addition was one more node in a 150-line run.
+ *
+ * ONE strip, deliberately. State briefly lived in a second one along the
+ * bottom, and the arithmetic of that was worse than the problem it solved:
+ * the window went from one occupied edge to two, and the bottom edge had been
+ * free except when the minimized tray needed it. Moving a thing is a saving
+ * only if the place it lands was already paid for.
+ *
+ * So the reckoning ran the other way. The pane count was already answered by
+ * the rail's per-workspace numbers and by the panes being on screen — it is
+ * gone rather than relocated. The build number went to the rail's own footer,
+ * which is chrome that already exists. Quota stayed, because a subscription
+ * running out is the one fact here that changes what you do next.
+ *
+ * The left half says where you are and what you have; the right half, what to
+ * do and where to go. Two halves of one strip rather than two strips.
+ *
+ * WHAT IT DOES NOT DECIDE, on purpose: whether a control is worth showing,
+ * and what a press ultimately does. Both belong to the composition root —
+ * `dock`, `notifications`, `onAddTeam` and `updateAction` arrive null when
+ * their control has no business existing, and every action is a callback. So
+ * the bar itself reaches for no manager, no store and no router; it draws
+ * what it is handed. That is the whole seam, and it is what lets a change to
+ * the ARRANGEMENT stay inside this file.
+ *
+ * The two LIVE READINGS are the exception, and a deliberate one: the usage
+ * chips and the notification bell take their own data, per the convention the
+ * settings sections state outright ("sections talk to the settings store
+ * themselves"). The line the app draws is by KIND of data, not by taste — the
+ * app's model (deck, workspaces, agents, plugins) arrives through the
+ * controller as ports, and local stores are consumed where they are used. A
+ * bar that had to be handed four usage hooks would put them back in App.tsx,
+ * which is where they came from.
+ */
+import type { AgentInfo } from "../../domain/agents";
+import type { Notification } from "../../domain/notifications";
+import type { NotificationCenter } from "../../app/notificationCenter";
+import type { UpdateAction, UpdateActionView } from "../../app/updateAction";
+import type { Contribution } from "../../plugins/registries/contributions";
+import type { TopBarActionContribution } from "@keepdeck/plugin-api";
+import { fitBarGroup, PLUGIN_ACTION_SLOTS } from "../../domain/deck/topBar";
+import { Button } from "../../ui/Button";
+import { MenuButton, type MenuAction } from "../../ui/MenuButton";
+import { BAR_TIP_DELAY_MS, TipButton } from "../../ui/TipButton";
+import { Tooltip } from "../../ui/Tooltip";
+import { DockIcon, GearIcon, SidebarIcon, SkillsIcon, StatsIcon } from "../AppIcons";
+import { NotificationBell } from "../notifications/NotificationBell";
+import { UsageChips } from "../usage/UsageChips";
+
+export interface DeckBarProps {
+  /** Whether the workspaces rail is hidden — the toggle's own state. */
+  railCollapsed: boolean;
+  onToggleRail(): void;
+  /** The active workspace's name, or null when the rail is already showing it
+   *  (or nothing is active). The bar does not re-derive that: an open rail
+   *  highlights the active workspace two centimetres below, and repeating it
+   *  here is a second answer to a question nobody asked twice. */
+  workspaceName: string | null;
+
+  agents: AgentInfo[];
+  /** Agent ids with a pane in the deck — the roster the usage chips stand for. */
+  usageLiveAgents: ReadonlySet<string>;
+
+  /** What the update control says and does, or null when there is no update
+   *  to speak of. Transient by nature, so it costs no permanent room. */
+  updateAction: UpdateActionView | null;
+  onUpdateAction(action: UpdateAction): void;
+
+  canAddAgent: boolean;
+  /** The add control's tooltip, which is also where a refusal is explained. */
+  addAgentTitle: string;
+  onAddAgent(): void;
+
+  /** Opens a NEW team, or null while the teams experiment is off or no
+   *  workspace is active. */
+  onAddTeam: (() => void) | null;
+
+  /** The dock toggle, or null when no plugin contributes a dock tab. */
+  dock: { open: boolean; onToggle(): void } | null;
+
+  pluginActions: readonly Contribution<TopBarActionContribution>[];
+
+  /** False while a transaction or another dialog owns the modal layer. */
+  canOpenDialog: boolean;
+  onOpenStats(): void;
+  onOpenSkills(): void;
+  onOpenSettings(): void;
+
+  /** The notification bell, or null when notifications are off or delegated
+   *  to the system. */
+  notifications: {
+    center: NotificationCenter;
+    onOpen(notification: Notification): void;
+  } | null;
+}
+
+export function DeckBar({
+  railCollapsed,
+  onToggleRail,
+  workspaceName,
+  agents,
+  usageLiveAgents,
+  updateAction,
+  onUpdateAction,
+  canAddAgent,
+  addAgentTitle,
+  onAddAgent,
+  onAddTeam,
+  dock,
+  pluginActions,
+  canOpenDialog,
+  onOpenStats,
+  onOpenSkills,
+  onOpenSettings,
+  notifications,
+}: DeckBarProps) {
+  // The ways to create, in the order they are offered. Adding an agent is
+  // always one of them; starting a team joins it when the deck says so.
+  const createActions: MenuAction[] = [
+    {
+      id: "agent",
+      label: "Agent",
+      onSelect: onAddAgent,
+      disabled: !canAddAgent,
+      refusal: addAgentTitle,
+    },
+  ];
+  if (onAddTeam) {
+    createActions.push({ id: "team", label: "Team", onSelect: onAddTeam });
+  }
+  // The plugin group has a ceiling; whatever passes it folds into a menu, so
+  // the bar stops growing with the number of plugins installed.
+  const { shown: pluginShown, overflow: pluginOverflow } = fitBarGroup(
+    pluginActions,
+    PLUGIN_ACTION_SLOTS,
+  );
+  return (
+    <header className="deck__bar">
+      <div className="deck__bar-left">
+        {/* Who and where: the rail's own switch, the app, the project. */}
+        <div className="bar__group">
+          <TipButton
+            variant="ghost"
+            size="sm"
+            tip={railCollapsed ? "Show workspaces" : "Hide workspaces"}
+            label="Toggle workspaces panel"
+            onClick={onToggleRail}
+          >
+            <SidebarIcon />
+          </TipButton>
+          {workspaceName !== null && (
+            <span className="deck__active-ws">{workspaceName}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Quota sits in the MIDDLE, in its own zone.
+          Pinned left it landed directly above the rail's column and read as
+          the rail's own heading; pinned right it queued behind the verbs and
+          became one more thing to sort. The centre belongs to nothing else,
+          so a reading of the fleet can hold it without borrowing meaning from
+          a neighbour. True centring needs a grid: with a flex row the middle
+          only looks centred while the two sides happen to match. */}
+      <div className="deck__bar-center">
+        <UsageChips
+          agents={agents}
+          liveAgents={usageLiveAgents}
+          onOpenStats={onOpenStats}
+        />
+        {updateAction && (
+          <Tooltip tip={updateAction.title} delayMs={BAR_TIP_DELAY_MS}>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="bar__update"
+              onClick={() => onUpdateAction(updateAction.action)}
+              disabled={updateAction.disabled}
+              label={updateAction.label}
+            >
+              {updateAction.label}
+            </Button>
+          </Tooltip>
+        )}
+      </div>
+      <div className="deck__bar-right">
+        {/* CREATE — the bar's one affirmative act, and the only filled control
+            on it. Adding an agent and starting a team are the same kind of
+            thing (deciding who works here), so they are one control with two
+            ways, and a third way later costs a menu line rather than another
+            button in the run. A menu of ONE would only put a click in front
+            of the app's commonest action, so a lone way collapses back to a
+            plain button. */}
+        <div className="bar__group">
+          {createActions.length === 1 ? (
+            <TipButton
+              variant="primary"
+              size="sm"
+              onClick={createActions[0].onSelect}
+              disabled={createActions[0].disabled}
+              tip={createActions[0].refusal ?? "Add an agent"}
+              label="Add an agent"
+            >
+              + {createActions[0].label}
+            </TipButton>
+          ) : (
+            <Tooltip
+              tip="Add an agent or start a team"
+              delayMs={BAR_TIP_DELAY_MS}
+            >
+              <MenuButton
+                variant="primary"
+                size="sm"
+                actions={createActions}
+                ariaLabel="Create"
+              >
+                + ▾
+              </MenuButton>
+            </Tooltip>
+          )}
+        </div>
+
+        {/* PANELS — what to show and hide. Nothing here changes the deck; it
+            changes what you can see of it, which is its own kind of act. */}
+        {(dock || pluginShown.length > 0 || pluginOverflow.length > 0) && (
+          <div className="bar__group">
+            {dock && (
+              <TipButton
+                variant="ghost"
+                size="sm"
+                tip={dock.open ? "Hide the dock" : "Show the dock"}
+                label="Toggle dock panel"
+                onClick={dock.onToggle}
+              >
+                <DockIcon />
+              </TipButton>
+            )}
+            {pluginShown.map((contribution) => (
+              <TipButton
+                variant="ghost"
+                size="sm"
+                key={`${contribution.pluginId}:${contribution.entry.id}`}
+                tip={contribution.entry.title}
+                onClick={() => contribution.entry.run()}
+              >
+                {contribution.entry.Icon ? (
+                  <contribution.entry.Icon />
+                ) : (
+                  contribution.entry.title.slice(0, 1)
+                )}
+              </TipButton>
+            ))}
+            {pluginOverflow.length > 0 && (
+              <Tooltip tip="More plugin actions" delayMs={BAR_TIP_DELAY_MS}>
+                <MenuButton
+                  variant="ghost"
+                  size="sm"
+                  ariaLabel="More plugin actions"
+                  actions={pluginOverflow.map((contribution) => ({
+                    id: `${contribution.pluginId}:${contribution.entry.id}`,
+                    label: contribution.entry.title,
+                    onSelect: () => contribution.entry.run(),
+                  }))}
+                >
+                  ⋯
+                </MenuButton>
+              </Tooltip>
+            )}
+          </div>
+        )}
+
+        {/* GO — places to be, not things to do. All one weight, because
+            ranking a settings dialog above a skills library is a claim
+            nobody can make on the user's behalf. */}
+        <div className="bar__group">
+          <TipButton
+            variant="ghost"
+            size="sm"
+            tip="Open statistics"
+            onClick={onOpenStats}
+            disabled={!canOpenDialog}
+          >
+            <StatsIcon />
+          </TipButton>
+          {notifications && (
+            <NotificationBell
+              center={notifications.center}
+              onOpen={notifications.onOpen}
+            />
+          )}
+          <TipButton
+            variant="ghost"
+            size="sm"
+            tip="Open skills"
+            onClick={onOpenSkills}
+            disabled={!canOpenDialog}
+          >
+            <SkillsIcon />
+          </TipButton>
+          <TipButton
+            variant="ghost"
+            size="sm"
+            tip="Open settings"
+            onClick={onOpenSettings}
+            disabled={!canOpenDialog}
+          >
+            <GearIcon />
+          </TipButton>
+        </div>
+      </div>
+    </header>
+  );
+}

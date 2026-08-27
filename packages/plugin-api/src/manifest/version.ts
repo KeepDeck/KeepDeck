@@ -8,6 +8,20 @@
  * Independent of the app version, and independent of `@keepdeck/plugin-api`'s
  * package.json version (that one is just an npm semver so the workspace
  * resolves the package). This is the load-bearing one.
+ *
+ * WHAT DOES NOT MOVE IT: the host getting STRICTER about something the
+ * contract already required. The manifest gate has always thrown for an
+ * undeclared contribution without a revision behind it, and the number is a
+ * floor for what a plugin may CALL, not a record of how forgiving the host was
+ * on any given day. Such changes are recorded here in prose instead, so an
+ * author reading a new refusal finds out why:
+ *
+ *   under 37 — a contributed action's `title` must be non-empty (it is the
+ *     button's only name, and a blank one drew a control nobody could read or
+ *     describe), a long one is trimmed to a label's length, and one id may
+ *     hold only one LIVE registration at a time (two would collide in the
+ *     chrome's own keys). All three are refusals at registration: the plugin
+ *     lands `failed` and the message names the contribution.
  */
 export const API_VERSION = 37; // 37: + the mail surface an agent's plugin needs to carry teammate messages — AgentStatus.renderMail (turn waiting mail into what this CLI's hook must print), AgentStatus.wake ("terminal" | "bridge": how the deck nudges this pane into a turn), DeliverableMail (with `standing`, the host's answer to context-vs-traffic so no plugin re-derives it), MailReplyInput (with cliVersion, the CLI's own `--version`, so a renderer can speak the hook-output schema its RELEASE accepts), MailReplyRenderer, and frameTeammateMail (the one wording of the promise that these are another agent's words); 36: + AgentStatusEvent "context-compacted" (the CLI rebuilt its context; a recorded failure is no longer current); 35: + AgentStatusEvent "agent-turn-start"/"agent-turn-end"/"agent-turns-cleared" (a turn running alongside the main thread — subagents, teammates); 34: + AgentStatusEvent "parked" (a turn the CLI closed while work it started keeps running); 33: commands drop `destructive` (its only consumer was an MCP tool annotation whose effect was the client's); 32: + injected MCP servers (SpawnPlanInput.mcp); 31: + AgentContribution.status (turn-lifecycle edges: AgentStatus/StatusNormalizer/AgentStatusEvent); 30: static CLI agent `features` become the single functional-support declaration; 29: UsageTailFormat adds Claude transcript usage; 28: agents contribution summary gains an optional static `bin` (pre-activation availability); 27: + AgentContribution.remote + SpawnPlanInput.target (remote targets — a pane's agent runs against a remote nativeServer endpoint); 26: + clipboard service (PluginClipboard) with clipboardWrite/clipboardRead capabilities; 25: usage capabilities split into paneTelemetry/accountLimits; PaneUsage sequence; 24: + fork.plan hook, fsWrite + sqliteReadonly capabilities (PluginFsWrite/PluginSqlite services), AgentContribution.history discovery, FsEntry.mtime; 23: + env defaults (SpawnPlanOutput.envDefaults); 22: + staged shared skills (SpawnPlanInput.skills)
 

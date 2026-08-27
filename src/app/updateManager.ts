@@ -253,6 +253,21 @@ export async function restartToUpdate(): Promise<void> {
   }
 }
 
+/** The phases in which a found update is in play — the ones [`isFoundUpdate`]
+ * answers true for, named so a reader that has already asked can switch over
+ * exactly them. Without it a downstream switch needs a `default` arm, and a
+ * `default` is precisely what stops the compiler from finding that reader
+ * when a phase is added. */
+export type FoundUpdatePhase =
+  | "available"
+  | "downloading"
+  | "ready"
+  | "discarding"
+  | "installing";
+
+/** An update state narrowed to a phase where an update is in play. */
+export type FoundUpdateState = UpdateState & { phase: FoundUpdatePhase };
+
 /** Whether a found update is in play — discovery through every action
  * (download, install, discard) until Dismiss clears it back to `idle`. Shared
  * by the settings changelog gate and the bar badge. The switch is exhaustive
@@ -260,8 +275,12 @@ export async function restartToUpdate(): Promise<void> {
  * compile error here and at every other no-`default` reader (see
  * `describeState`), so this predicate can't silently drift the way an inline
  * `||` chain did. Sibling readers that keep a `default` (e.g. `actions`) are
- * NOT compiler-checked — audit those by hand for a new phase. */
-export function isFoundUpdate(state: UpdateState): boolean {
+ * NOT compiler-checked — audit those by hand for a new phase.
+ *
+ * A type predicate, not a bare boolean: callers that go on to decide what a
+ * found update SHOWS get the narrowed phase, so their own switch is
+ * exhaustive over the five and no `default` hides the sixth. */
+export function isFoundUpdate(state: UpdateState): state is FoundUpdateState {
   switch (state.phase) {
     case "available":
     case "downloading":
