@@ -40,11 +40,6 @@
   color: #c5c8c6;
 }
 
-.deck__brand {
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
 /* Active workspace, surfaced in the bar only while the rail is collapsed ([U7]). */
 .deck__active-ws {
   font-size: 13px;
@@ -61,10 +56,26 @@
   color: #3b4658;
 }
 
+/* Groups, not one run. The bar answers two questions — what to do, where to
+   go — and the eye needs to see that before it reads any control: inside a
+   group the gap is tight, between groups it is wide enough to read as a
+   break. The seam is drawn, not merely spaced, because gap alone stops
+   reading as a boundary the moment a group holds one item. */
 .deck__bar-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 18px;
+}
+
+.bar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bar__group + .bar__group {
+  padding-left: 18px;
+  border-left: 1px solid #1c2230;
 }
 
 .bar__action {

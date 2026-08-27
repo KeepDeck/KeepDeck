@@ -104,6 +104,12 @@ export interface FloatingListboxProps
   anchorRef: RefObject<HTMLElement | null>;
   /** Optional access to the actual portaled `<ul>`. */
   listRef?: Ref<HTMLUListElement>;
+  /** What the list IS, which this component has no opinion about: following
+   *  an anchor, escaping a clipping ancestor and flipping when the viewport
+   *  runs out are the same work for a list of states and a list of actions.
+   *  Narrow on purpose — the two roles that need this placement, not any
+   *  string. Defaults to the listbox every earlier caller relies on. */
+  role?: "listbox" | "menu";
 }
 
 function samePlacement(
@@ -131,6 +137,7 @@ export function FloatingListbox({
   className,
   children,
   style,
+  role = "listbox",
   ...listProps
 }: FloatingListboxProps) {
   const ownListRef = useRef<HTMLUListElement | null>(null);
@@ -236,7 +243,7 @@ export function FloatingListbox({
       <ul
         {...listProps}
         ref={attachListRef}
-        role="listbox"
+        role={role}
         className={`dropdown__menu dropdown__menu--floating${className ? ` ${className}` : ""}`}
         style={{
           ...style,

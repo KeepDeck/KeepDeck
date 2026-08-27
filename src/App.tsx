@@ -128,7 +128,7 @@ function App() {
       <DeckBar
         railCollapsed={railCollapsed}
         onToggleRail={() => setRailCollapsed((c) => !c)}
-        workspaceName={railCollapsed && active ? active.name : null}
+        workspaceName={active?.name ?? null}
         canAddAgent={canAddAgent}
         addAgentTitle={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
         onAddAgent={() => {

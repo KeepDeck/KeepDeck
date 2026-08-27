@@ -54,6 +54,16 @@ describe("DeckBar", () => {
     Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
       (button) => button.textContent === text,
     );
+  // Menus are portaled out of the bar's DOM, so they are found on the document.
+  const menuItem = (text: string) =>
+    Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent === text);
+  const pluginRow = (count: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      pluginId: "keepdeck.demo",
+      entry: { id: `p${i}`, title: `p${i}`, run: () => {} },
+    }));
 
   it("draws nothing for a control the caller left out", () => {
     // Presence is the composition root's decision, and the bar's only say in
@@ -76,8 +86,8 @@ describe("DeckBar", () => {
   });
 
   it("routes each control to its own callback", () => {
-    // The failure this exists for: nine buttons extracted in one move, and a
-    // crossed pair looks perfectly fine until somebody presses it.
+    // The failure this exists for: nine controls rearranged in one move, and
+    // a crossed pair looks perfectly fine until somebody presses it.
     const calls: string[] = [];
     render({
       onToggleRail: () => calls.push("rail"),
@@ -89,8 +99,10 @@ describe("DeckBar", () => {
       dock: { open: false, onToggle: () => calls.push("dock") },
     });
     act(() => byLabel("Toggle workspaces panel")?.click());
-    act(() => byText("+ Agent")?.click());
-    act(() => byText("+ Team")?.click());
+    act(() => byLabel("Create")?.click());
+    act(() => menuItem("Agent")?.click());
+    act(() => byLabel("Create")?.click());
+    act(() => menuItem("Team")?.click());
     act(() => byLabel("Toggle dock panel")?.click());
     act(() => byLabel("Open statistics")?.click());
     act(() => byLabel("Open skills")?.click());
@@ -104,6 +116,32 @@ describe("DeckBar", () => {
       "skills",
       "settings",
     ]);
+  });
+
+  it("collapses the create control when there is only one way to create", () => {
+    // A menu of one puts a click in front of the app's commonest action and
+    // gives nothing back for it.
+    render({ onAddTeam: null });
+    expect(byLabel("Create")).toBeNull();
+    expect(byText("+ Agent")).toBeDefined();
+  });
+
+  it("keeps the plugin group from growing with the plugins installed", () => {
+    // Three slots, and the control that opens the rest takes one of them —
+    // so four contributions leave two drawn and two folded, and a hundred
+    // leave the same two.
+    render({ pluginActions: pluginRow(4) });
+    expect(byLabel("p0")).not.toBeNull();
+    expect(byLabel("p1")).not.toBeNull();
+    expect(byLabel("p2")).toBeNull();
+    const overflow = byLabel("More plugin actions");
+    expect(overflow).not.toBeNull();
+    act(() => overflow?.click());
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).map((item) => item.textContent),
+    ).toEqual(["p2", "p3"]);
   });
 
   it("gates the dialog destinations without touching the other controls", () => {

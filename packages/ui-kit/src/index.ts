@@ -46,6 +46,11 @@ export {
 export { Chip, type ChipProps } from "./Chip.tsx";
 export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
 export { Combobox, fuzzyFilter } from "./Combobox.tsx";
+export {
+  MenuButton,
+  type MenuAction,
+  type MenuButtonProps,
+} from "./MenuButton.tsx";
 export { DROP_BLOCKER_ATTR, dropBlocker } from "./dropBlocker.ts";
 export { Peek, type PeekProps } from "./Peek.tsx";
 export { noAutoCorrect } from "./inputProps.ts";

@@ -83,3 +83,38 @@
   background-color: #1b2230;
   color: #c5c8c6;
 }
+
+/* ── the menu a button opens (@keepdeck/ui-kit MenuButton) ────────── */
+
+/* The wrapper is the anchor the floating list follows; it adds no box of its
+   own, so a menu button sits in a row exactly like a plain one. */
+.kd-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The list itself reuses the floating layer's chrome (dropdown__menu), so a
+   menu and a select popup are the same surface — only their contents differ.
+   These are the ITEMS, which a listbox option is not: nothing here is
+   selected, so nothing wears a selected state. */
+.kd-menu__item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kd-menu__item:hover:not(:disabled) {
+  background-color: #1b2230;
+}
+
+.kd-menu__item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

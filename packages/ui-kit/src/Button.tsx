@@ -50,6 +50,16 @@ export interface ButtonProps {
   /** One extra class for a caller that owns a genuine one-off — a positioned
    *  anchor, a grid cell. Not a way to restyle the button. */
   className?: string;
+  /** What layer this button opens, when it opens one. A button that reveals
+   *  something has to say so before it is pressed, and the alternative was a
+   *  caller rendering its own `<button>` to add three attributes — which is
+   *  how a primitive stops being the only button. */
+  hasPopup?: "menu" | "listbox";
+  /** Whether that layer is open right now. */
+  expanded?: boolean;
+  /** The open layer's id, while it exists. Omitted when closed so the
+   *  reference never dangles. */
+  controls?: string;
   children: ReactNode;
 }
 
@@ -61,6 +71,9 @@ export function Button({
   disabled,
   onClick,
   className,
+  hasPopup,
+  expanded,
+  controls,
   children,
 }: ButtonProps) {
   const classes = ["kd-btn", `kd-btn--${variant}`];
@@ -74,6 +87,9 @@ export function Button({
       disabled={disabled}
       title={title}
       aria-label={label ?? title}
+      aria-haspopup={hasPopup}
+      aria-expanded={hasPopup ? Boolean(expanded) : undefined}
+      aria-controls={controls}
     >
       {children}
     </button>

@@ -23,7 +23,9 @@ import type { Notification } from "../../domain/notifications";
 import type { NotificationCenter } from "../../app/notificationCenter";
 import type { Contribution } from "../../plugins/registries/contributions";
 import type { TopBarActionContribution } from "@keepdeck/plugin-api";
+import { fitBarGroup } from "../../domain/deck/topBar";
 import { Button } from "../../ui/Button";
+import { MenuButton, type MenuAction } from "../../ui/MenuButton";
 import { DockIcon, GearIcon, SidebarIcon, SkillsIcon, StatsIcon } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
 
@@ -31,9 +33,9 @@ export interface DeckBarProps {
   /** Whether the workspaces rail is hidden — the toggle's own state. */
   railCollapsed: boolean;
   onToggleRail(): void;
-  /** The active workspace's name, or null when the rail is showing it (or
-   *  there is no active workspace). The bar does not re-derive that: which
-   *  surface names the workspace is a layout decision, not the bar's. */
+  /** The active workspace's name, or null when there is none. Named here
+   *  whether or not the rail is open: the rail is a list you scan, and this
+   *  is the one line that answers "where am I" without scanning. */
   workspaceName: string | null;
 
   canAddAgent: boolean;
@@ -80,6 +82,30 @@ export function DeckBar({
   onOpenSettings,
   notifications,
 }: DeckBarProps) {
+  // The ways to create, in the order they are offered. Adding an agent is
+  // always one of them; starting a team joins it when the deck says so.
+  const createActions: MenuAction[] = [
+    {
+      id: "agent",
+      label: "Agent",
+      onSelect: onAddAgent,
+      disabled: !canAddAgent,
+      title: addAgentTitle,
+    },
+  ];
+  if (onAddTeam) {
+    createActions.push({
+      id: "team",
+      label: "Team",
+      onSelect: onAddTeam,
+      title:
+        "Group agents into a team so they can write to each other by role",
+    });
+  }
+  // The plugin group has a ceiling; whatever passes it folds into a menu, so
+  // the bar stops growing with the number of plugins installed.
+  const { shown: pluginShown, overflow: pluginOverflow } =
+    fitBarGroup(pluginActions);
   return (
     <header className="deck__bar">
       <div className="deck__bar-left">
@@ -92,7 +118,9 @@ export function DeckBar({
         >
           <SidebarIcon />
         </Button>
-        <span className="deck__brand">KeepDeck</span>
+        {/* Where you are, not what you are running. That the window is
+            KeepDeck is the one thing a reader never forgets; which project
+            it is pointed at is the thing they do. */}
         {workspaceName !== null && (
           <span className="deck__active-ws" title={workspaceName}>
             {workspaceName}
@@ -100,96 +128,126 @@ export function DeckBar({
         )}
       </div>
       <div className="deck__bar-right">
-        <button
-          type="button"
-          className="bar__action"
-          onClick={onAddAgent}
-          disabled={!canAddAgent}
-          title={addAgentTitle}
-        >
-          + Agent
-        </button>
-        {onAddTeam && (
-          // Beside "+ Agent" because it is the same kind of act — setting up
-          // who is working here — and because a team is a property of this
-          // workspace, which is what this bar is about.
-          //
-          // ALWAYS a new one, the way "+ Agent" beside it always adds an
-          // agent. An existing team is opened from the badge on any pane that
-          // is on it, which is where somebody looking at a team is already
-          // looking — and it is the gesture that scales, since a workspace may
-          // run several.
-          <button
-            type="button"
-            className="bar__action"
-            onClick={onAddTeam}
-            title="Group agents into a team so they can write to each other by role"
-          >
-            + Team
-          </button>
-        )}
-        {dock && (
-          <Button
-            variant="ghost"
-            size="sm"
-            title={dock.open ? "Hide the dock" : "Show the dock"}
-            label="Toggle dock panel"
-            onClick={dock.onToggle}
-          >
-            <DockIcon />
-          </Button>
-        )}
-        {pluginActions.map((contribution) => (
-          <Button
-            variant="ghost"
-            size="sm"
-            key={`${contribution.pluginId}:${contribution.entry.id}`}
-            title={contribution.entry.title}
-            onClick={() => contribution.entry.run()}
-          >
-            {contribution.entry.Icon ? (
-              <contribution.entry.Icon />
-            ) : (
-              contribution.entry.title.slice(0, 1)
+        {/* CREATE — the bar's one affirmative act, and the only filled control
+            on it. Adding an agent and starting a team are the same kind of
+            thing (deciding who works here), so they are one control with two
+            ways, and a third way later costs a menu line rather than another
+            button in the run. A menu of ONE would only put a click in front
+            of the app's commonest action, so a lone way collapses back to a
+            plain button. */}
+        <div className="bar__group">
+          {createActions.length === 1 ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={createActions[0].onSelect}
+              disabled={createActions[0].disabled}
+              title={createActions[0].title}
+            >
+              + {createActions[0].label}
+            </Button>
+          ) : (
+            <MenuButton
+              variant="primary"
+              size="sm"
+              actions={createActions}
+              ariaLabel="Create"
+              title="Add an agent or start a team"
+            >
+              + ▾
+            </MenuButton>
+          )}
+        </div>
+
+        {/* PANELS — what to show and hide. Nothing here changes the deck; it
+            changes what you can see of it, which is its own kind of act. */}
+        {(dock || pluginShown.length > 0 || pluginOverflow.length > 0) && (
+          <div className="bar__group">
+            {dock && (
+              <Button
+                variant="ghost"
+                size="sm"
+                title={dock.open ? "Hide the dock" : "Show the dock"}
+                label="Toggle dock panel"
+                onClick={dock.onToggle}
+              >
+                <DockIcon />
+              </Button>
             )}
-          </Button>
-        ))}
-        <Button
-          variant="ghost"
-          size="sm"
-          title="Statistics"
-          label="Open statistics"
-          onClick={onOpenStats}
-          disabled={!canOpenDialog}
-        >
-          <StatsIcon />
-        </Button>
-        {notifications && (
-          <NotificationBell
-            center={notifications.center}
-            onOpen={notifications.onOpen}
-          />
+            {pluginShown.map((contribution) => (
+              <Button
+                variant="ghost"
+                size="sm"
+                key={`${contribution.pluginId}:${contribution.entry.id}`}
+                title={contribution.entry.title}
+                onClick={() => contribution.entry.run()}
+              >
+                {contribution.entry.Icon ? (
+                  <contribution.entry.Icon />
+                ) : (
+                  contribution.entry.title.slice(0, 1)
+                )}
+              </Button>
+            ))}
+            {pluginOverflow.length > 0 && (
+              <MenuButton
+                variant="ghost"
+                size="sm"
+                ariaLabel="More plugin actions"
+                title="More plugin actions"
+                actions={pluginOverflow.map((contribution) => ({
+                  id: `${contribution.pluginId}:${contribution.entry.id}`,
+                  label: contribution.entry.title,
+                  onSelect: () => contribution.entry.run(),
+                }))}
+              >
+                ⋯
+              </MenuButton>
+            )}
+          </div>
         )}
-        <Button
-          variant="ghost"
-          size="sm"
-          title="Skills"
-          label="Open skills"
-          onClick={onOpenSkills}
-          disabled={!canOpenDialog}
-        >
-          <SkillsIcon />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          title="Settings"
-          label="Open settings"
-          onClick={onOpenSettings}
-          disabled={!canOpenDialog}
-        >
-          <GearIcon />
-        </Button>
+
+        {/* GO — places to be, not things to do. All one weight, because
+            ranking a settings dialog above a skills library is a claim
+            nobody can make on the user's behalf. */}
+        <div className="bar__group">
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Statistics"
+            label="Open statistics"
+            onClick={onOpenStats}
+            disabled={!canOpenDialog}
+          >
+            <StatsIcon />
+          </Button>
+          {notifications && (
+            <NotificationBell
+              center={notifications.center}
+              onOpen={notifications.onOpen}
+            />
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Skills"
+            label="Open skills"
+            onClick={onOpenSkills}
+            disabled={!canOpenDialog}
+          >
+            <SkillsIcon />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            title="Settings"
+            label="Open settings"
+            onClick={onOpenSettings}
+            disabled={!canOpenDialog}
+          >
+            <GearIcon />
+          </Button>
+        </div>
       </div>
     </header>
   );
