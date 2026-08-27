@@ -5,6 +5,7 @@ import { updateActionView } from "./app/updateAction";
 import { useAppController } from "./app/useAppController";
 import { useAppRuntime } from "./app/runtimeContext";
 import { DeckBar } from "./components/deck/DeckBar";
+import { DeckStatusStrip } from "./components/deck/DeckStatusStrip";
 import { DeckStage } from "./components/DeckStage";
 import { DockPanel } from "./components/dock/DockPanel";
 import { notificationCenter } from "./app/notificationCenter";
@@ -128,16 +129,6 @@ function App() {
         railCollapsed={railCollapsed}
         onToggleRail={() => setRailCollapsed((c) => !c)}
         workspaceName={railCollapsed && active ? active.name : null}
-        updateAction={updateAction}
-        onUpdateAction={(action) => {
-          if (action.kind === "restart") {
-            void restartToUpdate();
-          } else {
-            openSettings("updates");
-          }
-        }}
-        agents={agents}
-        usageLiveAgents={usageLiveAgents}
         canAddAgent={canAddAgent}
         addAgentTitle={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
         onAddAgent={() => {
@@ -148,8 +139,6 @@ function App() {
             ? () => setTeamDialog({ editing: null })
             : null
         }
-        paneCount={activeCount}
-        version={info?.version ?? null}
         dock={
           pluginDockTabs.length > 0
             ? {
@@ -467,6 +456,21 @@ function App() {
           />
         )}
       </div>
+      <DeckStatusStrip
+        paneCount={activeCount}
+        version={info?.version ?? null}
+        agents={agents}
+        usageLiveAgents={usageLiveAgents}
+        onOpenStats={() => void openStats()}
+        updateAction={updateAction}
+        onUpdateAction={(action) => {
+          if (action.kind === "restart") {
+            void restartToUpdate();
+          } else {
+            openSettings("updates");
+          }
+        }}
+      />
       <PluginOverlays />
     </div>
   );

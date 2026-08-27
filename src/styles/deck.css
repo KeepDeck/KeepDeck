@@ -88,22 +88,48 @@
   cursor: default;
 }
 
-/* The "Update ready" affordance: the one green action in the bar — an update
- * sits downloaded and verified, and a single click restarts into it. */
-.bar__action--update {
-  border-color: #2c5136;
-  color: var(--kd-ok);
-}
-
-.bar__action--update:hover:not(:disabled) {
-  background-color: #16241b;
-  border-color: var(--kd-ok);
-}
 
 .deck__status {
   font-size: 12px;
   color: #6b7280;
   font-variant-numeric: tabular-nums;
+}
+
+/* Bottom strip: what is TRUE, kept out of the bar that says what to DO.
+
+   Deliberately quieter than the top bar — no fill of its own, one hairline,
+   muted text. It is read when looked for and silent otherwise, which is the
+   whole reason state was moved down here rather than merely reordered up
+   there.
+
+   It sits BELOW the minimized tray, which lives inside the stage at workspace
+   level: two horizontal bands can meet at the bottom edge, so this one stays
+   thinner than the tray and carries no background, and the tray keeps reading
+   as the workspace's own row. */
+.deck__statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: 24px;
+  padding: 0 12px;
+  border-top: 1px solid #1c2230;
+}
+
+.deck__statusbar-spacer {
+  flex: 1;
+}
+
+/* An update sits downloaded and verified, and a single press restarts into
+   it — the one thing down here worth a colour. */
+.deck__statusbar-update {
+  border-color: #2c5136;
+  color: var(--kd-ok);
+}
+
+.deck__statusbar-update:hover:not(:disabled) {
+  background-color: #16241b;
+  border-color: var(--kd-ok);
 }
 
 /* Body: workspaces rail + agent grid */

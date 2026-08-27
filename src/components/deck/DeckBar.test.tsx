@@ -10,12 +10,9 @@ import { DeckBar, type DeckBarProps } from "./DeckBar";
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-// The bar's two live children own their own data and are exercised by their
-// own tests; standing them up here would drag usage stores and a notification
-// centre into questions about which button calls which callback.
-vi.mock("../usage/UsageChips", () => ({
-  UsageChips: () => createElement("span", { "data-usage": "" }),
-}));
+// The bell owns its own data and is exercised by its own tests; standing it
+// up here would drag a notification centre into questions about which button
+// calls which callback.
 vi.mock("../notifications/NotificationBell", () => ({
   NotificationBell: () => createElement("span", { "data-bell": "" }),
 }));
@@ -24,16 +21,10 @@ const BASE: DeckBarProps = {
   railCollapsed: false,
   onToggleRail: () => {},
   workspaceName: null,
-  updateAction: null,
-  onUpdateAction: () => {},
-  agents: [],
-  usageLiveAgents: new Set(),
   canAddAgent: true,
   addAgentTitle: "Add agent",
   onAddAgent: () => {},
   onAddTeam: null,
-  paneCount: 2,
-  version: "0.21.13",
   dock: null,
   pluginActions: [],
   canOpenDialog: true,
@@ -72,8 +63,16 @@ describe("DeckBar", () => {
     expect(byText("+ Team")).toBeUndefined();
     expect(byLabel("Toggle dock panel")).toBeNull();
     expect(host.querySelector("[data-bell]")).toBeNull();
-    expect(host.querySelector(".bar__action--update")).toBeNull();
     expect(byText("+ Agent")).toBeDefined();
+  });
+
+  it("says nothing about what is merely true", () => {
+    // Quota, the agent count and a waiting update belong to the status strip.
+    // The bar answering both kinds at once is the thing this split undid, so
+    // the absence is worth a test rather than a comment.
+    render();
+    expect(host.querySelector(".deck__status")).toBeNull();
+    expect(host.textContent).not.toMatch(/pane/);
   });
 
   it("routes each control to its own callback", () => {
@@ -117,33 +116,6 @@ describe("DeckBar", () => {
     expect(byLabel("Open settings")?.disabled).toBe(true);
     expect(byText("+ Agent")?.disabled).toBe(false);
     expect(byLabel("Toggle workspaces panel")?.disabled).toBe(false);
-  });
-
-  it("hands the update control's own action back, and honours its refusal", () => {
-    const onUpdateAction = vi.fn();
-    render({
-      updateAction: {
-        label: "Update ready · Restart",
-        title: "Update to 0.22.0 and restart",
-        disabled: false,
-        action: { kind: "restart" },
-      },
-      onUpdateAction,
-    });
-    act(() => byText("Update ready · Restart")?.click());
-    // The bar never decides what an update press means — it returns the
-    // action it was given.
-    expect(onUpdateAction).toHaveBeenCalledWith({ kind: "restart" });
-
-    render({
-      updateAction: {
-        label: "Downloading update…",
-        title: "Version 0.22.0 is available",
-        disabled: true,
-        action: { kind: "openUpdatesSettings" },
-      },
-    });
-    expect(byText("Downloading update…")?.disabled).toBe(true);
   });
 
   it("names a plugin action by its title and falls back to its initial", () => {

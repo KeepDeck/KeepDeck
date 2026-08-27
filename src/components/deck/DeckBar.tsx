@@ -1,10 +1,15 @@
 /**
- * The deck's top bar: everything the window says about the deck as a whole.
+ * The deck's top bar: what you can DO here, and where you can go.
  *
  * It lived inline in `App`, which is why it grew the way it did — a bar with
  * no file of its own has no place to state what belongs in it, and every
- * addition was one more node in a 150-line run. Here the run has an owner,
- * and the owner's props are the honest inventory of what the bar shows.
+ * addition was one more node in a 150-line run.
+ *
+ * WHAT BELONGS: actions on the deck, and destinations away from it. Nothing
+ * else. What is merely TRUE — quota, agent count, an update waiting — went to
+ * the status strip along the bottom, because a strip answering "what do I do"
+ * and "how much quota is left" in one breath makes a reader sort two kinds of
+ * thing by eye before either can be read.
  *
  * WHAT IT DOES NOT DECIDE, on purpose: whether a control is worth showing,
  * and what a press ultimately does. Both belong to the composition root —
@@ -13,21 +18,14 @@
  * for no manager, no store and no router; it draws what it is handed. That
  * is the whole seam, and it is what lets a change to the ARRANGEMENT stay
  * inside this file.
- *
- * The prop count is not an accident to be tidied away — it is the count of
- * things this one strip currently answers for. Shrinking it means moving a
- * concern somewhere better, not bundling the names.
  */
-import type { AgentInfo } from "../../domain/agents";
 import type { Notification } from "../../domain/notifications";
 import type { NotificationCenter } from "../../app/notificationCenter";
-import type { UpdateAction, UpdateActionView } from "../../app/updateAction";
 import type { Contribution } from "../../plugins/registries/contributions";
 import type { TopBarActionContribution } from "@keepdeck/plugin-api";
 import { Button } from "../../ui/Button";
 import { DockIcon, GearIcon, SidebarIcon, SkillsIcon, StatsIcon } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
-import { UsageChips } from "../usage/UsageChips";
 
 export interface DeckBarProps {
   /** Whether the workspaces rail is hidden — the toggle's own state. */
@@ -38,15 +36,6 @@ export interface DeckBarProps {
    *  surface names the workspace is a layout decision, not the bar's. */
   workspaceName: string | null;
 
-  /** What the update control says and does, or null when there is no update
-   *  to speak of. */
-  updateAction: UpdateActionView | null;
-  onUpdateAction(action: UpdateAction): void;
-
-  agents: AgentInfo[];
-  /** Agent ids with a pane in the deck — the roster the usage chips stand for. */
-  usageLiveAgents: ReadonlySet<string>;
-
   canAddAgent: boolean;
   /** The add control's tooltip, which is also where a refusal is explained. */
   addAgentTitle: string;
@@ -55,10 +44,6 @@ export interface DeckBarProps {
   /** Opens a NEW team, or null while the teams experiment is off or no
    *  workspace is active. */
   onAddTeam: (() => void) | null;
-
-  paneCount: number;
-  /** The running build, or null until `app_info` answers. */
-  version: string | null;
 
   /** The dock toggle, or null when no plugin contributes a dock tab. */
   dock: { open: boolean; onToggle(): void } | null;
@@ -83,16 +68,10 @@ export function DeckBar({
   railCollapsed,
   onToggleRail,
   workspaceName,
-  updateAction,
-  onUpdateAction,
-  agents,
-  usageLiveAgents,
   canAddAgent,
   addAgentTitle,
   onAddAgent,
   onAddTeam,
-  paneCount,
-  version,
   dock,
   pluginActions,
   canOpenDialog,
@@ -121,22 +100,6 @@ export function DeckBar({
         )}
       </div>
       <div className="deck__bar-right">
-        {updateAction && (
-          <button
-            type="button"
-            className="bar__action bar__action--update"
-            onClick={() => onUpdateAction(updateAction.action)}
-            disabled={updateAction.disabled}
-            title={updateAction.title}
-          >
-            {updateAction.label}
-          </button>
-        )}
-        <UsageChips
-          agents={agents}
-          liveAgents={usageLiveAgents}
-          onOpenStats={onOpenStats}
-        />
         <button
           type="button"
           className="bar__action"
@@ -165,10 +128,6 @@ export function DeckBar({
             + Team
           </button>
         )}
-        <span className="deck__status">
-          {paneCount} {paneCount === 1 ? "pane" : "panes"}
-          {version ? ` · ${version}` : ""}
-        </span>
         {dock && (
           <Button
             variant="ghost"
