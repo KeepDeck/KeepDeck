@@ -53,11 +53,12 @@ const INTEGER = /^\d+$/;
 /**
  * The entries a user on `currentVersion` should see when moving to
  * `targetVersion`: every release `currentVersion < v <= targetVersion`, sorted
- * oldest-first so the result reads as a narrative of what changed since the
- * installed build. Handles an arbitrary gap — a user several releases behind
- * sees every intermediate release, not just the latest. Input order does not
- * matter (the channel ships newest-first; this function does not rely on it),
- * and duplicate versions collapse to their first occurrence.
+ * NEWEST-FIRST — the release being offered heads the list and older ones trail
+ * behind it, the order release notes are actually read in. Handles an
+ * arbitrary gap — a user several releases behind sees every intermediate
+ * release, not just the latest. Input order does not matter (the channel ships
+ * newest-first; this function does not rely on it), and duplicate versions
+ * collapse to their first occurrence.
  */
 export function sliceChangelog(
   entries: readonly ChangelogEntry[],
@@ -74,5 +75,5 @@ export function sliceChangelog(
         compareVersions(entry.version, targetVersion) <= 0
       );
     })
-    .sort((a, b) => compareVersions(a.version, b.version));
+    .sort((a, b) => compareVersions(b.version, a.version));
 }

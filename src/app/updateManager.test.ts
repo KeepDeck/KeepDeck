@@ -129,8 +129,8 @@ describe("update manager", () => {
     });
     await initUpdates(downloads);
     expect(getUpdateState().changelog.map((e) => e.version)).toEqual([
-      "1.0.0",
       "1.2.0",
+      "1.0.0",
     ]);
   });
 

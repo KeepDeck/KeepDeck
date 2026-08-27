@@ -7,8 +7,9 @@ import { openUrl } from "../../ipc/app";
  * The accumulated release notes a user will move to by accepting this update —
  * every published release between the installed version and the target. The
  * updater fetches these from the channel's `changelog.json` over TLS; this
- * component only renders them. Entries arrive already sliced and oldest-first
- * (see `sliceChangelog`).
+ * component only renders them. Entries arrive already sliced and newest-first
+ * (see `sliceChangelog`) — the version being offered heads the list, hence the
+ * `reversed` list (markers are hidden, but the descending order is real).
  *
  * The notes are NOT trusted: the changelog is fetched unsigned (only the
  * update BUNDLE is minisign-verified, on install). Rendering is therefore
@@ -27,7 +28,7 @@ export function UpdateChangelog({
   return (
     <div className="settings__changelog">
       <span className="form__label">What's new</span>
-      <ol className="settings__changelog-list">
+      <ol reversed className="settings__changelog-list">
         {entries.map((entry) => (
           <li key={entry.version} className="settings__changelog-entry">
             <header className="settings__changelog-version">
