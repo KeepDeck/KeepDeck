@@ -100,72 +100,21 @@ const PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 /// It runs on the augmented spawn PATH, like the resolution above, so a CLI
 /// that shells out to a sibling tool finds it.
 fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<String> {
-    // Output goes to a temporary FILE, not a pipe. A pipe holds 64 KB and
-    // then blocks the writer, and nothing drains it while the loop below
-    // polls — so a CLI whose `--version` says more than that would deadlock
-    // until the deadline killed it. Worse, `wait_with_output` waits for the
-    // pipe to CLOSE, which a grandchild holding the inherited write end can
-    // put off forever — parking a pool thread with no deadline on it. A file
-    // has neither property.
-    let sink = tempfile::NamedTempFile::new().ok()?;
-    // ONE handle, cloned — not two `reopen()`s. `reopen` opens the path
-    // again, which makes a separate file description with its own offset, so
-    // whichever stream wrote second started at byte 0 and erased the other.
-    // A CLI that says anything on stderr (a deprecation notice, a warning)
-    // would have lost its banner entirely, and `cliVersion` is what a
-    // renderer branches on to pick a hook-output schema. `try_clone` shares
-    // one description, so the two streams interleave instead.
-    let out = sink.reopen().ok()?;
-    let err = out.try_clone().ok()?;
-    let mut child = std::process::Command::new(program)
-        .arg("--version")
-        .env("PATH", path)
-        .stdin(std::process::Stdio::null())
-        .stdout(out)
-        .stderr(err)
-        .spawn()
-        .ok()?;
-    // Bounded, because a program that never exits would otherwise hold a
-    // pool thread for the life of the app. Nothing waits on this answer, but
-    // "nothing waits" is not "anything goes". A version banner is printed
-    // immediately or not at all; anything slower is not answering.
-    let deadline = std::time::Instant::now() + PROBE_TIMEOUT;
-    let exited = loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break true,
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(PROBE_POLL);
-            }
-            // Out of time, or the wait itself failed — which says nothing
-            // about the child, so it may well still be running. One exit, so
-            // the kill cannot be right on one path and missing on the other:
-            // that is exactly how a process was left behind here.
-            Ok(None) | Err(_) => break false,
-        }
-    };
-    if !exited {
-        let _ = child.kill();
-        let _ = child.wait();
-        log::warn!("agents: {} did not answer --version", program.display());
-        return None;
-    }
-    // Bounded read, through the descriptor already held rather than by
-    // re-opening the path — the same rule the inbox follows, and for the same
-    // reason: a path resolved twice can resolve to two different things.
-    //
-    // Lossy, never fallible: a program that emits one byte of Latin-1, or a
-    // multi-byte character straddling the cap, must not cost the version that
-    // was printed on line one. `read_to_string` would have failed the whole
-    // probe on either.
-    use std::io::{Read as _, Seek as _};
-    let mut sink = sink;
-    sink.as_file_mut().rewind().ok()?;
-    let mut said = Vec::new();
-    sink.as_file()
-        .take(MAX_VERSION_BYTES)
-        .read_to_end(&mut said)
-        .ok()?;
-    parse_version(&String::from_utf8_lossy(&said))
+    let mut command = std::process::Command::new(program);
+    command.arg("--version").env("PATH", path);
+    // A version banner is printed immediately or not at all; anything slower
+    // is not answering.
+    let output = crate::run_bounded::run_bounded(
+        &mut command,
+        PROBE_TIMEOUT,
+        PROBE_POLL,
+        MAX_VERSION_BYTES,
+    )?;
+    // Lossy: see the discipline's own comment — a stray non-UTF-8 byte must
+    // not cost the version printed before it. The exit status is ignored on
+    // purpose, as it always was: a banner printed by a failing run is still
+    // the answer to "which protocol is this".
+    parse_version(&String::from_utf8_lossy(&output.said))
 }
 
 /// How much of a `--version` answer is worth reading. A banner is a line;

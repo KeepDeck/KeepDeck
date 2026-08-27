@@ -11,9 +11,9 @@
 //! frontend, which holds each agent's `worktreePath`/`branch`; these commands
 //! are the stateless primitives it drives.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use keepdeck_git::{branch, provenance, repo, worktree, worktree_base};
 use serde::{Deserialize, Serialize};
@@ -25,9 +25,25 @@ use tauri::State;
 /// config/ref locks; we hold the repo's lock across the add so they queue.
 /// Clonable handle (the map is shared behind an `Arc`) so a command can move
 /// one into the blocking task that does the git work.
-#[derive(Default, Clone)]
+///
+/// Poison is HARD: a panicked `git worktree add` may have left the repo's
+/// shared `.git` state half-written, and the next holder cannot prove it
+/// fresh — so the poison surfaces instead of being walked into. (The
+/// complementary Recover policy and why the two must not merge: see
+/// [`crate::keyed_locks`].)
+#[derive(Clone)]
 pub struct RepoLocks {
-    inner: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>>,
+    inner: crate::keyed_locks::KeyedLocks<PathBuf>,
+}
+
+impl Default for RepoLocks {
+    fn default() -> Self {
+        Self {
+            inner: crate::keyed_locks::KeyedLocks::new(
+                crate::keyed_locks::PoisonPolicy::Hard,
+            ),
+        }
+    }
 }
 
 impl RepoLocks {
@@ -35,12 +51,12 @@ impl RepoLocks {
     /// different spellings of the same repo share one lock.
     fn for_repo(&self, repo: &Path) -> Arc<Mutex<()>> {
         let key = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
-        self.inner
-            .lock()
-            .expect("repo locks poisoned")
-            .entry(key)
-            .or_default()
-            .clone()
+        self.inner.for_key(key)
+    }
+
+    /// Take a repo's lock under this map's poison policy.
+    fn acquire<'a>(&self, lock: &'a Mutex<()>) -> MutexGuard<'a, ()> {
+        self.inner.acquire(lock)
     }
 }
 
@@ -332,7 +348,7 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
     let chosen_branch = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
 
     let lock = locks.for_repo(&repo_path);
-    let _guard = lock.lock().expect("repo lock poisoned");
+    let _guard = locks.acquire(&lock);
 
     // [F2] Exact user-chosen path: create the worktree AT it verbatim, with NO
     // path collision suffix — the user picked this exact folder (git accepts a
@@ -499,7 +515,7 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
     // delete all take the shared .git locks, so a concurrent add would otherwise
     // fail to lock or have its admin-state pruned mid-write.
     let lock = locks.for_repo(&repo_path);
-    let _guard = lock.lock().expect("repo lock poisoned");
+    let _guard = locks.acquire(&lock);
 
     // Branches born in this worktree are enumerated BEFORE the removal: the
     // evidence is the worktree's private HEAD reflog, which `git worktree
