@@ -10,9 +10,12 @@ import { DeckBar, type DeckBarProps } from "./DeckBar";
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-// The bell owns its own data and is exercised by its own tests; standing it
-// up here would drag a notification centre into questions about which button
-// calls which callback.
+// The bar's two live children own their own data and are exercised by their
+// own tests; standing them up here would drag usage stores and a notification
+// centre into questions about which control calls which callback.
+vi.mock("../usage/UsageChips", () => ({
+  UsageChips: () => createElement("span", { "data-usage": "" }),
+}));
 vi.mock("../notifications/NotificationBell", () => ({
   NotificationBell: () => createElement("span", { "data-bell": "" }),
 }));
@@ -21,6 +24,10 @@ const BASE: DeckBarProps = {
   railCollapsed: false,
   onToggleRail: () => {},
   workspaceName: null,
+  agents: [],
+  usageLiveAgents: new Set(),
+  updateAction: null,
+  onUpdateAction: () => {},
   canAddAgent: true,
   addAgentTitle: "Add agent",
   onAddAgent: () => {},
@@ -76,13 +83,25 @@ describe("DeckBar", () => {
     expect(byText("+ Agent")).toBeDefined();
   });
 
-  it("says nothing about what is merely true", () => {
-    // Quota, the agent count and a waiting update belong to the status strip.
-    // The bar answering both kinds at once is the thing this split undid, so
-    // the absence is worth a test rather than a comment.
+  it("carries no pane count and no build number", () => {
+    // Both were answered elsewhere already — the rail numbers each workspace,
+    // the panes are on screen, and the build sits in the rail's footer. They
+    // were removed rather than relocated, and their absence is the point of
+    // the whole rearrangement, so it is worth an assertion.
     render();
     expect(host.querySelector(".deck__status")).toBeNull();
     expect(host.textContent).not.toMatch(/pane/);
+    expect(host.textContent).not.toMatch(/\d+\.\d+\.\d+/);
+  });
+
+  it("keeps quota on the left, with the project it belongs to", () => {
+    // Facts on the left, verbs on the right — the arrangement that replaced a
+    // second strip along the bottom.
+    render({ workspaceName: "Личный проект" });
+    const left = host.querySelector(".deck__bar-left")!;
+    expect(left.querySelector("[data-usage]")).not.toBeNull();
+    expect(left.textContent).toContain("Личный проект");
+    expect(host.querySelector(".deck__bar-right [data-usage]")).toBeNull();
   });
 
   it("routes each control to its own callback", () => {

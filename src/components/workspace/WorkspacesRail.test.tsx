@@ -67,6 +67,7 @@ function Harness() {
     onRename: () => {},
     onReorder: (id: string, toIndex: number) =>
       setItems((current) => move(current, id, toIndex)),
+    version: null,
   });
 }
 
@@ -232,6 +233,7 @@ describe("WorkspacesRail workspace metadata", () => {
           onClose: () => {},
           onRename: () => {},
           onReorder: () => {},
+          version: null,
         }),
       ),
     );

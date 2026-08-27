@@ -1,26 +1,37 @@
 /**
- * The deck's top bar: what you can DO here, and where you can go.
+ * The deck's top bar: the one strip of chrome the window carries.
  *
  * It lived inline in `App`, which is why it grew the way it did — a bar with
  * no file of its own has no place to state what belongs in it, and every
  * addition was one more node in a 150-line run.
  *
- * WHAT BELONGS: actions on the deck, and destinations away from it. Nothing
- * else. What is merely TRUE — quota, agent count, an update waiting — went to
- * the status strip along the bottom, because a strip answering "what do I do"
- * and "how much quota is left" in one breath makes a reader sort two kinds of
- * thing by eye before either can be read.
+ * ONE strip, deliberately. State briefly lived in a second one along the
+ * bottom, and the arithmetic of that was worse than the problem it solved:
+ * the window went from one occupied edge to two, and the bottom edge had been
+ * free except when the minimized tray needed it. Moving a thing is a saving
+ * only if the place it lands was already paid for.
+ *
+ * So the reckoning ran the other way. The pane count was already answered by
+ * the rail's per-workspace numbers and by the panes being on screen — it is
+ * gone rather than relocated. The build number went to the rail's own footer,
+ * which is chrome that already exists. Quota stayed, because a subscription
+ * running out is the one fact here that changes what you do next.
+ *
+ * The left half says where you are and what you have; the right half, what to
+ * do and where to go. Two halves of one strip rather than two strips.
  *
  * WHAT IT DOES NOT DECIDE, on purpose: whether a control is worth showing,
  * and what a press ultimately does. Both belong to the composition root —
- * `dock`, `notifications` and `onAddTeam` arrive null when their control has
- * no business existing, and every action is a callback. So the bar reaches
- * for no manager, no store and no router; it draws what it is handed. That
- * is the whole seam, and it is what lets a change to the ARRANGEMENT stay
- * inside this file.
+ * `dock`, `notifications`, `onAddTeam` and `updateAction` arrive null when
+ * their control has no business existing, and every action is a callback. So
+ * the bar reaches for no manager, no store and no router; it draws what it is
+ * handed. That is the whole seam, and it is what lets a change to the
+ * ARRANGEMENT stay inside this file.
  */
+import type { AgentInfo } from "../../domain/agents";
 import type { Notification } from "../../domain/notifications";
 import type { NotificationCenter } from "../../app/notificationCenter";
+import type { UpdateAction, UpdateActionView } from "../../app/updateAction";
 import type { Contribution } from "../../plugins/registries/contributions";
 import type { TopBarActionContribution } from "@keepdeck/plugin-api";
 import { fitBarGroup } from "../../domain/deck/topBar";
@@ -28,6 +39,7 @@ import { Button } from "../../ui/Button";
 import { MenuButton, type MenuAction } from "../../ui/MenuButton";
 import { DockIcon, GearIcon, SidebarIcon, SkillsIcon, StatsIcon } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
+import { UsageChips } from "../usage/UsageChips";
 
 export interface DeckBarProps {
   /** Whether the workspaces rail is hidden — the toggle's own state. */
@@ -37,6 +49,15 @@ export interface DeckBarProps {
    *  whether or not the rail is open: the rail is a list you scan, and this
    *  is the one line that answers "where am I" without scanning. */
   workspaceName: string | null;
+
+  agents: AgentInfo[];
+  /** Agent ids with a pane in the deck — the roster the usage chips stand for. */
+  usageLiveAgents: ReadonlySet<string>;
+
+  /** What the update control says and does, or null when there is no update
+   *  to speak of. Transient by nature, so it costs no permanent room. */
+  updateAction: UpdateActionView | null;
+  onUpdateAction(action: UpdateAction): void;
 
   canAddAgent: boolean;
   /** The add control's tooltip, which is also where a refusal is explained. */
@@ -70,6 +91,10 @@ export function DeckBar({
   railCollapsed,
   onToggleRail,
   workspaceName,
+  agents,
+  usageLiveAgents,
+  updateAction,
+  onUpdateAction,
   canAddAgent,
   addAgentTitle,
   onAddAgent,
@@ -118,13 +143,32 @@ export function DeckBar({
         >
           <SidebarIcon />
         </Button>
-        {/* Where you are, not what you are running. That the window is
-            KeepDeck is the one thing a reader never forgets; which project
-            it is pointed at is the thing they do. */}
+        <span className="deck__brand">KeepDeck</span>
         {workspaceName !== null && (
           <span className="deck__active-ws" title={workspaceName}>
             {workspaceName}
           </span>
+        )}
+        {/* The left half answers "where am I and what have I got" — the
+            project, and the room left to work in it. Keeping facts apart from
+            the verbs on the right is the whole arrangement: two halves of one
+            strip rather than two strips. */}
+        <UsageChips
+          agents={agents}
+          liveAgents={usageLiveAgents}
+          onOpenStats={onOpenStats}
+        />
+        {updateAction && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="bar__update"
+            onClick={() => onUpdateAction(updateAction.action)}
+            disabled={updateAction.disabled}
+            title={updateAction.title}
+          >
+            {updateAction.label}
+          </Button>
         )}
       </div>
       <div className="deck__bar-right">

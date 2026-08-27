@@ -5,7 +5,6 @@ import { updateActionView } from "./app/updateAction";
 import { useAppController } from "./app/useAppController";
 import { useAppRuntime } from "./app/runtimeContext";
 import { DeckBar } from "./components/deck/DeckBar";
-import { DeckStatusStrip } from "./components/deck/DeckStatusStrip";
 import { DeckStage } from "./components/DeckStage";
 import { DockPanel } from "./components/dock/DockPanel";
 import { notificationCenter } from "./app/notificationCenter";
@@ -53,7 +52,6 @@ function App() {
   if (!controller.ready) return <div className="deck" />;
   const {
     active,
-    activeCount,
     activeView,
     agentFlow,
     agents,
@@ -129,6 +127,16 @@ function App() {
         railCollapsed={railCollapsed}
         onToggleRail={() => setRailCollapsed((c) => !c)}
         workspaceName={active?.name ?? null}
+        agents={agents}
+        usageLiveAgents={usageLiveAgents}
+        updateAction={updateAction}
+        onUpdateAction={(action) => {
+          if (action.kind === "restart") {
+            void restartToUpdate();
+          } else {
+            openSettings("updates");
+          }
+        }}
         canAddAgent={canAddAgent}
         addAgentTitle={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
         onAddAgent={() => {
@@ -168,6 +176,7 @@ function App() {
             onClose={closeFlow.requestCloseWorkspace}
             onRename={deck.renameWorkspace}
             onReorder={deck.moveWorkspace}
+            version={info?.version ?? null}
           />
         )}
         <div className="deck__stage">
@@ -456,21 +465,6 @@ function App() {
           />
         )}
       </div>
-      <DeckStatusStrip
-        paneCount={activeCount}
-        version={info?.version ?? null}
-        agents={agents}
-        usageLiveAgents={usageLiveAgents}
-        onOpenStats={() => void openStats()}
-        updateAction={updateAction}
-        onUpdateAction={(action) => {
-          if (action.kind === "restart") {
-            void restartToUpdate();
-          } else {
-            openSettings("updates");
-          }
-        }}
-      />
       <PluginOverlays />
     </div>
   );
