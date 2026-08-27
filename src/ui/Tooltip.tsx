@@ -109,6 +109,19 @@ export function Tooltip({
         // across the anchor must not steal it from the keyboard.
         if (anchorRef.current !== document.activeElement) hide();
       }}
+      // A press ends the question the tip was answering. It stays on the
+      // anchor after a click — the pointer has not moved — and whatever the
+      // press opened arrives UNDER it: a menu button's own menu came up
+      // behind its explanation. Nothing the tip could say is worth covering
+      // the thing the user just asked for.
+      //
+      // On pointerdown rather than click, so the tip is gone before the menu
+      // paints, and in the capture phase so a child that stops the event
+      // (a button minding its own press) cannot leave the card standing.
+      onPointerDownCapture={() => {
+        cancelEnter();
+        hide();
+      }}
     >
       {children}
       {open && <TipLayer id={id} getAnchorRect={getAnchorRect} tip={tip} />}

@@ -14,6 +14,7 @@ import {
   type AccountUsage,
 } from "../../domain/usage";
 import { ledgerSeriesColors } from "../../domain/usage/chartPalette";
+import { usagePanelLeft } from "../../domain/usage/panelPlacement";
 import { useSettings } from "../../app/useSettings";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { useUsage } from "../../app/useUsage";
@@ -72,6 +73,11 @@ function UsageChip({
       title={title}
       aria-expanded={open}
       aria-controls="usage-panel"
+      /* Named so the panel can find the chip that opened it and hang from
+         THAT one. Addressed by agent id rather than by position in the row:
+         the roster changes as agents come and go, and an index would quietly
+         start pointing at a neighbour. */
+      data-usage-chip={agent.id}
     >
       {windows.length === 0 ? (
         <span className="usage-chip__na">···</span>
@@ -150,6 +156,42 @@ export function UsageChips({
 
   // Light-dismiss: any pointer press outside (or Escape) closes the panel.
   const open = openProvider !== null;
+
+  // Where the panel hangs. It is positioned inside the chip group, so the
+  // answer is an offset from the group's own left edge — the RULE is pure
+  // (`usagePanelLeft`), and all that happens here is the measuring. Re-run on
+  // every open and on resize: a chip's position moves with the window, and a
+  // panel still hanging where the chip used to be is the bug this replaced.
+  const [panelLeft, setPanelLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (openProvider === null) {
+      setPanelLeft(null);
+      return;
+    }
+    const place = () => {
+      const group = rootRef.current;
+      const chip = group?.querySelector<HTMLElement>(
+        `[data-usage-chip="${CSS.escape(openProvider)}"]`,
+      );
+      // The panel's width is the stylesheet's to decide, so it is measured
+      // rather than restated here — a second copy of that number would drift
+      // the first time the panel is resized.
+      const panel = group?.querySelector<HTMLElement>(".usage-panel");
+      if (!group || !chip || !panel) return;
+      setPanelLeft(
+        usagePanelLeft({
+          chipLeft: chip.getBoundingClientRect().left,
+          groupLeft: group.getBoundingClientRect().left,
+          panelWidth: panel.getBoundingClientRect().width,
+          viewportWidth:
+            document.documentElement.clientWidth || window.innerWidth,
+        }),
+      );
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [openProvider]);
   useEffect(() => {
     if (!open) return;
     // Yields to a dialog stacked over the panel, for the reason spelled out
@@ -198,6 +240,14 @@ export function UsageChips({
           seriesColors={seriesColors}
           onOpenStats={onOpenStats}
           onClose={() => setOpenProvider(null)}
+          // Hidden until measured: one frame at the stylesheet's default
+          // position, before the chip's offset is known, would read as the
+          // panel jumping into place.
+          style={
+            panelLeft === null
+              ? { visibility: "hidden" }
+              : { left: panelLeft, right: "auto" }
+          }
         />
       )}
     </span>
