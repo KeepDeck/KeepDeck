@@ -1,0 +1,261 @@
+/**
+ * The deck's top bar: everything the window says about the deck as a whole.
+ *
+ * It lived inline in `App`, which is why it grew the way it did — a bar with
+ * no file of its own has no place to state what belongs in it, and every
+ * addition was one more node in a 150-line run. Here the run has an owner,
+ * and the owner's props are the honest inventory of what the bar shows.
+ *
+ * WHAT IT DOES NOT DECIDE, on purpose: whether a control is worth showing,
+ * and what a press ultimately does. Both belong to the composition root —
+ * `dock`, `notifications` and `onAddTeam` arrive null when their control has
+ * no business existing, and every action is a callback. So the bar reaches
+ * for no manager, no store and no router; it draws what it is handed. That
+ * is the whole seam, and it is what lets a change to the ARRANGEMENT stay
+ * inside this file.
+ *
+ * The prop count is not an accident to be tidied away — it is the count of
+ * things this one strip currently answers for. Shrinking it means moving a
+ * concern somewhere better, not bundling the names.
+ */
+import type { AgentInfo } from "../../domain/agents";
+import type { Notification } from "../../domain/notifications";
+import type { NotificationCenter } from "../../app/notificationCenter";
+import type { UpdateAction, UpdateActionView } from "../../app/updateAction";
+import type { Contribution } from "../../plugins/registries/contributions";
+import type { TopBarActionContribution } from "@keepdeck/plugin-api";
+import { DockIcon, GearIcon, SidebarIcon, SkillsIcon, StatsIcon } from "../AppIcons";
+import { NotificationBell } from "../notifications/NotificationBell";
+import { UsageChips } from "../usage/UsageChips";
+
+/**
+ * One quiet icon control in the bar.
+ *
+ * Seven of the bar's nine buttons were this exact node written out seven
+ * times — `type`, class, handler, tooltip, label — and the two that differ
+ * differ only in carrying a label that does NOT track their tooltip (a
+ * toggle's tooltip flips with its state; what it IS does not). So `label`
+ * falls back to `title` and the toggles pass both.
+ */
+function BarIcon({
+  title,
+  label = title,
+  onClick,
+  disabled,
+  children,
+}: {
+  title: string;
+  /** Accessible name, when it must stay put while `title` flips. */
+  label?: string;
+  onClick(): void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="bar__icon"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={label}
+    >
+      {children}
+    </button>
+  );
+}
+
+export interface DeckBarProps {
+  /** Whether the workspaces rail is hidden — the toggle's own state. */
+  railCollapsed: boolean;
+  onToggleRail(): void;
+  /** The active workspace's name, or null when the rail is showing it (or
+   *  there is no active workspace). The bar does not re-derive that: which
+   *  surface names the workspace is a layout decision, not the bar's. */
+  workspaceName: string | null;
+
+  /** What the update control says and does, or null when there is no update
+   *  to speak of. */
+  updateAction: UpdateActionView | null;
+  onUpdateAction(action: UpdateAction): void;
+
+  agents: AgentInfo[];
+  /** Agent ids with a pane in the deck — the roster the usage chips stand for. */
+  usageLiveAgents: ReadonlySet<string>;
+
+  canAddAgent: boolean;
+  /** The add control's tooltip, which is also where a refusal is explained. */
+  addAgentTitle: string;
+  onAddAgent(): void;
+
+  /** Opens a NEW team, or null while the teams experiment is off or no
+   *  workspace is active. */
+  onAddTeam: (() => void) | null;
+
+  paneCount: number;
+  /** The running build, or null until `app_info` answers. */
+  version: string | null;
+
+  /** The dock toggle, or null when no plugin contributes a dock tab. */
+  dock: { open: boolean; onToggle(): void } | null;
+
+  pluginActions: readonly Contribution<TopBarActionContribution>[];
+
+  /** False while a transaction or another dialog owns the modal layer. */
+  canOpenDialog: boolean;
+  onOpenStats(): void;
+  onOpenSkills(): void;
+  onOpenSettings(): void;
+
+  /** The notification bell, or null when notifications are off or delegated
+   *  to the system. */
+  notifications: {
+    center: NotificationCenter;
+    onOpen(notification: Notification): void;
+  } | null;
+}
+
+export function DeckBar({
+  railCollapsed,
+  onToggleRail,
+  workspaceName,
+  updateAction,
+  onUpdateAction,
+  agents,
+  usageLiveAgents,
+  canAddAgent,
+  addAgentTitle,
+  onAddAgent,
+  onAddTeam,
+  paneCount,
+  version,
+  dock,
+  pluginActions,
+  canOpenDialog,
+  onOpenStats,
+  onOpenSkills,
+  onOpenSettings,
+  notifications,
+}: DeckBarProps) {
+  return (
+    <header className="deck__bar">
+      <div className="deck__bar-left">
+        <BarIcon
+          title={railCollapsed ? "Show workspaces" : "Hide workspaces"}
+          label="Toggle workspaces panel"
+          onClick={onToggleRail}
+        >
+          <SidebarIcon />
+        </BarIcon>
+        <span className="deck__brand">KeepDeck</span>
+        {workspaceName !== null && (
+          <span className="deck__active-ws" title={workspaceName}>
+            {workspaceName}
+          </span>
+        )}
+      </div>
+      <div className="deck__bar-right">
+        {updateAction && (
+          <button
+            type="button"
+            className="bar__action bar__action--update"
+            onClick={() => onUpdateAction(updateAction.action)}
+            disabled={updateAction.disabled}
+            title={updateAction.title}
+          >
+            {updateAction.label}
+          </button>
+        )}
+        <UsageChips
+          agents={agents}
+          liveAgents={usageLiveAgents}
+          onOpenStats={onOpenStats}
+        />
+        <button
+          type="button"
+          className="bar__action"
+          onClick={onAddAgent}
+          disabled={!canAddAgent}
+          title={addAgentTitle}
+        >
+          + Agent
+        </button>
+        {onAddTeam && (
+          // Beside "+ Agent" because it is the same kind of act — setting up
+          // who is working here — and because a team is a property of this
+          // workspace, which is what this bar is about.
+          //
+          // ALWAYS a new one, the way "+ Agent" beside it always adds an
+          // agent. An existing team is opened from the badge on any pane that
+          // is on it, which is where somebody looking at a team is already
+          // looking — and it is the gesture that scales, since a workspace may
+          // run several.
+          <button
+            type="button"
+            className="bar__action"
+            onClick={onAddTeam}
+            title="Group agents into a team so they can write to each other by role"
+          >
+            + Team
+          </button>
+        )}
+        <span className="deck__status">
+          {paneCount} {paneCount === 1 ? "pane" : "panes"}
+          {version ? ` · ${version}` : ""}
+        </span>
+        {dock && (
+          <BarIcon
+            title={dock.open ? "Hide the dock" : "Show the dock"}
+            label="Toggle dock panel"
+            onClick={dock.onToggle}
+          >
+            <DockIcon />
+          </BarIcon>
+        )}
+        {pluginActions.map((contribution) => (
+          <BarIcon
+            key={`${contribution.pluginId}:${contribution.entry.id}`}
+            title={contribution.entry.title}
+            onClick={() => contribution.entry.run()}
+          >
+            {contribution.entry.Icon ? (
+              <contribution.entry.Icon />
+            ) : (
+              contribution.entry.title.slice(0, 1)
+            )}
+          </BarIcon>
+        ))}
+        <BarIcon
+          title="Statistics"
+          label="Open statistics"
+          onClick={onOpenStats}
+          disabled={!canOpenDialog}
+        >
+          <StatsIcon />
+        </BarIcon>
+        {notifications && (
+          <NotificationBell
+            center={notifications.center}
+            onOpen={notifications.onOpen}
+          />
+        )}
+        <BarIcon
+          title="Skills"
+          label="Open skills"
+          onClick={onOpenSkills}
+          disabled={!canOpenDialog}
+        >
+          <SkillsIcon />
+        </BarIcon>
+        <BarIcon
+          title="Settings"
+          label="Open settings"
+          onClick={onOpenSettings}
+          disabled={!canOpenDialog}
+        >
+          <GearIcon />
+        </BarIcon>
+      </div>
+    </header>
+  );
+}

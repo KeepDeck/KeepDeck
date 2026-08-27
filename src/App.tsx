@@ -4,22 +4,14 @@ import { restartToUpdate } from "./app/updateManager";
 import { updateActionView } from "./app/updateAction";
 import { useAppController } from "./app/useAppController";
 import { useAppRuntime } from "./app/runtimeContext";
-import {
-  DockIcon,
-  GearIcon,
-  SidebarIcon,
-  SkillsIcon,
-  StatsIcon,
-} from "./components/AppIcons";
+import { DeckBar } from "./components/deck/DeckBar";
 import { DeckStage } from "./components/DeckStage";
 import { DockPanel } from "./components/dock/DockPanel";
-import { NotificationBell } from "./components/notifications/NotificationBell";
 import { notificationCenter } from "./app/notificationCenter";
 import { PluginOverlays } from "./components/PluginOverlays";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { SkillsDialog } from "./components/skills/SkillsDialog";
 import { StatsDialog } from "./components/stats/StatsDialog";
-import { UsageChips } from "./components/usage/UsageChips";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
@@ -132,144 +124,51 @@ function App() {
   const updateAction = updateActionView(updateState);
   return (
     <div className="deck">
-      <header className="deck__bar">
-        <div className="deck__bar-left">
-          <button
-            type="button"
-            className="bar__icon"
-            onClick={() => setRailCollapsed((c) => !c)}
-            title={railCollapsed ? "Show workspaces" : "Hide workspaces"}
-            aria-label="Toggle workspaces panel"
-          >
-            <SidebarIcon />
-          </button>
-          <span className="deck__brand">KeepDeck</span>
-          {railCollapsed && active && (
-            <span className="deck__active-ws" title={active.name}>
-              {active.name}
-            </span>
-          )}
-        </div>
-        <div className="deck__bar-right">
-          {updateAction && (
-            <button
-              type="button"
-              className="bar__action bar__action--update"
-              onClick={() => {
-                if (updateAction.action.kind === "restart") {
-                  void restartToUpdate();
-                } else {
-                  openSettings("updates");
-                }
-              }}
-              disabled={updateAction.disabled}
-              title={updateAction.title}
-            >
-              {updateAction.label}
-            </button>
-          )}
-          <UsageChips
-            agents={agents}
-            liveAgents={usageLiveAgents}
-            onOpenStats={() => void openStats()}
-          />
-          <button
-            type="button"
-            className="bar__action"
-            onClick={() => {
-              if (canAddAgent && active) void agentFlow.openFor(active);
-            }}
-            disabled={!canAddAgent}
-            title={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
-          >
-            + Agent
-          </button>
-          {settings.agentTeams && active && (
-            // Beside "+ Agent" because it is the same kind of act — setting
-            // up who is working here — and because a team is a property of
-            // this workspace, which is what this bar is about. Shown only
-            // while the experiment is on, so nobody else pays a button for
-            // it.
-            //
-            // ALWAYS a new one, the way "+ Agent" beside it always adds an
-            // agent. An existing team is opened from the badge on any pane
-            // that is on it, which is where somebody looking at a team is
-            // already looking — and it is the gesture that scales, since a
-            // workspace may run several.
-            <button
-              type="button"
-              className="bar__action"
-              onClick={() => setTeamDialog({ editing: null })}
-              title="Group agents into a team so they can write to each other by role"
-            >
-              + Team
-            </button>
-          )}
-          <span className="deck__status">
-            {activeCount} {activeCount === 1 ? "pane" : "panes"}
-            {info ? ` · ${info.version}` : ""}
-          </span>
-          {pluginDockTabs.length > 0 && (
-            <button
-              type="button"
-              className="bar__icon"
-              onClick={() => active && deck.toggleDock(active.id)}
-              title={dockOpen ? "Hide the dock" : "Show the dock"}
-              aria-label="Toggle dock panel"
-            >
-              <DockIcon />
-            </button>
-          )}
-          {pluginTopBarActions.map((c) => (
-            <button
-              key={`${c.pluginId}:${c.entry.id}`}
-              type="button"
-              className="bar__icon"
-              onClick={() => c.entry.run()}
-              title={c.entry.title}
-              aria-label={c.entry.title}
-            >
-              {c.entry.Icon ? <c.entry.Icon /> : c.entry.title.slice(0, 1)}
-            </button>
-          ))}
-          <button
-            type="button"
-            className="bar__icon"
-            onClick={() => void openStats()}
-            disabled={!canOpenDialog}
-            title="Statistics"
-            aria-label="Open statistics"
-          >
-            <StatsIcon />
-          </button>
-          {showBell && (
-            <NotificationBell
-              center={notificationCenter}
-              onOpen={openNotification}
-            />
-          )}
-          <button
-            type="button"
-            className="bar__icon"
-            onClick={() => void openSkills()}
-            disabled={!canOpenDialog}
-            title="Skills"
-            aria-label="Open skills"
-          >
-            <SkillsIcon />
-          </button>
-          <button
-            type="button"
-            className="bar__icon"
-            onClick={() => void openSettings()}
-            disabled={!canOpenDialog}
-            title="Settings"
-            aria-label="Open settings"
-          >
-            <GearIcon />
-          </button>
-        </div>
-      </header>
+      <DeckBar
+        railCollapsed={railCollapsed}
+        onToggleRail={() => setRailCollapsed((c) => !c)}
+        workspaceName={railCollapsed && active ? active.name : null}
+        updateAction={updateAction}
+        onUpdateAction={(action) => {
+          if (action.kind === "restart") {
+            void restartToUpdate();
+          } else {
+            openSettings("updates");
+          }
+        }}
+        agents={agents}
+        usageLiveAgents={usageLiveAgents}
+        canAddAgent={canAddAgent}
+        addAgentTitle={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
+        onAddAgent={() => {
+          if (canAddAgent && active) void agentFlow.openFor(active);
+        }}
+        onAddTeam={
+          settings.agentTeams && active
+            ? () => setTeamDialog({ editing: null })
+            : null
+        }
+        paneCount={activeCount}
+        version={info?.version ?? null}
+        dock={
+          pluginDockTabs.length > 0
+            ? {
+                open: dockOpen,
+                onToggle: () => active && deck.toggleDock(active.id),
+              }
+            : null
+        }
+        pluginActions={pluginTopBarActions}
+        canOpenDialog={canOpenDialog}
+        onOpenStats={() => void openStats()}
+        onOpenSkills={() => void openSkills()}
+        onOpenSettings={() => void openSettings()}
+        notifications={
+          showBell
+            ? { center: notificationCenter, onOpen: openNotification }
+            : null
+        }
+      />
       <div className="deck__body">
         {!railCollapsed && (
           <WorkspacesRail
