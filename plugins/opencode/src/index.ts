@@ -148,10 +148,16 @@ const plugin: KeepDeckPlugin = {
       usage: {
         normalize: normalizeOpencodeUsage,
       },
-      // Turn lifecycle from the same reporter's bus subscription.
-      // session.idle fires on interrupt too (no transcript recovery
-      // needed), and permission.replied is the approval-resolution edge
-      // claude and codex lack.
+      // Turn lifecycle from the same reporter's bus subscription — which is
+      // why this agent needs no transcript recovery: an interrupt is stated
+      // on the bus like everything else. It is stated as an ERROR, though,
+      // named `MessageAbortedError` and published before the idle behind it,
+      // so what tells an interrupted turn from a broken one is the name and
+      // not the shape (see [`normalizeOpencodeStatus`]).
+      //
+      // The other two edges no other agent gives us: permission.replied
+      // resolves an approval, and question.asked is the only word anywhere
+      // for a turn standing on a choice put in front of the user.
       //
       // Mail is the courier's half: it asks, and what it gets back it puts
       // straight into the session — with a turn for somebody's words,

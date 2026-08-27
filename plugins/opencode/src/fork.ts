@@ -1,5 +1,10 @@
 /**
- * OpenCode's relocating fork ([F8]) — the exec plumbing around [`rekeyExport`].
+ * OpenCode's relocating fork: the recipe, and what a failed one should mean.
+ *
+ * Running the commands and reading their output is [`exec.ts`]'s, and the
+ * transformation between them is [`rekeyExport`]'s. What is left here is the
+ * order of the steps, the one temp file they hand each other, and the ruling
+ * on a failure — which of them the user is told about and in what words.
  *
  * Native `-s <id> --fork` copies a session but re-homes it to the SOURCE's
  * `directory` (probe-verified, 1.18.4), so the target directory is ignored.
@@ -18,11 +23,8 @@
  * `exec` capability), and the one temp file `import` needs is written via
  * `ctx.services.fsWrite` into an OS-temp scratch dir the system reaps.
  */
-import type {
-  ForkPlanInput,
-  PluginContext,
-  PluginSessionHandle,
-} from "@keepdeck/plugin-api";
+import type { ForkPlanInput, PluginContext } from "@keepdeck/plugin-api";
+import { extractJson, runOpencode, tail } from "./exec";
 import { rekeyExport, type OpencodeExport } from "./rekey";
 
 /** OS-temp scratch for the one import file. `/tmp` is auto-reaped and, unlike
@@ -31,101 +33,6 @@ import { rekeyExport, type OpencodeExport } from "./rekey";
  * `/private/tmp` canonical form. (POSIX-only: a Windows port needs a
  * host-provided temp dir — the plugin has no way to resolve one itself.) */
 const SCRATCH_DIR = "/tmp/keepdeck-opencode";
-
-/** Hard cap on one export/import. They are fast (no model/MCP), so this only
- * catches a genuinely stuck process — without it a hung opencode would leave
- * the fork Promise (and the whole fork chain) pending forever. */
-const RUN_TIMEOUT_MS = 60_000;
-
-/** Run `opencode <args>` to completion on a host PTY, returning its full
- * output text and exit code. A non-TUI command (export/import) writes plain
- * text; the PTY only maps `\n`→`\r\n` (harmless JSON whitespace). Rejects on a
- * spawn failure or if the process does not exit within `RUN_TIMEOUT_MS`. */
-async function runOpencode(
-  ctx: PluginContext,
-  args: string[],
-  cwd?: string,
-): Promise<{ text: string; code: number | null }> {
-  const chunks: Uint8Array[] = [];
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let handle: PluginSessionHandle | undefined;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      fn();
-    };
-    const timer = setTimeout(() => {
-      // A settled run has nothing to kill — its exit beat the timer.
-      if (settled) return;
-      // Settle the kill BEFORE rejecting: the caller's finally overwrites
-      // the scratch file this very process may still be reading, so the
-      // rejection must not outrun the close.
-      const killed = handle?.close().catch(() => {}) ?? Promise.resolve();
-      void killed.then(() =>
-        finish(() =>
-          reject(new Error(`opencode ${args[0] ?? ""} timed out after ${RUN_TIMEOUT_MS}ms`)),
-        ),
-      );
-    }, RUN_TIMEOUT_MS);
-    ctx.services.sessions
-      .spawn(
-        { command: "opencode", args, ...(cwd ? { cwd } : {}), cols: 120, rows: 40 },
-        (event) => {
-          if (event.type === "output") chunks.push(event.bytes);
-          else finish(() => resolve({ text: decode(chunks), code: event.code }));
-        },
-      )
-      .then((h) => {
-        handle = h;
-        // The timeout already fired while spawn was in flight — kill the
-        // process we just started so it doesn't leak.
-        if (settled) void h.close().catch(() => {});
-      })
-      .catch((e) => finish(() => reject(e instanceof Error ? e : new Error(String(e)))));
-  });
-}
-
-function decode(chunks: Uint8Array[]): string {
-  let total = 0;
-  for (const c of chunks) total += c.length;
-  const merged = new Uint8Array(total);
-  let at = 0;
-  for (const c of chunks) {
-    merged.set(c, at);
-    at += c.length;
-  }
-  return new TextDecoder().decode(merged);
-}
-
-/** Last chars of a command's output, for an error message. */
-const tail = (text: string): string => text.trim().slice(-200);
-
-/** The JSON object out of `opencode export`'s output. A `Exporting session:`
- * line rides ahead of the payload on the PTY, and opencode MAY print a trailing
- * line after it (stdout is a TTY), so scan from the first `{` to its MATCHING
- * `}` — string-aware — rather than a naive first-`{`..last-`}` slice. */
-function extractJson(text: string): string {
-  const start = text.indexOf("{");
-  if (start < 0) throw new Error("opencode export produced no JSON payload");
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}" && --depth === 0) return text.slice(start, i + 1);
-  }
-  throw new Error("opencode export JSON was truncated or unbalanced");
-}
 
 /**
  * Fork `input.sessionId` INTO `input.cwd` by export→rekey→import, returning the
