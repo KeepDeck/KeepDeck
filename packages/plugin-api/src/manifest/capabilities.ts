@@ -18,8 +18,12 @@ export interface LegacyDownloadMigration {
 export type Capability =
   /** Run the listed commands — in a PTY session (`sessions.spawn`) or
    * without one (`exec.runOnce`). Entries are matched against the command
-   * about to run; `*` matches any single command name — reserved for
-   * built-ins, external installs surface it loudly in consent.
+   * about to run, by exact name or by the last segment of a path.
+   *
+   * There is no wildcard. An earlier version of this sentence promised that
+   * `*` matched any command; `execCovers` never implemented it and no
+   * manifest ever declared it, so the promise is gone rather than taught —
+   * granting every command is not a thing to add for an absent caller.
    *
    * WHAT THIS GRANTS, stated because the short name understates it. The
    * environment a plugin passes is NOT filtered beyond loader hygiene, the

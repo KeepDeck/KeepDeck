@@ -225,6 +225,16 @@ fn refuse_env(name: &str) -> Option<String> {
     None
 }
 
+/// Both halves of one pair, because `Command::env` panics on a NUL in
+/// EITHER — and the string on both sides came from a caller. Checking only
+/// the name left the promise above half-kept: reviewed, and true.
+fn refuse_pair(name: &str, value: &str) -> Option<String> {
+    if value.contains('\0') {
+        return Some(format!("the value of {name} carries a NUL"));
+    }
+    refuse_env(name)
+}
+
 /// A command is a NAME resolved on the spawn PATH, never a path.
 ///
 /// Anything with a separator would let a caller point at a binary of its
@@ -270,7 +280,7 @@ pub async fn exec_run_once(
     if let Some(why) = refuse_command(&command) {
         return Err(format!("refused: {why}"));
     }
-    if let Some(why) = env.iter().find_map(|(name, _)| refuse_env(name)) {
+    if let Some(why) = env.iter().find_map(|(name, value)| refuse_pair(name, value)) {
         return Err(format!("refused: {why}"));
     }
     let program = keepdeck_env::find_program(&command, keepdeck_env::augmented_path())
@@ -411,6 +421,11 @@ mod tests {
         // a caller's bad input must never take a host thread down with it.
         assert!(refuse_env("").is_some());
         assert!(refuse_env("OK_NAME\0evil").is_some());
+        // BOTH halves: `Command::env` panics on either, and the first cut of
+        // this guard checked only the name — which kept the promise above
+        // exactly half of the time.
+        assert!(refuse_pair("FINE", "also fine").is_none());
+        assert!(refuse_pair("FINE", "value\0evil").is_some());
     }
 
     #[test]

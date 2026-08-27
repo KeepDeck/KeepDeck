@@ -38,11 +38,17 @@ const MANIFEST = "package.json";
  * only place that says whether every package was fully written. */
 const PROVENANCE = "node_modules/.package-lock.json";
 
-/** What one file told us. The three cases must stay apart: a file that is
- * ABSENT says the install has not reached here yet, while one that is
- * present and unreadable says an install got this far and stopped — and
- * those two want opposite treatment. Collapsing them (an earlier version of
- * this file did) sends the furnace at a damaged tree it cannot repair. */
+/** What one file told us. The two failing cases must stay apart: a file we
+ * could not OPEN says the install has not reached here yet, while one we
+ * opened and could not PARSE says an install got this far and stopped —
+ * and those want opposite treatment. Collapsing them (an earlier version of
+ * this file did) sends the furnace at a damaged tree it cannot repair.
+ *
+ * The cut is what we can actually see: the fs service reports a rejection,
+ * not a reason, so a file that exists but denies reading lands in `absent`
+ * with the ones that are simply not there. That errs toward warming, which
+ * is the harmless direction — a futile run, logged, against a tree opencode
+ * leaves alone. */
 type Read =
   | { state: "absent" }
   | { state: "unreadable" }
@@ -55,6 +61,7 @@ async function readJson(ctx: PluginContext, path: string): Promise<Read> {
     if (typeof file.text !== "string") return { state: "unreadable" };
     text = file.text;
   } catch {
+    // Not there, or there and unreadable — the service does not say which.
     return { state: "absent" };
   }
   try {

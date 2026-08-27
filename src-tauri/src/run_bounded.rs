@@ -94,12 +94,15 @@ pub(crate) fn run_bounded(
         }
     };
     use std::io::{Read as _, Seek as _};
-    sink.as_file_mut().rewind().map_err(refused)?;
+    // The child has EXITED by here, so a failure reading back what it said
+    // is not a failure to run it — and reporting it as one would send a
+    // reader looking for a start that happened. The exit status is the
+    // answer either way; an unreadable sink costs the output, not the run.
     let mut said = Vec::new();
-    sink.as_file()
-        .take(max_bytes)
-        .read_to_end(&mut said)
-        .map_err(refused)?;
+    let _ = sink
+        .as_file_mut()
+        .rewind()
+        .and_then(|()| sink.as_file().take(max_bytes).read_to_end(&mut said));
     Ok(BoundedOutput {
         success: status.success(),
         said,
