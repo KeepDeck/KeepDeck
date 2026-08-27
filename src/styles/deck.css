@@ -127,6 +127,34 @@
   flex: 1;
 }
 
+/* The usage chips came down from the top bar, where a bordered pill was the
+   right shape: it sat among buttons and had to hold its own against them.
+   Down here it has to hold its own against nothing, and a row of filled pills
+   in a 24px strip reads as buttons floating on a rule. So in THIS container
+   they are segments — the border and the fill go, the hover stays, and what
+   is left is the number, which is the only part anyone reads.
+
+   Stated by the container rather than by a prop on the component: where a
+   chip sits is not something the chip can know, and every other placement
+   fact about this strip is already here. */
+.deck__statusbar .usage-chip {
+  border-color: transparent;
+  background: transparent;
+  padding: 0 6px;
+}
+
+.deck__statusbar .usage-chip:hover {
+  background-color: #1b2230;
+}
+
+/* And the panel opens UPWARD, because the strip is the bottom edge — anchored
+   below its chip it rendered off the window entirely, which is a thing only a
+   running app can show you. */
+.deck__statusbar .usage-panel {
+  top: auto;
+  bottom: calc(100% + 10px);
+}
+
 /* An update sits downloaded and verified, and a single press restarts into
    it — the one thing down here worth a colour. */
 .deck__statusbar-update {
