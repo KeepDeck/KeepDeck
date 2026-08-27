@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   AgentContribution,
   PluginContext,
@@ -490,5 +490,59 @@ describe("opencode plugin identity", () => {
       "#4B4646",
       "#F1ECEC",
     ]);
+  });
+});
+
+describe("opencode plugin — warming the config dir", () => {
+  const CFG = "/cfg/ws-1";
+
+  /** A services stub that answers as a dir with a manifest and nothing
+   * installed — the state a fresh workspace is in — and records runs. */
+  function warmServices() {
+    const runOnce = vi.fn(async (_request: { key: string; command: string }) => ({
+      ran: true,
+      ok: true,
+      said: "",
+    }));
+    return {
+      runOnce,
+      services: {
+        fs: {
+          readFile: async (path: string) => {
+            if (path === `${CFG}/package.json`) return { text: "{}" };
+            throw new Error(`ENOENT: ${path}`);
+          },
+        },
+        exec: { runOnce },
+      },
+    };
+  }
+
+  const withSkills = {
+    ...input,
+    skills: { opencodeConfigDir: CFG, skillsDir: "/s", claudePluginDir: "/c" },
+  };
+
+  it("bootstraps a local pane's config dir before it spawns", async () => {
+    const { runOnce, services } = warmServices();
+    const agent = activate("/App/resources/session-reporter.js", services);
+
+    await agent.hooks["spawn.plan"]!(withSkills as never, output());
+
+    expect(runOnce).toHaveBeenCalledTimes(1);
+    expect(runOnce.mock.calls[0][0]).toMatchObject({ key: CFG, command: "opencode" });
+  });
+
+  it("leaves a remote pane's workspace alone — it opens no local config dir", async () => {
+    // `attach` runs the agent on the server and this process is a thin
+    // client: the local dir is one nothing here will read, so warming it
+    // would spend a minute on a directory this pane never opens.
+    const { runOnce, services } = warmServices();
+    const agent = activate("/App/resources/session-reporter.js", services);
+    const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
+
+    await agent.hooks["spawn.plan"]!({ ...withSkills, target } as never, output());
+
+    expect(runOnce).not.toHaveBeenCalled();
   });
 });
