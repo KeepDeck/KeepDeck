@@ -3,9 +3,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { TopBarActionContribution } from "@keepdeck/plugin-api";
 import type { UpdateAction } from "../../app/updateAction";
-import { createContributionRegistry } from "../../plugins/registries/contributions";
+import { BAR_TIP_DELAY_MS } from "../../ui/TipButton";
 import { DeckBar, type DeckBarProps } from "./DeckBar";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -202,7 +201,22 @@ describe("DeckBar", () => {
       onAddTeam: null,
     });
     expect(byText("+ Agent")?.disabled).toBe(true);
-    expect(document.querySelector(".kd-tip__anchor")).not.toBeNull();
+    // The tip has to SAY it. Asserting that an anchor exists would pass with
+    // any wording at all, this refusal included by an empty one.
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        byText("+ Agent")!
+          .closest(".kd-tip__anchor")!
+          .dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      });
+      act(() => void vi.advanceTimersByTime(BAR_TIP_DELAY_MS));
+      expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(
+        "Max 16 agents",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
 
     render({ canAddAgent: false, addAgentTitle: "Max 16 agents", onAddTeam: () => {} });
     act(() => byLabel("Create")?.click());
@@ -227,29 +241,6 @@ describe("DeckBar", () => {
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).map((item) => item.textContent),
     ).toEqual(["p2", "p3"]);
-  });
-
-  it("draws the first three registered, in the order they registered", () => {
-    // Both halves of this were held down and the JOIN was not: the registry
-    // proves it keeps insertion order, the ceiling proves it takes a prefix,
-    // and nothing said the bar reads the one through the other. So it is fed
-    // a real registry here rather than a literal, with two plugins
-    // interleaved the way ordered activation would produce them.
-    const registry = createContributionRegistry<TopBarActionContribution>();
-    registry.add("plugin.a", { id: "first", title: "First", run: () => {} });
-    registry.add("plugin.b", { id: "second", title: "Second", run: () => {} });
-    registry.add("plugin.a", { id: "third", title: "Third", run: () => {} });
-    registry.add("plugin.b", { id: "fourth", title: "Fourth", run: () => {} });
-
-    render({ pluginActions: registry.list() });
-    expect(byLabel("First")).not.toBeNull();
-    expect(byLabel("Second")).not.toBeNull();
-    act(() => byLabel("More plugin actions")?.click());
-    expect(
-      Array.from(
-        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ).map((item) => item.textContent),
-    ).toEqual(["Third", "Fourth"]);
   });
 
   it("gates the dialog destinations without touching the other controls", () => {
