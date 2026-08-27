@@ -54,6 +54,7 @@ function fakeBackend() {
       writeText: vi.fn(async () => {}),
       readText: vi.fn(async () => ""),
     },
+    exec: { runOnce: vi.fn(async () => ({ ran: true, ok: true, said: "" })) },
     sessions: { spawn: vi.fn(async () => handle) },
     opener: {
       openUrl: vi.fn(async () => {}),
@@ -871,5 +872,51 @@ describe("createCapabilityGate — sqlite", () => {
       '"sqliteReadonly" capability',
     );
     expect(backend.sqlite.query).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCapabilityGate — exec.runOnce", () => {
+  const request = { key: "k", command: "git", args: ["status"] };
+
+  it("admits a run the manifest's exec capability already covers", async () => {
+    // The same permission as spawning it in a pane, asked for a quieter
+    // shape — so declaring `exec` once must cover both roads.
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "exec", commands: ["git"] }]),
+      backend,
+      { diagnostics: "silent", log: fakeLog() },
+    );
+
+    await gate.exec.runOnce(request);
+
+    expect(backend.exec.runOnce).toHaveBeenCalledWith(request);
+  });
+
+  it("refuses a command no exec capability covers, and never reaches the host", () => {
+    // The gate is where "may this plugin run this" is decided; the host
+    // below it only refuses shapes nobody legitimate asks for.
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "exec", commands: ["git"] }]),
+      backend,
+      { diagnostics: "silent", log: fakeLog() },
+    );
+
+    expect(() => gate.exec.runOnce({ ...request, command: "curl" })).toThrow(
+      /requires an "exec" capability/,
+    );
+    expect(backend.exec.runOnce).not.toHaveBeenCalled();
+  });
+
+  it("refuses every command when the manifest declares no exec at all", () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(manifest([]), backend, {
+      diagnostics: "silent",
+      log: fakeLog(),
+    });
+
+    expect(() => gate.exec.runOnce(request)).toThrow(/exec/);
+    expect(backend.exec.runOnce).not.toHaveBeenCalled();
   });
 });

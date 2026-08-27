@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { execRunOnce } from "../ipc/exec";
 import { pluginsSqliteQuery } from "../ipc/history";
 import {
   pluginsFsWriteAppend,
@@ -354,6 +355,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * is scope-aware here (the gate injects the scope it derived from the
    * manifest); this backend turns that scope into concrete roots. */
   const serviceBackend: ServiceBackends = {
+    exec: { runOnce: (request) => execRunOnce(request) },
     sessions: {
       async spawn(opts, onEvent) {
         return spawnSession(

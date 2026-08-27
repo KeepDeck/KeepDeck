@@ -9,6 +9,12 @@ import type { PluginSpeech } from "./speech.ts";
  */
 export interface PluginServices {
   readonly sessions: PluginSessions;
+  /** Run a declared command WITHOUT a terminal, bounded, and at most once
+   * per key at a time. Gated by the same `exec` capability as
+   * `sessions.spawn` and by the same rule (`execCovers`), because it is the
+   * same permission asked for a quieter shape: a plugin that may run a
+   * command in a pane may run it without one. */
+  readonly exec: PluginExec;
   readonly ports: PluginPorts;
   readonly opener: PluginOpener;
   readonly fs: PluginFs;
@@ -39,6 +45,55 @@ export interface PluginClipboard {
    * no text; the caller treats the rejection as "nothing to paste". Requires
    * the sensitive `clipboardRead` capability. */
   readText(): Promise<string>;
+}
+
+/**
+ * Work a plugin hands to the host to perform: a command it already declared,
+ * run headlessly and bounded, with no terminal and no session.
+ *
+ * The plugin decides EVERYTHING about whether the work is needed — the host
+ * knows nothing about the CLI it is running. What the host guarantees is the
+ * mechanism: the command is resolved on the same augmented PATH a pane would
+ * use, the run is killed if it hangs, and concurrent asks for one `key`
+ * collapse into a single run whose result they all receive.
+ *
+ * The host refuses two things whatever the capability allows, because no
+ * honest caller needs them: a `command` that is a path rather than a name,
+ * and environment names that make a loader run other code inside the program
+ * (`DYLD_*`, `LD_*`, `PATH`).
+ */
+export interface PluginExec {
+  /**
+   * Run `command` once per `key` at a time.
+   *
+   * A call that arrives while another run holds the same key waits for it
+   * and receives that run's result with `ran: false` — so two panes asking
+   * at the same moment produce one child, not two. A call that arrives after
+   * a run finished starts a fresh one: by then the caller has re-judged
+   * whether the work is needed, and the host does not second-guess it.
+   */
+  runOnce(request: PluginExecRequest): Promise<PluginExecOutcome>;
+}
+
+export interface PluginExecRequest {
+  /** What concurrent callers collapse on — typically the resource the run
+   * acts upon, never a pane or a session, both of which come and go while
+   * the resource stays. */
+  key: string;
+  /** Program NAME, covered by a declared `exec` capability. */
+  command: string;
+  args?: string[];
+  /** Extra environment for the child, on top of the host's own. */
+  env?: [string, string][];
+}
+
+export interface PluginExecOutcome {
+  /** Whether THIS call performed the run, or joined one already in flight. */
+  ran: boolean;
+  /** Whether the run — this one or the joined one — exited 0. */
+  ok: boolean;
+  /** The tail of what a failing run said; empty when it succeeded. */
+  said: string;
 }
 
 export interface PluginSessions {

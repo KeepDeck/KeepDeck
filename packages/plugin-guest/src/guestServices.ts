@@ -8,6 +8,7 @@ import type {
   GitHistory,
   GitStatus,
   PluginContext,
+  PluginExecOutcome,
   PluginSessionEvent,
   SpeechCapture,
   SpeechCaptureOptions,
@@ -169,6 +170,10 @@ export function createGuestServices({
         rpc.call("services.clipboard.writeText", [text]) as Promise<void>,
       readText: () =>
         rpc.call("services.clipboard.readText", []) as Promise<string>,
+    },
+    exec: {
+      runOnce: (request) =>
+        rpc.call("services.exec.runOnce", [request]) as Promise<PluginExecOutcome>,
     },
     speech: {
       engines: () =>
