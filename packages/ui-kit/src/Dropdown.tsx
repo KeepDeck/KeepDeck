@@ -60,6 +60,10 @@ export function Dropdown({
         // focus is inside it, so modal layers keep their own Esc semantics.
         if (e.key === "Escape" && open) {
           e.stopPropagation();
+          // Same reason as after a pick, and it was missing here: the option
+          // holding focus is unmounted with the list, and focus falls to
+          // <body> unless it is put back first.
+          buttonRef.current?.focus();
           setOpen(false);
         }
       }}
