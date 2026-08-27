@@ -109,27 +109,60 @@ export function buildPluginContext(
     );
   }
 
+  // A registration is identified by its kind and id, and TWO live ones under
+  // the same name is not a thing the host can draw: the chrome keys its lists
+  // by exactly that pair, so the second copy collides with the first and React
+  // starts reconciling two elements it cannot tell apart.
+  //
+  // Refused rather than tolerated, in the same fail-closed idiom as the
+  // manifest gate above — and only against a LIVE one. Registering again after
+  // disposing is ordinary (a plugin re-registering as its own state changes),
+  // and the name is free again by then.
+  const live = new Set<string>();
+
+  function claim(
+    kind: keyof PluginManifest["contributes"],
+    id: string,
+    register: () => Disposable,
+  ): Disposable {
+    declared(kind, id);
+    const name = `${kind}:${id}`;
+    if (live.has(name)) {
+      throw new Error(`contribution already registered: ${kind} "${id}"`);
+    }
+    live.add(name);
+    const inner = register();
+    return track({
+      dispose() {
+        live.delete(name);
+        inner.dispose();
+      },
+    });
+  }
+
   const ctx: PluginContext = {
     manifest,
     ui: {
-      registerDockTab: (tab) => {
-        declared("dockTabs", tab.id);
-        return track(registries.dockTabs.add(pluginId, tab));
-      },
-      registerTopBarAction: (action) => {
-        declared("topBarActions", action.id);
-        const title = actionTitle("topBarActions", action.id, action.title);
-        return track(registries.topBarActions.add(pluginId, { ...action, title }));
-      },
-      registerPaneAction: (action) => {
-        declared("paneActions", action.id);
-        const title = actionTitle("paneActions", action.id, action.title);
-        return track(registries.paneActions.add(pluginId, { ...action, title }));
-      },
-      registerOverlay: (overlay) => {
-        declared("overlays", overlay.id);
-        return track(registries.overlays.add(pluginId, overlay));
-      },
+      registerDockTab: (tab) =>
+        claim("dockTabs", tab.id, () => registries.dockTabs.add(pluginId, tab)),
+      registerTopBarAction: (action) =>
+        claim("topBarActions", action.id, () =>
+          registries.topBarActions.add(pluginId, {
+            ...action,
+            title: actionTitle("topBarActions", action.id, action.title),
+          }),
+        ),
+      registerPaneAction: (action) =>
+        claim("paneActions", action.id, () =>
+          registries.paneActions.add(pluginId, {
+            ...action,
+            title: actionTitle("paneActions", action.id, action.title),
+          }),
+        ),
+      registerOverlay: (overlay) =>
+        claim("overlays", overlay.id, () =>
+          registries.overlays.add(pluginId, overlay),
+        ),
       revealDockTab: (id) => deps.ui.revealDockTab(pluginId, id),
       setOverlayVisible: (id, visible) => {
         // Same fail-closed gate as every contribution surface — and the one
@@ -141,10 +174,10 @@ export function buildPluginContext(
       },
     },
     openers: {
-      register: (handler) => {
-        declared("fileOpeners", handler.id);
-        return track(registries.fileOpeners.add(pluginId, handler));
-      },
+      register: (handler) =>
+        claim("fileOpeners", handler.id, () =>
+          registries.fileOpeners.add(pluginId, handler),
+        ),
     },
     settings: {
       registerSection: (section) => {
@@ -164,10 +197,8 @@ export function buildPluginContext(
       // while the port enforces identity + execute permissions.
       const port = deps.commands(manifest, source);
       return {
-        register: (spec: Parameters<typeof port.register>[0]) => {
-          declared("commands", spec.id);
-          return track(port.register(spec));
-        },
+        register: (spec: Parameters<typeof port.register>[0]) =>
+          claim("commands", spec.id, () => port.register(spec)),
         execute: (id: string, args: Parameters<typeof port.execute>[1]) =>
           port.execute(id, args),
         list: () => port.list(),

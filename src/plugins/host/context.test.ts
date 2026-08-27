@@ -236,6 +236,44 @@ describe("buildPluginContext", () => {
     ).toThrow("settings");
   });
 
+  it("refuses a second LIVE registration under a name already taken", () => {
+    // The chrome keys its lists by plugin and contribution id, so two live
+    // entries under one name are two elements React cannot tell apart.
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    const tab = { id: "t", label: "T", Component: () => null };
+    const handle = ctx.ui.registerDockTab(tab);
+    expect(() => ctx.ui.registerDockTab(tab)).toThrow(
+      'contribution already registered: dockTabs "t"',
+    );
+    expect(registries.dockTabs.list()).toHaveLength(1);
+
+    // Disposing frees the name again — re-registering as a plugin's own state
+    // changes is ordinary, and by then there is nothing to collide with.
+    handle.dispose();
+    expect(registries.dockTabs.list()).toEqual([]);
+    ctx.ui.registerDockTab(tab);
+    expect(registries.dockTabs.list()).toHaveLength(1);
+  });
+
+  it("frees every claimed name when the plugin is swept", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const first = buildPluginContext(declaring("p"), "builtin", registries, deps);
+    first.ctx.ui.registerDockTab({ id: "t", label: "T", Component: () => null });
+    first.disposeAll();
+
+    // A fresh activation is a fresh context, so a reload cannot be refused by
+    // the names its own previous life was holding.
+    const second = buildPluginContext(declaring("p"), "builtin", registries, deps);
+    expect(() =>
+      second.ctx.ui.registerDockTab({ id: "t", label: "T", Component: () => null }),
+    ).not.toThrow();
+    expect(registries.dockTabs.list()).toHaveLength(1);
+  });
+
   it("agent registration passes the same declaration gate", () => {
     const registries = createContributionRegistries();
     const { deps } = fakeDeps();
