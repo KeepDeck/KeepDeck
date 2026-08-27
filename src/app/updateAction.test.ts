@@ -36,16 +36,34 @@ describe("updateActionView", () => {
   it("sends an available update to its settings section rather than acting", () => {
     // Nothing is downloaded yet, so the press cannot install anything — the
     // section owns the rest of the flow.
-    expect(updateActionView(stateAt("available"))?.action).toEqual({
-      kind: "openUpdatesSettings",
+    expect(updateActionView(stateAt("available"))).toEqual({
+      label: "Update available",
+      title: "Version 0.22.0 is available",
+      disabled: false,
+      action: { kind: "openUpdatesSettings" },
     });
   });
 
-  it("refuses a second press while a step is already running", () => {
+  it("names the step that is running, and refuses a second press", () => {
     // The user has already asked; the three in-flight phases exist to say
-    // which step is running, not to take another instruction.
-    for (const phase of ["downloading", "discarding", "installing"] as const) {
-      expect(updateActionView(stateAt(phase))?.disabled).toBe(true);
+    // WHICH step is running — which is the whole reason they are three phases
+    // and not one. Asserting only `disabled` would let all three collapse into
+    // the same label without a test noticing.
+    const running = {
+      downloading: "Downloading update…",
+      discarding: "Discarding update…",
+      installing: "Restarting…",
+    } as const;
+    for (const [phase, label] of Object.entries(running)) {
+      expect(updateActionView(stateAt(phase as UpdatePhase))).toEqual({
+        label,
+        title: "Version 0.22.0 is available",
+        disabled: true,
+        // Unreachable while disabled, and deliberately not a fourth kind that
+        // every caller would have to handle to describe a press that cannot
+        // happen.
+        action: { kind: "openUpdatesSettings" },
+      });
     }
   });
 

@@ -245,4 +245,35 @@ describe("WorkspacesRail workspace metadata", () => {
     expect(dot("c")).toBe("rail__dot");
     expect(dot("d")).toBe("rail__dot");
   });
+
+  it("signs the rail with the build, and stays silent without one", () => {
+    // The build number left the top bar for the rail's foot, and every other
+    // test here passes `version: null` — so the branch that actually draws it
+    // was the one branch nothing looked at.
+    const renderRail = (version: string | null) =>
+      act(() =>
+        root.render(
+          createElement(WorkspacesRail, {
+            workspaces: [{ id: "a", name: "Alpha", agentCount: 1 }],
+            activeId: "a",
+            onSelect: () => {},
+            onAdd: () => {},
+            onClose: () => {},
+            onRename: () => {},
+            onReorder: () => {},
+            version,
+          }),
+        ),
+      );
+
+    renderRail(null);
+    expect(host.querySelector(".rail__foot")).toBeNull();
+
+    renderRail("0.22.0");
+    const foot = host.querySelector(".rail__foot")!;
+    // The number is what shows; the app's name comes with it on hover, so the
+    // foot reads as a signature rather than as a stray figure.
+    expect(foot.textContent).toBe("0.22.0");
+    expect(foot.getAttribute("title")).toBe("KeepDeck 0.22.0");
+  });
 });

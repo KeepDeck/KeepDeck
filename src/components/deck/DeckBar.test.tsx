@@ -3,6 +3,9 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { TopBarActionContribution } from "@keepdeck/plugin-api";
+import type { UpdateAction } from "../../app/updateAction";
+import { createContributionRegistry } from "../../plugins/registries/contributions";
 import { DeckBar, type DeckBarProps } from "./DeckBar";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -151,6 +154,43 @@ describe("DeckBar", () => {
     expect(byText("+ Agent")).toBeDefined();
   });
 
+  it("carries the update control's own words and its own action", () => {
+    // The bar decides nothing about updates — it is handed a view and hands
+    // back the action by name. Which means the whole seam is: does the label
+    // reach the button, and does THAT action reach the callback.
+    const acted: UpdateAction[] = [];
+    render({
+      updateAction: {
+        label: "Update ready · Restart",
+        title: "Update to 0.22.0 and restart",
+        disabled: false,
+        action: { kind: "restart" },
+      },
+      onUpdateAction: (action) => acted.push(action),
+    });
+    const button = byText("Update ready · Restart")!;
+    expect(button).toBeDefined();
+    act(() => button.click());
+    expect(acted).toEqual([{ kind: "restart" }]);
+  });
+
+  it("does not act on an update step that is already running", () => {
+    const acted: UpdateAction[] = [];
+    render({
+      updateAction: {
+        label: "Downloading update…",
+        title: "Version 0.22.0 is available",
+        disabled: true,
+        action: { kind: "openUpdatesSettings" },
+      },
+      onUpdateAction: (action) => acted.push(action),
+    });
+    const button = byText("Downloading update…")!;
+    expect(button.disabled).toBe(true);
+    act(() => button.click());
+    expect(acted).toEqual([]);
+  });
+
   it("says why creating is refused, whichever shape the control takes", () => {
     // The same refusal used to reach the reader through one path and vanish
     // down the other: the lone button showed it, the menu item put it in a
@@ -187,6 +227,29 @@ describe("DeckBar", () => {
         document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).map((item) => item.textContent),
     ).toEqual(["p2", "p3"]);
+  });
+
+  it("draws the first three registered, in the order they registered", () => {
+    // Both halves of this were held down and the JOIN was not: the registry
+    // proves it keeps insertion order, the ceiling proves it takes a prefix,
+    // and nothing said the bar reads the one through the other. So it is fed
+    // a real registry here rather than a literal, with two plugins
+    // interleaved the way ordered activation would produce them.
+    const registry = createContributionRegistry<TopBarActionContribution>();
+    registry.add("plugin.a", { id: "first", title: "First", run: () => {} });
+    registry.add("plugin.b", { id: "second", title: "Second", run: () => {} });
+    registry.add("plugin.a", { id: "third", title: "Third", run: () => {} });
+    registry.add("plugin.b", { id: "fourth", title: "Fourth", run: () => {} });
+
+    render({ pluginActions: registry.list() });
+    expect(byLabel("First")).not.toBeNull();
+    expect(byLabel("Second")).not.toBeNull();
+    act(() => byLabel("More plugin actions")?.click());
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).map((item) => item.textContent),
+    ).toEqual(["Third", "Fourth"]);
   });
 
   it("gates the dialog destinations without touching the other controls", () => {
