@@ -76,8 +76,14 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
  *
  * Per pane, not per agent: the mode is a choice made at each spawn, and a
  * pane launched normally must go on surfacing the approvals it really waits
- * on. LOCAL panes only — a remote one runs its plugins on the server, where
- * this variable does not reach. */
+ * on.
+ *
+ * It travels on every launch, and on a REMOTE one it reaches nobody —
+ * measured: an `attach` client does not load the plugins its own config
+ * names, so a remote pane has no reporter to read this, and no statuses or
+ * mail either. Set unconditionally all the same: the day the remote path
+ * grows a reporter, a mode that only some launches carried would be a subtler
+ * bug than one that was always there. */
 const permissionModeEnv = (yolo: boolean | undefined): [string, string][] =>
   yolo ? [["KEEPDECK_OPENCODE_SKIPS_APPROVALS", "1"]] : [];
 

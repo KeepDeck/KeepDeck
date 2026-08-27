@@ -230,10 +230,11 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
       readFileSync(join(kimiTeams, "skills", "keepdeck-team", "SKILL.md"), "utf8"),
     ).toContain("mail.inbox");
 
-    // opencode's two plugins are loaded by absolute path and import a
-    // sibling between them. Shipping either one without that sibling gives
-    // an agent that loads and then throws on import — so the whole trio has
-    // to arrive, and the import has to still resolve where they land.
+    // opencode's two plugins are loaded by absolute path and import TWO
+    // siblings between them — the wire, and the pane's session. Shipping
+    // either plugin without one gives an agent that loads and then throws on
+    // import, so all four have to arrive and the imports have to still
+    // resolve where they land.
     const opencodeResources = join(
       distRoot,
       "plugins",
@@ -242,15 +243,16 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     );
     for (const file of [
       "keepdeck-bridge.js",
+      "pane-session.js",
       "mail-courier.js",
       "session-reporter.js",
     ]) {
       expect(existsSync(join(opencodeResources, file))).toBe(true);
     }
     for (const file of ["mail-courier.js", "session-reporter.js"]) {
-      expect(readFileSync(join(opencodeResources, file), "utf8")).toContain(
-        'from "./keepdeck-bridge.js"',
-      );
+      const body = readFileSync(join(opencodeResources, file), "utf8");
+      expect(body).toContain('from "./keepdeck-bridge.js"');
+      expect(body).toContain('from "./pane-session.js"');
     }
   });
 

@@ -455,7 +455,18 @@ describe("opencode plugin hooks", () => {
     expect(fork.args).toEqual(["attach", "http://vps:4096"]);
     expect(fork.args).not.toContain("--fork");
 
-    // The reporter still arms on the local attach client (pane binding).
+    // The config still travels — the same staging serves every launch — but
+    // NOTHING READS IT. Measured: an `attach` client does not load the plugins
+    // its own `OPENCODE_CONFIG_CONTENT` names; a probe placed there never
+    // initialises over a whole turn, while the same probe in an ordinary TUI
+    // marks at startup. The agent runs on the server, which loads plugins from
+    // its OWN environment, and the attach client hands it none.
+    //
+    // So a remote pane reports nothing to the deck at all: no binding, no turn
+    // edges, no usage, and no courier to carry mail — the doorbell has nobody
+    // listening. The remote path is unfinished, and this is one of the ways.
+    // Asserted so the next reader is told rather than left to infer it from an
+    // envelope that goes out and dies.
     expect(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
   });
 

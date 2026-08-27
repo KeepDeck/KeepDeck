@@ -108,13 +108,33 @@ describe("normalizeOpencodeStatus", () => {
       });
     });
 
-    it("reports an error the CLI attached to no session — this process is one pane", () => {
+    it("carries a real error name through to the failure verbatim", () => {
       expect(
         normalizeOpencodeStatus(
           wrap("session.error", { error: { name: "UnknownError" } }),
           500,
         ),
       ).toEqual({ kind: "turn-failed", at: 500, error: "UnknownError" });
+    });
+
+    /**
+     * The table names only the fates that are known; everything else falls to
+     * failure, which is the honest default — those are the errors that did
+     * break something. It also guards the case nobody will remember: a name
+     * opencode adds tomorrow must arrive loudly rather than be swallowed.
+     *
+     * `MessageOutputLengthError` is such a name today — declared upstream and
+     * constructed nowhere. It gets no row deliberately: a row would add no
+     * behaviour and a false sense of coverage, while the default is already
+     * structurally right for it.
+     */
+    it("fails on a name it has never heard of rather than swallowing it", () => {
+      expect(
+        normalizeOpencodeStatus(
+          wrap("session.error", { error: { name: "SomeFutureError" } }),
+          500,
+        ),
+      ).toEqual({ kind: "turn-failed", at: 500, error: "SomeFutureError" });
     });
   });
 

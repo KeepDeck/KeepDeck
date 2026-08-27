@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { startDeck } from "../../../scripts/reporterHarness";
+import { normalizeOpencodeStatus } from "./status";
 // The reporter is untyped resource JS — it is shipped to, and loaded by, the
 // user's opencode process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
@@ -767,7 +768,14 @@ describe("opencode session reporter", () => {
     ]);
   });
 
-  it("lets a failed turn be followed by a new beginning too", async () => {
+  /**
+   * A broken turn ends like any other — through the idle behind the error —
+   * and it is the IDLE that lets the next beginning be announced, never the
+   * error. Which errors end a turn is not a question this side answers: some
+   * of them end nothing, and treating them all as endings restarted the phase
+   * clock on turns that were still running.
+   */
+  it("lets a failed turn be followed by a new beginning, once it has ended", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
     const busy = {
@@ -783,15 +791,65 @@ describe("opencode session reporter", () => {
         properties: { sessionID: "ses_root", error: { name: "APIError" } },
       },
     });
+    // Still the same turn as far as this side knows — no second beginning.
+    await event(busy);
+    await event({
+      event: { type: "session.idle", properties: { sessionID: "ses_root" } },
+    });
     await event(busy);
     expect((await statusEvents()).map((e: any) => e.type)).toEqual([
       "session.status",
       "session.error",
+      "session.idle",
       "session.status",
     ]);
   });
 
-  it("forwards an idle STATUS too — which of the three kinds it is, is not this side's call", async () => {
+  /**
+   * The two halves read together, because neither alone catches this.
+   *
+   * An overflowed context publishes an error and then compacts — the SAME turn
+   * carries on, and no idle follows. The reporter used to clear its "already
+   * said" flag on any error, so the next model call passed as news and the
+   * host restarted the phase clock on a turn that had never stopped: the
+   * "Working · 3s" defect, returning through a side door.
+   *
+   * Neither suite saw it. The reporter's tests do not know which errors end a
+   * turn, and the normalizer's never see two events in a row. So this one
+   * takes what the reporter actually forwarded and reads it with the real
+   * normalizer — the seam itself, without a host or a third kind of test.
+   */
+  it("does not let a turn that never stopped begin again", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    const busy = {
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "busy" } },
+      },
+    };
+    await event(busy);
+    await event({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID: "ses_root",
+          error: { name: "ContextOverflowError" },
+        },
+      },
+    });
+    await event(busy);
+
+    const edges = (await statusEvents())
+      .map((raw: any, index: number) =>
+        normalizeOpencodeStatus({ agent: "opencode", event: raw }, index),
+      )
+      .filter(Boolean);
+    // One beginning for one turn. The error says nothing — the turn is alive.
+    expect(edges).toEqual([{ kind: "turn-start", at: 0 }]);
+  });
+
+  it("forwards a retry status too — which of the three kinds it is, is not this side's call", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
     await event({

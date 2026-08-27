@@ -179,30 +179,51 @@ export default async (input = {}) => {
     });
 
   /**
-   * Take a session as the pane's conversation and start counting it afresh.
+   * Take a session as the pane's conversation, then set up for it.
    *
    * `keep` is the ancestry already established for the session being bound
    * THROUGH — a descendant whose chain was learned on the way in. Its presence
-   * is the difference between the two things this does: binding to a
+   * is the difference between the two things the first half does: binding to a
    * conversation already in progress keeps what is known about it, while a
-   * root the pane just watched appear is a new generation and owns nothing
-   * from the last one.
-   *
-   * Silent when the pane already answered: another event may have bound it
-   * while this one was away asking, and the accumulators must not be cleared
-   * under the binding that won.
+   * root the pane just watched appear owns nothing from the last one.
    */
   const activateRoot = async (sessionID, publishBinding, keep) => {
-    const continuing = pane.bound;
-    const took = keep
-      ? pane.bindFromChain(sessionID, keep)
-      : pane.newGeneration(sessionID);
-    if (!took) return;
+    if (keep) pane.bindFromChain(sessionID, keep);
+    else pane.newGeneration(sessionID);
+    await setUpForConversation(publishBinding);
+  };
+
+  /**
+   * Everything this reporter owes a conversation it has not served yet.
+   *
+   * KEYED ON WHICH CONVERSATION, NOT ON WHO MOVED IT THERE. Both plugins watch
+   * the same `session.created` on their own queues, and the courier's is free
+   * to run while this one waits on hydration or on the provider catalog — so
+   * the courier can be the one that sets the new root. Gating this on having
+   * performed the move lost all of it in that window: no binding published, so
+   * the deck no longer knows which session the pane is; no accumulators
+   * cleared, so a new conversation inherited the last one's spend; no
+   * hydration. None of it visible from either side.
+   *
+   * A session id is enough to key on, and no counter is needed: ids are unique
+   * and a pane never returns to a conversation it has left, so `pane.root`
+   * only ever moves forward. The same monotonicity that makes a generation
+   * number unnecessary is what makes this comparison sound.
+   *
+   * `continuing` comes from THIS reporter's own history rather than from the
+   * pane being bound, for the same reason — the courier may have bound it
+   * already, and then a first conversation would report itself as a second.
+   */
+  let servedRoot;
+  const setUpForConversation = async (publishBinding) => {
+    if (pane.root === undefined || pane.root === servedRoot) return;
+    const continuing = servedRoot !== undefined;
+    servedRoot = pane.root;
     messages.clear();
     root = undefined;
     sequence = 0;
-    if (publishBinding) bind(sessionID, continuing);
-    hydration = hydrateSession(sessionID, sessionID, new Set());
+    if (publishBinding) bind(servedRoot, continuing);
+    hydration = hydrateSession(servedRoot, servedRoot, new Set());
     await hydration;
   };
 
@@ -282,10 +303,21 @@ export default async (input = {}) => {
    * showed "Working · 3s".
    *
    * The clock is right to restart on a new turn — a CLI can begin one of its
-   * own accord, and every other agent means exactly that by the edge. What
-   * was wrong is saying it ten times. So the fact is stated once and not
-   * restated until something ends the turn: the reporter is not translating
-   * opencode's dialect here, it is declining to repeat itself.
+   * own accord, and every other agent means exactly that by the edge. What was
+   * wrong is saying it ten times.
+   *
+   * ONLY AN IDLE CLEARS IT, and that is the whole rule. Clearing on errors too
+   * looked safer and was the same bug in miniature: some errors do not end the
+   * turn at all — an overflowed context publishes one and then compacts, and a
+   * crashing plugin publishes one that belongs to no turn — so the next model
+   * call passed as news and the phase clock restarted on a turn that had never
+   * stopped. And an ending without an idle does not exist: every one of them
+   * goes through the same pair, checked against opencode's own code. The only
+   * exception is the process dying, where this flag has nobody left to read it.
+   *
+   * That rule is also what keeps this side out of the business of meaning.
+   * Knowing WHICH errors end a turn is the normalizer's; knowing that a fact
+   * has already been stated is this one's.
    */
   let turnReported = false;
 
@@ -334,8 +366,16 @@ export default async (input = {}) => {
     }
   };
 
-  /** Whether a forwarded status is opencode saying the same thing again. */
-  const alreadySaid = (event) => {
+  /**
+   * Whether opencode is saying THE TURN IS RUNNING for a turn already reported
+   * as running — and, when it is not, recording that it has now been said.
+   *
+   * Named for the answer and NOT written as a question, because it keeps one:
+   * called twice on the same event it answers differently, and the second
+   * answer is the true one. A pure-looking name over a recording call is worse
+   * than a plain lie — a reader trusts it and calls it twice.
+   */
+  const sayingTheTurnRunsAgain = (event) => {
     if (event.type !== "session.status") return false;
     const status = event.properties?.status;
     const kind = typeof status === "object" ? status?.type : status;
@@ -347,13 +387,12 @@ export default async (input = {}) => {
 
   const handle = async (event) => {
     if (belongsHere(event)) {
-      // Anything that closes the turn lets the next one be announced. `retry`
-      // is deliberately not one of them: a step waiting to run again is the
-      // same turn, still going.
-      if (event.type === "session.idle" || event.type === "session.error") {
+      // An idle, and nothing else — see `turnReported` for why the errors that
+      // looked like endings had to come out of this condition.
+      if (event.type === "session.idle") {
         turnReported = false;
       }
-      if (!alreadySaid(event)) forward(event);
+      if (!sayingTheTurnRunsAgain(event)) forward(event);
       return;
     }
 
@@ -408,16 +447,24 @@ export default async (input = {}) => {
     if (!pane.bound) {
       await activateRoot(owningRoot, true, pane.chain(info.sessionID));
     }
+    // And if the courier bound the pane, or moved it, while this side was
+    // away — a no-op when the line above already did the work.
+    await setUpForConversation(true);
     // Once a root is explicitly active, events for unrelated root sessions
     // in the same OpenCode server are not this pane's conversation.
     if (owningRoot !== pane.root) return;
-    // A FINISHED message is a fact about the turn, and it carries endings
-    // that no event does: an interrupt caught between steps writes its name
-    // here and publishes no `session.error` at all, and a structured-output
-    // failure exists nowhere else. A streaming frame is not a fact — it is a
-    // fragment of content, filtered here for the same reason the part deltas
-    // never travel. What a finished message MEANS stays the normalizer's.
-    forward(event);
+    // A FINISHED message of the pane's OWN turn is a fact about that turn, and
+    // it carries an ending no event does: an interrupt caught between steps
+    // writes its name here and publishes no `session.error` at all. A
+    // streaming frame is not a fact — it is a fragment of content, filtered
+    // here for the same reason the part deltas never travel. What a finished
+    // message MEANS stays the normalizer's.
+    //
+    // A SUBAGENT'S message is not the pane's turn ending, and this lane exists
+    // only for that reading — spend travels the usage report below, which
+    // takes descendants on purpose. Forwarding a child's would let a subagent
+    // cut short on its own account read as the pane being interrupted.
+    if (info.sessionID === pane.root) forward(event);
     if (hydration) await hydration;
     // Every assistant turn — ROOT or subagent — is real session spend and
     // sums into the cumulative. But a subagent's context is ITS own, not the
