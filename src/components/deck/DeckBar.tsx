@@ -118,17 +118,11 @@ export function DeckBar({
       label: "Agent",
       onSelect: onAddAgent,
       disabled: !canAddAgent,
-      title: addAgentTitle,
+      refusal: addAgentTitle,
     },
   ];
   if (onAddTeam) {
-    createActions.push({
-      id: "team",
-      label: "Team",
-      onSelect: onAddTeam,
-      title:
-        "Group agents into a team so they can write to each other by role",
-    });
+    createActions.push({ id: "team", label: "Team", onSelect: onAddTeam });
   }
   // The plugin group has a ceiling; whatever passes it folds into a menu, so
   // the bar stops growing with the number of plugins installed.
@@ -197,7 +191,7 @@ export function DeckBar({
               size="sm"
               onClick={createActions[0].onSelect}
               disabled={createActions[0].disabled}
-              tip={createActions[0].title ?? "Add an agent"}
+              tip={createActions[0].refusal ?? "Add an agent"}
               label="Add an agent"
             >
               + {createActions[0].label}

@@ -151,6 +151,26 @@ describe("DeckBar", () => {
     expect(byText("+ Agent")).toBeDefined();
   });
 
+  it("says why creating is refused, whichever shape the control takes", () => {
+    // The same refusal used to reach the reader through one path and vanish
+    // down the other: the lone button showed it, the menu item put it in a
+    // native `title` this platform draws nowhere. Whether the deck offers
+    // teams decided whether you could find out why you were being refused.
+    render({
+      canAddAgent: false,
+      addAgentTitle: "Max 16 agents",
+      onAddTeam: null,
+    });
+    expect(byText("+ Agent")?.disabled).toBe(true);
+    expect(document.querySelector(".kd-tip__anchor")).not.toBeNull();
+
+    render({ canAddAgent: false, addAgentTitle: "Max 16 agents", onAddTeam: () => {} });
+    act(() => byLabel("Create")?.click());
+    expect(
+      document.querySelector(".kd-menu__refusal")?.textContent,
+    ).toBe("Max 16 agents");
+  });
+
   it("keeps the plugin group from growing with the plugins installed", () => {
     // Three slots, and the control that opens the rest takes one of them —
     // so four contributions leave two drawn and two folded, and a hundred

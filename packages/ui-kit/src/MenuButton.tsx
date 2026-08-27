@@ -29,8 +29,13 @@ export interface MenuAction {
   onSelect(): void;
   disabled?: boolean;
   /** Why it is refused, when it is. A disabled item with no reason leaves the
-   *  reader guessing at a rule they cannot see. */
-  title?: string;
+   *  reader guessing at a rule they cannot see — so this is DRAWN, under the
+   *  label, rather than hidden in a `title` this platform never renders.
+   *
+   *  Only refusals get a second line. An enabled item explaining itself is a
+   *  different feature (a menu of descriptions), and the two would be told
+   *  apart by nothing the reader can see. */
+  refusal?: string;
 }
 
 export interface MenuButtonProps {
@@ -120,9 +125,15 @@ export function MenuButton({
                 type="button"
                 role="menuitem"
                 className="kd-menu__item"
-                disabled={action.disabled}
-                title={action.title}
+                /* `aria-disabled`, not `disabled`: a refused item has to stay
+                   reachable, or the reason it carries is unreadable to exactly
+                   the person it is for. A native disabled button takes no
+                   pointer, no hover and no focus — it can only be looked at,
+                   which is why its explanation used to live in a `title` and
+                   go nowhere. */
+                aria-disabled={action.disabled || undefined}
                 onClick={() => {
+                  if (action.disabled) return;
                   // Focus first, then act: whatever the action opens is free
                   // to take focus for itself, and nothing follows behind it
                   // to pull focus back out.
@@ -130,7 +141,10 @@ export function MenuButton({
                   action.onSelect();
                 }}
               >
-                {action.label}
+                <span className="kd-menu__label">{action.label}</span>
+                {action.disabled && action.refusal && (
+                  <span className="kd-menu__refusal">{action.refusal}</span>
+                )}
               </button>
             </li>
           ))}

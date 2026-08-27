@@ -98,7 +98,9 @@
    These are the ITEMS, which a listbox option is not: nothing here is
    selected, so nothing wears a selected state. */
 .kd-menu__item {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   width: 100%;
   padding: 6px 12px;
   border: 0;
@@ -110,11 +112,26 @@
   cursor: pointer;
 }
 
-.kd-menu__item:hover:not(:disabled) {
+.kd-menu__item:hover:not([aria-disabled="true"]) {
   background-color: #1b2230;
 }
 
-.kd-menu__item:disabled {
-  opacity: 0.5;
+/* A refused item stays in the menu and stays reachable — it is the only place
+   the rule that refused it is written down. So it dims its LABEL and keeps its
+   reason legible; dimming the whole item would half-hide the one thing worth
+   reading on it. */
+.kd-menu__item[aria-disabled="true"] {
   cursor: default;
+}
+
+.kd-menu__item[aria-disabled="true"] .kd-menu__label {
+  opacity: 0.5;
+}
+
+.kd-menu__refusal {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #8b93a3;
+  max-width: 34ch;
+  text-wrap: pretty;
 }

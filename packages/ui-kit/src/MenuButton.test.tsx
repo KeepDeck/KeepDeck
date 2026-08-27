@@ -78,6 +78,70 @@ describe("MenuButton", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("draws the reason an item is refused", () => {
+    // The failure this exists for: the reason travelled in a native `title`,
+    // which this platform draws nowhere — so the rule that refused the item
+    // was readable to no one it applied to.
+    render({
+      actions: [
+        {
+          id: "agent",
+          label: "Agent",
+          onSelect: () => {},
+          disabled: true,
+          refusal: "Max 16 agents",
+        },
+      ],
+    });
+    act(() => trigger().click());
+    expect(
+      document.querySelector(".kd-menu__refusal")?.textContent,
+    ).toBe("Max 16 agents");
+  });
+
+  it("keeps a refused item reachable, and inert", () => {
+    // Reachable because the reason is ON it: a native `disabled` button takes
+    // no pointer, no hover and no focus, so its explanation cannot be read by
+    // the person it is for. Inert because it is still refused — the press
+    // neither runs the action nor closes the menu out from under the reason.
+    const calls: string[] = [];
+    render({
+      actions: [
+        {
+          id: "agent",
+          label: "Agent",
+          onSelect: () => calls.push("agent"),
+          disabled: true,
+          refusal: "Max 16 agents",
+        },
+      ],
+    });
+    act(() => trigger().click());
+    const item = items()[0];
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(item.hasAttribute("disabled")).toBe(false);
+    act(() => item.click());
+    expect(calls).toEqual([]);
+    expect(menu()).not.toBeNull();
+  });
+
+  it("says nothing extra about an item that is not refused", () => {
+    // Only refusals get a second line. An enabled item explaining itself is a
+    // different feature, and the two would look identical.
+    render({
+      actions: [
+        {
+          id: "agent",
+          label: "Agent",
+          onSelect: () => {},
+          refusal: "never shown while it is allowed",
+        },
+      ],
+    });
+    act(() => trigger().click());
+    expect(document.querySelector(".kd-menu__refusal")).toBeNull();
+  });
+
   it("hands focus back to the trigger after a pick", () => {
     // The picked item is unmounted with the menu. Without this, focus falls to
     // <body> and the next Tab restarts at the top of the page.
