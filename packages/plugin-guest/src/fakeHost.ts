@@ -285,6 +285,7 @@ export function createFakeHost(
         writeText: async () => {},
         readText: async () => "",
       },
+      exec: { runOnce: async () => ({ ran: true, ok: true, said: "" }) },
       sessions: {
         spawn: async (_opts, onEvent) => {
           const id = `s${sessions.length + 1}`;

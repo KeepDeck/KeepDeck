@@ -66,6 +66,7 @@ function fakeDeps() {
       writeText: vi.fn(async () => {}),
       readText: vi.fn(async () => ""),
     },
+    exec: { runOnce: vi.fn(async () => ({ ran: true, ok: true, said: "" })) },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },

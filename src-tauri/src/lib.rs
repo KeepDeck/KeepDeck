@@ -31,10 +31,13 @@ mod session_tail;
 mod session;
 mod sessions;
 mod roles;
+mod run_bounded;
 mod skills;
 mod voice;
 mod history;
 mod journal;
+mod exec_once;
+mod keyed_locks;
 mod state;
 mod jsonl_log;
 mod usage_history;
@@ -102,6 +105,7 @@ pub fn run() {
         .manage(history::HistoryIndex::default())
         .manage(session::SessionRegistry::default())
         .manage(artifacts::ArtifactsState::new())
+        .manage(exec_once::OnceRunner::new())
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
@@ -234,6 +238,7 @@ pub fn run() {
             skills::skills_save,
             skills::skills_delete,
             skills::skills_rename,
+            exec_once::exec_run_once,
             skills::skills_stage,
             skills::skills_arm,
             skills::skills_prune,

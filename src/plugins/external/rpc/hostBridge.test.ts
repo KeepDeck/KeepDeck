@@ -88,6 +88,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         writeText: async () => {},
         readText: async () => "",
       },
+      exec: { runOnce: async () => ({ ran: true, ok: true, said: "" }) },
       sessions: {
         spawn: async () => ({
           id: "s1",

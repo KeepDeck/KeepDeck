@@ -34,20 +34,31 @@ use super::opencode;
 /// loser can delete the winner's published staging and leave a dangling
 /// codex symlink. App-scoped (not a process static) so tests get isolated
 /// instances. A poisoned lock (a panicked stage) is recovered — the next
-/// stage rebuilds from scratch anyway.
-#[derive(Default, Clone)]
+/// stage rebuilds from scratch anyway. The complementary Hard policy and why
+/// the two must not merge: see [`crate::keyed_locks`].
+#[derive(Clone)]
 pub struct SkillsLocks {
-    inner: std::sync::Arc<
-        std::sync::Mutex<
-            std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<()>>>,
-        >,
-    >,
+    inner: crate::keyed_locks::KeyedLocks<String>,
+}
+
+impl Default for SkillsLocks {
+    fn default() -> Self {
+        Self {
+            inner: crate::keyed_locks::KeyedLocks::new(
+                crate::keyed_locks::PoisonPolicy::Recover,
+            ),
+        }
+    }
 }
 
 impl SkillsLocks {
     fn for_ws(&self, ws_id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
-        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        map.entry(ws_id.to_string()).or_default().clone()
+        self.inner.for_key(ws_id.to_string())
+    }
+
+    /// Take a workspace's lock under this map's poison policy.
+    fn acquire<'a>(&self, lock: &'a std::sync::Mutex<()>) -> std::sync::MutexGuard<'a, ()> {
+        self.inner.acquire(lock)
     }
 }
 
@@ -87,7 +98,7 @@ pub(super) fn stage(
 
     // Overlapping same-ws stagings share tmp dirs and the swap — serialize.
     let lock = locks.for_ws(ws_id);
-    let _staging = lock.lock().unwrap_or_else(|p| p.into_inner());
+    let _staging = locks.acquire(&lock);
 
     // The registry result arrives as a plain bool from the tauri glue —
     // staging logic stays feature-free (the one-directional boundary).
@@ -359,7 +370,7 @@ pub(super) fn arm(
     spawn_roots: &[String],
 ) -> SkillArmReport {
     let lock = locks.for_ws(ws_id);
-    let _arming = lock.lock().unwrap_or_else(|p| p.into_inner());
+    let _arming = locks.acquire(&lock);
     let staged = root.join("staging").join(ws_id).join("skills");
     // Nothing staged yet — an arming pass here would plant links to a
     // directory that does not exist. Not a refusal either: the user has

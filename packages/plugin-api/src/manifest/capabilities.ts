@@ -16,9 +16,34 @@ export interface LegacyDownloadMigration {
 }
 
 export type Capability =
-  /** Spawn PTY sessions running the listed commands. Entries are matched
-   * against the command about to run; `*` matches any single command name —
-   * reserved for built-ins, external installs surface it loudly in consent. */
+  /** Run the listed commands — in a PTY session (`sessions.spawn`) or
+   * without one (`exec.runOnce`). Entries are matched against the command
+   * about to run, by exact name or by the last segment of a path.
+   *
+   * There is no wildcard. An earlier version of this sentence promised that
+   * `*` matched any command; `execCovers` never implemented it and no
+   * manifest ever declared it, so the promise is gone rather than taught —
+   * granting every command is not a thing to add for an absent caller.
+   *
+   * WHAT THIS GRANTS, stated because the short name understates it. The
+   * environment a plugin passes is NOT filtered beyond loader hygiene, the
+   * arguments are not bounded at all, and a CLI that loads its own config
+   * and extensions will load whatever it is pointed at. For an agent CLI
+   * that adds up to something close to "may run code as the user": both
+   * `<cli> -p "<anything>"` and a config naming a plugin file are inside
+   * this capability, not around it.
+   *
+   * That is a DECISION, not an oversight. Narrowing it was designed out in
+   * full — declaring allowed env names in the manifest, deriving them from
+   * the plugin's id, filtering at the process leaf, restricting commands to
+   * a plugin's own folder — and every one either failed (the manifest and
+   * the id are both written by the plugin author) or bought a rule the
+   * installed base does not need yet. The trust boundary is INSTALLATION:
+   * a person decides which plugins run, and this capability tells them
+   * which programs those plugins may start.
+   *
+   * Revisit if third-party plugins become a real population — today none
+   * exist, which is exactly why the contract is cheap to change later. */
   | { kind: "exec"; commands: string[] }
   /** Read project files. `workspace` = the workspace folder and its panes'
    * worktrees; `everywhere` = no path restriction (consent shouts this). */

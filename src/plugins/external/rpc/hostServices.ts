@@ -50,6 +50,10 @@ export function createServiceHandlers({
   isDisposed,
 }: ServiceHandlerDeps): Record<string, (args: unknown[]) => unknown> {
   return {
+    "services.exec.runOnce": ([request]) =>
+      ctx.services.exec.runOnce(
+        request as import("@keepdeck/plugin-api").PluginExecRequest,
+      ),
     "services.ports.allocate": ([key]) => ctx.services.ports.allocate(key as string),
     "services.opener.openUrl": ([url]) => ctx.services.opener.openUrl(url as string),
     "services.opener.openPath": ([path]) =>

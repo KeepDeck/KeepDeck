@@ -154,6 +154,19 @@ export function probeableAgentBins(manifest: PluginManifest): string[] {
  * gate, the consent UI previewing what a declaration will let through, and
  * `probeableAgentBins` above.
  */
+/**
+ * KNOWN GAP, recorded rather than fixed: the match below accepts a PATH as
+ * well as a name, by comparing the path's last segment. So a manifest that
+ * declares `node` also permits `/anywhere/node` — including a file the
+ * plugin wrote itself. What consent shows ("node") and what is allowed
+ * (any file so named, from anywhere) are therefore not the same statement.
+ *
+ * Left as it is deliberately: today the population that could exploit it is
+ * empty (no third-party plugins exist), and the fix belongs with the wider
+ * question of what an external plugin may run at all — see the `exec`
+ * capability's own note. Tightening this to compare the RESOLVED path is
+ * the shape of that fix when it comes.
+ */
 export function execCovers(
   capabilities: readonly Capability[],
   subject: string,

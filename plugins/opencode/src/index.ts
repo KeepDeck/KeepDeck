@@ -6,6 +6,7 @@
  * through the bridge, catching `/new` typed inside the TUI too.
  */
 import type {
+  PluginContext,
   KeepDeckPlugin,
   PluginResources,
   SpawnPlanInput,
@@ -16,6 +17,7 @@ import { mcpConfigFragment } from "./mcp";
 import { opencodeHistory } from "./history";
 import { relocatingForkId } from "./fork";
 import { renderOpencodeMail } from "./mail";
+import { warmConfigDir } from "./warm";
 import { normalizeOpencodeStatus } from "./status";
 import { normalizeOpencodeUsage } from "./usage";
 
@@ -123,17 +125,26 @@ const remoteAttachArgs = (
  *  forked pane would simply come up without its reporter, or without its
  *  skills, and go on looking like the ones that have them. */
 async function stageLaunch(
-  resources: PluginResources,
+  ctx: PluginContext,
   input: Pick<SpawnPlanInput, "mcp" | "skills" | "target" | "yolo">,
   output: { env: [string, string][]; envDefaults?: [string, string][]; args: string[] },
 ): Promise<boolean> {
-  output.env.push(...(await sessionConfigEnv(resources, input.mcp)));
+  output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
   output.env.push(...permissionModeEnv(input.yolo));
   (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
   const remote = remoteAttachArgs(input.target, input.yolo);
-  if (!remote) return false;
-  output.args = remote;
-  return true;
+  if (remote) {
+    // Remote settles the arguments AND ends the local story: the agent runs
+    // on the server, this process is a thin client, and the config dir below
+    // is one nothing will read. Warming it would be a minute spent on a
+    // directory this pane never opens.
+    output.args = remote;
+    return true;
+  }
+  // Only now, with the pane known to be local: bootstrap the dir it is about
+  // to boot against, so the install does not happen inside its own boot.
+  if (input.skills) await warmConfigDir(ctx, input.skills.opencodeConfigDir);
+  return false;
 }
 
 const plugin: KeepDeckPlugin = {
@@ -179,11 +190,11 @@ const plugin: KeepDeckPlugin = {
       },
       hooks: {
         "spawn.plan": async (input, output) => {
-          if (await stageLaunch(ctx.resources, input, output)) return;
+          if (await stageLaunch(ctx, input, output)) return;
           output.args = yoloArgs(input.yolo);
         },
         "resume.plan": async (input, output) => {
-          if (await stageLaunch(ctx.resources, input, output)) return;
+          if (await stageLaunch(ctx, input, output)) return;
           output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
         },
         // Native `-s <id> --fork` re-homes the fork to the SOURCE session's
@@ -195,7 +206,7 @@ const plugin: KeepDeckPlugin = {
         // Remote short-circuits all of this: attach to the server, where the
         // fork runs server-side.
         "fork.plan": async (input, output) => {
-          if (await stageLaunch(ctx.resources, input, output)) return;
+          if (await stageLaunch(ctx, input, output)) return;
           const relocated = await relocatingForkId(ctx, input);
           output.args = relocated
             ? [...yoloArgs(input.yolo), "-s", relocated]

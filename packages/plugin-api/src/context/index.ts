@@ -121,6 +121,9 @@ export type {
   PluginClipboard,
   PluginSessionEvent,
   PluginSessionHandle,
+  PluginExec,
+  PluginExecOutcome,
+  PluginExecRequest,
   PluginSessions,
   PluginSpawnOptions,
 } from "./services.ts";
