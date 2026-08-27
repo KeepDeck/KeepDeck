@@ -46,6 +46,33 @@ export interface FloatingListboxPlacement {
 }
 
 /**
+ * How wide the list ends up: never narrower than its anchor, never wider than
+ * the viewport leaves room for.
+ *
+ * Said once because width decides wrapping, wrapping decides height, and the
+ * height is measured before the placement is asked for. Computing it twice —
+ * once un-clamped to measure against, once clamped to place with — measures
+ * the list at a width it will not be drawn at, and the first change to the
+ * clamp turns that from harmless into a menu that jumps on its second frame.
+ */
+export function floatingListboxWidth({
+  anchorWidth,
+  contentWidth = 0,
+  viewportWidth,
+  viewportMargin = FLOATING_LISTBOX_VIEWPORT_MARGIN,
+}: {
+  anchorWidth: number;
+  contentWidth?: number;
+  viewportWidth: number;
+  viewportMargin?: number;
+}): number {
+  return Math.min(
+    Math.max(0, anchorWidth, contentWidth),
+    Math.max(0, viewportWidth - viewportMargin * 2),
+  );
+}
+
+/**
  * Place a listbox against its anchor in viewport coordinates. The menu keeps
  * the anchor's width and prefers the space below it. If its content would not
  * fit there and the upper side has more room, it flips above; whichever side
@@ -61,11 +88,12 @@ export function calculateFloatingListboxPlacement({
   viewportMargin = FLOATING_LISTBOX_VIEWPORT_MARGIN,
   maxHeight = FLOATING_LISTBOX_MAX_HEIGHT,
 }: FloatingListboxPlacementInput): FloatingListboxPlacement {
-  // Never narrower than the anchor, never wider than the viewport allows.
-  const width = Math.min(
-    Math.max(0, anchorRect.width, contentWidth),
-    Math.max(0, viewportWidth - viewportMargin * 2),
-  );
+  const width = floatingListboxWidth({
+    anchorWidth: anchorRect.width,
+    contentWidth,
+    viewportWidth,
+    viewportMargin,
+  });
   const availableBelow = Math.max(
     0,
     viewportHeight - viewportMargin - anchorRect.bottom - gap,
@@ -205,17 +233,22 @@ export function FloatingListbox({
       list.style.width = "max-content";
       contentWidth = list.getBoundingClientRect().width;
     }
-    // Width affects wrapping and therefore scrollHeight. Apply the resolved
-    // width before measuring so even the first layout is based on the menu's
-    // real geometry (including in browsers without ResizeObserver).
-    list.style.width = `${Math.max(0, anchorRect.width, contentWidth)}px`;
+    const viewportWidth =
+      document.documentElement.clientWidth || window.innerWidth;
+    // Width affects wrapping and therefore scrollHeight, so the list is
+    // measured at the width it will actually be drawn at — the SAME rule the
+    // placement will apply, not an un-clamped stand-in for it.
+    list.style.width = `${floatingListboxWidth({
+      anchorWidth: anchorRect.width,
+      contentWidth,
+      viewportWidth,
+    })}px`;
     const listRect = list.getBoundingClientRect();
     const next = calculateFloatingListboxPlacement({
       anchorRect,
       listHeight: Math.max(list.scrollHeight, listRect.height),
       contentWidth,
-      viewportWidth:
-        document.documentElement.clientWidth || window.innerWidth,
+      viewportWidth,
       viewportHeight:
         document.documentElement.clientHeight || window.innerHeight,
     });
