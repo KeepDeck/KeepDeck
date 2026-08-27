@@ -113,6 +113,7 @@ export function MenuButton({
           listRef={menuRef}
           id={menuId}
           role="menu"
+          widthFrom="content"
           aria-label={ariaLabel}
         >
           {actions.map((action) => (

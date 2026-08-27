@@ -25,6 +25,11 @@ export interface FloatingListboxPlacementInput {
   anchorRect: FloatingListboxAnchorRect;
   /** The list's full, un-clipped content height. */
   listHeight: number;
+  /** The width the content wants, when the caller is not matching the anchor.
+   *  Zero (the default) keeps the anchor's width, which is what a field-shaped
+   *  anchor needs; a small anchor — a `+` button opening a menu — would
+   *  otherwise clip every label to its own few pixels. */
+  contentWidth?: number;
   viewportWidth: number;
   viewportHeight: number;
   gap?: number;
@@ -49,13 +54,18 @@ export interface FloatingListboxPlacement {
 export function calculateFloatingListboxPlacement({
   anchorRect,
   listHeight,
+  contentWidth = 0,
   viewportWidth,
   viewportHeight,
   gap = FLOATING_LISTBOX_GAP,
   viewportMargin = FLOATING_LISTBOX_VIEWPORT_MARGIN,
   maxHeight = FLOATING_LISTBOX_MAX_HEIGHT,
 }: FloatingListboxPlacementInput): FloatingListboxPlacement {
-  const width = Math.max(0, anchorRect.width);
+  // Never narrower than the anchor, never wider than the viewport allows.
+  const width = Math.min(
+    Math.max(0, anchorRect.width, contentWidth),
+    Math.max(0, viewportWidth - viewportMargin * 2),
+  );
   const availableBelow = Math.max(
     0,
     viewportHeight - viewportMargin - anchorRect.bottom - gap,
@@ -110,6 +120,11 @@ export interface FloatingListboxProps
    *  Narrow on purpose — the two roles that need this placement, not any
    *  string. Defaults to the listbox every earlier caller relies on. */
   role?: "listbox" | "menu";
+  /** Where the list's width comes from. `anchor` (the default) matches the
+   *  control, which is right when the anchor is a field the list stands in
+   *  for. `content` sizes to the widest item instead — the only honest answer
+   *  when the anchor is a small button that opens a list of longer labels. */
+  widthFrom?: "anchor" | "content";
 }
 
 function samePlacement(
@@ -138,6 +153,7 @@ export function FloatingListbox({
   children,
   style,
   role = "listbox",
+  widthFrom = "anchor",
   ...listProps
 }: FloatingListboxProps) {
   const ownListRef = useRef<HTMLUListElement | null>(null);
@@ -181,21 +197,30 @@ export function FloatingListbox({
     if (!anchor || !list) return;
 
     const anchorRect = anchor.getBoundingClientRect();
-    // Width affects wrapping and therefore scrollHeight. Apply the anchor
+    // What the content wants, measured before anything is imposed on it —
+    // and only when the caller asked, so a field-anchored list never pays a
+    // second layout for an answer it will not use.
+    let contentWidth = 0;
+    if (widthFrom === "content") {
+      list.style.width = "max-content";
+      contentWidth = list.getBoundingClientRect().width;
+    }
+    // Width affects wrapping and therefore scrollHeight. Apply the resolved
     // width before measuring so even the first layout is based on the menu's
     // real geometry (including in browsers without ResizeObserver).
-    list.style.width = `${Math.max(0, anchorRect.width)}px`;
+    list.style.width = `${Math.max(0, anchorRect.width, contentWidth)}px`;
     const listRect = list.getBoundingClientRect();
     const next = calculateFloatingListboxPlacement({
       anchorRect,
       listHeight: Math.max(list.scrollHeight, listRect.height),
+      contentWidth,
       viewportWidth:
         document.documentElement.clientWidth || window.innerWidth,
       viewportHeight:
         document.documentElement.clientHeight || window.innerHeight,
     });
     setPlacement((current) => (samePlacement(current, next) ? current : next));
-  }, [anchorRef]);
+  }, [anchorRef, widthFrom]);
 
   useLayoutEffect(() => {
     const anchor = anchorRef.current;

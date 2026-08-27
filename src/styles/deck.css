@@ -40,7 +40,9 @@
   color: #c5c8c6;
 }
 
-/* Active workspace, surfaced in the bar only while the rail is collapsed ([U7]). */
+/* Where you are. It used to sit after the app's own name and needed a
+   separator to come apart from it; the name is gone and the separator went
+   with it, or it reads as a bullet with nothing in front of it. */
 .deck__active-ws {
   font-size: 13px;
   color: #8b93a3;
@@ -48,12 +50,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.deck__active-ws::before {
-  content: "·";
-  margin-right: 10px;
-  color: #3b4658;
 }
 
 /* Groups, not one run. The bar answers two questions — what to do, where to
