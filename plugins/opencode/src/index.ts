@@ -81,9 +81,8 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
  * It travels on every launch, and on a REMOTE one it reaches nobody —
  * measured: an `attach` client does not load the plugins its own config
  * names, so a remote pane has no reporter to read this, and no statuses or
- * mail either. Set unconditionally all the same: the day the remote path
- * grows a reporter, a mode that only some launches carried would be a subtler
- * bug than one that was always there. */
+ * mail either. The remote path is unfinished; whatever eventually reports
+ * from a server will need this mode delivered to it there, not here. */
 const permissionModeEnv = (yolo: boolean | undefined): [string, string][] =>
   yolo ? [["KEEPDECK_OPENCODE_SKIPS_APPROVALS", "1"]] : [];
 

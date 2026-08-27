@@ -12,7 +12,7 @@ import reporter from "../resources/session-reporter.js";
 // The pane's session is ONE object per process — which is the point of it,
 // and which makes a suite of many panes in one process need a fresh start.
 // @ts-expect-error untyped resource module
-import { resetPaneSession } from "../resources/pane-session.js";
+import { paneSession, resetPaneSession } from "../resources/pane-session.js";
 
 /** An opencode `session.created` event; `parentID` marks a CHILD session. */
 const created = (id: string, parentID?: string) => ({
@@ -840,13 +840,43 @@ describe("opencode session reporter", () => {
     });
     await event(busy);
 
-    const edges = (await statusEvents())
+    const forwarded = (await statusEvents());
+    // BOTH halves, or the test guards only one of them: a reporter that
+    // silently swallowed the error would leave one turn-start standing and
+    // this would stay green while raw forwarding was broken again.
+    expect(forwarded.map((e: any) => e.type)).toEqual([
+      "session.status",
+      "session.error",
+    ]);
+    const edges = forwarded
       .map((raw: any, index: number) =>
         normalizeOpencodeStatus({ agent: "opencode", event: raw }, index),
       )
       .filter(Boolean);
     // One beginning for one turn. The error says nothing — the turn is alive.
     expect(edges).toEqual([{ kind: "turn-start", at: 0 }]);
+  });
+
+  /**
+   * The race itself, which the fix above is for.
+   *
+   * The courier watches the same `session.created` on its own queue and may
+   * reach it first — this one is free to be waiting on hydration or on the
+   * provider catalog. Gating the reporter's own work on having performed the
+   * move lost all of it in that window, and nothing about the loss was
+   * visible from either side.
+   */
+  it("sets up for a conversation the courier bound first", async () => {
+    // Stand in for the courier: the pane is already bound when the reporter
+    // reaches the event that bound it.
+    paneSession(undefined).newGeneration("ses_root");
+
+    const { event } = await reporter();
+    await event(created("ses_root"));
+
+    expect((await envelopes()).map((e: any) => e.type)).toEqual([
+      "session.bound",
+    ]);
   });
 
   it("forwards a retry status too — which of the three kinds it is, is not this side's call", async () => {

@@ -205,10 +205,11 @@ export default async (input = {}) => {
    * cleared, so a new conversation inherited the last one's spend; no
    * hydration. None of it visible from either side.
    *
-   * A session id is enough to key on, and no counter is needed: ids are unique
-   * and a pane never returns to a conversation it has left, so `pane.root`
-   * only ever moves forward. The same monotonicity that makes a generation
-   * number unnecessary is what makes this comparison sound.
+   * The id is the whole key, and no counter is needed beside it: what has to
+   * be answered is "is this the conversation I already set up for", and a
+   * comparison answers it. It would answer it even for a pane that somehow
+   * came back to a conversation it had left — the ids need no order for this,
+   * only difference.
    *
    * `continuing` comes from THIS reporter's own history rather than from the
    * pane being bound, for the same reason — the courier may have bound it
