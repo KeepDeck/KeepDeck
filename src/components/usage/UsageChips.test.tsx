@@ -249,10 +249,13 @@ describe("UsageChips", () => {
     usage.report("pane-1",limitsReport(42), AT);
     render();
     const chip = host.querySelector(".usage-chip")!;
-    expect(chip.getAttribute("aria-controls")).toBe("usage-panel");
+    // Named only while the panel it names exists — closed, there is nothing
+    // to point at.
+    expect(chip.getAttribute("aria-controls")).toBeNull();
     act(() => {
       (chip as HTMLButtonElement).click();
     });
+    expect(chip.getAttribute("aria-controls")).toBe("usage-panel");
     const panel = host.querySelector("#usage-panel")!;
     expect(panel.textContent).toContain("Claude Code");
     expect(panel.textContent).toContain("Updated now");
@@ -267,6 +270,19 @@ describe("UsageChips", () => {
     expect(settingsMock.updateSettings).toHaveBeenCalledWith({
       usageDisplay: "left",
     });
+  });
+
+  it("lets only the open chip claim the panel", () => {
+    // There is ONE panel and one panel id, so a chip that named it whatever
+    // was open told a screen reader it controlled another provider's panel.
+    const codex: AgentInfo = { ...CLAUDE, id: "codex", label: "Codex" };
+    render(new Set(["claude", "codex"]), [CLAUDE, codex]);
+    const chips = host.querySelectorAll<HTMLButtonElement>(".usage-chip");
+    expect(chips).toHaveLength(2);
+    act(() => chips[1].click());
+    expect(chips[1].getAttribute("aria-controls")).toBe("usage-panel");
+    expect(chips[0].getAttribute("aria-controls")).toBeNull();
+    expect(chips[0].getAttribute("aria-expanded")).toBe("false");
   });
 
   it("leaves account limits for the global usage statistics screen", () => {

@@ -72,7 +72,12 @@ function UsageChip({
       onClick={onToggle}
       title={title}
       aria-expanded={open}
-      aria-controls="usage-panel"
+      /* Only while it is THIS chip's panel that exists. There is one panel id
+         and one panel at a time, so a chip that named it unconditionally was
+         either pointing at nothing (closed) or claiming another provider's
+         panel as its own (open, but a different chip). Same rule the menu
+         button follows: the reference exists exactly while its target does. */
+      aria-controls={open ? "usage-panel" : undefined}
       /* Named so the panel can find the chip that opened it and hang from
          THAT one. Addressed by agent id rather than by position in the row:
          the roster changes as agents come and go, and an index would quietly
