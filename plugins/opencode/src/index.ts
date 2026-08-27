@@ -59,6 +59,28 @@ async function sessionConfigEnv(
 const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-skip-permissions"] : [];
 
+/**
+ * The same choice, said again where the reporter can hear it.
+ *
+ * With approvals skipped, opencode answers its own prompts within
+ * milliseconds — measured, 715 of 732 pairs inside one second — and its reply
+ * carries the same "once" a person's would. So nothing on the wire tells an
+ * automatic approval from a human one, and the deck announced "needs
+ * approval" for prompts nobody was ever going to see.
+ *
+ * The deck STATES the mode rather than the reporter discovering it, because
+ * discovery was measured impossible: the TUI runs plugins in a worker whose
+ * argv is the worker's own, the effective config is identical leaf for leaf
+ * in both modes — the flag lives below the config and leaves no trace in any
+ * merge layer — and the worker's environment carries nothing about it.
+ *
+ * Per pane, not per agent: the mode is a choice made at each spawn, and a
+ * pane launched normally must go on surfacing the approvals it really waits
+ * on. LOCAL panes only — a remote one runs its plugins on the server, where
+ * this variable does not reach. */
+const permissionModeEnv = (yolo: boolean | undefined): [string, string][] =>
+  yolo ? [["KEEPDECK_OPENCODE_SKIPS_APPROVALS", "1"]] : [];
+
 /** The staged shared skills as an EXTRA config directory — opencode loads
  * `OPENCODE_CONFIG_DIR` on top of the global and project ones (additive,
  * probe-verified on 1.18.3), and it composes fine with the reporter's
@@ -101,6 +123,7 @@ async function stageLaunch(
   output: { env: [string, string][]; envDefaults?: [string, string][]; args: string[] },
 ): Promise<boolean> {
   output.env.push(...(await sessionConfigEnv(resources, input.mcp)));
+  output.env.push(...permissionModeEnv(input.yolo));
   (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
   const remote = remoteAttachArgs(input.target, input.yolo);
   if (!remote) return false;

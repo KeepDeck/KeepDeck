@@ -816,6 +816,40 @@ describe("opencode session reporter", () => {
    * does not change, so the pane read "Working" at a terminal that was
    * waiting on its user.
    */
+  /**
+   * With approvals skipped, opencode answers its own prompt in milliseconds
+   * and the reply is indistinguishable from a person's — so every one of
+   * them announced "needs approval" for a dialog that never appeared. The
+   * pane's launch mode is the only thing that tells the two apart, and it
+   * cannot be read from inside the agent's process.
+   */
+  it("says nothing about approvals the pane will never be asked for", async () => {
+    process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS = "1";
+    try {
+      const { event } = await reporter();
+      await event(created("ses_root"));
+      await event({
+        event: { type: "permission.asked", properties: { sessionID: "ses_root" } },
+      });
+      await event({
+        event: {
+          type: "permission.replied",
+          properties: { sessionID: "ses_root", reply: "once" },
+        },
+      });
+      // The question surface is untouched: nothing can auto-pick an option,
+      // so that dialog really does stand and wait.
+      await event({
+        event: { type: "question.asked", properties: { sessionID: "ses_root" } },
+      });
+      expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+        "question.asked",
+      ]);
+    } finally {
+      delete process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS;
+    }
+  });
+
   it("forwards a question, the one wait nothing else on the bus reports", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));

@@ -203,7 +203,11 @@ describe("opencode plugin hooks", () => {
           },
         ],
       },
-      skills: { opencodeConfigDir: "/staged/skills" },
+      skills: {
+        claudePluginDir: "/staged/claude-plugin",
+        opencodeConfigDir: "/staged/opencode",
+        skillsDir: "/staged/skills",
+      },
     };
 
     const spawn = output();
@@ -224,6 +228,29 @@ describe("opencode plugin hooks", () => {
     // And it is not vacuously equal: staging really put something there.
     expect(spawn.env.length).toBeGreaterThan(0);
     expect(spawn.envDefaults?.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The reporter cannot discover the mode: the TUI runs plugins in a worker
+   * whose argv is the worker's own, and the effective config is identical
+   * leaf for leaf whether the flag was passed or not. So the deck states its
+   * own choice, per pane — a pane launched normally must go on surfacing the
+   * approvals it really waits on.
+   */
+  it("tells the reporter when this pane's approvals are answered for it", async () => {
+    const agent = activate("/App/resources/session-reporter.js");
+    const skipped = output();
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, skipped);
+    expect(skipped.env).toContainEqual([
+      "KEEPDECK_OPENCODE_SKIPS_APPROVALS",
+      "1",
+    ]);
+
+    const normal = output();
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: false }, normal);
+    expect(normal.env.map(([key]) => key)).not.toContain(
+      "KEEPDECK_OPENCODE_SKIPS_APPROVALS",
+    );
   });
 
   it("carries the servers even when the reporter file is missing", async () => {

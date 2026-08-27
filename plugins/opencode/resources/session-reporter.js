@@ -35,6 +35,17 @@ export default async (input = {}) => {
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
   const { dir } = bridge;
 
+  /**
+   * Whether this pane was launched with approval prompts skipped — the deck's
+   * own choice at spawn, stated here because it cannot be discovered from
+   * inside the process.
+   *
+   * Read at startup, not per event: the mode is an argument the CLI was
+   * started with and cannot change under a running one.
+   */
+  const SKIPS_APPROVALS =
+    process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS === "1";
+
   const client = input?.client;
 
   /** State one fact about this pane.
@@ -278,6 +289,18 @@ export default async (input = {}) => {
         return !props.sessionID || concernsPane(props.sessionID);
       case "permission.asked":
       case "permission.replied":
+        // An approval nobody will be asked for is not a wait. With approvals
+        // skipped, opencode answers its own prompt in milliseconds and its
+        // reply is indistinguishable from a person's — so the deck announced
+        // "needs approval" for a dialog that never appeared. The pane's mode
+        // is the only thing that tells the two apart, and it cannot be read
+        // from inside the process, so the deck says it at spawn.
+        //
+        // Not a reading of the event: what a prompt MEANS is decided at the
+        // other end. This is the same kind of answer as the list of types
+        // that travel at all — in this mode that class of event does not
+        // exist for this pane.
+        return !SKIPS_APPROVALS;
       case "question.asked":
       case "question.replied":
       case "question.rejected":
@@ -286,6 +309,10 @@ export default async (input = {}) => {
         // "waiting for a human" is true of the PANE either way. Measured. A
         // root filter here would manufacture a turn that never ends —
         // eternally working while the terminal stands still.
+        //
+        // Untouched by the mode above: a question has no default answer, so
+        // nothing can auto-pick one. Measured with approvals skipped — the
+        // dialog stood open and waited.
         return true;
       default:
         return false;
