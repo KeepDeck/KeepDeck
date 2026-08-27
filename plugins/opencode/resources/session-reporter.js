@@ -24,11 +24,11 @@
  * `KEEPDECK_BRIDGE` at spawn.
  */
 import {
-  createSubagentIndex,
   makeEnvelope,
   publish as publishEnvelope,
   readBridge,
 } from "./keepdeck-bridge.js";
+import { paneSession } from "./pane-session.js";
 
 export default async (input = {}) => {
   const bridge = readBridge();
@@ -62,13 +62,11 @@ export default async (input = {}) => {
   // descendants, summed into the session cumulative. A new root session owns a
   // new generation: `/new`/fork must never inherit the previous root's spend.
   const messages = new Map();
-  // Which sessions here are subagents' and which root their work rolls up to.
-  // Descendant spend rolls up to the pane's root, while only root turns define
-  // context occupancy and model identity. Shared with the mail courier beside
-  // this file: two answers to "is this the pane's conversation" means the deck
-  // watching one session's turns while mail lands in another.
-  const subagents = createSubagentIndex(client);
-  let activeRoot;
+  // Which session is the pane's conversation, and which of the others are
+  // subagents' — ONE object, shared with the mail courier beside this file.
+  // Two answers to that question means the deck watching one session's turns
+  // while mail lands in another.
+  const pane = paneSession(client);
   // The latest ROOT assistant turn — defines occupancy/identity, not spend.
   let root;
   let sequence = 0;
@@ -160,7 +158,7 @@ export default async (input = {}) => {
       if (!Array.isArray(children)) return;
       for (const child of children) {
         if (!child?.id) continue;
-        subagents.note(child.id, rootSessionID);
+        pane.note(child.id, rootSessionID);
         await hydrateSession(child.id, rootSessionID, seen);
       }
     } catch {
@@ -170,27 +168,37 @@ export default async (input = {}) => {
 
   // A later root is the pane's conversation continuing under a new id
   // (`/new`), not a second session appearing out of nowhere — so it is
-  // reported as what it is. Derived from `activeRoot` rather than a flag of
-  // its own: a second copy of "has this pane bound yet" is a second place for
-  // that answer to be wrong, and this one would keep saying "continuing"
-  // after a publish that silently failed.
+  // reported as what it is. Derived from whether the pane was already bound
+  // rather than a flag of its own: a second copy of "has this pane bound yet"
+  // is a second place for that answer to be wrong, and this one would keep
+  // saying "continuing" after a publish that silently failed.
   const bind = (sessionID, continuing) =>
     publish("session.bound", {
       sessionId: sessionID,
       source: continuing ? "new" : "startup",
     });
 
-  /** `keep` is the ancestry the caller has already established for the
-   * session it is binding through — the index is cleared here, and anything
-   * learned on the way in would go with it. */
-  const activateRoot = async (sessionID, publishBinding, keep = []) => {
-    // Read before the assignment below: whether this pane already had a root
-    // IS the difference between a startup and a `/new`.
-    const continuing = activeRoot !== undefined;
-    activeRoot = sessionID;
+  /**
+   * Take a session as the pane's conversation and start counting it afresh.
+   *
+   * `keep` is the ancestry already established for the session being bound
+   * THROUGH — a descendant whose chain was learned on the way in. Its presence
+   * is the difference between the two things this does: binding to a
+   * conversation already in progress keeps what is known about it, while a
+   * root the pane just watched appear is a new generation and owns nothing
+   * from the last one.
+   *
+   * Silent when the pane already answered: another event may have bound it
+   * while this one was away asking, and the accumulators must not be cleared
+   * under the binding that won.
+   */
+  const activateRoot = async (sessionID, publishBinding, keep) => {
+    const continuing = pane.bound;
+    const took = keep
+      ? pane.bindFromChain(sessionID, keep)
+      : pane.newGeneration(sessionID);
+    if (!took) return;
     messages.clear();
-    subagents.clear();
-    for (const [child, parent] of keep) subagents.note(child, parent);
     root = undefined;
     sequence = 0;
     if (publishBinding) bind(sessionID, continuing);
@@ -256,16 +264,6 @@ export default async (input = {}) => {
       event: { type: event.type, properties: event.properties ?? {} },
     });
 
-  /** Whether a session-scoped event describes the PANE's conversation: the
-   * active root itself — never a subagent child (a child going busy/idle is
-   * not the pane's turn boundary) — and any non-child session before a root
-   * is known, because a status edge beating `session.created` should still
-   * land rather than strand the pane. */
-  const concernsPane = (sessionID) => {
-    if (!sessionID || subagents.rootOf(sessionID) !== sessionID) return false;
-    return !activeRoot || sessionID === activeRoot;
-  };
-
   /**
    * Whose event this is — the only question answered on this side.
    *
@@ -296,14 +294,14 @@ export default async (input = {}) => {
     switch (event.type) {
       case "session.status":
       case "session.idle":
-        return concernsPane(props.sessionID);
+        return pane.concernsPane(props.sessionID);
       case "session.error":
         // opencode declares sessionID OPTIONAL on this event, and the
         // publishers that omit it are process-wide — a plugin crash, a failed
         // skill. This process serves exactly one pane, so an error with no
         // session named can only be its own; only one attributed to some
         // OTHER session is filtered.
-        return !props.sessionID || concernsPane(props.sessionID);
+        return !props.sessionID || pane.concernsPane(props.sessionID);
       case "permission.asked":
       case "permission.replied":
         // An approval nobody will be asked for is not a wait. With approvals
@@ -370,13 +368,13 @@ export default async (input = {}) => {
         // The parent may itself be a subagent this process never watched
         // being created — a pane resumed mid-task sees a grandchild first.
         // Asked before `rootOf`, or the pane binds to the middle of a chain.
-        if (!activeRoot) await subagents.classify(created.parentID);
-        const rootSessionID = subagents.rootOf(created.parentID);
-        if (!activeRoot) await activateRoot(rootSessionID, true, [
-          ...subagents.chain(created.parentID),
-        ]);
-        if (rootSessionID !== activeRoot) return;
-        if (created.id) subagents.note(created.id, rootSessionID);
+        if (!pane.bound) await pane.classify(created.parentID);
+        const rootSessionID = pane.rootOf(created.parentID);
+        if (!pane.bound) {
+          await activateRoot(rootSessionID, true, pane.chain(created.parentID));
+        }
+        if (rootSessionID !== pane.root) return;
+        if (created.id) pane.note(created.id, rootSessionID);
         return;
       }
       const sessionId = created?.id;
@@ -400,20 +398,19 @@ export default async (input = {}) => {
     // created, so the pane binds to the parent instead of the child.
     // Asked for its side effect: the index learns the chain, so `rootOf`
     // below answers with the pane's conversation rather than a leaf.
-    if (!activeRoot) await subagents.classify(info.sessionID);
-    const owningRoot = subagents.rootOf(info.sessionID);
-    // The WHOLE chain, captured before `activateRoot` clears the index — a
-    // new root is a new generation. Putting back only the leaf's own link
-    // left every intermediate subagent resolving to itself, failing the root
-    // check below, and its spend never reaching the pane's total; hydration
-    // repairs that only when the client answers `session.children`, and that
-    // failure is swallowed.
-    if (!activeRoot) {
-      await activateRoot(owningRoot, true, [...subagents.chain(info.sessionID)]);
+    if (!pane.bound) await pane.classify(info.sessionID);
+    const owningRoot = pane.rootOf(info.sessionID);
+    // The WHOLE chain, captured before binding — putting back only the leaf's
+    // own link left every intermediate subagent resolving to itself, failing
+    // the root check below, and its spend never reaching the pane's total;
+    // hydration repairs that only when the client answers `session.children`,
+    // and that failure is swallowed.
+    if (!pane.bound) {
+      await activateRoot(owningRoot, true, pane.chain(info.sessionID));
     }
     // Once a root is explicitly active, events for unrelated root sessions
     // in the same OpenCode server are not this pane's conversation.
-    if (owningRoot !== activeRoot) return;
+    if (owningRoot !== pane.root) return;
     // A FINISHED message is a fact about the turn, and it carries endings
     // that no event does: an interrupt caught between steps writes its name
     // here and publishes no `session.error` at all, and a structured-output
@@ -425,7 +422,7 @@ export default async (input = {}) => {
     // Every assistant turn — ROOT or subagent — is real session spend and
     // sums into the cumulative. But a subagent's context is ITS own, not the
     // pane's conversation, so only a ROOT turn sets occupancy + identity.
-    remember(info, activeRoot);
+    remember(info, pane.root);
     if (!root) return; // no root turn seen yet — accumulate, publish later
 
     // Immutable report basis before the async catalog lookup. The queue below

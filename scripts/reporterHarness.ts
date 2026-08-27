@@ -94,9 +94,31 @@ export async function startDeck(
   return {
     url: `http://127.0.0.1:${port}/envelope`,
     envelopes,
-    /** Give anything already in flight time to land — for asserting that
-     * NOTHING was reported, where there is no count to wait for. */
-    idle: () => new Promise((resolve) => setTimeout(resolve, 40)),
+    /**
+     * Wait until nothing more is arriving — for asserting what WAS reported,
+     * and for asserting that nothing was, where there is no count to wait for.
+     *
+     * Quiet, not a fixed nap. A sender that posts one envelope at a time
+     * spends a round trip on each, so a run of them takes as long as it takes;
+     * a timer generous enough for the slowest machine is a timer everybody
+     * else waits out on every assertion.
+     */
+    idle: async () => {
+      const quietFor = 30;
+      const deadline = Date.now() + 2000;
+      let seen = -1;
+      let settledAt = 0;
+      for (;;) {
+        if (envelopes.length !== seen) {
+          seen = envelopes.length;
+          settledAt = Date.now();
+        } else if (Date.now() - settledAt >= quietFor) {
+          return;
+        }
+        if (Date.now() > deadline) return;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    },
     /** The most posts open at once over this deck's life. One means the
      * sender waited for each before starting the next. */
     peakInFlight: () => maxInFlight,

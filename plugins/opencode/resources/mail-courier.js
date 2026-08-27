@@ -34,8 +34,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, rmSync, watch } from "node:fs";
 import { join } from "node:path";
+import { paneSession } from "./pane-session.js";
 import {
-  createSubagentIndex,
   makeEnvelope,
   readBridge,
   sendEnvelope,
@@ -56,20 +56,21 @@ export default async (input = {}) => {
   // asking would take messages out of the deck's queue to drop them.
   if (!client?.session?.promptAsync) return {};
 
-  /** The pane's ROOT session, once one exists. opencode mints it lazily — a
-   * pane nobody has spoken to yet has none, which is why `viaTui` below
-   * exists at all. */
-  let activeRoot;
-  /** Child sessions (the task/subagent tool creates them in this same
-   * process). Their turns are not the pane's turns and their ids are not the
-   * pane's identity. Shared with the reporter beside this file, because two
-   * answers to "is this the pane's conversation" means mail delivered into a
-   * session whose turns the deck is not watching. */
-  const subagents = createSubagentIndex(client);
-  /** Whether the pane's own turn is running. Only used to decide whether a
-   * doorbell may be answered right now: mid-turn it may not, and the
-   * `session.idle` at the end of that turn collects anyway. */
-  let busy = false;
+  /**
+   * The pane's conversation, and whether its turn is running — ONE object,
+   * shared with the reporter beside this file.
+   *
+   * Both of those used to be kept here as well, derived from the same events
+   * by a different path, and the two answers had already drifted apart: this
+   * side cleared what it knew of a conversation's ancestry where the reporter
+   * preserved it. Two answers to "is this the pane's conversation" means mail
+   * delivered into a session whose turns the deck is not watching — which the
+   * comment below `adoptRoot` records as having happened.
+   *
+   * opencode mints the root lazily: a pane nobody has spoken to yet has none,
+   * which is why `viaTui` below exists at all.
+   */
+  const pane = paneSession(client);
 
   /**
    * Ask the deck what is waiting, and wait for the answer.
@@ -151,7 +152,7 @@ export default async (input = {}) => {
       delivered =
         ok(
           await client.session.promptAsync({
-            path: { id: activeRoot },
+            path: { id: pane.root },
             body: { noReply: true, parts: [textPart(answer.context, true)] },
           }),
         ) && delivered;
@@ -160,7 +161,7 @@ export default async (input = {}) => {
       delivered =
         ok(
           await client.session.promptAsync({
-            path: { id: activeRoot },
+            path: { id: pane.root },
             body: { parts: [textPart(answer.prompt, false)] },
           }),
         ) && delivered;
@@ -204,7 +205,7 @@ export default async (input = {}) => {
     const answer = await ask();
     if (!answer) return;
     try {
-      if (activeRoot && (await viaSession(answer))) return;
+      if (pane.bound && (await viaSession(answer))) return;
       await viaTui(answer);
     } catch {
       // Best-effort to the end: the user's session must survive anything
@@ -226,19 +227,19 @@ export default async (input = {}) => {
    * `session.created` is not enough on its own. A RESUMED pane (`-s <id>`,
    * which is how every pane comes back after a restart) never fires a root
    * one — the session reporter beside this file learned that the hard way and
-   * binds on the first completed message instead. Without this, activeRoot
-   * stayed empty for the life of such a pane: `session.idle` returned early,
-   * so nothing was ever collected at a turn boundary, and every doorbell fell
+   * binds on the first completed message instead. Without this, the pane
+   * stayed unbound for its whole life: `session.idle` returned early, so
+   * nothing was ever collected at a turn boundary, and every doorbell fell
    * through to the TUI submit.
    *
    * The parent check is what keeps it honest — the task tool creates child
    * sessions in this same process, and a child's events can be the first this
    * courier sees; adopting one would bind the pane to a leaf that ends. That
-   * check is `createSubagentIndex`, shared with the reporter so the two
-   * plugins cannot answer it differently.
+   * check lives in the shared pane session, so the two plugins cannot answer
+   * it differently — and now cannot hold different answers either.
    */
   const adoptRoot = async (sessionID) => {
-    if (!sessionID || activeRoot) return;
+    if (!sessionID || pane.bound) return;
     // A child's own session is not the pane's, but its ROOT is — and the ask
     // that classified it already paid for that answer. Walking up rather than
     // giving up is what makes this agree with the reporter beside it, which
@@ -247,17 +248,19 @@ export default async (input = {}) => {
     // resumed mid-task, where a subagent's events come first.
     //
     // `unknown` — the client could not say — adopts, for the reason the
-    // shared index gives: a pane bound to nothing is unreachable, and the
+    // shared session gives: a pane bound to nothing is unreachable, and the
     // doorbell is the only other way in.
-    const kind = await subagents.classify(sessionID);
-    // Re-checked AFTER the round trip. The guard above ran before an await,
-    // and `chat.message` calls this outside the delivery queue's
-    // serialization — so two events can both pass it, and the SLOWER one
-    // (an unrelated subagent, whose chain takes an extra hop) lands last and
-    // wins. That rebound the pane to somebody else's conversation for the
-    // life of the process. First answer wins.
-    if (activeRoot) return;
-    activeRoot = kind === "child" ? subagents.rootOf(sessionID) : sessionID;
+    const kind = await pane.classify(sessionID);
+    // The binding itself refuses a second answer, and the reason survives the
+    // move: this ran its guard before an await, `chat.message` calls it
+    // outside the delivery queue's serialization, and so two events can both
+    // find the pane unbound. The SLOWER one — an unrelated subagent, whose
+    // chain takes an extra hop — landed last and won, rebinding the pane to
+    // somebody else's conversation for the life of the process.
+    pane.bindFromChain(
+      kind === "child" ? pane.rootOf(sessionID) : sessionID,
+      pane.chain(sessionID),
+    );
   };
 
   const onEvent = async (event) => {
@@ -269,13 +272,14 @@ export default async (input = {}) => {
         // Root sessions only: the task/subagent tool creates children in this
         // same process, and binding to one would follow a transient leaf.
         if (created.parentID) {
-          subagents.note(created.id, created.parentID);
+          pane.note(created.id, created.parentID);
           return;
         }
         // A new root is a new generation — nothing from the old conversation
         // rolls up to it, and its child ids answer about a session that ended.
-        subagents.clear();
-        activeRoot = created.id;
+        // Refused when it is already the current one: the reporter beside this
+        // file sees the same event and says the same thing.
+        pane.newGeneration(created.id);
         // A conversation just began — the standing brief belongs in it before
         // the first word, not after whatever the user says next.
         await collect();
@@ -286,13 +290,13 @@ export default async (input = {}) => {
           typeof props.status === "object" ? props.status?.type : props.status;
         if (status !== "busy") return;
         await adoptRoot(props.sessionID);
-        if (props.sessionID === activeRoot) busy = true;
+        if (props.sessionID === pane.root) pane.setTurnInFlight(true);
         return;
       }
       case "session.idle": {
         await adoptRoot(props.sessionID);
-        if (props.sessionID !== activeRoot) return;
-        busy = false;
+        if (props.sessionID !== pane.root) return;
+        pane.setTurnInFlight(false);
         // The boundary the deck holds messages for: anything that arrived
         // mid-turn lands here, and this is the cheapest turn it will ever get.
         await collect();
@@ -322,7 +326,7 @@ export default async (input = {}) => {
     } catch {
       return;
     }
-    if (!busy) enqueue(collect);
+    if (!pane.turnInFlight) enqueue(collect);
   };
 
   try {
@@ -352,7 +356,7 @@ export default async (input = {}) => {
       // First contact with a lazily-minted session: this fires for the very
       // message that creates it.
       await adoptRoot(sessionID);
-      if (sessionID !== activeRoot) return;
+      if (sessionID !== pane.root) return;
       // Behind whatever is already collecting. This hook is not IN the queue
       // — it has to await its own answer to put the parts in place before the
       // request is built — so without this a session.created still in flight

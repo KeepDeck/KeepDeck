@@ -8,6 +8,10 @@ import { startDeck } from "../../../scripts/reporterHarness";
 // user's opencode process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
 import reporter from "../resources/session-reporter.js";
+// The pane's session is ONE object per process — which is the point of it,
+// and which makes a suite of many panes in one process need a fresh start.
+// @ts-expect-error untyped resource module
+import { resetPaneSession } from "../resources/pane-session.js";
 
 /** An opencode `session.created` event; `parentID` marks a CHILD session. */
 const created = (id: string, parentID?: string) => ({
@@ -55,6 +59,7 @@ describe("opencode session reporter", () => {
   let deck: Awaited<ReturnType<typeof startDeck>>;
 
   beforeEach(async () => {
+    resetPaneSession();
     dir = mkdtempSync(join(tmpdir(), "kd-reporter-"));
     deck = await startDeck();
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
