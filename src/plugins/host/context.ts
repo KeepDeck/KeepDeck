@@ -131,7 +131,18 @@ export function buildPluginContext(
       throw new Error(`contribution already registered: ${kind} "${id}"`);
     }
     live.add(name);
-    const inner = register();
+    // A refusal INSIDE the registration (an empty title, a listener that
+    // throws while the registry notifies) would otherwise leave the name held
+    // by a registration that never happened — and the plugin's corrected
+    // second attempt would be refused against an empty registry. The name is
+    // only taken if the thing taking it exists.
+    let inner: Disposable;
+    try {
+      inner = register();
+    } catch (error) {
+      live.delete(name);
+      throw error;
+    }
     return track({
       dispose() {
         live.delete(name);
@@ -180,6 +191,10 @@ export function buildPluginContext(
         ),
     },
     settings: {
+      // No `claim` here, and not an oversight: a section has no id to claim.
+      // Its gate is the manifest's boolean, and two sections from one plugin
+      // are two sections — the nav lists them by label and nothing keys on
+      // identity, so there is nothing for a second one to collide with.
       registerSection: (section) => {
         if (manifest.contributes.settings !== true) {
           throw new Error(

@@ -258,6 +258,30 @@ describe("buildPluginContext", () => {
     expect(registries.dockTabs.list()).toHaveLength(1);
   });
 
+  it("does not hold a name for a registration that threw", () => {
+    // The refusal comes from INSIDE the registration — an empty title is
+    // caught by the title gate, after the name has been taken. Held on to,
+    // the plugin's corrected second attempt would be refused against an empty
+    // registry, and only a restart would clear it.
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(
+      manifest("p", { contributes: { topBarActions: [{ id: "a", label: "A" }] } }),
+      "builtin",
+      registries,
+      deps,
+    );
+
+    expect(() =>
+      ctx.ui.registerTopBarAction({ id: "a", title: "  ", run() {} }),
+    ).toThrow('contribution has no title: topBarActions "a"');
+    expect(registries.topBarActions.list()).toEqual([]);
+
+    // The name is free, so the fixed registration goes through.
+    ctx.ui.registerTopBarAction({ id: "a", title: "Run", run() {} });
+    expect(registries.topBarActions.list()).toHaveLength(1);
+  });
+
   it("frees every claimed name when the plugin is swept", () => {
     const registries = createContributionRegistries();
     const { deps } = fakeDeps();

@@ -42,4 +42,27 @@ describe("actionTitle", () => {
   it("takes the surrounding whitespace off before judging length", () => {
     expect(actionTitle("paneActions", "padded", "  Peek  ")).toBe("Peek");
   });
+
+  it("never cuts a character in half", () => {
+    // A JS string is UTF-16, so an emoji is TWO units: a `slice` at unit 59
+    // can land between its halves and leave a lone surrogate, which the bar
+    // draws as a replacement glyph — exactly where the title was trimmed to
+    // look tidy. Counted in characters, the cut falls between them.
+    const title = actionTitle(
+      "topBarActions",
+      "emoji",
+      "🚀".repeat(MAX_ACTION_TITLE + 10),
+    );
+    expect(Array.from(title)).toHaveLength(MAX_ACTION_TITLE);
+    // Whole rockets and an ellipsis — the exact match is what proves no half
+    // of one is left stranded at the cut.
+    expect(title).toBe(`${"🚀".repeat(MAX_ACTION_TITLE - 1)}…`);
+  });
+
+  it("counts what the reader sees, not what the string is stored in", () => {
+    // Sixty emoji are sixty characters and a hundred and twenty units. Under
+    // the old count they were trimmed at half the intended length.
+    const exact = "🚀".repeat(MAX_ACTION_TITLE);
+    expect(actionTitle("topBarActions", "exact-emoji", exact)).toBe(exact);
+  });
 });

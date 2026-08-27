@@ -23,7 +23,13 @@
  * including ones not written yet.
  */
 
-/** Long enough for a real label, short enough to stay a label. */
+/** Long enough for a real label, short enough to stay a label.
+ *
+ *  Counted in CHARACTERS the reader sees, not in the units a string happens to
+ *  be stored in. This is a limit on "label, not paragraph" — it is not derived
+ *  from the bar's width, and the real ceiling on how many controls fit is
+ *  `fitBarGroup`'s. If it ever becomes a number of pixels, it belongs to the
+ *  bar and not here. */
 export const MAX_ACTION_TITLE = 60;
 
 export function actionTitle(
@@ -35,7 +41,11 @@ export function actionTitle(
   if (text === "") {
     throw new Error(`contribution has no title: ${kind} "${id}"`);
   }
-  return text.length > MAX_ACTION_TITLE
-    ? `${text.slice(0, MAX_ACTION_TITLE - 1).trimEnd()}…`
-    : text;
+  // By code point, not by `slice`. A JS string is UTF-16, so an emoji or a
+  // flag is TWO units and a cut at unit 59 can land between its halves —
+  // leaving a lone surrogate that the bar draws as a replacement glyph, right
+  // where the title was trimmed to look tidy.
+  const chars = Array.from(text);
+  if (chars.length <= MAX_ACTION_TITLE) return text;
+  return `${chars.slice(0, MAX_ACTION_TITLE - 1).join("").trimEnd()}…`;
 }
