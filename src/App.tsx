@@ -1,6 +1,7 @@
 import { askForPaneBack } from "./app/resumeOutcome";
 import { TeamDialog } from "./components/workspace/TeamDialog";
-import { isFoundUpdate, restartToUpdate } from "./app/updateManager";
+import { restartToUpdate } from "./app/updateManager";
+import { updateActionView } from "./app/updateAction";
 import { useAppController } from "./app/useAppController";
 import { useAppRuntime } from "./app/runtimeContext";
 import {
@@ -125,6 +126,10 @@ function App() {
     selectedPaneId,
     keyboardFocusEnabled,
   } = controller;
+  // What the update control says and does, or null when there is nothing to
+  // say. Derived rather than spelled in the markup: the phase machine is the
+  // updater's, and a switch over it belongs somewhere it can be asserted.
+  const updateAction = updateActionView(updateState);
   return (
     <div className="deck">
       <header className="deck__bar">
@@ -146,33 +151,21 @@ function App() {
           )}
         </div>
         <div className="deck__bar-right">
-          {isFoundUpdate(updateState) && (
+          {updateAction && (
             <button
               type="button"
               className="bar__action bar__action--update"
               onClick={() => {
-                if (updateState.phase === "ready") {
+                if (updateAction.action.kind === "restart") {
                   void restartToUpdate();
                 } else {
                   openSettings("updates");
                 }
               }}
-              disabled={
-                updateState.phase === "downloading" ||
-                updateState.phase === "discarding" ||
-                updateState.phase === "installing"
-              }
-              title={
-                updateState.phase === "ready"
-                  ? `Update to ${updateState.version ?? "new version"} and restart`
-                  : `Version ${updateState.version ?? "?"} is available`
-              }
+              disabled={updateAction.disabled}
+              title={updateAction.title}
             >
-              {updateState.phase === "available" && "Update available"}
-              {updateState.phase === "downloading" && "Downloading update…"}
-              {updateState.phase === "ready" && "Update ready · Restart"}
-              {updateState.phase === "discarding" && "Discarding update…"}
-              {updateState.phase === "installing" && "Restarting…"}
+              {updateAction.label}
             </button>
           )}
           <UsageChips
