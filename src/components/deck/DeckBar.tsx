@@ -34,7 +34,7 @@ import type { NotificationCenter } from "../../app/notificationCenter";
 import type { UpdateAction, UpdateActionView } from "../../app/updateAction";
 import type { Contribution } from "../../plugins/registries/contributions";
 import type { TopBarActionContribution } from "@keepdeck/plugin-api";
-import { fitBarGroup } from "../../domain/deck/topBar";
+import { fitBarGroup, PLUGIN_ACTION_SLOTS } from "../../domain/deck/topBar";
 import { Button } from "../../ui/Button";
 import { MenuButton, type MenuAction } from "../../ui/MenuButton";
 import { TipButton } from "../../ui/TipButton";
@@ -126,8 +126,10 @@ export function DeckBar({
   }
   // The plugin group has a ceiling; whatever passes it folds into a menu, so
   // the bar stops growing with the number of plugins installed.
-  const { shown: pluginShown, overflow: pluginOverflow } =
-    fitBarGroup(pluginActions);
+  const { shown: pluginShown, overflow: pluginOverflow } = fitBarGroup(
+    pluginActions,
+    PLUGIN_ACTION_SLOTS,
+  );
   return (
     <header className="deck__bar">
       <div className="deck__bar-left">

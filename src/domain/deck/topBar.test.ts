@@ -36,8 +36,21 @@ describe("fitBarGroup", () => {
     expect(fitBarGroup([], 3)).toEqual({ shown: [], overflow: [] });
   });
 
-  it("defaults to the bar's own ceiling", () => {
+  it("draws nothing when the overflow control would take the only slot", () => {
+    // The one place the rule reaches zero drawn items at a non-zero ceiling:
+    // one slot, two items, and the control that opens the rest needs it.
+    expect(fitBarGroup(["a", "b"], 1)).toEqual({
+      shown: [],
+      overflow: ["a", "b"],
+    });
+    // ...but a single item at one slot still fits, with nothing to open.
+    expect(fitBarGroup(["a"], 1)).toEqual({ shown: ["a"], overflow: [] });
+  });
+
+  it("carries the plugin row's ceiling at its own name", () => {
     const items = Array.from({ length: PLUGIN_ACTION_SLOTS + 1 }, (_, i) => i);
-    expect(fitBarGroup(items).shown).toHaveLength(PLUGIN_ACTION_SLOTS - 1);
+    expect(fitBarGroup(items, PLUGIN_ACTION_SLOTS).shown).toHaveLength(
+      PLUGIN_ACTION_SLOTS - 1,
+    );
   });
 });

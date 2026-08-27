@@ -39,7 +39,10 @@ export interface BarGroupFit<T> {
  */
 export function fitBarGroup<T>(
   items: readonly T[],
-  slots: number = PLUGIN_ACTION_SLOTS,
+  /** No default. This is the rule for ANY group, and a group that does not
+   *  name its own ceiling would silently inherit the plugin row's — which is
+   *  a number about plugins, not about groups. */
+  slots: number,
 ): BarGroupFit<T> {
   // A group with no room at all folds entirely — including the single item
   // that would otherwise look like it fit.
