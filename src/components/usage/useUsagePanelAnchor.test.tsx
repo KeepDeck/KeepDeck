@@ -35,8 +35,7 @@ function Harness({
   chips: readonly (readonly [string, number])[];
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const rosterKey = chips.map(([id]) => id).join("\n");
-  const left = useUsagePanelAnchor(ref, openProvider, rosterKey);
+  const left = useUsagePanelAnchor(ref, openProvider);
   return createElement(
     "div",
     { ref, "data-x": "500", "data-w": "400", "data-left": String(left) },
@@ -74,13 +73,24 @@ describe("useUsagePanelAnchor", () => {
   });
 
   it("follows the chip when a new one appears beside it", () => {
-    // THE bug: the open provider does not change, so an effect watching only
-    // that never re-measures. But an agent starting shifts every chip after
-    // it along, and the panel is anchored to a chip, not to a place.
+    // The open provider does not change, so an effect watching only that
+    // never re-measures. But an agent starting shifts every chip after it
+    // along, and the panel is anchored to a chip, not to a place.
     render({ openProvider: "b", chips: [["b", 500]] });
     expect(left()).toBe("0");
     render({ openProvider: "b", chips: [["a", 500], ["b", 620]] });
     expect(left()).toBe("120");
+  });
+
+  it("follows the chip when a NEIGHBOUR merely grows", () => {
+    // Same roster, same ids, same order — the chip to the left just got
+    // wider: an account reported a second window, or a stale mark appeared,
+    // or a countdown went from "1h 0m" to "59m". Keying the re-measure on
+    // WHICH chips exist would miss every one of those.
+    render({ openProvider: "b", chips: [["a", 500], ["b", 620]] });
+    expect(left()).toBe("120");
+    render({ openProvider: "b", chips: [["a", 500], ["b", 700]] });
+    expect(left()).toBe("200");
   });
 
   it("gives up the alignment rather than the panel at the window's edge", () => {

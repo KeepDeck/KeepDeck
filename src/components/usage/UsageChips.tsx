@@ -164,7 +164,7 @@ export function UsageChips({
 
   // Where the panel hangs — measuring is its own job, with its own listener to
   // keep and drop, so it lives in its own hook.
-  const panelLeft = useUsagePanelAnchor(rootRef, openProvider, providersKey);
+  const panelLeft = useUsagePanelAnchor(rootRef, openProvider);
 
   useEffect(() => {
     if (!open) return;
