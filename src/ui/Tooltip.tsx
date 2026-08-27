@@ -105,8 +105,11 @@ export function Tooltip({
       }}
       onMouseLeave={() => {
         cancelEnter();
-        // A focus-opened tip belongs to the FOCUS: brushing the cursor
-        // across the anchor must not steal it from the keyboard.
+        // A focus-opened tip survives the CURSOR LEAVING: brushing past the
+        // anchor on the way somewhere else must not close what the keyboard
+        // opened. Narrowly that, and not "focus owns the tip" — a press on
+        // the same anchor still closes it, because a press is a thing the
+        // user meant to do and a passing cursor is not.
         if (anchorRef.current !== document.activeElement) hide();
       }}
       // A press ends the question the tip was answering. It stays on the

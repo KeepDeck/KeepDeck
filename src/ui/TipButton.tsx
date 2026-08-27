@@ -28,7 +28,7 @@ import { Tooltip } from "./Tooltip";
  * A toolbar is swept by the pointer on its way somewhere else, and a tip that
  * opens instantly turns that sweep into a flicker of cards. Long enough to
  * mean "I stopped here", short enough that stopping feels answered. */
-const BAR_TIP_DELAY_MS = 400;
+export const BAR_TIP_DELAY_MS = 400;
 
 export interface TipButtonProps {
   /** What the control does, said in full — this is the visible answer, so it

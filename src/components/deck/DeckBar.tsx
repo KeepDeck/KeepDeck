@@ -24,9 +24,18 @@
  * and what a press ultimately does. Both belong to the composition root —
  * `dock`, `notifications`, `onAddTeam` and `updateAction` arrive null when
  * their control has no business existing, and every action is a callback. So
- * the bar reaches for no manager, no store and no router; it draws what it is
- * handed. That is the whole seam, and it is what lets a change to the
- * ARRANGEMENT stay inside this file.
+ * the bar itself reaches for no manager, no store and no router; it draws
+ * what it is handed. That is the whole seam, and it is what lets a change to
+ * the ARRANGEMENT stay inside this file.
+ *
+ * The two LIVE READINGS are the exception, and a deliberate one: the usage
+ * chips and the notification bell take their own data, per the convention the
+ * settings sections state outright ("sections talk to the settings store
+ * themselves"). The line the app draws is by KIND of data, not by taste — the
+ * app's model (deck, workspaces, agents, plugins) arrives through the
+ * controller as ports, and local stores are consumed where they are used. A
+ * bar that had to be handed four usage hooks would put them back in App.tsx,
+ * which is where they came from.
  */
 import type { AgentInfo } from "../../domain/agents";
 import type { Notification } from "../../domain/notifications";
@@ -37,7 +46,7 @@ import type { TopBarActionContribution } from "@keepdeck/plugin-api";
 import { fitBarGroup, PLUGIN_ACTION_SLOTS } from "../../domain/deck/topBar";
 import { Button } from "../../ui/Button";
 import { MenuButton, type MenuAction } from "../../ui/MenuButton";
-import { TipButton } from "../../ui/TipButton";
+import { BAR_TIP_DELAY_MS, TipButton } from "../../ui/TipButton";
 import { Tooltip } from "../../ui/Tooltip";
 import { DockIcon, GearIcon, SidebarIcon, SkillsIcon, StatsIcon } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
@@ -164,7 +173,7 @@ export function DeckBar({
           onOpenStats={onOpenStats}
         />
         {updateAction && (
-          <Tooltip tip={updateAction.title} delayMs={400}>
+          <Tooltip tip={updateAction.title} delayMs={BAR_TIP_DELAY_MS}>
             <Button
               variant="secondary"
               size="sm"
@@ -199,7 +208,10 @@ export function DeckBar({
               + {createActions[0].label}
             </TipButton>
           ) : (
-            <Tooltip tip="Add an agent or start a team" delayMs={400}>
+            <Tooltip
+              tip="Add an agent or start a team"
+              delayMs={BAR_TIP_DELAY_MS}
+            >
               <MenuButton
                 variant="primary"
                 size="sm"
@@ -243,19 +255,20 @@ export function DeckBar({
               </TipButton>
             ))}
             {pluginOverflow.length > 0 && (
-              <MenuButton
-                variant="ghost"
-                size="sm"
-                ariaLabel="More plugin actions"
-                title="More plugin actions"
-                actions={pluginOverflow.map((contribution) => ({
-                  id: `${contribution.pluginId}:${contribution.entry.id}`,
-                  label: contribution.entry.title,
-                  onSelect: () => contribution.entry.run(),
-                }))}
-              >
-                ⋯
-              </MenuButton>
+              <Tooltip tip="More plugin actions" delayMs={BAR_TIP_DELAY_MS}>
+                <MenuButton
+                  variant="ghost"
+                  size="sm"
+                  ariaLabel="More plugin actions"
+                  actions={pluginOverflow.map((contribution) => ({
+                    id: `${contribution.pluginId}:${contribution.entry.id}`,
+                    label: contribution.entry.title,
+                    onSelect: () => contribution.entry.run(),
+                  }))}
+                >
+                  ⋯
+                </MenuButton>
+              </Tooltip>
             )}
           </div>
         )}
