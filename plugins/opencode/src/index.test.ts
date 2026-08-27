@@ -181,6 +181,51 @@ describe("opencode plugin hooks", () => {
     ]);
   });
 
+  /**
+   * The property, rather than one carrier at a time. Three hooks used to
+   * repeat the same staging by hand, and a carrier added to one and forgotten
+   * in another is invisible: the pane comes up without its reporter, or
+   * without its skills, and goes on looking like the ones that have them.
+   * Asserting that all three stage IDENTICALLY outlives the list — a carrier
+   * added tomorrow is covered without touching this test.
+   */
+  it("stages every launch alike — a fresh spawn, a resume and a fork", async () => {
+    const agent = activate("/App/resources/session-reporter.js");
+    const shared = {
+      ...input,
+      mcp: {
+        servers: [
+          {
+            name: "keepdeck",
+            transport: "stdio" as const,
+            command: "/bin/keepdeck",
+            args: [],
+          },
+        ],
+      },
+      skills: { opencodeConfigDir: "/staged/skills" },
+    };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(shared, spawn);
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...shared, sessionId: "s" }, resume);
+    const fork = output();
+    await agent.hooks["fork.plan"]!(
+      { ...shared, sessionId: "s", sourceCwd: "/old" },
+      fork,
+    );
+
+    // The arguments differ by design — only what a launch CARRIES is shared.
+    expect(resume.env).toEqual(spawn.env);
+    expect(fork.env).toEqual(spawn.env);
+    expect(resume.envDefaults).toEqual(spawn.envDefaults);
+    expect(fork.envDefaults).toEqual(spawn.envDefaults);
+    // And it is not vacuously equal: staging really put something there.
+    expect(spawn.env.length).toBeGreaterThan(0);
+    expect(spawn.envDefaults?.length).toBeGreaterThan(0);
+  });
+
   it("carries the servers even when the reporter file is missing", async () => {
     // Identity off must not take injection down with it — they are separate
     // features sharing one variable.

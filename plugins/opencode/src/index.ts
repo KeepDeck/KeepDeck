@@ -86,6 +86,28 @@ const remoteAttachArgs = (
     ? ["attach", target.endpoint, ...yoloArgs(yolo)]
     : null;
 
+/** Everything a launch of this CLI carries before its arguments are chosen —
+ *  the injected plugins and MCP servers, the shared skills directory — and
+ *  whether the remote path has already settled those arguments.
+ *
+ *  One place, because it was three. The same lines stood in `spawn.plan`,
+ *  `resume.plan` and `fork.plan`, held in step by whoever remembered. A
+ *  carrier added to one and forgotten in another is not a visible mistake: a
+ *  forked pane would simply come up without its reporter, or without its
+ *  skills, and go on looking like the ones that have them. */
+async function stageLaunch(
+  resources: PluginResources,
+  input: Pick<SpawnPlanInput, "mcp" | "skills" | "target" | "yolo">,
+  output: { env: [string, string][]; envDefaults?: [string, string][]; args: string[] },
+): Promise<boolean> {
+  output.env.push(...(await sessionConfigEnv(resources, input.mcp)));
+  (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
+  const remote = remoteAttachArgs(input.target, input.yolo);
+  if (!remote) return false;
+  output.args = remote;
+  return true;
+}
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -123,23 +145,11 @@ const plugin: KeepDeckPlugin = {
       },
       hooks: {
         "spawn.plan": async (input, output) => {
-          output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
-          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
-          const remote = remoteAttachArgs(input.target, input.yolo);
-          if (remote) {
-            output.args = remote;
-            return;
-          }
+          if (await stageLaunch(ctx.resources, input, output)) return;
           output.args = yoloArgs(input.yolo);
         },
         "resume.plan": async (input, output) => {
-          output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
-          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
-          const remote = remoteAttachArgs(input.target, input.yolo);
-          if (remote) {
-            output.args = remote;
-            return;
-          }
+          if (await stageLaunch(ctx.resources, input, output)) return;
           output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
         },
         // Native `-s <id> --fork` re-homes the fork to the SOURCE session's
@@ -151,13 +161,7 @@ const plugin: KeepDeckPlugin = {
         // Remote short-circuits all of this: attach to the server, where the
         // fork runs server-side.
         "fork.plan": async (input, output) => {
-          output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
-          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
-          const remote = remoteAttachArgs(input.target, input.yolo);
-          if (remote) {
-            output.args = remote;
-            return;
-          }
+          if (await stageLaunch(ctx.resources, input, output)) return;
           const relocated = await relocatingForkId(ctx, input);
           output.args = relocated
             ? [...yoloArgs(input.yolo), "-s", relocated]
