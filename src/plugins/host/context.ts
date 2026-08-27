@@ -7,6 +7,7 @@ import { execCovers } from "../capabilities/execCovers";
 import type { ContributionRegistries } from "../registries/contributions";
 import type { PluginSource } from "../model/installed";
 import type { PluginHostDeps } from "./deps";
+import { actionTitle } from "./actionTitle";
 import { validateAgentFeatureImplementations } from "./agentFeatures";
 import { describeError } from "./errors";
 
@@ -117,11 +118,13 @@ export function buildPluginContext(
       },
       registerTopBarAction: (action) => {
         declared("topBarActions", action.id);
-        return track(registries.topBarActions.add(pluginId, action));
+        const title = actionTitle("topBarActions", action.id, action.title);
+        return track(registries.topBarActions.add(pluginId, { ...action, title }));
       },
       registerPaneAction: (action) => {
         declared("paneActions", action.id);
-        return track(registries.paneActions.add(pluginId, action));
+        const title = actionTitle("paneActions", action.id, action.title);
+        return track(registries.paneActions.add(pluginId, { ...action, title }));
       },
       registerOverlay: (overlay) => {
         declared("overlays", overlay.id);

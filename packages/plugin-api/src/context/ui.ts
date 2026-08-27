@@ -85,7 +85,16 @@ export type OverlayContribution =
     };
 
 /** `title` on actions is tooltip semantics — it feeds the button's
- * `title`/`aria-label`, matching how the host's own bar icons work. */
+ * `title`/`aria-label`, matching how the host's own bar icons work. It must
+ * not be empty (registration refuses it) and a long one is trimmed: it is a
+ * label, and the host has a strip to fit it in.
+ *
+ * PLACEMENT IS THE HOST'S. The bar has a ceiling, and past it a contribution
+ * is reached from a menu rather than from a button of its own — no contract is
+ * broken by that and none promises otherwise. What IS promised is that every
+ * contribution stays reachable and `run` is one press away either way. A
+ * plugin that needs a nearer press has three other visible surfaces: a dock
+ * tab, an overlay, a command. */
 export interface TopBarActionContribution {
   id: string;
   title: string;
