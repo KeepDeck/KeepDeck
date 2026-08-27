@@ -218,22 +218,32 @@ describe("reporter shell scripts", () => {
             });
         }),
     ];
-    let stamped = 0;
+    // Every sender must be COVERED, which is not the same as every sender
+    // stamping. A sender that builds its own envelope answers for its own
+    // version; one that takes the envelope from a shared builder answers
+    // through it. Counting stamps instead punished the better arrangement —
+    // the opencode pair went from four hand-written envelopes to one builder
+    // and the total fell below a floor written when there were more.
+    const uncovered = [];
     for (const path of senders) {
       const body = readFileSync(path, "utf8");
-      for (const [, version] of body.matchAll(/"v":\s*(\d+)|\bv:\s*(\d+),/g)) {
-        stamped += 1;
-      }
-      for (const match of body.matchAll(/"v":(\d+)|\bv: (\d+),/g)) {
+      const stamps = [...body.matchAll(/"v":\s*(\d+)|\bv:\s*(\d+),/g)];
+      for (const match of stamps) {
         expect(
           Number(match[1] ?? match[2]),
           `${path} stamps a version the deck refuses`,
         ).toBe(deck);
       }
+      // The builder lives beside them and is searched in its own right, so a
+      // sender that imports it is answered for.
+      if (stamps.length === 0 && !/makeEnvelope/.test(body)) {
+        uncovered.push(path);
+      }
     }
     // The guard has to SEE something, or a renamed field would empty it and
     // it would pass by finding nothing to check.
-    expect(stamped, "no envelope versions found to check").toBeGreaterThan(4);
+    expect(senders.length, "no senders found to check").toBeGreaterThan(0);
+    expect(uncovered, "a sender answers to no protocol version").toEqual([]);
   });
 
   it("leaves no reporter writing into the run directory", () => {

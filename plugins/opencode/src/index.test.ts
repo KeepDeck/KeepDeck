@@ -181,6 +181,78 @@ describe("opencode plugin hooks", () => {
     ]);
   });
 
+  /**
+   * The property, rather than one carrier at a time. Three hooks used to
+   * repeat the same staging by hand, and a carrier added to one and forgotten
+   * in another is invisible: the pane comes up without its reporter, or
+   * without its skills, and goes on looking like the ones that have them.
+   * Asserting that all three stage IDENTICALLY outlives the list — a carrier
+   * added tomorrow is covered without touching this test.
+   */
+  it("stages every launch alike — a fresh spawn, a resume and a fork", async () => {
+    const agent = activate("/App/resources/session-reporter.js");
+    const shared = {
+      ...input,
+      mcp: {
+        servers: [
+          {
+            name: "keepdeck",
+            transport: "stdio" as const,
+            command: "/bin/keepdeck",
+            args: [],
+          },
+        ],
+      },
+      skills: {
+        claudePluginDir: "/staged/claude-plugin",
+        opencodeConfigDir: "/staged/opencode",
+        skillsDir: "/staged/skills",
+      },
+    };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(shared, spawn);
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...shared, sessionId: "s" }, resume);
+    const fork = output();
+    await agent.hooks["fork.plan"]!(
+      { ...shared, sessionId: "s", sourceCwd: "/old" },
+      fork,
+    );
+
+    // The arguments differ by design — only what a launch CARRIES is shared.
+    expect(resume.env).toEqual(spawn.env);
+    expect(fork.env).toEqual(spawn.env);
+    expect(resume.envDefaults).toEqual(spawn.envDefaults);
+    expect(fork.envDefaults).toEqual(spawn.envDefaults);
+    // And it is not vacuously equal: staging really put something there.
+    expect(spawn.env.length).toBeGreaterThan(0);
+    expect(spawn.envDefaults?.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The reporter cannot discover the mode: the TUI runs plugins in a worker
+   * whose argv is the worker's own, and the effective config is identical
+   * leaf for leaf whether the flag was passed or not. So the deck states its
+   * own choice, per pane — a pane launched normally must go on surfacing the
+   * approvals it really waits on.
+   */
+  it("tells the reporter when this pane's approvals are answered for it", async () => {
+    const agent = activate("/App/resources/session-reporter.js");
+    const skipped = output();
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, skipped);
+    expect(skipped.env).toContainEqual([
+      "KEEPDECK_OPENCODE_SKIPS_APPROVALS",
+      "1",
+    ]);
+
+    const normal = output();
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: false }, normal);
+    expect(normal.env.map(([key]) => key)).not.toContain(
+      "KEEPDECK_OPENCODE_SKIPS_APPROVALS",
+    );
+  });
+
   it("carries the servers even when the reporter file is missing", async () => {
     // Identity off must not take injection down with it — they are separate
     // features sharing one variable.
@@ -383,7 +455,17 @@ describe("opencode plugin hooks", () => {
     expect(fork.args).toEqual(["attach", "http://vps:4096"]);
     expect(fork.args).not.toContain("--fork");
 
-    // The reporter still arms on the local attach client (pane binding).
+    // The config still travels — the same staging serves every launch. What it
+    // does NOT do is arrive anywhere: measured on a rig, an `attach` client
+    // does not load the plugins its own `OPENCODE_CONFIG_CONTENT` names (a
+    // probe placed there never initialises over a whole turn, while the same
+    // probe in an ordinary TUI marks at startup). The agent runs on the
+    // server, which takes plugins from its OWN environment.
+    //
+    // So a remote pane reports nothing to the deck: no binding, no turn edges,
+    // no usage, no courier. The remote path is unfinished and this is one of
+    // the ways. Said here rather than asserted — this test can only see the
+    // envelope leave, and what happens to it was established elsewhere.
     expect(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
   });
 

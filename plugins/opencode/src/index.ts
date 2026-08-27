@@ -59,6 +59,33 @@ async function sessionConfigEnv(
 const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-skip-permissions"] : [];
 
+/**
+ * The same choice, said again where the reporter can hear it.
+ *
+ * With approvals skipped, opencode answers its own prompts within
+ * milliseconds — measured, 715 of 732 pairs inside one second — and its reply
+ * carries the same "once" a person's would. So nothing on the wire tells an
+ * automatic approval from a human one, and the deck announced "needs
+ * approval" for prompts nobody was ever going to see.
+ *
+ * The deck STATES the mode rather than the reporter discovering it, because
+ * discovery was measured impossible: the TUI runs plugins in a worker whose
+ * argv is the worker's own, the effective config is identical leaf for leaf
+ * in both modes — the flag lives below the config and leaves no trace in any
+ * merge layer — and the worker's environment carries nothing about it.
+ *
+ * Per pane, not per agent: the mode is a choice made at each spawn, and a
+ * pane launched normally must go on surfacing the approvals it really waits
+ * on.
+ *
+ * It travels on every launch, and on a REMOTE one it reaches nobody —
+ * measured: an `attach` client does not load the plugins its own config
+ * names, so a remote pane has no reporter to read this, and no statuses or
+ * mail either. The remote path is unfinished; whatever eventually reports
+ * from a server will need this mode delivered to it there, not here. */
+const permissionModeEnv = (yolo: boolean | undefined): [string, string][] =>
+  yolo ? [["KEEPDECK_OPENCODE_SKIPS_APPROVALS", "1"]] : [];
+
 /** The staged shared skills as an EXTRA config directory — opencode loads
  * `OPENCODE_CONFIG_DIR` on top of the global and project ones (additive,
  * probe-verified on 1.18.3), and it composes fine with the reporter's
@@ -86,6 +113,29 @@ const remoteAttachArgs = (
     ? ["attach", target.endpoint, ...yoloArgs(yolo)]
     : null;
 
+/** Everything a launch of this CLI carries before its arguments are chosen —
+ *  the injected plugins and MCP servers, the shared skills directory — and
+ *  whether the remote path has already settled those arguments.
+ *
+ *  One place, because it was three. The same lines stood in `spawn.plan`,
+ *  `resume.plan` and `fork.plan`, held in step by whoever remembered. A
+ *  carrier added to one and forgotten in another is not a visible mistake: a
+ *  forked pane would simply come up without its reporter, or without its
+ *  skills, and go on looking like the ones that have them. */
+async function stageLaunch(
+  resources: PluginResources,
+  input: Pick<SpawnPlanInput, "mcp" | "skills" | "target" | "yolo">,
+  output: { env: [string, string][]; envDefaults?: [string, string][]; args: string[] },
+): Promise<boolean> {
+  output.env.push(...(await sessionConfigEnv(resources, input.mcp)));
+  output.env.push(...permissionModeEnv(input.yolo));
+  (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
+  const remote = remoteAttachArgs(input.target, input.yolo);
+  if (!remote) return false;
+  output.args = remote;
+  return true;
+}
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -103,10 +153,16 @@ const plugin: KeepDeckPlugin = {
       usage: {
         normalize: normalizeOpencodeUsage,
       },
-      // Turn lifecycle from the same reporter's bus subscription.
-      // session.idle fires on interrupt too (no transcript recovery
-      // needed), and permission.replied is the approval-resolution edge
-      // claude and codex lack.
+      // Turn lifecycle from the same reporter's bus subscription — which is
+      // why this agent needs no transcript recovery: an interrupt is stated
+      // on the bus like everything else. It is stated as an ERROR, though,
+      // named `MessageAbortedError` and published before the idle behind it,
+      // so what tells an interrupted turn from a broken one is the name and
+      // not the shape (see [`normalizeOpencodeStatus`]).
+      //
+      // The other two edges no other agent gives us: permission.replied
+      // resolves an approval, and question.asked is the only word anywhere
+      // for a turn standing on a choice put in front of the user.
       //
       // Mail is the courier's half: it asks, and what it gets back it puts
       // straight into the session — with a turn for somebody's words,
@@ -123,23 +179,11 @@ const plugin: KeepDeckPlugin = {
       },
       hooks: {
         "spawn.plan": async (input, output) => {
-          output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
-          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
-          const remote = remoteAttachArgs(input.target, input.yolo);
-          if (remote) {
-            output.args = remote;
-            return;
-          }
+          if (await stageLaunch(ctx.resources, input, output)) return;
           output.args = yoloArgs(input.yolo);
         },
         "resume.plan": async (input, output) => {
-          output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
-          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
-          const remote = remoteAttachArgs(input.target, input.yolo);
-          if (remote) {
-            output.args = remote;
-            return;
-          }
+          if (await stageLaunch(ctx.resources, input, output)) return;
           output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
         },
         // Native `-s <id> --fork` re-homes the fork to the SOURCE session's
@@ -151,13 +195,7 @@ const plugin: KeepDeckPlugin = {
         // Remote short-circuits all of this: attach to the server, where the
         // fork runs server-side.
         "fork.plan": async (input, output) => {
-          output.env.push(...(await sessionConfigEnv(ctx.resources, input.mcp)));
-          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
-          const remote = remoteAttachArgs(input.target, input.yolo);
-          if (remote) {
-            output.args = remote;
-            return;
-          }
+          if (await stageLaunch(ctx.resources, input, output)) return;
           const relocated = await relocatingForkId(ctx, input);
           output.args = relocated
             ? [...yoloArgs(input.yolo), "-s", relocated]

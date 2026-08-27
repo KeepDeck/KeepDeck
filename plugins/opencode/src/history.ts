@@ -28,6 +28,36 @@ export function partText(data: string): string | null {
   return null;
 }
 
+/**
+ * How many part rows one reading of a session takes, and in what order.
+ *
+ * ONE BOUND FOR BOTH READERS. Two of them read these rows for different
+ * questions — one pages turns and counts what it could not parse, the other
+ * pours the text into the search corpus — and they had this written out
+ * separately. Raise it in one and the two readings of the same session start
+ * disagreeing about where it ends, which is the noisiest kind of bug a
+ * store-backed reader can have: nothing fails, the answers just stop matching.
+ *
+ * The largest real session holds ~5k parts, and real ones already exceed that,
+ * so the cap has to drop the TAIL rather than a hole in the middle. Ordered
+ * explicitly for it: an unordered LIMIT happens to follow id order today, but
+ * that is an artifact and not a guarantee.
+ *
+ * `id`, not `time_created`: real sessions share ONE timestamp across thousands
+ * of parts, so the client-minted, sortable ids are the only chronological key
+ * there is. One known store quirk rides along harmlessly — a synthetic
+ * `prt_0000000000_thinking` sentinel sorts before its session's first real
+ * part, but its type never yields text, so [`partText`] drops it.
+ */
+const PART_ROW_CAP = 20_000;
+const partRowsSql = (columns: string) =>
+  `SELECT ${columns} FROM part WHERE session_id = ?1 ORDER BY id LIMIT ${PART_ROW_CAP}`;
+
+/** How much text one session may put into the search corpus. Belongs to the
+ * corpus rather than to the reading: only the search side accumulates text,
+ * and only it can drag tens of MB across the IPC bridge. */
+const CORPUS_BYTE_CAP = 2 * 1024 * 1024;
+
 export function opencodeHistory(ctx: PluginContext): AgentHistory {
   const query = (sql: string, params: string[] = []) =>
     ctx.services.sqlite.query(DB, sql, params);
@@ -60,10 +90,7 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       "SELECT id, data FROM message WHERE session_id = ?1 ORDER BY time_created",
       [ref],
     );
-    const parts = await query(
-      "SELECT message_id, data FROM part WHERE session_id = ?1 ORDER BY id LIMIT 20000",
-      [ref],
-    );
+    const parts = await query(partRowsSql("message_id, data"), [ref]);
     const byMessage = new Map<string, string[]>();
     let unreadableParts = 0;
     for (const [messageId, data] of parts) {
@@ -145,22 +172,12 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       };
     },
     async content(ref) {
-      // Bounded on both axes: a row cap (the largest real session holds
-      // ~5k parts) and a text-accumulation cap — a monster session must not
-      // drag tens of MB across the IPC bridge into the index.
-      // Ordered explicitly: an unordered LIMIT happens to follow id order
-      // today, but that's an artifact, not a guarantee — and real sessions
-      // already exceed 5k parts, so the cap must drop the TAIL, not a hole.
-      // `id`, not time_created: real sessions share ONE timestamp across
-      // thousands of parts, so ids (client-minted, sortable) are the only
-      // chronological key. One known store quirk rides along harmlessly: a
-      // synthetic `prt_0000000000_thinking` sentinel sorts before its
-      // session's first real part, but its type ("thinking") never yields
-      // text, so partText drops it.
-      const rows = await query(
-        "SELECT data FROM part WHERE session_id = ?1 ORDER BY id LIMIT 20000",
-        [ref],
-      );
+      // Bounded on a second axis as well as the shared row cap: a monster
+      // session must not drag tens of MB across the IPC bridge into the
+      // index. This one belongs to the corpus and not to the reading, which
+      // is why it is not up beside [`PART_ROW_CAP`] — the paging reader has
+      // no text to accumulate and nothing to fall short of by bytes.
+      const rows = await query(partRowsSql("data"), [ref]);
       const texts: string[] = [];
       let total = 0;
       for (const [data] of rows) {
@@ -168,7 +185,7 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
         if (text === null) continue;
         texts.push(text);
         total += text.length;
-        if (total >= 2 * 1024 * 1024) break;
+        if (total >= CORPUS_BYTE_CAP) break;
       }
       return texts.join("\n");
     },

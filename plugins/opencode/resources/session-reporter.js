@@ -24,39 +24,49 @@
  * `KEEPDECK_BRIDGE` at spawn.
  */
 import {
-  REPORTER,
-  createSubagentIndex,
-  sendEnvelope,
+  makeEnvelope,
+  publish as publishEnvelope,
   readBridge,
 } from "./keepdeck-bridge.js";
+import { paneSession } from "./pane-session.js";
 
 export default async (input = {}) => {
   const bridge = readBridge();
   if (!bridge) return {}; // not spawned by KeepDeck — stay inert
-  const { dir, pane, token } = bridge;
+  const { dir } = bridge;
+
+  /**
+   * Whether this pane was launched with approval prompts skipped — the deck's
+   * own choice at spawn, stated here because it cannot be discovered from
+   * inside the process.
+   *
+   * Read at startup, not per event: the mode is an argument the CLI was
+   * started with and cannot change under a running one.
+   */
+  const SKIPS_APPROVALS =
+    process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS === "1";
 
   const client = input?.client;
 
-  /** Hand one envelope to the deck.
+  /** State one fact about this pane.
    *
-   * Fire-and-forget: no caller here asks a question, and none reads the
-   * result. Awaiting it would make every turn-lifecycle edge wait on a round
-   * trip it has nothing to do with. */
-  const publish = (envelope) => {
-    void sendEnvelope(bridge, envelope);
+   * The handler is not kept waiting — it hands the envelope over and returns.
+   * What waits is the next POST, so the deck reads these facts in the order
+   * the bus stated them; see `publish` in keepdeck-bridge.js for why that
+   * ordering is not free. */
+  const publish = (type, payload) => {
+    publishEnvelope(bridge, makeEnvelope(bridge, type, payload));
   };
 
   // Per-message latest snapshot for the ACTIVE ROOT session and all of its
   // descendants, summed into the session cumulative. A new root session owns a
   // new generation: `/new`/fork must never inherit the previous root's spend.
   const messages = new Map();
-  // Which sessions here are subagents' and which root their work rolls up to.
-  // Descendant spend rolls up to the pane's root, while only root turns define
-  // context occupancy and model identity. Shared with the mail courier beside
-  // this file: two answers to "is this the pane's conversation" means the deck
-  // watching one session's turns while mail lands in another.
-  const subagents = createSubagentIndex(client);
-  let activeRoot;
+  // Which session is the pane's conversation, and which of the others are
+  // subagents' — ONE object, shared with the mail courier beside this file.
+  // Two answers to that question means the deck watching one session's turns
+  // while mail lands in another.
+  const pane = paneSession(client);
   // The latest ROOT assistant turn — defines occupancy/identity, not spend.
   let root;
   let sequence = 0;
@@ -148,7 +158,7 @@ export default async (input = {}) => {
       if (!Array.isArray(children)) return;
       for (const child of children) {
         if (!child?.id) continue;
-        subagents.note(child.id, rootSessionID);
+        pane.note(child.id, rootSessionID);
         await hydrateSession(child.id, rootSessionID, seen);
       }
     } catch {
@@ -158,39 +168,63 @@ export default async (input = {}) => {
 
   // A later root is the pane's conversation continuing under a new id
   // (`/new`), not a second session appearing out of nowhere — so it is
-  // reported as what it is. Derived from `activeRoot` rather than a flag of
-  // its own: a second copy of "has this pane bound yet" is a second place for
-  // that answer to be wrong, and this one would keep saying "continuing"
-  // after a publish that silently failed.
+  // reported as what it is. Derived from whether the pane was already bound
+  // rather than a flag of its own: a second copy of "has this pane bound yet"
+  // is a second place for that answer to be wrong, and this one would keep
+  // saying "continuing" after a publish that silently failed.
   const bind = (sessionID, continuing) =>
-    publish({
-      v: 2,
-      type: "session.bound",
-      paneId: pane,
-      token,
-      payload: {
-        sessionId: sessionID,
-        agent: "opencode",
-        source: continuing ? "new" : "startup",
-        reporter: REPORTER,
-      },
+    publish("session.bound", {
+      sessionId: sessionID,
+      source: continuing ? "new" : "startup",
     });
 
-  /** `keep` is the ancestry the caller has already established for the
-   * session it is binding through — the index is cleared here, and anything
-   * learned on the way in would go with it. */
-  const activateRoot = async (sessionID, publishBinding, keep = []) => {
-    // Read before the assignment below: whether this pane already had a root
-    // IS the difference between a startup and a `/new`.
-    const continuing = activeRoot !== undefined;
-    activeRoot = sessionID;
+  /**
+   * Take a session as the pane's conversation, then set up for it.
+   *
+   * `keep` is the ancestry already established for the session being bound
+   * THROUGH — a descendant whose chain was learned on the way in. Its presence
+   * is the difference between the two things the first half does: binding to a
+   * conversation already in progress keeps what is known about it, while a
+   * root the pane just watched appear owns nothing from the last one.
+   */
+  const activateRoot = async (sessionID, publishBinding, keep) => {
+    if (keep) pane.bindFromChain(sessionID, keep);
+    else pane.newGeneration(sessionID);
+    await setUpForConversation(publishBinding);
+  };
+
+  /**
+   * Everything this reporter owes a conversation it has not served yet.
+   *
+   * KEYED ON WHICH CONVERSATION, NOT ON WHO MOVED IT THERE. Both plugins watch
+   * the same `session.created` on their own queues, and the courier's is free
+   * to run while this one waits on hydration or on the provider catalog — so
+   * the courier can be the one that sets the new root. Gating this on having
+   * performed the move lost all of it in that window: no binding published, so
+   * the deck no longer knows which session the pane is; no accumulators
+   * cleared, so a new conversation inherited the last one's spend; no
+   * hydration. None of it visible from either side.
+   *
+   * The id is the whole key, and no counter is needed beside it: what has to
+   * be answered is "is this the conversation I already set up for", and a
+   * comparison answers it. It would answer it even for a pane that somehow
+   * came back to a conversation it had left — the ids need no order for this,
+   * only difference.
+   *
+   * `continuing` comes from THIS reporter's own history rather than from the
+   * pane being bound, for the same reason — the courier may have bound it
+   * already, and then a first conversation would report itself as a second.
+   */
+  let servedRoot;
+  const setUpForConversation = async (publishBinding) => {
+    if (pane.root === undefined || pane.root === servedRoot) return;
+    const continuing = servedRoot !== undefined;
+    servedRoot = pane.root;
     messages.clear();
-    subagents.clear();
-    for (const [child, parent] of keep) subagents.note(child, parent);
     root = undefined;
     sequence = 0;
-    if (publishBinding) bind(sessionID, continuing);
-    hydration = hydrateSession(sessionID, sessionID, new Set());
+    if (publishBinding) bind(servedRoot, continuing);
+    hydration = hydrateSession(servedRoot, servedRoot, new Set());
     await hydration;
   };
 
@@ -231,72 +265,135 @@ export default async (input = {}) => {
     return windowByModel.get(modelKey(providerID, modelID));
   };
 
-  /** One turn-lifecycle edge for the pane — `agent.status` protocol. Only
-   * the fields the status normalizer reads travel; the raw bus event stays
-   * in this process. */
-  const reportStatus = (type, extra = {}) =>
-    publish({
-      v: 2,
-      type: "agent.status",
-      paneId: pane,
-      token,
-      payload: { agent: "opencode", reporter: REPORTER, event: { type, ...extra } },
+  /**
+   * One bus event, VERBATIM, on the `agent.status` protocol.
+   *
+   * The payload travels whole. This process answers one question about an
+   * event — whose it is — and nothing about what it means: the session tree,
+   * the process boundary and the window before the pane is bound exist only
+   * here, and the deck cannot reconstruct them. Everything else is the
+   * normalizer's, because it can change its mind about a payload it has and
+   * never about one that was reduced on the way.
+   *
+   * Which is why the reduction that used to happen here was a defect and not
+   * a saving. Forwarding `session.status` only when busy hid the retry state
+   * behind it; flattening `error.name` to a string threw away the eight names
+   * apart from which an abort cannot be told from a failure. Both decisions
+   * were about MEANING, made a process away from where meaning is decided.
+   */
+  const forward = (event) =>
+    publish("agent.status", {
+      event: { type: event.type, properties: event.properties ?? {} },
     });
 
-  /** Whether a session-scoped event describes the PANE's conversation: the
-   * active root itself — never a subagent child (a child going busy/idle is
-   * not the pane's turn boundary) — and any non-child session before a root
-   * is known, because a status edge beating `session.created` should still
-   * land rather than strand the pane. */
-  const concernsPane = (sessionID) => {
-    if (!sessionID || subagents.rootOf(sessionID) !== sessionID) return false;
-    return !activeRoot || sessionID === activeRoot;
+  /**
+   * Whose event this is — the only question answered on this side.
+   *
+   * An attribution mistake is silent and unrecoverable: a dropped event is
+   * one the deck never hears about and cannot ask for. A translation mistake
+   * is fixed in one file. So the doubt goes one way — overboard goes only
+   * what certainly belongs to another conversation.
+   */
+  /**
+   * Whether this pane's turn has already been reported as running.
+   *
+   * opencode says `busy` once per MODEL CALL, not once per turn: twice on
+   * submit and twice more after every tool result — ten times on a measured
+   * turn that ran three commands. Each one reached the deck as a turn
+   * beginning, and a beginning restarts the phase clock, so an 81-second turn
+   * showed "Working · 3s".
+   *
+   * The clock is right to restart on a new turn — a CLI can begin one of its
+   * own accord, and every other agent means exactly that by the edge. What was
+   * wrong is saying it ten times.
+   *
+   * ONLY AN IDLE CLEARS IT, and that is the whole rule. Clearing on errors too
+   * looked safer and was the same bug in miniature: some errors do not end the
+   * turn at all — an overflowed context publishes one and then compacts, and a
+   * crashing plugin publishes one that belongs to no turn — so the next model
+   * call passed as news and the phase clock restarted on a turn that had never
+   * stopped. And an ending without an idle does not exist: every one of them
+   * goes through the same pair, checked against opencode's own code. The only
+   * exception is the process dying, where this flag has nobody left to read it.
+   *
+   * That rule is also what keeps this side out of the business of meaning.
+   * Knowing WHICH errors end a turn is the normalizer's; knowing that a fact
+   * has already been stated is this one's.
+   */
+  let turnReported = false;
+
+  const belongsHere = (event) => {
+    const props = event.properties ?? {};
+    switch (event.type) {
+      case "session.status":
+      case "session.idle":
+        return pane.concernsPane(props.sessionID);
+      case "session.error":
+        // opencode declares sessionID OPTIONAL on this event, and the
+        // publishers that omit it are process-wide — a plugin crash, a failed
+        // skill. This process serves exactly one pane, so an error with no
+        // session named can only be its own; only one attributed to some
+        // OTHER session is filtered.
+        return !props.sessionID || pane.concernsPane(props.sessionID);
+      case "permission.asked":
+      case "permission.replied":
+        // An approval nobody will be asked for is not a wait. With approvals
+        // skipped, opencode answers its own prompt in milliseconds and its
+        // reply is indistinguishable from a person's — so the deck announced
+        // "needs approval" for a dialog that never appeared. The pane's mode
+        // is the only thing that tells the two apart, and it cannot be read
+        // from inside the process, so the deck says it at spawn.
+        //
+        // Not a reading of the event: what a prompt MEANS is decided at the
+        // other end. This is the same kind of answer as the list of types
+        // that travel at all — in this mode that class of event does not
+        // exist for this pane.
+        return !SKIPS_APPROVALS;
+      case "question.asked":
+      case "question.replied":
+      case "question.rejected":
+        // A dialog parks the TERMINAL, whichever session put it up: a
+        // subagent's request holds the frame of the turn that spawned it, so
+        // "waiting for a human" is true of the PANE either way. Measured. A
+        // root filter here would manufacture a turn that never ends —
+        // eternally working while the terminal stands still.
+        //
+        // Untouched by the mode above: a question has no default answer, so
+        // nothing can auto-pick one. Measured with approvals skipped — the
+        // dialog stood open and waited.
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  /**
+   * Whether opencode is saying THE TURN IS RUNNING for a turn already reported
+   * as running — and, when it is not, recording that it has now been said.
+   *
+   * Named for the answer and NOT written as a question, because it keeps one:
+   * called twice on the same event it answers differently, and the second
+   * answer is the true one. A pure-looking name over a recording call is worse
+   * than a plain lie — a reader trusts it and calls it twice.
+   */
+  const sayingTheTurnRunsAgain = (event) => {
+    if (event.type !== "session.status") return false;
+    const status = event.properties?.status;
+    const kind = typeof status === "object" ? status?.type : status;
+    if (kind !== "busy") return false;
+    if (turnReported) return true;
+    turnReported = true;
+    return false;
   };
 
   const handle = async (event) => {
-    if (event?.type === "session.status") {
-      const props = event.properties ?? {};
-      const status =
-        typeof props.status === "object" ? props.status?.type : props.status;
-      // Only `busy` marks a turn starting; the idle STATUS is redundant with
-      // the explicit session.idle event below.
-      if (status === "busy" && concernsPane(props.sessionID)) {
-        reportStatus("session.status");
+    if (belongsHere(event)) {
+      // An idle, and nothing else — see `turnReported` for why the errors that
+      // looked like endings had to come out of this condition.
+      if (event.type === "session.idle") {
+        turnReported = false;
       }
-      return;
-    }
-    if (event?.type === "session.idle") {
-      // Fires on completion AND on a user interrupt — either way the turn
-      // is over, which is why opencode needs no transcript-marker recovery.
-      if (concernsPane(event.properties?.sessionID)) {
-        reportStatus("session.idle");
-      }
-      return;
-    }
-    if (event?.type === "session.error") {
-      const props = event.properties ?? {};
-      // opencode declares sessionID OPTIONAL on this event. A session-less
-      // error still concerns the pane — this process serves exactly one —
-      // so only an error attributed to some OTHER session is filtered.
-      if (!props.sessionID || concernsPane(props.sessionID)) {
-        const name = props.error?.name;
-        reportStatus(
-          "session.error",
-          typeof name === "string" && name !== "" ? { error: name } : {},
-        );
-      }
-      return;
-    }
-    // Permission prompts park the whole TUI regardless of which session
-    // asked — no root filter.
-    if (event?.type === "permission.asked") {
-      reportStatus("permission.asked");
-      return;
-    }
-    if (event?.type === "permission.replied") {
-      // Even a REJECT keeps the turn in flight (the model receives the
-      // denial, produces text, then idles) — every reply reads as resumed.
-      reportStatus("permission.replied");
+      if (!sayingTheTurnRunsAgain(event)) forward(event);
       return;
     }
 
@@ -311,13 +408,13 @@ export default async (input = {}) => {
         // The parent may itself be a subagent this process never watched
         // being created — a pane resumed mid-task sees a grandchild first.
         // Asked before `rootOf`, or the pane binds to the middle of a chain.
-        if (!activeRoot) await subagents.classify(created.parentID);
-        const rootSessionID = subagents.rootOf(created.parentID);
-        if (!activeRoot) await activateRoot(rootSessionID, true, [
-          ...subagents.chain(created.parentID),
-        ]);
-        if (rootSessionID !== activeRoot) return;
-        if (created.id) subagents.note(created.id, rootSessionID);
+        if (!pane.bound) await pane.classify(created.parentID);
+        const rootSessionID = pane.rootOf(created.parentID);
+        if (!pane.bound) {
+          await activateRoot(rootSessionID, true, pane.chain(created.parentID));
+        }
+        if (rootSessionID !== pane.root) return;
+        if (created.id) pane.note(created.id, rootSessionID);
         return;
       }
       const sessionId = created?.id;
@@ -341,25 +438,39 @@ export default async (input = {}) => {
     // created, so the pane binds to the parent instead of the child.
     // Asked for its side effect: the index learns the chain, so `rootOf`
     // below answers with the pane's conversation rather than a leaf.
-    if (!activeRoot) await subagents.classify(info.sessionID);
-    const owningRoot = subagents.rootOf(info.sessionID);
-    // The WHOLE chain, captured before `activateRoot` clears the index — a
-    // new root is a new generation. Putting back only the leaf's own link
-    // left every intermediate subagent resolving to itself, failing the root
-    // check below, and its spend never reaching the pane's total; hydration
-    // repairs that only when the client answers `session.children`, and that
-    // failure is swallowed.
-    if (!activeRoot) {
-      await activateRoot(owningRoot, true, [...subagents.chain(info.sessionID)]);
+    if (!pane.bound) await pane.classify(info.sessionID);
+    const owningRoot = pane.rootOf(info.sessionID);
+    // The WHOLE chain, captured before binding — putting back only the leaf's
+    // own link left every intermediate subagent resolving to itself, failing
+    // the root check below, and its spend never reaching the pane's total;
+    // hydration repairs that only when the client answers `session.children`,
+    // and that failure is swallowed.
+    if (!pane.bound) {
+      await activateRoot(owningRoot, true, pane.chain(info.sessionID));
     }
+    // And if the courier bound the pane, or moved it, while this side was
+    // away — a no-op when the line above already did the work.
+    await setUpForConversation(true);
     // Once a root is explicitly active, events for unrelated root sessions
     // in the same OpenCode server are not this pane's conversation.
-    if (owningRoot !== activeRoot) return;
+    if (owningRoot !== pane.root) return;
+    // A FINISHED message of the pane's OWN turn is a fact about that turn, and
+    // it carries an ending no event does: an interrupt caught between steps
+    // writes its name here and publishes no `session.error` at all. A
+    // streaming frame is not a fact — it is a fragment of content, filtered
+    // here for the same reason the part deltas never travel. What a finished
+    // message MEANS stays the normalizer's.
+    //
+    // A SUBAGENT'S message is not the pane's turn ending, and this lane exists
+    // only for that reading — spend travels the usage report below, which
+    // takes descendants on purpose. Forwarding a child's would let a subagent
+    // cut short on its own account read as the pane being interrupted.
+    if (info.sessionID === pane.root) forward(event);
     if (hydration) await hydration;
     // Every assistant turn — ROOT or subagent — is real session spend and
     // sums into the cumulative. But a subagent's context is ITS own, not the
     // pane's conversation, so only a ROOT turn sets occupancy + identity.
-    remember(info, activeRoot);
+    remember(info, pane.root);
     if (!root) return; // no root turn seen yet — accumulate, publish later
 
     // Immutable report basis before the async catalog lookup. The queue below
@@ -372,35 +483,27 @@ export default async (input = {}) => {
       currentRoot.providerID,
       currentRoot.modelID,
     );
-    publish({
-      v: 2,
-      type: "usage.report",
-      paneId: pane,
-      token,
-      payload: {
-        agent: "opencode",
-        reporter: REPORTER,
-        sessionId: currentRoot.sessionID,
-        model: currentRoot.modelID,
-        sequence: ++sequence,
-        ...(windowTokens !== undefined ? { windowTokens } : {}),
-        contextTokens,
-        totals: {
-          input: sum("input"),
-          output: sum("output"),
-          reasoning: sum("reasoning"),
-          cacheRead: sum("cacheRead"),
-          cacheWrite: sum("cacheWrite"),
-        },
-        lastTurn: {
-          input: occ.input,
-          output: occ.output,
-          reasoning: occ.reasoning,
-          cacheRead: occ.cacheRead,
-          cacheWrite: occ.cacheWrite,
-        },
-        costUsd: sum("cost"),
+    publish("usage.report", {
+      sessionId: currentRoot.sessionID,
+      model: currentRoot.modelID,
+      sequence: ++sequence,
+      ...(windowTokens !== undefined ? { windowTokens } : {}),
+      contextTokens,
+      totals: {
+        input: sum("input"),
+        output: sum("output"),
+        reasoning: sum("reasoning"),
+        cacheRead: sum("cacheRead"),
+        cacheWrite: sum("cacheWrite"),
       },
+      lastTurn: {
+        input: occ.input,
+        output: occ.output,
+        reasoning: occ.reasoning,
+        cacheRead: occ.cacheRead,
+        cacheWrite: occ.cacheWrite,
+      },
+      costUsd: sum("cost"),
     });
   };
 

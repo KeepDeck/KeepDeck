@@ -4,10 +4,15 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { startDeck } from "../../../scripts/reporterHarness";
+import { normalizeOpencodeStatus } from "./status";
 // The reporter is untyped resource JS — it is shipped to, and loaded by, the
 // user's opencode process, never bundled into the plugin.
 // @ts-expect-error untyped resource module
 import reporter from "../resources/session-reporter.js";
+// The pane's session is ONE object per process — which is the point of it,
+// and which makes a suite of many panes in one process need a fresh start.
+// @ts-expect-error untyped resource module
+import { paneSession, resetPaneSession } from "../resources/pane-session.js";
 
 /** An opencode `session.created` event; `parentID` marks a CHILD session. */
 const created = (id: string, parentID?: string) => ({
@@ -55,6 +60,7 @@ describe("opencode session reporter", () => {
   let deck: Awaited<ReturnType<typeof startDeck>>;
 
   beforeEach(async () => {
+    resetPaneSession();
     dir = mkdtempSync(join(tmpdir(), "kd-reporter-"));
     deck = await startDeck();
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
@@ -675,7 +681,15 @@ describe("opencode session reporter", () => {
       .filter((envelope) => envelope.type === "agent.status")
       .map((envelope) => envelope.payload.event);
 
-  it("reports the root session's turn edges as agent.status envelopes", async () => {
+  /**
+   * The payload travels WHOLE. What used to leave this process was a reduced
+   * copy — `session.status` only when busy, `error.name` flattened to a bare
+   * string — and both reductions were decisions about meaning taken a process
+   * away from where meaning is decided. The retry state disappeared behind
+   * the first, and the eight error names apart from which an abort cannot be
+   * told from a failure disappeared behind the second.
+   */
+  it("forwards the pane's turn events verbatim, properties and all", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
     await event({
@@ -690,24 +704,210 @@ describe("opencode session reporter", () => {
     await event({
       event: {
         type: "session.error",
-        properties: { sessionID: "ses_root", error: { name: "ProviderAuthError" } },
+        properties: {
+          sessionID: "ses_root",
+          error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+        },
       },
     });
-    // Inbox filenames are random (mktemp-style), so readdir order proves
-    // nothing — assert the set; ordering is the deliverer's job.
     const events = (await statusEvents());
     expect(events).toHaveLength(3);
-    expect(events).toContainEqual({ type: "session.status" });
-    expect(events).toContainEqual({ type: "session.idle" });
+    expect(events).toContainEqual({
+      type: "session.status",
+      properties: { sessionID: "ses_root", status: { type: "busy" } },
+    });
+    expect(events).toContainEqual({
+      type: "session.idle",
+      properties: { sessionID: "ses_root" },
+    });
     expect(events).toContainEqual({
       type: "session.error",
-      error: "ProviderAuthError",
+      properties: {
+        sessionID: "ses_root",
+        error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+      },
     });
     // Every envelope carries the pane's own correlation.
     for (const envelope of (await envelopes())) {
       expect(envelope.paneId).toBe("pane-3");
       expect(envelope.token).toBe("tok");
     }
+  });
+
+  /**
+   * opencode says `busy` once per MODEL CALL, not once per turn — twice on
+   * submit and twice more after every tool result, ten times on a measured
+   * turn that ran three commands. Each reached the deck as a turn beginning,
+   * and a beginning restarts the phase clock: an 81-second turn showed
+   * "Working · 3s". The clock is right to restart on a NEW turn; what was
+   * wrong is saying it ten times.
+   */
+  it("says a turn began once, however many model calls it takes", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    const busy = {
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "busy" } },
+      },
+    };
+    const idle = {
+      event: { type: "session.idle", properties: { sessionID: "ses_root" } },
+    };
+
+    // Submit, generation start, then a pair after each of two tool results.
+    for (let n = 0; n < 6; n += 1) await event(busy);
+    await event(idle);
+    // The NEXT turn is a new fact and says so.
+    await event(busy);
+
+    expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+      "session.status",
+      "session.idle",
+      "session.status",
+    ]);
+  });
+
+  /**
+   * A broken turn ends like any other — through the idle behind the error —
+   * and it is the IDLE that lets the next beginning be announced, never the
+   * error. Which errors end a turn is not a question this side answers: some
+   * of them end nothing, and treating them all as endings restarted the phase
+   * clock on turns that were still running.
+   */
+  it("lets a failed turn be followed by a new beginning, once it has ended", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    const busy = {
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "busy" } },
+      },
+    };
+    await event(busy);
+    await event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: "ses_root", error: { name: "APIError" } },
+      },
+    });
+    // Still the same turn as far as this side knows — no second beginning.
+    await event(busy);
+    await event({
+      event: { type: "session.idle", properties: { sessionID: "ses_root" } },
+    });
+    await event(busy);
+    expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+      "session.status",
+      "session.error",
+      "session.idle",
+      "session.status",
+    ]);
+  });
+
+  /**
+   * The two halves read together, because neither alone catches this.
+   *
+   * An overflowed context publishes an error and then compacts — the SAME turn
+   * carries on, and no idle follows. The reporter used to clear its "already
+   * said" flag on any error, so the next model call passed as news and the
+   * host restarted the phase clock on a turn that had never stopped: the
+   * "Working · 3s" defect, returning through a side door.
+   *
+   * Neither suite saw it. The reporter's tests do not know which errors end a
+   * turn, and the normalizer's never see two events in a row. So this one
+   * takes what the reporter actually forwarded and reads it with the real
+   * normalizer — the seam itself, without a host or a third kind of test.
+   */
+  it("does not let a turn that never stopped begin again", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    const busy = {
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "busy" } },
+      },
+    };
+    await event(busy);
+    await event({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID: "ses_root",
+          error: { name: "ContextOverflowError" },
+        },
+      },
+    });
+    await event(busy);
+
+    const forwarded = (await statusEvents());
+    // BOTH halves, or the test guards only one of them: a reporter that
+    // silently swallowed the error would leave one turn-start standing and
+    // this would stay green while raw forwarding was broken again.
+    expect(forwarded.map((e: any) => e.type)).toEqual([
+      "session.status",
+      "session.error",
+    ]);
+    const edges = forwarded
+      .map((raw: any, index: number) =>
+        normalizeOpencodeStatus({ agent: "opencode", event: raw }, index),
+      )
+      .filter(Boolean);
+    // One beginning for one turn. The error says nothing — the turn is alive.
+    expect(edges).toEqual([{ kind: "turn-start", at: 0 }]);
+  });
+
+  /**
+   * The race itself, which the fix above is for.
+   *
+   * The courier watches the same `session.created` on its own queue and may
+   * reach it first — this one is free to be waiting on hydration or on the
+   * provider catalog. Gating the reporter's own work on having performed the
+   * move lost all of it in that window, and nothing about the loss was
+   * visible from either side.
+   */
+  it("sets up for a conversation the courier bound first", async () => {
+    // Stand in for the courier: the pane is already bound when the reporter
+    // reaches the event that bound it.
+    paneSession(undefined).newGeneration("ses_root");
+
+    const { event } = await reporter();
+    await event(created("ses_root"));
+
+    expect((await envelopes()).map((e: any) => e.type)).toEqual([
+      "session.bound",
+    ]);
+  });
+
+  it("forwards a retry status too — which of the three kinds it is, is not this side's call", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "retry", attempt: 2 } },
+      },
+    });
+    expect((await statusEvents())).toEqual([
+      {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "retry", attempt: 2 } },
+      },
+    ]);
+  });
+
+  it("reports an error the CLI attached to no session — this process serves one pane", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event({
+      event: {
+        type: "session.error",
+        properties: { error: { name: "UnknownError" } },
+      },
+    });
+    expect((await statusEvents())).toEqual([
+      { type: "session.error", properties: { error: { name: "UnknownError" } } },
+    ]);
   });
 
   it("ignores a child session's busy/idle — a subagent is not the pane's turn", async () => {
@@ -730,26 +930,174 @@ describe("opencode session reporter", () => {
     expect((await statusEvents())).toEqual([]);
   });
 
-  it("forwards permission edges without a session filter", async () => {
+  /**
+   * A dialog parks the TERMINAL, whichever session put it up: a subagent's
+   * request holds the frame of the turn that spawned it, so "waiting for a
+   * human" is true of the pane either way. A root filter here would
+   * manufacture a turn that never ends.
+   */
+  it("forwards dialogs without a session filter — including a subagent's", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
-    await event({ event: { type: "permission.asked", properties: {} } });
-    await event({ event: { type: "permission.replied", properties: {} } });
+    await event(created("ses_child", "ses_root"));
+    await event({
+      event: { type: "permission.asked", properties: { sessionID: "ses_child" } },
+    });
+    await event({
+      event: { type: "permission.replied", properties: { sessionID: "ses_child" } },
+    });
+    await event({
+      event: { type: "question.asked", properties: { sessionID: "ses_child" } },
+    });
+    await event({
+      event: { type: "question.rejected", properties: { sessionID: "ses_child" } },
+    });
     const events = (await statusEvents());
-    expect(events).toHaveLength(2);
-    expect(events).toContainEqual({ type: "permission.asked" });
-    expect(events).toContainEqual({ type: "permission.replied" });
+    expect(events.map((e: any) => e.type)).toEqual([
+      "permission.asked",
+      "permission.replied",
+      "question.asked",
+      "question.rejected",
+    ]);
   });
 
-  it("only busy marks a turn start — an idle STATUS is not an edge", async () => {
+  /**
+   * The question surface was not forwarded at all, and nothing else on the
+   * bus reports it: while a choice stands open no idle arrives and the status
+   * does not change, so the pane read "Working" at a terminal that was
+   * waiting on its user.
+   */
+  /**
+   * With approvals skipped, opencode answers its own prompt in milliseconds
+   * and the reply is indistinguishable from a person's — so every one of
+   * them announced "needs approval" for a dialog that never appeared. The
+   * pane's launch mode is the only thing that tells the two apart, and it
+   * cannot be read from inside the agent's process.
+   */
+  it("says nothing about approvals the pane will never be asked for", async () => {
+    process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS = "1";
+    try {
+      const { event } = await reporter();
+      await event(created("ses_root"));
+      await event({
+        event: { type: "permission.asked", properties: { sessionID: "ses_root" } },
+      });
+      await event({
+        event: {
+          type: "permission.replied",
+          properties: { sessionID: "ses_root", reply: "once" },
+        },
+      });
+      // The question surface is untouched: nothing can auto-pick an option,
+      // so that dialog really does stand and wait.
+      await event({
+        event: { type: "question.asked", properties: { sessionID: "ses_root" } },
+      });
+      expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+        "question.asked",
+      ]);
+    } finally {
+      delete process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS;
+    }
+  });
+
+  it("forwards a question, the one wait nothing else on the bus reports", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
     await event({
       event: {
-        type: "session.status",
-        properties: { sessionID: "ses_root", status: { type: "idle" } },
+        type: "question.asked",
+        properties: {
+          sessionID: "ses_root",
+          questions: [{ question: "colour?", options: [{ label: "red" }] }],
+        },
       },
     });
+    expect((await statusEvents())).toEqual([
+      {
+        type: "question.asked",
+        properties: {
+          sessionID: "ses_root",
+          questions: [{ question: "colour?", options: [{ label: "red" }] }],
+        },
+      },
+    ]);
+  });
+
+  /**
+   * An interrupt caught between steps writes its name onto the message and
+   * publishes no error event at all — so a FINISHED message has to travel,
+   * or that turn reads as an ordinary Done. A streaming frame does not: it is
+   * a fragment of content, not a fact about the turn.
+   */
+  it("forwards a finished message, which carries endings no event does", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event(assistantMessage({ error: { name: "MessageAbortedError" } }));
+    const forwarded = (await statusEvents());
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0].type).toBe("message.updated");
+    expect(forwarded[0].properties.info.error).toEqual({
+      name: "MessageAbortedError",
+    });
+  });
+
+  it("does not forward a message still streaming", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event(assistantMessage({ time: {} }));
     expect((await statusEvents())).toEqual([]);
+  });
+
+  /**
+   * An abort states two facts a fraction of a millisecond apart — the error
+   * first, then the idle behind it — and the deck keeps whichever it reads
+   * first. Posting both without waiting hands that choice to the network:
+   * measured on the real reporter, 3 of 50 aborts arrived inverted, and the
+   * deck then read a finished turn where an interrupted one was reported.
+   *
+   * Held responses are what makes this visible. With them, a sender that
+   * fires-and-forgets has both posts open at once; a sender that queues never
+   * has more than one, whatever the timings.
+   */
+  it("states one fact at a time, so the deck reads an abort in the order it happened", async () => {
+    await deck.close();
+    // 25ms is wide enough that an unqueued second post lands inside the first
+    // one's window, and narrow enough to keep the suite quick.
+    deck = await startDeck(undefined, 25);
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({
+      v: 2,
+      dir,
+      pane: "pane-3",
+      token: "tok",
+      url: deck.url,
+    });
+
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID: "ses_root",
+          error: { name: "MessageAbortedError" },
+        },
+      },
+    });
+    await event({
+      event: { type: "session.idle", properties: { sessionID: "ses_root" } },
+    });
+
+    // Three envelopes, each held 25ms — poll rather than guess a total.
+    const deadline = Date.now() + 2000;
+    while (deck.envelopes.length < 3 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(deck.peakInFlight()).toBe(1);
+    expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+      "session.error",
+      "session.idle",
+    ]);
   });
 });
