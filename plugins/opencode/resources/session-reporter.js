@@ -274,6 +274,23 @@ export default async (input = {}) => {
    * is fixed in one file. So the doubt goes one way — overboard goes only
    * what certainly belongs to another conversation.
    */
+  /**
+   * Whether this pane's turn has already been reported as running.
+   *
+   * opencode says `busy` once per MODEL CALL, not once per turn: twice on
+   * submit and twice more after every tool result — ten times on a measured
+   * turn that ran three commands. Each one reached the deck as a turn
+   * beginning, and a beginning restarts the phase clock, so an 81-second turn
+   * showed "Working · 3s".
+   *
+   * The clock is right to restart on a new turn — a CLI can begin one of its
+   * own accord, and every other agent means exactly that by the edge. What
+   * was wrong is saying it ten times. So the fact is stated once and not
+   * restated until something ends the turn: the reporter is not translating
+   * opencode's dialect here, it is declining to repeat itself.
+   */
+  let turnReported = false;
+
   const belongsHere = (event) => {
     const props = event.properties ?? {};
     switch (event.type) {
@@ -319,9 +336,26 @@ export default async (input = {}) => {
     }
   };
 
+  /** Whether a forwarded status is opencode saying the same thing again. */
+  const alreadySaid = (event) => {
+    if (event.type !== "session.status") return false;
+    const status = event.properties?.status;
+    const kind = typeof status === "object" ? status?.type : status;
+    if (kind !== "busy") return false;
+    if (turnReported) return true;
+    turnReported = true;
+    return false;
+  };
+
   const handle = async (event) => {
     if (belongsHere(event)) {
-      forward(event);
+      // Anything that closes the turn lets the next one be announced. `retry`
+      // is deliberately not one of them: a step waiting to run again is the
+      // same turn, still going.
+      if (event.type === "session.idle" || event.type === "session.error") {
+        turnReported = false;
+      }
+      if (!alreadySaid(event)) forward(event);
       return;
     }
 

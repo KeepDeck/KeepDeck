@@ -728,6 +728,64 @@ describe("opencode session reporter", () => {
     }
   });
 
+  /**
+   * opencode says `busy` once per MODEL CALL, not once per turn — twice on
+   * submit and twice more after every tool result, ten times on a measured
+   * turn that ran three commands. Each reached the deck as a turn beginning,
+   * and a beginning restarts the phase clock: an 81-second turn showed
+   * "Working · 3s". The clock is right to restart on a NEW turn; what was
+   * wrong is saying it ten times.
+   */
+  it("says a turn began once, however many model calls it takes", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    const busy = {
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "busy" } },
+      },
+    };
+    const idle = {
+      event: { type: "session.idle", properties: { sessionID: "ses_root" } },
+    };
+
+    // Submit, generation start, then a pair after each of two tool results.
+    for (let n = 0; n < 6; n += 1) await event(busy);
+    await event(idle);
+    // The NEXT turn is a new fact and says so.
+    await event(busy);
+
+    expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+      "session.status",
+      "session.idle",
+      "session.status",
+    ]);
+  });
+
+  it("lets a failed turn be followed by a new beginning too", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    const busy = {
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "busy" } },
+      },
+    };
+    await event(busy);
+    await event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: "ses_root", error: { name: "APIError" } },
+      },
+    });
+    await event(busy);
+    expect((await statusEvents()).map((e: any) => e.type)).toEqual([
+      "session.status",
+      "session.error",
+      "session.status",
+    ]);
+  });
+
   it("forwards an idle STATUS too — which of the three kinds it is, is not this side's call", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
