@@ -56,10 +56,19 @@ const TAIL_BYTES: usize = 2000;
 #[derive(Clone)]
 pub struct OnceRunner {
     locks: KeyedLocks<String>,
-    /// What each key's last completed run left behind. Read before the lock
-    /// is taken and again after it is held: a change in [`Finished::count`]
+    /// What each key's last completed run left behind. Read WITHOUT the key
+    /// lock and again once it is held: a change in [`Finished::count`]
     /// across that gap is the proof that somebody else's run covered this
     /// caller, and it is why no "already done" memory is needed.
+    ///
+    /// The first read must NOT take the key lock. Reading it under the lock
+    /// would block until the very run we are trying to detect had finished,
+    /// and the comparison would then see nothing — a caller would join
+    /// nobody and start a second child. (Tried; the join test caught it.)
+    ///
+    /// One entry per key, never evicted — the same growth the lock map
+    /// beside it has by design. Keys here are config dirs, so the
+    /// population is the workspaces a person opens, not user input.
     completed: std::sync::Arc<Mutex<HashMap<String, Finished>>>,
 }
 
@@ -131,12 +140,19 @@ impl OnceRunner {
             poll,
             16 * 1024,
         ) {
-            None => (
+            // Told apart on purpose: a refusal is instant and names a bad
+            // request, while a timeout means it ran and would not stop.
+            // Reporting the first as the second sends a reader hunting a
+            // hang that never happened.
+            Err(crate::run_bounded::RunFailure::Refused(why)) => {
+                (false, format!("could not start: {why}"))
+            }
+            Err(crate::run_bounded::RunFailure::TimedOut) => (
                 false,
                 format!("did not finish within {}s and was killed", budget.as_secs()),
             ),
-            Some(output) if output.success => (true, String::new()),
-            Some(output) => {
+            Ok(output) if output.success => (true, String::new()),
+            Ok(output) => {
                 let from = output.said.len().saturating_sub(TAIL_BYTES);
                 (false, String::from_utf8_lossy(&output.said[from..]).into_owned())
             }
@@ -154,24 +170,49 @@ impl OnceRunner {
     }
 }
 
-/// Environment names a caller may never set, whatever it is allowed to run.
+/// Loader variables a caller may never set. HYGIENE, NOT A BARRIER —
+/// read the limits below before relying on this.
 ///
-/// Every one of these turns "run this program" into "run MY code inside
-/// this program": the dynamic loader reads them before the program's own
-/// first instruction. A plugin cleared to run `opencode` must not thereby
-/// be cleared to run anything at all under its name — so the capability
-/// decides WHICH program, and this decides that the program is still
-/// itself when it starts.
+/// These turn "run this program" into "run my code inside this program":
+/// the dynamic loader reads them before the program's own first
+/// instruction. Refusing them costs nothing and removes the laziest
+/// escalation, so they are refused.
 ///
-/// Prefix-matched, because the families are open-ended (`DYLD_` on macOS,
-/// `LD_` on Linux) and a deny-list of exact names would age badly the next
-/// time a loader grows a variable.
+/// WHAT THIS DOES NOT DO, so nobody reads more into it than it says:
+/// - The interpreter families are NOT here. `NODE_OPTIONS=--require x.js`
+///   does exactly what `DYLD_INSERT_LIBRARIES` does, and so do the Python,
+///   Ruby, Perl, Java and shell equivalents. Enumerating them was weighed
+///   and declined: the list ages, and every candidate rule that closed it
+///   (declaring names in a manifest, deriving a prefix from the plugin's
+///   id) could be defeated by the plugin author, who writes both.
+/// - Nothing here bounds ARGUMENTS, and for an agent CLI the arguments are
+///   the whole story: `<cli> -p "<anything>"` is arbitrary action.
+/// - Nothing here bounds a CLI's own config loading. `OPENCODE_CONFIG_CONTENT`
+///   names plugin files to load, and the host itself relies on it, so it
+///   cannot be refused.
+///
+/// The trust boundary is therefore INSTALLATION, not this function: a
+/// plugin the user installed may run what its `exec` capability names, and
+/// for a CLI that loads its own config and extensions that is close to
+/// "may run code". Said plainly so a later reader does not mistake this
+/// list for a wall.
+///
+/// Prefix-matched, because the loader families are open-ended (`DYLD_` on
+/// macOS, `LD_` on Linux).
 const LOADER_PREFIXES: [&str; 2] = ["DYLD_", "LD_"];
 
 /// `PATH` is refused separately: the run resolves its program on the
 /// augmented spawn PATH on purpose, and letting a caller replace it would
 /// re-point every lookup the child makes afterwards.
 fn refuse_env(name: &str) -> Option<String> {
+    if name.is_empty() {
+        return Some("an env name that is empty".into());
+    }
+    // A NUL cannot be carried across execve; `Command::env` panics on one,
+    // and a string a plugin chose must never panic a host thread.
+    if name.contains('\0') {
+        return Some(format!("{name:?} carries a NUL"));
+    }
     let upper = name.to_ascii_uppercase();
     if upper == "PATH" {
         return Some("PATH is the host's to set".into());
@@ -362,6 +403,14 @@ mod tests {
         assert!(refuse_env("ld_preload").is_some(), "case must not be a bypass");
         assert!(refuse_env("PATH").is_some(), "the spawn PATH is the host's");
         assert!(refuse_env("path").is_some());
+    }
+
+    #[test]
+    fn a_degenerate_env_name_is_refused_before_it_can_panic_a_host_thread() {
+        // `Command::env` panics on a NUL, and the string came from a plugin:
+        // a caller's bad input must never take a host thread down with it.
+        assert!(refuse_env("").is_some());
+        assert!(refuse_env("OK_NAME\0evil").is_some());
     }
 
     #[test]

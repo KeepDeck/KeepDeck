@@ -199,7 +199,15 @@ export function createCapabilityGate(
           execCovers(manifest.capabilities, request.command),
           `exec.runOnce: "${request.command}" requires an "exec" capability covering it, which the manifest does not declare`,
         );
-        return backend.exec.runOnce(request);
+        // The single-flight key is namespaced by the plugin that asked.
+        // Keys are caller-chosen strings, so two plugins could otherwise
+        // collide — and a collision hands one plugin the other's run
+        // result, including the tail of its failing output. Plugins share
+        // the host's runner; they do not share each other's runs.
+        return backend.exec.runOnce({
+          ...request,
+          key: `${manifest.id}:${request.key}`,
+        });
       },
     },
     ports: {

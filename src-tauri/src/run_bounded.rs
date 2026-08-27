@@ -42,29 +42,41 @@ pub(crate) struct BoundedOutput {
 /// one temporary file; wait up to `timeout` (polling every `poll`), kill on
 /// expiry, and return up to `max_bytes` of what it said on either stream.
 ///
-/// `None` covers every failure — spawn refused, wait errored, deadline
-/// expired — and reads as "the program said nothing we can use", never as an
-/// error to surface. Lossy by construction: a program that emits one byte of
+/// The two failures are told APART, because they mean opposite things to a
+/// caller: [`RunFailure::Refused`] is "this never started" (a bad argument,
+/// a NUL in the environment, a missing binary), answered in microseconds,
+/// while [`RunFailure::TimedOut`] is "it started and would not stop". A
+/// caller that reports the second for the first tells the reader to look for
+/// a hang that never happened. Lossy by construction: a program that emits one byte of
 /// Latin-1, or a multi-byte character straddling the cap, must not cost the
 /// output printed before it — `read_to_string` would have failed the whole
 /// run on either.
+#[derive(Debug)]
+pub(crate) enum RunFailure {
+    /// The child never started, or its own plumbing could not be built.
+    Refused(String),
+    /// It started and did not finish inside the budget; it has been killed.
+    TimedOut,
+}
+
 pub(crate) fn run_bounded(
     command: &mut Command,
     timeout: Duration,
     poll: Duration,
     max_bytes: u64,
-) -> Option<BoundedOutput> {
-    let mut sink = tempfile::NamedTempFile::new().ok()?;
+) -> Result<BoundedOutput, RunFailure> {
+    let refused = |e: std::io::Error| RunFailure::Refused(e.to_string());
+    let mut sink = tempfile::NamedTempFile::new().map_err(refused)?;
     // One description, shared: see the module comment on `reopen` vs
     // `try_clone`.
-    let out = sink.reopen().ok()?;
-    let err = out.try_clone().ok()?;
+    let out = sink.reopen().map_err(refused)?;
+    let err = out.try_clone().map_err(refused)?;
     let mut child = command
         .stdin(std::process::Stdio::null())
         .stdout(out)
         .stderr(err)
         .spawn()
-        .ok()?;
+        .map_err(refused)?;
     let deadline = Instant::now() + timeout;
     let status = loop {
         match child.try_wait() {
@@ -77,15 +89,18 @@ pub(crate) fn run_bounded(
             Ok(None) | Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return None;
+                return Err(RunFailure::TimedOut);
             }
         }
     };
     use std::io::{Read as _, Seek as _};
-    sink.as_file_mut().rewind().ok()?;
+    sink.as_file_mut().rewind().map_err(refused)?;
     let mut said = Vec::new();
-    sink.as_file().take(max_bytes).read_to_end(&mut said).ok()?;
-    Some(BoundedOutput {
+    sink.as_file()
+        .take(max_bytes)
+        .read_to_end(&mut said)
+        .map_err(refused)?;
+    Ok(BoundedOutput {
         success: status.success(),
         said,
     })
@@ -119,15 +134,19 @@ mod tests {
     }
 
     #[test]
-    fn a_program_that_never_exits_yields_none() {
+    fn a_program_that_never_exits_is_reported_as_timed_out() {
         let mut command = sh("sleep 30");
-        let output = run_bounded(
+        let failure = run_bounded(
             &mut command,
             Duration::from_millis(150),
             Duration::from_millis(10),
             8 * 1024,
+        )
+        .expect_err("a sleeping program must not answer");
+        assert!(
+            matches!(failure, RunFailure::TimedOut),
+            "a hang must not read as a refusal: {failure:?}",
         );
-        assert_eq!(output, None);
     }
 
     #[test]
@@ -144,17 +163,21 @@ mod tests {
     }
 
     #[test]
-    fn a_program_that_cannot_spawn_yields_none() {
+    fn a_program_that_cannot_spawn_is_reported_as_refused() {
+        // The distinction that matters to whoever reads the message: this
+        // never started, so nobody should go looking for a hang.
         let mut command = Command::new("/nonexistent/keepdeck/nothing");
         command.env("PATH", OsStr::new("/usr/bin:/bin"));
-        assert_eq!(
-            run_bounded(
-                &mut command,
-                Duration::from_secs(1),
-                Duration::from_millis(5),
-                8 * 1024
-            ),
-            None
+        let failure = run_bounded(
+            &mut command,
+            Duration::from_secs(1),
+            Duration::from_millis(5),
+            8 * 1024,
+        )
+        .expect_err("a missing program cannot answer");
+        assert!(
+            matches!(failure, RunFailure::Refused(_)),
+            "a refusal must not read as a hang: {failure:?}",
         );
     }
 }

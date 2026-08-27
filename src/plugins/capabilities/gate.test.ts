@@ -890,7 +890,30 @@ describe("createCapabilityGate — exec.runOnce", () => {
 
     await gate.exec.runOnce(request);
 
-    expect(backend.exec.runOnce).toHaveBeenCalledWith(request);
+    // What the plugin asked for reaches the host verbatim — except the key,
+    // which the gate namespaces (see the test below).
+    expect(backend.exec.runOnce).toHaveBeenCalledWith(
+      expect.objectContaining({ command: request.command, args: request.args }),
+    );
+  });
+
+  it("namespaces the single-flight key by the asking plugin", async () => {
+    // Keys are caller-chosen strings. Without a namespace two plugins can
+    // collide, and a collision hands one of them the other's run result —
+    // including the tail of its failing output.
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "exec", commands: ["git"] }]),
+      backend,
+      { diagnostics: "silent", log: fakeLog() },
+    );
+
+    await gate.exec.runOnce(request);
+
+    const passed = (backend.exec.runOnce as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as { key: string };
+    expect(passed.key).not.toBe(request.key);
+    expect(passed.key.endsWith(`:${request.key}`)).toBe(true);
   });
 
   it("refuses a command no exec capability covers, and never reaches the host", () => {

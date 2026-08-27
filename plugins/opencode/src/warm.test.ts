@@ -25,6 +25,11 @@ function ctxWith(files: Record<string, string>, execOk = true) {
           if (text === undefined) throw new Error(`ENOENT: ${path}`);
           return { text };
         },
+        readDir: async (path: string) => {
+          // A dir "exists" when any fixture file lives under it.
+          if (Object.keys(files).some((f) => f.startsWith(`${path}/`))) return [];
+          throw new Error(`ENOENT: ${path}`);
+        },
       },
       exec: { runOnce },
     },
@@ -83,11 +88,28 @@ describe("treeHealth", () => {
   });
 
   it("calls an unparseable provenance file broken rather than throwing", async () => {
+    // Present but unparseable is an install that got here and stopped —
+    // never "not started", which would send the furnace at a damaged tree.
     const { ctx } = ctxWith({
       [`${DIR}/package.json`]: "{}",
       [`${DIR}/node_modules/.package-lock.json`]: "{ not json",
     });
-    expect(await treeHealth(ctx, DIR)).toEqual({ state: "empty" });
+    expect(await treeHealth(ctx, DIR)).toEqual({ state: "broken" });
+  });
+
+  it("calls a tree with packages but no provenance broken — the mid-write window", async () => {
+    // node_modules exists, its record does not: an install wrote packages
+    // and stopped. The shape the real damaged dir was caught in.
+    const { ctx } = ctxWith({
+      [`${DIR}/package.json`]: "{}",
+      [`${DIR}/node_modules/some-pkg/index.js`]: "//",
+    });
+    expect(await treeHealth(ctx, DIR)).toEqual({ state: "broken" });
+  });
+
+  it("calls an unreadable manifest broken — a tree we cannot say what it is for", async () => {
+    const { ctx } = ctxWith({ [`${DIR}/package.json`]: "{ not json" });
+    expect(await treeHealth(ctx, DIR)).toEqual({ state: "broken" });
   });
 });
 

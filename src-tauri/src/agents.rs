@@ -109,7 +109,8 @@ fn probe_version(program: &std::path::Path, path: &std::ffi::OsStr) -> Option<St
         PROBE_TIMEOUT,
         PROBE_POLL,
         MAX_VERSION_BYTES,
-    )?;
+    )
+    .ok()?;
     // Lossy: see the discipline's own comment — a stray non-UTF-8 byte must
     // not cost the version printed before it. The exit status is ignored on
     // purpose, as it always was: a banner printed by a failing run is still

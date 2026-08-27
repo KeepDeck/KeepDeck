@@ -38,18 +38,41 @@ const MANIFEST = "package.json";
  * only place that says whether every package was fully written. */
 const PROVENANCE = "node_modules/.package-lock.json";
 
-async function readJson(
-  ctx: PluginContext,
-  path: string,
-): Promise<Record<string, unknown> | null> {
+/** What one file told us. The three cases must stay apart: a file that is
+ * ABSENT says the install has not reached here yet, while one that is
+ * present and unreadable says an install got this far and stopped — and
+ * those two want opposite treatment. Collapsing them (an earlier version of
+ * this file did) sends the furnace at a damaged tree it cannot repair. */
+type Read =
+  | { state: "absent" }
+  | { state: "unreadable" }
+  | { state: "read"; json: Record<string, unknown> };
+
+async function readJson(ctx: PluginContext, path: string): Promise<Read> {
+  let text: string;
   try {
     const file = await ctx.services.fs.readFile(path);
-    if (typeof file.text !== "string") return null;
-    return JSON.parse(file.text) as Record<string, unknown>;
+    if (typeof file.text !== "string") return { state: "unreadable" };
+    text = file.text;
   } catch {
-    // Absent, unreadable or unparseable all mean the same thing to every
-    // caller here: we cannot vouch for this file.
-    return null;
+    return { state: "absent" };
+  }
+  try {
+    return { state: "read", json: JSON.parse(text) as Record<string, unknown> };
+  } catch {
+    // Present but not parseable: something wrote here and did not finish.
+    return { state: "unreadable" };
+  }
+}
+
+/** Whether the install ever created its tree. Distinguishes "not started"
+ * from "started and stopped" when the provenance file is missing. */
+async function hasNodeModules(ctx: PluginContext, dir: string): Promise<boolean> {
+  try {
+    await ctx.services.fs.readDir(`${dir}/node_modules`);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -66,15 +89,21 @@ export async function treeHealth(
   dir: string,
 ): Promise<TreeHealth> {
   const manifest = await readJson(ctx, `${dir}/${MANIFEST}`);
-  if (!manifest) return { state: "absent" };
+  if (manifest.state === "absent") return { state: "absent" };
+  // A manifest we cannot read leaves us unable to say what the tree was
+  // installed FOR — provenance means nothing without it.
+  if (manifest.state === "unreadable") return { state: "broken" };
   const lock = await readJson(ctx, `${dir}/${PROVENANCE}`);
-  if (!lock) {
-    // A manifest with no provenance is either an install that has not
-    // started or one caught mid-write; neither is ours to tell apart, and
-    // both answer the same question the same way: it is not finished.
-    return { state: "empty" };
+  if (lock.state === "absent") {
+    // No provenance and no tree: the install never started, and furnishing
+    // is exactly right. No provenance but a tree ALREADY THERE: an install
+    // got as far as writing packages and stopped — the mid-write window.
+    return (await hasNodeModules(ctx, dir))
+      ? { state: "broken" }
+      : { state: "empty" };
   }
-  const packages = lock.packages;
+  if (lock.state === "unreadable") return { state: "broken" };
+  const packages = lock.json.packages;
   if (typeof packages !== "object" || packages === null) return { state: "broken" };
   const entries = Object.entries(packages as Record<string, unknown>);
   const covered = entries.every(([name, entry]) => {

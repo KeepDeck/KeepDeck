@@ -533,6 +533,18 @@ describe("opencode plugin — warming the config dir", () => {
     expect(runOnce.mock.calls[0][0]).toMatchObject({ key: CFG, command: "opencode" });
   });
 
+  it("warms nothing when the pane gets no staged skills", async () => {
+    // No staged skills means no OPENCODE_CONFIG_DIR in the plan either, so
+    // the pane lives in the CLI's global home — there is no per-workspace
+    // dir to bootstrap, and asking for one would name a path nobody uses.
+    const { runOnce, services } = warmServices();
+    const agent = activate("/App/resources/session-reporter.js", services);
+
+    await agent.hooks["spawn.plan"]!(input as never, output());
+
+    expect(runOnce).not.toHaveBeenCalled();
+  });
+
   it("leaves a remote pane's workspace alone — it opens no local config dir", async () => {
     // `attach` runs the agent on the server and this process is a thin
     // client: the local dir is one nothing here will read, so warming it
