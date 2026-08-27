@@ -12,14 +12,16 @@
  * button whose menu holds what did not fit. Writing that twice is how a
  * "temporary" second menu becomes permanent.
  *
- * Positioning, portalling and clipping are `FloatingListbox`'s, and the
- * open/close discipline is deliberately the same as `Dropdown`'s — pointer
- * and focus away close it, Escape closes it only while focus is inside so
- * modal layers keep their own Escape.
+ * Positioning, portalling and clipping are `FloatingListbox`'s, and going-away
+ * is `useAwayClose`'s — the same one `Dropdown` uses, so a menu and a select
+ * cannot drift apart in how they let go. Escape stays local to each of them:
+ * it closes this menu only while focus is inside, so a dialog above keeps its
+ * own Escape.
  */
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { Button, type ButtonSize, type ButtonVariant } from "./Button";
 import { FloatingListbox } from "./FloatingListbox";
+import { useAwayClose } from "./useAwayClose";
 
 export interface MenuAction {
   id: string;
@@ -61,26 +63,7 @@ export function MenuButton({
   // `aria-expanded` claiming a layer that is not rendered.
   const menuOpen = open && actions.length > 0;
 
-  // Pointer-away closes before the outside control acts; focus-away covers
-  // keyboard Tab now that the list is portaled out of the local DOM order.
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: Event) => {
-      const target = event.target as Node;
-      if (
-        !rootRef.current?.contains(target) &&
-        !menuRef.current?.contains(target)
-      ) {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("pointerdown", away, true);
-    window.addEventListener("focusin", away, true);
-    return () => {
-      window.removeEventListener("pointerdown", away, true);
-      window.removeEventListener("focusin", away, true);
-    };
-  }, [open]);
+  useAwayClose(open, () => setOpen(false), rootRef, menuRef);
 
   return (
     <div

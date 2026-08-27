@@ -78,6 +78,29 @@ describe("MenuButton", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("lets go when the pointer presses something else", () => {
+    // Shared with Dropdown through `useAwayClose`, and asserted on both sides:
+    // the point of one implementation is that neither consumer drifts, which
+    // only a test per consumer can show.
+    render({ actions: ACTIONS([]) });
+    act(() => trigger().click());
+    const outside = document.body.appendChild(document.createElement("button"));
+    act(() => {
+      outside.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    });
+    expect(menu()).toBeNull();
+  });
+
+  it("lets go when the keyboard leaves it", () => {
+    render({ actions: ACTIONS([]) });
+    act(() => trigger().click());
+    const outside = document.body.appendChild(document.createElement("button"));
+    act(() => {
+      outside.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(menu()).toBeNull();
+  });
+
   it("closes on Escape from inside, and leaves outside Escape alone", () => {
     const onOuterEscape = vi.fn();
     document.addEventListener("keydown", onOuterEscape);
