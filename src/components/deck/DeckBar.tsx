@@ -37,6 +37,8 @@ import type { TopBarActionContribution } from "@keepdeck/plugin-api";
 import { fitBarGroup } from "../../domain/deck/topBar";
 import { Button } from "../../ui/Button";
 import { MenuButton, type MenuAction } from "../../ui/MenuButton";
+import { TipButton } from "../../ui/TipButton";
+import { Tooltip } from "../../ui/Tooltip";
 import { DockIcon, GearIcon, SidebarIcon, SkillsIcon, StatsIcon } from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { UsageChips } from "../usage/UsageChips";
@@ -45,9 +47,10 @@ export interface DeckBarProps {
   /** Whether the workspaces rail is hidden — the toggle's own state. */
   railCollapsed: boolean;
   onToggleRail(): void;
-  /** The active workspace's name, or null when there is none. Named here
-   *  whether or not the rail is open: the rail is a list you scan, and this
-   *  is the one line that answers "where am I" without scanning. */
+  /** The active workspace's name, or null when the rail is already showing it
+   *  (or nothing is active). The bar does not re-derive that: an open rail
+   *  highlights the active workspace two centimetres below, and repeating it
+   *  here is a second answer to a question nobody asked twice. */
   workspaceName: string | null;
 
   agents: AgentInfo[];
@@ -134,41 +137,49 @@ export function DeckBar({
   return (
     <header className="deck__bar">
       <div className="deck__bar-left">
-        <Button
-          variant="ghost"
-          size="sm"
-          title={railCollapsed ? "Show workspaces" : "Hide workspaces"}
-          label="Toggle workspaces panel"
-          onClick={onToggleRail}
-        >
-          <SidebarIcon />
-        </Button>
-        <span className="deck__brand">KeepDeck</span>
-        {workspaceName !== null && (
-          <span className="deck__active-ws" title={workspaceName}>
-            {workspaceName}
-          </span>
-        )}
-        {/* The left half answers "where am I and what have I got" — the
-            project, and the room left to work in it. Keeping facts apart from
-            the verbs on the right is the whole arrangement: two halves of one
-            strip rather than two strips. */}
+        {/* Who and where: the rail's own switch, the app, the project. */}
+        <div className="bar__group">
+          <TipButton
+            variant="ghost"
+            size="sm"
+            tip={railCollapsed ? "Show workspaces" : "Hide workspaces"}
+            label="Toggle workspaces panel"
+            onClick={onToggleRail}
+          >
+            <SidebarIcon />
+          </TipButton>
+          {workspaceName !== null && (
+            <span className="deck__active-ws">{workspaceName}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Quota sits in the MIDDLE, in its own zone.
+          Pinned left it landed directly above the rail's column and read as
+          the rail's own heading; pinned right it queued behind the verbs and
+          became one more thing to sort. The centre belongs to nothing else,
+          so a reading of the fleet can hold it without borrowing meaning from
+          a neighbour. True centring needs a grid: with a flex row the middle
+          only looks centred while the two sides happen to match. */}
+      <div className="deck__bar-center">
         <UsageChips
           agents={agents}
           liveAgents={usageLiveAgents}
           onOpenStats={onOpenStats}
         />
         {updateAction && (
-          <Button
-            variant="secondary"
-            size="sm"
-            className="bar__update"
-            onClick={() => onUpdateAction(updateAction.action)}
-            disabled={updateAction.disabled}
-            title={updateAction.title}
-          >
-            {updateAction.label}
-          </Button>
+          <Tooltip tip={updateAction.title} delayMs={400}>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="bar__update"
+              onClick={() => onUpdateAction(updateAction.action)}
+              disabled={updateAction.disabled}
+              label={updateAction.label}
+            >
+              {updateAction.label}
+            </Button>
+          </Tooltip>
         )}
       </div>
       <div className="deck__bar-right">
@@ -181,25 +192,27 @@ export function DeckBar({
             plain button. */}
         <div className="bar__group">
           {createActions.length === 1 ? (
-            <Button
+            <TipButton
               variant="primary"
               size="sm"
               onClick={createActions[0].onSelect}
               disabled={createActions[0].disabled}
-              title={createActions[0].title}
+              tip={createActions[0].title ?? "Add an agent"}
+              label="Add an agent"
             >
               + {createActions[0].label}
-            </Button>
+            </TipButton>
           ) : (
-            <MenuButton
-              variant="primary"
-              size="sm"
-              actions={createActions}
-              ariaLabel="Create"
-              title="Add an agent or start a team"
-            >
-              + ▾
-            </MenuButton>
+            <Tooltip tip="Add an agent or start a team" delayMs={400}>
+              <MenuButton
+                variant="primary"
+                size="sm"
+                actions={createActions}
+                ariaLabel="Create"
+              >
+                + ▾
+              </MenuButton>
+            </Tooltip>
           )}
         </div>
 
@@ -208,22 +221,22 @@ export function DeckBar({
         {(dock || pluginShown.length > 0 || pluginOverflow.length > 0) && (
           <div className="bar__group">
             {dock && (
-              <Button
+              <TipButton
                 variant="ghost"
                 size="sm"
-                title={dock.open ? "Hide the dock" : "Show the dock"}
+                tip={dock.open ? "Hide the dock" : "Show the dock"}
                 label="Toggle dock panel"
                 onClick={dock.onToggle}
               >
                 <DockIcon />
-              </Button>
+              </TipButton>
             )}
             {pluginShown.map((contribution) => (
-              <Button
+              <TipButton
                 variant="ghost"
                 size="sm"
                 key={`${contribution.pluginId}:${contribution.entry.id}`}
-                title={contribution.entry.title}
+                tip={contribution.entry.title}
                 onClick={() => contribution.entry.run()}
               >
                 {contribution.entry.Icon ? (
@@ -231,7 +244,7 @@ export function DeckBar({
                 ) : (
                   contribution.entry.title.slice(0, 1)
                 )}
-              </Button>
+              </TipButton>
             ))}
             {pluginOverflow.length > 0 && (
               <MenuButton
@@ -255,42 +268,39 @@ export function DeckBar({
             ranking a settings dialog above a skills library is a claim
             nobody can make on the user's behalf. */}
         <div className="bar__group">
-          <Button
+          <TipButton
             variant="ghost"
             size="sm"
-            title="Statistics"
-            label="Open statistics"
+            tip="Open statistics"
             onClick={onOpenStats}
             disabled={!canOpenDialog}
           >
             <StatsIcon />
-          </Button>
+          </TipButton>
           {notifications && (
             <NotificationBell
               center={notifications.center}
               onOpen={notifications.onOpen}
             />
           )}
-          <Button
+          <TipButton
             variant="ghost"
             size="sm"
-            title="Skills"
-            label="Open skills"
+            tip="Open skills"
             onClick={onOpenSkills}
             disabled={!canOpenDialog}
           >
             <SkillsIcon />
-          </Button>
-          <Button
+          </TipButton>
+          <TipButton
             variant="ghost"
             size="sm"
-            title="Settings"
-            label="Open settings"
+            tip="Open settings"
             onClick={onOpenSettings}
             disabled={!canOpenDialog}
           >
             <GearIcon />
-          </Button>
+          </TipButton>
         </div>
       </div>
     </header>

@@ -94,14 +94,20 @@ describe("DeckBar", () => {
     expect(host.textContent).not.toMatch(/\d+\.\d+\.\d+/);
   });
 
-  it("keeps quota on the left, with the project it belongs to", () => {
-    // Facts on the left, verbs on the right — the arrangement that replaced a
-    // second strip along the bottom.
+  it("gives quota the middle zone, alone", () => {
+    // Pinned left it sat above the rail's column and read as the rail's own
+    // heading; pinned right it queued behind the verbs. The centre belongs to
+    // nothing else, which is the whole reason it can hold this.
     render({ workspaceName: "Личный проект" });
-    const left = host.querySelector(".deck__bar-left")!;
-    expect(left.querySelector("[data-usage]")).not.toBeNull();
-    expect(left.textContent).toContain("Личный проект");
+    expect(
+      host.querySelector(".deck__bar-center [data-usage]"),
+    ).not.toBeNull();
+    expect(host.querySelector(".deck__bar-left [data-usage]")).toBeNull();
     expect(host.querySelector(".deck__bar-right [data-usage]")).toBeNull();
+    // The project stays on the left, where "where am I" is answered.
+    expect(host.querySelector(".deck__bar-left")?.textContent).toContain(
+      "Личный проект",
+    );
   });
 
   it("routes each control to its own callback", () => {

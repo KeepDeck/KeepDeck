@@ -126,7 +126,7 @@ function App() {
       <DeckBar
         railCollapsed={railCollapsed}
         onToggleRail={() => setRailCollapsed((c) => !c)}
-        workspaceName={active?.name ?? null}
+        workspaceName={railCollapsed && active ? active.name : null}
         agents={agents}
         usageLiveAgents={usageLiveAgents}
         updateAction={updateAction}

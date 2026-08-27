@@ -6,10 +6,15 @@
 }
 
 /* Top bar */
+/* Three zones, not two halves. A grid rather than a flex row because the
+   middle has to be centred against the WINDOW, not against whatever the two
+   sides happen to weigh — `1fr auto 1fr` gives the outer zones equal claim
+   and leaves the centre where the eye expects it, however long the workspace
+   name or however many icons the right-hand groups hold. */
 .deck__bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   padding: 0 12px;
   height: 36px;
   flex: none;
@@ -17,10 +22,25 @@
   background-color: #0e121a;
 }
 
+/* The outer zones are runs of groups, seamed the same way — so a boundary
+   means the same thing wherever it appears in the strip. */
 .deck__bar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  justify-self: start;
+  min-width: 0;
+}
+
+/* The middle zone holds one thing and never grows into its neighbours: the
+   grid's `auto` column is only as wide as the chips are, and the chips
+   already shrink by their own rule. */
+.deck__bar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: center;
+  min-width: 0;
 }
 
 .bar__icon {
@@ -40,12 +60,9 @@
   color: #c5c8c6;
 }
 
-.deck__brand {
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-/* Where you are, after the app's own name and separated from it. */
+/* Where you are — shown only while the rail is hidden, which is also why it
+   carries no leading separator: there is nothing in front of it to come
+   apart from. */
 .deck__active-ws {
   font-size: 13px;
   color: #8b93a3;
@@ -55,11 +72,6 @@
   white-space: nowrap;
 }
 
-.deck__active-ws::before {
-  content: "·";
-  margin-right: 10px;
-  color: #3b4658;
-}
 
 /* Groups, not one run. The bar answers two questions — what to do, where to
    go — and the eye needs to see that before it reads any control: inside a
@@ -70,12 +82,20 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-self: end;
 }
 
 .bar__group {
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+/* The left half holds words, not icons: two pixels between a switch and a
+   name reads as a collision. Icons can sit tight because their own padding
+   already parts them. */
+.deck__bar-left .bar__group {
+  gap: 8px;
 }
 
 /* The seam sits between two groups, and the air around it is what makes it
