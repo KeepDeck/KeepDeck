@@ -112,6 +112,13 @@
   color: #6b7280;
 }
 
+/* The -12px above is tuned to follow a control with a 20px bottom margin
+   (net 8px). Right after a .form__label (8px bottom) it would overlap the
+   label by 4px — a section's intro hint gets the plain 8px instead. */
+.form__label + .settings__hint {
+  margin-top: 0;
+}
+
 /* An honest warning line (e.g. the OS is blocking notifications). */
 .settings__hint--warn {
   color: #c9a23c;
