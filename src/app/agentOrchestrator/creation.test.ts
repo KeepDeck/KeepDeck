@@ -22,7 +22,6 @@ import {
 import type {
   DeckState,
   Pane,
-  SetupStep,
   SpawnConfig,
   SpawnPluginAccess,
   WorkspaceCreationResult,
@@ -73,7 +72,9 @@ describe("agent orchestrator —what resume answers", () => {
   it("tells a pane mid-create apart from a running one", async () => {
     // Its own doc: telling the user a pane mid-create is already running is
     // simply false — it has never run, so there is no session to come back to.
-    only({ provisioning: { repo: "/repo", workspace: "ws", index: 1 } });
+    only({
+      provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+    });
     await settle();
     expect(agentRun.resume("ws-1", "pane-1")).toBe("provisioning");
   });
@@ -108,7 +109,7 @@ describe("agent orchestrator —a new pane arriving", () => {
     act(() => root.unmount());
   });
 
-  /** One empty workspace with a setup command, its ref captured. */
+  /** One empty workspace in worktree mode, its ref captured. */
   const instance = () => deck.workspaces[0].instance;
   const seed = (panes: Pane[] = []): DeckState => ({
     workspaces: [
@@ -118,7 +119,6 @@ describe("agent orchestrator —a new pane arriving", () => {
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: "/wt",
-        setup: "pnpm install",
         panes,
       },
     ],
@@ -157,48 +157,7 @@ describe("agent orchestrator —a new pane arriving", () => {
       });
     });
     expect(provisions).toHaveLength(1);
-    expect(provisions[0].panes.map((p) => p.id)).toEqual(["pane-9"]);
-  });
-
-  it("does NOT re-run the workspace's one-time setup for a pane added later", async () => {
-    // The setup command prepares a worktree once, as part of the create
-    // form's batch. A "+ Agent" pane joins a workspace already prepared, and
-    // running it again per pane is not what "one-time" means.
-    act(() => deck.hydrate(seed()));
-    await act(async () => {
-      agentRun.createPane({
-        workspace: { id: "ws-1", instance: instance() },
-        pane: card(),
-      });
-    });
-    expect(provisions[0].setup).toBeUndefined();
-  });
-
-  /** Run the step the orchestrator handed over, as the worktree runner would,
-   *  and report the command that reached the pane's slot. */
-  const ranSetup = async (step: SetupStep | undefined) => {
-    if (!step) return undefined;
-    await step("pane-9", { cwd: "/wt/a", branch: "kd/a" });
-    return pty.ranOnce[pty.ranOnce.length - 1]?.args;
-  };
-
-  it("DOES run it for a pane the batch stamped", async () => {
-    act(() => deck.hydrate(seed()));
-    await act(async () => {
-      agentRun.createPane({
-        workspace: { id: "ws-1", instance: instance() },
-        pane: card({
-          provisioning: {
-            repo: "/repo",
-            baseDir: "/wt",
-            runsSetup: true,
-            workspace: "ws",
-            index: 1,
-          },
-        }),
-      });
-    });
-    expect(await ranSetup(provisions[0].setup)).toEqual(["-c", "pnpm install"]);
+    expect(provisions[0].map((p) => p.id)).toEqual(["pane-9"]);
   });
 
   it("refuses a workspace whose id now names a REPLACEMENT", async () => {
@@ -302,8 +261,6 @@ describe("agent orchestrator —a new workspace", () => {
   const config = (over: Partial<SpawnConfig> = {}): SpawnConfig => ({
     name: "",
     cwd: "/repo",
-    agentType: "claude",
-    count: 0,
     worktreeBaseDir: null,
     ...over,
   });
@@ -398,24 +355,12 @@ describe("agent orchestrator —a new workspace", () => {
     expect(provisions).toEqual([]);
   });
 
-  it("hands the whole batch to the worktree runner in ONE call", async () => {
-    // One call, not one per pane: the runner pins a single base commit across
-    // the batch, so concurrent creates don't straddle a moving HEAD.
-    create({ count: 3, worktreeBaseDir: "/wt", setup: "  pnpm install  " });
-    expect(provisions).toHaveLength(1);
-    expect(provisions[0].panes).toHaveLength(3);
-    // The trimmed command reaches the pane's own slot when the step runs.
-    await provisions[0].setup!("pane-1", { cwd: "/wt/a", branch: "kd/a" });
-    expect(pty.ranOnce).toEqual([
-      { paneId: "pane-1", args: ["-c", "pnpm install"] },
-    ]);
-  });
-
-  it("does not reach the worktree runner at all without a base folder", () => {
-    // No base folder means the agents run in the workspace cwd — there is
-    // nothing to create, so the setup command has nowhere to run either.
-    create({ count: 2, setup: "pnpm install" });
-    expect(deck.workspaces[0].panes).toHaveLength(2);
+  it("is born empty, and asks the worktree runner for nothing", () => {
+    // Nothing spawns at create time, so there is no worktree to create here
+    // either — every pane arrives later through its own request, carrying the
+    // location a create would need.
+    create({ worktreeBaseDir: "/wt" });
+    expect(deck.workspaces[0].panes).toEqual([]);
     expect(provisions).toEqual([]);
   });
 });
@@ -443,7 +388,7 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     act(() => root.unmount());
   });
 
-  /** A workspace with a setup command and one FAILED provisioning card. */
+  /** A workspace with one FAILED provisioning card. */
   const failedCard = (intent: object) =>
     act(() =>
       deck.createWorkspace({
@@ -452,13 +397,13 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
         name: "ws-1",
         cwd: "/repo",
         worktreeBaseDir: null,
-        setup: "pnpm i",
         panes: [
           {
             id: "pane-1",
             agentType: "claude",
             provisioning: {
               repo: "/repo",
+              path: "/repo-wt/x",
               workspace: "ws-1",
               index: 1,
               error: "boom",
@@ -474,29 +419,6 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
     expect(deck.workspaces[0].panes[0].provisioning?.error).toBeUndefined();
     expect(provisions).toHaveLength(1);
-  });
-
-  it("re-runs setup ONLY for batch panes — a dialog/fork retry must not widen the attempt", () => {
-    // Dialog/fork intent: exact `path`, no baseDir → the initial run never
-    // executed setup, so the retry must not either.
-    failedCard({ path: "/repo-wt/x", branch: "kd/x" });
-    act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
-    expect(provisions[0].setup).toBeUndefined();
-  });
-
-  it("batch panes (runsSetup intent) keep their setup on retry", async () => {
-    failedCard({ baseDir: "/repo-wt", runsSetup: true });
-    act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
-    await provisions[0].setup!("pane-1", { cwd: "/repo-wt/a", branch: "kd/a" });
-    expect(pty.ranOnce).toEqual([{ paneId: "pane-1", args: ["-c", "pnpm i"] }]);
-  });
-
-  it("an auto-placed pane WITHOUT the runsSetup stamp still skips setup on retry", () => {
-    // The discriminator is the explicit stamp, not baseDir's presence — a
-    // future auto-placing dialog flow must not accidentally widen Retry.
-    failedCard({ baseDir: "/repo-wt" });
-    act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
-    expect(provisions[0].setup).toBeUndefined();
   });
 
   it("ignores a pane with no create intent, and one that is not there", () => {

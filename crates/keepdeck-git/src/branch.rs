@@ -72,8 +72,8 @@ pub const WORKTREE_SUFFIX_MAX: u32 = 999;
 /// The `n`th collision-avoidance variant of `base` under KeepDeck's scheme:
 /// `1` → `base`, `2` → `base-2`, `3` → `base-3`, … A worktree's branch and its
 /// directory share this scheme so they stay in step (`kd/x/1` ↔ `kd-x-1`, then
-/// `kd/x/1-2` ↔ `kd-x-1-2`). The single source for both the exact-path
-/// `free_branch` and the batch create loop.
+/// `kd/x/1-2` ↔ `kd-x-1-2`) — the folder half is minted by the path suggestion
+/// the caller accepts, the branch half by `free_branch` at create time.
 pub fn suffixed_name(base: &str, n: u32) -> String {
     if n <= 1 {
         base.to_string()

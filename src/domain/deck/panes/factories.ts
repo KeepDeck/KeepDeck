@@ -1,29 +1,16 @@
 /**
- * Building panes: the batch flows, the "+ Agent" dialog, and the provisioning
- * cards a worktree create stands behind.
+ * Building panes: the "+ Agent" dialog, and the provisioning cards a worktree
+ * create stands behind.
  *
  * A factory decides a pane's STARTING state, which is why they sit apart from
  * the questions asked about a pane later.
+ *
+ * There is one factory because panes arrive one at a time. The batch builders
+ * that stood beside it belonged to a workspace created with N agents at once;
+ * a workspace is born empty now, and every pane in it comes from a request.
  */
-import type { AgentDialogResult, AgentType } from "../../agents";
-import { clampPaneCount } from "../layout";
-import { paneId, type Pane } from "./model";
-
-/** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES), all
- * running `agentType`; `yolo` marks every pane (sparse — false never lands). */
-export function makePanes(
-  startSeq: number,
-  count: number,
-  agentType: AgentType,
-  yolo = false,
-): Pane[] {
-  const n = clampPaneCount(count);
-  return Array.from({ length: n }, (_, i) => ({
-    id: paneId(startSeq + i),
-    agentType,
-    ...(yolo && { yolo: true }),
-  }));
-}
+import type { AgentDialogResult } from "../../agents";
+import type { Pane } from "./model";
 
 /**
  * The pane one "+ Agent" request describes — all four shapes the dialog
@@ -81,31 +68,4 @@ export function paneFromAgentRequest(
       index,
     },
   };
-}
-
-/** Build `count` panes numbered from `startSeq` that are still WAITING for
- * their worktrees: each carries its create intent (per-index, for the auto
- * branch name) so the background runner — and a later Retry — can issue the
- * actual create. The deck shows them immediately; terminals mount as each
- * create resolves. */
-export function makeProvisioningPanes(
-  startSeq: number,
-  count: number,
-  agentType: AgentType,
-  ws: { cwd: string; baseDir: string; name: string },
-  yolo = false,
-): Pane[] {
-  const n = clampPaneCount(count);
-  return Array.from({ length: n }, (_, i) => ({
-    id: paneId(startSeq + i),
-    agentType,
-    ...(yolo && { yolo: true }),
-    provisioning: {
-      repo: ws.cwd,
-      baseDir: ws.baseDir,
-      runsSetup: true,
-      workspace: ws.name,
-      index: i + 1,
-    },
-  }));
 }

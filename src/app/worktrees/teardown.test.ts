@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   armDoubles,
   managerFor,
-  planPanes,
+  provisioningCards,
   ref,
   skills,
   stagedFor,
@@ -56,7 +56,7 @@ describe("the ordering between arming and teardown", () => {
     });
 
     await manager.provision(
-      planPanes({ cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" }, 1, 1, "claude"),
+      provisioningCards(1),
       { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
     );
 
@@ -126,7 +126,7 @@ describe("the ordering between arming and teardown", () => {
       { repo: "/repo", path: "/wt/pane-1", branch: "old" },
     ]);
     const provisioning = manager.provision(
-      planPanes({ cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" }, 1, 1, "claude"),
+      provisioningCards(1),
       { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
     );
     release();

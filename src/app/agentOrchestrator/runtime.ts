@@ -191,7 +191,6 @@ export function createAgentOrchestratorRuntime(
   const creation = createAgentOrchestratorCreation({
     deck,
     actions,
-    sessions,
     worktrees,
   });
   const closing = createAgentOrchestratorClosing({

@@ -3,51 +3,11 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceForm } from "./WorkspaceForm";
-import {
-  initSettings,
-  resetSettingsManager,
-  updateSettings,
-} from "../../app/settingsManager";
-import { resetAgentsCache } from "../../app/useAgents";
 import type { SpawnConfig } from "../../domain/deck";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
-
-// The form pulls the agent catalog via useAgents → IPC; pin a swappable one
-// (the default-agent tests vary which agents count as installed).
-const agent = (id: string, label: string) => ({
-  id,
-  label,
-  command: id,
-  features: [{ id: "session.new", label: "New sessions" }],
-  installed: true,
-  path: null,
-});
-const TWO_AGENTS = [agent("claude", "Claude Code"), agent("codex", "Codex")];
-const THREE_AGENTS = [...TWO_AGENTS, agent("opencode", "OpenCode")];
-const catalog = vi.hoisted(() => ({ list: [] as unknown[] }));
-vi.mock("../../app/useAgents", () => ({
-  useAgents: () => ({ agents: catalog.list, loading: false }),
-  resetAgentsCache: () => {},
-}));
-
-// The form reads the default agent from the settings store ([F6]); run the
-// real manager over a mocked IPC so the tests exercise the store→hook bridge.
-vi.mock("../../ipc/settings", () => ({
-  loadSettings: async () => null,
-  saveSettings: async () => {},
-  quarantineSettings: async () => {},
-  snapshotSettings: async () => {},
-}));
-
-/** Boot the settings store and set the default-agent preference. */
-async function seedDefaultAgent(defaultAgent: SpawnConfig["agentType"]) {
-  resetSettingsManager();
-  await initSettings();
-  updateSettings({ defaultAgent });
-}
 
 const worktreeInput = () =>
   document.querySelector<HTMLInputElement>('input[aria-label="Worktree directory"]')!;
@@ -57,6 +17,10 @@ const chooseBtn = () =>
   Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === "Choose…",
   )!; // first Choose… = working directory
+const createBtn = () =>
+  Array.from(document.querySelectorAll("button")).find(
+    (b) => b.textContent === "Create workspace",
+  ) as HTMLButtonElement;
 
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
@@ -78,14 +42,12 @@ const submit = () =>
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 
-describe("WorkspaceForm worktree directory", () => {
+describe("WorkspaceForm", () => {
   let host: HTMLElement;
   let root: Root;
   let created: SpawnConfig[];
 
   beforeEach(() => {
-    resetAgentsCache();
-    catalog.list = TWO_AGENTS;
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -93,18 +55,24 @@ describe("WorkspaceForm worktree directory", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
-  /** Mount with a chosen working directory (via the picker, as in the app). */
-  const mount = async (isRepo: boolean) => {
-    await seedDefaultAgent("claude");
-    await act(async () =>
+  const render = async (
+    props: Partial<Parameters<typeof WorkspaceForm>[0]> = {},
+    isRepo = false,
+  ) =>
+    act(async () =>
       root.render(
         createElement(WorkspaceForm, {
           onCreate: (c: SpawnConfig) => created.push(c),
           pickFolder: async () => "/repo",
           inspectDir: async () => ({ isRepo, branch: null }),
+          ...props,
         }),
       ),
     );
+
+  /** Mount with a chosen working directory (via the picker, as in the app). */
+  const mount = async (isRepo: boolean) => {
+    await render({}, isRepo);
     await act(async () => chooseBtn().click());
     await act(async () => {}); // flush the inspectDir probe
   };
@@ -121,35 +89,34 @@ describe("WorkspaceForm worktree directory", () => {
     return event;
   };
 
+  it("submits the workspace and nothing per-agent", async () => {
+    // The form describes a workspace, which is born EMPTY: an agent type, a
+    // YOLO tick or a count here would be a second answer to questions the
+    // "+ Agent" dialog owns.
+    await mount(false);
+    submit();
+    expect(created).toEqual([
+      { name: "", cwd: "/repo", worktreeBaseDir: null },
+    ]);
+  });
+
+  it("cannot be submitted before a working directory is chosen", async () => {
+    await render();
+    expect(createBtn().disabled).toBe(true);
+    submit();
+    expect(created).toHaveLength(0);
+  });
+
   it("Escape cancels when there is a workspace to return to", async () => {
     const onCancel = vi.fn();
-    await seedDefaultAgent("claude");
-    await act(async () =>
-      root.render(
-        createElement(WorkspaceForm, {
-          onCreate: (c: SpawnConfig) => created.push(c),
-          onCancel,
-          pickFolder: async () => "/repo",
-          inspectDir: async () => ({ isRepo: false, branch: null }),
-        }),
-      ),
-    );
+    await render({ onCancel });
 
     expect(escape().defaultPrevented).toBe(true);
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
   it("Escape is left alone on the first-run form, which has nothing to cancel", async () => {
-    await seedDefaultAgent("claude");
-    await act(async () =>
-      root.render(
-        createElement(WorkspaceForm, {
-          onCreate: (c: SpawnConfig) => created.push(c),
-          pickFolder: async () => "/repo",
-          inspectDir: async () => ({ isRepo: false, branch: null }),
-        }),
-      ),
-    );
+    await render();
 
     // No `onCancel` at all on the zero-workspace screen. Claiming the press
     // there swallowed Escape window-wide and dismissed nothing.
@@ -181,193 +148,27 @@ describe("WorkspaceForm worktree directory", () => {
     expect(created[0].worktreeBaseDir).toBeNull();
   });
 
-  it("treats a whitespace-only path as empty — a git repo still gets the isolation nudge", async () => {
+  it("treats a whitespace-only path as empty, and asks nothing extra for a git repo", async () => {
+    // The isolation question belonged to the batch this form used to spawn.
+    // Nothing runs at create time now, so a blank path in a git repo is just a
+    // blank path — the "+ Agent" dialog asks where each agent goes, and it can
+    // answer for the agent it is actually starting.
     await mount(true);
     type(worktreeInput(), "   ");
     submit();
-    expect(created).toHaveLength(0); // nudge dialog instead of create
-    expect(document.body.textContent).toContain("No worktree isolation");
-  });
-});
-
-describe("WorkspaceForm YOLO toggle", () => {
-  let root: Root;
-  let created: SpawnConfig[];
-
-  beforeEach(() => {
-    resetAgentsCache();
-    catalog.list = [
-      {
-        ...agent("claude", "Claude Code"),
-        features: [
-          { id: "session.new", label: "New sessions" },
-          { id: "execution.yolo", label: "YOLO mode" },
-        ],
-      },
-    ];
-    document.body.innerHTML = "";
-    root = createRoot(document.body.appendChild(document.createElement("div")));
-    created = [];
-  });
-  afterEach(() => act(() => root.unmount()));
-
-  const checkbox = () =>
-    document.querySelector<HTMLInputElement>(".form__yolo input");
-
-  const mount = async (defaultYolo: boolean) => {
-    await seedDefaultAgent("claude");
-    updateSettings({ defaultYolo });
-    await act(async () =>
-      root.render(
-        createElement(WorkspaceForm, {
-          onCreate: (c: SpawnConfig) => created.push(c),
-          pickFolder: async () => "/repo",
-          inspectDir: async () => ({ isRepo: false, branch: null }),
-        }),
-      ),
-    );
-    await act(async () => chooseBtn().click());
-    await act(async () => {}); // flush the probe + catalog load
-  };
-
-  it("prefills from the global default; the whole batch carries the choice", async () => {
-    await mount(true);
-    expect(checkbox()?.checked).toBe(true);
-    submit();
-    expect(created[0].yolo).toBe(true);
+    expect(created).toEqual([{ name: "", cwd: "/repo", worktreeBaseDir: null }]);
+    expect(document.body.textContent).not.toContain("No worktree isolation");
   });
 
-  it("follows a defaultYolo change from Settings while untouched; a manual tick wins", async () => {
+  it("does not expose a setup command field", async () => {
     await mount(false);
-    expect(checkbox()?.checked).toBe(false);
-    // Settings dialog opens over the form; flipping the default must reach it.
-    act(() => updateSettings({ defaultYolo: true }));
-    expect(checkbox()?.checked).toBe(true);
-
-    // A hand-set value survives a later preference change ([F6] contract).
-    act(() => checkbox()!.click()); // touched: now false
-    act(() => updateSettings({ defaultYolo: false }));
-    act(() => updateSettings({ defaultYolo: true }));
-    expect(checkbox()?.checked).toBe(false);
-  });
-
-  it("stays sparse when off, and hides entirely without agent support", async () => {
-    await mount(false);
-    expect(checkbox()?.checked).toBe(false);
-    submit();
-    expect("yolo" in created[0]).toBe(false);
-
-    catalog.list = TWO_AGENTS; // no execution.yolo feature anywhere
-    await mount(true);
-    expect(checkbox()).toBeNull();
-    submit();
-    // The global default must not leak through a non-supporting agent.
-    expect("yolo" in created[1]).toBe(false);
-  });
-});
-
-describe("WorkspaceForm default agent ([F6])", () => {
-  let root: Root;
-
-  beforeEach(() => {
-    resetAgentsCache();
-    catalog.list = TWO_AGENTS;
-    document.body.innerHTML = "";
-    root = createRoot(document.body.appendChild(document.createElement("div")));
-  });
-  afterEach(() => act(() => root.unmount()));
-
-  const mount = async (defaultAgent: SpawnConfig["agentType"]) => {
-    await seedDefaultAgent(defaultAgent);
-    await act(async () =>
-      root.render(
-        createElement(WorkspaceForm, {
-          onCreate: () => {},
-          pickFolder: async () => "/repo",
-          inspectDir: async () => ({ isRepo: false, branch: null }),
-        }),
-      ),
-    );
-    await act(async () => {}); // flush the agent-catalog load
-  };
-
-  const typeButton = (label: string) =>
-    Array.from(document.querySelectorAll(".form__type")).find(
-      (b) => b.textContent === label,
-    )!;
-
-  it("preselects the configured default agent", async () => {
-    await mount("codex");
-    expect(typeButton("Codex").className).toContain("form__type--active");
-  });
-
-  it("an uninstalled preference snaps to the first installed", async () => {
-    await mount("opencode"); // not in the mocked catalog
-    expect(typeButton("Claude Code").className).toContain("form__type--active");
-  });
-
-  it("follows a preference change while the picker is untouched", async () => {
-    // The settings dialog opens OVER the form (first run: the form is the
-    // only screen) — a default set there must reach the mounted form
-    // through the store subscription.
-    catalog.list = THREE_AGENTS;
-    await mount("claude");
-    expect(typeButton("Claude Code").className).toContain("form__type--active");
-    act(() => updateSettings({ defaultAgent: "opencode" }));
-    expect(typeButton("OpenCode").className).toContain("form__type--active");
-  });
-
-  it("a manual pick survives a preference change", async () => {
-    catalog.list = THREE_AGENTS;
-    await mount("claude");
-    act(() => (typeButton("Codex") as HTMLButtonElement).click());
-    act(() => updateSettings({ defaultAgent: "opencode" })); // the settings dialog moves the preference
-    expect(typeButton("Codex").className).toContain("form__type--active");
-  });
-});
-
-describe("WorkspaceForm setup command", () => {
-  let root: Root;
-  let created: SpawnConfig[];
-
-  beforeEach(() => {
-    resetAgentsCache();
-    catalog.list = TWO_AGENTS;
-    document.body.innerHTML = "";
-    root = createRoot(document.body.appendChild(document.createElement("div")));
-    created = [];
-  });
-  afterEach(() => act(() => root.unmount()));
-
-  const setupInput = () =>
-    document.querySelector<HTMLInputElement>(
-      'input[aria-label="Worktree setup command"]',
-    );
-
-  const mount = async () => {
-    await seedDefaultAgent("claude");
-    await act(async () =>
-      root.render(
-        createElement(WorkspaceForm, {
-          onCreate: (c: SpawnConfig) => created.push(c),
-          pickFolder: async () => "/repo",
-          inspectDir: async () => ({ isRepo: false, branch: null }),
-        }),
-      ),
-    );
-    await act(async () => chooseBtn().click());
-    await act(async () => {});
-  };
-
-  it("does not expose a setup command field for new workspaces", async () => {
-    await mount();
+    const setupInput = () =>
+      document.querySelector('input[aria-label="Worktree setup command"]');
     expect(setupInput()).toBeNull();
 
     type(worktreeInput(), "/wt");
     expect(setupInput()).toBeNull();
-
     submit();
-    expect(created[0].setup).toBeUndefined();
     expect(created[0].worktreeBaseDir).toBe("/wt");
   });
 });

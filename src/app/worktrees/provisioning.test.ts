@@ -2,32 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   armDoubles,
   managerFor,
-  planPanes,
+  provisioningCards,
   worktree,
   type DeckEntry,
-  type SetupStep,
   type WorktreeManager,
 } from "./testSupport";
 
 /** The pane is still in the deck for the whole create — the ordinary case.
  * The tests that close a pane mid-create override this. */
 const stays = () => false;
-
-/** The workspace's setup, as the manager sees it: a step that answers. How it
- * actually runs — in the pane's own process slot — is the registry's, and is
- * covered in ptyManager.test.ts. */
-const setupStep = (
-  answer: { ok: boolean; tail: string },
-): { step: SetupStep; calls: { paneId: string; cwd: string; branch: string }[] } => {
-  const calls: { paneId: string; cwd: string; branch: string }[] = [];
-  return {
-    calls,
-    step: (paneId, made) => {
-      calls.push({ paneId, cwd: made.cwd, branch: made.branch });
-      return Promise.resolve(answer);
-    },
-  };
-};
 
 let deck: DeckEntry[] = [];
 let manager: WorktreeManager;
@@ -40,8 +23,7 @@ beforeEach(() => {
 });
 
 describe("provision", () => {
-  const cards = () =>
-    planPanes({ cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" }, 1, 2, "claude");
+  const cards = () => provisioningCards(2);
 
   it("resolves each pane as its create lands, all pinned to ONE base commit", async () => {
     worktree.inspectRepo.mockResolvedValue({
@@ -138,7 +120,7 @@ describe("provision", () => {
     expect(worktree.createWorktree).not.toHaveBeenCalled();
   });
 
-  it("without a setup command the card resolves straight off the create", async () => {
+  it("resolves the card as soon as the create lands", async () => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree.mockResolvedValue({
       path: "/wt/pane-1",
@@ -157,9 +139,8 @@ describe("provision", () => {
   });
 });
 
-describe("provision with a setup command", () => {
-  const oneCard = () =>
-    planPanes({ cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" }, 1, 1, "claude");
+describe("provision — what it publishes for a racing close", () => {
+  const oneCard = () => provisioningCards(1);
 
   beforeEach(() => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
@@ -169,52 +150,10 @@ describe("provision with a setup command", () => {
     });
   });
 
-  it("runs setup against the CREATED worktree, then resolves the card", async () => {
-    const { step, calls } = setupStep({ ok: true, tail: "" });
-    const onResolved = vi.fn();
-    const onFailed = vi.fn();
-    const onSetup = vi.fn();
-
-    await manager.provision(
-      oneCard(),
-      { onResolved, onFailed, onSetup, abandoned: stays },
-      step,
-    );
-
-    expect(onSetup).toHaveBeenCalledWith("pane-1");
-    // The path the create actually returned — not the one that was asked for.
-    expect(calls).toEqual([
-      { paneId: "pane-1", cwd: "/wt/pane-1", branch: "kd/ws/1" },
-    ]);
-    expect(onResolved).toHaveBeenCalledWith("pane-1", {
-      cwd: "/wt/pane-1",
-      branch: "kd/ws/1",
-    });
-    expect(onFailed).not.toHaveBeenCalled();
-  });
-
-  it("skips the setup command once its pane is gone, and hands nothing over", async () => {
-    // The setup runs in the pane's own session slot. Spawning there after the
-    // close reaped it leaves a process with nothing to reap it — and the
-    // promise that step returns never settles, so anything waiting on this
-    // create would wait forever.
-    const { step, calls } = setupStep({ ok: true, tail: "" });
-    const onResolved = vi.fn();
-
-    await manager.provision(
-      oneCard(),
-      { onResolved, onFailed: vi.fn(), abandoned: () => true },
-      step,
-    );
-
-    expect(calls).toEqual([]);
-    expect(onResolved).not.toHaveBeenCalled();
-  });
-
-  it("publishes what it made BEFORE the setup command, so a close can name it", async () => {
+  it("publishes what it made BEFORE anything that runs after the create", async () => {
     // The whole point of publishing early: the close must be able to find the
     // directory while the create is still busy — and it must not have to wait
-    // for a setup step that ends only when the pane's slot is reaped.
+    // for a step that runs on the pane's behalf.
     let release!: () => void;
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -223,22 +162,21 @@ describe("provision with a setup command", () => {
     // Reaching the step IS the proof of ordering: it only runs after the create
     // published. Waiting on it beats waiting a tick, which would pass just as
     // happily on a publish that came later.
-    const reachedSetup = new Promise<void>((resolve) => {
+    const reachedStep = new Promise<void>((resolve) => {
       entered = resolve;
     });
-    const step: SetupStep = async () => {
+    manager.registerPostProvision("pane-1", async () => {
       entered();
       await held;
-      return { ok: true, tail: "" };
-    };
+    });
 
-    const running = manager.provision(
-      oneCard(),
-      { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
-      step,
-    );
-    await reachedSetup;
-    // Still inside the setup command, and the worktree is already nameable.
+    const running = manager.provision(oneCard(), {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(),
+      abandoned: stays,
+    });
+    await reachedStep;
+    // Still inside the step, and the worktree is already nameable.
     await expect(manager.awaitCreated("pane-1")).resolves.toEqual({
       repo: "/repo",
       path: "/wt/pane-1",
@@ -274,6 +212,36 @@ describe("provision with a setup command", () => {
     await expect(manager.awaitCreated("pane-1")).resolves.toBeNull();
   });
 
+  it("never deletes on a close's behalf — that ordering is the close's", async () => {
+    // A create that removed its own worktree would do it before the pane's
+    // process is reaped, pulling the directory out from under whatever is
+    // still writing in it. And a step that failed BECAUSE the pane was closed
+    // is the close, not a broken step: there is no card left to fail, and the
+    // directory's fate belongs to the party that knows what the user ticked.
+    worktree.removeWorktree.mockResolvedValue(undefined);
+    let gone = false;
+    manager.registerPostProvision("pane-1", async () => {
+      gone = true;
+      throw new Error("the pane was closed");
+    });
+    const onFailed = vi.fn();
+
+    await manager.provision(oneCard(), {
+      onResolved: vi.fn(),
+      onFailed,
+      abandoned: () => gone,
+    });
+
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+    expect(onFailed).not.toHaveBeenCalled();
+    // Still nameable, so the close can remove it in the order it needs.
+    await expect(manager.awaitCreated("pane-1")).resolves.toEqual({
+      repo: "/repo",
+      path: "/wt/pane-1",
+      branch: "kd/ws/1",
+    });
+  });
+
   it("KEEPS the published entry when the pane left before the handover", async () => {
     // The close is the only party that knows whether the user asked for the
     // directory to go, so the create leaves it for the close to decide.
@@ -289,71 +257,10 @@ describe("provision with a setup command", () => {
       branch: "kd/ws/1",
     });
   });
-
-  it("never deletes on a close's behalf — that ordering is the close's", async () => {
-    // A create that removed its own worktree would do it before the pane's
-    // process is reaped, pulling the directory out from under a setup command
-    // that is still writing into it.
-    worktree.removeWorktree.mockResolvedValue(undefined);
-    let gone = false;
-    const step: SetupStep = async () => {
-      gone = true;
-      return { ok: false, tail: "the pane was closed" };
-    };
-    const onFailed = vi.fn();
-
-    await manager.provision(
-      oneCard(),
-      { onResolved: vi.fn(), onFailed, abandoned: () => gone },
-      step,
-    );
-
-    expect(worktree.removeWorktree).not.toHaveBeenCalled();
-    // The interrupted command is the close, not a broken setup: no card is
-    // left to put that on.
-    expect(onFailed).not.toHaveBeenCalled();
-  });
-
-  it("a failed setup rolls the worktree back and lands the tail on the card", async () => {
-    const { step } = setupStep({ ok: false, tail: "npm ERR! boom" });
-    worktree.removeWorktree.mockResolvedValue(undefined);
-    const onResolved = vi.fn();
-    const onFailed = vi.fn();
-
-    await manager.provision(oneCard(), { onResolved, onFailed, abandoned: stays }, step);
-
-    // Rollback, so Retry re-creates instead of hitting "already exists".
-    // Through the same teardown a close uses — and with the branch sweep OFF:
-    // this worktree never became a pane's, so nothing was born in it.
-    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
-      force: true,
-      branch: "kd/ws/1",
-      reapCreatedBranches: false,
-    });
-    expect(onResolved).not.toHaveBeenCalled();
-    const [paneId, error] = onFailed.mock.calls[0];
-    expect(paneId).toBe("pane-1");
-    expect(error).toBe("Setup failed: npm ERR! boom");
-  });
-
-  it("a step that could not run at all fails the card the same way", async () => {
-    const { step } = setupStep({ ok: false, tail: "spawn failed" });
-    worktree.removeWorktree.mockResolvedValue(undefined);
-    const onFailed = vi.fn();
-
-    await manager.provision(
-      oneCard(),
-      { onResolved: vi.fn(), onFailed, abandoned: stays },
-      step,
-    );
-
-    expect(onFailed).toHaveBeenCalledWith("pane-1", "Setup failed: spawn failed");
-  });
 });
 
 describe("provision with a post-provision step", () => {
-  const oneCard = () =>
-    planPanes({ cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" }, 1, 1, "claude");
+  const oneCard = () => provisioningCards(1);
 
   beforeEach(() => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });

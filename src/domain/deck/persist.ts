@@ -90,8 +90,6 @@ export function serializeDeck(
       name: ws.name,
       cwd: ws.cwd,
       worktreeBaseDir: ws.worktreeBaseDir,
-      // Core field, sparse like plugins: an empty command never hits disk.
-      ...(ws.setup !== undefined && ws.setup !== "" && { setup: ws.setup }),
       // Sparse: an empty bag (the last slot just got deleted) never hits disk.
       ...(ws.plugins !== undefined &&
         Object.keys(ws.plugins).length > 0 && { plugins: ws.plugins }),
@@ -106,7 +104,7 @@ export function serializeDeck(
           ...p.extras,
           id: p.id,
           ...(p.agentType !== undefined && { agentType: p.agentType }),
-          // Sparse like setup: only the armed mode hits disk.
+          // Sparse: only the armed mode hits disk.
           ...(p.yolo === true && { yolo: true }),
           ...(p.remoteEndpoint !== undefined && { remoteEndpoint: p.remoteEndpoint }),
           ...(p.cwd !== undefined && { cwd: p.cwd }),
@@ -123,8 +121,8 @@ export function serializeDeck(
           // a launch, so writing them would make every ordinary restart look
           // like a deliberate suspend on the NEXT one.
           ...(paneIdleIsDurable(p.idle) && { idle: p.idle }),
-          // The intent only: error and phase are runtime state, and hydration
-          // stamps its own error ("interrupted") on whatever comes back.
+          // The intent only: the error is runtime state, and hydration stamps
+          // its own ("interrupted") on whatever comes back.
           ...(p.provisioning !== undefined && {
             provisioning: stripRuntime(p.provisioning),
           }),
@@ -252,7 +250,10 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "name",
   "cwd",
   "worktreeBaseDir",
-  "setup",
+  // NOT listed: "setup" — deck v5's one-time worktree command, retired with
+  // the create-time agent batch that was its only runner. Leaving it unknown
+  // routes an older document's value into `extras`, so it survives every save
+  // round-trip verbatim instead of being dropped from the user's file.
   "plugins",
   "panes",
 ]);
@@ -301,12 +302,7 @@ function readWorkspace(value: unknown): Workspace | null {
     worktreeBaseDir,
     panes,
   };
-  // Tolerant like `run`'s own setup: a non-string or blank value degrades to
-  // absent rather than rejecting the workspace.
-  if (typeof value.setup === "string" && value.setup.trim() !== "") {
-    ws.setup = value.setup;
-  }
-  // Parsed unconditionally too, like `run` — a plugin's slot must survive a
+  // Parsed unconditionally, like `run` — a plugin's slot must survive a
   // load-and-save even while the plugin system experiment is off.
   const plugins = readWorkspacePlugins(value.plugins);
   if (plugins) ws.plugins = plugins;
@@ -433,35 +429,38 @@ function readWorkspacePlugins(value: unknown): Record<string, unknown> | null {
  * the deck (mirrors the agentType degradation above). */
 function readProvisioning(
   value: unknown,
-): Omit<PaneProvisioning, "error" | "phase"> | null {
+): Omit<PaneProvisioning, "error"> | null {
   if (!isRecord(value)) return null;
   if (
     typeof value.repo !== "string" ||
     typeof value.workspace !== "string" ||
-    typeof value.index !== "number"
+    typeof value.index !== "number" ||
+    // A document written before agents arrived one at a time may hold a card
+    // whose directory was the backend's to assign (`baseDir`, no `path`).
+    // Nothing can place that any more, so it degrades like any other malformed
+    // intent rather than restoring as a card whose Retry cannot work.
+    typeof value.path !== "string"
   )
     return null;
-  const intent: Omit<PaneProvisioning, "error" | "phase" | "fork"> = {
+  const intent: Omit<PaneProvisioning, "error" | "fork"> = {
     repo: value.repo,
     workspace: value.workspace,
     index: value.index,
+    path: value.path,
   };
-  if (typeof value.baseDir === "string") intent.baseDir = value.baseDir;
-  if (value.runsSetup === true) intent.runsSetup = true;
-  if (typeof value.path === "string") intent.path = value.path;
   if (typeof value.branch === "string") intent.branch = value.branch;
   if (typeof value.base === "string") intent.base = value.base;
   return intent;
 }
 
-/** The provisioning intent without its runtime `error`/`phase`/`fork` fields.
- * A fork card is dropped whole before this runs (see the serialize filter), so
+/** The provisioning intent without its runtime `error`/`fork` fields. A fork
+ * card is dropped whole before this runs (see the serialize filter), so
  * excluding `fork` here is belt-and-suspenders: even if that filter were ever
  * weakened, the marker still never reaches disk — and the type stays honest
  * about the full runtime-only set. */
 function stripRuntime(
   p: PaneProvisioning,
-): Omit<PaneProvisioning, "error" | "phase" | "fork"> {
-  const { error: _error, phase: _phase, fork: _fork, ...intent } = p;
+): Omit<PaneProvisioning, "error" | "fork"> {
+  const { error: _error, fork: _fork, ...intent } = p;
   return intent;
 }

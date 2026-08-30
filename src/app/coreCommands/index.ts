@@ -123,6 +123,13 @@ function targetPane(
   const selected = ws.panes.find((p) => p.id === deck.viewOf(ws.id).select);
   if (selected) return selected;
   if (ws.panes.length === 1) return ws.panes[0];
+  // Told apart because the remedies differ: one is answered by naming a pane,
+  // the other only by starting one. A workspace is born empty, so the second
+  // is what a caller addressing a fresh workspace actually hits.
+  if (ws.panes.length === 0)
+    throw new Error(
+      `workspace "${ws.name}" has no agents — spawn one first`,
+    );
   throw new Error(`no agent selected in workspace "${ws.name}"`);
 }
 

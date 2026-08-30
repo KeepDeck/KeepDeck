@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { mintAgentSeq, mintAgentSeqs, mintWorkspaceSeq } from "./ids";
+import { mintAgentSeq, mintWorkspaceSeq } from "./ids";
 
 describe("id mints", () => {
-  it("a batch reservation hands out exactly `count` seqs before the next mint", () => {
-    const start = mintAgentSeqs(3);
-    // The next single mint must land right after the reserved block — an
-    // off-by-one here would collide pane ids with the batch's panes.
-    expect(mintAgentSeq()).toBe(start + 3);
+  it("never hands the same agent seq out twice", () => {
+    // Pane ids key the PTY input registry and the agent↔worktree records, so a
+    // repeat would bind two panes to one process.
+    const first = mintAgentSeq();
+    expect(mintAgentSeq()).toBe(first + 1);
+    expect(mintAgentSeq()).toBe(first + 2);
   });
 
   it("derives the workspace seq from the current maximum", () => {

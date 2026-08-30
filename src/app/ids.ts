@@ -8,16 +8,9 @@ import { nextIdSequence } from "../domain/idSequence";
  */
 let nextAgentSeq = 1;
 
-/** Reserve `count` consecutive agent seq numbers; returns the first. */
-export function mintAgentSeqs(count: number): number {
-  const start = nextAgentSeq;
-  nextAgentSeq += count;
-  return start;
-}
-
 /** Reserve the next agent seq number. */
 export function mintAgentSeq(): number {
-  return mintAgentSeqs(1);
+  return nextAgentSeq++;
 }
 
 /**

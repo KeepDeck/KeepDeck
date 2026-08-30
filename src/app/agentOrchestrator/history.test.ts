@@ -385,7 +385,7 @@ describe("agent orchestrator —forking a recorded session", () => {
     expect(steps.register).toHaveBeenCalledTimes(1);
     expect(steps.register.mock.calls[0][0]).toBe(pane.id);
     expect(provisions).toHaveLength(1);
-    expect(provisions[0].panes.map((p) => p.id)).toEqual([pane.id]);
+    expect(provisions[0].map((p) => p.id)).toEqual([pane.id]);
 
     // The step runs the surgery bound to the CREATED worktree's cwd —
     // deliberately DISTINCT from the requested path, proving it uses the

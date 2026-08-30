@@ -79,8 +79,6 @@ pub struct RepoInfo {
 pub struct CreateSpec {
     /// The repository (the workspace's working directory).
     pub repo: String,
-    /// Base folder under which this workspace's agent worktrees live.
-    pub base_dir: String,
     /// Stable agent id — the record key tying the worktree back to its agent.
     pub agent_id: String,
     /// Explicit branch name to create; auto-generated when absent/blank.
@@ -91,8 +89,9 @@ pub struct CreateSpec {
     /// keeps branch-creation provenance trustworthy.
     pub base: Option<String>,
     /// Local branch identity corresponding to a separately pinned `base` SHA.
-    /// Batch provisioning supplies both so every agent starts at one commit
-    /// while history can still follow that branch after a rebase.
+    /// A caller that pins the commit itself supplies both, so the worktree
+    /// starts at that exact commit while history can still follow the branch
+    /// after a rebase.
     pub base_branch: Option<String>,
     /// Workspace name, used only for the auto branch name.
     #[serde(default)]
@@ -100,15 +99,12 @@ pub struct CreateSpec {
     /// Agent index within the workspace, used only for the auto branch name.
     #[serde(default)]
     pub index: u64,
-    /// Explicit worktree directory name (relative to `base_dir`); derived from
-    /// the branch (slashes → dashes) when absent/blank.
-    pub dir: Option<String>,
-    /// Exact, user-chosen worktree path ([F2]). When set, the worktree is
-    /// created AT this path verbatim — its parent is created, git accepts a
-    /// non-existent or existing-empty dir, and there is NO collision suffix
-    /// (`base_dir`/`dir` are ignored). Absent → the batch flow uses
-    /// `base_dir` + `dir` with auto-suffixing.
-    pub path: Option<String>,
+    /// The worktree's exact path ([F2]) — the only placement there is. The
+    /// worktree is created AT it verbatim: its parent is created, git accepts a
+    /// non-existent or existing-empty dir, and there is NO collision suffix.
+    /// Picking a free path is the caller's job, done before it asks (the
+    /// "+ Agent" dialog's accepted suggestion, or a fork's target).
+    pub path: String,
 }
 
 /// The created worktree, returned to the UI to store on the agent.
@@ -288,8 +284,8 @@ pub fn worktree_inspect(path: String) -> RepoInfo {
     }
 }
 
-/// Create an agent's worktree under `base_dir`, on a new branch, at the pinned
-/// base commit. Serialized per repo. Returns the path + branch to store.
+/// Create an agent's worktree at `path`, on a new branch, at the pinned base
+/// commit. Serialized per repo. Returns the path + branch to store.
 ///
 /// Runs on the blocking pool: `git worktree add` checks out a full working
 /// tree, and a non-async command would occupy the main thread for the
@@ -310,6 +306,12 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
     let repo_path = PathBuf::from(&spec.repo);
     if !repo::is_git_repo(&repo_path) {
         return Err(format!("not a git repository: {}", spec.repo));
+    }
+    // Asked before the repo lock: a create with nowhere to go should not queue
+    // behind everyone else's worktrees to say so.
+    let target = PathBuf::from(spec.path.trim());
+    if target.as_os_str().is_empty() {
+        return Err("worktree create needs a path".to_string());
     }
 
     // The base is ALWAYS pinned to a commit sha here — a picked branch NAME
@@ -350,65 +352,21 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
     let lock = locks.for_repo(&repo_path);
     let _guard = locks.acquire(&lock);
 
-    // [F2] Exact user-chosen path: create the worktree AT it verbatim, with NO
-    // path collision suffix — the user picked this exact folder (git accepts a
+    // [F2] The worktree is created AT the caller's path verbatim, with NO path
+    // collision suffix — the path is the caller's decision (the "+ Agent"
+    // dialog's accepted suggestion, or a fork's target), and git accepts a
     // non-existent or existing-empty dir; a non-empty one surfaces as an error
-    // the dialog shows). The BRANCH does step over leftovers: closed panes keep
+    // the dialog shows. The BRANCH does step over leftovers: closed panes keep
     // their branches by design, so a colliding suggestion must not fail the
     // create — the record carries the branch actually used.
-    if let Some(p) = spec.path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        let target = PathBuf::from(p);
-        let branch = free_branch(&repo_path, &chosen_branch)?;
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("create worktree parent dir: {e}"))?;
-        }
-        add_worktree_with_base(
-            &repo_path,
-            &target,
-            &branch,
-            &base,
-            base_branch_ref.as_deref(),
-        )?;
-        return Ok(WorktreeRecord {
-            agent_id: spec.agent_id,
-            path: target.to_string_lossy().into_owned(),
-            branch,
-        });
+    let branch = free_branch(&repo_path, &chosen_branch)?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create worktree parent dir: {e}"))?;
     }
-
-    // Batch flow: place the worktree under `base_dir`. Explicit dir wins
-    // (sanitized to one fs-safe segment); else derive it from the branch
-    // (slashes -> dashes) so it matches the pane header.
-    let base_dir = PathBuf::from(&spec.base_dir);
-    std::fs::create_dir_all(&base_dir).map_err(|e| format!("create worktree base dir: {e}"))?;
-    let chosen_dir = match spec.dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(d) => branch::sanitize_branch_component(d),
-        None => chosen_branch.replace('/', "-"),
-    };
-
-    // Pick a free branch + dir under the lock. Clean worktrees aren't removed on
-    // close, so an earlier agent's branch/folder may still exist; the shared
-    // suffix scheme steps branch and dir together (base, base-2, …) until the
-    // dir is free and the branch is unused.
-    let mut chosen: Option<(String, PathBuf)> = None;
-    for n in 1..=branch::WORKTREE_SUFFIX_MAX {
-        let branch = branch::suffixed_name(&chosen_branch, n);
-        let dir = branch::suffixed_name(&chosen_dir, n);
-        let path = base_dir.join(&dir);
-        if !path.exists()
-            && !repo::branch_exists(&repo_path, &branch).map_err(|e| e.to_string())?
-        {
-            chosen = Some((branch, path));
-            break;
-        }
-    }
-    let (branch, path) =
-        chosen.ok_or_else(|| "could not find a free worktree branch/dir".to_string())?;
-
     add_worktree_with_base(
         &repo_path,
-        &path,
+        &target,
         &branch,
         &base,
         base_branch_ref.as_deref(),
@@ -416,7 +374,7 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
 
     Ok(WorktreeRecord {
         agent_id: spec.agent_id,
-        path: path.to_string_lossy().into_owned(),
+        path: target.to_string_lossy().into_owned(),
         branch,
     })
 }
@@ -930,38 +888,41 @@ mod tests {
     }
 
     #[test]
-    fn create_suffixes_branch_and_dir_together_over_leftovers() {
+    fn create_steps_the_branch_over_a_leftover_from_a_closed_pane() {
         // Clean worktrees survive pane closes by design, so a second create
-        // with the same workspace/index must step over the first one's branch
-        // AND folder, keeping both suffixes in step.
+        // with the same workspace/index meets the first one's branch still
+        // there. The path is the caller's and is used verbatim; the BRANCH
+        // steps aside so the create does not fail on a leftover.
         let repo = init_repo("create-suffix");
-        let base_dir = repo.with_file_name(format!(
-            "{}-wts",
-            repo.file_name().unwrap().to_string_lossy()
-        ));
-        let _ = std::fs::remove_dir_all(&base_dir);
-        let spec = |agent: &str| CreateSpec {
+        let wt = |n: u32| {
+            repo.with_file_name(format!(
+                "{}-wt{n}",
+                repo.file_name().unwrap().to_string_lossy()
+            ))
+        };
+        let _ = std::fs::remove_dir_all(wt(1));
+        let _ = std::fs::remove_dir_all(wt(2));
+        let spec = |agent: &str, n: u32| CreateSpec {
             repo: repo.to_string_lossy().into_owned(),
-            base_dir: base_dir.to_string_lossy().into_owned(),
             agent_id: agent.to_string(),
             branch: None,
             base: None,
             base_branch: None,
             workspace: "ws".to_string(),
             index: 1,
-            dir: None,
-            path: None,
+            path: wt(n).to_string_lossy().into_owned(),
         };
         let locks = RepoLocks::default();
 
-        let first = create_worktree(&locks, spec("pane-1")).expect("first create");
-        let second = create_worktree(&locks, spec("pane-2")).expect("second create");
+        let first = create_worktree(&locks, spec("pane-1", 1)).expect("first create");
+        let second = create_worktree(&locks, spec("pane-2", 2)).expect("second create");
 
         assert_eq!(first.branch, "kd/ws/1");
-        assert!(first.path.ends_with("kd-ws-1"), "path: {}", first.path);
         assert_eq!(second.branch, "kd/ws/1-2");
-        assert!(second.path.ends_with("kd-ws-1-2"), "path: {}", second.path);
-        let _ = std::fs::remove_dir_all(&base_dir);
+        assert_eq!(first.path, wt(1).to_string_lossy());
+        assert_eq!(second.path, wt(2).to_string_lossy());
+        let _ = std::fs::remove_dir_all(wt(1));
+        let _ = std::fs::remove_dir_all(wt(2));
         let _ = std::fs::remove_dir_all(&repo);
     }
 
@@ -1183,25 +1144,23 @@ mod tests {
             .trim()
             .to_string();
         let base_sha = keepdeck_git::repo::resolve_commit(&repo, &current).unwrap();
-        let base_dir = repo.with_file_name(format!(
-            "{}-wts",
+        let target = repo.with_file_name(format!(
+            "{}-wt",
             repo.file_name().unwrap().to_string_lossy()
         ));
-        let _ = std::fs::remove_dir_all(&base_dir);
+        let _ = std::fs::remove_dir_all(&target);
 
         let record = create_worktree(
             &RepoLocks::default(),
             CreateSpec {
                 repo: repo.to_string_lossy().into_owned(),
-                base_dir: base_dir.to_string_lossy().into_owned(),
                 agent_id: "pane-1".to_string(),
                 branch: None,
                 base: Some(current.clone()),
                 base_branch: None,
                 workspace: "ws".to_string(),
                 index: 1,
-                dir: None,
-                path: None,
+                path: target.to_string_lossy().into_owned(),
             },
         )
         .expect("create with a branch-name base");
@@ -1232,7 +1191,7 @@ mod tests {
         // Swept before ANY assertion or unwrap below, so no failure mode
         // leaves the repo and its worktree behind — and so the sweep happens
         // even when the parse, not the rule, is what went wrong.
-        let _ = std::fs::remove_dir_all(&base_dir);
+        let _ = std::fs::remove_dir_all(&target);
         let _ = std::fs::remove_dir_all(&repo);
 
         let source = source
@@ -1257,34 +1216,32 @@ mod tests {
     }
 
     #[test]
-    fn batch_pinned_sha_retains_branch_identity_after_rebase() {
-        let repo = init_repo("batch-base-identity");
+    fn a_pinned_sha_retains_branch_identity_after_rebase() {
+        let repo = init_repo("pinned-base-identity");
         let current = git_out(&repo, &["rev-parse", "--abbrev-ref", "HEAD"])
             .trim()
             .to_string();
         let base_sha = keepdeck_git::repo::resolve_commit(&repo, &current).unwrap();
-        let base_dir = repo.with_file_name(format!(
-            "{}-wts",
+        let target = repo.with_file_name(format!(
+            "{}-wt",
             repo.file_name().unwrap().to_string_lossy()
         ));
-        let _ = std::fs::remove_dir_all(&base_dir);
+        let _ = std::fs::remove_dir_all(&target);
 
         let record = create_worktree(
             &RepoLocks::default(),
             CreateSpec {
                 repo: repo.to_string_lossy().into_owned(),
-                base_dir: base_dir.to_string_lossy().into_owned(),
-                agent_id: "pane-batch".to_string(),
+                agent_id: "pane-1".to_string(),
                 branch: Some("kd/batch/1".to_string()),
                 base: Some(base_sha.clone()),
                 base_branch: Some(current.clone()),
                 workspace: "ws".to_string(),
                 index: 1,
-                dir: None,
-                path: None,
+                path: target.to_string_lossy().into_owned(),
             },
         )
-        .expect("create from separately pinned batch base");
+        .expect("create from a separately pinned base");
         let agent = PathBuf::from(&record.path);
 
         std::fs::write(agent.join("agent.txt"), "agent\n").unwrap();
@@ -1308,7 +1265,7 @@ mod tests {
         );
         assert_eq!(fork, Some(new_main));
 
-        let _ = std::fs::remove_dir_all(&base_dir);
+        let _ = std::fs::remove_dir_all(&target);
         let _ = std::fs::remove_dir_all(&repo);
     }
 
@@ -1329,15 +1286,13 @@ mod tests {
             &RepoLocks::default(),
             CreateSpec {
                 repo: repo.to_string_lossy().into_owned(),
-                base_dir: String::new(),
                 agent_id: "pane-exact".to_string(),
                 branch: Some("kd/exact/1".to_string()),
                 base: Some(current.clone()),
                 base_branch: None,
                 workspace: "ws".to_string(),
                 index: 1,
-                dir: None,
-                path: Some(target.to_string_lossy().into_owned()),
+                path: target.to_string_lossy().into_owned(),
             },
         )
         .expect("exact-path create");

@@ -289,7 +289,7 @@ describe("AgentPane — header badges", () => {
       "provisioning",
       {
         body: "provisioning" as PaneBody,
-        provisioning: { repo: "/r", baseDir: "/w", branch: "b", workspace: "w", index: 1 },
+        provisioning: { repo: "/r", path: "/w/b", branch: "b", workspace: "w", index: 1 },
       },
     ],
     [
@@ -541,7 +541,7 @@ describe("AgentPane — provisioning cards", () => {
 
   const intent = {
     repo: "/repo",
-    baseDir: "/wt",
+    path: "/wt/deck-2",
     branch: "kd/deck/2",
     workspace: "deck",
     index: 2,
@@ -568,7 +568,7 @@ describe("AgentPane — provisioning cards", () => {
 
     expect(document.body.textContent).toContain("Creating worktree…");
     // The intent's branch and target folder, on one muted line.
-    expect(document.body.textContent).toContain("kd/deck/2 · /wt");
+    expect(document.body.textContent).toContain("kd/deck/2 · /wt/deck-2");
     expect(document.querySelector(".pane__provision-bar")).not.toBeNull();
     expect(document.querySelector(".pane__provision-pulse")).not.toBeNull();
     // No PTY may spawn until the worktree exists.

@@ -14,7 +14,7 @@ import type {
 } from ".";
 import type { AgentOrchestratorCreation } from "./creation";
 import type { DeckStore } from "../deckStore";
-import { mintAgentSeqs } from "../ids";
+import { mintAgentSeq } from "../ids";
 import type { SpawnContextSource } from "../spawnContextSource";
 import {
   buildForkSpec,
@@ -85,7 +85,7 @@ export function createAgentOrchestratorContinuations({
     const yolo = opts?.yolo ?? record.yolo;
     resuming.add(record.sessionId);
     try {
-      const id = paneId(mintAgentSeqs(1));
+      const id = paneId(mintAgentSeq());
       const built = await buildResumeSpec(
         plugins,
         record.agent,
@@ -155,7 +155,7 @@ export function createAgentOrchestratorContinuations({
     const workspaceRef = { id: workspace.id, instance: workspace.instance };
     forking.add(record.sessionId);
     try {
-      const id = paneId(mintAgentSeqs(1));
+      const id = paneId(mintAgentSeq());
       const name = opts?.name?.trim();
       const surgery = (cwd: string) =>
         buildForkSpec(

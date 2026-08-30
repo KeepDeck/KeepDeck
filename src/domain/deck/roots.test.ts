@@ -66,7 +66,12 @@ describe("workspaceDirectories", () => {
     const set = workspaceDirectories(
       ws({
         cwd: "/repo",
-        panes: [({ id: "p1", provisioning: { phase: "setup" } }) as Pane],
+        panes: [
+          {
+            id: "p1",
+            provisioning: { repo: "/repo", workspace: "a", index: 1 },
+          } as Pane,
+        ],
       }),
     );
     expect([...set]).toEqual(["/repo"]);

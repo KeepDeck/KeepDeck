@@ -11,7 +11,6 @@ import type {
 } from "../../domain/deck";
 import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
 import type { WorkspaceCreationResult } from "../deckActions";
-import type { SetupStep } from "../provisioning";
 import type { SuspendOutcome } from "../suspendOutcome";
 // From the module, not the barrel: the barrel is mocked below, and these are
 // plain shapes and pure predicates with no cache state to fake.
@@ -300,12 +299,6 @@ export const pty = {
   notify() {
     for (const listener of [...pty.listeners]) listener();
   },
-  /** One-off commands run in a pane's slot — the workspace setup step. */
-  ranOnce: [] as { paneId: string; args: string[] | undefined }[],
-  runOnce(paneId: string, spec: { args?: string[] }) {
-    pty.ranOnce.push({ paneId, args: spec.args });
-    return Promise.resolve({ ok: true, tail: "" });
-  },
   state: (paneId: string) =>
     pty.live.has(paneId)
       ? ({ kind: "live" } as const)
@@ -314,7 +307,6 @@ export const pty = {
     pty.acquired = [];
     pty.live.clear();
     pty.closed = [];
-    pty.ranOnce = [];
     pty.hold = null;
     // Listeners go with the rest: an orchestrator from a previous mount would
     // otherwise keep reconciling its own dead deck on every state change.
@@ -344,7 +336,7 @@ export let agentRun: AgentRunView &
 /** The worktree creates the orchestrator asked for, recorded instead of run.
  *  Per mount like the deck beside it, so no `describe` has to remember to
  *  clear it. */
-export let provisions: { panes: Pane[]; setup: SetupStep | undefined }[];
+export let provisions: Pane[][];
 /** The worktree removals a confirmed close asked for, per mount. */
 export let discards: WorktreeTarget[][];
 /** What the removal reports back as un-deletable. */
@@ -379,7 +371,7 @@ export const catalog = {
 export function Probe() {
   const [wiring] = useState(() => {
     const store = createDeckStore();
-    const asked: { panes: Pane[]; setup: SetupStep | undefined }[] = [];
+    const asked: Pane[][] = [];
     const discarded: WorktreeTarget[][] = [];
     return {
       store,
@@ -410,7 +402,6 @@ export function Probe() {
           isLaunched: pty.isLaunched,
           acquire: pty.acquire,
           close: pty.close,
-          runOnce: pty.runOnce,
         },
         plugins: {
           // The registry seam recovery now asks (live sessions): an empty
@@ -423,8 +414,8 @@ export function Probe() {
         mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
         lifecycle,
         worktrees: {
-          provision: (panes, _report, setup) => {
-            asked.push({ panes, setup });
+          provision: (panes) => {
+            asked.push(panes);
             return Promise.resolve();
           },
           awaitCreated: (paneId) => {
@@ -497,7 +488,6 @@ export type {
   Pane,
   PaneIdle,
   SessionHandle,
-  SetupStep,
   SpawnConfig,
   SpawnPluginAccess,
   SuspendOutcome,

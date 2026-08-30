@@ -128,7 +128,6 @@ interface DeckStageProps {
   unavailableAgentReasons: ReadonlyMap<string, string>;
   /** Runtime git HEAD observations, keyed by pane execution cwd. */
   gitHeads: ReadonlyMap<string, GitPosition>;
-  /** The empty-workspace count picker chose `count` agents. */
   /** The session journal's folded records — the empty-workspace history. */
   journal: JournalRecords;
   /** Resume a journal record into a new pane of its workspace. */
@@ -228,7 +227,7 @@ interface DeckStageProps {
  *   terminal, the rest folded to header bars. A display mode, not a minimize:
  *   every running agent stays, one is shown at a time. Under the optional Tray
  *   placement, explicitly suspended agents use the same bottom shelf as they
- *   do in grid. An empty workspace shows the count picker ([F15]).
+ *   do in grid. An empty workspace shows its sessions browser instead.
  */
 export function DeckStage({
   workspaces,

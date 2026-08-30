@@ -578,7 +578,7 @@ describe("provisioning panes across a restart", () => {
             agentType: "claude",
             provisioning: {
               repo: "/repo",
-              baseDir: "/wt",
+              path: "/wt/deck-1",
               base: "develop",
               workspace: "deck",
               index: 1,
@@ -599,7 +599,7 @@ describe("provisioning panes across a restart", () => {
     const pane = okDeck(json).state.workspaces[0].panes[0];
     expect(pane.provisioning).toEqual({
       repo: "/repo",
-      baseDir: "/wt",
+      path: "/wt/deck-1",
       // The picked base survives the restart, so Retry recreates the worktree
       // from the same fork point instead of whatever HEAD moved to.
       base: "develop",
@@ -808,7 +808,9 @@ describe("deck v5 — Workspace.run retirement", () => {
   it("migrates run.setup onto the workspace and run.presets into the run plugin's slot, dropping run", () => {
     const restored = okDeck(JSON.stringify(v4WithRun));
     const ws = restored.state.workspaces[0];
-    expect(ws.setup).toBe("pnpm i");
+    // `setup` is a RETIRED key now: the migration still lifts it out of `run`,
+    // and it lands in `extras` because no build field claims it any more.
+    expect(ws.extras?.setup).toBe("pnpm i");
     expect(ws.plugins).toEqual({
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
     });
@@ -820,7 +822,7 @@ describe("deck v5 — Workspace.run retirement", () => {
     const saved = serializeDeck(restored.state, restored.docExtras);
     expect(saved).not.toContain('"run"');
     const again = okDeck(saved);
-    expect(again.state.workspaces[0].setup).toBe("pnpm i");
+    expect(again.state.workspaces[0].extras?.setup).toBe("pnpm i");
     expect(again.state.workspaces[0].plugins).toEqual({
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
     });
@@ -834,7 +836,7 @@ describe("deck v5 — Workspace.run retirement", () => {
       ],
     };
     const restored = okDeck(JSON.stringify(doc));
-    expect(restored.state.workspaces[0].setup).toBe("pnpm i");
+    expect(restored.state.workspaces[0].extras?.setup).toBe("pnpm i");
     expect(restored.state.workspaces[0].plugins).toBeUndefined();
     expect("run" in restored.state.workspaces[0]).toBe(false);
   });
@@ -850,7 +852,7 @@ describe("deck v5 — Workspace.run retirement", () => {
       ],
     };
     const restored = okDeck(JSON.stringify(doc));
-    expect(restored.state.workspaces[0].setup).toBeUndefined();
+    expect(restored.state.workspaces[0].extras?.setup).toBeUndefined();
     expect(restored.state.workspaces[0].plugins).toEqual({
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
     });
@@ -870,7 +872,7 @@ describe("deck v5 — Workspace.run retirement", () => {
       ],
     };
     const restored = okDeck(JSON.stringify(doc));
-    expect(restored.state.workspaces[0].setup).toBeUndefined();
+    expect(restored.state.workspaces[0].extras?.setup).toBeUndefined();
     expect("run" in restored.state.workspaces[0]).toBe(false);
     expect(restored.state.workspaces[0].plugins).toBeUndefined();
   });
@@ -896,35 +898,53 @@ describe("deck v5 — Workspace.run retirement", () => {
       ],
     };
     const restored = okDeck(JSON.stringify(v2));
-    expect(restored.state.workspaces[0].setup).toBe("pnpm i");
+    expect(restored.state.workspaces[0].extras?.setup).toBe("pnpm i");
     expect(restored.state.workspaces[0].plugins).toEqual({
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
     });
     expect("run" in restored.state.workspaces[0]).toBe(false);
   });
 
-  it("setup round-trips through serializeDeck/hydrateDeck", () => {
-    const setupState: DeckState = {
+  it("a retired setup command rides along untouched, whatever its shape", () => {
+    // Nothing runs it any more — the create-time agent batch was its only
+    // runner — but it is still the user's file. Unknown to the build, of any
+    // type, it survives load-and-save verbatim and takes no workspace with it.
+    const doc = {
+      version: DECK_STATE_VERSION,
+      minVersion: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
       workspaces: [
         {
           id: "ws-1",
-          instance: createWorkspaceInstance(),
           name: "app",
           cwd: "/repo",
           worktreeBaseDir: null,
           setup: "pnpm i",
-          panes: [],
+          panes: [{ id: "pane-1" }],
+        },
+        {
+          id: "ws-2",
+          name: "site",
+          cwd: "/site",
+          worktreeBaseDir: null,
+          setup: 42,
+          panes: [{ id: "pane-2" }],
         },
       ],
-      activeId: "ws-1",
-      journal: emptyJournal,
-      viewByWs: {},
     };
-    const restored = okDeck(serializeDeck(setupState));
-    expect(restored.state.workspaces[0].setup).toBe("pnpm i");
+    const restored = okDeck(JSON.stringify(doc));
+    expect(restored.state.workspaces[0].extras?.setup).toBe("pnpm i");
+    expect(restored.state.workspaces[0].panes[0].id).toBe("pane-1");
+    expect(restored.state.workspaces[1].extras?.setup).toBe(42);
+
+    const again = okDeck(serializeDeck(restored.state, restored.docExtras));
+    expect(again.state.workspaces[0].extras?.setup).toBe("pnpm i");
+    expect(again.state.workspaces[1].extras?.setup).toBe(42);
   });
 
-  it("a workspace without setup stays without the field (sparse)", () => {
+  it("a workspace that never had one is never given one", () => {
     const bareState: DeckState = {
       workspaces: [
         {
@@ -941,36 +961,6 @@ describe("deck v5 — Workspace.run retirement", () => {
       viewByWs: {},
     };
     expect(serializeDeck(bareState)).not.toContain('"setup"');
-  });
-
-  it("a malformed setup degrades to absent without dropping the workspace", () => {
-    const blank = {
-      version: DECK_STATE_VERSION,
-      minVersion: 1,
-      activeId: "ws-1",
-      focusByWs: {},
-      selectByWs: {},
-      workspaces: [
-        {
-          id: "ws-1",
-          name: "app",
-          cwd: "/repo",
-          worktreeBaseDir: null,
-          setup: "   ",
-          panes: [{ id: "pane-1" }],
-        },
-      ],
-    };
-    const restoredBlank = okDeck(JSON.stringify(blank));
-    expect(restoredBlank.state.workspaces[0].setup).toBeUndefined();
-    expect(restoredBlank.state.workspaces[0].panes[0].id).toBe("pane-1");
-
-    const nonString = {
-      ...blank,
-      workspaces: [{ ...blank.workspaces[0], setup: 42 }],
-    };
-    const restoredNonString = okDeck(JSON.stringify(nonString));
-    expect(restoredNonString.state.workspaces[0].setup).toBeUndefined();
   });
 
   it("an existing v4 plugins['keepdeck.run'] slot loses to the migrated run.presets", () => {
@@ -991,42 +981,6 @@ describe("deck v5 — Workspace.run retirement", () => {
       other: { kept: true },
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
     });
-  });
-});
-
-describe("provisioning phase is runtime-only", () => {
-  it("a mid-setup deck serializes without the phase", () => {
-    const state: DeckState = {
-      workspaces: [
-        {
-          id: "ws-1",
-          instance: createWorkspaceInstance(),
-          name: "a",
-          cwd: "/repo",
-          worktreeBaseDir: "/wt",
-          panes: [
-            {
-              id: "pane-1",
-              provisioning: {
-                repo: "/repo",
-                workspace: "a",
-                index: 1,
-                phase: "setup",
-              },
-            },
-          ],
-        },
-      ],
-      activeId: "ws-1",
-      journal: emptyJournal,
-      viewByWs: {},
-    };
-    const json = serializeDeck(state);
-    expect(json).not.toContain("setup");
-    // Restored as the interrupted failed card, like any in-flight create.
-    const pane = okDeck(json).state.workspaces[0].panes[0];
-    expect(pane.provisioning?.phase).toBeUndefined();
-    expect(pane.provisioning?.error).toBe(PROVISIONING_INTERRUPTED);
   });
 });
 

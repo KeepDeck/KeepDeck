@@ -287,11 +287,6 @@
   color: #c5c8c6;
 }
 
-.form .setup__tiles {
-  justify-content: flex-start;
-  margin-bottom: 24px;
-}
-
 /* The "Start from" session picker ([F8] spawn-time continuation): a search
    field over a bounded scrolling list of the selected agent's sessions,
    lazily paged as the user scrolls (the shared engine behind the browser). */

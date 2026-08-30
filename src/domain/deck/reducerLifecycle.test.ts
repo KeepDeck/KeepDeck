@@ -452,7 +452,7 @@ describe("deckReducer provisioning actions", () => {
         id: "pane-1",
         provisioning: {
           repo: "/repo",
-          baseDir: "/wt",
+          path: "/wt/ws-1-1",
           workspace: "ws-1",
           index: 1,
         },

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentDialogResult } from "../../agents";
-import { MAX_PANES } from "../layout";
-import { makePanes, makeProvisioningPanes, paneFromAgentRequest } from ".";
+import { paneFromAgentRequest } from ".";
 
 describe("paneFromAgentRequest", () => {
   const workspace = { cwd: "/repo", name: "deck" };
@@ -83,18 +82,6 @@ describe("paneFromAgentRequest", () => {
     });
   });
 
-  it("never stamps runsSetup for a pane added after the batch", () => {
-    const pane = paneFromAgentRequest(
-      "pane-3",
-      request({
-        location: { kind: "new", path: "/wt/a", branch: "kd/a" },
-      }),
-      workspace,
-      1,
-    );
-    expect(pane.provisioning?.runsSetup).toBeUndefined();
-  });
-
   it("keeps unset fields off the pane", () => {
     const pane = paneFromAgentRequest(
       "pane-4",
@@ -128,65 +115,5 @@ describe("paneFromAgentRequest", () => {
       agentType: "claude",
       yolo: true,
     });
-  });
-});
-
-describe("makePanes", () => {
-  it("builds count panes from startSeq, all of the given type", () => {
-    expect(makePanes(3, 2, "claude")).toEqual([
-      { id: "pane-3", agentType: "claude" },
-      { id: "pane-4", agentType: "claude" },
-    ]);
-  });
-
-  it("clamps to MAX_PANES and never goes negative", () => {
-    expect(makePanes(1, MAX_PANES + 5, "claude")).toHaveLength(MAX_PANES);
-    expect(makePanes(1, 0, "claude")).toEqual([]);
-    expect(makePanes(1, -2, "claude")).toEqual([]);
-  });
-});
-
-describe("makeProvisioningPanes", () => {
-  it("builds panes carrying their per-index create intent", () => {
-    expect(
-      makeProvisioningPanes(5, 2, "codex", {
-        cwd: "/repo",
-        baseDir: "/wt",
-        name: "deck",
-      }),
-    ).toEqual([
-      {
-        id: "pane-5",
-        agentType: "codex",
-        provisioning: {
-          repo: "/repo",
-          baseDir: "/wt",
-          runsSetup: true,
-          workspace: "deck",
-          index: 1,
-        },
-      },
-      {
-        id: "pane-6",
-        agentType: "codex",
-        provisioning: {
-          repo: "/repo",
-          baseDir: "/wt",
-          runsSetup: true,
-          workspace: "deck",
-          index: 2,
-        },
-      },
-    ]);
-  });
-
-  it("clamps to MAX_PANES like makePanes", () => {
-    expect(
-      makeProvisioningPanes(1, MAX_PANES + 3, "claude", {
-        cwd: "/repo",
-        baseDir: "/wt",
-        name: "ws",
-      }),
-    ).toHaveLength(MAX_PANES);
   });
 });

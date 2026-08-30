@@ -3,14 +3,14 @@
  * landed.
  *
  * The one subtlety worth carrying in your head: what a create puts on disk is
- * published the instant `git worktree add` returns, BEFORE setup and before
- * the card resolves — a close racing the create needs the path long before
- * the rest of this finishes (see [`created`]).
+ * published the instant `git worktree add` returns, BEFORE the card resolves —
+ * a close racing the create needs the path long before the rest of this
+ * finishes (see [`created`]).
  */
 import type { PaneProvisioning } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createWorktree, inspectRepo } from "../../ipc/worktree";
-import type { ProvisionCallbacks, SetupStep } from "../provisioning";
+import type { ProvisionCallbacks } from "../provisioning";
 import type { CreatedWorktree, WorktreeProvisioner } from "./index";
 import type { InOrder } from "./queue";
 
@@ -28,7 +28,7 @@ export function createWorktreeProvisioning(
 ): WorktreeProvisioning {
   /**
    * Post-provision steps, keyed by pane id: a JS step run AFTER a pane's
-   * worktree is created (and setup passed) but BEFORE its card resolves — the
+   * worktree is created but BEFORE its card resolves — the
    * seam where a journal fork runs its store surgery bound to the CREATED
    * worktree. It runs on the initial create AND on every Retry (both go through
    * `provisionPane`), so a retried fork re-runs its surgery instead of silently
@@ -55,10 +55,9 @@ export function createWorktreeProvisioning(
    * Published early on purpose. The close needs two things a create cannot give
    * it at the same moment: the path, and permission to delete only after the
    * pane's process is reaped. Waiting for the whole create supplies neither —
-   * the setup step runs in the session slot the close just reaped, so waiting
-   * there is a deadlock — and letting the CREATE delete supplies the path but
-   * loses the ordering, removing a directory a still-live setup command is
-   * writing into.
+   * a post-provision step runs on the pane's behalf, so waiting behind it races
+   * the close — and letting the CREATE delete supplies the path but loses the
+   * ordering, removing a directory a step is still writing into.
    *
    * Publishing at the git call splits those apart: this promise always settles
    * promptly (nothing but the git call is in front of it), so the close can
@@ -90,7 +89,7 @@ export function createWorktreeProvisioning(
   }
 
   /**
-   * One pane's create (+ optional setup) → its card resolves or fails.
+   * One pane's create → its card resolves or fails.
    *
    * What it puts on disk is published the instant `git worktree add` returns
    * (see [`created`]), so a close can name the directory without waiting for
@@ -102,13 +101,12 @@ export function createWorktreeProvisioning(
     intent: PaneProvisioning,
     batchBase: { commit?: string; branch?: string } | undefined,
     cb: ProvisionCallbacks,
-    setup?: SetupStep,
   ): Promise<void> {
     /**
      * The pane left while we were working. Asked after every await that could
      * outlive it, because everything past the create is done ON ITS BEHALF: a
-     * setup command would spawn into a session slot the close already reaped,
-     * and `onResolved` would hand a worktree to a pane that cannot take it.
+     * post-provision step would run for a pane that is gone, and `onResolved`
+     * would hand a worktree to a pane that cannot take it.
      * Whether that worktree then goes is the close's decision, not ours — it is
      * the only party that knows what the user ticked and when the process died.
      */
@@ -140,10 +138,9 @@ export function createWorktreeProvisioning(
       rec = await inOrder(() =>
         createWorktree({
           repo: intent.repo,
-          baseDir: intent.baseDir ?? "",
           agentId: paneId,
           branch: intent.branch,
-          // The user's picked base branch outranks the batch-pinned HEAD.
+          // The intent's own picked base outranks the repo HEAD pinned below.
           base: intent.base ?? batchBase?.commit,
           ...(!intent.base && batchBase?.branch && { baseBranch: batchBase.branch }),
           workspace: intent.workspace,
@@ -165,31 +162,9 @@ export function createWorktreeProvisioning(
     // The directory exists: say so before anything else can delay it. A close
     // racing this is the case the early publish is for.
     publish({ repo: intent.repo, path: rec.path, branch: rec.branch });
-    // Before the setup command, not only after: it runs in the pane's session
-    // slot, and spawning there once the pane is gone leaves a process with
-    // nothing to reap it.
+    // Before the post-provision step, not only after: it runs on the pane's
+    // behalf, and there is no behalf left once the pane is gone.
     if (abandoned()) return;
-
-    if (setup) {
-      cb.onSetup?.(paneId);
-      const result = await setup(paneId, { cwd: rec.path, branch: rec.branch });
-      // Asked BEFORE the result is judged. A pane closed mid-setup ends the
-      // command, so it comes back not-ok — but that is the close, not a broken
-      // setup, and the failure branch below would roll back a worktree whose
-      // fate is the close's to decide.
-      if (abandoned()) return;
-      if (!result.ok) {
-        log.error(
-          "web:worktrees",
-          `setup failed for ${paneId} in ${rec.path}: ${result.tail}`,
-        );
-        await rollbackWorktree(intent.repo, rec);
-        // Rolled back, so there is nothing left for a close to remove.
-        created.delete(paneId);
-        cb.onFailed(paneId, `Setup failed: ${result.tail}`);
-        return;
-      }
-    }
 
     // The worktree is on disk — run any registered post-provision step (a
     // journal fork's store surgery, bound to the CREATED worktree). A failure
@@ -199,6 +174,13 @@ export function createWorktreeProvisioning(
       cwd: rec.path,
       branch: rec.branch,
     });
+    // The last gate, and it comes BEFORE the step's result is judged. A pane
+    // closed mid-step is often WHY the step failed, and the failure branch
+    // below would then roll back a worktree whose fate is the close's to
+    // decide — the one thing this function must never do. Past this line the
+    // pane owns the worktree and an ordinary close can name it by its `cwd`,
+    // so the published entry stops being anyone's only handle on it.
+    if (abandoned()) return;
     if (stepError !== null) {
       log.error(
         "web:worktrees",
@@ -209,17 +191,13 @@ export function createWorktreeProvisioning(
       cb.onFailed(paneId, stepError);
       return;
     }
-    // The last gate, with no await between it and the handover: past here the
-    // pane owns the worktree and an ordinary close can name it by its `cwd`, so
-    // the published entry is no longer anyone's only handle on it.
-    if (abandoned()) return;
     created.delete(paneId);
 
     cb.onResolved(paneId, { cwd: rec.path, branch: rec.branch });
   }
 
   return {
-    async provision(panes, cb, setup) {
+    async provision(panes, cb) {
       const pending = panes.filter((p) => p.provisioning);
       if (pending.length === 0) return;
 
@@ -235,9 +213,7 @@ export function createWorktreeProvisioning(
       }
 
       await Promise.all(
-        pending.map((p) =>
-          provisionPane(p.id, p.provisioning!, batchBase, cb, setup),
-        ),
+        pending.map((p) => provisionPane(p.id, p.provisioning!, batchBase, cb)),
       );
     },
 

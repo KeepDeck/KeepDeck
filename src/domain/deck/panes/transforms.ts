@@ -318,42 +318,15 @@ export function setPaneProvisioningError(
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
   if (!pane?.provisioning) return workspaces;
-  if (
-    (pane.provisioning.error ?? null) === error &&
-    pane.provisioning.phase === undefined
-  )
-    return workspaces;
+  if ((pane.provisioning.error ?? null) === error) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId || !p.provisioning) return p;
-      // The phase resets with the error either way: a failure ends the setup
-      // it reported, and a Retry restarts at the create step.
-      const { error: _old, phase: _phase, ...intent } = p.provisioning;
+      const { error: _old, ...intent } = p.provisioning;
       return {
         ...p,
         provisioning: error === null ? intent : { ...intent, error },
       };
     }),
-  );
-}
-
-/** Mark which step a pane's provisioning is at — the card's status line
- * ("Creating worktree…" vs "Running setup…"). Only ever set on a live,
- * un-failed provisioning; the SAME array otherwise. */
-export function setPaneProvisioningPhase(
-  workspaces: Workspace[],
-  workspaceId: string,
-  paneId: string,
-  phase: "setup",
-): Workspace[] {
-  const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane?.provisioning || pane.provisioning.error !== undefined) return workspaces;
-  if (pane.provisioning.phase === phase) return workspaces;
-  return mapWorkspace(workspaces, workspaceId, (panes) =>
-    panes.map((p) =>
-      p.id === paneId && p.provisioning
-        ? { ...p, provisioning: { ...p.provisioning, phase } }
-        : p,
-    ),
   );
 }
