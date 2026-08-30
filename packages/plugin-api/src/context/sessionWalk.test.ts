@@ -190,6 +190,111 @@ describe("walkSession", () => {
     expect(walked.shortfall).toEqual([{ kind: "bytes", size: 50, readBytes: 10 }]);
   });
 
+  it("keeps only the requested slice and stops once it is full", async () => {
+    const records = Array.from({ length: 50 }, (_, i) => ({
+      role: "user",
+      text: `t${i}`,
+    }));
+    const store = fakeStore(records);
+
+    const walked = await walkSession({
+      store,
+      format: FORMAT,
+      request: {},
+      dialect: flat,
+      keep: { offset: 10, limit: 3 },
+    });
+
+    expect(walked.turns.map((t) => t.text)).toEqual(["t10", "t11", "t12"]);
+    // Thirteen offered, not fifty: a page must not cost the conversation.
+    expect(walked.outcome.items).toBe(13);
+  });
+
+  it("does not apply the content cap to a slice", async () => {
+    // `limit` already bounds a page. Applying the cap as well would cut a
+    // legitimate page out of a long conversation — the deeper the page, the
+    // likelier the cut, which is exactly backwards.
+    const long = { role: "user", text: "x".repeat(CONTENT_CAP) };
+    const store = fakeStore([long, long, long]);
+
+    const walked = await walkSession({
+      store,
+      format: FORMAT,
+      request: {},
+      dialect: flat,
+      keep: { offset: 0, limit: 3 },
+    });
+
+    expect(walked.turns).toHaveLength(3);
+  });
+
+  it("a slice past the end of the conversation is empty and unmarked", async () => {
+    const store = fakeStore([{ role: "user", text: "only one" }]);
+
+    const walked = await walkSession({
+      store,
+      format: FORMAT,
+      request: {},
+      dialect: flat,
+      keep: { offset: 40, limit: 10 },
+    });
+
+    expect(walked.turns).toEqual([]);
+    expect(walked.shortfall).toBeUndefined();
+  });
+
+  it("stops as soon as the dialect has what the caller came for", async () => {
+    // The store's head carries the facts a describe wants; reading past them
+    // buys nothing.
+    const dialect: SessionDialect<{ cwd?: string }, { cwd?: string }> = {
+      begin: () => ({}),
+      step: (state, item) => {
+        state.cwd ??= item.cwd;
+        return [];
+      },
+      end: () => [],
+    };
+    const store = fakeStore(
+      Array.from({ length: 100 }, (_, i) => (i === 2 ? { cwd: "/repo" } : {})),
+    );
+
+    const walked = await walkSession({
+      store,
+      format: FORMAT as SessionFormat<Record<string, never>, { cwd?: string }>,
+      request: {},
+      dialect,
+      until: (state) => state.cwd !== undefined,
+    });
+
+    expect(walked.state.cwd).toBe("/repo");
+    expect(walked.outcome.items).toBe(3);
+    // Stopping early is "we have what we came for", never "something was
+    // lost" — a mark here would put a warning on every healthy session.
+    expect(walked.shortfall).toBeUndefined();
+  });
+
+  it("reads on when the condition is never met", async () => {
+    // A store whose head lacks the fact behaves exactly as it did before the
+    // condition existed: the walk goes the whole way.
+    const dialect: SessionDialect<{ cwd?: string }, { cwd?: string }> = {
+      begin: () => ({}),
+      step: () => [],
+      end: () => [],
+    };
+    const store = fakeStore(Array.from({ length: 20 }, () => ({})));
+
+    const walked = await walkSession({
+      store,
+      format: FORMAT as SessionFormat<Record<string, never>, { cwd?: string }>,
+      request: {},
+      dialect,
+      until: (state) => state.cwd !== undefined,
+    });
+
+    expect(walked.outcome.items).toBe(20);
+    expect(walked.outcome.stopped).toBe("exhausted");
+  });
+
   it("hands back the dialect's state, so a plugin reads what it noticed", async () => {
     // cwd, a summary line, a model name: facts a store carries in the very
     // records the walk was going to pass anyway. Opening the store a second

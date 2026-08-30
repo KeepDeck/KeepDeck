@@ -93,8 +93,31 @@ export async function walkSession<Req, Item, State>(opts: {
   format: SessionFormat<Req, Item>;
   request: Req;
   dialect: SessionDialect<State, Item>;
+  /**
+   * Keep only this slice of the turns, and stop once it is full — a page of
+   * a transcript rather than the conversation.
+   *
+   * It lives here rather than in each plugin because a page needs the same
+   * things a whole walk does: the dialect driven, the shortfall derived, and
+   * `end` called. Written per plugin, the page loop would be the copy this
+   * mechanism exists to delete, and the one place a forgotten flush hides.
+   *
+   * The content cap does NOT apply to a slice: `limit` already bounds it,
+   * and the cap would cut a legitimate page out of a long conversation.
+   */
+  keep?: { offset: number; limit: number };
+  /**
+   * Stop as soon as the dialect has what the caller came for.
+   *
+   * The third way to stop, beside "the text is full" and "the slice is
+   * full", and the only one whose condition the plugin owns — because only
+   * the plugin knows what it came for. It says WHAT has been collected, never
+   * how much has been read: a byte count here would be a size back in a
+   * plugin, by another name.
+   */
+  until?: (state: State) => boolean;
 }): Promise<WalkedSession<State>> {
-  const { store, format, request, dialect } = opts;
+  const { store, format, request, dialect, keep: slice, until } = opts;
 
   // A store that moved under the read was two different files, and splicing
   // their halves would show a conversation that never happened. Once is a
@@ -104,10 +127,19 @@ export async function walkSession<Req, Item, State>(opts: {
     const state = dialect.begin();
     const turns: AgentTranscriptEntry[] = [];
     let chars = 0;
+    /** Turns the dialect has produced, counted whether kept or skipped past —
+     * a slice needs to know where it is in the conversation. */
+    let seen = 0;
     let full = false;
 
-    const keep = (produced: AgentTranscriptEntry[]): void => {
+    const take = (produced: AgentTranscriptEntry[]): void => {
       for (const turn of produced) {
+        if (slice !== undefined) {
+          if (seen >= slice.offset && turns.length < slice.limit) turns.push(turn);
+          seen += 1;
+          if (turns.length >= slice.limit) full = true;
+          continue;
+        }
         if (chars >= CONTENT_CAP) {
           full = true;
           return;
@@ -118,10 +150,11 @@ export async function walkSession<Req, Item, State>(opts: {
     };
 
     const outcome = await store.read(format, request, (item) => {
-      keep(dialect.step(state, item));
+      take(dialect.step(state, item));
+      if (until?.(state) === true) return "enough";
       return full ? "enough" : "more";
     });
-    keep(dialect.end(state));
+    take(dialect.end(state));
 
     if (outcome.stopped === "changed" && attempt === 0) continue;
 

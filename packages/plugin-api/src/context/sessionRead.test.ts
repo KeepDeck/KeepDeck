@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { FsFile, PluginFs } from "./services.ts";
+import type { PluginFs } from "./services.ts";
+import { fsStore as fakeFs } from "../testing.ts";
 import {
   createSessionStore,
   jsonl,
@@ -7,76 +8,6 @@ import {
   type SessionCursor,
 } from "./sessionRead.ts";
 import { createJsonlReader } from "./sessionReadJsonl.ts";
-
-/**
- * A filesystem the size of a variable, honouring the same window contract the
- * real one does: a read starts at `offset`, stops at the smaller of the
- * caller's `maxBytes` and the host's own ceiling, drops a multi-byte
- * character the window cut in half, and reports where it actually stopped.
- *
- * `ceiling` is the point of it. The contract says the host clamps a read to
- * its OWN ceiling, so a tiny one is a legitimate host — and it puts a window
- * boundary every few bytes, which is where this reader's whole difficulty
- * lives. The alternative, fixtures larger than the real 256 KB window, would
- * test the same boundary once and cost a megabyte to do it.
- */
-function fakeFs(
-  files: Record<string, string | Uint8Array>,
-  ceiling = 8 * 1024 * 1024,
-): PluginFs {
-  return {
-    readDir: async () => [],
-    watch: () => ({ dispose() {} }),
-    readFile: async (path, opts): Promise<FsFile> => {
-      const content = files[path];
-      if (content === undefined) throw new Error(`no such file: ${path}`);
-      const bytes =
-        typeof content === "string" ? new TextEncoder().encode(content) : content;
-      const size = bytes.length;
-      const offset = opts?.offset ?? 0;
-      const window = bytes.subarray(
-        offset,
-        offset + Math.min(opts?.maxBytes ?? 1024 * 1024, ceiling),
-      );
-      const truncated = size > offset + window.length;
-      const keep = truncated ? withoutDanglingTail(window) : window.length;
-      const text = decode(window.subarray(0, keep));
-      return {
-        path,
-        text,
-        isBinary: text === null,
-        size,
-        truncated: size > offset + keep,
-        readBytes: text === null ? window.length : keep,
-      };
-    },
-  };
-}
-
-/** How much of a window is safe to decode: bytes belonging to a character
- * whose remainder the window cut off are ours to drop, and they come back on
- * the next read. */
-function withoutDanglingTail(bytes: Uint8Array): number {
-  for (let back = 1; back <= Math.min(4, bytes.length); back++) {
-    const lead = bytes[bytes.length - back];
-    if ((lead & 0xc0) === 0x80) continue; // a continuation byte, keep walking
-    const needs =
-      lead < 0x80 ? 1 : (lead & 0xe0) === 0xc0 ? 2 : (lead & 0xf0) === 0xe0 ? 3 : 4;
-    return back < needs ? bytes.length - back : bytes.length;
-  }
-  return bytes.length;
-}
-
-/** `null` for a window that is not text — the shape a NUL byte or a broken
- * encoding arrives in. */
-function decode(bytes: Uint8Array): string | null {
-  if (bytes.includes(0)) return null;
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    return null;
-  }
-}
 
 const NARROW: ReadBudget = { maxPayloadBytes: 64 * 1024 };
 
@@ -237,8 +168,7 @@ describe("jsonl reader", () => {
   });
 
   it("reports a store that shrank under the cursor as changed", async () => {
-    const files: Record<string, string> = { "/s.jsonl": store(40) };
-    const fs = fakeFs(files);
+    const fs = fakeFs({ "/s.jsonl": store(40) });
     const head: unknown[] = [];
     const first = await createJsonlReader(fs).pull(
       { path: "/s.jsonl" },
@@ -251,8 +181,13 @@ describe("jsonl reader", () => {
 
     // Rewritten, not appended to: what the cursor points at is somebody
     // else's byte now.
-    files["/s.jsonl"] = store(2);
-    const { seen, outcome } = await readAll(fs, "/s.jsonl", NARROW, first.next);
+    const rewritten = fakeFs({ "/s.jsonl": store(2) });
+    const { seen, outcome } = await readAll(
+      rewritten,
+      "/s.jsonl",
+      NARROW,
+      first.next,
+    );
 
     expect(outcome.stopped).toBe("changed");
     expect(seen).toHaveLength(0);
@@ -261,8 +196,7 @@ describe("jsonl reader", () => {
   it("keeps resuming when the store merely grew", async () => {
     // The normal case for a live session, and the one a cruder check would
     // confuse with a rewrite.
-    const files: Record<string, string> = { "/s.jsonl": store(5) };
-    const fs = fakeFs(files);
+    const fs = fakeFs({ "/s.jsonl": store(5) });
     const head: unknown[] = [];
     const first = await createJsonlReader(fs).pull(
       { path: "/s.jsonl" },
@@ -273,8 +207,8 @@ describe("jsonl reader", () => {
       },
     );
 
-    files["/s.jsonl"] = store(9);
-    const { seen, outcome } = await readAll(fs, "/s.jsonl", NARROW, first.next);
+    const grown = fakeFs({ "/s.jsonl": store(9) });
+    const { seen, outcome } = await readAll(grown, "/s.jsonl", NARROW, first.next);
 
     expect(outcome.stopped).toBe("exhausted");
     expect(seen).toHaveLength(7);
