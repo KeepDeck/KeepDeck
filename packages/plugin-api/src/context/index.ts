@@ -127,6 +127,24 @@ export type {
   PluginSessions,
   PluginSpawnOptions,
 } from "./services.ts";
+export {
+  createSessionStore,
+  jsonl,
+  type JsonlRequest,
+  type PluginSessionStore,
+  type ReadBudget,
+  type ReadOutcome,
+  type ReadStop,
+  type SessionCursor,
+  type SessionFormat,
+  type SessionReader,
+} from "./sessionRead.ts";
+export {
+  CONTENT_CAP,
+  walkSession,
+  type SessionDialect,
+  type WalkedSession,
+} from "./sessionWalk.ts";
 export type {
   PluginSpeech,
   SpeechCapture,

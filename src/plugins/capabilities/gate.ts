@@ -13,6 +13,7 @@ import type {
   GitHistoryOptions,
   GitStatus,
   PluginLogger,
+  PluginFs,
   PluginManifest,
   PluginOpener,
   PluginPorts,
@@ -20,6 +21,7 @@ import type {
   PluginSessions,
   PluginSpeech,
 } from "@keepdeck/plugin-api";
+import { createSessionStore } from "@keepdeck/plugin-api";
 import { execCovers } from "./execCovers";
 
 /** The two scopes the `fs` capability may declare, as the backend consumes
@@ -180,6 +182,34 @@ export function createCapabilityGate(
     activeDownloadIds.delete(id);
   }
 
+  /** Named rather than inlined below because the session-store reader is
+   * built ON it: a store the plugin may walk is exactly a file it may read,
+   * and routing the reader through this object is what makes that true by
+   * construction instead of by a second check kept in step by hand. */
+  const fs: PluginFs = {
+    readDir(path) {
+      admit(
+        hasFsCapability(manifest.capabilities),
+        `fs.readDir: "${path}" requires an "fs" capability, which the manifest does not declare`,
+      );
+      return backend.fs.readDir(path, fsScope(manifest.capabilities));
+    },
+    readFile(path, opts) {
+      admit(
+        hasFsCapability(manifest.capabilities),
+        `fs.readFile: "${path}" requires an "fs" capability, which the manifest does not declare`,
+      );
+      return backend.fs.readFile(path, fsScope(manifest.capabilities), opts);
+    },
+    watch(path, onChange) {
+      admit(
+        hasFsCapability(manifest.capabilities),
+        `fs.watch: "${path}" requires an "fs" capability, which the manifest does not declare`,
+      );
+      return backend.fs.watch(path, fsScope(manifest.capabilities), onChange);
+    },
+  };
+
   return {
     sessions: {
       spawn(spawnOpts, onEvent) {
@@ -242,29 +272,8 @@ export function createCapabilityGate(
         return backend.opener.openPathWith(path, application);
       },
     },
-    fs: {
-      readDir(path) {
-        admit(
-          hasFsCapability(manifest.capabilities),
-          `fs.readDir: "${path}" requires an "fs" capability, which the manifest does not declare`,
-        );
-        return backend.fs.readDir(path, fsScope(manifest.capabilities));
-      },
-      readFile(path, opts) {
-        admit(
-          hasFsCapability(manifest.capabilities),
-          `fs.readFile: "${path}" requires an "fs" capability, which the manifest does not declare`,
-        );
-        return backend.fs.readFile(path, fsScope(manifest.capabilities), opts);
-      },
-      watch(path, onChange) {
-        admit(
-          hasFsCapability(manifest.capabilities),
-          `fs.watch: "${path}" requires an "fs" capability, which the manifest does not declare`,
-        );
-        return backend.fs.watch(path, fsScope(manifest.capabilities), onChange);
-      },
-    },
+    fs,
+    sessionStore: createSessionStore(fs),
     fsWrite: {
       mkdir(path) {
         admit(

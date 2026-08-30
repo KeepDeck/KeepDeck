@@ -111,6 +111,9 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         }),
         watch: () => ({ dispose() {} }),
       },
+      sessionStore: {
+        read: async () => ({ payloadBytes: 0, items: 0, stopped: "exhausted" as const }),
+      },
       sqlite: {
         query: async () => [],
       },

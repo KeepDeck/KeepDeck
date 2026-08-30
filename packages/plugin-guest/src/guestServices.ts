@@ -9,10 +9,12 @@ import type {
   GitStatus,
   PluginContext,
   PluginExecOutcome,
+  PluginFs,
   PluginSessionEvent,
   SpeechCapture,
   SpeechCaptureOptions,
 } from "@keepdeck/plugin-api";
+import { createSessionStore } from "@keepdeck/plugin-api";
 import { describeError } from "./errors";
 import { RemoteDownloadStream } from "./downloadStream";
 import { speechLevelChannel } from "./protocol";
@@ -60,6 +62,16 @@ export function createGuestServices({
   speechLevels,
   mintId,
 }: GuestServiceDeps): PluginContext["services"] {
+  /** Named so the session-store reader can be built on it — see the return
+   * below: the reader runs HERE, in the guest, over this proxy. */
+  const fs: PluginFs = {
+    readDir: (path) =>
+      rpc.call("services.fs.readDir", [path]) as Promise<FsEntry[]>,
+    readFile: (path, opts) =>
+      rpc.call("services.fs.readFile", [path, opts]) as Promise<FsFile>,
+    watch: (path, onChange) => remoteWatch("fs", path, onChange),
+  };
+
   return {
     sessions: {
       spawn: (opts, onEvent) =>
@@ -96,13 +108,14 @@ export function createGuestServices({
       openPathWith: (path, application) =>
         rpc.call("services.opener.openPathWith", [path, application]).then(noop),
     },
-    fs: {
-      readDir: (path) =>
-        rpc.call("services.fs.readDir", [path]) as Promise<FsEntry[]>,
-      readFile: (path, opts) =>
-        rpc.call("services.fs.readFile", [path, opts]) as Promise<FsFile>,
-      watch: (path, onChange) => remoteWatch("fs", path, onChange),
-    },
+    fs,
+    // NOT an RPC verb, deliberately. The reader is host code either way; run
+    // behind the wire it would have to ship every record across the realm
+    // boundary — tens of thousands of messages for one store, and the
+    // external tier would be slower for using the memory-safe path. Run
+    // HERE it costs one message per window, and the records never leave the
+    // realm that asked for them.
+    sessionStore: createSessionStore(fs),
     fsWrite: {
       mkdir: (path) =>
         rpc.call("services.fsWrite.mkdir", [path]) as Promise<void>,

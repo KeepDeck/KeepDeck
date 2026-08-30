@@ -1,5 +1,6 @@
 import type { Disposable } from "./disposable.ts";
 import type { PluginDownloads } from "./downloads.ts";
+import type { PluginSessionStore } from "./sessionRead.ts";
 import type { PluginSpeech } from "./speech.ts";
 
 /**
@@ -23,6 +24,11 @@ export interface PluginServices {
   /** Read-only SQL over the plugin's own declared store dbs (capability:
    * `sqliteReadonly`) — for stores that are databases, not files. */
   readonly sqlite: PluginSqlite;
+  /** Walk an agent's session store a record at a time, instead of reading it
+   * whole. Built over this plugin's own `fs`, so it reaches nothing the
+   * plugin could not already read — what it adds is that the store need not
+   * be resident to be read. */
+  readonly sessionStore: PluginSessionStore;
   readonly git: PluginGit;
   /** Generic host-managed network transfers into private plugin storage. */
   readonly downloads: PluginDownloads;
