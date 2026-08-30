@@ -419,11 +419,15 @@ export function createAppRuntime(
       // follows the bindings this one ACCEPTED rather than judging the same
       // event a second time. The verdict pins a generation to a process, so
       // asking it twice would tell the second asker the first had bound.
-      const bindings = (sessionBinding ??= createSessionBinding(
-        deckStore,
-        lifecycle,
-        attribution,
-      ));
+      if (sessionBinding === null) {
+        sessionBinding = createSessionBinding(deckStore, lifecycle, attribution);
+        // A binding is the app learning that a session now EXISTS, so the
+        // index's last walk is behind its store from this moment. Widely,
+        // not per agent: the accepted binding does not carry one, and a
+        // needless extra sweep is the cheap side of this trade.
+        sessionBinding.subscribe(() => sessionIndex.invalidate());
+      }
+      const bindings = sessionBinding;
       usageChannel ??= createUsageChannel(
         deckStore,
         plugins.pluginRegistries.agents,

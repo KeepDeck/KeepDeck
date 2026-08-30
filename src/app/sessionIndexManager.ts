@@ -48,7 +48,35 @@ export interface SessionIndexManager {
    * sources at all. Void on purpose: results arrive by subscription, and a
    * Promise would only tempt an `await` into an effect. */
   ensureFresh(agent?: string): void;
+  /** The store behind `agent` (or every store) has changed under us —
+   * whatever was scanned before this moment no longer counts as fresh.
+   * Called from the binding lane, which is where the app learns that a
+   * session has come into being; without it the freshness window would
+   * hide a just-spawned agent's session for as long as it lasts. */
+  invalidate(agent?: string): void;
   dispose(): void;
+}
+
+/**
+ * How long a settled pass answers for its scope.
+ *
+ * The value only has to outlive one gesture. The pass this saves is the
+ * repeat: open the spawn dialog, look at two agents, close it, open it
+ * again — four passes over stores that nothing touched in between, because
+ * the dialog declares a need on mount AND on every agent switch. A minute
+ * covers that gesture with room to spare.
+ *
+ * It is deliberately NOT the whole story: a window alone would hide a
+ * session the user just created. `invalidate` is what makes the policy
+ * safe, and the window is only what it falls back to for changes the app
+ * never hears about — a session started in the user's own terminal, or one
+ * deleted from disk behind our back.
+ */
+const FRESH_MS = 60_000;
+
+export interface SessionIndexOptions {
+  /** Injected so tests move time instead of waiting for it. */
+  now?: () => number;
 }
 
 /** Merge two needs into the one pass that satisfies both: identical scopes
@@ -77,7 +105,9 @@ function mergeNeeds(a: Need | null, b: Need): Need {
  */
 export function createSessionIndexManager(
   registry: SessionIndexRegistry,
+  options: SessionIndexOptions = {},
 ): SessionIndexManager {
+  const now = options.now ?? (() => Date.now());
   let snapshot: SessionIndexSnapshot = {
     scanning: false,
     revision: 0,
@@ -95,6 +125,36 @@ export function createSessionIndexManager(
    * would be eaten. They hang until the registry says something exists. */
   let deferred: Need | null = null;
   let disposed = false;
+  /** Bumped by every `invalidate`. A pass reads it at START and writes its
+   * freshness record only if it still matches at settle: a pass that was
+   * already walking the store when the change landed did not see it, and
+   * must not answer for the state that followed. Without this the window
+   * would be armed by a pass that is provably behind. */
+  let epoch = 0;
+  /** When a full sweep last settled on an unchanged epoch; null when none
+   * has, or when one was invalidated. */
+  let fullSettledAt: number | null = null;
+  /** The same, per agent, for the narrow passes the spawn dialog asks for.
+   * Cleared by a full sweep — that sweep covers every agent, and one record
+   * answering for all of them is cheaper than N copies of the same instant. */
+  const agentSettledAt = new Map<string, number>();
+
+  /** Is this need already answered? Asymmetric on purpose: a full sweep
+   * covers a narrow need, but a narrow pass says NOTHING about the agents it
+   * did not walk, so it can never satisfy a full one. Getting this backwards
+   * would silently starve the browser's sweep — no error, just an index
+   * quietly drifting from the stores. */
+  function isFresh(need: Need): boolean {
+    const full = fullSettledAt ?? Number.NEGATIVE_INFINITY;
+    const at =
+      need.agent === undefined
+        ? full
+        : Math.max(
+            agentSettledAt.get(need.agent) ?? Number.NEGATIVE_INFINITY,
+            full,
+          );
+    return Number.isFinite(at) && now() - at < FRESH_MS;
+  }
 
   function hasAnySource(): boolean {
     return registry.list().some((c) => c.entry.history !== undefined);
@@ -135,6 +195,7 @@ export function createSessionIndexManager(
 
   function run(need: Need): void {
     running = need;
+    const epochAtStart = epoch;
     const sources = sourcesOf(need.agent);
     publish({ scanning: true, revision: snapshot.revision });
     // What the settling pass carries, staged by `.then` and applied by
@@ -162,6 +223,17 @@ export function createSessionIndexManager(
       })
       .finally(() => {
         running = null;
+        // The pass answers for its scope only if nothing changed under it
+        // while it walked. A full sweep drops the per-agent records: it
+        // covers all of them, and `isFresh` already falls back to this one.
+        if (epochAtStart === epoch) {
+          if (need.agent === undefined) {
+            fullSettledAt = now();
+            agentSettledAt.clear();
+          } else {
+            agentSettledAt.set(need.agent, now());
+          }
+        }
         if (invalidNow !== null) {
           publish({
             scanning: false,
@@ -173,7 +245,10 @@ export function createSessionIndexManager(
         }
         const next = queued;
         queued = null;
-        if (next !== null && !disposed) run(next);
+        // Re-asked, not replayed: a need can wait a long time behind a slow
+        // pass, and the pass that just settled may be exactly what it wanted
+        // (a full sweep answers a narrow need queued behind it).
+        if (next !== null && !disposed && !isFresh(next)) run(next);
       });
   }
 
@@ -202,6 +277,10 @@ export function createSessionIndexManager(
     ensureFresh(agent) {
       if (disposed) return;
       const need: Need = agent === undefined ? {} : { agent };
+      // Answered already — the cheapest pass is the one that never runs.
+      // Asked before the running/deferred branches because a fresh answer
+      // is a fresh answer whatever else is in flight.
+      if (isFresh(need)) return;
       if (running !== null) {
         // A running pass already covering the need satisfies it — the
         // narrowest dedup there is. Anything wider chains behind.
@@ -216,6 +295,20 @@ export function createSessionIndexManager(
         return;
       }
       run(need);
+    },
+
+    invalidate(agent) {
+      if (disposed) return;
+      // The bump lands even when nothing was recorded yet: a pass ALREADY
+      // RUNNING is the case this exists for, and it reads the epoch, not
+      // the records.
+      epoch += 1;
+      // A full record answered for this agent too, so a narrow change
+      // retires it as well — keeping it would let the next full-covered
+      // narrow need read a store we know has moved.
+      fullSettledAt = null;
+      if (agent === undefined) agentSettledAt.clear();
+      else agentSettledAt.delete(agent);
     },
 
     dispose() {
