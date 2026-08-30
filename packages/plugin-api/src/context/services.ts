@@ -199,6 +199,18 @@ export interface FsReadFileOptions {
   /** Preferred read cap in bytes; the host clamps it to its own ceiling.
    * Reading stops there and `truncated` is set. */
   maxBytes?: number;
+  /** Start the read HERE instead of at byte zero, which turns `maxBytes` from
+   * a ceiling on the whole read into the size of one window: a caller that
+   * wants a large file entire walks it window by window, holding one window
+   * at a time. `offset + readBytes` is where the next window starts, and
+   * `truncated` says whether one remains.
+   *
+   * A window must begin on a character boundary — an offset landing inside a
+   * multi-byte character comes back `isBinary`, because the alternative is
+   * for the host to silently move the position the caller asked for and let
+   * the two sides' arithmetic drift apart. Resume from a boundary you framed
+   * yourself (the end of a line, of a record) and this never arises. */
+  offset?: number;
 }
 
 /** One directory child. `path` is absolute — pass it straight back into

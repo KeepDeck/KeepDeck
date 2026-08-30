@@ -426,6 +426,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
           fsRoots(scope),
           scope === "everywhere",
           opts?.maxBytes,
+          opts?.offset,
         ),
       watch: (path, scope, onChange) => watchProjectDir(path, scope, onChange),
     },

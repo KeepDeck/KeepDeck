@@ -10,7 +10,7 @@
 //! half and the watching half identically.
 
 use std::fs;
-use std::io::Read as _;
+use std::io::{Read as _, Seek as _, SeekFrom};
 
 use serde::Serialize;
 
@@ -59,11 +59,18 @@ pub enum FsKind {
 /// One file's contents. Text is decoded UTF-8 (`text: None` when the file is
 /// binary — a NUL byte or invalid UTF-8), so the common code-viewer path
 /// carries a plain string across the wire rather than a byte array. `size` is
-/// the file's FULL length; `truncated` says the returned text stops at the
-/// read cap; `read_bytes` says where it stopped — and where the TEXT stops,
-/// which is the same thing except when a capped read split a multi-byte
+/// the file's FULL length; `truncated` says something remains BEYOND what came
+/// back; `read_bytes` says how many bytes this read produced — and how many the
+/// TEXT holds, which is the same thing except when the read split a multi-byte
 /// character: the dangling stub is dropped and `read_bytes` drops with it, so
 /// the number always describes the text actually handed over.
+///
+/// With an `offset`, `read_bytes` measures the WINDOW, not the file: it counts
+/// from `offset`, so `offset + read_bytes` is where the next window starts and
+/// `truncated` means "that position is not the end". Anchoring it to the file
+/// instead would make every window past the first report a length it did not
+/// return, and the incompleteness mark would fire on every chunk of a file
+/// being read in full.
 ///
 /// `read_bytes` is REPORTED rather than left for the caller to infer. A caller
 /// knows only what it asked for, and the ask is clamped here — so inferring
@@ -123,12 +130,22 @@ pub fn project_fs_read_dir(
 /// Read one file's contents, capped. `max_bytes` is the caller's preferred cap,
 /// clamped to [`MAX_FILE_BYTES`]; absent, [`DEFAULT_MAX_FILE_BYTES`] applies. A
 /// directory target is an error (the plugin should call [`project_fs_read_dir`]).
+///
+/// `offset` starts the read there instead of at byte zero, which turns the cap
+/// from a ceiling on the WHOLE read into the size of one window: a caller that
+/// wants a large file entire walks it window by window, holding one window at a
+/// time, instead of materializing the file. Where a window may start is the
+/// caller's problem — an offset landing inside a multi-byte character produces
+/// bytes that are not valid UTF-8 from their first one, and this reports that
+/// honestly as binary rather than guessing which bytes to discard. Callers that
+/// resume on a boundary they framed themselves (a line, a record) never meet it.
 #[tauri::command(async)]
 pub fn project_fs_read_file(
     path: String,
     roots: Vec<String>,
     everywhere: bool,
     max_bytes: Option<u64>,
+    offset: Option<u64>,
 ) -> Result<FsFile, String> {
     let file = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
     let meta = fs::metadata(&file).map_err(|e| format!("cannot stat: {e}"))?;
@@ -138,14 +155,24 @@ pub fn project_fs_read_file(
     let size = meta.len();
     let cap = max_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES).min(MAX_FILE_BYTES);
 
-    let handle = fs::File::open(&file).map_err(|e| format!("cannot open: {e}"))?;
+    let start = offset.unwrap_or(0);
+    let mut handle = fs::File::open(&file).map_err(|e| format!("cannot open: {e}"))?;
+    if start > 0 {
+        handle
+            .seek(SeekFrom::Start(start))
+            .map_err(|e| format!("cannot seek: {e}"))?;
+    }
     let mut buf = Vec::new();
     handle
         .take(cap)
         .read_to_end(&mut buf)
         .map_err(|e| format!("cannot read: {e}"))?;
     let mut read_bytes = buf.len() as u64;
-    let truncated = size > read_bytes;
+    // Anything left AFTER this window — the file's end for a read that started
+    // at zero, the next window's start for one that did not. A `start` past the
+    // end reads nothing and is NOT truncated: there is no remainder to come
+    // back for, and saying otherwise would loop a walking reader on emptiness.
+    let truncated = size > start.saturating_add(read_bytes);
 
     // Binary detection, the git heuristic: a NUL byte means binary. Otherwise
     // try to decode UTF-8; invalid bytes are binary too (can't render as text).
@@ -305,6 +332,7 @@ mod tests {
             roots(&inside),
             false,
             None,
+            None,
         );
         assert!(result.is_err());
     }
@@ -343,6 +371,7 @@ mod tests {
             roots(&root),
             false,
             None,
+            None,
         )
         .unwrap();
         assert_eq!(file.text.as_deref(), Some("fn main() {}\n"));
@@ -361,6 +390,7 @@ mod tests {
             roots(&root),
             false,
             None,
+            None,
         )
         .unwrap();
         assert!(file.is_binary);
@@ -377,6 +407,7 @@ mod tests {
             roots(&root),
             false,
             Some(10),
+            None,
         )
         .unwrap();
         assert_eq!(file.text.as_deref(), Some(&"a".repeat(10)[..]));
@@ -402,13 +433,14 @@ mod tests {
         let root = temp_root();
         // Nine ASCII bytes then one two-byte character: a cap of ten stops
         // between its lead byte and its continuation.
-        write(&root.join("ru.txt"), &format!("{}Д", "a".repeat(9)));
+        write(&root.join("split.txt"), &format!("{}Д", "a".repeat(9)));
 
         let file = project_fs_read_file(
-            root.join("ru.txt").to_string_lossy().into_owned(),
+            root.join("split.txt").to_string_lossy().into_owned(),
             roots(&root),
             false,
             Some(10),
+            None,
         )
         .unwrap();
         assert_eq!(file.text.as_deref(), Some(&"a".repeat(9)[..]));
@@ -445,6 +477,7 @@ mod tests {
             roots(&root),
             false,
             Some(8),
+            None,
         )
         .unwrap();
         assert!(file.is_binary);
@@ -473,6 +506,7 @@ mod tests {
             roots(&root),
             false,
             None,
+            None,
         )
         .unwrap();
         assert!(file.is_binary);
@@ -500,6 +534,7 @@ mod tests {
             roots(&root),
             false,
             None,
+            None,
         )
         .unwrap();
 
@@ -515,6 +550,150 @@ mod tests {
         assert_eq!(wire["truncated"], false);
     }
 
+    /// A window: the read starts at `offset` and `read_bytes` counts from
+    /// there, not from the file's start.
+    ///
+    /// This is the whole point of the parameter — a caller walking a large
+    /// file holds one window at a time instead of the file. Were `read_bytes`
+    /// anchored to the file, a caller computing its next offset from it would
+    /// be adding in everything it had already passed, and the walk would skip
+    /// forward exponentially.
+    #[test]
+    fn read_file_reads_a_window_starting_at_the_offset() {
+        let root = temp_root();
+        write(&root.join("big.txt"), "0123456789abcdef");
+
+        let file = project_fs_read_file(
+            root.join("big.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            Some(4),
+            Some(10),
+        )
+        .unwrap();
+        assert_eq!(file.text.as_deref(), Some("abcd"));
+        assert_eq!(file.read_bytes, 4);
+        // The FILE's length, not the window's — a caller needs it to notice
+        // that the store grew under a resumed walk.
+        assert_eq!(file.size, 16);
+        assert!(file.truncated);
+    }
+
+    /// Windows chained by `offset + read_bytes` reassemble the file exactly,
+    /// and the last one is not truncated.
+    ///
+    /// The pair of numbers IS the resume protocol; this walks it the way a
+    /// streaming reader does. A `truncated` computed against the file rather
+    /// than against the window's end would stay true on the final window, and
+    /// a reader trusting it would ask forever.
+    #[test]
+    fn read_file_windows_chained_by_offset_reassemble_the_file() {
+        let root = temp_root();
+        let content: String = (0..50).map(|i| format!("line {i}\n")).collect();
+        write(&root.join("log.jsonl"), &content);
+
+        let mut at = 0u64;
+        let mut seen = String::new();
+        loop {
+            let file = project_fs_read_file(
+                root.join("log.jsonl").to_string_lossy().into_owned(),
+                roots(&root),
+                false,
+                Some(30),
+                Some(at),
+            )
+            .unwrap();
+            seen.push_str(file.text.as_deref().unwrap());
+            at += file.read_bytes;
+            if !file.truncated {
+                break;
+            }
+            assert!(file.read_bytes > 0, "a truncated window must advance");
+        }
+        assert_eq!(seen, content);
+        assert_eq!(at, content.len() as u64);
+    }
+
+    /// An offset at or past the end reads nothing and reports no remainder.
+    ///
+    /// The terminating case of the walk above: "empty and not truncated" is
+    /// how a reader learns it is done. Reporting truncation here — the file
+    /// being longer than the zero bytes read — would loop it on emptiness.
+    #[test]
+    fn read_file_offset_past_the_end_reads_nothing_and_ends() {
+        let root = temp_root();
+        write(&root.join("a.txt"), "hello");
+
+        let file = project_fs_read_file(
+            root.join("a.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            None,
+            Some(5),
+        )
+        .unwrap();
+        assert_eq!(file.text.as_deref(), Some(""));
+        assert_eq!(file.read_bytes, 0);
+        assert!(!file.truncated);
+    }
+
+    /// A window ending mid-character drops the stub AND the bytes for it, so
+    /// the next window re-reads the whole character.
+    ///
+    /// The rescue and the resume protocol have to agree: the stub is not in
+    /// the text, so it must not be in `read_bytes` either — otherwise the next
+    /// window would start after a character nobody ever received.
+    #[test]
+    fn read_file_window_split_mid_character_resumes_before_it() {
+        let root = temp_root();
+        write(&root.join("split.txt"), "abДef");
+
+        let first = project_fs_read_file(
+            root.join("split.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            Some(3), // "ab" plus the lead byte of "Д"
+            None,
+        )
+        .unwrap();
+        assert_eq!(first.text.as_deref(), Some("ab"));
+        assert_eq!(first.read_bytes, 2);
+
+        let second = project_fs_read_file(
+            root.join("split.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            None,
+            Some(first.read_bytes),
+        )
+        .unwrap();
+        assert_eq!(second.text.as_deref(), Some("Дef"));
+        assert!(!second.truncated);
+    }
+
+    /// An offset landing inside a character is reported, not quietly moved.
+    ///
+    /// Skipping to the next boundary would give `offset` a second, invisible
+    /// meaning: the caller's arithmetic and the host's would drift apart by a
+    /// byte or two with nothing saying so. A caller resuming from a boundary
+    /// it framed itself never reaches this.
+    #[test]
+    fn read_file_offset_inside_a_character_is_binary_not_silently_moved() {
+        let root = temp_root();
+        write(&root.join("split.txt"), "Дa");
+
+        let file = project_fs_read_file(
+            root.join("split.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            None,
+            Some(1), // the continuation byte of "Д"
+        )
+        .unwrap();
+        assert!(file.is_binary);
+        assert_eq!(file.text, None);
+    }
+
     #[test]
     fn read_file_rejects_a_directory() {
         let root = temp_root();
@@ -524,6 +703,7 @@ mod tests {
             root.join("adir").to_string_lossy().into_owned(),
             roots(&root),
             false,
+            None,
             None,
         );
         assert!(result.is_err());
