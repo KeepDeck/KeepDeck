@@ -806,6 +806,56 @@ describe("opencode session reporter", () => {
   });
 
   /**
+   * Quiescence has TWO owners announcing it when a turn is aborted — the
+   * interrupted turn's own handler, and the runner it was cancelled through —
+   * so opencode publishes the idle pair twice, about 19ms apart. Measured on a
+   * live deck across three panes.
+   *
+   * A second ending is not a second turn ending. Landing on a turn begun since
+   * the abort, the deck paints "Done" over live work and announces it, and a
+   * dated notification is not withdrawn when it turns out to be false.
+   */
+  it("says a turn ended once, however many owners announce it", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    const statusIdle = {
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "idle" } },
+      },
+    };
+    const idle = {
+      event: { type: "session.idle", properties: { sessionID: "ses_root" } },
+    };
+    await event({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "ses_root", status: { type: "busy" } },
+      },
+    });
+    // Esc: the turn's own handler states the reason and the first pair...
+    await event({
+      event: {
+        type: "session.error",
+        properties: {
+          sessionID: "ses_root",
+          error: { name: "MessageAbortedError" },
+        },
+      },
+    });
+    await event(statusIdle);
+    await event(idle);
+    // ...and the runner, having finished unwinding, states its own.
+    await event(statusIdle);
+    await event(idle);
+
+    const forwarded = (await statusEvents());
+    expect(forwarded.filter((e: any) => e.type === "session.idle")).toHaveLength(
+      1,
+    );
+  });
+
+  /**
    * The two halves read together, because neither alone catches this.
    *
    * An overflowed context publishes an error and then compacts — the SAME turn
@@ -1046,6 +1096,37 @@ describe("opencode session reporter", () => {
     const { event } = await reporter();
     await event(created("ses_root"));
     await event(assistantMessage({ time: {} }));
+    expect((await statusEvents())).toEqual([]);
+  });
+
+  /**
+   * A cancelled turn keeps publishing while it unwinds. opencode marks the
+   * session free the moment the cancel is accepted and runs the interrupted
+   * work's finalizers after that, so the aborted message's record is written
+   * seconds later — by which time the next turn has begun. Measured on a live
+   * deck: the record landed one second behind the idle, the next turn was
+   * already running, and the pane read "Interrupted" for the four and a half
+   * minutes that turn took.
+   *
+   * The record is still true about ITS turn; it is simply not about this one.
+   */
+  it("does not let a cancelled turn's late record end the turn after it", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    // The interrupted turn's message, still streaming when Esc lands.
+    await event(assistantMessage({ id: "msg_cut", time: { created: 100 } }));
+    // The successor: opencode writes its message the moment the turn starts,
+    // which is what makes the abort's trailing record recognisable as old.
+    await event(assistantMessage({ id: "msg_next", time: { created: 200 } }));
+    // ...and only now does the interrupted turn finish unwinding.
+    await event(
+      assistantMessage({
+        id: "msg_cut",
+        time: { created: 100, completed: 300 },
+        error: { name: "MessageAbortedError" },
+      }),
+    );
+
     expect((await statusEvents())).toEqual([]);
   });
 

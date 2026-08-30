@@ -97,6 +97,39 @@ export default async (input = {}) => {
       : undefined;
   };
 
+  /**
+   * The pane's newest assistant message — the turn a finished message is
+   * allowed to speak for.
+   *
+   * A cancelled turn goes on publishing while it unwinds: opencode frees the
+   * session the moment the cancel is accepted, so the aborted message's own
+   * record is written seconds later, after the next turn has begun. Without
+   * this it ends a turn it was never about.
+   *
+   * Newest by the message's own CREATION — one Esc can abort several and
+   * their records settle out of order — and by ID, not by clock: comparing
+   * finish times against the deck's phase misses one abort in fifteen.
+   */
+  let newestTurn;
+
+  /** Record an assistant message of the pane's conversation as its turn.
+   * Every frame counts, streaming ones included — the point is to know the
+   * NEW turn's message before the old turn's record arrives, and creation is
+   * the earliest that can be known. */
+  const noteTurn = (value) => {
+    const info = value?.info ?? value;
+    if (info?.role !== "assistant" || !info.id) return;
+    if (info.sessionID !== pane.root) return;
+    const created = info.time?.created ?? 0;
+    if (newestTurn && created < newestTurn.created) return;
+    newestTurn = { id: info.id, created };
+  };
+
+  /** Whether a finished message is the turn the pane is on now. Nothing
+   * recorded means nothing newer has begun — an unbound pane, or the first
+   * message of a resumed one — so the message speaks for itself. */
+  const isNewestTurn = (info) => !newestTurn || newestTurn.id === info.id;
+
   const remember = (info, rootSessionID) => {
     const turn = turnOf(info);
     messages.set(`${info.sessionID}\0${info.id}`, turn);
@@ -295,32 +328,21 @@ export default async (input = {}) => {
    * what certainly belongs to another conversation.
    */
   /**
-   * Whether this pane's turn has already been reported as running.
+   * The last thing this side said about whether the pane's turn is running.
    *
-   * opencode says `busy` once per MODEL CALL, not once per turn: twice on
-   * submit and twice more after every tool result — ten times on a measured
-   * turn that ran three commands. Each one reached the deck as a turn
-   * beginning, and a beginning restarts the phase clock, so an 81-second turn
-   * showed "Working · 3s".
+   * opencode repeats BOTH turn-state facts — `busy` once per model call, and
+   * `idle` twice per abort, because quiescence has two owners announcing it —
+   * so a repeat of either is the same kind of nothing, under one rule.
    *
-   * The clock is right to restart on a new turn — a CLI can begin one of its
-   * own accord, and every other agent means exactly that by the edge. What was
-   * wrong is saying it ten times.
+   * ONLY THE OPPOSITE FACT MAKES EITHER NEWS AGAIN. Errors must not: some end
+   * no turn at all, and clearing on one restarts the phase clock on a turn
+   * that never stopped.
    *
-   * ONLY AN IDLE CLEARS IT, and that is the whole rule. Clearing on errors too
-   * looked safer and was the same bug in miniature: some errors do not end the
-   * turn at all — an overflowed context publishes one and then compacts, and a
-   * crashing plugin publishes one that belongs to no turn — so the next model
-   * call passed as news and the phase clock restarted on a turn that had never
-   * stopped. And an ending without an idle does not exist: every one of them
-   * goes through the same pair, checked against opencode's own code. The only
-   * exception is the process dying, where this flag has nobody left to read it.
-   *
-   * That rule is also what keeps this side out of the business of meaning.
-   * Knowing WHICH errors end a turn is the normalizer's; knowing that a fact
-   * has already been stated is this one's.
+   * NOT COVERED: a new turn's `busy` landing between the two idles would let
+   * the second through, and an `idle` payload carries nothing to tell it from
+   * the first.
    */
-  let turnReported = false;
+  let lastTurnState;
 
   const belongsHere = (event) => {
     const props = event.properties ?? {};
@@ -367,33 +389,27 @@ export default async (input = {}) => {
     }
   };
 
-  /**
-   * Whether opencode is saying THE TURN IS RUNNING for a turn already reported
-   * as running — and, when it is not, recording that it has now been said.
-   *
-   * Named for the answer and NOT written as a question, because it keeps one:
-   * called twice on the same event it answers differently, and the second
-   * answer is the true one. A pure-looking name over a recording call is worse
-   * than a plain lie — a reader trusts it and calls it twice.
-   */
-  const sayingTheTurnRunsAgain = (event) => {
-    if (event.type !== "session.status") return false;
+  /** Which of the two turn-state facts an event states, if either. The `idle`
+   * KIND of `session.status` is not one of them: it is the first half of a
+   * pair whose second half is `session.idle`, and counting it would make the
+   * real ending look like a repeat of itself. What a fact MEANS stays the
+   * normalizer's. */
+  const turnStateOf = (event) => {
+    if (event.type === "session.idle") return "idle";
+    if (event.type !== "session.status") return undefined;
     const status = event.properties?.status;
     const kind = typeof status === "object" ? status?.type : status;
-    if (kind !== "busy") return false;
-    if (turnReported) return true;
-    turnReported = true;
-    return false;
+    return kind === "busy" ? "busy" : undefined;
   };
 
   const handle = async (event) => {
     if (belongsHere(event)) {
-      // An idle, and nothing else — see `turnReported` for why the errors that
-      // looked like endings had to come out of this condition.
-      if (event.type === "session.idle") {
-        turnReported = false;
-      }
-      if (!sayingTheTurnRunsAgain(event)) forward(event);
+      const stating = turnStateOf(event);
+      // Already said, and nothing has said otherwise since — see
+      // `lastTurnState` for what each repeat costs the deck.
+      if (stating && stating === lastTurnState) return;
+      forward(event);
+      if (stating) lastTurnState = stating;
       return;
     }
 
@@ -424,6 +440,7 @@ export default async (input = {}) => {
     }
 
     if (event?.type !== "message.updated") return;
+    noteTurn(event.properties);
     const info = completedAssistant(event.properties);
     // Assistant messages only, once the turn is DONE (message.updated fires
     // repeatedly as a message streams; the completed frame carries the final
@@ -465,7 +482,11 @@ export default async (input = {}) => {
     // only for that reading — spend travels the usage report below, which
     // takes descendants on purpose. Forwarding a child's would let a subagent
     // cut short on its own account read as the pane being interrupted.
-    if (info.sessionID === pane.root) forward(event);
+    //
+    // Nor is a SUPERSEDED message the pane's turn ending: see `newestTurn`.
+    // Spend below is unaffected — a late record is still real money, and the
+    // sum is keyed by message id rather than by which turn is current.
+    if (info.sessionID === pane.root && isNewestTurn(info)) forward(event);
     if (hydration) await hydration;
     // Every assistant turn — ROOT or subagent — is real session spend and
     // sums into the cumulative. But a subagent's context is ITS own, not the

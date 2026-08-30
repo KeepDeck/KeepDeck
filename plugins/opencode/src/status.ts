@@ -9,10 +9,12 @@ import {
  * opencode's bus, read as turn-lifecycle edges.
  *
  * THE ONLY PLACE OPENCODE'S DIALECT IS TRANSLATED. The reporter inside the
- * agent's process forwards its events verbatim and answers one question about
- * them — whose conversation they belong to — because the session tree and the
- * process boundary exist only there. What an event MEANS is decided here,
- * where a reading can be revised; a payload reduced a process away cannot be.
+ * agent's process forwards its events verbatim and answers only questions of
+ * ADDRESS about them — whose conversation an event belongs to, and which of
+ * the pane's turns — because the session tree, the process boundary and the
+ * order in which messages were opened exist only there. What an event MEANS
+ * is decided here, where a reading can be revised; a payload reduced a
+ * process away cannot be.
  *
  * INTERRUPTS ARE DISTINGUISHABLE, and the comment that used to stand here
  * said the opposite. `MessageAbortedError` is a typed member of the error
@@ -129,9 +131,13 @@ function sessionErrorEdge(error: unknown, at: number): AgentStatusEvent | null {
  * An interrupt caught BETWEEN steps writes its name onto the message and
  * publishes no `session.error` at all — the idle pair still arrives, so
  * without this anchor that turn reads as an ordinary, successful Done. The
- * path was never reproduced on a live agent (every window we could interrupt
- * published the error), so this is insurance and is written as such: it costs
- * one comparison on a message we already forward.
+ * path is opencode's own code and not a guess — its finalizer for a message
+ * interrupted outside the model stream publishes the rewritten message and
+ * nothing else — and has still never been caught in the act on a live agent,
+ * so the anchor stays written as insurance.
+ *
+ * WHICH TURN a record is about is settled before it reaches here: the
+ * reporter forwards one only while it is still the pane's newest message.
  *
  * THE GUARD IS THE POINT. An ordinary turn also finishes, and it finishes
  * without an error — so an anchor that triggered on completion alone would
