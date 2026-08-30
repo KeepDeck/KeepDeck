@@ -130,19 +130,14 @@ function sessionErrorEdge(error: unknown, at: number): AgentStatusEvent | null {
  *
  * An interrupt caught BETWEEN steps writes its name onto the message and
  * publishes no `session.error` at all — the idle pair still arrives, so
- * without this anchor that turn reads as an ordinary, successful Done. That
- * path is opencode's own code and not a guess: the finalizer for an assistant
- * message interrupted outside the model stream sets the error, stamps the
- * message finished and rewrites it, and publishes nothing else. It has never
- * been caught in the act on a live agent — every window we managed to
- * interrupt published the error too — so the anchor stays written as
- * insurance, and costs one comparison.
+ * without this anchor that turn reads as an ordinary, successful Done. The
+ * path is opencode's own code and not a guess — its finalizer for a message
+ * interrupted outside the model stream publishes the rewritten message and
+ * nothing else — and has still never been caught in the act on a live agent,
+ * so the anchor stays written as insurance.
  *
- * WHICH TURN a record is about is settled before it reaches here. opencode
- * frees the session the moment a cancel is accepted and finishes unwinding
- * afterwards, so an aborted message's record can be written after the next
- * turn has begun; the reporter forwards one only while it is still the pane's
- * own newest message.
+ * WHICH TURN a record is about is settled before it reaches here: the
+ * reporter forwards one only while it is still the pane's newest message.
  *
  * THE GUARD IS THE POINT. An ordinary turn also finishes, and it finishes
  * without an error — so an anchor that triggered on completion alone would
