@@ -694,6 +694,68 @@ mod tests {
         assert_eq!(file.text, None);
     }
 
+    /// A FOUR-byte character split by a window drops all of its stub, however
+    /// many bytes of it arrived.
+    ///
+    /// Two-byte characters were the case that provoked the rescue, and a
+    /// rescue that walked back a fixed distance would pass that test and lose
+    /// bytes here. Its twin in `packages/plugin-api/src/testing.test.ts`
+    /// asserts the same numbers against the double every equivalence run is
+    /// measured through: a corner neither implementation was written against
+    /// is where the two would first disagree.
+    #[test]
+    fn read_file_window_split_inside_a_four_byte_character_drops_the_whole_stub() {
+        let root = temp_root();
+        write(&root.join("wide.txt"), "ab😀cd");
+
+        // Two ASCII bytes, then two of the emoji's four.
+        let first = project_fs_read_file(
+            root.join("wide.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            Some(4),
+            None,
+        )
+        .unwrap();
+        assert_eq!(first.text.as_deref(), Some("ab"));
+        assert_eq!(first.read_bytes, 2);
+        assert!(first.truncated);
+
+        let second = project_fs_read_file(
+            root.join("wide.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            None,
+            Some(first.read_bytes),
+        )
+        .unwrap();
+        assert_eq!(second.text.as_deref(), Some("😀cd"));
+        assert!(!second.truncated);
+    }
+
+    /// A zero cap reads nothing and still reports a remainder.
+    ///
+    /// The shape that can spin a walking reader forever: truncated, yet not
+    /// advancing. Pinned on BOTH sides so the reader's guard against it is
+    /// written against a behaviour that is agreed rather than assumed.
+    #[test]
+    fn read_file_a_zero_cap_reads_nothing_but_still_reports_a_remainder() {
+        let root = temp_root();
+        write(&root.join("a.txt"), "hello");
+
+        let file = project_fs_read_file(
+            root.join("a.txt").to_string_lossy().into_owned(),
+            roots(&root),
+            false,
+            Some(0),
+            None,
+        )
+        .unwrap();
+        assert_eq!(file.text.as_deref(), Some(""));
+        assert_eq!(file.read_bytes, 0);
+        assert!(file.truncated);
+    }
+
     #[test]
     fn read_file_rejects_a_directory() {
         let root = temp_root();
