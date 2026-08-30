@@ -97,6 +97,46 @@ export default async (input = {}) => {
       : undefined;
   };
 
+  /**
+   * The pane's newest assistant message — the turn a finished message is
+   * allowed to speak for.
+   *
+   * A CANCELLED TURN GOES ON PUBLISHING WHILE IT UNWINDS. opencode marks the
+   * session free the moment the cancel is accepted and runs the interrupted
+   * work's finalizers afterwards, so the aborted message's own record is
+   * written seconds later — by which time the next turn has begun. Read
+   * without this, that record ends a turn it was never about, and the pane
+   * reads "Interrupted" for as long as the live turn runs.
+   *
+   * NEWEST BY THE MESSAGE'S OWN CREATION, not by arrival: one Esc can abort
+   * several messages, and their records settle out of order (measured — a
+   * message created ten seconds later finished six seconds earlier).
+   *
+   * An ID, NOT A CLOCK. The question is "is this the current turn", the same
+   * shape as the question this side already answers about panes; comparing
+   * the message's finish time against the deck's phase was tried on the
+   * record and misses one abort in fifteen.
+   */
+  let newestTurn;
+
+  /** Record an assistant message of the pane's conversation as its turn.
+   * Every frame counts, streaming ones included — the point is to know the
+   * NEW turn's message before the old turn's record arrives, and creation is
+   * the earliest that can be known. */
+  const noteTurn = (value) => {
+    const info = value?.info ?? value;
+    if (info?.role !== "assistant" || !info.id) return;
+    if (info.sessionID !== pane.root) return;
+    const created = info.time?.created ?? 0;
+    if (newestTurn && created < newestTurn.created) return;
+    newestTurn = { id: info.id, created };
+  };
+
+  /** Whether a finished message is the turn the pane is on now. Nothing
+   * recorded means nothing newer has begun — an unbound pane, or the first
+   * message of a resumed one — so the message speaks for itself. */
+  const isNewestTurn = (info) => !newestTurn || newestTurn.id === info.id;
+
   const remember = (info, rootSessionID) => {
     const turn = turnOf(info);
     messages.set(`${info.sessionID}\0${info.id}`, turn);
@@ -424,6 +464,7 @@ export default async (input = {}) => {
     }
 
     if (event?.type !== "message.updated") return;
+    noteTurn(event.properties);
     const info = completedAssistant(event.properties);
     // Assistant messages only, once the turn is DONE (message.updated fires
     // repeatedly as a message streams; the completed frame carries the final
@@ -465,7 +506,11 @@ export default async (input = {}) => {
     // only for that reading — spend travels the usage report below, which
     // takes descendants on purpose. Forwarding a child's would let a subagent
     // cut short on its own account read as the pane being interrupted.
-    if (info.sessionID === pane.root) forward(event);
+    //
+    // Nor is a SUPERSEDED message the pane's turn ending: see `newestTurn`.
+    // Spend below is unaffected — a late record is still real money, and the
+    // sum is keyed by message id rather than by which turn is current.
+    if (info.sessionID === pane.root && isNewestTurn(info)) forward(event);
     if (hydration) await hydration;
     // Every assistant turn — ROOT or subagent — is real session spend and
     // sums into the cumulative. But a subagent's context is ITS own, not the
