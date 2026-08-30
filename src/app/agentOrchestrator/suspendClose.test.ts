@@ -147,7 +147,9 @@ describe("agent orchestrator —suspending an agent", () => {
   it("names the reason it refuses, so every surface can say the same thing", async () => {
     // A bare `false` forced each caller to guess, and one guessed wrong: it
     // told a remote pane's user their running agent had no session to stop.
-    seed({ provisioning: { repo: "/repo", workspace: "ws", index: 1 } });
+    seed({
+      provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+    });
     expect(await act(async () => agentRun.suspend("ws-1", "pane-1"))).toBe(
       "provisioning",
     );
@@ -435,7 +437,12 @@ describe("agent orchestrator —closing panes and workspaces", () => {
           {
             id: "pane-9",
             agentType: "claude",
-            provisioning: { repo: "/repo", workspace: "two", index: 1 },
+            provisioning: {
+              repo: "/repo",
+              path: "/wt/two-1",
+              workspace: "two",
+              index: 1,
+            },
           },
         ],
       }),

@@ -73,7 +73,7 @@ describe("paneBody", () => {
       paneBody(
         pane({
           idle: { reason: "suspended", at: "2026-07-26" },
-          provisioning: { repo: "/repo", workspace: "ws", index: 1 },
+          provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
         }),
         env({ agentAvailable: false, hasPlan: false, planFailed: true }),
       ),

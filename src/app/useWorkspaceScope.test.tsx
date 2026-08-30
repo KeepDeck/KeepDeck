@@ -41,7 +41,7 @@ const pane = (over: {
     agentType: "claude",
     ...(over.cwd !== null && { cwd: over.cwd }),
     ...(over.provisioning && {
-      provisioning: { phase: "setup" },
+      provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
     }),
   }) as Workspace["panes"][number];
 

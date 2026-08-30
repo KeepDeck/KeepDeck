@@ -45,6 +45,10 @@ export type MigrationOutcome =
  *   5 — `Workspace.run` retired: its `setup` moves to the core
  *       `Workspace.setup` field (provisioning owns it, not a plugin), its
  *       `presets` move to `plugins["keepdeck.run"]`; `run` itself is dropped.
+ *       (`Workspace.setup` has since been retired in turn — nothing runs it —
+ *       and the key now rides along in `extras`. The hop below is unchanged:
+ *       a ledger records what a document went through, not what the current
+ *       build still reads.)
  *   6 — + `PaneProvisioning.base` (the picked base branch a Retry recreates
  *       the worktree from).
  *   7 — + `Pane.yolo` (the agent runs with permission prompts disabled).
@@ -84,10 +88,12 @@ function migrateDeckFromV3toV4(doc: RawDoc): RawDoc {
 const RUN_PLUGIN_ID = "keepdeck.run";
 
 /**
- * v4 → v5: `Workspace.run` is retired. Its two parts move to where they now
- * belong — `setup` onto the workspace itself (core provisioning runs it
- * whether or not the Run plugin is installed), `presets` into the Run
- * plugin's own slot — and `run` is deleted. A workspace without a `run`
+ * v4 → v5: `Workspace.run` is retired. Its two parts move to where they
+ * belonged at the time — `setup` onto the workspace itself, `presets` into the
+ * Run plugin's own slot — and `run` is deleted. `setup` has since been retired
+ * as a field too, so it lands in the workspace's `extras` on load rather than
+ * in a field; the hop still writes it, because the user's value is theirs and
+ * a migration that dropped it would be a migration that lost data. A workspace without a `run`
  * object passes through untouched. A `plugins["keepdeck.run"]` slot already
  * present (not expected before this hop) loses to the migrated data: the
  * migrated presets are the source of truth and the old slot's content is not

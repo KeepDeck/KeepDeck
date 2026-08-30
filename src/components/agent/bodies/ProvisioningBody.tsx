@@ -36,25 +36,20 @@ export function ProvisioningBody({
   return (
     <div className="pane__card" role="status">
       <LaunchSpinner />
-      <span className="pane__exit-title">
-        {provisioning.phase === "setup"
-          ? "Running setup…"
-          : "Creating worktree…"}
-      </span>
+      <span className="pane__exit-title">Creating worktree…</span>
       <ProvisionLocation provisioning={provisioning} />
     </div>
   );
 }
 
-/** The creating card's location line: "branch · path" from what the intent
- * knows (the batch flow auto-names its branch on the Rust side, so it may
- * only have the base folder). */
+/** The creating card's location line: "branch · path". The path is always
+ * known; the branch may not be (auto-named on the Rust side at create time). */
 function ProvisionLocation({
   provisioning,
 }: {
   provisioning: PaneProvisioning;
 }) {
-  const location = [provisioning.branch, provisioning.path ?? provisioning.baseDir]
+  const location = [provisioning.branch, provisioning.path]
     .filter(Boolean)
     .join(" · ");
   if (!location) return null;

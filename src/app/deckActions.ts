@@ -150,8 +150,6 @@ function buildDeckActions(store: DeckStore) {
       }),
     setPaneProvisioningError: (wsId: string, paneId: string, error: string | null) =>
       dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
-    setPaneProvisioningPhase: (wsId: string, paneId: string, phase: "setup") =>
-      dispatch({ type: "setPaneProvisioningPhase", wsId, paneId, phase }),
     hydrateJournal: (records: JournalRecords) =>
       dispatch({ type: "hydrateJournal", records, at: nowIso() }),
     journalFlushed: (count: number) => dispatch({ type: "journalFlushed", count }),

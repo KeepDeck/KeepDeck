@@ -71,16 +71,12 @@ export type PaneStopped =
 export interface PaneProvisioning {
   /** The repository (the workspace cwd) the worktree is created in. */
   repo: string;
-  /** Batch flow: the folder the worktree dir is auto-placed under. */
-  baseDir?: string;
-  /** This pane's create runs the workspace's one-time setup command — set by
-   * the batch flow, absent for "+ Agent"/fork panes. A Retry consults THIS,
-   * not a placement field's presence: a retry must never have wider effects
-   * than the attempt it retries. */
-  runsSetup?: true;
-  /** Exact user-chosen worktree path (the "+ Agent" dialog flow). */
-  path?: string;
-  /** Explicit branch to create; the batch flow auto-names on the Rust side. */
+  /** Where the worktree goes — resolved before the pane was ever built (the
+   * "+ Agent" dialog's accepted suggestion, or a fork's target) and used
+   * verbatim. Required: backend-assigned placement went with the create-time
+   * agent batch, so an intent that cannot name its directory is not one. */
+  path: string;
+  /** Explicit branch to create; auto-named on the Rust side when absent. */
   branch?: string;
   /** The picked base branch the new branch forks from; absent = the repo HEAD
    * at create time. Part of the intent so Retry — and an interrupted create
@@ -91,10 +87,6 @@ export interface PaneProvisioning {
   index: number;
   /** Why the create failed; set flips the card from creating to failed. */
   error?: string;
-  /** The worktree exists and the workspace's one-time setup command is
-   * running in it. Runtime-only, like `error`: never persisted — a restart
-   * mid-setup comes back as the interrupted failed card. */
-  phase?: "setup";
   /** This card originates from a journal FORK — its store surgery runs as a
    * post-provision step held only in memory. Runtime-only, NEVER persisted: a
    * fork whose provisioning is interrupted by a restart is dropped rather than

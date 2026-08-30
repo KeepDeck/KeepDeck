@@ -201,10 +201,6 @@ export interface SessionRegistryPort {
   isLaunched(paneId: string): boolean;
   acquire(paneId: string, spec: PaneSpawnSpec): void;
   close(paneId: string): Promise<void>;
-  runOnce(
-    paneId: string,
-    spec: PaneSpawnSpec,
-  ): Promise<{ ok: boolean; tail: string }>;
 }
 
 /** Retire a pane's per-process state (usage, activity, and which session it

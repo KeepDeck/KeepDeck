@@ -206,8 +206,6 @@ describe("application controller", () => {
       name: "Workspace",
       cwd: "/repo",
       worktreeBaseDir: null,
-      agentType: "codex",
-      count: 1,
     });
 
     expect(view.pushAlert).toHaveBeenCalledWith(

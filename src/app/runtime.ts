@@ -42,7 +42,6 @@ import {
   closePane,
   isPaneLaunched,
   paneSessionState,
-  runPaneOnce,
   subscribeSessions,
 } from "./ptyManager";
 import { subscribePaneKeys } from "./paneKeys";
@@ -360,7 +359,6 @@ export function createAppRuntime(
       isLaunched: isPaneLaunched,
       acquire: acquirePane,
       close: closePane,
-      runOnce: runPaneOnce,
     },
     plugins,
     probe: probeWorktree,

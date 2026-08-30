@@ -15,23 +15,16 @@ import type {
   AgentOrchestrator,
   CreatePaneOutcome,
   CreatePaneRequest,
-  SessionRegistryPort,
 } from ".";
 import type { DeckActions } from "../deckActions";
 import type { DeckStore } from "../deckStore";
-import { mintAgentSeqs } from "../ids";
-import {
-  planPanes,
-  provisionInto,
-  setupStepFor,
-} from "../provisioning";
+import { provisionInto } from "../provisioning";
 import { dropPaneSpawnSpec } from "../spawnSpecs";
 import type { WorktreeProvisioner } from "../worktrees";
 
 interface CreationDeps {
   deck: DeckStore;
   actions: DeckActions;
-  sessions: SessionRegistryPort;
   worktrees: WorktreeProvisioner;
 }
 
@@ -45,26 +38,12 @@ export interface AgentOrchestratorCreation {
 export function createAgentOrchestratorCreation({
   deck,
   actions,
-  sessions,
   worktrees,
 }: CreationDeps): AgentOrchestratorCreation {
-  function provisionPanes(workspace: Workspace, panes: Pane[]): void {
+  function provisionPanes(wsId: string, panes: Pane[]): void {
     const cards = panes.filter((pane) => pane.provisioning);
-    const stamped = cards.filter((pane) => pane.provisioning?.runsSetup);
-    const plain = cards.filter((pane) => !pane.provisioning?.runsSetup);
-    if (stamped.length > 0) {
-      const step = workspace.setup
-        ? setupStepFor(workspace.setup, sessions.runOnce)
-        : undefined;
-      void worktrees.provision(
-        stamped,
-        provisionInto(actions, workspace.id),
-        step,
-      );
-    }
-    if (plain.length > 0) {
-      void worktrees.provision(plain, provisionInto(actions, workspace.id));
-    }
+    if (cards.length === 0) return;
+    void worktrees.provision(cards, provisionInto(actions, wsId));
   }
 
   function refuse(paneId: string, kind: "gone" | "full"): CreatePaneOutcome {
@@ -81,7 +60,7 @@ export function createAgentOrchestratorCreation({
     if (!current) return refuse(pane.id, "gone");
     if (current.panes.length >= MAX_PANES) return refuse(pane.id, "full");
     actions.addAgentPane(current.id, pane);
-    provisionPanes(current, [pane]);
+    provisionPanes(current.id, [pane]);
     return { kind: "created" };
   }
 
@@ -100,8 +79,10 @@ export function createAgentOrchestratorCreation({
     }
   }
 
+  /** A workspace is born EMPTY: nothing spawns here, so nothing is provisioned
+   * here either. Agents arrive one at a time through `landPane`, each carrying
+   * its own location — which is where a worktree create is started now. */
   const createWorkspace: AgentOrchestrator["createWorkspace"] = (config) => {
-    const setup = config.setup?.trim() || undefined;
     const created = actions.createWorkspaceFromSequence((sequence): Workspace => {
       const id = `ws-${sequence}`;
       // The same derivation an empty rename resets to — one home, so the
@@ -113,14 +94,7 @@ export function createAgentOrchestratorCreation({
         name,
         cwd: config.cwd,
         worktreeBaseDir: config.worktreeBaseDir,
-        ...(setup && { setup }),
-        panes: planPanes(
-          { cwd: config.cwd, worktreeBaseDir: config.worktreeBaseDir, name },
-          mintAgentSeqs(config.count),
-          config.count,
-          config.agentType,
-          config.yolo ?? false,
-        ),
+        panes: [],
       };
     });
     if (!created.ok) {
@@ -128,9 +102,7 @@ export function createAgentOrchestratorCreation({
         "web:orchestrator",
         `workspace create rejected: ${created.reason}`,
       );
-      return created;
     }
-    provisionPanes(created.workspace, created.workspace.panes);
     return created;
   };
 
@@ -143,7 +115,7 @@ export function createAgentOrchestratorCreation({
     const pane = findPane(workspaces, wsId, paneId);
     if (!workspace || !pane?.provisioning) return;
     actions.setPaneProvisioningError(wsId, paneId, null);
-    provisionPanes(workspace, [pane]);
+    provisionPanes(wsId, [pane]);
   };
 
   return { landPane, landOrThrow, createWorkspace, retryProvisioning };

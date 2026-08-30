@@ -63,12 +63,6 @@ export type DeckAction =
       error: string | null;
     }
   | {
-      type: "setPaneProvisioningPhase";
-      wsId: string;
-      paneId: string;
-      phase: "setup";
-    }
-  | {
       type: "setWorkspacePluginSlot";
       wsId: string;
       workspaceInstance: WorkspaceInstance;

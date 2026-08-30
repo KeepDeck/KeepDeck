@@ -28,7 +28,6 @@ import {
   resolvePaneProvisioning,
   setPaneAutoTitle,
   setPaneProvisioningError,
-  setPaneProvisioningPhase,
   suspendPane,
   type Pane,
 } from "./panes";
@@ -311,7 +310,7 @@ describe("paneExecutionCwd", () => {
     expect(
       paneExecutionCwd(workspace, {
         id: "a-p1",
-        provisioning: { repo: "/repo", baseDir: "/wt", workspace: "a", index: 1 },
+        provisioning: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
       }),
     ).toBeNull();
   });
@@ -345,7 +344,7 @@ describe("gitWatchPaths", () => {
               id: "a-p1",
               provisioning: {
                 repo: "/repo",
-                baseDir: "/wt",
+                path: "/wt/a-1",
                 workspace: "a",
                 index: 1,
               },
@@ -367,7 +366,7 @@ describe("pane provisioning transforms", () => {
     panes: [
       {
         id: "a-p1",
-        provisioning: { repo: "/repo", baseDir: "/wt", workspace: "a", index: 1 },
+        provisioning: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
       },
       { id: "a-p2", cwd: "/wt/live", branch: "kd/a/2" },
     ],
@@ -407,7 +406,7 @@ describe("pane provisioning transforms", () => {
     const retrying = setPaneProvisioningError(failed, "a", "a-p1", null);
     expect(retrying[0].panes[0].provisioning).toEqual({
       repo: "/repo",
-      baseDir: "/wt",
+      path: "/wt/a-1",
       workspace: "a",
       index: 1,
     });
@@ -504,24 +503,6 @@ describe("paneOccupyingPath", () => {
       },
     ];
     expect(paneOccupyingPath(provisioning, "/wt/pending/")?.pane.id).toBe("c-p1");
-  });
-
-  it("does not claim a path for a batch pane (its dir is backend-assigned)", () => {
-    const batch: Workspace[] = [
-      {
-        ...ws("c", []),
-        panes: [
-          {
-            id: "c-p1",
-            // Batch flow: baseDir only, no explicit path yet — the exact dir is
-            // assigned on the Rust side, so nothing here occupies it.
-            provisioning: { repo: "/repo", baseDir: "/wt", workspace: "c", index: 1 },
-          },
-        ],
-      },
-    ];
-    expect(paneOccupyingPath(batch, "/wt")).toBeNull();
-    expect(paneOccupyingPath(batch, "/wt/kd-c-1")).toBeNull();
   });
 
   it("reports a free path (and an empty one) as unoccupied", () => {
@@ -708,40 +689,6 @@ describe("setWorkspacePluginSlot", () => {
 });
 
 
-describe("setPaneProvisioningPhase", () => {
-  const provisioning = (extra = {}) => [
-    {
-      ...ws("a", []),
-      panes: [
-        { id: "p", provisioning: { repo: "/r", workspace: "a", index: 1, ...extra } },
-      ],
-    },
-  ];
-
-  it("marks the setup step on a live create", () => {
-    const after = setPaneProvisioningPhase(provisioning(), "a", "p", "setup");
-    expect(after[0].panes[0].provisioning?.phase).toBe("setup");
-  });
-
-  it("never marks a failed card, and re-marking is a no-op", () => {
-    const failed = provisioning({ error: "boom" });
-    expect(setPaneProvisioningPhase(failed, "a", "p", "setup")).toBe(failed);
-    const marked = provisioning({ phase: "setup" });
-    expect(setPaneProvisioningPhase(marked, "a", "p", "setup")).toBe(marked);
-  });
-
-  it("a failure clears the phase along with setting the error", () => {
-    const after = setPaneProvisioningError(
-      provisioning({ phase: "setup" }),
-      "a",
-      "p",
-      "Setup failed: boom",
-    );
-    expect(after[0].panes[0].provisioning?.phase).toBeUndefined();
-    expect(after[0].panes[0].provisioning?.error).toBe("Setup failed: boom");
-  });
-});
-
 describe("suspendPane", () => {
   const AT = "2026-07-25T10:00:00.000Z";
   const withPanes = (panes: Pane[]): Workspace[] => [
@@ -806,7 +753,7 @@ describe("suspendPane", () => {
     const creating = withPanes([
       {
         id: "a-p1",
-        provisioning: { repo: "/repo", workspace: "a", index: 1 },
+        provisioning: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
       },
     ]);
     expect(suspendPane(creating, "a", "a-p1", AT)).toBe(creating);

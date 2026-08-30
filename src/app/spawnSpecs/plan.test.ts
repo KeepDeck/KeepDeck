@@ -505,7 +505,7 @@ describe("building one plan through the agent hook", () => {
         {
           id: "pane-p",
           agentType: "claude",
-          provisioning: { repo: "/r", baseDir: "/b", workspace: "w", index: 1 },
+          provisioning: { repo: "/r", path: "/b/w-1", workspace: "w", index: 1 },
         },
         { id: "pane-u", agentType: "gemini" },
       ]),

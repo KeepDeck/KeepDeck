@@ -29,7 +29,7 @@ import {
   type Workspace,
   type WorktreeTarget,
 } from "../../domain/deck";
-import type { ProvisionCallbacks, SetupStep } from "../provisioning";
+import type { ProvisionCallbacks } from "../provisioning";
 import { createWorktreeProvisioning } from "./provisioning";
 import { createOrderQueue, type InOrder } from "./queue";
 import { createWorktreeTeardown } from "./teardown";
@@ -90,19 +90,10 @@ export interface WorktreeProvisioner {
    * is pinned for the whole batch so concurrent creates don't straddle a moving
    * HEAD; a pane whose intent carries its own picked `base` forks from that
    * instead. Panes without an intent are ignored, so a retry can pass one pane
-   * and the batch flows can pass them all. Never throws: a failure lands on its
-   * pane's card via `onFailed`.
-   *
-   * `setup` is the workspace's one-time preparation command: it runs in each
-   * created worktree before the pane resolves, and a failure ROLLS THE WORKTREE
-   * BACK (so Retry re-creates from scratch instead of hitting "already exists")
-   * and lands on the card with the output tail.
+   * and a caller with several can pass them all. Never throws: a failure lands
+   * on its pane's card via `onFailed`.
    */
-  provision(
-    panes: Pane[],
-    report: ProvisionCallbacks,
-    setup?: SetupStep,
-  ): Promise<void>;
+  provision(panes: Pane[], report: ProvisionCallbacks): Promise<void>;
   /**
    * What `paneId`'s create made, waiting for the `git worktree add` to return
    * if it has not yet. Null when there is nothing outstanding — the pane

@@ -48,7 +48,7 @@ export const skills = skillsIpc;
 export const mcpArming = mcpArmingIpc;
 
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
-import type { Workspace } from "../../domain/deck";
+import type { Pane, Workspace } from "../../domain/deck";
 import {
   createMcpPlanting,
   createSkillsStaging,
@@ -63,9 +63,26 @@ import {
   type WorktreeManager,
 } from ".";
 
-export { planPanes } from "../provisioning";
-export type { SetupStep } from "../provisioning";
 export type { WorktreeManager };
+
+/** `count` panes waiting on their worktrees — the shape `provision` is handed,
+ * as production builds it: each intent carries the exact path its create will
+ * land at.
+ *
+ * More than one because the runner still fans out over whatever it is given,
+ * and only a set makes that fan-out — and the base commit pinned across it —
+ * observable. */
+export const provisioningCards = (count: number): Pane[] =>
+  Array.from({ length: count }, (_, i) => ({
+    id: `pane-${i + 1}`,
+    agentType: "claude" as const,
+    provisioning: {
+      repo: "/repo",
+      path: `/wt/pane-${i + 1}`,
+      workspace: "ws",
+      index: i + 1,
+    },
+  }));
 
 /** The deck the manager reads, as a test double: what `live()` returns IS the
  * app's answer to which roots are claimed, and `rootsOf` answers from it.

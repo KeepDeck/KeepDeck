@@ -48,7 +48,7 @@ describe("paneHasProcess", () => {
     expect(
       paneHasProcess({
         id: "p",
-        provisioning: { repo: "/repo", workspace: "ws", index: 1 },
+        provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
       }),
     ).toBe(false);
   });
@@ -98,7 +98,7 @@ describe("paneCanSuspend", () => {
     );
     expect(
       paneSuspendBlock(
-        { id: "p", provisioning: { repo: "/r", workspace: "w", index: 1 } },
+        { id: "p", provisioning: { repo: "/r", path: "/wt/a", workspace: "w", index: 1 } },
         false,
       ),
     ).toBe("provisioning");
@@ -145,7 +145,7 @@ describe("paneCanSuspend", () => {
   it("false while a worktree create is in flight — no process to stop", () => {
     expect(
       paneCanSuspend(
-        { id: "p", provisioning: { repo: "/r", workspace: "w", index: 1 } },
+        { id: "p", provisioning: { repo: "/r", path: "/wt/a", workspace: "w", index: 1 } },
         false,
       ),
     ).toBe(false);
@@ -265,7 +265,7 @@ describe("paneBlock — the head both ladders share", () => {
         {
           id: "p1",
           idle: { reason: "parked" },
-          provisioning: { repo: "/r", workspace: "w", index: 1 },
+          provisioning: { repo: "/r", path: "/wt/a", workspace: "w", index: 1 },
         },
         false,
       ),

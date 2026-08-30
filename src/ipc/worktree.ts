@@ -25,25 +25,24 @@ export interface WorktreeSuggestion {
 /** Args for `worktree_create` (mirrors the Rust `CreateSpec`). */
 export interface CreateWorktreeArgs {
   repo: string;
-  baseDir: string;
   agentId: string;
   /** Explicit branch; auto-generated (`kd/<ws>/<n>`) when omitted/blank. */
   branch?: string | null;
-  /** Base commit/rev — a branch NAME is fine: Rust pins its current commit for
-   *  the batch and retains a directly-selected local branch as worktree-private
-   *  base identity. That identity drives dynamic fork resolution after rebases;
-   *  the SHA also keeps close-time branch provenance trustworthy. */
+  /** Base commit/rev — a branch NAME is fine: Rust pins its current commit and
+   *  retains a directly-selected local branch as worktree-private base
+   *  identity. That identity drives dynamic fork resolution after rebases; the
+   *  SHA also keeps close-time branch provenance trustworthy. */
   base?: string | null;
-  /** Local branch identity paired with an already-pinned `base` SHA. Batch
-   * provisioning supplies both; omit when `base` itself names the branch. */
+  /** Local branch identity paired with an already-pinned `base` SHA. A caller
+   * that pins the commit itself supplies both; omit when `base` names the
+   * branch. */
   baseBranch?: string | null;
   workspace?: string;
   index?: number;
-  /** Explicit worktree folder (relative to baseDir); derived from branch when omitted. */
-  dir?: string | null;
-  /** Exact worktree path ([F2]). When set, the worktree is created AT this path
-   *  verbatim (no collision suffix); baseDir/dir are ignored. */
-  path?: string | null;
+  /** The worktree's exact path ([F2]) — the only placement there is. Created AT
+   *  it verbatim, with no collision suffix; picking a free one is the caller's
+   *  job. */
+  path: string;
 }
 
 /** Is `path` inside a git repo? plus its HEAD/branch. Never throws for a

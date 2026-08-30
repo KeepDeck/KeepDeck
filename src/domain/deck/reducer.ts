@@ -37,7 +37,6 @@ import {
   resolvePaneProvisioning,
   setPaneAutoTitle,
   setPaneProvisioningError,
-  setPaneProvisioningPhase,
   setPaneSession,
   setPaneTeam,
   suspendPane,
@@ -528,16 +527,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           action.wsId,
           action.paneId,
           action.error,
-        ),
-      );
-    case "setPaneProvisioningPhase":
-      return withWorkspaces(
-        state,
-        setPaneProvisioningPhase(
-          state.workspaces,
-          action.wsId,
-          action.paneId,
-          action.phase,
         ),
       );
     case "setWorkspacePluginSlot":

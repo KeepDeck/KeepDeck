@@ -1,6 +1,5 @@
 import {
   classifyLocation,
-  type AgentType,
   type Occupancy,
   type PathProbe,
 } from "../agents";
@@ -10,28 +9,23 @@ import type {
 } from "../workspaceInstance";
 import { appendPane, removePane, type Pane } from "./panes";
 
-/** A workspace owns its own set of agent panes, all running the same agent type
- * in the same working directory. Switching the active workspace swaps which set
- * the grid shows; inactive workspaces keep their panes (and live sessions)
- * mounted. */
-/** What the create-workspace form submits: the spec a new workspace (and its
- * initial batch of agents) is provisioned from. */
+/** What the create-workspace form submits: the spec a new workspace is
+ * provisioned from. A workspace is born EMPTY, so nothing per-agent belongs
+ * here — the agent type and its YOLO mode are decided by whoever adds an
+ * agent, one agent at a time. */
 export interface SpawnConfig {
   /** Workspace name; blank falls back to a default in the caller. */
   name: string;
   cwd: string;
-  agentType: AgentType;
-  count: number;
   /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
   worktreeBaseDir: string | null;
-  /** One-time worktree setup command (experimental run presets); blank/absent
-   * = none. */
-  setup?: string;
-  /** Every spawned agent runs in YOLO mode; absent = off. Only ever true for
-   * an agent whose plugin declares support (the form gates the toggle). */
-  yolo?: boolean;
 }
 
+/** A workspace owns its own set of agent panes, rooted at one working
+ * directory. Each pane carries its OWN agent type — they were homogeneous only
+ * while a workspace was created with a batch. Switching the active workspace
+ * swaps which set the grid shows; inactive workspaces keep their panes (and
+ * live sessions) mounted. */
 export interface Workspace {
   id: string;
   /** Non-reused runtime identity. `id` is a reusable `ws-N` slot. */
@@ -42,12 +36,6 @@ export interface Workspace {
   /** Base folder holding this workspace's per-agent git worktrees; `null` when
    * agents run directly in `cwd` (no isolation). */
   worktreeBaseDir: string | null;
-  /** One-time worktree-preparation command (deps, .env copies), run once by
-   * core provisioning after `worktree_create`. A core field, not part of the
-   * Run plugin's config — the workspace needs it prepared regardless of
-   * whether that plugin is installed. Failure surfaces on the provisioning
-   * card like any other create-time failure. */
-  setup?: string;
   /** Per-plugin persisted state, one opaque slot per plugin id. The slot's
    * CONTENT is the owning plugin's business — never inspected here, like an
    * unknown `agentType` below the persistence boundary — only the bag SHAPE
@@ -55,8 +43,11 @@ export interface Workspace {
    * deleting the workspace deletes every plugin's state for it structurally,
    * like `run`. */
   plugins?: Record<string, unknown>;
-  /** Persisted keys this build doesn't know (written by a newer revision) —
-   * carried verbatim so a save round-trip never strips them. */
+  /** Persisted keys this build does not own — written by a newer revision, or
+   * RETIRED by this one (deck v5's `setup` command, whose only runner was the
+   * create-time agent batch) — carried verbatim so a save round-trip never
+   * strips them. A retired key lands here by simply leaving `WS_KNOWN_KEYS`:
+   * the value stops meaning anything and stays on disk untouched. */
   extras?: Record<string, unknown>;
   panes: Pane[];
 }
@@ -282,11 +273,8 @@ function normalizePath(path: string): string {
  * workspace's panes: a pane's worktree can live anywhere — `worktreeBaseDir`
  * is only a suggestion source, so workspace-level paths predict nothing.
  * Dormant panes count (they revive right back into their directory), and so
- * does a provisioning pane from the "+ Agent" flow: it has no `cwd` yet but
- * holds its explicit target `path`. A BATCH provisioning pane is the exception
- * — its exact worktree dir is assigned by the backend (with collision suffixes)
- * and isn't known here, so it only starts occupying a path once its create
- * resolves and it gains a `cwd`.
+ * does a provisioning pane: it has no `cwd` yet but holds the target `path`
+ * its create will land at.
  * This is what blocks the "+ Agent" dialog from attaching a second agent to a
  * worktree one pane already runs in (two agents in one dir stomp each other's
  * files and git state).
