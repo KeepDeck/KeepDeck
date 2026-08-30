@@ -251,7 +251,9 @@ export function WorkspacesRail({
                 <span className={railDotClass(ws.dot)} />
                 <span className="rail__name">{ws.name}</span>
               </button>
-              <span className="rail__count">{ws.agentCount}</span>
+              {ws.agentCount > 0 && (
+                <span className="rail__count">{ws.agentCount}</span>
+              )}
               <button
                 type="button"
                 className="rail__close"
