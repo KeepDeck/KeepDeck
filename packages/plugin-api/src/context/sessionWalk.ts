@@ -18,6 +18,7 @@ import { firstMeaningfulUserTurn } from "./historyText.ts";
 import type {
   PluginSessionStore,
   ReadOutcome,
+  ReadScope,
   SessionFormat,
 } from "./sessionRead.ts";
 
@@ -77,8 +78,17 @@ export interface WalkedSession<State> {
  * text it keeps, so most complete sessions end that way. Marking those would
  * put "partly shown" on the majority of healthy conversations, and a warning
  * that fires on everything stops being read at all.
+ *
+ * A `head` reading is the same trap in another shape. It never meant to read
+ * the conversation, so stopping at the head's end is not a shortfall — it is
+ * the reading working as asked. A mark here would say "part of this session
+ * is missing" about a session nobody was reading.
  */
-function shortfallOf(outcome: ReadOutcome): Shortfall[] | undefined {
+function shortfallOf(
+  outcome: ReadOutcome,
+  scope: ReadScope,
+): Shortfall[] | undefined {
+  if (scope === "head") return undefined;
   if (outcome.stopped === "exhausted" || outcome.stopped === "satisfied") {
     return undefined;
   }
@@ -121,8 +131,26 @@ export async function walkSession<Req, Item, State>(opts: {
    * rule appear, and they drift.
    */
   until?: (state: State, turns: readonly AgentTranscriptEntry[]) => boolean;
+  /**
+   * How far this walk means to go; omitted = the whole conversation.
+   *
+   * `"head"` is for a reading that only wants the facts a store records at
+   * its start. It is a claim the PLUGIN makes about its own format — true of
+   * one agent's store and false of another's — while the distance it buys is
+   * the host's to set. A walk that says it only wanted the head does not
+   * report the session as incomplete when the head ends.
+   */
+  scope?: ReadScope;
 }): Promise<WalkedSession<State>> {
-  const { store, format, request, dialect, keep: slice, until } = opts;
+  const {
+    store,
+    format,
+    request,
+    dialect,
+    keep: slice,
+    until,
+    scope = "whole",
+  } = opts;
 
   // A store that moved under the read was two different files, and splicing
   // their halves would show a conversation that never happened. Once is a
@@ -154,16 +182,21 @@ export async function walkSession<Req, Item, State>(opts: {
       }
     };
 
-    const outcome = await store.read(format, request, (item) => {
-      take(dialect.step(state, item));
-      if (until?.(state, turns) === true) return "enough";
-      return full ? "enough" : "more";
-    });
+    const outcome = await store.read(
+      format,
+      request,
+      (item) => {
+        take(dialect.step(state, item));
+        if (until?.(state, turns) === true) return "enough";
+        return full ? "enough" : "more";
+      },
+      scope,
+    );
     take(dialect.end(state));
 
     if (outcome.stopped === "changed" && attempt === 0) continue;
 
-    const shortfall = shortfallOf(outcome);
+    const shortfall = shortfallOf(outcome, scope);
     return {
       title: firstMeaningfulUserTurn(turns),
       content: turns.map((t) => t.text).join("\n"),

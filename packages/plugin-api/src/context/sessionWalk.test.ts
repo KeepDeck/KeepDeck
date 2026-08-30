@@ -295,6 +295,92 @@ describe("walkSession", () => {
     expect(walked.outcome.stopped).toBe("exhausted");
   });
 
+  it("keeps a turn the dialect only produces at the end, when the slice reaches it", async () => {
+    // The last turn of a buffering dialect exists only after the flush, and
+    // the flush happens after the read stops. A slice that reaches that far
+    // must contain it — the alternative is a page that silently ends one turn
+    // early, with nothing anywhere saying so.
+    const store = fakeStore(["a", "FLUSH", "b", "c"]);
+
+    const walked = await walkSession({
+      store,
+      format: FORMAT as SessionFormat<Record<string, never>, string>,
+      request: {},
+      dialect: buffering(),
+      keep: { offset: 1, limit: 5 },
+    });
+
+    expect(walked.turns.map((t) => t.text)).toEqual(["bc"]);
+  });
+
+  it("drops a turn from the end when the slice is already full", async () => {
+    // The mirror of the case above, and the reason the flush cannot simply
+    // append: a page must not come back longer than it asked for.
+    const store = fakeStore(["a", "FLUSH", "b", "FLUSH", "c"]);
+
+    const walked = await walkSession({
+      store,
+      format: FORMAT as SessionFormat<Record<string, never>, string>,
+      request: {},
+      dialect: buffering(),
+      keep: { offset: 0, limit: 2 },
+    });
+
+    expect(walked.turns.map((t) => t.text)).toEqual(["a", "b"]);
+  });
+
+  it("a head reading does not report the session as incomplete", async () => {
+    // It never meant to read the conversation, so stopping where the head
+    // ends is the reading working as asked. A mark here would say "part of
+    // this session is missing" about a session nobody was reading.
+    const store = fakeStore([{ role: "user", text: "hi" }], "budget", 9_000_000);
+
+    const walked = await walkSession({
+      store,
+      format: FORMAT,
+      request: {},
+      dialect: flat,
+      scope: "head",
+    });
+
+    expect(walked.outcome.stopped).toBe("budget");
+    expect(walked.shortfall).toBeUndefined();
+  });
+
+  it("a whole reading still reports it", async () => {
+    const store = fakeStore([{ role: "user", text: "hi" }], "budget", 9_000_000);
+
+    const walked = await walkSession({
+      store,
+      format: FORMAT,
+      request: {},
+      dialect: flat,
+    });
+
+    expect(walked.shortfall).toHaveLength(1);
+  });
+
+  it("hands the scope to the store, so the host can bound the reading", async () => {
+    const seen: (string | undefined)[] = [];
+    const store: PluginSessionStore = {
+      async read(_format, _request, _consume, scope) {
+        seen.push(scope);
+        return { payloadBytes: 0, items: 0, stopped: "exhausted" };
+      },
+    };
+
+    await walkSession({ store, format: FORMAT, request: {}, dialect: flat });
+    await walkSession({
+      store,
+      format: FORMAT,
+      request: {},
+      dialect: flat,
+      scope: "head",
+    });
+
+    expect(seen).toEqual(["whole", "head"]);
+  });
+
   it("hands back the dialect's state, so a plugin reads what it noticed", async () => {
     // cwd, a summary line, a model name: facts a store carries in the very
     // records the walk was going to pass anyway. Opening the store a second

@@ -134,6 +134,7 @@ export {
   type PluginSessionStore,
   type ReadBudget,
   type ReadOutcome,
+  type ReadScope,
   type ReadStop,
   type SessionCursor,
   type SessionFormat,

@@ -106,14 +106,33 @@ export interface ReadOutcome {
   next?: SessionCursor;
 }
 
+/**
+ * How far into a store a read intends to go.
+ *
+ * `whole` is a reading of the conversation. `head` is a reading of the facts
+ * a store records at its start — a working directory, a name — for a caller
+ * that would otherwise walk megabytes it will not look at.
+ *
+ * The caller states its INTENT and the host supplies the distance, because
+ * the two belong to different parties: "my facts are at the start" is a true
+ * claim about one agent's format and a false one about another's, and only
+ * the plugin can make it — while how far "the start" reaches is a statement
+ * about this app's memory, which no plugin should be setting.
+ */
+export type ReadScope = "whole" | "head";
+
 /** How much of a store ONE read may pass through.
  *
- * Universal, and therefore here rather than in a transport: it is a statement
- * about the app's memory, not about lines or rows. It matches the per-session
+ * Universal, and therefore here rather than in a transport: a statement about
+ * the app's memory, not about lines or rows. `whole` matches the per-session
  * cap the file-backed plugins each carried privately, so nothing reads less
  * than before — what changes is that the bytes arrive a window at a time
- * instead of all at once. */
-const BUDGET: ReadBudget = { maxPayloadBytes: 8 * 1024 * 1024 };
+ * instead of all at once. `head` matches the head codex already reads today,
+ * chosen so that adopting the scope changes no answer at all. */
+const BUDGETS: Readonly<Record<ReadScope, ReadBudget>> = {
+  whole: { maxPayloadBytes: 8 * 1024 * 1024 },
+  head: { maxPayloadBytes: 256 * 1024 },
+};
 
 export interface ReadBudget {
   readonly maxPayloadBytes: number;
@@ -144,6 +163,8 @@ export interface PluginSessionStore {
     format: SessionFormat<Req, Item>,
     request: Req,
     consume: (item: Item) => "more" | "enough",
+    /** How far this reading means to go; omitted = the whole conversation. */
+    scope?: ReadScope,
   ): Promise<ReadOutcome>;
 }
 
@@ -175,7 +196,7 @@ export function createSessionStore(fs: PluginFs): PluginSessionStore {
   ]);
 
   return {
-    read(format, request, consume) {
+    read(format, request, consume, scope = "whole") {
       const reader = readers.get(format.id) as
         | SessionReader<typeof request, Parameters<typeof consume>[0]>
         | undefined;
@@ -184,7 +205,7 @@ export function createSessionStore(fs: PluginFs): PluginSessionStore {
           new Error(`sessionStore.read: no reader for format "${format.id}"`),
         );
       }
-      return reader.pull(request, BUDGET, consume);
+      return reader.pull(request, BUDGETS[scope], consume);
     },
   };
 }
