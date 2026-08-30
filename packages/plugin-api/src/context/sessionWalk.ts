@@ -114,8 +114,13 @@ export async function walkSession<Req, Item, State>(opts: {
    * the plugin knows what it came for. It says WHAT has been collected, never
    * how much has been read: a byte count here would be a size back in a
    * plugin, by another name.
+   *
+   * It sees the turns as well as the dialect's state, so a caller waiting on
+   * something the SHARED derivations produce — a title, say — can wait on it
+   * without re-deriving it privately. Re-deriving is how two spellings of one
+   * rule appear, and they drift.
    */
-  until?: (state: State) => boolean;
+  until?: (state: State, turns: readonly AgentTranscriptEntry[]) => boolean;
 }): Promise<WalkedSession<State>> {
   const { store, format, request, dialect, keep: slice, until } = opts;
 
@@ -151,7 +156,7 @@ export async function walkSession<Req, Item, State>(opts: {
 
     const outcome = await store.read(format, request, (item) => {
       take(dialect.step(state, item));
-      if (until?.(state) === true) return "enough";
+      if (until?.(state, turns) === true) return "enough";
       return full ? "enough" : "more";
     });
     take(dialect.end(state));

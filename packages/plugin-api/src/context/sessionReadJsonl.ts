@@ -115,14 +115,18 @@ export function createJsonlReader(
       });
 
       for (;;) {
-        // The budget bounds what is READ, at the granularity of a window —
-        // the read may overshoot it by less than one window, which is far
-        // below any budget worth setting. A record longer than the entire
-        // budget stops here too, in the shape of a carry that never resolves.
-        if (at - start >= budget.maxPayloadBytes) return outcome("budget");
+        // The budget bounds what is READ, and bounds it EXACTLY: the last
+        // window is trimmed to what is left of it rather than overshooting by
+        // up to a whole window. Exactness is what lets a budget be compared
+        // with the read cap it replaces — an overshoot would hand back a few
+        // hundred kilobytes more conversation than before, which is a change
+        // in the answer, not in the mechanism. A record longer than the whole
+        // budget stops here too, as a carry that never resolves.
+        const left = budget.maxPayloadBytes - (at - start);
+        if (left <= 0) return outcome("budget");
 
         const file = await fs.readFile(request.path, {
-          maxBytes: CHUNK_BYTES,
+          maxBytes: Math.min(CHUNK_BYTES, left),
           offset: at,
         });
         sourceBytes = file.size;

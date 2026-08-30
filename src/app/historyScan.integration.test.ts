@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
+import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
+import { fsStore } from "@keepdeck/plugin-api/testing";
 import { scanAgentHistories, type ScanIndexOps } from "./historyScan";
 import { claudeHistory } from "../../plugins/claude/src/history";
 import { opencodeHistory } from "../../plugins/opencode/src/history";
@@ -42,6 +43,10 @@ function fsCtx(
   files: Record<string, string>,
   dirs: Record<string, unknown[]>,
 ): PluginContext {
+  // A real plugin reads its store a window at a time, so the double serves
+  // windows; `dirs` stays hand-built, because these tests are about what the
+  // enumeration does with listings a real directory cannot pose.
+  const fs = fsStore(files);
   return {
     // The partial walk NAMES the directories it skips — the double must
     // let it, or the plugin degrades to list() instead of reporting.
@@ -53,14 +58,9 @@ function fsCtx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: async (path: string) => ({
-          path,
-          text: files[path] ?? null,
-          isBinary: false,
-          size: 0,
-          truncated: false,
-        }),
+        readFile: fs.readFile,
       },
+      sessionStore: createSessionStore(fs),
     },
   } as unknown as PluginContext;
 }
