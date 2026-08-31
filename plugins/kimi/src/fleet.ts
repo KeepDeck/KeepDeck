@@ -66,14 +66,20 @@ export function combineInstallations(
     if (!reading.installation) return null;
     present.push(reading.installation);
   }
+  // Two verdicts, both required: the version KIMI reports, and the script
+  // bytes this build shipped. Either one alone has read "current" while
+  // the wire was dead — the bytes verdict is what caught the 1.6.0 lie.
   const current = readings.every(
-    (reading) => reading.installation?.version === reading.expected,
+    (reading) =>
+      reading.installation?.version === reading.expected &&
+      reading.installation.scriptsCurrent,
   );
   return {
     version: current ? SETUP_VERSION : null,
     enabled: present.every((member) => member.enabled),
     healthy: present.every((member) => member.healthy),
     owned: present.every((member) => member.owned),
+    scriptsCurrent: present.every((member) => member.scriptsCurrent),
   };
 }
 

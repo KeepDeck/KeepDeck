@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
-import { fsFileRead } from "@keepdeck/plugin-api/testing";
+import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
+import { fsStore } from "@keepdeck/plugin-api/testing";
 import { claudeHistory } from "./history";
 
 const LINES = [
@@ -32,17 +32,17 @@ const LINES = [
   }),
 ].join("\n");
 
-/** Paths whose read came back SHORT, mapped to the file's full length. The
- * answer itself is built by the contract's own double — see
- * `@keepdeck/plugin-api/testing`. */
-type ShortReads = Record<string, number>;
-
 function ctx(
   files: Record<string, string>,
   dirs: Record<string, unknown[]>,
   warn: (message: string) => void = vi.fn(),
-  short: ShortReads = {},
 ) {
+  // A store is read a WINDOW at a time now, so the double has to serve
+  // windows: one that ignored `offset` would hand back the same first slice
+  // forever and every assertion below would be about a file that does not
+  // exist. `dirs` stays hand-built — these tests are about what the
+  // enumeration does with odd listings, which a real directory cannot pose.
+  const fs = fsStore(files);
   return {
     log: { warn, info: vi.fn(), error: vi.fn() },
     services: {
@@ -52,9 +52,9 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: async (path: string) =>
-          fsFileRead(path, files[path] ?? null, short[path]),
+        readFile: fs.readFile,
       },
+      sessionStore: createSessionStore(fs),
     },
   } as unknown as PluginContext;
 }
@@ -237,58 +237,40 @@ describe("claude history", () => {
     });
   });
 
-  it("titles come from claude's own sessions-index firstPrompt when usable — sparing the full read", async () => {
-    const history = claudeHistory(
-      ctx(
-        {
-          "/p/-repo/f.jsonl": LINES,
-          "/p/-repo/sessions-index.json": JSON.stringify({
-            version: 1,
-            entries: [
-              { sessionId: "f", firstPrompt: "quick fix for the auth bug" },
-            ],
-          }),
-        },
-        {},
-      ),
-    );
-    expect((await history.describe("/p/-repo/f.jsonl")).title).toBe(
-      "quick fix for the auth bug",
-    );
+  it("describe stops once it has the cwd and a title, instead of reading on", async () => {
+    // What a describe wants sits near the head; the rest of a transcript is
+    // megabytes it will not look at. The count of reads is the only place
+    // this is observable from outside — and it is the whole point of the
+    // change, so it is worth observing.
+    const tail = Array.from({ length: 400 }, (_, i) =>
+      JSON.stringify({
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "text", text: `t${i}` }] },
+      }),
+    ).join("\n");
+    const fs = fsStore({ "/f.jsonl": `${LINES}\n${tail}` }, 256);
+    const reads = vi.fn(fs.readFile);
+    const withCount = { ...fs, readFile: reads };
+    const history = claudeHistory({
+      log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+      services: { fs: withCount, sessionStore: createSessionStore(withCount) },
+    } as unknown as PluginContext);
+
+    await history.describe("/f.jsonl");
+    const forDescribe = reads.mock.calls.length;
+    reads.mockClear();
+    await history.content("/f.jsonl");
+
+    expect(forDescribe).toBeLessThan(reads.mock.calls.length);
   });
 
-  it('the index\'s literal "No prompt" placeholder falls through to the full read', async () => {
-    const history = claudeHistory(
-      ctx(
-        {
-          "/p/-repo/f.jsonl": LINES,
-          "/p/-repo/sessions-index.json": JSON.stringify({
-            entries: [{ sessionId: "f", firstPrompt: "No prompt" }],
-          }),
-        },
-        {},
-      ),
-    );
-    expect((await history.describe("/p/-repo/f.jsonl")).title).toBe(
-      "fix the auth bug",
-    );
-  });
+  it("a store whose head has no usable turn is still read on for one", async () => {
+    // The stop is "we have the facts", never "we have read enough": a
+    // session that opens with preambles must be read past them, not answered
+    // with an empty title.
+    const history = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
 
-  it("a preamble firstPrompt in the index falls through to the full read", async () => {
-    const history = claudeHistory(
-      ctx(
-        {
-          "/p/-repo/f.jsonl": LINES,
-          "/p/-repo/sessions-index.json": JSON.stringify({
-            entries: [{ sessionId: "f", firstPrompt: "/prime" }],
-          }),
-        },
-        {},
-      ),
-    );
-    expect((await history.describe("/p/-repo/f.jsonl")).title).toBe(
-      "fix the auth bug",
-    );
+    expect((await history.describe("/f.jsonl")).title).toBe("fix the auth bug");
   });
 
   it("a pasted absolute path IS a real title — only single-token /commands are preambles", async () => {
@@ -338,22 +320,41 @@ describe("claude history", () => {
     expect(page.map((e) => e.role)).toEqual(["user", "user", "user", "assistant"]);
   });
 
-  it("a page cut short by the cap says so in bytes", async () => {
+  it("a page cut short by the budget says so in bytes", async () => {
     // The other half of the flag's journey. It has ridden in from Rust since
     // before this stage, and until the shortfall landed nobody read it — the
     // plugins all wrote `file.text ?? ""` and moved on. This is the assertion
     // that the reading now speaks about itself, in the measure a file has.
-    const history = claudeHistory(
-      ctx({ "/f.jsonl": LINES }, {}, vi.fn(), { "/f.jsonl": 9_000_000 }),
-    );
-    const page = await history.transcriptPage!("/f.jsonl", { offset: 0, limit: 10 });
-    expect(page.shortfall).toEqual([
-      {
-        kind: "bytes",
-        size: 9_000_000,
-        readBytes: new TextEncoder().encode(LINES).length,
-      },
-    ]);
+    //
+    // The fixture has to be genuinely bigger than one read may pass through:
+    // the mark now comes from the walk hitting its budget, and a double that
+    // merely CLAIMED a large file would describe a world where the bytes
+    // between what it returned and what it claimed do not exist.
+    const line = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: "x".repeat(2000) },
+    });
+    const big = `${line}\n`.repeat(4500);
+    const size = new TextEncoder().encode(big).length;
+    const history = claudeHistory(ctx({ "/f.jsonl": big }, {}));
+
+    const page = await history.transcriptPage!("/f.jsonl", {
+      offset: 4400,
+      limit: 10,
+    });
+
+    // The page sits past where the budget stops, so it comes back short —
+    // which is also how the viewer's pagination learns it has reached the end.
+    expect(page.entries.length).toBeLessThan(10);
+    expect(page.shortfall).toHaveLength(1);
+    const [mark] = page.shortfall!;
+    expect(mark.kind).toBe("bytes");
+    // Both numbers from the reading itself: the file's own length, and how
+    // much of it was actually passed through. Pinning the budget here would
+    // put the host's number back in a plugin's test.
+    expect(mark).toMatchObject({ size });
+    expect((mark as { readBytes: number }).readBytes).toBeGreaterThan(0);
+    expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
   });
 
   it("a page that read everything carries no shortfall at all", async () => {

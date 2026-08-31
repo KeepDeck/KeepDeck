@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
-import { fsFileRead } from "@keepdeck/plugin-api/testing";
-import { kimiHistory, parseWire } from "./history";
+import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
+import { fsStore } from "@keepdeck/plugin-api/testing";
+import { kimiHistory } from "./history";
 
 // Shapes mirror a REAL kimi 0.27 wire: the user opens turns in
 // append_message and interjects mid-turn via turn.steer (origin.kind
@@ -54,17 +54,16 @@ const STATE = JSON.stringify({
   agents: { main: { homedir: "/x" } },
 });
 
-/** Paths whose read came back SHORT, mapped to the file's full length. The
- * answer itself is built by the contract's own double — see
- * `@keepdeck/plugin-api/testing`. */
-type ShortReads = Record<string, number>;
-
 function ctx(
   files: Record<string, string>,
   dirs: Record<string, unknown[]>,
   warn: (message: string) => void = vi.fn(),
-  short: ShortReads = {},
 ) {
+  // A wire is read a WINDOW at a time now, so the double has to serve
+  // windows. It also refuses a missing path by throwing, which is kimi's own
+  // shape — the other two answer with null text; only the ANSWER is shared,
+  // how a store refuses is the store's business.
+  const fs = fsStore(files);
   return {
     log: { warn, info: vi.fn(), error: vi.fn() },
     services: {
@@ -74,14 +73,9 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: async (path: string) => {
-          // The refusal is kimi's own: a missing path here means "no file",
-          // where the other two answer with null text. Only the ANSWER is
-          // shared; how a store refuses is the store's business.
-          if (!(path in files)) throw new Error("no file");
-          return fsFileRead(path, files[path], short[path]);
-        },
+        readFile: fs.readFile,
       },
+      sessionStore: createSessionStore(fs),
     },
   } as unknown as PluginContext;
 }
@@ -118,7 +112,10 @@ describe("kimi history", () => {
       ctx({}, {
         "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
         "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
-        // no agents/main for session_s1 — created, never spawned.
+        // agents/ reads and holds no `main` — created, never spawned. The
+        // parent has to READ for this to be provably absence rather than
+        // a refusal, which is the whole distinction this walk now makes.
+        "/k/wd_a_1/session_s1/agents": [],
       }),
     );
     expect(await bare.list()).toEqual([]);
@@ -155,18 +152,99 @@ describe("kimi history", () => {
     expect(String(warn.mock.calls[0][0])).toContain("/k/wd_b_2");
   });
 
-  it("a session without agents/main is a normal shape under listing() too — skipped, walk still complete", async () => {
-    // The prune hazard's honest half: never-spawned sessions drop out of a
-    // COMPLETE listing. Only an agents/main that exists but won't read is
-    // the hazard — and the fs layer cannot tell those apart (see the
-    // named comment at the catch in history.ts).
+  /**
+   * The routine shapes, and there are two of them. Both must leave the walk
+   * COMPLETE, or pruning turns itself off for good: a store full of
+   * never-spawned sessions would mark every pass incomplete and the index
+   * would keep deleted sessions forever.
+   */
+  it("a session that never spawned keeps the walk complete — whether agents/ is empty or absent", async () => {
+    const spawnedNothing = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
+        // agents/ reads and holds no `main` — spawned nothing yet.
+        "/k/wd_a_1/session_s1/agents": [],
+      }),
+    );
+    expect(await spawnedNothing.listing!()).toEqual({ stubs: [], complete: true });
+
+    const noAgentsAtAll = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
+        // The session dir reads and has no `agents` child at all — the
+        // shape a session takes before any agent directory exists. The
+        // probe of the session dir is the ONLY thing that tells this from
+        // an `agents/` that refuses to open.
+        "/k/wd_a_1/session_s1": [
+          { name: "state.json", path: "/k/wd_a_1/session_s1/state.json", kind: "file" },
+        ],
+      }),
+    );
+    expect(await noAgentsAtAll.listing!()).toEqual({ stubs: [], complete: true });
+  });
+
+  it("a session whose agents/main exists but will not read keeps its stub, is named, and the listing is incomplete", async () => {
+    const warn = vi.fn();
+    const history = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [
+          { name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir", mtime: 5 },
+          { name: "session_s2", path: "/k/wd_a_1/session_s2", kind: "dir", mtime: 7 },
+        ],
+        "/k/wd_a_1/session_s1/agents/main": [
+          { name: "wire.jsonl", path: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", kind: "file", size: 4, mtime: 9 },
+        ],
+        // s2's agents/main will not read, but its parent SHOWS that it exists.
+        "/k/wd_a_1/session_s2/agents": [
+          { name: "main", path: "/k/wd_a_1/session_s2/agents/main", kind: "dir" },
+        ],
+      }, warn),
+    );
+    expect(await history.listing!()).toEqual({
+      stubs: [
+        { sessionId: "session_s1", ref: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", mtime: 9, size: 4 },
+        // A stub of EXISTENCE. Its fingerprint cannot equal a real wire's:
+        // the store never writes size 0 for a wire that has been messaged.
+        { sessionId: "session_s2", ref: "/k/wd_a_1/session_s2/agents/main/wire.jsonl", mtime: 7, size: 0 },
+      ],
+      complete: false,
+    });
+    expect(String(warn.mock.calls[0][0])).toContain("session_s2");
+  });
+
+  it("a session dir that will not read is incomplete too — unknowable is never 'no session'", async () => {
+    const warn = vi.fn();
     const history = kimiHistory(
       ctx({}, {
         "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
         "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
+        // Neither agents/main, nor agents, nor the session dir will read.
+      }, warn),
+    );
+    const out = await history.listing!();
+    expect(out.stubs).toEqual([
+      { sessionId: "session_s1", ref: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", mtime: 0, size: 0 },
+    ]);
+    expect(out.complete).toBe(false);
+    expect(String(warn.mock.calls[0][0])).toContain("session_s1");
+  });
+
+  it("list() refuses a session it cannot honestly describe — and the no-store arm does not swallow the refusal", async () => {
+    const history = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [{ name: "session_s2", path: "/k/wd_a_1/session_s2", kind: "dir" }],
+        "/k/wd_a_1/session_s2/agents": [
+          { name: "main", path: "/k/wd_a_1/session_s2/agents/main", kind: "dir" },
+        ],
       }),
     );
-    expect(await history.listing!()).toEqual({ stubs: [], complete: true });
+    await expect(history.list()).rejects.toThrow(/session_s2/);
+    // The "no store" arm still answers [] — the refusal lives outside it.
+    expect(await kimiHistory(ctx({}, {})).list()).toEqual([]);
   });
 
   it("listing() on an unreadable root answers nothing-read and incomplete — never an empty store", async () => {
@@ -189,22 +267,79 @@ describe("kimi history", () => {
     });
   });
 
-  it("a page cut short by the cap says so in bytes", async () => {
-    // kimi is the store where a cut can land INSIDE an emitted turn: its
-    // parser accumulates fragments across lines, so the tail turn is short and
-    // looks whole. That specific loss is unprovable from the held bytes, so
-    // the honest claim is the one this page makes — the reading fell short,
-    // and there may be more beyond it.
+  it("describe reads the directory under the NEWER key too", async () => {
+    // Sessions written since kimi 0.38 carry `cwd` where older ones carried
+    // `workDir`. Reading only the old name left every recent session
+    // unattached to its folder in the browser — 22 of 88 on a real store.
+    const newer = JSON.stringify({ cwd: "/repo/fresh", title: "recent run" });
+    const history = kimiHistory(
+      ctx({ "/k/wd_a_1/session_s1/state.json": newer }, {}),
+    );
+
+    expect(
+      await history.describe("/k/wd_a_1/session_s1/agents/main/wire.jsonl"),
+    ).toMatchObject({ cwd: "/repo/fresh", title: "recent run" });
+  });
+
+  it("describe still answers with no directory when the state names none", async () => {
+    // The eight oldest sessions on a real store carry neither key. An empty
+    // cwd is the honest answer; inventing one would attach a session to a
+    // folder it was never in.
+    const history = kimiHistory(
+      ctx(
+        { "/k/wd_a_1/session_s1/state.json": JSON.stringify({ title: "old" }) },
+        {},
+      ),
+    );
+
+    expect(
+      await history.describe("/k/wd_a_1/session_s1/agents/main/wire.jsonl"),
+    ).toMatchObject({ cwd: "", title: "old" });
+  });
+
+  it("indexes a role the dialect does not recognize, as the transcript shows it", async () => {
+    // The index used to drop these while the transcript kept them: two
+    // answers about one conversation. One behaviour now, and it is the
+    // keeping one — an unfamiliar role carrying real text is likelier to be
+    // conversation we failed to name than noise.
     const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
-    const history = kimiHistory(ctx({ [wire]: WIRE }, {}, vi.fn(), { [wire]: 9_000_000 }));
-    const page = await history.transcriptPage!(wire, { offset: 0, limit: 10 });
-    expect(page.shortfall).toEqual([
-      {
-        kind: "bytes",
-        size: 9_000_000,
-        readBytes: new TextEncoder().encode(WIRE).length,
-      },
-    ]);
+    const odd = JSON.stringify({
+      type: "context.append_message",
+      message: { role: "moderator", content: [{ type: "text", text: "held" }] },
+    });
+    const history = kimiHistory(ctx({ [wire]: odd }, {}));
+
+    const page = await history.transcript(wire, { offset: 0, limit: 10 });
+    expect(page).toEqual([{ role: "other", text: "held" }]);
+    expect(await history.content(wire)).toContain("held");
+  });
+
+  it("a page cut short by the budget says so in bytes", async () => {
+    // kimi is the store where a cut can land INSIDE an emitted turn: the
+    // dialect accumulates fragments across lines, so the tail turn is short
+    // and looks whole. That specific loss is unprovable from the held bytes,
+    // so the honest claim is the one this page makes — the reading fell
+    // short, and there may be more beyond it.
+    //
+    // The fixture has to be genuinely bigger than one read may pass through:
+    // a double that merely CLAIMED a large file would describe a world where
+    // the bytes between what it returned and what it claimed do not exist.
+    const line = JSON.stringify({
+      type: "context.append_message",
+      message: { role: "user", content: [{ type: "text", text: "x".repeat(2000) }] },
+    });
+    const big = `${line}\n`.repeat(4500);
+    const size = new TextEncoder().encode(big).length;
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const history = kimiHistory(ctx({ [wire]: big }, {}));
+
+    const page = await history.transcriptPage!(wire, { offset: 4400, limit: 10 });
+
+    expect(page.entries.length).toBeLessThan(10);
+    expect(page.shortfall).toHaveLength(1);
+    const [mark] = page.shortfall!;
+    expect(mark).toMatchObject({ kind: "bytes", size });
+    expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
   });
 
   it("a page that read everything carries no shortfall at all", async () => {
@@ -214,8 +349,12 @@ describe("kimi history", () => {
     expect(page.shortfall).toBeUndefined();
   });
 
-  it("per-step assistant fragments join with a newline, split by user speech", () => {
-    const turns = parseWire(WIRE);
+  it("per-step assistant fragments join with a newline, split by user speech", async () => {
+    // Through the contract rather than through an exported parser: what the
+    // dialect means is only observable in what a reading returns.
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const history = kimiHistory(ctx({ [wire]: WIRE }, {}));
+    const turns = await history.transcript(wire, { offset: 0, limit: 20 });
     expect(turns.map((t) => t.role)).toEqual([
       "user",
       "assistant",
@@ -228,10 +367,96 @@ describe("kimi history", () => {
     expect(turns[3].text).toBe("линтер чист");
   });
 
-  it("a user turn.steer is a real mid-turn user message; a background-task one is noise", () => {
-    const turns = parseWire(WIRE);
+  it("a user turn.steer is a real mid-turn user message; a background-task one is noise", async () => {
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const history = kimiHistory(ctx({ [wire]: WIRE }, {}));
+    const turns = await history.transcript(wire, { offset: 0, limit: 20 });
     expect(turns[2]).toEqual({ role: "user", text: "и линтер прогони" });
     // The notification steer (origin background_task) appears nowhere.
     expect(turns.some((t) => t.text.includes("notification"))).toBe(false);
+  });
+
+  /**
+   * The turn boundary the format writes for itself.
+   *
+   * These fixtures are SYNTHETIC on purpose and the reason is worth keeping:
+   * no session in the real store puts two answers back to back across a
+   * `turn.ended` — a user message always intervenes (0 such cases in 121
+   * records). So the wire below is a shape the store has not produced yet,
+   * and the reading is correct for it rather than correct by accident.
+   */
+  const line = (record: unknown) => JSON.stringify(record);
+  const userSaid = (text: string) =>
+    line({
+      type: "context.append_message",
+      message: { role: "user", content: [{ type: "text", text }] },
+    });
+  const fragment = (text: string) =>
+    line({
+      type: "context.append_loop_event",
+      event: { type: "content.part", part: { type: "text", text } },
+    });
+  const ended = (reason: string) =>
+    line({ type: "turn.ended", turnId: 0, reason, durationMs: 10, time: 1 });
+  const readTurns = async (lines: string[]) => {
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const history = kimiHistory(ctx({ [wire]: lines.join("\n") + "\n" }, {}));
+    return history.transcript(wire, { offset: 0, limit: 20 });
+  };
+
+  it("turn.ended closes the held answer — two in a row stay two turns", async () => {
+    expect(
+      await readTurns([
+        userSaid("вопрос"),
+        fragment("ответ один"),
+        ended("completed"),
+        fragment("ответ два"),
+        ended("completed"),
+      ]),
+    ).toEqual([
+      { role: "user", text: "вопрос" },
+      { role: "assistant", text: "ответ один" },
+      { role: "assistant", text: "ответ два" },
+    ]);
+  });
+
+  it("every reason closes the turn — a cancelled answer is still an answer", async () => {
+    // completed 100, cancelled 18, failed 3 on the real store. A cancelled
+    // or failed answer is what the assistant said before it stopped, and
+    // folding it into the next turn would misattribute it.
+    const turns = await readTurns([
+      userSaid("q"),
+      fragment("прерванный"),
+      ended("cancelled"),
+      fragment("упавший"),
+      ended("failed"),
+    ]);
+    expect(turns.map((t) => t.text)).toEqual(["q", "прерванный", "упавший"]);
+  });
+
+  it("turn.ended over an empty buffer adds no turn of its own", async () => {
+    // 13 of the 121 arrive this way. The record is a boundary, not speech.
+    expect(
+      await readTurns([
+        userSaid("вопрос"),
+        fragment("ответ"),
+        ended("completed"),
+        ended("completed"),
+        userSaid("ещё"),
+      ]),
+    ).toEqual([
+      { role: "user", text: "вопрос" },
+      { role: "assistant", text: "ответ" },
+      { role: "user", text: "ещё" },
+    ]);
+  });
+
+  it("a last answer with no turn.ended still arrives — the fallback holds", async () => {
+    // Older CLIs wrote no such record, and a live session's newest turn has
+    // not ended yet. `end` is what closes those.
+    expect(await readTurns([userSaid("q"), fragment("последний ответ")])).toEqual([
+      { role: "user", text: "q" },
+      { role: "assistant", text: "последний ответ" },
+    ]);
   });
 });

@@ -3,6 +3,7 @@ import {
   COMPANION_DESCRIPTOR,
   COMPANION_ID,
   COMPANION_VERSION,
+  sha256Hex,
 } from "./companion";
 import { createKimiCompanionManager } from "./manager";
 import type { KimiServerManager } from "./serverManager";
@@ -29,6 +30,7 @@ function pluginSummary(overrides: Record<string, unknown> = {}) {
 
 function harness(
   responses: unknown[] = [{ code: 0, msg: "", data: null }],
+  scriptsState: Parameters<typeof scriptsPort>[0] = {},
 ) {
   const abort = new AbortController();
   const run = vi.fn(
@@ -55,9 +57,44 @@ function harness(
   const manager = createKimiCompanionManager(
     server,
     COMPANION_DESCRIPTOR,
+    scriptsPort(scriptsState),
     fetcher,
   );
   return { manager, server, run, dispose, fetcher, abort };
+}
+
+/** The managed copy's files, faked: a map of name → bytes. The shipped
+ * side digests the SAME texts, so "current" is the default and a test
+ * bends it by bending one side — exactly the two ways reality bends. */
+function scriptsPort(state: {
+  files?: ReadonlyMap<string, string>;
+  listed?: ReadonlySet<string> | null;
+  shippedOverrides?: ReadonlyMap<string, string>;
+  brokenRead?: string | null;
+} = {}) {
+  const files =
+    state.files ??
+    new Map(COMPANION_DESCRIPTOR.scripts.map((s) => [s.file, "wire bytes"]));
+  return {
+    list: async () =>
+      state.listed === undefined ? new Set(files.keys()) : state.listed,
+    read: async (file: string) => {
+      if (state.brokenRead === file) throw new Error("unreadable");
+      const text = files.get(file);
+      if (text === undefined) throw new Error(`no such file: ${file}`);
+      return text;
+    },
+    shipped: async () => {
+      const digests = new Map<string, string>();
+      for (const [name, text] of files) {
+        digests.set(name, await sha256Hex(text));
+      }
+      for (const [name, sha] of state.shippedOverrides ?? new Map()) {
+        digests.set(name, sha);
+      }
+      return digests;
+    },
+  };
 }
 
 describe("Kimi companion manager", () => {
@@ -78,6 +115,7 @@ describe("Kimi companion manager", () => {
       enabled: true,
       healthy: true,
       owned: true,
+      scriptsCurrent: true,
     });
 
     expect(run).toHaveBeenCalledOnce();
@@ -101,6 +139,62 @@ describe("Kimi companion manager", () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
+  it("reads a MISSING script file as not current — the refresh heals it", async () => {
+    // Absence is a state, not a failure: configure() reinstalls, so the
+    // honest answer is the one that triggers the self-heal.
+    const files = new Map(
+      COMPANION_DESCRIPTOR.scripts.map((s) => [s.file, "wire bytes"]),
+    );
+    files.delete("kd-status-hook.sh");
+    const { manager } = harness(
+      [{ code: 0, msg: "", data: [pluginSummary()] }],
+      { files },
+    );
+    await expect(manager.inspect()).resolves.toMatchObject({
+      version: COMPANION_VERSION,
+      scriptsCurrent: false,
+    });
+  });
+
+  it("reads a GONE managed directory as not current — a stub of nothing cannot be the wire", async () => {
+    // The RPC says the plugin is installed while the managed directory is
+    // not there at all. Answering "current" here would seal the lie from
+    // the inside; "not current" points the refresh at it, and reinstalling
+    // recreates the directory the same as it recreates a missing file.
+    const { manager } = harness(
+      [{ code: 0, msg: "", data: [pluginSummary()] }],
+      { listed: null },
+    );
+    await expect(manager.inspect()).resolves.toMatchObject({
+      version: COMPANION_VERSION,
+      scriptsCurrent: false,
+    });
+  });
+
+  it("reads an UNREADABLE script file as a failed check, not as current", async () => {
+    // A file that exists but cannot be read cannot be healed by the
+    // refresh it would trigger — answering "not current" would loop that
+    // refresh forever. The check refuses, and the controller shows the
+    // error instead of silently looping.
+    const { manager } = harness(
+      [{ code: 0, msg: "", data: [pluginSummary()] }],
+      { brokenRead: "kd-status-hook.sh" },
+    );
+    await expect(manager.inspect()).rejects.toThrow("unreadable");
+  });
+
+  it("reports drifted script bytes as not current even at the expected version", async () => {
+    // The 1.6.0 lie itself: version matches, bytes do not.
+    const { manager } = harness(
+      [{ code: 0, msg: "", data: [pluginSummary()] }],
+      { shippedOverrides: new Map([["kd-status-hook.sh", "deadbeef"]]) },
+    );
+    await expect(manager.inspect()).resolves.toMatchObject({
+      version: COMPANION_VERSION,
+      scriptsCurrent: false,
+    });
+  });
+
   it("inspects the actual Kimi installation state", async () => {
     const { manager } = harness([
       { code: 0, msg: "", data: [pluginSummary()] },
@@ -110,6 +204,7 @@ describe("Kimi companion manager", () => {
       enabled: true,
       healthy: true,
       owned: true,
+      scriptsCurrent: true,
     });
   });
 
@@ -242,6 +337,7 @@ describe("Kimi companion manager", () => {
     const manager = createKimiCompanionManager(
       { run, dispose: vi.fn(async () => {}) },
       COMPANION_DESCRIPTOR,
+      scriptsPort(),
       fetcher,
     );
 

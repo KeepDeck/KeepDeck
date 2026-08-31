@@ -3,7 +3,9 @@ import type {
   AgentSessionStub,
   AgentTranscriptEntry,
   PluginContext,
+  SqlAnswer,
 } from "@keepdeck/plugin-api";
+import { CONTENT_CAP } from "@keepdeck/plugin-api";
 
 /**
  * Discovery over opencode's store ([F8] browser): everything lives in one
@@ -14,53 +16,112 @@ import type {
  */
 const DB = "~/.local/share/opencode/opencode.db";
 
-/** A part row's text, when it is a text part. */
-export function partText(data: string): string | null {
-  try {
-    const parsed = JSON.parse(data) as { type?: unknown; text?: unknown };
-    if (parsed.type === "text" && typeof parsed.text === "string") {
-      const text = parsed.text.trim();
-      return text === "" ? null : text;
-    }
-  } catch {
-    // Foreign/torn part rows never sink the session.
-  }
-  return null;
-}
+/**
+ * The text-carrying parts of one session, in order, and whether each row
+ * survived being written.
+ *
+ * NO ROW LIMIT HERE. There used to be one, and it was the plugin guessing at
+ * a resource question it cannot see: a cap in rows is blind to how big a row
+ * is, so it bounded nothing that mattered and every reader of these rows had
+ * to remember the same number. The host bounds the answer in BYTES now, and
+ * says so in `stopped` — one bound, enforced where the bytes actually are,
+ * that no plugin can drift out of step with.
+ *
+ * THE TYPE FILTER RUNS IN THE DATABASE. Text is 27 MB of this store's 608 MB
+ * of parts; tool calls alone are 442 MB. Carrying every type across the
+ * bridge to discard nineteen twentieths of it on arrival was the same
+ * mistake as selecting a whole column to read one field.
+ *
+ * THE GUARDS ARE LOAD-BEARING, in the filter AND in the select list. On a
+ * torn row `json_extract` does not answer NULL — it raises "malformed JSON"
+ * and kills the whole query, which would make one damaged line cost an
+ * entire session. `CASE` is what guarantees the check runs first: SQLite's
+ * code generator may evaluate an `AND`'s right operand first, so the
+ * familiar `json_valid(x) AND json_extract(x)` spelling is luck.
+ *
+ * A TORN ROW IS LET THROUGH ON PURPOSE. `ELSE 'torn'` keeps it in the
+ * answer, where it arrives as three tiny cells — its id, an empty text and
+ * a zero — carrying none of its content. That is what preserves the damage
+ * count without a second query: filtering the row out in the database would
+ * have silently retired the one mark that explains a hole inside a turn the
+ * reader can see.
+ *
+ * `id`, not `time_created`: real sessions share ONE timestamp across
+ * thousands of parts, so the client-minted, sortable ids are the only
+ * chronological key there is. One known store quirk rides along harmlessly —
+ * a synthetic `prt_0000000000_thinking` sentinel sorts before its session's
+ * first real part, but it is not a text part and the filter drops it.
+ *
+ * The order is also what makes the host's cut survivable: cut at the end of
+ * an ordered read, a session loses its tail. Unordered, it would lose an
+ * arbitrary middle and never say which.
+ */
+const TEXT_PART_ROWS =
+  " FROM part WHERE session_id = ?1" +
+  " AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.type')" +
+  " ELSE 'torn' END) IN ('text', 'torn')" +
+  " ORDER BY id";
+/** The part's text, or empty for a row that could not be read. */
+const PART_TEXT = "CASE WHEN json_valid(data) THEN json_extract(data, '$.text') END";
+/** Zero for a row that could not be read; empty when the row holds no
+ * envelope at all, which is not damage. */
+const PART_INTACT = "json_valid(data)";
 
 /**
- * How many part rows one reading of a session takes, and in what order.
+ * Every live session, with the two-part fingerprint the scanner diffs on.
  *
- * ONE BOUND FOR BOTH READERS. Two of them read these rows for different
- * questions — one pages turns and counts what it could not parse, the other
- * pours the text into the search corpus — and they had this written out
- * separately. Raise it in one and the two readings of the same session start
- * disagreeing about where it ends, which is the noisiest kind of bug a
- * store-backed reader can have: nothing fails, the answers just stop matching.
+ * The session row's own timestamp is NOT a change fingerprint. On a real
+ * store 1271 of 1967 sessions hold parts newer than the row that is
+ * supposed to speak for them: the content moved and the row did not. A
+ * scanner trusting it SKIPS sessions that changed, and the index goes
+ * quietly stale — a worse failure than re-reading too often, because the
+ * answer it shows is merely old and says nothing.
  *
- * The largest real session holds ~5k parts, and real ones already exceed that,
- * so the cap has to drop the TAIL rather than a hole in the middle. Ordered
- * explicitly for it: an unordered LIMIT happens to follow id order today, but
- * that is an artifact and not a guarantee.
- *
- * `id`, not `time_created`: real sessions share ONE timestamp across thousands
- * of parts, so the client-minted, sortable ids are the only chronological key
- * there is. One known store quirk rides along harmlessly — a synthetic
- * `prt_0000000000_thinking` sentinel sorts before its session's first real
- * part, but its type never yields text, so [`partText`] drops it.
+ * The newest part's timestamp is the second axis. Not a count: half this
+ * store's parts were edited in place after being written, and a count is
+ * blind to every one of them. Not a sum of lengths either: that reads
+ * 608 MB of blobs on every listing AND still misses an edit that kept its
+ * length.
  */
-const PART_ROW_CAP = 20_000;
-const partRowsSql = (columns: string) =>
-  `SELECT ${columns} FROM part WHERE session_id = ?1 ORDER BY id LIMIT ${PART_ROW_CAP}`;
+const SESSION_ROWS =
+  "SELECT s.id, s.time_updated," +
+  " (SELECT MAX(p.time_updated) FROM part p WHERE p.session_id = s.id)" +
+  " FROM session s WHERE s.time_archived IS NULL";
 
-/** How much text one session may put into the search corpus. Belongs to the
- * corpus rather than to the reading: only the search side accumulates text,
- * and only it can drag tens of MB across the IPC bridge. */
-const CORPUS_BYTE_CAP = 2 * 1024 * 1024;
+const stubsOf = (rows: readonly (string | null)[][]): AgentSessionStub[] =>
+  rows.flatMap(([id, updated, newestPart]) =>
+    id
+      ? [
+          {
+            sessionId: id,
+            ref: id,
+            mtime: Number(updated ?? 0),
+            // Not a size — this store has none per session — but the second
+            // half of a fingerprint, which is all the host asks of this
+            // field: a number that moves when the content does. Naming it
+            // honestly would mean renaming the contract for one agent's
+            // sake, so the name stays and this comment carries the truth.
+            size: Number(newestPart ?? 0),
+          },
+        ]
+      : [],
+  );
+
+const errOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function opencodeHistory(ctx: PluginContext): AgentHistory {
   const query = (sql: string, params: string[] = []) =>
     ctx.services.sqlite.query(DB, sql, params);
+
+  /** The host's stop, translated into the reader's vocabulary. It knows only
+   * that more existed, never how much: a budget cut cannot name a total, and
+   * the second query that would find one is exactly the cost the budget
+   * refused. Silence here would be worse than an imprecise number — a page
+   * cut in the middle is indistinguishable from a conversation that ended. */
+  const cutShort = (answer: { stopped: string; rows: unknown[] }) =>
+    answer.stopped === "budget"
+      ? [{ kind: "rows" as const, returned: answer.rows.length }]
+      : [];
 
   /** One page of turns WITH what the reading fell short by.
    *
@@ -78,114 +139,164 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
    * ignore it. A row whose data is SQL NULL is not counted either — an empty
    * envelope is not a damaged one.
    *
-   * The row cap is the OTHER loss and is deliberately not claimed yet: this
-   * read can see that the cap bit but not how much it hid, and a measure it
-   * cannot fill would be a worse lie than the silence. It arrives with the
-   * partition count. */
+   * The host's cut is the OTHER loss, and it is claimed — see [`cutShort`].
+   * It says how many rows arrived and never how many did not, because the
+   * budget's whole point is that the rest was not read. */
   const readPage = async (
     ref: string,
     page: { offset: number; limit: number },
   ) => {
+    // ONE FIELD, not the column it sits in. `message.data` carries
+    // `summary.diffs` — whole code diffs — and this reading wants the role.
+    // Selecting the column dragged 440 MB across the bridge for a session
+    // whose roles are twelve kilobytes; held as UTF-16 in the webview that
+    // is most of a gigabyte for one click.
+    //
+    // The `CASE WHEN json_valid` guard is NOT decoration. On a torn row
+    // `json_extract` raises "malformed JSON" and kills the WHOLE query —
+    // one damaged line would make a session unreadable entirely, where
+    // today it is silently skipped. Verified against the SQLite the app
+    // actually links. A torn row arrives as a NULL role and reads as
+    // "other", exactly as an unparseable envelope did before.
+    //
+    // `, id` is the tiebreaker: messages share a `time_created`, and an
+    // ORDER BY that leaves the tie open may answer two identical queries
+    // differently — which a paged reader turns into one turn shown twice
+    // and another never shown at all.
     const messages = await query(
-      "SELECT id, data FROM message WHERE session_id = ?1 ORDER BY time_created",
+      "SELECT id, CASE WHEN json_valid(data)" +
+        " THEN json_extract(data, '$.role') END" +
+        " FROM message WHERE session_id = ?1 ORDER BY time_created, id",
       [ref],
     );
-    const parts = await query(partRowsSql("message_id, data"), [ref]);
+    const parts = await query(
+      `SELECT message_id, ${PART_TEXT}, ${PART_INTACT}${TEXT_PART_ROWS}`,
+      [ref],
+    );
+    const cut = [...cutShort(messages), ...cutShort(parts)];
     const byMessage = new Map<string, string[]>();
     let unreadableParts = 0;
-    for (const [messageId, data] of parts) {
-      if (!messageId || !data) continue;
-      // The parse is done HERE, not read off `partText`'s answer, because
-      // only this position can tell a torn row from a part that simply has
-      // no text. `partText` still decides what counts as text — the two
-      // answer different questions about the same row.
-      try {
-        JSON.parse(data);
-      } catch {
+    for (const [messageId, text, intact] of parts.rows) {
+      // STRICTLY zero. A row with no envelope at all answers neither 0 nor
+      // 1 but nothing, and counting that as damage would report thousands
+      // of losses for a store that lost nothing.
+      if (intact === "0") {
         unreadableParts += 1;
         continue;
       }
-      const text = partText(data);
-      if (text === null) continue;
+      const said = text?.trim();
+      if (!messageId || !said) continue;
       const list = byMessage.get(messageId) ?? [];
-      list.push(text);
+      list.push(said);
       byMessage.set(messageId, list);
     }
     const all: AgentTranscriptEntry[] = [];
-    for (const [id, data] of messages) {
+    for (const [id, role] of messages.rows) {
       const texts = id ? byMessage.get(id) : undefined;
       if (!texts?.length) continue;
-      let role: AgentTranscriptEntry["role"] = "other";
-      try {
-        const parsed = JSON.parse(data ?? "") as { role?: unknown };
-        if (parsed.role === "user" || parsed.role === "assistant") {
-          role = parsed.role;
-        }
-      } catch {
-        // keep "other"
-      }
-      all.push({ role, text: texts.join("\n") });
+      all.push({
+        role: role === "user" || role === "assistant" ? role : "other",
+        text: texts.join("\n"),
+      });
     }
     const entries = all.slice(page.offset, page.offset + page.limit);
-    return {
-      entries,
+    const shortfall = [
       ...(unreadableParts > 0
-        ? { shortfall: [{ kind: "parts" as const, unreadableParts }] }
-        : {}),
-    };
+        ? [{ kind: "parts" as const, unreadableParts }]
+        : []),
+      ...cut,
+    ];
+    return { entries, ...(shortfall.length > 0 ? { shortfall } : {}) };
   };
 
   return {
     async list(): Promise<AgentSessionStub[]> {
-      let rows: (string | null)[][];
+      let answer: SqlAnswer;
       try {
-        rows = await query(
-          "SELECT id, time_updated FROM session WHERE time_archived IS NULL",
-        );
+        answer = await query(SESSION_ROWS);
       } catch {
         return []; // no store — opencode never ran here
       }
-      return rows.flatMap(([id, updated]) =>
-        id
-          ? [
-              {
-                sessionId: id,
-                ref: id,
-                mtime: Number(updated ?? 0),
-                // The db has no per-session byte size; mtime alone is the
-                // change fingerprint (time_updated moves on every write).
-                size: 0,
-              },
-            ]
-          : [],
-      );
+      // This contract has no way to say "partial" — that is what `listing`
+      // is for — so the only honest answer to a cut is to refuse. Returning
+      // the rows that did arrive would be read as the whole store, and
+      // every session past the cut would be pruned from the index.
+      //
+      // The refusal is OUTSIDE the catch above on purpose: inside, the
+      // "no store" arm would swallow it and answer `[]`, which is the same
+      // lie wearing a shorter list.
+      if (answer.stopped === "budget") {
+        throw new Error("opencode: listing cut short — use listing()");
+      }
+      return stubsOf(answer.rows);
+    },
+    /** The same enumeration WITH the integrity signal — every other agent
+     * has offered this pair for some time and this one was still on the
+     * older road alone.
+     *
+     * Two ways to fall short, and they are the same news to the host. A
+     * store that will not open is not an empty store: `[]` with
+     * `complete: true` reads as "every session was deleted" and the prune
+     * would wipe this agent's whole index. (Accepted cost, the same one
+     * the file-backed agents name: a genuinely deleted store stops being
+     * pruned.) And a listing the host CUT is not a whole listing — the
+     * sessions past the cut are unseen, not gone. */
+    async listing(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }> {
+      let answer: SqlAnswer;
+      try {
+        answer = await query(SESSION_ROWS);
+      } catch (e) {
+        ctx.log.warn(
+          `opencode: store unreadable (${errOf(e)}) — nothing enumerated`,
+        );
+        return { stubs: [], complete: false };
+      }
+      return {
+        stubs: stubsOf(answer.rows),
+        complete: answer.stopped !== "budget",
+      };
     },
     async describe(ref) {
       const rows = await query(
         "SELECT directory, title FROM session WHERE id = ?1",
         [ref],
       );
-      const [directory, title] = rows[0] ?? [];
+      // A cut here is not a short answer, it is NO answer: one row was
+      // asked for and the budget stopped before it. Reading on would put
+      // `cwd: ""` in the index as a FACT about this session. Refusing
+      // instead costs the session this pass — the scan logs it skipped and
+      // prunes nothing — and it is read again next time.
+      if (rows.stopped === "budget") {
+        throw new Error(`opencode: session row cut short (${ref})`);
+      }
+      const [directory, title] = rows.rows[0] ?? [];
       return {
         cwd: directory ?? "",
         ...(title ? { title: title.slice(0, 120) } : {}),
       };
     },
     async content(ref) {
-      // Bounded on a second axis as well as the shared row cap: a monster
-      // session must not drag tens of MB across the IPC bridge into the
-      // index. This one belongs to the corpus and not to the reading, which
-      // is why it is not up beside [`PART_ROW_CAP`] — the paging reader has
-      // no text to accumulate and nothing to fall short of by bytes.
-      const rows = await query(partRowsSql("data"), [ref]);
+      // The corpus bound is the CORE's, not this plugin's: how much text one
+      // session may contribute to the index is a property of the index, and
+      // the file-backed agents already answer to that same number. A local
+      // copy of it would only be a second place to change.
+      const rows = await query(`SELECT ${PART_TEXT}${TEXT_PART_ROWS}`, [ref]);
       const texts: string[] = [];
       let total = 0;
-      for (const [data] of rows) {
-        const text = data ? partText(data) : null;
-        if (text === null) continue;
+      for (const [data] of rows.rows) {
+        const text = data?.trim();
+        if (!text) continue;
         texts.push(text);
         total += text.length;
-        if (total >= CORPUS_BYTE_CAP) break;
+        if (total >= CONTENT_CAP) break;
+      }
+      // A cut matters here ONLY if the corpus came up short of the cap.
+      // Reaching the cap means the tail was being dropped anyway and the
+      // cut changed nothing. Refusing on every cut would trade a slightly
+      // shorter corpus for NO corpus — the session would leave the index
+      // entirely, which is the worse of the two silences.
+      if (rows.stopped === "budget" && total < CONTENT_CAP) {
+        throw new Error(`opencode: corpus cut short below the cap (${ref})`);
       }
       return texts.join("\n");
     },

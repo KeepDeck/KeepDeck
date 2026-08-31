@@ -22,18 +22,22 @@ export function projectFsReadDir(
 }
 
 /** One file's contents (UTF-8 text, or flagged binary), capped at `maxBytes`
- * (the Rust side clamps to its own ceiling; `null` = the default cap). */
+ * (the Rust side clamps to its own ceiling; `null` = the default cap) and
+ * starting at `offset` (`null` = the file's start), which makes the cap the
+ * size of one window in a walk rather than a limit on the whole file. */
 export function projectFsReadFile(
   path: string,
   roots: string[],
   everywhere: boolean,
   maxBytes?: number,
+  offset?: number,
 ): Promise<FsFile> {
   return invoke<FsFile>("project_fs_read_file", {
     path,
     roots,
     everywhere,
     maxBytes: maxBytes ?? null,
+    offset: offset ?? null,
   });
 }
 

@@ -9,6 +9,7 @@ import type {
   PaneActionContribution,
   PluginCommandSpec,
   PluginContext,
+  PluginFs,
   PluginManifest,
   PluginSessionEvent,
   PluginSessionHandle,
@@ -16,7 +17,7 @@ import type {
   TopBarActionContribution,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import { mergeSectionValues } from "@keepdeck/plugin-api";
+import { createSessionStore, mergeSectionValues } from "@keepdeck/plugin-api";
 
 /**
  * A fake `PluginContext` for driving the RPC bridge in tests — the host-side
@@ -95,6 +96,20 @@ export function fakeManifest(
     ...overrides,
   };
 }
+
+/** A filesystem with nothing in it — every read answers "empty, whole". */
+const emptyFs: PluginFs = {
+  readDir: async () => [],
+  readFile: async (path) => ({
+    path,
+    text: "",
+    isBinary: false,
+    size: 0,
+    truncated: false,
+    readBytes: 0,
+  }),
+  watch: () => ({ dispose() {} }),
+};
 
 export function createFakeHost(
   options: {
@@ -308,20 +323,13 @@ export function createFakeHost(
       },
       ports: { allocate: async () => 3000 },
       opener: { openUrl: async () => {}, openPath: async () => {}, openPathWith: async () => {} },
-      fs: {
-        readDir: async () => [],
-        readFile: async (path) => ({
-          path,
-          text: "",
-          isBinary: false,
-          size: 0,
-          truncated: false,
-          readBytes: 0,
-        }),
-        watch: () => ({ dispose() {} }),
-      },
+      fs: emptyFs,
+      // Built on the fake fs exactly as the real tiers build it on theirs —
+      // an empty store reads as an empty store, with no second fake to keep
+      // in step.
+      sessionStore: createSessionStore(emptyFs),
       sqlite: {
-        query: async () => [],
+        query: async () => ({ rows: [], stopped: "exhausted" as const, payloadBytes: 0 }),
       },
       fsWrite: {
         mkdir: async () => {},

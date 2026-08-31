@@ -276,3 +276,93 @@ describe("sessionIndexManager dispose", () => {
     expect(scans.scanAgentHistories).not.toHaveBeenCalled();
   });
 });
+
+describe("sessionIndexManager freshness", () => {
+  /** A manager whose clock this test moves by hand. */
+  function withClock(contributions = CONTRIBUTIONS) {
+    const { registry, set } = fakeRegistry(contributions);
+    let at = 1_000_000;
+    const manager = createSessionIndexManager(registry, { now: () => at });
+    return { manager, set, tick: (ms: number) => (at += ms) };
+  }
+
+  it("a need repeated inside the window does not scan again", async () => {
+    const { manager, tick } = withClock();
+    manager.ensureFresh("claude");
+    await flush();
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
+
+    tick(30_000);
+    manager.ensureFresh("claude");
+    await flush();
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
+  });
+
+  it("the window expires", async () => {
+    const { manager, tick } = withClock();
+    manager.ensureFresh("claude");
+    await flush();
+
+    tick(60_001);
+    manager.ensureFresh("claude");
+    await flush();
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidate retires the window, so a spawned session is never hidden", async () => {
+    const { manager, tick } = withClock();
+    manager.ensureFresh("claude");
+    await flush();
+
+    // The binding lane says a session came into being.
+    manager.invalidate();
+    tick(1);
+    manager.ensureFresh("claude");
+    await flush();
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(2);
+  });
+
+  it("a narrow pass never answers for the full sweep, but a full one answers for an agent", async () => {
+    const { manager, tick } = withClock();
+    manager.ensureFresh("claude");
+    await flush();
+
+    tick(1);
+    manager.ensureFresh(); // the browser wants everyone — claude's pass says nothing about codex
+    await flush();
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(2);
+    expect(sourcesOf(1).map((s) => s.agentId)).toEqual(["claude", "codex"]);
+
+    tick(1);
+    manager.ensureFresh("codex"); // covered by the sweep that just ran
+    await flush();
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(2);
+  });
+
+  it("a pass that was already running when the store moved does not arm the window", async () => {
+    const { manager, tick } = withClock();
+    const settle = hangingScan();
+    manager.ensureFresh("claude");
+    // The change lands mid-pass: this walk never saw it.
+    manager.invalidate();
+    settle();
+    await flush();
+
+    tick(1);
+    manager.ensureFresh("claude");
+    await flush();
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(2);
+  });
+
+  it("a need queued behind a pass that ends up covering it is dropped", async () => {
+    const { manager } = withClock();
+    const settle = hangingScan();
+    manager.ensureFresh(); // full sweep starts
+    manager.ensureFresh("claude"); // narrower, chains behind it
+    settle();
+    await flush();
+    // The sweep answered the narrow need — running it too would re-walk a
+    // store that was just walked.
+    expect(scans.scanAgentHistories).toHaveBeenCalledTimes(1);
+  });
+});

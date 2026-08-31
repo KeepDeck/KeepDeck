@@ -2,7 +2,12 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
+import {
+  createSessionStore,
+  type FsReadFileOptions,
+  type PluginContext,
+} from "@keepdeck/plugin-api";
+import { fsStore } from "@keepdeck/plugin-api/testing";
 import type { IndexLookupAnswer, SearchPage } from "../../ipc/history";
 import type { AgentInfo } from "../../domain/agents";
 import type { SessionRecord } from "../../domain/journal";
@@ -42,23 +47,22 @@ function recordingCtx(files: Record<string, string>): {
   reads: string[];
 } {
   const reads: string[] = [];
+  // A real plugin walks its store, so the double serves windows — and the
+  // record stays one entry per fixture because a fixture this size is one
+  // window. What the wrong-owner case rests on is WHICH file was opened, and
+  // that is unchanged by how many windows it took.
+  const store = fsStore(files);
+  const fs = {
+    readFile: async (path: string, opts?: FsReadFileOptions) => {
+      reads.push(path);
+      return store.readFile(path, opts);
+    },
+    readDir: async () => [],
+    watch: store.watch,
+  };
   const ctx = {
     log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
-    services: {
-      fs: {
-        readFile: async (path: string) => {
-          reads.push(path);
-          return {
-            path,
-            text: files[path] ?? null,
-            isBinary: false,
-            size: 0,
-            truncated: false,
-          };
-        },
-        readDir: async () => [],
-      },
-    },
+    services: { fs, sessionStore: createSessionStore(fs) },
   } as unknown as PluginContext;
   return { ctx, reads };
 }

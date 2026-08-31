@@ -4,6 +4,7 @@ import { kimiHistory } from "./history";
 import type { KeepDeckPlugin, SpawnSkillsInput } from "@keepdeck/plugin-api";
 import {
   COMPANION_DESCRIPTORS,
+  sha256Hex,
   COMPANION_MANIFEST_RESOURCE,
   parentDirectory,
 } from "./companion";
@@ -113,10 +114,64 @@ const plugin: KeepDeckPlugin = {
       ? parentDirectory(parentDirectory(companionManifest) ?? "")
       : null;
     const server = createKimiServerManager(ctx.services.sessions);
+    // What "current" means for a companion's script files: the bytes this
+    // build SHIPS (digested once per activation), against the managed copy
+    // on disk. Digested eagerly here — a resource that cannot be read at
+    // activation is a packaging bug, and failing now names it instead of
+    // failing per inspect, later, with less context.
+    // Digested once per activation. A resource this build does not carry
+    // (a dev tree without the bundle) leaves that companion's map EMPTY —
+    // the manager then has nothing to compare and no claim to make, which
+    // is the same state that build's configure() has always been in: it
+    // cannot install the file either. No throw: registration must survive
+    // a bundle-less build, as it always has.
+    const shippedByFile = new Map<string, ReadonlyMap<string, string>>();
+    for (const descriptor of COMPANION_DESCRIPTORS) {
+      const digests = new Map<string, string>();
+      try {
+        for (const { file } of descriptor.scripts) {
+          const path = await ctx.resources.path(
+            `${descriptor.resourceDirectoryName}/${file}`,
+          );
+          const read = path
+            ? await ctx.services.fs.readFile(path)
+            : null;
+          if (read?.text) digests.set(file, await sha256Hex(read.text));
+        }
+      } catch {
+        // Partial is fine: every file that DID read is still verifiable.
+      }
+      shippedByFile.set(descriptor.id, digests);
+    }
     const fleet = createKimiCompanionFleet(
       COMPANION_DESCRIPTORS.map((descriptor) => ({
         descriptor,
-        manager: createKimiCompanionManager(server, descriptor),
+        manager: createKimiCompanionManager(
+          server,
+          descriptor,
+          {
+            list: async () => {
+              try {
+                const entries = await ctx.services.fs.readDir(
+                  `~/.kimi-code/plugins/managed/${descriptor.id}`,
+                );
+                return new Set(entries.map((entry) => entry.name));
+              } catch {
+                return null;
+              }
+            },
+            read: async (file) => {
+              const read = await ctx.services.fs.readFile(
+                `~/.kimi-code/plugins/managed/${descriptor.id}/${file}`,
+              );
+              if (read.text === null) {
+                throw new Error(`kimi: installed ${file} is not text`);
+              }
+              return read.text;
+            },
+            shipped: async () => shippedByFile.get(descriptor.id)!,
+          },
+        ),
       })),
     );
     const controller = createKimiSetupController(

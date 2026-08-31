@@ -455,6 +455,11 @@ impl SessionIndex {
     /// The empty query's page, over the same membership as its
     /// counter. Limit/offset bind FIRST so the statement's shape
     /// matches the core page's (page windows after the filters).
+    ///
+    /// Recency is the whole order here and rightly so — with no query
+    /// there is nothing to be relevant TO. The primary key closes the
+    /// ties for the same reason it does on the core page: a paged read
+    /// over an open order can show one session twice and another never.
     fn empty_page_sql(
         params: &mut Params,
         limit: usize,
@@ -468,7 +473,8 @@ impl SessionIndex {
         format!(
             "SELECT agent, session_id, ref, cwd, title, transcript_path, mtime
              FROM sessions WHERE 1=1{}
-             ORDER BY mtime DESC LIMIT {limit_place} OFFSET {offset_place}",
+             ORDER BY mtime DESC, agent, session_id
+             LIMIT {limit_place} OFFSET {offset_place}",
             plan.render("")
         )
     }
@@ -493,6 +499,28 @@ impl SessionIndex {
     /// membership keys, ordered, cut — and deliberately SNIPPET-LESS:
     /// the snippet arrives by the top-up, after this cut, so the
     /// never-paged counter never pays for it.
+    ///
+    /// ORDER IS RELEVANCE, THEN RECENCY. Recency alone was the whole of
+    /// it, and on a real index that buries the obvious answer: searching a
+    /// session's exact title returned it 102nd of 138, because the words
+    /// of that title also occur in the TEXT of a hundred newer sessions
+    /// and nothing distinguished the two kinds of hit.
+    ///
+    /// Three tiers, no rows added or dropped — membership is the core's
+    /// and does not move, so the counter still describes this same set:
+    /// the title IS the query, then the title CONTAINS it, then recency
+    /// as before. The last is what people fall back to when nothing is
+    /// more relevant than anything else.
+    ///
+    /// The equality tier is case-SENSITIVE where the containment tier is
+    /// not (SQLite folds ASCII for LIKE and nothing else) — an asymmetry
+    /// worth naming rather than hiding behind LOWER(), which would fold
+    /// the Latin half of a Cyrillic title and pretend that was a rule.
+    ///
+    /// The final key is the primary key, not decoration: LIMIT/OFFSET
+    /// over an order that leaves ties open may answer two identical
+    /// queries differently, which a paged reader turns into one session
+    /// shown twice and another never shown at all.
     fn page_over_core_sql(
         params: &mut Params,
         q: &str,
@@ -502,6 +530,9 @@ impl SessionIndex {
         folders: Option<&FolderScope>,
     ) -> String {
         let core = Self::membership_core_sql(params, q, agent, folders);
+        let (_, like) = Self::match_terms(q);
+        let exact_place = params.add(rusqlite::types::Value::Text(q.to_string()));
+        let like_place = params.add(rusqlite::types::Value::Text(like));
         let limit_place = params.add(rusqlite::types::Value::Integer(limit as i64));
         let offset_place = params.add(rusqlite::types::Value::Integer(offset as i64));
         format!(
@@ -510,7 +541,10 @@ impl SessionIndex {
              FROM ({core}) k
              JOIN sessions s
                ON s.agent = k.agent AND s.session_id = k.session_id
-             ORDER BY s.mtime DESC LIMIT {limit_place} OFFSET {offset_place}"
+             ORDER BY (s.title = {exact_place}) DESC,
+                      (s.title LIKE {like_place} ESCAPE '\\') DESC,
+                      s.mtime DESC, s.agent, s.session_id
+             LIMIT {limit_place} OFFSET {offset_place}"
         )
     }
 
@@ -759,14 +793,73 @@ impl SessionIndex {
     }
 }
 
+/// How much of an answer one query may pass through.
+///
+/// The last read primitive the host handed plugin code without a limit: the
+/// result was materialized whole, serialized whole, and parsed whole on the
+/// other side, so a query that selected too much put four copies of it in
+/// memory at once — two in this process, two in the webview.
+///
+/// Counted in EFFECTIVE bytes, not the payload alone. A query answering
+/// three hundred thousand rows of one short cell each carries a third of a
+/// megabyte and would pass any payload budget, while costing tens of
+/// megabytes of objects on the other side. The per-row and per-cell
+/// additions are what make one number bound the real cost instead of the
+/// visible one.
+const READ_BUDGET_BYTES: usize = 8 * 1024 * 1024;
+const ROW_OVERHEAD_BYTES: usize = 64;
+const CELL_OVERHEAD_BYTES: usize = 32;
+
+/// What one read produced, and whether it is all of it.
+///
+/// Deliberately serde-free, like every type in these crates: the wire shape
+/// belongs to the Tauri layer that owns the wire. The cost is one small
+/// mapping there; the alternative is a serialization dependency in a crate
+/// whose job is SQLite.
+pub struct SqlRead {
+    pub rows: Vec<Vec<Option<String>>>,
+    /// The budget cut the answer short — the caller has fewer rows than the
+    /// query would have produced, and owes its own reader that news.
+    pub short: bool,
+    /// Effective bytes the answer was CHARGED — the same measure the budget
+    /// spends, which is not the same as the length of what crosses the wire.
+    /// A blob is charged its real size and carried as a six-byte
+    /// placeholder: charging the placeholder would let a gigabyte through a
+    /// ceiling meant to stop it.
+    pub payload_bytes: usize,
+}
+
 /// A read-only, containment-checked query against an AGENT's own SQLite
 /// store (the `sqliteReadonly` capability's backend). Parameters are
 /// positional strings; the single statement must be a SELECT.
+///
+/// Stops at [`READ_BUDGET_BYTES`] rather than materializing whatever the
+/// query asks for. The stop is STREAMING — rusqlite hands rows out one at a
+/// time, and dropping the iterator closes the statement — so an oversized
+/// answer is never assembled, merely never finished.
+///
+/// Nor is an oversized ROW. Each row is weighed through `get_ref`, which
+/// borrows SQLite's memory instead of copying it, so a text or blob cell
+/// larger than the whole budget is measured and refused without ever being
+/// allocated on this side. Weighing after materializing would have let a
+/// single gigabyte cell through the ceiling on its way to being counted.
+/// (SQLite still holds the value in its own C memory for the length of the
+/// row; that allocation is not ours to make or to keep.)
+///
+/// A row that would CROSS the budget is left out rather than half-included,
+/// so `rows` always holds whole rows. If the very first one crosses it, the
+/// answer is empty and short, which says exactly what happened: this query
+/// cannot be read at all, and the cure is to select narrower columns.
+///
+/// An error mid-iteration fails the WHOLE call. Partial rows with an error
+/// beside them would be a third state for every caller to handle, and the
+/// only honest thing to do with a store that broke under the read is to
+/// refuse.
 pub fn query_readonly(
     db_path: &Path,
     sql: &str,
     params_in: &[String],
-) -> Result<Vec<Vec<Option<String>>>, String> {
+) -> Result<SqlRead, String> {
     if !sql.trim_start().to_ascii_lowercase().starts_with("select") {
         return Err("only a single SELECT is allowed".into());
     }
@@ -779,23 +872,79 @@ pub fn query_readonly(
         .map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let cols = stmt.column_count();
-    let rows = stmt
-        .query_map(rusqlite::params_from_iter(params_in.iter()), |r| {
-            let mut out = Vec::with_capacity(cols);
-            for i in 0..cols {
-                let value: Option<rusqlite::types::Value> = r.get(i)?;
-                out.push(value.map(|v| match v {
-                    rusqlite::types::Value::Null => String::new(),
-                    rusqlite::types::Value::Integer(n) => n.to_string(),
-                    rusqlite::types::Value::Real(f) => f.to_string(),
-                    rusqlite::types::Value::Text(t) => t,
-                    rusqlite::types::Value::Blob(_) => String::from("<blob>"),
-                }));
-            }
-            Ok(out)
-        })
+    let mut rows = stmt
+        .query(rusqlite::params_from_iter(params_in.iter()))
         .map_err(|e| e.to_string())?;
-    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+
+    let mut out: Vec<Vec<Option<String>>> = Vec::new();
+    let mut payload_bytes = 0usize;
+    let mut short = false;
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        // FIRST PASS: what this row COSTS, without allocating any of it.
+        // `get_ref` borrows SQLite's own memory — text and blob hand over
+        // their length with no copy — and the borrow is valid until the
+        // next step, which is to say exactly as long as this row.
+        let mut weight = ROW_OVERHEAD_BYTES;
+        for i in 0..cols {
+            let cell = row.get_ref(i).map_err(|e| e.to_string())?;
+            weight += CELL_OVERHEAD_BYTES
+                + match cell {
+                    rusqlite::types::ValueRef::Null => 0,
+                    // Formatted to be measured, and formatted again below to
+                    // be kept. Scalars are bounded and tiny; an estimate here
+                    // (i64's worst case is 20 bytes, f64's is over 300 —
+                    // Rust's Display never uses an exponent) would refuse
+                    // queries that fit, and would make `payload_bytes` a
+                    // guess rather than a measurement.
+                    rusqlite::types::ValueRef::Integer(n) => n.to_string().len(),
+                    rusqlite::types::ValueRef::Real(f) => f.to_string().len(),
+                    // The two that can be gigabytes — and the only reason
+                    // this pass exists. A blob is weighed by what it IS,
+                    // not by the `<blob>` placeholder it is carried as:
+                    // charging six bytes for it would leave the hole this
+                    // pass was written to close. So an oversized blob is
+                    // refused rather than swapped for a placeholder — the
+                    // same treatment oversized text already gets.
+                    rusqlite::types::ValueRef::Text(b)
+                    | rusqlite::types::ValueRef::Blob(b) => b.len(),
+                };
+        }
+        if payload_bytes + weight > READ_BUDGET_BYTES {
+            short = true;
+            break;
+        }
+
+        // SECOND PASS: now that the row is known to fit, materialize it —
+        // from `get_ref` again rather than `get`, and for a reason beyond
+        // symmetry. `get::<Option<Value>>` PANICS on text that is not
+        // valid UTF-8: the unwind starts inside rusqlite's own conversion
+        // and travels out through this function, past the `Result` that
+        // exists to carry exactly this news, and on into whatever called
+        // the Tauri command. Reading the bytes ourselves turns that into
+        // the refusal it should always have been.
+        let mut cells = Vec::with_capacity(cols);
+        for i in 0..cols {
+            let cell = row.get_ref(i).map_err(|e| e.to_string())?;
+            cells.push(match cell {
+                rusqlite::types::ValueRef::Null => None,
+                rusqlite::types::ValueRef::Integer(n) => Some(n.to_string()),
+                rusqlite::types::ValueRef::Real(f) => Some(f.to_string()),
+                rusqlite::types::ValueRef::Text(b) => Some(
+                    String::from_utf8(b.to_vec())
+                        .map_err(|e| format!("column {i} is not valid UTF-8: {e}"))?,
+                ),
+                // Carried as a placeholder — it was WEIGHED as itself.
+                rusqlite::types::ValueRef::Blob(_) => Some(String::from("<blob>")),
+            });
+        }
+        payload_bytes += weight;
+        out.push(cells);
+    }
+    Ok(SqlRead {
+        rows: out,
+        short,
+        payload_bytes,
+    })
 }
 
 #[cfg(test)]
@@ -1236,9 +1385,172 @@ mod tests {
             )
             .unwrap();
         }
-        let rows = query_readonly(&db, "SELECT id, title FROM session", &[]).unwrap();
-        assert_eq!(rows, vec![vec![Some("s1".into()), Some("hello".into())]]);
+        let read = query_readonly(&db, "SELECT id, title FROM session", &[]).unwrap();
+        assert_eq!(read.rows, vec![vec![Some("s1".into()), Some("hello".into())]]);
+        assert!(!read.short);
         assert!(query_readonly(&db, "DELETE FROM session", &[]).is_err());
+    }
+
+    /// An answer larger than the budget comes back cut, and SAYS it was cut.
+    ///
+    /// The silence is the part that matters. A cap that quietly returns
+    /// fewer rows trades a crash for a wrong answer — the caller believes it
+    /// read the whole table. This is the one behaviour that makes the budget
+    /// worth having rather than merely present.
+    #[test]
+    fn readonly_query_stops_at_the_budget_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("big.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch("CREATE TABLE wide_rows (payload TEXT);")
+                .unwrap();
+            let chunk = "x".repeat(512 * 1024);
+            for _ in 0..24 {
+                conn.execute("INSERT INTO wide_rows VALUES (?1)", [&chunk])
+                    .unwrap();
+            }
+        }
+        let read = query_readonly(&db, "SELECT payload FROM wide_rows", &[]).unwrap();
+
+        assert!(read.short, "twelve megabytes must not fit an eight megabyte budget");
+        assert!(read.rows.len() < 24);
+        assert!(read.payload_bytes <= READ_BUDGET_BYTES);
+        // Whole rows only — a row that would cross the line is left out, not
+        // half-delivered.
+        assert!(read.rows.iter().all(|row| row.len() == 1));
+    }
+
+    /// A single cell no budget can hold answers with nothing, and says the
+    /// budget is why.
+    ///
+    /// Empty-and-short is the honest report of "this query cannot be read at
+    /// all": the caller learns the cure is a narrower select, not a retry.
+    #[test]
+    fn readonly_query_refuses_a_row_bigger_than_the_whole_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("huge.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch("CREATE TABLE one (payload TEXT);").unwrap();
+            conn.execute("INSERT INTO one VALUES (?1)", [&"y".repeat(9 * 1024 * 1024)])
+                .unwrap();
+        }
+        let read = query_readonly(&db, "SELECT payload FROM one", &[]).unwrap();
+
+        assert!(read.rows.is_empty());
+        assert!(read.short);
+        assert_eq!(read.payload_bytes, 0);
+    }
+
+    /// The session a query NAMES comes first, however old it is.
+    ///
+    /// Taken from the real failure: searching an opencode session by its
+    /// exact title returned it 102nd of 138. The words of a title are
+    /// ordinary words, so they also occur in the TEXT of newer sessions,
+    /// and an order that knew only recency put every one of those first.
+    /// The user reasonably reported it as "search does not return an
+    /// unconditional title match".
+    #[test]
+    fn search_puts_the_named_session_first_however_old_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let titled = |id: &str, mtime: i64, title: &str, content: &str| IndexRow {
+            agent: "a".into(),
+            session_id: id.into(),
+            reference: format!("/store/{id}"),
+            cwd: "/repo".into(),
+            title: Some(title.into()),
+            transcript_path: None,
+            mtime,
+            size: 10,
+            content: content.into(),
+        };
+        index
+            .upsert(&[
+                // The answer: named exactly, and the oldest thing here.
+                titled("named", 1, "hook and mail instructions", "unrelated body"),
+                // Newer, and merely mentions those words in passing.
+                titled("chatter-1", 50, "something else", "a hook and some mail instructions"),
+                titled("chatter-2", 90, "another thing", "mail and instructions about a hook"),
+                // Newer still, and matches the title only PARTLY — it
+                // outranks the chatter but never the exact name.
+                titled("partial", 99, "hook and mail instructions, continued", "nothing"),
+            ])
+            .unwrap();
+
+        let hits = index
+            .search("hook and mail instructions", 10, 0, None, None)
+            .unwrap();
+        let order: Vec<&str> = hits.iter().map(|h| h.session_id.as_str()).collect();
+        assert_eq!(order, ["named", "partial", "chatter-2", "chatter-1"]);
+
+        // Membership did not move — only the order did. The counter has to
+        // keep describing the same set, or the page and its total diverge.
+        assert_eq!(
+            index
+                .search_total("hook and mail instructions", None, None)
+                .unwrap(),
+            4
+        );
+    }
+
+    /// Text that is not valid UTF-8 is REFUSED, not thrown.
+    ///
+    /// It used to panic: rusqlite's own conversion unwinds, and the unwind
+    /// travelled straight out of this function — past the `Result` that
+    /// exists to carry exactly this news — and into the Tauri command that
+    /// called it. A store one bad byte away from taking the process with it
+    /// is a worse answer than any error string.
+    #[test]
+    fn readonly_query_refuses_text_that_is_not_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("bad.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch("CREATE TABLE t (a TEXT);").unwrap();
+            conn.execute("INSERT INTO t VALUES (CAST(x'fffe' AS TEXT))", [])
+                .unwrap();
+        }
+        let outcome =
+            std::panic::catch_unwind(|| query_readonly(&db, "SELECT a FROM t", &[]));
+
+        let refusal = outcome.expect("must not unwind out of the call");
+        assert!(refusal.err().is_some_and(|e| e.contains("not valid UTF-8")));
+    }
+
+    /// Many tiny rows cost more than their bytes, and the budget counts what
+    /// they cost.
+    ///
+    /// Three hundred thousand one-character rows carry a third of a megabyte
+    /// and would sail under any payload budget, while becoming three hundred
+    /// thousand objects on the other side of the bridge. Counting only the
+    /// visible bytes would leave exactly this shape unbounded.
+    #[test]
+    fn readonly_query_counts_what_a_row_costs_not_only_what_it_carries() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("many.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE tiny (c TEXT);
+                 WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < 200000)
+                 INSERT INTO tiny SELECT 'x' FROM seq;",
+            )
+            .unwrap();
+        }
+        let read = query_readonly(&db, "SELECT c FROM tiny", &[]).unwrap();
+
+        // Under 200 KB of actual text, and still stopped.
+        assert!(read.short);
+        let carried: usize = read
+            .rows
+            .iter()
+            .flatten()
+            .flatten()
+            .map(String::len)
+            .sum();
+        assert!(carried < READ_BUDGET_BYTES / 8);
     }
 
     // ── Characterization table: TODAY's membership and identity, pinned
@@ -1294,8 +1606,9 @@ mod tests {
             ];
             index.upsert(&rows).unwrap();
             // By construction: pa and pb carry "token" in CONTENT, pc in
-            // TITLE, pd in neither — three keys.
-            let expected = ["pa", "pb", "pc"];
+            // TITLE, pd in neither — three keys. `pc` leads DESPITE being
+            // the oldest: a title hit outranks a content hit.
+            let expected = ["pc", "pa", "pb"];
             assert_eq!(ids(&index.search("token", 10, 0, None, None).unwrap()), expected);
             assert_eq!(
                 index.search_total("token", None, None).unwrap(),
@@ -1387,8 +1700,9 @@ mod tests {
             // By construction: claude AND /mine AND (content OR title
             // "token") is m1 (content), m2 (title), m3 (both) — m4
             // fails the agent, m5 the folder. The double-matching m3
-            // is ONE key.
-            let expected = ["m1", "m2", "m3"];
+            // is ONE key. The title-bearing pair leads the content-only
+            // m1 even though m1 is the newest of the three.
+            let expected = ["m2", "m3", "m1"];
             let page = index
                 .search("token", 10, 0, Some("claude"), Some(&scope))
                 .unwrap();
@@ -1400,10 +1714,15 @@ mod tests {
             // The counter and the page describe the SAME set: same
             // count, and K2 holds per key — content-found m1 carries a
             // snippet, title-found m2 does not, double-found m3 does.
+            // Asserted BY KEY, not by position: this property is about
+            // which arm found a row, and nothing about the order.
             assert_eq!(page.len() as i64, total);
-            assert!(page[0].snippet.is_some());
-            assert_eq!(page[1].snippet, None);
-            assert!(page[2].snippet.is_some());
+            let snippet = |id: &str| {
+                page.iter().find(|h| h.session_id == id).unwrap().snippet.clone()
+            };
+            assert!(snippet("m1").is_some());
+            assert_eq!(snippet("m2"), None);
+            assert!(snippet("m3").is_some());
         }
 
         #[test]
@@ -1426,17 +1745,22 @@ mod tests {
             // By construction: three keys match "token" — content-only,
             // double, title-only — the union of two arms holds FOUR
             // rows, the answer holds THREE (K4: a double match is one
-            // key).
-            let expected = ["s-content", "s-double", "s-title"];
+            // key). The two with "token" in the TITLE lead the one that
+            // only says it in passing, newest though that one is.
+            let expected = ["s-double", "s-title", "s-content"];
             let page = index.search("token", 10, 0, None, None).unwrap();
             assert_eq!(ids(&page), expected);
             // K2: a snippet exists EXACTLY when the session matched by
             // CONTENT — s-title found by title alone has none — and
             // the snippet is the MATCH's own highlighting, not just
-            // any text: the markers are the value.
-            assert!(page[0].snippet.as_deref().unwrap().contains("[token]"));
-            assert!(page[1].snippet.as_deref().unwrap().contains("[token]"));
-            assert_eq!(page[2].snippet, None);
+            // any text: the markers are the value. By key, not by
+            // position: the property is about the arm, not the order.
+            let snippet = |id: &str| {
+                page.iter().find(|h| h.session_id == id).unwrap().snippet.clone()
+            };
+            assert!(snippet("s-content").unwrap().contains("[token]"));
+            assert!(snippet("s-double").unwrap().contains("[token]"));
+            assert_eq!(snippet("s-title"), None);
             assert_eq!(
                 index.search_total("token", None, None).unwrap(),
                 expected.len() as i64

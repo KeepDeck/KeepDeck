@@ -115,6 +115,23 @@ describe("wdKey", () => {
   });
 });
 
+  it("slugs a basename kimi's own encoder would slug", async () => {
+    // Kimi slugs the basename before it files anything under the key:
+    // anything outside [a-z0-9._-] becomes a dash, the result is cut to
+    // forty characters, an empty one becomes "workspace". A plain lowercase
+    // derived a key kimi never uses — a fork landing in a directory nobody
+    // looks in, with no error to say so.
+    expect(await wdKey("/Users/u/My Project")).toMatch(/^wd_my-project_[0-9a-f]{12}$/);
+    expect(await wdKey("/Users/u/проект")).toMatch(/^wd_[-]{6}_[0-9a-f]{12}$/);
+    expect(await wdKey(`/Users/u/${"a".repeat(60)}`)).toMatch(
+      new RegExp(`^wd_${"a".repeat(40)}_[0-9a-f]{12}$`),
+    );
+  });
+
+  it("names an empty basename `workspace`, as kimi does", async () => {
+    expect(await wdKey("/")).toMatch(/^wd_workspace_[0-9a-f]{12}$/);
+  });
+
 describe("kimiForkPlan", () => {
   it("clones the session under a fresh id: patched state, wire copy, index line", async () => {
     const fx = fixture();
@@ -140,6 +157,48 @@ describe("kimiForkPlan", () => {
       sessionDir: dstDir,
       workDir: "/new/target",
     });
+  });
+
+  it("forks a session of the NEWER schema, which names the directory `cwd`", async () => {
+    // Every session kimi has written since 0.38 is this shape: no `workDir`,
+    // a top-level `cwd` instead. Requiring the old key made all of them
+    // unforkable — the layout gate fired, correctly and uselessly, on a
+    // field that had merely been renamed.
+    const { workDir: _gone, ...rest } = STATE;
+    const fx = fixture(JSON.stringify({ ...rest, cwd: "/old/place" }));
+
+    const newId = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
+    const dstDir = `${HOME}/sessions/${await wdKey("/new/target")}/${newId}`;
+    const state = JSON.parse(fx.writes.get(`${dstDir}/state.json`)!);
+
+    // Patched under the key this session actually uses...
+    expect(state.cwd).toBe("/new/target");
+    // ...and the older key is NOT invented: a clone carrying a field its own
+    // era never wrote would lie about which era it is.
+    expect("workDir" in state).toBe(false);
+    expect(state.agents.main.homedir).toBe(`${dstDir}/agents/main`);
+
+    // The index line keeps its own name whatever the state file calls it —
+    // kimi refuses a line that does not carry `workDir`.
+    expect(JSON.parse(fx.appends[0][1])).toEqual({
+      sessionId: newId,
+      sessionDir: dstDir,
+      workDir: "/new/target",
+    });
+  });
+
+  it("still refuses a state file that names the directory in NEITHER key", async () => {
+    // The gate is not weakened, only widened: a layout that names the
+    // working directory some third way must still fail loudly rather than
+    // fork a session that opens somewhere unknown.
+    const { workDir: _gone, ...rest } = STATE;
+    const fx = fixture(JSON.stringify(rest));
+
+    await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow(
+      "layout changed",
+    );
+    expect(fx.writes.size).toBe(0);
+    expect(fx.appends).toHaveLength(0);
   });
 
   it("rejects without a transcript path or on a foreign layout — zero writes", async () => {

@@ -255,7 +255,14 @@ export interface AgentSessionStub {
 export type Shortfall =
   | { kind: "bytes"; size: number; readBytes: number }
   | { kind: "turns"; total: number; returned: number }
-  | { kind: "parts"; unreadableParts: number };
+  | { kind: "parts"; unreadableParts: number }
+  /** A store read the host stopped: this many rows arrived and there were
+   * more. Alone among these forms it names no total — a reading cut at a
+   * budget cannot know what it did not reach, and a second query to find out
+   * would be the very cost the budget refused. Saying "more than this" is
+   * the whole of what is known, and it is worth saying: a page cut in the
+   * middle otherwise looks exactly like a conversation that ended. */
+  | { kind: "rows"; returned: number };
 
 /** The fields worth OPENING a session for — fetched only for new/changed
  * stubs. */

@@ -50,6 +50,7 @@ describe("Kimi setup state", () => {
         enabled: true,
         healthy: true,
         owned: true,
+        scriptsCurrent: true,
       }),
     ).toEqual({
       kind: "configured",
@@ -62,6 +63,7 @@ describe("Kimi setup state", () => {
         enabled: false,
         healthy: true,
         owned: true,
+        scriptsCurrent: true,
       }),
     ).toMatchObject({ kind: "needs-attention", reason: "disabled" });
     expect(
@@ -70,6 +72,7 @@ describe("Kimi setup state", () => {
         enabled: true,
         healthy: true,
         owned: true,
+        scriptsCurrent: true,
       }),
     ).toMatchObject({ kind: "needs-attention", reason: "outdated" });
     expect(
@@ -78,6 +81,7 @@ describe("Kimi setup state", () => {
         enabled: true,
         healthy: true,
         owned: false,
+        scriptsCurrent: true,
       }),
     ).toMatchObject({ kind: "needs-attention", reason: "collision" });
   });
@@ -88,6 +92,7 @@ describe("Kimi setup state", () => {
       enabled: true,
       healthy: true,
       owned: true,
+      scriptsCurrent: true,
     };
     const configured = harness([healthy]);
     await configured.controller.configure();
@@ -118,12 +123,14 @@ describe("Kimi setup state", () => {
       enabled: true,
       healthy: true,
       owned: true,
+      scriptsCurrent: true,
     };
     const fresh = {
       version: COMPANION_VERSION,
       enabled: true,
       healthy: true,
       owned: true,
+      scriptsCurrent: true,
     };
     const { controller, manager } = harness([stale, fresh]);
     vi.mocked(manager.configure).mockResolvedValueOnce(fresh);
@@ -138,9 +145,9 @@ describe("Kimi setup state", () => {
     // Not ours, disabled, broken: none of those is a build we own, and
     // rewriting somebody else's plugin is not the deck's call to make.
     for (const installation of [
-      { version: COMPANION_VERSION, enabled: true, healthy: true, owned: false },
-      { version: COMPANION_VERSION, enabled: false, healthy: true, owned: true },
-      { version: COMPANION_VERSION, enabled: true, healthy: false, owned: true },
+      { version: COMPANION_VERSION, enabled: true, healthy: true, owned: false, scriptsCurrent: true },
+      { version: COMPANION_VERSION, enabled: false, healthy: true, owned: true, scriptsCurrent: true },
+      { version: COMPANION_VERSION, enabled: true, healthy: false, owned: true, scriptsCurrent: true },
     ]) {
       const { controller, manager } = harness([installation]);
       await expect(controller.check()).resolves.toMatchObject({

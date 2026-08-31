@@ -1,7 +1,8 @@
-import type {
-  AgentHistory,
-  AgentSessionFacts,
-  AgentSessionStub,
+import {
+  CONTENT_CAP,
+  type AgentHistory,
+  type AgentSessionFacts,
+  type AgentSessionStub,
 } from "@keepdeck/plugin-api";
 import {
   indexPrune,
@@ -15,10 +16,6 @@ import { describeError, log } from "../ipc/log";
 /** How many changed sessions are described/read per upsert batch — bounds
  * memory on a first-ever scan of a thousand-session store. */
 const BATCH = 16;
-
-/** Per-session cap on indexed text — bounds index growth and the IPC hop;
- * search over the first 2 MB of a conversation is search enough. */
-const CONTENT_CAP = 2 * 1024 * 1024;
 
 export interface HistorySource {
   agentId: string;
@@ -167,6 +164,9 @@ export async function scanAgentHistories(
                 transcriptPath: facts.transcriptPath ?? null,
                 mtime: stub.mtime,
                 size: stub.size,
+                // The same cap the walk applies where the text is produced,
+                // re-applied where it lands: a plugin that derives its
+                // content some other way still cannot grow the index.
                 content: content.slice(0, CONTENT_CAP),
               };
             } catch (e) {

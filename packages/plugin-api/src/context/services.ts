@@ -1,5 +1,6 @@
 import type { Disposable } from "./disposable.ts";
 import type { PluginDownloads } from "./downloads.ts";
+import type { PluginSessionStore } from "./sessionRead.ts";
 import type { PluginSpeech } from "./speech.ts";
 
 /**
@@ -23,6 +24,11 @@ export interface PluginServices {
   /** Read-only SQL over the plugin's own declared store dbs (capability:
    * `sqliteReadonly`) — for stores that are databases, not files. */
   readonly sqlite: PluginSqlite;
+  /** Walk an agent's session store a record at a time, instead of reading it
+   * whole. Built over this plugin's own `fs`, so it reaches nothing the
+   * plugin could not already read — what it adds is that the store need not
+   * be resident to be read. */
+  readonly sessionStore: PluginSessionStore;
   readonly git: PluginGit;
   /** Generic host-managed network transfers into private plugin storage. */
   readonly downloads: PluginDownloads;
@@ -188,17 +194,48 @@ export interface PluginFsWrite {
  * back as positional string cells (`null` for SQL NULL) — the plugin owns
  * the schema knowledge and the typing. */
 export interface PluginSqlite {
-  query(
-    dbPath: string,
-    sql: string,
-    params?: string[],
-  ): Promise<(string | null)[][]>;
+  query(dbPath: string, sql: string, params?: string[]): Promise<SqlAnswer>;
+}
+
+/** One query's answer, and whether it is all of it.
+ *
+ * The rows do not travel alone, because the host may stop a read that would
+ * cost too much — and a caller that cannot tell a complete answer from a cut
+ * one will show the cut one as complete. That is the failure this shape
+ * exists to prevent; a cap without it would only trade a crash for a wrong
+ * answer.
+ *
+ * The stop vocabulary is the file reader's on purpose: a plugin that already
+ * knows what `budget` means from walking a store should not learn a second
+ * word for it here. */
+export interface SqlAnswer {
+  rows: (string | null)[][];
+  /** `exhausted` — the query had nothing more to give. `budget` — the host
+   * stopped it, and the answer is INCOMPLETE: whatever the caller shows from
+   * it owes its own reader that news. */
+  stopped: "exhausted" | "budget";
+  /** What this answer cost, in the measure the budget is kept in: the cells'
+   * bytes plus what a row and a cell cost to carry. Reported because a
+   * caller cannot derive it — the additions are the host's. */
+  payloadBytes: number;
 }
 
 export interface FsReadFileOptions {
   /** Preferred read cap in bytes; the host clamps it to its own ceiling.
    * Reading stops there and `truncated` is set. */
   maxBytes?: number;
+  /** Start the read HERE instead of at byte zero, which turns `maxBytes` from
+   * a ceiling on the whole read into the size of one window: a caller that
+   * wants a large file entire walks it window by window, holding one window
+   * at a time. `offset + readBytes` is where the next window starts, and
+   * `truncated` says whether one remains.
+   *
+   * A window must begin on a character boundary — an offset landing inside a
+   * multi-byte character comes back `isBinary`, because the alternative is
+   * for the host to silently move the position the caller asked for and let
+   * the two sides' arithmetic drift apart. Resume from a boundary you framed
+   * yourself (the end of a line, of a record) and this never arises. */
+  offset?: number;
 }
 
 /** One directory child. `path` is absolute — pass it straight back into

@@ -321,7 +321,7 @@ describe("external plugin bridge", () => {
     };
     host.ctx.services.sqlite.query = async (dbPath, sql, params) => {
       calls.push(["query", [dbPath, sql, params]]);
-      return [["row", null]];
+      return { rows: [["row", null]], stopped: "budget", payloadBytes: 9 };
     };
     const { ctxReady } = wireCapturingCtx(host);
     const ctx = await ctxReady;
@@ -330,7 +330,7 @@ describe("external plugin bridge", () => {
     await ctx.services.fsWrite.copyFile("/a", "/b");
     await ctx.services.fsWrite.writeFile("/p", "text");
     await ctx.services.fsWrite.appendLine("/idx", "line");
-    const rows = await ctx.services.sqlite.query("/db", "SELECT 1", ["x"]);
+    const answer = await ctx.services.sqlite.query("/db", "SELECT 1", ["x"]);
 
     // A positional-argument regression between the guest proxy and
     // hostDispatch would land here as swapped/missing args.
@@ -341,7 +341,13 @@ describe("external plugin bridge", () => {
       ["appendLine", ["/idx", "line"]],
       ["query", ["/db", "SELECT 1", ["x"]]],
     ]);
-    expect(rows).toEqual([["row", null]]);
+    // The whole answer crosses, not just the rows — a guest that unwrapped it
+    // would lose the very signal the cap exists to carry.
+    expect(answer).toEqual({
+      rows: [["row", null]],
+      stopped: "budget",
+      payloadBytes: 9,
+    });
   });
 
   it("round-trips an fs.watch subscription: change fans in, dispose unwatches", async () => {
