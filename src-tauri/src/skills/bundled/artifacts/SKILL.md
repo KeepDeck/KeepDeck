@@ -28,7 +28,7 @@ One self-contained file. It renders under a strict Content-Security-Policy on a 
 
 ## Publishing
 
-Call artifact_publish with a `path` to the file you wrote (preferred — the file must live INSIDE your pane's cwd, and the file must be `.html`) or inline `content`. Give it a short lowercase `id` (dashes, e.g. `auth-flow`) — teammates reference artifacts by id in mail. `format` is `html` — an artifact IS an html page, and anything else is refused at the door.
+Call artifact_publish with a `path` to the file you wrote (preferred — the file must live INSIDE your pane's cwd, and the file must be `.html`) or inline `content`. `title` is required — it is what the workspace index and `artifact_list` show, and nothing injects it into the page, so give the page its own heading too. Give it a short lowercase `id` (dashes, e.g. `auth-flow`) — teammates reference artifacts by id in mail, and omitting it mints one from the title. `format` is `html` — an artifact IS an html page, and anything else is refused at the door.
 
 Scripted callers (running a tool call from a script, not typing it): prefer
 `path` over `content` — a value computed in the script (a read piped into a
