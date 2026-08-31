@@ -375,4 +375,88 @@ describe("kimi history", () => {
     // The notification steer (origin background_task) appears nowhere.
     expect(turns.some((t) => t.text.includes("notification"))).toBe(false);
   });
+
+  /**
+   * The turn boundary the format writes for itself.
+   *
+   * These fixtures are SYNTHETIC on purpose and the reason is worth keeping:
+   * no session in the real store puts two answers back to back across a
+   * `turn.ended` — a user message always intervenes (0 such cases in 121
+   * records). So the wire below is a shape the store has not produced yet,
+   * and the reading is correct for it rather than correct by accident.
+   */
+  const line = (record: unknown) => JSON.stringify(record);
+  const userSaid = (text: string) =>
+    line({
+      type: "context.append_message",
+      message: { role: "user", content: [{ type: "text", text }] },
+    });
+  const fragment = (text: string) =>
+    line({
+      type: "context.append_loop_event",
+      event: { type: "content.part", part: { type: "text", text } },
+    });
+  const ended = (reason: string) =>
+    line({ type: "turn.ended", turnId: 0, reason, durationMs: 10, time: 1 });
+  const readTurns = async (lines: string[]) => {
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const history = kimiHistory(ctx({ [wire]: lines.join("\n") + "\n" }, {}));
+    return history.transcript(wire, { offset: 0, limit: 20 });
+  };
+
+  it("turn.ended closes the held answer — two in a row stay two turns", async () => {
+    expect(
+      await readTurns([
+        userSaid("вопрос"),
+        fragment("ответ один"),
+        ended("completed"),
+        fragment("ответ два"),
+        ended("completed"),
+      ]),
+    ).toEqual([
+      { role: "user", text: "вопрос" },
+      { role: "assistant", text: "ответ один" },
+      { role: "assistant", text: "ответ два" },
+    ]);
+  });
+
+  it("every reason closes the turn — a cancelled answer is still an answer", async () => {
+    // completed 100, cancelled 18, failed 3 on the real store. A cancelled
+    // or failed answer is what the assistant said before it stopped, and
+    // folding it into the next turn would misattribute it.
+    const turns = await readTurns([
+      userSaid("q"),
+      fragment("прерванный"),
+      ended("cancelled"),
+      fragment("упавший"),
+      ended("failed"),
+    ]);
+    expect(turns.map((t) => t.text)).toEqual(["q", "прерванный", "упавший"]);
+  });
+
+  it("turn.ended over an empty buffer adds no turn of its own", async () => {
+    // 13 of the 121 arrive this way. The record is a boundary, not speech.
+    expect(
+      await readTurns([
+        userSaid("вопрос"),
+        fragment("ответ"),
+        ended("completed"),
+        ended("completed"),
+        userSaid("ещё"),
+      ]),
+    ).toEqual([
+      { role: "user", text: "вопрос" },
+      { role: "assistant", text: "ответ" },
+      { role: "user", text: "ещё" },
+    ]);
+  });
+
+  it("a last answer with no turn.ended still arrives — the fallback holds", async () => {
+    // Older CLIs wrote no such record, and a live session's newest turn has
+    // not ended yet. `end` is what closes those.
+    expect(await readTurns([userSaid("q"), fragment("последний ответ")])).toEqual([
+      { role: "user", text: "q" },
+      { role: "assistant", text: "последний ответ" },
+    ]);
+  });
 });

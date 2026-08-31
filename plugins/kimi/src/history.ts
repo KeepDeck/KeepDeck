@@ -33,11 +33,17 @@ interface KimiRecord {
  *
  * This is the only dialect on any agent that holds an UNFINISHED turn, and
  * the reason is the format: kimi writes the assistant's answer as it is
- * generated, one fragment per step, with tool calls in between. No record
- * says "the answer ended" — the only sign is the next user message. So the
- * fragments have to be held until one arrives, or the viewer would show a
- * single answer chopped into pieces wherever the assistant reached for a
- * tool. */
+ * generated, one fragment per step, with tool calls in between. So the
+ * fragments are held until something says the answer ended, or the viewer
+ * would show a single answer chopped into pieces wherever the assistant
+ * reached for a tool.
+ *
+ * TWO things end it, and the second is the fallback. `turn.ended` is the
+ * format's own boundary; the next user message is what closes a turn when
+ * no such record was written — older CLIs wrote none, and a live session's
+ * newest turn has not ended yet. (This comment used to say no record
+ * existed at all. It does: 121 of them on a real store, with reasons
+ * completed, cancelled and failed.) */
 interface KimiState {
   assistant: string[];
 }
@@ -77,6 +83,16 @@ const dialect: SessionDialect<KimiState, KimiRecord> = {
       const held = flush(state);
       const text = textFromParts(record.input).trim();
       return text ? [...held, { role: "user", text }] : held;
+    }
+    if (record.type === "turn.ended") {
+      // The format saying "the answer ended", so two answers in a row can
+      // never glue into one. EVERY reason closes it — a real store shows
+      // completed, cancelled and failed — because a cancelled or failed
+      // answer is still what the assistant said, and it deserves to be its
+      // own turn rather than a prefix of the next one. The record is a
+      // boundary, not speech: it contributes no turn of its own, and an
+      // empty buffer produces nothing (13 of the 121 arrive that way).
+      return flush(state);
     }
     if (record.type !== "context.append_message") return [];
     const held = flush(state);
