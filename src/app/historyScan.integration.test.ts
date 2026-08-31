@@ -65,17 +65,26 @@ function fsCtx(
   } as unknown as PluginContext;
 }
 
-/** A sqlite double for the opencode plugin — one query, one answer. */
+/** A sqlite double for the opencode plugin — one query, one answer. An
+ * answer the host's byte budget cut short is spelled `{ cut: rows }`. */
 function sqliteCtx(
-  results: ((string | null)[][] | Error)[],
+  results: ((string | null)[][] | { cut: (string | null)[][] } | Error)[],
 ): { ctx: PluginContext; query: ReturnType<typeof vi.fn> } {
   const query = vi.fn(async (..._args: unknown[]) => {
     const next = results.shift();
     if (next instanceof Error) throw next;
-    return { rows: next ?? [], stopped: "exhausted", payloadBytes: 0 };
+    const budget = next !== undefined && !Array.isArray(next);
+    return {
+      rows: budget ? next.cut : (next ?? []),
+      stopped: budget ? "budget" : "exhausted",
+      payloadBytes: 0,
+    };
   });
   return {
-    ctx: { services: { sqlite: { query } } } as unknown as PluginContext,
+    ctx: {
+      services: { sqlite: { query } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext,
     query,
   };
 }
@@ -231,12 +240,10 @@ describe("scanAgentHistories × real plugins", () => {
     ]);
   });
 
-  it("opencode: the untouched plugin rides the legacy branch — indexes and prunes exactly as before", async () => {
-    // opencode has no listing(); enumerate() must send it down list(),
-    // whose successful read has always meant "complete enough to prune".
+  it("opencode: a whole listing indexes and prunes, exactly as the legacy branch did", async () => {
     const text = (t: string) => JSON.stringify({ type: "text", text: t });
     const { ctx, query } = sqliteCtx([
-      [["ses_1", "1769121238325"], ["ses_2", "1769121299999"]], // list()
+      [["ses_1", "1769121238325", "1"], ["ses_2", "1769121299999", "2"]],
       [["/repo", "rail cleanup"]], // describe ses_1
       [[text("hello")]], // content ses_1
       [["/other", "other"]], // describe ses_2
@@ -254,15 +261,35 @@ describe("scanAgentHistories × real plugins", () => {
       "ses_2",
     ]);
     expect(prunes).toEqual([["ses_1", "ses_2"]]);
-    // The legacy list() path really ran — not some listing() shortcut.
     expect(query.mock.calls[0][1]).toContain("time_archived IS NULL");
     expect(query).toHaveBeenCalledTimes(5);
   });
 
-  it("opencode: a missing store keeps the legacy empty-listing guard — no prune over a non-empty index", async () => {
-    // The one behavior the legacy branch could have silently lost: list()
-    // answers [] for an unreadable db, and pruning on that would wipe the
-    // agent's history. The guard must still catch it on the legacy branch.
+  it("opencode: a listing the host cut indexes what it saw and prunes NOTHING", async () => {
+    // The reason this plugin was given `listing()`: on the legacy branch a
+    // cut enumeration returned successfully, which meant "complete enough
+    // to prune" — and every session past the cut would have been deleted
+    // from the index for not appearing in it.
+    const text = (t: string) => JSON.stringify({ type: "text", text: t });
+    const { ctx } = sqliteCtx([
+      { cut: [["ses_1", "1769121238325", "1"]] },
+      [["/repo", "rail cleanup"]],
+      [[text("hello")]],
+    ]);
+    const { mock, upserts, prunes } = ops([
+      { reference: "ses_past_the_cut", mtime: 1, size: 0 },
+    ]);
+    await scanAgentHistories(
+      [{ agentId: "opencode", history: opencodeHistory(ctx) }],
+      mock,
+    );
+    expect((upserts as { sessionId: string }[]).map((r) => r.sessionId)).toEqual([
+      "ses_1",
+    ]);
+    expect(prunes).toEqual([]);
+  });
+
+  it("opencode: an unreadable store prunes nothing — it is not an empty store", async () => {
     const { ctx } = sqliteCtx([new Error("no such db")]);
     const { mock, prunes } = ops([
       { reference: "ses_1", mtime: 1, size: 0 },

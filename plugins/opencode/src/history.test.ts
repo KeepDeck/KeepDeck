@@ -18,9 +18,14 @@ function ctx(results: Answer[]) {
       payloadBytes: 0,
     };
   });
+  const warn = vi.fn();
   return {
-    ctx: { services: { sqlite: { query } } } as unknown as PluginContext,
+    ctx: {
+      services: { sqlite: { query } },
+      log: { info: vi.fn(), warn, error: vi.fn() },
+    } as unknown as PluginContext,
     query,
+    warn,
   };
 }
 
@@ -54,6 +59,36 @@ describe("opencode history", () => {
   it("a missing store lists empty instead of failing the scan", async () => {
     const { ctx: c } = ctx([new Error("no such db")]);
     expect(await opencodeHistory(c).list()).toEqual([]);
+  });
+
+  /**
+   * The enumeration the host may prune from. `list()`'s successful return
+   * has always meant "complete enough to delete what it omits", and that
+   * claim stopped being safe the moment the host began cutting answers.
+   */
+  it("a listing cut by the budget is not complete — the host must not prune from it", async () => {
+    const rows = [["ses_1", "1", "2"]];
+    const whole = await opencodeHistory(ctx([rows]).ctx).listing!();
+    expect(whole).toEqual({
+      stubs: [{ sessionId: "ses_1", ref: "ses_1", mtime: 1, size: 2 }],
+      complete: true,
+    });
+
+    // Same rows, cut: the sessions past the cut are UNSEEN, not deleted.
+    const cut = await opencodeHistory(ctx([{ cut: rows }]).ctx).listing!();
+    expect(cut.stubs).toEqual(whole.stubs);
+    expect(cut.complete).toBe(false);
+  });
+
+  it("an unreadable store enumerates nothing INCOMPLETE — not an empty store", async () => {
+    // [] with complete:true would read as "every session was deleted" and
+    // the prune would wipe this agent's whole index.
+    const { ctx: c, warn } = ctx([new Error("no such db")]);
+    expect(await opencodeHistory(c).listing!()).toEqual({
+      stubs: [],
+      complete: false,
+    });
+    expect(warn.mock.calls[0][0]).toContain("no such db");
   });
 
   /**

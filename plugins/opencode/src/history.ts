@@ -67,6 +67,48 @@ const PART_TEXT = "CASE WHEN json_valid(data) THEN json_extract(data, '$.text') 
  * envelope at all, which is not damage. */
 const PART_INTACT = "json_valid(data)";
 
+/**
+ * Every live session, with the two-part fingerprint the scanner diffs on.
+ *
+ * The session row's own timestamp is NOT a change fingerprint. On a real
+ * store 1271 of 1967 sessions hold parts newer than the row that is
+ * supposed to speak for them: the content moved and the row did not. A
+ * scanner trusting it SKIPS sessions that changed, and the index goes
+ * quietly stale — a worse failure than re-reading too often, because the
+ * answer it shows is merely old and says nothing.
+ *
+ * The newest part's timestamp is the second axis. Not a count: half this
+ * store's parts were edited in place after being written, and a count is
+ * blind to every one of them. Not a sum of lengths either: that reads
+ * 608 MB of blobs on every listing AND still misses an edit that kept its
+ * length.
+ */
+const SESSION_ROWS =
+  "SELECT s.id, s.time_updated," +
+  " (SELECT MAX(p.time_updated) FROM part p WHERE p.session_id = s.id)" +
+  " FROM session s WHERE s.time_archived IS NULL";
+
+const stubsOf = (rows: readonly (string | null)[][]): AgentSessionStub[] =>
+  rows.flatMap(([id, updated, newestPart]) =>
+    id
+      ? [
+          {
+            sessionId: id,
+            ref: id,
+            mtime: Number(updated ?? 0),
+            // Not a size — this store has none per session — but the second
+            // half of a fingerprint, which is all the host asks of this
+            // field: a number that moves when the content does. Naming it
+            // honestly would mean renaming the contract for one agent's
+            // sake, so the name stays and this comment carries the truth.
+            size: Number(newestPart ?? 0),
+          },
+        ]
+      : [],
+  );
+
+const errOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 export function opencodeHistory(ctx: PluginContext): AgentHistory {
   const query = (sql: string, params: string[] = []) =>
     ctx.services.sqlite.query(DB, sql, params);
@@ -169,46 +211,37 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
 
   return {
     async list(): Promise<AgentSessionStub[]> {
-      let rows: SqlAnswer;
       try {
-        // The session row's own timestamp is NOT a change fingerprint. On a
-        // real store 1271 of 1967 sessions hold parts newer than the row
-        // that is supposed to speak for them: the content moved and the row
-        // did not. The scanner therefore SKIPS sessions that changed, and
-        // the index goes quietly stale — a worse failure than re-reading too
-        // often, because the answer it shows is merely old and says nothing.
-        //
-        // The newest part's timestamp is the second axis. Not a count: half
-        // this store's parts were edited in place after being written, and a
-        // count is blind to every one of them. Not a sum of lengths either:
-        // that reads 608 MB of blobs on every listing AND still misses an
-        // edit that kept its length.
-        rows = await query(
-          "SELECT s.id, s.time_updated," +
-            " (SELECT MAX(p.time_updated) FROM part p WHERE p.session_id = s.id)" +
-            " FROM session s WHERE s.time_archived IS NULL",
-        );
+        return stubsOf((await query(SESSION_ROWS)).rows);
       } catch {
         return []; // no store — opencode never ran here
       }
-      return rows.rows.flatMap(([id, updated, newestPart]) =>
-        id
-          ? [
-              {
-                sessionId: id,
-                ref: id,
-                mtime: Number(updated ?? 0),
-                // Not a size — this store has none per session — but the
-                // second half of a fingerprint, which is all the host asks
-                // of this field: a number that moves when the content does.
-                // Naming it honestly would mean renaming the contract for
-                // one agent's sake, so the name stays and this comment
-                // carries the truth.
-                size: Number(newestPart ?? 0),
-              },
-            ]
-          : [],
-      );
+    },
+    /** The same enumeration WITH the integrity signal — every other agent
+     * has offered this pair for some time and this one was still on the
+     * older road alone.
+     *
+     * Two ways to fall short, and they are the same news to the host. A
+     * store that will not open is not an empty store: `[]` with
+     * `complete: true` reads as "every session was deleted" and the prune
+     * would wipe this agent's whole index. (Accepted cost, the same one
+     * the file-backed agents name: a genuinely deleted store stops being
+     * pruned.) And a listing the host CUT is not a whole listing — the
+     * sessions past the cut are unseen, not gone. */
+    async listing(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }> {
+      let answer: SqlAnswer;
+      try {
+        answer = await query(SESSION_ROWS);
+      } catch (e) {
+        ctx.log.warn(
+          `opencode: store unreadable (${errOf(e)}) — nothing enumerated`,
+        );
+        return { stubs: [], complete: false };
+      }
+      return {
+        stubs: stubsOf(answer.rows),
+        complete: answer.stopped !== "budget",
+      };
     },
     async describe(ref) {
       const rows = await query(
