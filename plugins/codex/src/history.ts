@@ -7,6 +7,7 @@ import {
   type AgentSessionStub,
   type AgentTranscriptEntry,
   type PluginContext,
+  type ReadScope,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
 
@@ -84,7 +85,7 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
         state: CodexState,
         turns: readonly AgentTranscriptEntry[],
       ) => boolean;
-      scope?: "whole" | "head";
+      scope?: ReadScope;
     } = {},
   ) =>
     walkSession({
@@ -209,7 +210,17 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
         until: (state, turns) =>
           state.cwd !== undefined && firstMeaningfulUserTurn(turns) !== undefined,
       });
-      return { cwd: walked.state.cwd ?? "", title: walked.title, transcriptPath: ref };
+      return {
+        cwd: walked.state.cwd ?? "",
+        title: walked.title,
+        transcriptPath: ref,
+        // Spread even though a head reading never produces one: it makes the
+        // absence FOLLOW from the scope instead of coinciding with it. Drop
+        // the spread and "describe does not mark" rests on two unrelated
+        // facts at once — and the day the scope widens, the mark would go
+        // missing silently, with nothing in this file to notice.
+        ...(walked.shortfall ? { shortfall: walked.shortfall } : {}),
+      };
     },
     async content(ref) {
       return (await readSession(ref)).content;
