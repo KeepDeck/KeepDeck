@@ -800,6 +800,14 @@ pub struct SqlRead {
 /// time, and dropping the iterator closes the statement — so an oversized
 /// answer is never assembled, merely never finished.
 ///
+/// Nor is an oversized ROW. Each row is weighed through `get_ref`, which
+/// borrows SQLite's memory instead of copying it, so a text or blob cell
+/// larger than the whole budget is measured and refused without ever being
+/// allocated on this side. Weighing after materializing would have let a
+/// single gigabyte cell through the ceiling on its way to being counted.
+/// (SQLite still holds the value in its own C memory for the length of the
+/// row; that allocation is not ours to make or to keep.)
+///
 /// A row that would CROSS the budget is left out rather than half-included,
 /// so `rows` always holds whole rows. If the very first one crosses it, the
 /// answer is empty and short, which says exactly what happened: this query
@@ -834,28 +842,58 @@ pub fn query_readonly(
     let mut payload_bytes = 0usize;
     let mut short = false;
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        // FIRST PASS: what this row COSTS, without allocating any of it.
+        // `get_ref` borrows SQLite's own memory — text and blob hand over
+        // their length with no copy — and the borrow is valid until the
+        // next step, which is to say exactly as long as this row.
+        let mut weight = ROW_OVERHEAD_BYTES;
+        for i in 0..cols {
+            let cell = row.get_ref(i).map_err(|e| e.to_string())?;
+            weight += CELL_OVERHEAD_BYTES
+                + match cell {
+                    rusqlite::types::ValueRef::Null => 0,
+                    // Formatted to be measured, and formatted again below to
+                    // be kept. Scalars are bounded and tiny; an estimate here
+                    // (i64's worst case is 20 bytes, f64's is over 300 —
+                    // Rust's Display never uses an exponent) would refuse
+                    // queries that fit, and would make `payload_bytes` a
+                    // guess rather than a measurement.
+                    rusqlite::types::ValueRef::Integer(n) => n.to_string().len(),
+                    rusqlite::types::ValueRef::Real(f) => f.to_string().len(),
+                    // The two that can be gigabytes — and the only reason
+                    // this pass exists. A blob is weighed by what it IS,
+                    // not by the `<blob>` placeholder it is carried as:
+                    // charging six bytes for it would leave the hole this
+                    // pass was written to close. So an oversized blob is
+                    // refused rather than swapped for a placeholder — the
+                    // same treatment oversized text already gets.
+                    rusqlite::types::ValueRef::Text(b)
+                    | rusqlite::types::ValueRef::Blob(b) => b.len(),
+                };
+        }
+        if payload_bytes + weight > READ_BUDGET_BYTES {
+            short = true;
+            break;
+        }
+
+        // SECOND PASS: now that the row is known to fit, materialize it.
+        // Still through `get`, which keeps the error behaviour the answer
+        // has always had — text that is not valid UTF-8 fails the call.
         let mut cells = Vec::with_capacity(cols);
         for i in 0..cols {
             let value: Option<rusqlite::types::Value> =
                 row.get(i).map_err(|e| e.to_string())?;
             cells.push(value.map(|v| match v {
+                // Unreachable: `Option<Value>` answers None for SQL NULL
+                // before `Value` is ever built. Kept because the match must
+                // be exhaustive, and named so it is not mistaken for the
+                // bridge's treatment of NULL, which is `null`.
                 rusqlite::types::Value::Null => String::new(),
                 rusqlite::types::Value::Integer(n) => n.to_string(),
                 rusqlite::types::Value::Real(f) => f.to_string(),
                 rusqlite::types::Value::Text(t) => t,
                 rusqlite::types::Value::Blob(_) => String::from("<blob>"),
             }));
-        }
-        let weight = ROW_OVERHEAD_BYTES
-            + cells
-                .iter()
-                .map(|cell| {
-                    CELL_OVERHEAD_BYTES + cell.as_ref().map_or(0, String::len)
-                })
-                .sum::<usize>();
-        if payload_bytes + weight > READ_BUDGET_BYTES {
-            short = true;
-            break;
         }
         payload_bytes += weight;
         out.push(cells);
