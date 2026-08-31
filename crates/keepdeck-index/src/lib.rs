@@ -787,7 +787,11 @@ pub struct SqlRead {
     /// The budget cut the answer short — the caller has fewer rows than the
     /// query would have produced, and owes its own reader that news.
     pub short: bool,
-    /// Effective bytes actually passed through.
+    /// Effective bytes the answer was CHARGED — the same measure the budget
+    /// spends, which is not the same as the length of what crosses the wire.
+    /// A blob is charged its real size and carried as a six-byte
+    /// placeholder: charging the placeholder would let a gigabyte through a
+    /// ceiling meant to stop it.
     pub payload_bytes: usize,
 }
 
@@ -876,24 +880,28 @@ pub fn query_readonly(
             break;
         }
 
-        // SECOND PASS: now that the row is known to fit, materialize it.
-        // Still through `get`, which keeps the error behaviour the answer
-        // has always had — text that is not valid UTF-8 fails the call.
+        // SECOND PASS: now that the row is known to fit, materialize it —
+        // from `get_ref` again rather than `get`, and for a reason beyond
+        // symmetry. `get::<Option<Value>>` PANICS on text that is not
+        // valid UTF-8: the unwind starts inside rusqlite's own conversion
+        // and travels out through this function, past the `Result` that
+        // exists to carry exactly this news, and on into whatever called
+        // the Tauri command. Reading the bytes ourselves turns that into
+        // the refusal it should always have been.
         let mut cells = Vec::with_capacity(cols);
         for i in 0..cols {
-            let value: Option<rusqlite::types::Value> =
-                row.get(i).map_err(|e| e.to_string())?;
-            cells.push(value.map(|v| match v {
-                // Unreachable: `Option<Value>` answers None for SQL NULL
-                // before `Value` is ever built. Kept because the match must
-                // be exhaustive, and named so it is not mistaken for the
-                // bridge's treatment of NULL, which is `null`.
-                rusqlite::types::Value::Null => String::new(),
-                rusqlite::types::Value::Integer(n) => n.to_string(),
-                rusqlite::types::Value::Real(f) => f.to_string(),
-                rusqlite::types::Value::Text(t) => t,
-                rusqlite::types::Value::Blob(_) => String::from("<blob>"),
-            }));
+            let cell = row.get_ref(i).map_err(|e| e.to_string())?;
+            cells.push(match cell {
+                rusqlite::types::ValueRef::Null => None,
+                rusqlite::types::ValueRef::Integer(n) => Some(n.to_string()),
+                rusqlite::types::ValueRef::Real(f) => Some(f.to_string()),
+                rusqlite::types::ValueRef::Text(b) => Some(
+                    String::from_utf8(b.to_vec())
+                        .map_err(|e| format!("column {i} is not valid UTF-8: {e}"))?,
+                ),
+                // Carried as a placeholder — it was WEIGHED as itself.
+                rusqlite::types::ValueRef::Blob(_) => Some(String::from("<blob>")),
+            });
         }
         payload_bytes += weight;
         out.push(cells);
@@ -1361,15 +1369,15 @@ mod tests {
         let db = dir.path().join("big.db");
         {
             let conn = Connection::open(&db).unwrap();
-            conn.execute_batch("CREATE TABLE blob_rows (payload TEXT);")
+            conn.execute_batch("CREATE TABLE wide_rows (payload TEXT);")
                 .unwrap();
             let chunk = "x".repeat(512 * 1024);
             for _ in 0..24 {
-                conn.execute("INSERT INTO blob_rows VALUES (?1)", [&chunk])
+                conn.execute("INSERT INTO wide_rows VALUES (?1)", [&chunk])
                     .unwrap();
             }
         }
-        let read = query_readonly(&db, "SELECT payload FROM blob_rows", &[]).unwrap();
+        let read = query_readonly(&db, "SELECT payload FROM wide_rows", &[]).unwrap();
 
         assert!(read.short, "twelve megabytes must not fit an eight megabyte budget");
         assert!(read.rows.len() < 24);
@@ -1399,6 +1407,30 @@ mod tests {
         assert!(read.rows.is_empty());
         assert!(read.short);
         assert_eq!(read.payload_bytes, 0);
+    }
+
+    /// Text that is not valid UTF-8 is REFUSED, not thrown.
+    ///
+    /// It used to panic: rusqlite's own conversion unwinds, and the unwind
+    /// travelled straight out of this function — past the `Result` that
+    /// exists to carry exactly this news — and into the Tauri command that
+    /// called it. A store one bad byte away from taking the process with it
+    /// is a worse answer than any error string.
+    #[test]
+    fn readonly_query_refuses_text_that_is_not_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("bad.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch("CREATE TABLE t (a TEXT);").unwrap();
+            conn.execute("INSERT INTO t VALUES (CAST(x'fffe' AS TEXT))", [])
+                .unwrap();
+        }
+        let outcome =
+            std::panic::catch_unwind(|| query_readonly(&db, "SELECT a FROM t", &[]));
+
+        let refusal = outcome.expect("must not unwind out of the call");
+        assert!(refusal.err().is_some_and(|e| e.contains("not valid UTF-8")));
     }
 
     /// Many tiny rows cost more than their bytes, and the budget counts what
