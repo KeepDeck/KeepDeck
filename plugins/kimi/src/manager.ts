@@ -2,6 +2,7 @@ import type {
   KimiServerAccess,
   KimiServerManager,
 } from "./serverManager";
+import { sha256Hex } from "./companion";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -17,6 +18,11 @@ export interface KimiCompanionInstallation {
   enabled: boolean;
   healthy: boolean;
   owned: boolean;
+  /** The installed script files match what this build ships. The version
+   * above can read "current" while the bytes lie — the wire broke exactly
+   * that way once — so this is a separate verdict, and a negative one is
+   * what turns an installed reporter "outdated" for the controller. */
+  scriptsCurrent: boolean;
 }
 
 export interface KimiCompanionDescriptor {
@@ -24,6 +30,31 @@ export interface KimiCompanionDescriptor {
   version: string;
   displayName: string;
   resourceDirectoryName: string;
+  /** The files whose drift breaks the pane wire, pinned by digest — see
+   * [`CompanionScript`]. Empty for a companion with no wire of its own. */
+  scripts: readonly { file: string; sha256: string }[];
+}
+
+/** The managed copy's files, as inspect needs them. Kept a PORT because
+ * reading another application's home is a capability question the caller
+ * (the plugin's activate) answers, not this manager.
+ *
+ * The two absence shapes are deliberately different outcomes. A MISSING
+ * file is a state — scripts drift like any other, and the controller's
+ * refresh reinstalls it, so inspect answers "not current" and the
+ * self-heal runs. An UNREADABLE file is a failure — the refresh it would
+ * trigger cannot fix what it cannot read, so inspect refuses (throws) and
+ * the controller shows the error instead of looping a configure that
+ * would change nothing. */
+export interface InstalledScripts {
+  /** Files present in the managed directory; null when the directory
+   * itself is gone. Read-only: the manager asks what is there, never
+   * changes it. */
+  list(): Promise<ReadonlySet<string> | null>;
+  /** One installed file's text. Rejects when the file cannot be read. */
+  read(file: string): Promise<string>;
+  /** The bytes THIS build ships, by file name — the expected side. */
+  shipped(): Promise<ReadonlyMap<string, string>>;
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -52,8 +83,35 @@ interface PluginSummary {
 export function createKimiCompanionManager(
   server: KimiServerManager,
   companion: KimiCompanionDescriptor,
+  installed: InstalledScripts,
   fetcher: FetchLike = globalThis.fetch.bind(globalThis),
 ): KimiCompanionManager {
+  /** Whether every wire-critical file matches what this build ships.
+   *
+   * The comparison is against the SHIPPED bytes, not the descriptor's
+   * recorded digests: a build whose resources and descriptor have drifted
+   * apart (a packaging bug the digest test exists to catch) must still
+   * converge — install ships the new bytes, the next inspect sees them
+   * match, done. Comparing against the descriptor instead would loop that
+   * refresh forever, one configure per check.
+   *
+   * An EMPTY shipped map is not drift: this build carries no copy of the
+   * file to compare or install (a bundle-less dev tree), and "current" for
+   * such a build has always meant what its configure() could do — nothing. */
+  const scriptsCurrent = async (): Promise<boolean> => {
+    if (companion.scripts.length === 0) return true;
+    const expected = await installed.shipped();
+    if (expected.size === 0) return true;
+    const names = await installed.list();
+    if (names === null) return false;
+    for (const { file } of companion.scripts) {
+      if (!names.has(file)) return false;
+      const text = await installed.read(file);
+      if ((await sha256Hex(text)) !== expected.get(file)) return false;
+    }
+    return true;
+  };
+
   return {
     inspect() {
       return server.run(async (access, signal) => {
@@ -63,7 +121,9 @@ export function createKimiCompanionManager(
           signal,
           companion.id,
         );
-        return plugin ? installationFrom(plugin, companion) : null;
+        if (!plugin) return null;
+        const installation = installationFrom(plugin, companion);
+        return { ...installation, scriptsCurrent: await scriptsCurrent() };
       });
     },
 
@@ -127,7 +187,11 @@ export function createKimiCompanionManager(
             "Kimi could not verify the configured KeepDeck reporter.",
           );
         }
-        return installation;
+        // The post-install check reads the wire verdict too: an install
+        // that ended with drifted bytes (a copy half-written, a version the
+        // server lied about) must refuse here, where the reason is fresh —
+        // not surface as an "outdated" a moment later.
+        return { ...installation, scriptsCurrent: await scriptsCurrent() };
       });
     },
 
@@ -253,10 +317,13 @@ async function callRpc<T>(
   return envelope.data;
 }
 
+/** Everything an installation is EXCEPT whether its scripts are current —
+ * that answer needs the managed directory, which this reading of the RPC
+ * summary never touches. Callers add it; the type says they must. */
 function installationFrom(
   plugin: PluginSummary,
   companion: KimiCompanionDescriptor,
-): KimiCompanionInstallation {
+): Omit<KimiCompanionInstallation, "scriptsCurrent"> {
   return {
     version: plugin.version ?? null,
     enabled: plugin.enabled,

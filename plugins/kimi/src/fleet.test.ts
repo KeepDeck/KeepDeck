@@ -15,6 +15,7 @@ const healthy = (version: string): KimiCompanionInstallation => ({
   enabled: true,
   healthy: true,
   owned: true,
+  scriptsCurrent: true,
 });
 
 /** A member that answers with whatever it is given, and records what it was
@@ -61,6 +62,24 @@ describe("combineInstallations", () => {
         { expected: "1.0.0", installation: healthy("0.9.0") },
       ])?.version,
     ).toBeNull();
+  });
+
+  it("is not current when a member's installed scripts drifted from the shipped bytes", () => {
+    // The 1.6.0 lie: Kimi reports the expected version while the installed
+    // hooks still speak a protocol the deck no longer reads. Only the
+    // scripts verdict tells that setup from a working one, so it alone must
+    // be enough to unsettle "current" — and to carry scriptsCurrent=false
+    // to the controller's outdated path.
+    const drifted: KimiCompanionInstallation = {
+      ...healthy("1.6.0"),
+      scriptsCurrent: false,
+    };
+    const combined = combineInstallations([
+      { expected: "1.6.0", installation: drifted },
+      { expected: "1.0.0", installation: healthy("1.0.0") },
+    ]);
+    expect(combined?.version).toBeNull();
+    expect(combined?.scriptsCurrent).toBe(false);
   });
 
   it("is only as good as its weakest member", () => {
