@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
+import { CONTENT_CAP, type PluginContext } from "@keepdeck/plugin-api";
 import { opencodeHistory } from "./history";
 
 /** One query's answer the way the host gives it now: rows PLUS why the read
@@ -133,6 +133,28 @@ describe("opencode history", () => {
     });
     expect(page.entries).toEqual([{ role: "user", text: "as much as fit" }]);
     expect(page.shortfall).toEqual([{ kind: "rows", returned: 1 }]);
+  });
+
+  it("a cut session row is refused — an empty cwd would enter the index as a fact", async () => {
+    const { ctx: c } = ctx([{ cut: [] }]);
+    await expect(opencodeHistory(c).describe("ses_1")).rejects.toThrow(
+      /cut short/,
+    );
+  });
+
+  it("a cut corpus is refused only when it came up short of the cap", async () => {
+    // Short of the cap: the cut removed text the index would have held.
+    const { ctx: short } = ctx([{ cut: [["barely anything"]] }]);
+    await expect(opencodeHistory(short).content("ses_1")).rejects.toThrow(
+      /cut short/,
+    );
+
+    // At the cap: the tail was being dropped anyway, so the cut changed
+    // nothing and refusing would cost the index a whole session's text.
+    const { ctx: full } = ctx([{ cut: [["x".repeat(CONTENT_CAP)]] }]);
+    expect((await opencodeHistory(full).content("ses_1")).length).toBe(
+      CONTENT_CAP,
+    );
   });
 
   it("content keeps only text parts; transcript groups parts per message", async () => {

@@ -248,6 +248,14 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
         "SELECT directory, title FROM session WHERE id = ?1",
         [ref],
       );
+      // A cut here is not a short answer, it is NO answer: one row was
+      // asked for and the budget stopped before it. Reading on would put
+      // `cwd: ""` in the index as a FACT about this session. Refusing
+      // instead costs the session this pass — the scan logs it skipped and
+      // prunes nothing — and it is read again next time.
+      if (rows.stopped === "budget") {
+        throw new Error(`opencode: session row cut short (${ref})`);
+      }
       const [directory, title] = rows.rows[0] ?? [];
       return {
         cwd: directory ?? "",
@@ -268,6 +276,14 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
         texts.push(text);
         total += text.length;
         if (total >= CONTENT_CAP) break;
+      }
+      // A cut matters here ONLY if the corpus came up short of the cap.
+      // Reaching the cap means the tail was being dropped anyway and the
+      // cut changed nothing. Refusing on every cut would trade a slightly
+      // shorter corpus for NO corpus — the session would leave the index
+      // entirely, which is the worse of the two silences.
+      if (rows.stopped === "budget" && total < CONTENT_CAP) {
+        throw new Error(`opencode: corpus cut short below the cap (${ref})`);
       }
       return texts.join("\n");
     },
