@@ -236,11 +236,16 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
         .catch(() => null);
       try {
         const parsed = JSON.parse(state?.text ?? "") as {
+          cwd?: unknown;
           workDir?: unknown;
           title?: unknown;
         };
+        // The working directory moved key: sessions written since kimi 0.38
+        // carry `cwd`, older ones `workDir`. Reading only the old name left
+        // every recent session unattached to its folder in the browser.
+        const dir = typeof parsed.cwd === "string" ? parsed.cwd : parsed.workDir;
         return {
-          cwd: typeof parsed.workDir === "string" ? parsed.workDir : "",
+          cwd: typeof dir === "string" ? dir : "",
           ...(typeof parsed.title === "string" &&
             parsed.title !== "" && { title: parsed.title.slice(0, 120) }),
           transcriptPath: ref,
@@ -250,14 +255,14 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
       }
     },
     async content(ref) {
-      // The index drops roles it does not recognize; the transcript above
-      // keeps them. The asymmetry is older than this reading and is carried
-      // across unchanged — settling it is a decision about what the viewer
-      // shows, not about how a store is read.
-      return (await readSession(ref)).turns
-        .filter((t) => t.role !== "other")
-        .map((t) => t.text)
-        .join("\n");
+      // A role this dialect does not recognize is indexed like any other.
+      // The index used to drop them while the transcript kept them — two
+      // answers about one conversation, for a role that has never once
+      // appeared in a real store. Keeping everything is both the simpler
+      // code and the safer default: an unfamiliar role carrying real text is
+      // likelier to be conversation we failed to name than noise, and
+      // dropping it would lose it with nothing to show for the loss.
+      return (await readSession(ref)).content;
     },
     // ONE reading, two contracts: the legacy method unpacks the honest one,
     // so the pair cannot drift.

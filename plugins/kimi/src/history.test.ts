@@ -183,6 +183,53 @@ describe("kimi history", () => {
     });
   });
 
+  it("describe reads the directory under the NEWER key too", async () => {
+    // Sessions written since kimi 0.38 carry `cwd` where older ones carried
+    // `workDir`. Reading only the old name left every recent session
+    // unattached to its folder in the browser — 22 of 88 on a real store.
+    const newer = JSON.stringify({ cwd: "/repo/fresh", title: "recent run" });
+    const history = kimiHistory(
+      ctx({ "/k/wd_a_1/session_s1/state.json": newer }, {}),
+    );
+
+    expect(
+      await history.describe("/k/wd_a_1/session_s1/agents/main/wire.jsonl"),
+    ).toMatchObject({ cwd: "/repo/fresh", title: "recent run" });
+  });
+
+  it("describe still answers with no directory when the state names none", async () => {
+    // The eight oldest sessions on a real store carry neither key. An empty
+    // cwd is the honest answer; inventing one would attach a session to a
+    // folder it was never in.
+    const history = kimiHistory(
+      ctx(
+        { "/k/wd_a_1/session_s1/state.json": JSON.stringify({ title: "old" }) },
+        {},
+      ),
+    );
+
+    expect(
+      await history.describe("/k/wd_a_1/session_s1/agents/main/wire.jsonl"),
+    ).toMatchObject({ cwd: "", title: "old" });
+  });
+
+  it("indexes a role the dialect does not recognize, as the transcript shows it", async () => {
+    // The index used to drop these while the transcript kept them: two
+    // answers about one conversation. One behaviour now, and it is the
+    // keeping one — an unfamiliar role carrying real text is likelier to be
+    // conversation we failed to name than noise.
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const odd = JSON.stringify({
+      type: "context.append_message",
+      message: { role: "moderator", content: [{ type: "text", text: "held" }] },
+    });
+    const history = kimiHistory(ctx({ [wire]: odd }, {}));
+
+    const page = await history.transcript(wire, { offset: 0, limit: 10 });
+    expect(page).toEqual([{ role: "other", text: "held" }]);
+    expect(await history.content(wire)).toContain("held");
+  });
+
   it("a page cut short by the budget says so in bytes", async () => {
     // kimi is the store where a cut can land INSIDE an emitted turn: the
     // dialect accumulates fragments across lines, so the tail turn is short
