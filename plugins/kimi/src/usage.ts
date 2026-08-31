@@ -51,7 +51,12 @@ export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
   if (!isJsonRecord(event)) return null;
 
   if (event.type === "llm.request") {
-    const model = asNonEmptyString(event.model);
+    // `model` is the bare id ("k3-256k"); `modelAlias` is the name kimi
+    // shows for it ("kimi-code/k3-256k"), and it is what `usage.record`
+    // reports — so preferring the alias keeps one pane from labelling the
+    // same model two ways depending on which event arrived last.
+    const model =
+      asNonEmptyString(event.modelAlias) ?? asNonEmptyString(event.model);
     const windowTokens = asFiniteNumber(event.maxTokens);
     if (!model && windowTokens === undefined) {
       return { account: null, pane: null };
@@ -159,7 +164,14 @@ export const normalizeKimiUsages: LimitsNormalizer = (body, at) => {
   if (Array.isArray(raw.limits)) {
     for (const entry of raw.limits) {
       if (!isJsonRecord(entry)) continue;
-      const parsed = quotaWindow(entry.detail, windowMinutesOf(entry.window));
+      // The row's own name, when it has one: kimi labels its limit windows,
+      // and dropping the label left the panel showing durations with nothing
+      // saying what they limit.
+      const parsed = quotaWindow(
+        entry.detail,
+        windowMinutesOf(entry.window),
+        asNonEmptyString(entry.name),
+      );
       if (parsed) windows.push(parsed);
     }
   }

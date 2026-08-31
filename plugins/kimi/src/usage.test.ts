@@ -97,6 +97,33 @@ describe("normalizeKimiWire", () => {
     });
   });
 
+  it("prefers the model's alias over its bare id", () => {
+    // `usage.record` reports the alias, `llm.request` carries both. Reading
+    // the bare id here made one pane label the same model two ways depending
+    // on which event landed last.
+    const result = normalizeKimiWire(
+      {
+        agent: "kimi",
+        event: {
+          type: "llm.request",
+          model: "k3-256k",
+          modelAlias: "kimi-code/k3-256k",
+          maxTokens: 262_144,
+        },
+      },
+      AT,
+    );
+    expect(result?.pane?.model).toBe("kimi-code/k3-256k");
+  });
+
+  it("falls back to the bare id when no alias came", () => {
+    const result = normalizeKimiWire(
+      { agent: "kimi", event: { type: "llm.request", model: "k3-256k" } },
+      AT,
+    );
+    expect(result?.pane?.model).toBe("k3-256k");
+  });
+
   it("returns null for unrecognizable events", () => {
     expect(normalizeKimiWire({ agent: "kimi" }, AT)).toBeNull();
     expect(
@@ -154,6 +181,41 @@ describe("normalizeKimiUsages", () => {
         { usedPct: 20, resetsAt: null, windowMinutes: null, scope: "quota" },
       ],
     });
+  });
+
+  it("keeps a limit row's own name, so a window is not just a duration", () => {
+    // kimi labels its limit windows; dropping the label left the panel
+    // showing "5h" with nothing saying what it limits.
+    const account = normalizeKimiUsages(
+      JSON.stringify({
+        limits: [
+          {
+            name: "requests",
+            window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" },
+            detail: { limit: "30", used: "3" },
+          },
+        ],
+      }),
+      AT,
+    );
+    if (account?.kind !== "reported") throw new Error("expected a report");
+    expect(account.windows[0]).toMatchObject({ scope: "requests" });
+  });
+
+  it("leaves a nameless limit row nameless rather than inventing one", () => {
+    const account = normalizeKimiUsages(
+      JSON.stringify({
+        limits: [
+          {
+            window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" },
+            detail: { limit: "30", used: "3" },
+          },
+        ],
+      }),
+      AT,
+    );
+    if (account?.kind !== "reported") throw new Error("expected a report");
+    expect("scope" in account.windows[0]).toBe(false);
   });
 
   it("converts window units and skips malformed entries", () => {
