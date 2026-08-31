@@ -1,11 +1,13 @@
 import {
   firstMeaningfulUserTurn,
-  shortfallOfRead,
+  jsonl,
   textFromParts,
+  walkSession,
   type AgentHistory,
   type AgentSessionStub,
   type AgentTranscriptEntry,
   type PluginContext,
+  type SessionDialect,
 } from "@keepdeck/plugin-api";
 
 /**
@@ -20,59 +22,89 @@ function errOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-interface ParsedTurn {
-  role: "user" | "assistant";
-  text: string;
+/** One line of a rollout, as this plugin reads it. An assertion about the
+ * format made in ONE place: the host parses the JSON and validates nothing,
+ * because it knows nothing about codex. */
+interface CodexRecord {
+  type?: unknown;
+  payload?: {
+    type?: unknown;
+    role?: unknown;
+    content?: unknown;
+    cwd?: unknown;
+  };
+}
+
+/** What codex records in passing, on lines the walk goes through anyway. */
+interface CodexState {
+  cwd?: string;
+}
+
+function nonEmpty(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  return text === "" ? undefined : text;
 }
 
 /** Rollout lines: `response_item` payloads of type `message` with a content
  * array of `input_text`/`output_text` parts. Developer/meta roles are
  * plumbing, not conversation. */
-export function parseRollout(jsonl: string): ParsedTurn[] {
-  const turns: ParsedTurn[] = [];
-  for (const line of jsonl.split("\n")) {
-    if (!line.trim()) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const record = parsed as {
-      type?: unknown;
-      payload?: { type?: unknown; role?: unknown; content?: unknown };
-    };
-    if (record.type !== "response_item") continue;
-    const payload = record.payload;
-    if (payload?.type !== "message") continue;
-    if (payload.role !== "user" && payload.role !== "assistant") continue;
-    const text = textFromParts(payload.content).trim();
-    if (text) turns.push({ role: payload.role, text });
-  }
-  return turns;
-}
+const dialect: SessionDialect<CodexState, CodexRecord> = {
+  begin: () => ({}),
 
-export function titleOf(turns: ParsedTurn[]): string | undefined {
-  return firstMeaningfulUserTurn(turns);
-}
+  step(state, record) {
+    // `session_meta` opens the rollout and carries the working directory;
+    // noticing it here is what replaces the separate read of the head. A
+    // rollout can carry several (subagent threads) — the FIRST wins, which
+    // is what parsing the first line always did.
+    if (record.type === "session_meta") state.cwd ??= nonEmpty(record.payload?.cwd);
+
+    if (record.type !== "response_item") return [];
+    const payload = record.payload;
+    if (payload?.type !== "message") return [];
+    if (payload.role !== "user" && payload.role !== "assistant") return [];
+    const text = textFromParts(payload.content).trim();
+    return text ? [{ role: payload.role, text }] : [];
+  },
+
+  // A rollout line is one whole message, so nothing is ever held back.
+  end: () => [],
+};
 
 const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
 
-/** The whole rollout a page is cut from — codex reads it all and slices. */
-const BODY_CAP = 8 * 1024 * 1024;
-
 export function codexHistory(ctx: PluginContext): AgentHistory {
+  /** One reading of ONE rollout. (`walk`/`walkPartial` below are a different
+   * job entirely: they walk the store's DIRECTORIES.) */
+  const readSession = (
+    ref: string,
+    extra: {
+      keep?: { offset: number; limit: number };
+      until?: (
+        state: CodexState,
+        turns: readonly AgentTranscriptEntry[],
+      ) => boolean;
+      scope?: "whole" | "head";
+    } = {},
+  ) =>
+    walkSession({
+      store: ctx.services.sessionStore,
+      format: jsonl<CodexRecord>(),
+      request: { path: ref },
+      dialect,
+      ...extra,
+    });
+
   /** One page of turns WITH what the reading fell short by. */
   const readPage = async (
     ref: string,
     page: { offset: number; limit: number },
   ) => {
-    const file = await ctx.services.fs.readFile(ref, { maxBytes: BODY_CAP });
-    const entries = parseRollout(file.text ?? "")
-      .slice(page.offset, page.offset + page.limit)
-      .map((t) => ({ role: t.role, text: t.text }));
-    const shortfall = shortfallOfRead(file);
-    return { entries, ...(shortfall ? { shortfall } : {}) };
+    const walked = await readSession(ref, { keep: page });
+    return {
+      entries: walked.turns,
+      ...(walked.shortfall ? { shortfall: walked.shortfall } : {}),
+    };
   };
 
   const walk = async (path: string): Promise<AgentSessionStub[]> => {
@@ -165,31 +197,22 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
       return { stubs, complete };
     },
     async describe(ref) {
-      const head = await ctx.services.fs.readFile(ref, { maxBytes: 256 * 1024 });
-      const text = head.text ?? "";
-      const newline = text.indexOf("\n");
-      // No newline in the head = one giant meta line; take the whole head
-      // rather than slice(0,-1)'s silent last-char drop.
-      const first = newline < 0 ? text : text.slice(0, newline);
-      let cwd = "";
-      try {
-        const meta = JSON.parse(first) as {
-          type?: unknown;
-          payload?: { cwd?: unknown };
-        };
-        if (meta.type === "session_meta" && typeof meta.payload?.cwd === "string") {
-          cwd = meta.payload.cwd;
-        }
-      } catch {
-        // No meta line — an unexpected layout indexes with an empty cwd.
-      }
-      return { cwd, title: titleOf(parseRollout(text)), transcriptPath: ref };
+      // Both facts a describe wants sit at the rollout's start: the working
+      // directory on the opening `session_meta`, the name on the first real
+      // turn. `head` says so — and it is the PLUGIN's claim, true of this
+      // format and false of others, while how far a head reaches is the
+      // host's number. Without it, a rollout with no titling turn at all
+      // (subagent threads: 95 of 278 on a real store) would be read to its
+      // end for an answer that is not there.
+      const walked = await readSession(ref, {
+        scope: "head",
+        until: (state, turns) =>
+          state.cwd !== undefined && firstMeaningfulUserTurn(turns) !== undefined,
+      });
+      return { cwd: walked.state.cwd ?? "", title: walked.title, transcriptPath: ref };
     },
     async content(ref) {
-      const file = await ctx.services.fs.readFile(ref, { maxBytes: 8 * 1024 * 1024 });
-      return parseRollout(file.text ?? "")
-        .map((t) => t.text)
-        .join("\n");
+      return (await readSession(ref)).content;
     },
     // ONE reading, two contracts: the legacy method unpacks the honest one,
     // so the pair cannot drift.

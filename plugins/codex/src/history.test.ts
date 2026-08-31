@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
-import { fsFileRead } from "@keepdeck/plugin-api/testing";
-import { codexHistory, parseRollout } from "./history";
+import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
+import { fsStore } from "@keepdeck/plugin-api/testing";
+import { codexHistory } from "./history";
 
 const META = JSON.stringify({
   type: "session_meta",
@@ -43,17 +43,15 @@ const LINES = [
   }),
 ].join("\n");
 
-/** Paths whose read came back SHORT, mapped to the file's full length. The
- * answer itself is built by the contract's own double — see
- * `@keepdeck/plugin-api/testing`. */
-type ShortReads = Record<string, number>;
-
 function ctx(
   files: Record<string, string>,
   dirs: Record<string, unknown[]>,
   warn: (message: string) => void = vi.fn(),
-  short: ShortReads = {},
 ) {
+  // A rollout is read a WINDOW at a time now, so the double has to serve
+  // windows; `dirs` stays hand-built, because these tests are about what the
+  // enumeration does with listings a real directory cannot pose.
+  const fs = fsStore(files);
   return {
     log: { warn, info: vi.fn(), error: vi.fn() },
     services: {
@@ -63,9 +61,9 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: async (path: string) =>
-          fsFileRead(path, files[path] ?? null, short[path]),
+        readFile: fs.readFile,
       },
+      sessionStore: createSessionStore(fs),
     },
   } as unknown as PluginContext;
 }
@@ -168,22 +166,40 @@ describe("codex history", () => {
     });
   });
 
-  it("a page cut short by the cap says so in bytes", async () => {
+  it("a page cut short by the budget says so in bytes", async () => {
     // The flag has ridden in from Rust since before this stage and nobody read
     // it — every plugin wrote `file.text ?? ""` and moved on. This is the
     // assertion that the reading speaks about itself, in the measure a file
     // has.
-    const history = codexHistory(
-      ctx({ "/r.jsonl": LINES }, {}, vi.fn(), { "/r.jsonl": 9_000_000 }),
-    );
-    const page = await history.transcriptPage!("/r.jsonl", { offset: 0, limit: 10 });
-    expect(page.shortfall).toEqual([
-      {
-        kind: "bytes",
-        size: 9_000_000,
-        readBytes: new TextEncoder().encode(LINES).length,
+    //
+    // The fixture has to be genuinely bigger than one read may pass through:
+    // the mark now comes from the walk hitting its budget, and a double that
+    // merely CLAIMED a large file would describe a world where the bytes
+    // between what it returned and what it claimed do not exist.
+    const line = JSON.stringify({
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "x".repeat(2000) }],
       },
-    ]);
+    });
+    const big = `${line}\n`.repeat(4500);
+    const size = new TextEncoder().encode(big).length;
+    const history = codexHistory(ctx({ "/r.jsonl": big }, {}));
+
+    const page = await history.transcriptPage!("/r.jsonl", {
+      offset: 4400,
+      limit: 10,
+    });
+
+    // The page sits past where the budget stops, so it comes back short —
+    // which is also how the viewer's pagination learns it reached the end.
+    expect(page.entries.length).toBeLessThan(10);
+    expect(page.shortfall).toHaveLength(1);
+    const [mark] = page.shortfall!;
+    expect(mark).toMatchObject({ kind: "bytes", size });
+    expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
   });
 
   it("a page that read everything carries no shortfall at all", async () => {
@@ -199,8 +215,11 @@ describe("codex history", () => {
     expect((await history.describe("/r.jsonl")).cwd).toBe("/repo/wt");
   });
 
-  it("parses only user/assistant message items", () => {
-    const turns = parseRollout(LINES);
-    expect(turns.map((t) => t.role)).toEqual(["user", "user", "assistant"]);
+  it("parses only user/assistant message items", async () => {
+    // Through the contract rather than through an exported parser: what the
+    // dialect means is only observable in what a reading returns.
+    const history = codexHistory(ctx({ "/r.jsonl": LINES }, {}));
+    const page = await history.transcript("/r.jsonl", { offset: 0, limit: 10 });
+    expect(page.map((t) => t.role)).toEqual(["user", "user", "assistant"]);
   });
 });
