@@ -112,7 +112,10 @@ describe("kimi history", () => {
       ctx({}, {
         "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
         "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
-        // no agents/main for session_s1 — created, never spawned.
+        // agents/ reads and holds no `main` — created, never spawned. The
+        // parent has to READ for this to be provably absence rather than
+        // a refusal, which is the whole distinction this walk now makes.
+        "/k/wd_a_1/session_s1/agents": [],
       }),
     );
     expect(await bare.list()).toEqual([]);
@@ -149,18 +152,99 @@ describe("kimi history", () => {
     expect(String(warn.mock.calls[0][0])).toContain("/k/wd_b_2");
   });
 
-  it("a session without agents/main is a normal shape under listing() too — skipped, walk still complete", async () => {
-    // The prune hazard's honest half: never-spawned sessions drop out of a
-    // COMPLETE listing. Only an agents/main that exists but won't read is
-    // the hazard — and the fs layer cannot tell those apart (see the
-    // named comment at the catch in history.ts).
+  /**
+   * The routine shapes, and there are two of them. Both must leave the walk
+   * COMPLETE, or pruning turns itself off for good: a store full of
+   * never-spawned sessions would mark every pass incomplete and the index
+   * would keep deleted sessions forever.
+   */
+  it("a session that never spawned keeps the walk complete — whether agents/ is empty or absent", async () => {
+    const spawnedNothing = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
+        // agents/ reads and holds no `main` — spawned nothing yet.
+        "/k/wd_a_1/session_s1/agents": [],
+      }),
+    );
+    expect(await spawnedNothing.listing!()).toEqual({ stubs: [], complete: true });
+
+    const noAgentsAtAll = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
+        // The session dir reads and has no `agents` child at all — the
+        // shape a session takes before any agent directory exists. The
+        // probe of the session dir is the ONLY thing that tells this from
+        // an `agents/` that refuses to open.
+        "/k/wd_a_1/session_s1": [
+          { name: "state.json", path: "/k/wd_a_1/session_s1/state.json", kind: "file" },
+        ],
+      }),
+    );
+    expect(await noAgentsAtAll.listing!()).toEqual({ stubs: [], complete: true });
+  });
+
+  it("a session whose agents/main exists but will not read keeps its stub, is named, and the listing is incomplete", async () => {
+    const warn = vi.fn();
+    const history = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [
+          { name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir", mtime: 5 },
+          { name: "session_s2", path: "/k/wd_a_1/session_s2", kind: "dir", mtime: 7 },
+        ],
+        "/k/wd_a_1/session_s1/agents/main": [
+          { name: "wire.jsonl", path: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", kind: "file", size: 4, mtime: 9 },
+        ],
+        // s2's agents/main will not read, but its parent SHOWS that it exists.
+        "/k/wd_a_1/session_s2/agents": [
+          { name: "main", path: "/k/wd_a_1/session_s2/agents/main", kind: "dir" },
+        ],
+      }, warn),
+    );
+    expect(await history.listing!()).toEqual({
+      stubs: [
+        { sessionId: "session_s1", ref: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", mtime: 9, size: 4 },
+        // A stub of EXISTENCE. Its fingerprint cannot equal a real wire's:
+        // the store never writes size 0 for a wire that has been messaged.
+        { sessionId: "session_s2", ref: "/k/wd_a_1/session_s2/agents/main/wire.jsonl", mtime: 7, size: 0 },
+      ],
+      complete: false,
+    });
+    expect(String(warn.mock.calls[0][0])).toContain("session_s2");
+  });
+
+  it("a session dir that will not read is incomplete too — unknowable is never 'no session'", async () => {
+    const warn = vi.fn();
     const history = kimiHistory(
       ctx({}, {
         "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
         "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
+        // Neither agents/main, nor agents, nor the session dir will read.
+      }, warn),
+    );
+    const out = await history.listing!();
+    expect(out.stubs).toEqual([
+      { sessionId: "session_s1", ref: "/k/wd_a_1/session_s1/agents/main/wire.jsonl", mtime: 0, size: 0 },
+    ]);
+    expect(out.complete).toBe(false);
+    expect(String(warn.mock.calls[0][0])).toContain("session_s1");
+  });
+
+  it("list() refuses a session it cannot honestly describe — and the no-store arm does not swallow the refusal", async () => {
+    const history = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [{ name: "session_s2", path: "/k/wd_a_1/session_s2", kind: "dir" }],
+        "/k/wd_a_1/session_s2/agents": [
+          { name: "main", path: "/k/wd_a_1/session_s2/agents/main", kind: "dir" },
+        ],
       }),
     );
-    expect(await history.listing!()).toEqual({ stubs: [], complete: true });
+    await expect(history.list()).rejects.toThrow(/session_s2/);
+    // The "no store" arm still answers [] — the refusal lives outside it.
+    expect(await kimiHistory(ctx({}, {})).list()).toEqual([]);
   });
 
   it("listing() on an unreadable root answers nothing-read and incomplete — never an empty store", async () => {

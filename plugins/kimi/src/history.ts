@@ -131,32 +131,75 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
     };
   };
 
-  /** Stubs for one working dir's `session_*` folders — shared by both
-   * enumeration contracts; they differ only in what a WORKING-DIR read
-   * refusal means, everything inside a read session list is common. */
-  const stubsOfSessions = async (
-    sessions: FsEntry[],
-  ): Promise<AgentSessionStub[]> => {
+  /** One working dir's `session_*` folders, walked — shared by both
+   * enumeration contracts; they differ only in what they can SAY about the
+   * `unreadable` names, everything else is common. */
+  interface SessionWalk {
+    stubs: AgentSessionStub[];
+    /** Sessions whose `agents/main` exists but would not read — named, so
+     * each contract answers with the honesty it can express: `listing()`
+     * says "incomplete", `list()` refuses. */
+    unreadable: string[];
+  }
+
+  const stubsOfSessions = async (sessions: FsEntry[]): Promise<SessionWalk> => {
     const stubs: AgentSessionStub[] = [];
+    const unreadable: string[] = [];
     for (const session of sessions) {
       if (session.kind !== "dir" || !session.name.startsWith("session_"))
         continue;
-      // This catch STAYS: a session dir without agents/main is a normal
-      // shape (created, never spawned), and the fs service reports
-      // absent and unreadable with one message — nothing to tell apart.
-      //
-      // PRUNE HAZARD, named rather than fixed: under the complete-
-      // listing semantics a session whose agents/main went UNREADABLE
-      // also lands in this catch — it falls out of the stubs while the
-      // walk stays "complete", and the host's prune then deletes it
-      // from the index. Marking every such session incomplete would
-      // all but disable pruning here (a never-spawned session is a
-      // routine shape), so the catch keeps its old meaning and the
-      // hazard is this comment. Fixing it needs the fs contract to
-      // distinguish absence from unreadability.
-      const main = await ctx.services.fs
-        .readDir(`${session.path}/agents/main`)
-        .catch(() => []);
+      let main: FsEntry[];
+      try {
+        main = await ctx.services.fs.readDir(`${session.path}/agents/main`);
+      } catch {
+        // `agents/main` would not read. A session created and never spawned
+        // has no `agents/main` AT ALL — a routine shape — and the fs
+        // contract reports absent and unreadable with one message. A
+        // PARENT LISTING is the fact that tells them apart without error
+        // kinds, and absence is provable at every level the same way:
+        // existence is visible from `agents/` even when `main` itself
+        // refuses to open, and `agents/` itself is visible from the
+        // SESSION dir even when `agents/` refuses.
+        let agents: FsEntry[] | null = null;
+        try {
+          agents = await ctx.services.fs.readDir(`${session.path}/agents`);
+        } catch {
+          // `agents/` would not read either. It may simply not exist — a
+          // session can be created before any agent dir is — so probe the
+          // session dir itself before calling this unreadable.
+          try {
+            const sessionEntries = await ctx.services.fs.readDir(session.path);
+            if (!sessionEntries.some((e) => e.name === "agents")) {
+              continue; // genuinely no agents yet — routine, walk stays complete
+            }
+          } catch {
+            // The session dir itself would not read: existence of
+            // `agents/` unknowable — the honest direction is unreadable.
+          }
+        }
+        if (agents !== null && !agents.some((e) => e.name === "main")) {
+          continue; // never spawned — nothing to index, walk stays complete
+        }
+        // `agents/main` exists (or no readable parent can say otherwise)
+        // but will not read. A stub of EXISTENCE keeps the session in the
+        // scanner's sight — and so in the index — instead of letting it
+        // fall out as "gone" while the walk claims to be complete; the
+        // name goes upstairs for the incompleteness each contract owes
+        // its reader.
+        unreadable.push(session.name);
+        stubs.push({
+          sessionId: session.name,
+          ref: `${session.path}/agents/main/wire.jsonl`,
+          // The session DIRECTORY's time, and a size the store never wrote
+          // for a live wire: the pair cannot equal a previously indexed
+          // fingerprint, so the scanner re-asks this session every pass —
+          // its describe refuses until the file reads again, which holds
+          // pruning off rather than silently keeping stale content.
+          mtime: session.mtime ?? 0,
+          size: 0,
+        });
+        continue;
+      }
       const wire = main.find((f) => f.name === "wire.jsonl");
       if (!wire) continue; // never messaged — nothing to index
       stubs.push({
@@ -166,11 +209,12 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
         size: wire.size ?? 0,
       });
     }
-    return stubs;
+    return { stubs, unreadable };
   };
   return {
     async list(): Promise<AgentSessionStub[]> {
       const stubs: AgentSessionStub[] = [];
+      const unreadable: string[] = [];
       let wdDirs;
       try {
         wdDirs = await ctx.services.fs.readDir(ROOT);
@@ -184,17 +228,33 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
         // deleted" and the index prune acts on it. The scanner's per-agent
         // catch logs it and prunes nothing.
         const sessions = await ctx.services.fs.readDir(wd.path);
-        stubs.push(...(await stubsOfSessions(sessions)));
+        const walked = await stubsOfSessions(sessions);
+        stubs.push(...walked.stubs);
+        unreadable.push(...walked.unreadable);
+      }
+      // This contract has no way to say "partial" — that is what `listing`
+      // is for — so a session it could not read honestly is a refusal.
+      // Answering with the stubs that did arrive would be read as the whole
+      // store, and the unreadable session would be pruned as "gone".
+      //
+      // OUTSIDE the root catch above on purpose: inside, the "no store" arm
+      // would swallow it and answer `[]` — the same lie wearing a shorter
+      // list.
+      if (unreadable.length > 0) {
+        throw new Error(
+          `kimi: ${unreadable.length} session(s) unreadable (${unreadable.join(", ")}) — use listing()`,
+        );
       }
       return stubs;
     },
     /** The partial-tolerant twin of `list()` above: an unreadable
-     * working-dir folder is skipped, named in the log, and the answer
-     * says so with `complete: false` — the host then indexes what it
-     * got and prunes nothing. The session-level agents/main catch (and
-     * its named hazard) is shared via `stubsOfSessions`. */
+     * working-dir folder — or a session whose `agents/main` exists but
+     * will not read — is kept out of nobody's sight, NAMED in the log,
+     * and the answer says so with `complete: false`; the host then
+     * indexes what it got and prunes nothing. */
     async listing(): Promise<{ stubs: AgentSessionStub[]; complete: boolean }> {
       const stubs: AgentSessionStub[] = [];
+      const unreadable: string[] = [];
       let wdDirs;
       try {
         wdDirs = await ctx.services.fs.readDir(ROOT);
@@ -223,7 +283,18 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
           );
           continue;
         }
-        stubs.push(...(await stubsOfSessions(sessions)));
+        const walked = await stubsOfSessions(sessions);
+        stubs.push(...walked.stubs);
+        unreadable.push(...walked.unreadable);
+      }
+      if (unreadable.length > 0) {
+        // A session the listing NAMED exists but its transcript would not
+        // read: the stub above keeps its row in the index, and this says
+        // the walk is not the whole store — so the host prunes nothing.
+        complete = false;
+        ctx.log.warn(
+          `kimi: ${unreadable.length} session(s) with unreadable agents/main — listing incomplete: ${unreadable.join(", ")}`,
+        );
       }
       return { stubs, complete };
     },
