@@ -2,11 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { opencodeHistory } from "./history";
 
-function ctx(results: ((string | null)[][] | Error)[]) {
+/** One query's answer the way the host gives it now: rows PLUS why the read
+ * stopped. Fixtures stay bare arrays — the interesting case, an answer the
+ * host's byte budget cut short, is spelled `{ cut: rows }`. */
+type Answer = (string | null)[][] | { cut: (string | null)[][] } | Error;
+
+function ctx(results: Answer[]) {
   const query = vi.fn(async (..._args: unknown[]) => {
     const next = results.shift();
     if (next instanceof Error) throw next;
-    return next ?? [];
+    const budget = next !== undefined && !Array.isArray(next);
+    return {
+      rows: budget ? next.cut : (next ?? []),
+      stopped: budget ? "budget" : "exhausted",
+      payloadBytes: 0,
+    };
   });
   return {
     ctx: { services: { sqlite: { query } } } as unknown as PluginContext,
@@ -49,11 +59,14 @@ describe("opencode history", () => {
   /**
    * Two readers take these rows for different questions — one pages turns and
    * counts what it could not parse, the other pours the text into the search
-   * corpus — and the bound they read within used to be written out for each.
-   * Raise it in one and the two readings of the same session start disagreeing
-   * about where it ends: nothing fails, the answers just stop matching.
+   * corpus — and they must select the SAME rows in the SAME order, or the two
+   * readings of one session quietly stop matching.
+   *
+   * The bound is no longer among the things they share, because the plugin no
+   * longer states one: a `LIMIT` in rows is blind to how big a row is. The
+   * host bounds the answer in bytes.
    */
-  it("bounds both readings of a session the same way", async () => {
+  it("selects the same rows in the same order for both readings, and bounds neither", async () => {
     const { ctx: c, query } = ctx([[], [], []]);
     const history = opencodeHistory(c);
     await history.content("ses_1");
@@ -65,8 +78,26 @@ describe("opencode history", () => {
     expect(partQueries).toHaveLength(2);
     const bounds = partQueries.map((sql) => sql.replace(/^SELECT .*? FROM/, "FROM"));
     expect(new Set(bounds).size).toBe(1);
-    // And it is a real bound, not two matching absences.
-    expect(bounds[0]).toMatch(/ORDER BY id LIMIT \d+/);
+    // Ordered, so the host's cut costs a session its TAIL and not an
+    // arbitrary middle — and no row limit of the plugin's own.
+    expect(bounds[0]).toContain("ORDER BY id");
+    expect(bounds[0]).not.toMatch(/LIMIT/);
+  });
+
+  it("a page cut by the host's budget says how many rows it did get", async () => {
+    // The host stops at a byte ceiling and says so; the reader can name what
+    // arrived and never what did not — the rest was never read, which is the
+    // entire point of the ceiling.
+    const { ctx: c } = ctx([
+      [["m1", "user"]],
+      { cut: [["m1", "as much as fit", "1"]] },
+    ]);
+    const page = await opencodeHistory(c).transcriptPage!("ses_1", {
+      offset: 0,
+      limit: 10,
+    });
+    expect(page.entries).toEqual([{ role: "user", text: "as much as fit" }]);
+    expect(page.shortfall).toEqual([{ kind: "rows", returned: 1 }]);
   });
 
   it("content keeps only text parts; transcript groups parts per message", async () => {

@@ -72,7 +72,7 @@ function sqliteCtx(
   const query = vi.fn(async (..._args: unknown[]) => {
     const next = results.shift();
     if (next instanceof Error) throw next;
-    return next ?? [];
+    return { rows: next ?? [], stopped: "exhausted", payloadBytes: 0 };
   });
   return {
     ctx: { services: { sqlite: { query } } } as unknown as PluginContext,

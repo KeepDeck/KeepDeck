@@ -194,11 +194,30 @@ export interface PluginFsWrite {
  * back as positional string cells (`null` for SQL NULL) — the plugin owns
  * the schema knowledge and the typing. */
 export interface PluginSqlite {
-  query(
-    dbPath: string,
-    sql: string,
-    params?: string[],
-  ): Promise<(string | null)[][]>;
+  query(dbPath: string, sql: string, params?: string[]): Promise<SqlAnswer>;
+}
+
+/** One query's answer, and whether it is all of it.
+ *
+ * The rows do not travel alone, because the host may stop a read that would
+ * cost too much — and a caller that cannot tell a complete answer from a cut
+ * one will show the cut one as complete. That is the failure this shape
+ * exists to prevent; a cap without it would only trade a crash for a wrong
+ * answer.
+ *
+ * The stop vocabulary is the file reader's on purpose: a plugin that already
+ * knows what `budget` means from walking a store should not learn a second
+ * word for it here. */
+export interface SqlAnswer {
+  rows: (string | null)[][];
+  /** `exhausted` — the query had nothing more to give. `budget` — the host
+   * stopped it, and the answer is INCOMPLETE: whatever the caller shows from
+   * it owes its own reader that news. */
+  stopped: "exhausted" | "budget";
+  /** What this answer cost, in the measure the budget is kept in: the cells'
+   * bytes plus what a row and a cell cost to carry. Reported because a
+   * caller cannot derive it — the additions are the host's. */
+  payloadBytes: number;
 }
 
 export interface FsReadFileOptions {

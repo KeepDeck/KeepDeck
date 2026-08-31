@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { SqlAnswer } from "@keepdeck/plugin-api";
 
 /**
  * The session-search index ([F8] global browser) — a disposable SQLite+FTS5
@@ -119,6 +120,6 @@ export function pluginsSqliteQuery(
   sql: string,
   params: string[],
   roots: readonly string[],
-): Promise<(string | null)[][]> {
+): Promise<SqlAnswer> {
   return invoke("plugins_sqlite_query", { dbPath, sql, params, roots });
 }

@@ -114,6 +114,7 @@ export type {
   PluginFs,
   PluginFsWrite,
   PluginSqlite,
+  SqlAnswer,
   PluginGit,
   PluginOpener,
   PluginPorts,

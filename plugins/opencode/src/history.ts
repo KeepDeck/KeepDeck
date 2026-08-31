@@ -3,7 +3,9 @@ import type {
   AgentSessionStub,
   AgentTranscriptEntry,
   PluginContext,
+  SqlAnswer,
 } from "@keepdeck/plugin-api";
+import { CONTENT_CAP } from "@keepdeck/plugin-api";
 
 /**
  * Discovery over opencode's store ([F8] browser): everything lives in one
@@ -18,12 +20,12 @@ const DB = "~/.local/share/opencode/opencode.db";
  * The text-carrying parts of one session, in order, and whether each row
  * survived being written.
  *
- * ONE BOUND FOR BOTH READERS. Two of them read these rows for different
- * questions — one pages turns and counts what it could not read, the other
- * pours the text into the search corpus — and they had this written out
- * separately. Raise it in one and the two readings of the same session start
- * disagreeing about where it ends, which is the noisiest kind of bug a
- * store-backed reader can have: nothing fails, the answers just stop matching.
+ * NO ROW LIMIT HERE. There used to be one, and it was the plugin guessing at
+ * a resource question it cannot see: a cap in rows is blind to how big a row
+ * is, so it bounded nothing that mattered and every reader of these rows had
+ * to remember the same number. The host bounds the answer in BYTES now, and
+ * says so in `stopped` — one bound, enforced where the bytes actually are,
+ * that no plugin can drift out of step with.
  *
  * THE TYPE FILTER RUNS IN THE DATABASE. Text is 27 MB of this store's 608 MB
  * of parts; tool calls alone are 442 MB. Carrying every type across the
@@ -49,27 +51,35 @@ const DB = "~/.local/share/opencode/opencode.db";
  * chronological key there is. One known store quirk rides along harmlessly —
  * a synthetic `prt_0000000000_thinking` sentinel sorts before its session's
  * first real part, but it is not a text part and the filter drops it.
+ *
+ * The order is also what makes the host's cut survivable: cut at the end of
+ * an ordered read, a session loses its tail. Unordered, it would lose an
+ * arbitrary middle and never say which.
  */
-const PART_ROW_CAP = 20_000;
 const TEXT_PART_ROWS =
   " FROM part WHERE session_id = ?1" +
   " AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.type')" +
   " ELSE 'torn' END) IN ('text', 'torn')" +
-  ` ORDER BY id LIMIT ${PART_ROW_CAP}`;
+  " ORDER BY id";
 /** The part's text, or empty for a row that could not be read. */
 const PART_TEXT = "CASE WHEN json_valid(data) THEN json_extract(data, '$.text') END";
 /** Zero for a row that could not be read; empty when the row holds no
  * envelope at all, which is not damage. */
 const PART_INTACT = "json_valid(data)";
 
-/** How much text one session may put into the search corpus. Belongs to the
- * corpus rather than to the reading: only the search side accumulates text,
- * and only it can drag tens of MB across the IPC bridge. */
-const CORPUS_BYTE_CAP = 2 * 1024 * 1024;
-
 export function opencodeHistory(ctx: PluginContext): AgentHistory {
   const query = (sql: string, params: string[] = []) =>
     ctx.services.sqlite.query(DB, sql, params);
+
+  /** The host's stop, translated into the reader's vocabulary. It knows only
+   * that more existed, never how much: a budget cut cannot name a total, and
+   * the second query that would find one is exactly the cost the budget
+   * refused. Silence here would be worse than an imprecise number — a page
+   * cut in the middle is indistinguishable from a conversation that ended. */
+  const cutShort = (answer: { stopped: string; rows: unknown[] }) =>
+    answer.stopped === "budget"
+      ? [{ kind: "rows" as const, returned: answer.rows.length }]
+      : [];
 
   /** One page of turns WITH what the reading fell short by.
    *
@@ -87,10 +97,9 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
    * ignore it. A row whose data is SQL NULL is not counted either — an empty
    * envelope is not a damaged one.
    *
-   * The row cap is the OTHER loss and is deliberately not claimed yet: this
-   * read can see that the cap bit but not how much it hid, and a measure it
-   * cannot fill would be a worse lie than the silence. It arrives with the
-   * partition count. */
+   * The host's cut is the OTHER loss, and it is claimed — see [`cutShort`].
+   * It says how many rows arrived and never how many did not, because the
+   * budget's whole point is that the rest was not read. */
   const readPage = async (
     ref: string,
     page: { offset: number; limit: number },
@@ -122,9 +131,10 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       `SELECT message_id, ${PART_TEXT}, ${PART_INTACT}${TEXT_PART_ROWS}`,
       [ref],
     );
+    const cut = [...cutShort(messages), ...cutShort(parts)];
     const byMessage = new Map<string, string[]>();
     let unreadableParts = 0;
-    for (const [messageId, text, intact] of parts) {
+    for (const [messageId, text, intact] of parts.rows) {
       // STRICTLY zero. A row with no envelope at all answers neither 0 nor
       // 1 but nothing, and counting that as damage would report thousands
       // of losses for a store that lost nothing.
@@ -139,7 +149,7 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       byMessage.set(messageId, list);
     }
     const all: AgentTranscriptEntry[] = [];
-    for (const [id, role] of messages) {
+    for (const [id, role] of messages.rows) {
       const texts = id ? byMessage.get(id) : undefined;
       if (!texts?.length) continue;
       all.push({
@@ -148,17 +158,18 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       });
     }
     const entries = all.slice(page.offset, page.offset + page.limit);
-    return {
-      entries,
+    const shortfall = [
       ...(unreadableParts > 0
-        ? { shortfall: [{ kind: "parts" as const, unreadableParts }] }
-        : {}),
-    };
+        ? [{ kind: "parts" as const, unreadableParts }]
+        : []),
+      ...cut,
+    ];
+    return { entries, ...(shortfall.length > 0 ? { shortfall } : {}) };
   };
 
   return {
     async list(): Promise<AgentSessionStub[]> {
-      let rows: (string | null)[][];
+      let rows: SqlAnswer;
       try {
         // The session row's own timestamp is NOT a change fingerprint. On a
         // real store 1271 of 1967 sessions hold parts newer than the row
@@ -180,7 +191,7 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       } catch {
         return []; // no store — opencode never ran here
       }
-      return rows.flatMap(([id, updated, newestPart]) =>
+      return rows.rows.flatMap(([id, updated, newestPart]) =>
         id
           ? [
               {
@@ -204,27 +215,26 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
         "SELECT directory, title FROM session WHERE id = ?1",
         [ref],
       );
-      const [directory, title] = rows[0] ?? [];
+      const [directory, title] = rows.rows[0] ?? [];
       return {
         cwd: directory ?? "",
         ...(title ? { title: title.slice(0, 120) } : {}),
       };
     },
     async content(ref) {
-      // Bounded on a second axis as well as the shared row cap: a monster
-      // session must not drag tens of MB across the IPC bridge into the
-      // index. This one belongs to the corpus and not to the reading, which
-      // is why it is not up beside [`PART_ROW_CAP`] — the paging reader has
-      // no text to accumulate and nothing to fall short of by bytes.
+      // The corpus bound is the CORE's, not this plugin's: how much text one
+      // session may contribute to the index is a property of the index, and
+      // the file-backed agents already answer to that same number. A local
+      // copy of it would only be a second place to change.
       const rows = await query(`SELECT ${PART_TEXT}${TEXT_PART_ROWS}`, [ref]);
       const texts: string[] = [];
       let total = 0;
-      for (const [data] of rows) {
+      for (const [data] of rows.rows) {
         const text = data?.trim();
         if (!text) continue;
         texts.push(text);
         total += text.length;
-        if (total >= CORPUS_BYTE_CAP) break;
+        if (total >= CONTENT_CAP) break;
       }
       return texts.join("\n");
     },

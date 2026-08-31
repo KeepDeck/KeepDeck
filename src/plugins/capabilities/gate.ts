@@ -20,6 +20,7 @@ import type {
   PluginServices,
   PluginSessions,
   PluginSpeech,
+  SqlAnswer,
 } from "@keepdeck/plugin-api";
 import { createSessionStore } from "@keepdeck/plugin-api";
 import { execCovers } from "./execCovers";
@@ -61,7 +62,7 @@ export interface SqliteBackend {
     sql: string,
     params: string[],
     roots: readonly string[],
-  ): Promise<(string | null)[][]>;
+  ): Promise<SqlAnswer>;
 }
 
 /** The scope-aware git backend, mirroring [`FsBackend`]: the gate derives the

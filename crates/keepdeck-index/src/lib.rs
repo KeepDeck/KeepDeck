@@ -759,14 +759,61 @@ impl SessionIndex {
     }
 }
 
+/// How much of an answer one query may pass through.
+///
+/// The last read primitive the host handed plugin code without a limit: the
+/// result was materialized whole, serialized whole, and parsed whole on the
+/// other side, so a query that selected too much put four copies of it in
+/// memory at once — two in this process, two in the webview.
+///
+/// Counted in EFFECTIVE bytes, not the payload alone. A query answering
+/// three hundred thousand rows of one short cell each carries a third of a
+/// megabyte and would pass any payload budget, while costing tens of
+/// megabytes of objects on the other side. The per-row and per-cell
+/// additions are what make one number bound the real cost instead of the
+/// visible one.
+const READ_BUDGET_BYTES: usize = 8 * 1024 * 1024;
+const ROW_OVERHEAD_BYTES: usize = 64;
+const CELL_OVERHEAD_BYTES: usize = 32;
+
+/// What one read produced, and whether it is all of it.
+///
+/// Deliberately serde-free, like every type in these crates: the wire shape
+/// belongs to the Tauri layer that owns the wire. The cost is one small
+/// mapping there; the alternative is a serialization dependency in a crate
+/// whose job is SQLite.
+pub struct SqlRead {
+    pub rows: Vec<Vec<Option<String>>>,
+    /// The budget cut the answer short — the caller has fewer rows than the
+    /// query would have produced, and owes its own reader that news.
+    pub short: bool,
+    /// Effective bytes actually passed through.
+    pub payload_bytes: usize,
+}
+
 /// A read-only, containment-checked query against an AGENT's own SQLite
 /// store (the `sqliteReadonly` capability's backend). Parameters are
 /// positional strings; the single statement must be a SELECT.
+///
+/// Stops at [`READ_BUDGET_BYTES`] rather than materializing whatever the
+/// query asks for. The stop is STREAMING — rusqlite hands rows out one at a
+/// time, and dropping the iterator closes the statement — so an oversized
+/// answer is never assembled, merely never finished.
+///
+/// A row that would CROSS the budget is left out rather than half-included,
+/// so `rows` always holds whole rows. If the very first one crosses it, the
+/// answer is empty and short, which says exactly what happened: this query
+/// cannot be read at all, and the cure is to select narrower columns.
+///
+/// An error mid-iteration fails the WHOLE call. Partial rows with an error
+/// beside them would be a third state for every caller to handle, and the
+/// only honest thing to do with a store that broke under the read is to
+/// refuse.
 pub fn query_readonly(
     db_path: &Path,
     sql: &str,
     params_in: &[String],
-) -> Result<Vec<Vec<Option<String>>>, String> {
+) -> Result<SqlRead, String> {
     if !sql.trim_start().to_ascii_lowercase().starts_with("select") {
         return Err("only a single SELECT is allowed".into());
     }
@@ -779,23 +826,45 @@ pub fn query_readonly(
         .map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let cols = stmt.column_count();
-    let rows = stmt
-        .query_map(rusqlite::params_from_iter(params_in.iter()), |r| {
-            let mut out = Vec::with_capacity(cols);
-            for i in 0..cols {
-                let value: Option<rusqlite::types::Value> = r.get(i)?;
-                out.push(value.map(|v| match v {
-                    rusqlite::types::Value::Null => String::new(),
-                    rusqlite::types::Value::Integer(n) => n.to_string(),
-                    rusqlite::types::Value::Real(f) => f.to_string(),
-                    rusqlite::types::Value::Text(t) => t,
-                    rusqlite::types::Value::Blob(_) => String::from("<blob>"),
-                }));
-            }
-            Ok(out)
-        })
+    let mut rows = stmt
+        .query(rusqlite::params_from_iter(params_in.iter()))
         .map_err(|e| e.to_string())?;
-    rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+
+    let mut out: Vec<Vec<Option<String>>> = Vec::new();
+    let mut payload_bytes = 0usize;
+    let mut short = false;
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let mut cells = Vec::with_capacity(cols);
+        for i in 0..cols {
+            let value: Option<rusqlite::types::Value> =
+                row.get(i).map_err(|e| e.to_string())?;
+            cells.push(value.map(|v| match v {
+                rusqlite::types::Value::Null => String::new(),
+                rusqlite::types::Value::Integer(n) => n.to_string(),
+                rusqlite::types::Value::Real(f) => f.to_string(),
+                rusqlite::types::Value::Text(t) => t,
+                rusqlite::types::Value::Blob(_) => String::from("<blob>"),
+            }));
+        }
+        let weight = ROW_OVERHEAD_BYTES
+            + cells
+                .iter()
+                .map(|cell| {
+                    CELL_OVERHEAD_BYTES + cell.as_ref().map_or(0, String::len)
+                })
+                .sum::<usize>();
+        if payload_bytes + weight > READ_BUDGET_BYTES {
+            short = true;
+            break;
+        }
+        payload_bytes += weight;
+        out.push(cells);
+    }
+    Ok(SqlRead {
+        rows: out,
+        short,
+        payload_bytes,
+    })
 }
 
 #[cfg(test)]
@@ -1236,9 +1305,96 @@ mod tests {
             )
             .unwrap();
         }
-        let rows = query_readonly(&db, "SELECT id, title FROM session", &[]).unwrap();
-        assert_eq!(rows, vec![vec![Some("s1".into()), Some("hello".into())]]);
+        let read = query_readonly(&db, "SELECT id, title FROM session", &[]).unwrap();
+        assert_eq!(read.rows, vec![vec![Some("s1".into()), Some("hello".into())]]);
+        assert!(!read.short);
         assert!(query_readonly(&db, "DELETE FROM session", &[]).is_err());
+    }
+
+    /// An answer larger than the budget comes back cut, and SAYS it was cut.
+    ///
+    /// The silence is the part that matters. A cap that quietly returns
+    /// fewer rows trades a crash for a wrong answer — the caller believes it
+    /// read the whole table. This is the one behaviour that makes the budget
+    /// worth having rather than merely present.
+    #[test]
+    fn readonly_query_stops_at_the_budget_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("big.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch("CREATE TABLE blob_rows (payload TEXT);")
+                .unwrap();
+            let chunk = "x".repeat(512 * 1024);
+            for _ in 0..24 {
+                conn.execute("INSERT INTO blob_rows VALUES (?1)", [&chunk])
+                    .unwrap();
+            }
+        }
+        let read = query_readonly(&db, "SELECT payload FROM blob_rows", &[]).unwrap();
+
+        assert!(read.short, "twelve megabytes must not fit an eight megabyte budget");
+        assert!(read.rows.len() < 24);
+        assert!(read.payload_bytes <= READ_BUDGET_BYTES);
+        // Whole rows only — a row that would cross the line is left out, not
+        // half-delivered.
+        assert!(read.rows.iter().all(|row| row.len() == 1));
+    }
+
+    /// A single cell no budget can hold answers with nothing, and says the
+    /// budget is why.
+    ///
+    /// Empty-and-short is the honest report of "this query cannot be read at
+    /// all": the caller learns the cure is a narrower select, not a retry.
+    #[test]
+    fn readonly_query_refuses_a_row_bigger_than_the_whole_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("huge.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch("CREATE TABLE one (payload TEXT);").unwrap();
+            conn.execute("INSERT INTO one VALUES (?1)", [&"y".repeat(9 * 1024 * 1024)])
+                .unwrap();
+        }
+        let read = query_readonly(&db, "SELECT payload FROM one", &[]).unwrap();
+
+        assert!(read.rows.is_empty());
+        assert!(read.short);
+        assert_eq!(read.payload_bytes, 0);
+    }
+
+    /// Many tiny rows cost more than their bytes, and the budget counts what
+    /// they cost.
+    ///
+    /// Three hundred thousand one-character rows carry a third of a megabyte
+    /// and would sail under any payload budget, while becoming three hundred
+    /// thousand objects on the other side of the bridge. Counting only the
+    /// visible bytes would leave exactly this shape unbounded.
+    #[test]
+    fn readonly_query_counts_what_a_row_costs_not_only_what_it_carries() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("many.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE tiny (c TEXT);
+                 WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < 200000)
+                 INSERT INTO tiny SELECT 'x' FROM seq;",
+            )
+            .unwrap();
+        }
+        let read = query_readonly(&db, "SELECT c FROM tiny", &[]).unwrap();
+
+        // Under 200 KB of actual text, and still stopped.
+        assert!(read.short);
+        let carried: usize = read
+            .rows
+            .iter()
+            .flatten()
+            .flatten()
+            .map(String::len)
+            .sum();
+        assert!(carried < READ_BUDGET_BYTES / 8);
     }
 
     // ── Characterization table: TODAY's membership and identity, pinned

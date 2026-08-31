@@ -13,6 +13,7 @@ import type {
   PluginSessionEvent,
   SpeechCapture,
   SpeechCaptureOptions,
+  SqlAnswer,
 } from "@keepdeck/plugin-api";
 import { createSessionStore } from "@keepdeck/plugin-api";
 import { describeError } from "./errors";
@@ -128,9 +129,11 @@ export function createGuestServices({
     },
     sqlite: {
       query: (dbPath, sql, params) =>
-        rpc.call("services.sqlite.query", [dbPath, sql, params]) as Promise<
-          (string | null)[][]
-        >,
+        rpc.call("services.sqlite.query", [
+          dbPath,
+          sql,
+          params,
+        ]) as Promise<SqlAnswer>,
     },
     git: {
       status: (repo) =>

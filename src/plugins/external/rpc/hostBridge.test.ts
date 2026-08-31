@@ -115,7 +115,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         read: async () => ({ payloadBytes: 0, items: 0, stopped: "exhausted" as const }),
       },
       sqlite: {
-        query: async () => [],
+        query: async () => ({ rows: [], stopped: "exhausted" as const, payloadBytes: 0 }),
       },
       fsWrite: {
         mkdir: async () => {},

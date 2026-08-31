@@ -329,7 +329,7 @@ export function createFakeHost(
       // in step.
       sessionStore: createSessionStore(emptyFs),
       sqlite: {
-        query: async () => [],
+        query: async () => ({ rows: [], stopped: "exhausted" as const, payloadBytes: 0 }),
       },
       fsWrite: {
         mkdir: async () => {},

@@ -64,7 +64,7 @@ function fakeDeps() {
     fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ dispose: vi.fn() })) },
     sessionStore: { read: vi.fn() },
     sqlite: {
-      query: vi.fn(() => Promise.resolve([])),
+      query: vi.fn(() => Promise.resolve({ rows: [], stopped: "exhausted" as const, payloadBytes: 0 })),
     },
     fsWrite: {
       mkdir: vi.fn(() => Promise.resolve()),

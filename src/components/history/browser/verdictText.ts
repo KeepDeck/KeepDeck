@@ -68,6 +68,14 @@ const TURNS_SHOWN = (returned: number, total: number) =>
 const UNREADABLE_PARTS = (n: number) =>
   `Conversation has ${n} unreadable parts`;
 
+/** The one kind with no total to name: a read the host stopped cannot know
+ * what it did not reach, and asking would cost the very read the stop
+ * refused. So the sentence says the one true thing — there is more — rather
+ * than inventing a denominator. "at least" is the whole of the honesty here:
+ * without it the number would read as the count of everything there is. */
+const ROWS_SHOWN = (returned: number) =>
+  `At least ${returned} entries — the store held more than one read may carry`;
+
 /** The reading reached the end and stopped there. Not "beyond the file": the
  * file may well be whole, and we do not know that and do not promise it. No
  * "may" — the uncertainty is named by its boundary, not by a mood. */
@@ -102,6 +110,8 @@ function noticeOf(kind: Shortfall): string {
       return TURNS_SHOWN(kind.returned, kind.total);
     case "parts":
       return UNREADABLE_PARTS(kind.unreadableParts);
+    case "rows":
+      return ROWS_SHOWN(kind.returned);
   }
 }
 
