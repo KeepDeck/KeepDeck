@@ -1,11 +1,13 @@
 import {
-  shortfallOfRead,
+  jsonl,
   textFromParts,
+  walkSession,
   type AgentHistory,
   type AgentSessionStub,
   type AgentTranscriptEntry,
   type FsEntry,
   type PluginContext,
+  type SessionDialect,
 } from "@keepdeck/plugin-api";
 
 /**
@@ -17,75 +19,85 @@ import {
  */
 const ROOT = "~/.kimi-code/sessions";
 
-interface ParsedTurn {
-  role: "user" | "assistant" | "other";
-  text: string;
+/** One wire line, as this plugin reads it. An assertion about the format
+ * made in ONE place: the host parses the JSON and validates nothing. */
+interface KimiRecord {
+  type?: unknown;
+  message?: { role?: unknown; content?: unknown };
+  event?: { type?: unknown; part?: { type?: unknown; text?: unknown } };
+  input?: unknown;
+  origin?: { kind?: unknown };
+}
+
+/** The assistant's text, still arriving.
+ *
+ * This is the only dialect on any agent that holds an UNFINISHED turn, and
+ * the reason is the format: kimi writes the assistant's answer as it is
+ * generated, one fragment per step, with tool calls in between. No record
+ * says "the answer ended" — the only sign is the next user message. So the
+ * fragments have to be held until one arrives, or the viewer would show a
+ * single answer chopped into pieces wherever the assistant reached for a
+ * tool. */
+interface KimiState {
+  assistant: string[];
+}
+
+/** The held fragments as one turn, and the buffer emptied. Fragments belong
+ * to distinct steps, so they join with a newline. */
+function flush(state: KimiState): AgentTranscriptEntry[] {
+  const text = state.assistant.join("\n").trim();
+  state.assistant = [];
+  return text ? [{ role: "assistant", text }] : [];
 }
 
 /** Wire lines carry a conversation in THREE shapes (verified against a real
- * kimi 0.27 store):
+ * kimi store, and re-verified on 0.39):
  * - the USER's turn-opening messages are whole `context.append_message`
  *   events with a text-part content array;
  * - the USER's MID-TURN interjections are `turn.steer` events with an
  *   `input` part array — but only when `origin.kind` is "user"; the same
- *   event type also delivers background-task notifications
- *   (`origin.kind: "background_task"`), which are framework noise;
+ *   event type also delivers background-task notifications and skill
+ *   activations, which are framework noise;
  * - the ASSISTANT's text streams as `context.append_loop_event` events of
- *   inner type `content.part`, one PER STEP — NEVER as append_message.
- * Accumulated assistant fragments belong to distinct steps (tool calls run
- * between them), so they join with a newline, flushed when a user message
- * (or the file's end) arrives. Tool calls/thinking/usage are not
- * conversation text. */
-export function parseWire(jsonl: string): ParsedTurn[] {
-  const turns: ParsedTurn[] = [];
-  let assistant: string[] = [];
-  const flushAssistant = () => {
-    const text = assistant.join("\n").trim();
-    assistant = [];
-    if (text) turns.push({ role: "assistant", text });
-  };
-  for (const line of jsonl.split("\n")) {
-    if (!line.trim()) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const record = parsed as {
-      type?: unknown;
-      message?: { role?: unknown; content?: unknown };
-      event?: { type?: unknown; part?: { type?: unknown; text?: unknown } };
-      input?: unknown;
-      origin?: { kind?: unknown };
-    };
+ *   inner type `content.part`, one PER STEP — never as append_message.
+ * Tool calls, thinking and usage are not conversation text. */
+const dialect: SessionDialect<KimiState, KimiRecord> = {
+  begin: () => ({ assistant: [] }),
+
+  step(state, record) {
     if (record.type === "context.append_loop_event") {
       const part = record.event?.type === "content.part" ? record.event.part : null;
       if (part?.type === "text" && typeof part.text === "string") {
-        assistant.push(part.text);
+        state.assistant.push(part.text);
       }
-      continue;
+      return [];
     }
     if (record.type === "turn.steer") {
-      if (record.origin?.kind !== "user") continue;
-      flushAssistant();
+      if (record.origin?.kind !== "user") return [];
+      const held = flush(state);
       const text = textFromParts(record.input).trim();
-      if (text) turns.push({ role: "user", text });
-      continue;
+      return text ? [...held, { role: "user", text }] : held;
     }
-    if (record.type !== "context.append_message") continue;
-    flushAssistant();
+    if (record.type !== "context.append_message") return [];
+    const held = flush(state);
     const role = record.message?.role;
     const text = textFromParts(record.message?.content).trim();
-    if (!text) continue;
-    turns.push({
-      role: role === "user" ? "user" : role === "assistant" ? "assistant" : "other",
-      text,
-    });
-  }
-  flushAssistant();
-  return turns;
-}
+    if (!text) return held;
+    return [
+      ...held,
+      {
+        role: role === "user" ? "user" : role === "assistant" ? "assistant" : "other",
+        text,
+      },
+    ];
+  },
+
+  // The ONE non-empty end among all the agents. A read that stops without it
+  // loses the conversation's last answer — with no error and no mark, only a
+  // diff against the old output would ever show it missing. The walk calls
+  // this on every exit, so it cannot be forgotten by whoever writes next.
+  end: flush,
+};
 
 const WIRE_SUFFIX = "/agents/main/wire.jsonl";
 
@@ -94,21 +106,29 @@ function errOf(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** The whole wire log a page is cut from — kimi reads it all and slices. */
-const BODY_CAP = 8 * 1024 * 1024;
-
 export function kimiHistory(ctx: PluginContext): AgentHistory {
+  const readSession = (
+    ref: string,
+    extra: { keep?: { offset: number; limit: number } } = {},
+  ) =>
+    walkSession({
+      store: ctx.services.sessionStore,
+      format: jsonl<KimiRecord>(),
+      request: { path: ref },
+      dialect,
+      ...extra,
+    });
+
   /** One page of turns WITH what the reading fell short by. */
   const readPage = async (
     ref: string,
     page: { offset: number; limit: number },
   ) => {
-    const file = await ctx.services.fs.readFile(ref, { maxBytes: BODY_CAP });
-    const entries = parseWire(file.text ?? "")
-      .slice(page.offset, page.offset + page.limit)
-      .map((t) => ({ role: t.role, text: t.text }));
-    const shortfall = shortfallOfRead(file);
-    return { entries, ...(shortfall ? { shortfall } : {}) };
+    const walked = await readSession(ref, { keep: page });
+    return {
+      entries: walked.turns,
+      ...(walked.shortfall ? { shortfall: walked.shortfall } : {}),
+    };
   };
 
   /** Stubs for one working dir's `session_*` folders — shared by both
@@ -230,8 +250,11 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
       }
     },
     async content(ref) {
-      const file = await ctx.services.fs.readFile(ref, { maxBytes: 8 * 1024 * 1024 });
-      return parseWire(file.text ?? "")
+      // The index drops roles it does not recognize; the transcript above
+      // keeps them. The asymmetry is older than this reading and is carried
+      // across unchanged — settling it is a decision about what the viewer
+      // shows, not about how a store is read.
+      return (await readSession(ref)).turns
         .filter((t) => t.role !== "other")
         .map((t) => t.text)
         .join("\n");

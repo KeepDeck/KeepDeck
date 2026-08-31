@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext } from "@keepdeck/plugin-api";
-import { fsFileRead } from "@keepdeck/plugin-api/testing";
-import { kimiHistory, parseWire } from "./history";
+import { createSessionStore, type PluginContext } from "@keepdeck/plugin-api";
+import { fsStore } from "@keepdeck/plugin-api/testing";
+import { kimiHistory } from "./history";
 
 // Shapes mirror a REAL kimi 0.27 wire: the user opens turns in
 // append_message and interjects mid-turn via turn.steer (origin.kind
@@ -54,17 +54,16 @@ const STATE = JSON.stringify({
   agents: { main: { homedir: "/x" } },
 });
 
-/** Paths whose read came back SHORT, mapped to the file's full length. The
- * answer itself is built by the contract's own double — see
- * `@keepdeck/plugin-api/testing`. */
-type ShortReads = Record<string, number>;
-
 function ctx(
   files: Record<string, string>,
   dirs: Record<string, unknown[]>,
   warn: (message: string) => void = vi.fn(),
-  short: ShortReads = {},
 ) {
+  // A wire is read a WINDOW at a time now, so the double has to serve
+  // windows. It also refuses a missing path by throwing, which is kimi's own
+  // shape — the other two answer with null text; only the ANSWER is shared,
+  // how a store refuses is the store's business.
+  const fs = fsStore(files);
   return {
     log: { warn, info: vi.fn(), error: vi.fn() },
     services: {
@@ -74,14 +73,9 @@ function ctx(
           if (!entries) throw new Error("no dir");
           return entries;
         },
-        readFile: async (path: string) => {
-          // The refusal is kimi's own: a missing path here means "no file",
-          // where the other two answer with null text. Only the ANSWER is
-          // shared; how a store refuses is the store's business.
-          if (!(path in files)) throw new Error("no file");
-          return fsFileRead(path, files[path], short[path]);
-        },
+        readFile: fs.readFile,
       },
+      sessionStore: createSessionStore(fs),
     },
   } as unknown as PluginContext;
 }
@@ -189,22 +183,32 @@ describe("kimi history", () => {
     });
   });
 
-  it("a page cut short by the cap says so in bytes", async () => {
-    // kimi is the store where a cut can land INSIDE an emitted turn: its
-    // parser accumulates fragments across lines, so the tail turn is short and
-    // looks whole. That specific loss is unprovable from the held bytes, so
-    // the honest claim is the one this page makes — the reading fell short,
-    // and there may be more beyond it.
+  it("a page cut short by the budget says so in bytes", async () => {
+    // kimi is the store where a cut can land INSIDE an emitted turn: the
+    // dialect accumulates fragments across lines, so the tail turn is short
+    // and looks whole. That specific loss is unprovable from the held bytes,
+    // so the honest claim is the one this page makes — the reading fell
+    // short, and there may be more beyond it.
+    //
+    // The fixture has to be genuinely bigger than one read may pass through:
+    // a double that merely CLAIMED a large file would describe a world where
+    // the bytes between what it returned and what it claimed do not exist.
+    const line = JSON.stringify({
+      type: "context.append_message",
+      message: { role: "user", content: [{ type: "text", text: "x".repeat(2000) }] },
+    });
+    const big = `${line}\n`.repeat(4500);
+    const size = new TextEncoder().encode(big).length;
     const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
-    const history = kimiHistory(ctx({ [wire]: WIRE }, {}, vi.fn(), { [wire]: 9_000_000 }));
-    const page = await history.transcriptPage!(wire, { offset: 0, limit: 10 });
-    expect(page.shortfall).toEqual([
-      {
-        kind: "bytes",
-        size: 9_000_000,
-        readBytes: new TextEncoder().encode(WIRE).length,
-      },
-    ]);
+    const history = kimiHistory(ctx({ [wire]: big }, {}));
+
+    const page = await history.transcriptPage!(wire, { offset: 4400, limit: 10 });
+
+    expect(page.entries.length).toBeLessThan(10);
+    expect(page.shortfall).toHaveLength(1);
+    const [mark] = page.shortfall!;
+    expect(mark).toMatchObject({ kind: "bytes", size });
+    expect((mark as { readBytes: number }).readBytes).toBeLessThan(size);
   });
 
   it("a page that read everything carries no shortfall at all", async () => {
@@ -214,8 +218,12 @@ describe("kimi history", () => {
     expect(page.shortfall).toBeUndefined();
   });
 
-  it("per-step assistant fragments join with a newline, split by user speech", () => {
-    const turns = parseWire(WIRE);
+  it("per-step assistant fragments join with a newline, split by user speech", async () => {
+    // Through the contract rather than through an exported parser: what the
+    // dialect means is only observable in what a reading returns.
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const history = kimiHistory(ctx({ [wire]: WIRE }, {}));
+    const turns = await history.transcript(wire, { offset: 0, limit: 20 });
     expect(turns.map((t) => t.role)).toEqual([
       "user",
       "assistant",
@@ -228,8 +236,10 @@ describe("kimi history", () => {
     expect(turns[3].text).toBe("линтер чист");
   });
 
-  it("a user turn.steer is a real mid-turn user message; a background-task one is noise", () => {
-    const turns = parseWire(WIRE);
+  it("a user turn.steer is a real mid-turn user message; a background-task one is noise", async () => {
+    const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
+    const history = kimiHistory(ctx({ [wire]: WIRE }, {}));
+    const turns = await history.transcript(wire, { offset: 0, limit: 20 });
     expect(turns[2]).toEqual({ role: "user", text: "и линтер прогони" });
     // The notification steer (origin background_task) appears nowhere.
     expect(turns.some((t) => t.text.includes("notification"))).toBe(false);
