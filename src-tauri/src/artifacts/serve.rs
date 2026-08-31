@@ -29,11 +29,10 @@ fn artifact_csp(events: &str) -> String {
 const INDEX_CSP: &str =
     "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
 
-/// Serve one artifact version: the author's document for html, the
-/// boring template for md — and BOTH carry the live-refresh script,
-/// installed here.
+/// Serve one artifact version: the author's document, carrying the
+/// live-refresh script installed here.
 ///
-/// The html page is still the agent's; the only thing added is the
+/// The page is still the agent's; the only thing added is the
 /// subscription, appended at the end of `<body>` where it cannot
 /// displace anything the author wrote. Storage stays untouched: what
 /// was published is what is stored, and the script exists only in what
