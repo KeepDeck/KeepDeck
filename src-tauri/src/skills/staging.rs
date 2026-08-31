@@ -905,9 +905,11 @@ mod tests {
 
     #[test]
     fn a_ws_library_skill_shadows_the_tier_in_its_workspace() {
-        // The full precedence: library-ws > bundled > library-global is
-        // the staging order for the TIER; here the ws row must beat the
-        // bundled one (the tier enters first, ws retains last).
+        // The full precedence: library-ws > library-global > bundled
+        // is the staging order for the TIER — BOTH library scopes retain
+        // over it (the global half is pinned by the gated-tier test's
+        // "never shadows the library" arm); here the ws row must beat
+        // the bundled one (the tier enters first, ws retains last).
         let (_tmp, root) = root();
         save(&ws(&root, "ws-1"), "only-tier", &fm("ws wins")).unwrap();
         let tier = [tier_skill("only-tier", true)];
