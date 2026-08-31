@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
-import { opencodeHistory, partText } from "./history";
+import { opencodeHistory } from "./history";
 
 function ctx(results: ((string | null)[][] | Error)[]) {
   const query = vi.fn(async (..._args: unknown[]) => {
@@ -53,18 +53,17 @@ describe("opencode history", () => {
   });
 
   it("content keeps only text parts; transcript groups parts per message", async () => {
-    const text = (t: string) => JSON.stringify({ type: "text", text: t });
-    const tool = JSON.stringify({ type: "tool", tool: "bash" });
+    // The database now answers with the extracted text, not the envelope:
+    // non-text parts never reach the plugin at all.
     const { ctx: c } = ctx([
-      [[text("hello")], [tool], [text("world")]],
+      [["hello"], ["world"]],
       [
         ["m1", "user"],
         ["m2", "assistant"],
       ],
       [
-        ["m1", text("hello")],
-        ["m2", tool],
-        ["m2", text("world")],
+        ["m1", "hello", "1"],
+        ["m2", "world", "1"],
       ],
     ]);
     const history = opencodeHistory(c);
@@ -80,7 +79,7 @@ describe("opencode history", () => {
     // The guard is load-bearing: on a torn row an unguarded `json_extract`
     // raises "malformed JSON" and kills the whole query, so a single damaged
     // line would make the session unreadable rather than skipped.
-    const { ctx: c, query } = ctx([[["m1", "user"]], [["m1", '{"type":"text","text":"hi"}']]]);
+    const { ctx: c, query } = ctx([[["m1", "user"]], [["m1", "hi", "1"]]]);
     await opencodeHistory(c).transcriptPage!("ses_1", { offset: 0, limit: 10 });
 
     const sql = query.mock.calls.find(([, q]) =>
@@ -99,7 +98,7 @@ describe("opencode history", () => {
     // "other", exactly as an unparseable envelope did before.
     const { ctx: c } = ctx([
       [["m1", null]],
-      [["m1", '{"type":"text","text":"orphaned"}']],
+      [["m1", "orphaned", "1"]],
     ]);
     const page = await opencodeHistory(c).transcriptPage!("ses_1", {
       offset: 0,
@@ -108,19 +107,31 @@ describe("opencode history", () => {
     expect(page.entries).toEqual([{ role: "other", text: "orphaned" }]);
   });
 
-  it("partText rejects non-text and torn rows", () => {
-    expect(partText('{"type":"tool","x":1}')).toBeNull();
-    expect(partText("{torn")).toBeNull();
+  it("asks the database for text parts only, and guards both sides", async () => {
+    // Text is 27 MB of this store's 608 MB of parts; tool calls alone are
+    // 442 MB. The filter belongs where the rows are, not after the bridge.
+    const { ctx: c, query } = ctx([[], []]);
+    await opencodeHistory(c).content("ses_1");
+
+    const sql = query.mock.calls[0][1] as string;
+    expect(sql).toContain("json_extract(data, '$.type')");
+    // Guarded in the FILTER and in the SELECT list: a torn row is let
+    // through on purpose, and an unguarded extract would then kill the
+    // query on the very row we mean to count.
+    expect(sql.match(/CASE WHEN json_valid\(data\)/g)).toHaveLength(2);
+    // Let through, not filtered out — that is what keeps the damage count.
+    expect(sql).toContain("ELSE 'torn'");
   });
 
   it("a page names the parts it could not read — a hole inside a shown turn", async () => {
-    const text = (t: string) => JSON.stringify({ type: "text", text: t });
+    // A torn row reaches the plugin as an empty text and a zero — its
+    // content stays in the database, its existence does not.
     const { ctx: c } = ctx([
       [["m1", "user"]],
       [
-        ["m1", text("first half")],
-        ["m1", "{torn"],
-        ["m1", text("second half")],
+        ["m1", "first half", "1"],
+        ["m1", "", "0"],
+        ["m1", "second half", "1"],
       ],
     ]);
     const history = opencodeHistory(c);
@@ -137,17 +148,15 @@ describe("opencode history", () => {
   });
 
   it("tool calls and thinking are NOT losses — a busy session reports none", async () => {
-    const text = (t: string) => JSON.stringify({ type: "text", text: t });
-    const tool = JSON.stringify({ type: "tool", tool: "bash" });
-    const thinking = JSON.stringify({ type: "thinking" });
+    // Tool calls and thinking never arrive now — the filter drops them in
+    // the database. What remains to prove: a whitespace-only text part and
+    // an envelope-less row are not losses either.
     const { ctx: c } = ctx([
       [["m1", "assistant"]],
       [
-        ["m1", tool],
-        ["m1", thinking],
-        ["m1", text("done")],
-        ["m1", tool],
-        ["m1", JSON.stringify({ type: "text", text: "  " })],
+        ["m1", "done", "1"],
+        ["m1", "  ", "1"],
+        ["m1", "", ""],
       ],
     ]);
     const page = await opencodeHistory(c).transcriptPage!("ses_1", {
@@ -161,10 +170,9 @@ describe("opencode history", () => {
   });
 
   it("a clean page carries no shortfall — absence is not an empty one", async () => {
-    const text = (t: string) => JSON.stringify({ type: "text", text: t });
     const { ctx: c } = ctx([
       [["m1", "user"]],
-      [["m1", text("all of it")]],
+      [["m1", "all of it", "1"]],
     ]);
     const page = await opencodeHistory(c).transcriptPage!("ses_1", {
       offset: 0,
@@ -174,10 +182,9 @@ describe("opencode history", () => {
   });
 
   it("the legacy method is the page unpacked — the two cannot disagree", async () => {
-    const text = (t: string) => JSON.stringify({ type: "text", text: t });
     const rows: (string | null)[][][] = [
       [["m1", "user"]],
-      [["m1", text("same either way")]],
+      [["m1", "same either way", "1"]],
     ];
     const viaPage = await opencodeHistory(
       ctx(rows.map((r) => [...r])).ctx,

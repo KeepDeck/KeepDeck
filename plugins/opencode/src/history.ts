@@ -14,44 +14,53 @@ import type {
  */
 const DB = "~/.local/share/opencode/opencode.db";
 
-/** A part row's text, when it is a text part. */
-export function partText(data: string): string | null {
-  try {
-    const parsed = JSON.parse(data) as { type?: unknown; text?: unknown };
-    if (parsed.type === "text" && typeof parsed.text === "string") {
-      const text = parsed.text.trim();
-      return text === "" ? null : text;
-    }
-  } catch {
-    // Foreign/torn part rows never sink the session.
-  }
-  return null;
-}
-
 /**
- * How many part rows one reading of a session takes, and in what order.
+ * The text-carrying parts of one session, in order, and whether each row
+ * survived being written.
  *
  * ONE BOUND FOR BOTH READERS. Two of them read these rows for different
- * questions — one pages turns and counts what it could not parse, the other
+ * questions — one pages turns and counts what it could not read, the other
  * pours the text into the search corpus — and they had this written out
  * separately. Raise it in one and the two readings of the same session start
  * disagreeing about where it ends, which is the noisiest kind of bug a
  * store-backed reader can have: nothing fails, the answers just stop matching.
  *
- * The largest real session holds ~5k parts, and real ones already exceed that,
- * so the cap has to drop the TAIL rather than a hole in the middle. Ordered
- * explicitly for it: an unordered LIMIT happens to follow id order today, but
- * that is an artifact and not a guarantee.
+ * THE TYPE FILTER RUNS IN THE DATABASE. Text is 27 MB of this store's 608 MB
+ * of parts; tool calls alone are 442 MB. Carrying every type across the
+ * bridge to discard nineteen twentieths of it on arrival was the same
+ * mistake as selecting a whole column to read one field.
  *
- * `id`, not `time_created`: real sessions share ONE timestamp across thousands
- * of parts, so the client-minted, sortable ids are the only chronological key
- * there is. One known store quirk rides along harmlessly — a synthetic
- * `prt_0000000000_thinking` sentinel sorts before its session's first real
- * part, but its type never yields text, so [`partText`] drops it.
+ * THE GUARDS ARE LOAD-BEARING, in the filter AND in the select list. On a
+ * torn row `json_extract` does not answer NULL — it raises "malformed JSON"
+ * and kills the whole query, which would make one damaged line cost an
+ * entire session. `CASE` is what guarantees the check runs first: SQLite's
+ * code generator may evaluate an `AND`'s right operand first, so the
+ * familiar `json_valid(x) AND json_extract(x)` spelling is luck.
+ *
+ * A TORN ROW IS LET THROUGH ON PURPOSE. `ELSE 'torn'` keeps it in the
+ * answer, where it arrives as three tiny cells — its id, an empty text and
+ * a zero — carrying none of its content. That is what preserves the damage
+ * count without a second query: filtering the row out in the database would
+ * have silently retired the one mark that explains a hole inside a turn the
+ * reader can see.
+ *
+ * `id`, not `time_created`: real sessions share ONE timestamp across
+ * thousands of parts, so the client-minted, sortable ids are the only
+ * chronological key there is. One known store quirk rides along harmlessly —
+ * a synthetic `prt_0000000000_thinking` sentinel sorts before its session's
+ * first real part, but it is not a text part and the filter drops it.
  */
 const PART_ROW_CAP = 20_000;
-const partRowsSql = (columns: string) =>
-  `SELECT ${columns} FROM part WHERE session_id = ?1 ORDER BY id LIMIT ${PART_ROW_CAP}`;
+const TEXT_PART_ROWS =
+  " FROM part WHERE session_id = ?1" +
+  " AND (CASE WHEN json_valid(data) THEN json_extract(data, '$.type')" +
+  " ELSE 'torn' END) IN ('text', 'torn')" +
+  ` ORDER BY id LIMIT ${PART_ROW_CAP}`;
+/** The part's text, or empty for a row that could not be read. */
+const PART_TEXT = "CASE WHEN json_valid(data) THEN json_extract(data, '$.text') END";
+/** Zero for a row that could not be read; empty when the row holds no
+ * envelope at all, which is not damage. */
+const PART_INTACT = "json_valid(data)";
 
 /** How much text one session may put into the search corpus. Belongs to the
  * corpus rather than to the reading: only the search side accumulates text,
@@ -109,25 +118,24 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
         " FROM message WHERE session_id = ?1 ORDER BY time_created, id",
       [ref],
     );
-    const parts = await query(partRowsSql("message_id, data"), [ref]);
+    const parts = await query(
+      `SELECT message_id, ${PART_TEXT}, ${PART_INTACT}${TEXT_PART_ROWS}`,
+      [ref],
+    );
     const byMessage = new Map<string, string[]>();
     let unreadableParts = 0;
-    for (const [messageId, data] of parts) {
-      if (!messageId || !data) continue;
-      // The parse is done HERE, not read off `partText`'s answer, because
-      // only this position can tell a torn row from a part that simply has
-      // no text. `partText` still decides what counts as text — the two
-      // answer different questions about the same row.
-      try {
-        JSON.parse(data);
-      } catch {
+    for (const [messageId, text, intact] of parts) {
+      // STRICTLY zero. A row with no envelope at all answers neither 0 nor
+      // 1 but nothing, and counting that as damage would report thousands
+      // of losses for a store that lost nothing.
+      if (intact === "0") {
         unreadableParts += 1;
         continue;
       }
-      const text = partText(data);
-      if (text === null) continue;
+      const said = text?.trim();
+      if (!messageId || !said) continue;
       const list = byMessage.get(messageId) ?? [];
-      list.push(text);
+      list.push(said);
       byMessage.set(messageId, list);
     }
     const all: AgentTranscriptEntry[] = [];
@@ -190,12 +198,12 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       // index. This one belongs to the corpus and not to the reading, which
       // is why it is not up beside [`PART_ROW_CAP`] — the paging reader has
       // no text to accumulate and nothing to fall short of by bytes.
-      const rows = await query(partRowsSql("data"), [ref]);
+      const rows = await query(`SELECT ${PART_TEXT}${TEXT_PART_ROWS}`, [ref]);
       const texts: string[] = [];
       let total = 0;
       for (const [data] of rows) {
-        const text = data ? partText(data) : null;
-        if (text === null) continue;
+        const text = data?.trim();
+        if (!text) continue;
         texts.push(text);
         total += text.length;
         if (total >= CORPUS_BYTE_CAP) break;
