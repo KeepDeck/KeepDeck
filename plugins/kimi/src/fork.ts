@@ -186,13 +186,29 @@ async function copyTree(
   }
 }
 
-/** `wd_<lowercased-basename>_<sha256(absolute-cwd)[:12]>` — the store folder
+/** `wd_<slug-of-basename>_<sha256(absolute-cwd)[:12]>` — the store folder
  * kimi files a directory's sessions under.
  *
  * The shape this returns is upstream-validated (see the module docblock);
- * the derivation is ours, from probing, and no upstream source states it. */
+ * the derivation is ours, from probing, and no upstream source states it.
+ *
+ * The SLUG is what kimi's own encoder does to the basename and what a plain
+ * lowercase missed: anything outside `[a-z0-9._-]` becomes a dash, the result
+ * is cut to forty characters, and an empty one becomes "workspace". A folder
+ * named with spaces, non-Latin letters, or simply a long name would otherwise
+ * derive a key kimi never files anything under — a fork that lands in a
+ * directory nobody looks in, and no error to say so. */
+function slugOfBasename(cwd: string): string {
+  const slug = cwd
+    .slice(cwd.lastIndexOf("/") + 1)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "-")
+    .slice(0, 40);
+  return slug === "" ? "workspace" : slug;
+}
+
 export async function wdKey(cwd: string): Promise<string> {
-  const base = cwd.slice(cwd.lastIndexOf("/") + 1).toLowerCase();
+  const base = slugOfBasename(cwd);
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(cwd),

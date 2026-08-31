@@ -115,6 +115,23 @@ describe("wdKey", () => {
   });
 });
 
+  it("slugs a basename kimi's own encoder would slug", async () => {
+    // Kimi slugs the basename before it files anything under the key:
+    // anything outside [a-z0-9._-] becomes a dash, the result is cut to
+    // forty characters, an empty one becomes "workspace". A plain lowercase
+    // derived a key kimi never uses — a fork landing in a directory nobody
+    // looks in, with no error to say so.
+    expect(await wdKey("/Users/u/My Project")).toMatch(/^wd_my-project_[0-9a-f]{12}$/);
+    expect(await wdKey("/Users/u/проект")).toMatch(/^wd_[-]{6}_[0-9a-f]{12}$/);
+    expect(await wdKey(`/Users/u/${"a".repeat(60)}`)).toMatch(
+      new RegExp(`^wd_${"a".repeat(40)}_[0-9a-f]{12}$`),
+    );
+  });
+
+  it("names an empty basename `workspace`, as kimi does", async () => {
+    expect(await wdKey("/")).toMatch(/^wd_workspace_[0-9a-f]{12}$/);
+  });
+
 describe("kimiForkPlan", () => {
   it("clones the session under a fresh id: patched state, wire copy, index line", async () => {
     const fx = fixture();
