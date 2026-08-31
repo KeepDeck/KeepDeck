@@ -6,8 +6,13 @@ import type { ForkPlanInput, PluginContext } from "@keepdeck/plugin-api";
  * A session lives at `<home>/sessions/wd_<key>/session_<id>/` as exactly
  * three files — `state.json`, `agents/main/wire.jsonl`, `logs/kimi-code.log`
  * — with the id and every path embedded ONLY in `state.json`. `kimi
- * --session <id>` resolves the id via the global `session_index.jsonl`,
- * then gates on `state.json.workDir` matching the invocation cwd.
+ * --session <id>` resolves the id via the global `session_index.jsonl`.
+ *
+ * The working directory lives under DIFFERENT KEYS in different eras of the
+ * store: older sessions carry `workDir`, sessions written since kimi 0.38
+ * carry `cwd` instead. Read either, and write back whichever the source
+ * used — inventing the other key would put a field in the clone that the
+ * era it belongs to never had.
  *
  * A non-destructive fork is therefore a three-file clone under a fresh id:
  * copy the session dir into the TARGET cwd's `wd_` folder, patch `workDir`
@@ -65,9 +70,18 @@ export async function kimiForkPlan(
   const agents = state.agents as
     | { main?: { homedir?: unknown } }
     | undefined;
-  if (typeof state.workDir !== "string" || typeof agents?.main?.homedir !== "string") {
+  // Which key this era of the store used. Requiring `workDir` alone made
+  // every session written since kimi 0.38 unforkable — the gate fired
+  // loudly, as designed, on a layout that had merely been renamed.
+  const workDirKey =
+    typeof state.workDir === "string"
+      ? "workDir"
+      : typeof state.cwd === "string"
+        ? "cwd"
+        : null;
+  if (workDirKey === null || typeof agents?.main?.homedir !== "string") {
     throw new Error(
-      `kimi fork of ${input.sessionId}: state.json misses workDir/agents.main.homedir — layout changed?`,
+      `kimi fork of ${input.sessionId}: state.json misses workDir/cwd or agents.main.homedir — layout changed?`,
     );
   }
 
@@ -86,7 +100,9 @@ export async function kimiForkPlan(
   await copyTree(ctx, srcSessionDir, dstSessionDir);
   const patched = {
     ...state,
-    workDir: input.cwd,
+    // The key the source used, not both: a clone that carries a field its
+    // own era never wrote is a clone that lies about which era it is.
+    [workDirKey]: input.cwd,
     agents: {
       ...(state.agents as Record<string, unknown>),
       main: {
@@ -114,7 +130,9 @@ export async function kimiForkPlan(
       ? null
       : ((): unknown => {
           try {
-            return (JSON.parse(landed.text) as Record<string, unknown>).workDir;
+            // The same key the patch wrote — reading the other one would
+            // report "an unreadable state" for a clone that is perfectly fine.
+            return (JSON.parse(landed.text) as Record<string, unknown>)[workDirKey];
           } catch {
             return null;
           }
@@ -129,7 +147,9 @@ export async function kimiForkPlan(
     );
   }
 
-  // The index is how `--session <id>` finds the clone at all.
+  // The index is how `--session <id>` finds the clone at all. Its line keeps
+  // the name `workDir` whatever the state file calls it: the index has its
+  // own schema, and kimi refuses a line that does not carry that key.
   const indexPath = `${sessionsRoot.slice(0, -"/sessions".length)}/session_index.jsonl`;
   await ctx.services.fsWrite.appendLine(
     indexPath,

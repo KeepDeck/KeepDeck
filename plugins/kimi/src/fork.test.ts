@@ -142,6 +142,48 @@ describe("kimiForkPlan", () => {
     });
   });
 
+  it("forks a session of the NEWER schema, which names the directory `cwd`", async () => {
+    // Every session kimi has written since 0.38 is this shape: no `workDir`,
+    // a top-level `cwd` instead. Requiring the old key made all of them
+    // unforkable — the layout gate fired, correctly and uselessly, on a
+    // field that had merely been renamed.
+    const { workDir: _gone, ...rest } = STATE;
+    const fx = fixture(JSON.stringify({ ...rest, cwd: "/old/place" }));
+
+    const newId = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
+    const dstDir = `${HOME}/sessions/${await wdKey("/new/target")}/${newId}`;
+    const state = JSON.parse(fx.writes.get(`${dstDir}/state.json`)!);
+
+    // Patched under the key this session actually uses...
+    expect(state.cwd).toBe("/new/target");
+    // ...and the older key is NOT invented: a clone carrying a field its own
+    // era never wrote would lie about which era it is.
+    expect("workDir" in state).toBe(false);
+    expect(state.agents.main.homedir).toBe(`${dstDir}/agents/main`);
+
+    // The index line keeps its own name whatever the state file calls it —
+    // kimi refuses a line that does not carry `workDir`.
+    expect(JSON.parse(fx.appends[0][1])).toEqual({
+      sessionId: newId,
+      sessionDir: dstDir,
+      workDir: "/new/target",
+    });
+  });
+
+  it("still refuses a state file that names the directory in NEITHER key", async () => {
+    // The gate is not weakened, only widened: a layout that names the
+    // working directory some third way must still fail loudly rather than
+    // fork a session that opens somewhere unknown.
+    const { workDir: _gone, ...rest } = STATE;
+    const fx = fixture(JSON.stringify(rest));
+
+    await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow(
+      "layout changed",
+    );
+    expect(fx.writes.size).toBe(0);
+    expect(fx.appends).toHaveLength(0);
+  });
+
   it("rejects without a transcript path or on a foreign layout — zero writes", async () => {
     const fx = fixture();
     await expect(
