@@ -86,8 +86,27 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
     ref: string,
     page: { offset: number; limit: number },
   ) => {
+    // ONE FIELD, not the column it sits in. `message.data` carries
+    // `summary.diffs` — whole code diffs — and this reading wants the role.
+    // Selecting the column dragged 440 MB across the bridge for a session
+    // whose roles are twelve kilobytes; held as UTF-16 in the webview that
+    // is most of a gigabyte for one click.
+    //
+    // The `CASE WHEN json_valid` guard is NOT decoration. On a torn row
+    // `json_extract` raises "malformed JSON" and kills the WHOLE query —
+    // one damaged line would make a session unreadable entirely, where
+    // today it is silently skipped. Verified against the SQLite the app
+    // actually links. A torn row arrives as a NULL role and reads as
+    // "other", exactly as an unparseable envelope did before.
+    //
+    // `, id` is the tiebreaker: messages share a `time_created`, and an
+    // ORDER BY that leaves the tie open may answer two identical queries
+    // differently — which a paged reader turns into one turn shown twice
+    // and another never shown at all.
     const messages = await query(
-      "SELECT id, data FROM message WHERE session_id = ?1 ORDER BY time_created",
+      "SELECT id, CASE WHEN json_valid(data)" +
+        " THEN json_extract(data, '$.role') END" +
+        " FROM message WHERE session_id = ?1 ORDER BY time_created, id",
       [ref],
     );
     const parts = await query(partRowsSql("message_id, data"), [ref]);
@@ -112,19 +131,13 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       byMessage.set(messageId, list);
     }
     const all: AgentTranscriptEntry[] = [];
-    for (const [id, data] of messages) {
+    for (const [id, role] of messages) {
       const texts = id ? byMessage.get(id) : undefined;
       if (!texts?.length) continue;
-      let role: AgentTranscriptEntry["role"] = "other";
-      try {
-        const parsed = JSON.parse(data ?? "") as { role?: unknown };
-        if (parsed.role === "user" || parsed.role === "assistant") {
-          role = parsed.role;
-        }
-      } catch {
-        // keep "other"
-      }
-      all.push({ role, text: texts.join("\n") });
+      all.push({
+        role: role === "user" || role === "assistant" ? role : "other",
+        text: texts.join("\n"),
+      });
     }
     const entries = all.slice(page.offset, page.offset + page.limit);
     return {

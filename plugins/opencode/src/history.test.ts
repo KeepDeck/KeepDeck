@@ -58,8 +58,8 @@ describe("opencode history", () => {
     const { ctx: c } = ctx([
       [[text("hello")], [tool], [text("world")]],
       [
-        ["m1", JSON.stringify({ role: "user" })],
-        ["m2", JSON.stringify({ role: "assistant" })],
+        ["m1", "user"],
+        ["m2", "assistant"],
       ],
       [
         ["m1", text("hello")],
@@ -75,6 +75,39 @@ describe("opencode history", () => {
     ]);
   });
 
+  it("asks the database for the role, not the column it sits in", async () => {
+    // `message.data` carries whole code diffs; this reading wants one field.
+    // The guard is load-bearing: on a torn row an unguarded `json_extract`
+    // raises "malformed JSON" and kills the whole query, so a single damaged
+    // line would make the session unreadable rather than skipped.
+    const { ctx: c, query } = ctx([[["m1", "user"]], [["m1", '{"type":"text","text":"hi"}']]]);
+    await opencodeHistory(c).transcriptPage!("ses_1", { offset: 0, limit: 10 });
+
+    const sql = query.mock.calls.find(([, q]) =>
+      (q as string).includes("FROM message"),
+    )![1] as string;
+    expect(sql).not.toMatch(/SELECT id, data/);
+    expect(sql).toContain("json_extract(data, '$.role')");
+    expect(sql).toContain("CASE WHEN json_valid(data)");
+    // A tie left open lets two identical queries answer differently, which a
+    // paged reader turns into one turn twice and another never.
+    expect(sql).toContain("ORDER BY time_created, id");
+  });
+
+  it("a message whose envelope did not parse reads as an unnamed role", async () => {
+    // What the guard produces for a torn row: a NULL role. It must land on
+    // "other", exactly as an unparseable envelope did before.
+    const { ctx: c } = ctx([
+      [["m1", null]],
+      [["m1", '{"type":"text","text":"orphaned"}']],
+    ]);
+    const page = await opencodeHistory(c).transcriptPage!("ses_1", {
+      offset: 0,
+      limit: 10,
+    });
+    expect(page.entries).toEqual([{ role: "other", text: "orphaned" }]);
+  });
+
   it("partText rejects non-text and torn rows", () => {
     expect(partText('{"type":"tool","x":1}')).toBeNull();
     expect(partText("{torn")).toBeNull();
@@ -83,7 +116,7 @@ describe("opencode history", () => {
   it("a page names the parts it could not read — a hole inside a shown turn", async () => {
     const text = (t: string) => JSON.stringify({ type: "text", text: t });
     const { ctx: c } = ctx([
-      [["m1", JSON.stringify({ role: "user" })]],
+      [["m1", "user"]],
       [
         ["m1", text("first half")],
         ["m1", "{torn"],
@@ -108,7 +141,7 @@ describe("opencode history", () => {
     const tool = JSON.stringify({ type: "tool", tool: "bash" });
     const thinking = JSON.stringify({ type: "thinking" });
     const { ctx: c } = ctx([
-      [["m1", JSON.stringify({ role: "assistant" })]],
+      [["m1", "assistant"]],
       [
         ["m1", tool],
         ["m1", thinking],
@@ -130,7 +163,7 @@ describe("opencode history", () => {
   it("a clean page carries no shortfall — absence is not an empty one", async () => {
     const text = (t: string) => JSON.stringify({ type: "text", text: t });
     const { ctx: c } = ctx([
-      [["m1", JSON.stringify({ role: "user" })]],
+      [["m1", "user"]],
       [["m1", text("all of it")]],
     ]);
     const page = await opencodeHistory(c).transcriptPage!("ses_1", {
@@ -143,7 +176,7 @@ describe("opencode history", () => {
   it("the legacy method is the page unpacked — the two cannot disagree", async () => {
     const text = (t: string) => JSON.stringify({ type: "text", text: t });
     const rows: (string | null)[][][] = [
-      [["m1", JSON.stringify({ role: "user" })]],
+      [["m1", "user"]],
       [["m1", text("same either way")]],
     ];
     const viaPage = await opencodeHistory(
