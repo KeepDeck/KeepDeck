@@ -62,6 +62,20 @@ describe("opencode history", () => {
   });
 
   /**
+   * `list()` has no way to say "partial" — a successful return IS the claim
+   * that the whole store was seen, and the host prunes on it. So a cut can
+   * only be answered by refusing.
+   *
+   * The empty-store arm makes this easy to get wrong: put the check inside
+   * that `catch` and the refusal comes back as `[]`, which is the same lie
+   * wearing a shorter list.
+   */
+  it("the legacy list REFUSES a cut — it has no way to report a partial one", async () => {
+    const { ctx: c } = ctx([{ cut: [["ses_1", "1", "2"]] }]);
+    await expect(opencodeHistory(c).list()).rejects.toThrow(/cut short/);
+  });
+
+  /**
    * The enumeration the host may prune from. `list()`'s successful return
    * has always meant "complete enough to delete what it omits", and that
    * claim stopped being safe the moment the host began cutting answers.

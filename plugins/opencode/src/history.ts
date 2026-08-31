@@ -211,11 +211,24 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
 
   return {
     async list(): Promise<AgentSessionStub[]> {
+      let answer: SqlAnswer;
       try {
-        return stubsOf((await query(SESSION_ROWS)).rows);
+        answer = await query(SESSION_ROWS);
       } catch {
         return []; // no store — opencode never ran here
       }
+      // This contract has no way to say "partial" — that is what `listing`
+      // is for — so the only honest answer to a cut is to refuse. Returning
+      // the rows that did arrive would be read as the whole store, and
+      // every session past the cut would be pruned from the index.
+      //
+      // The refusal is OUTSIDE the catch above on purpose: inside, the
+      // "no store" arm would swallow it and answer `[]`, which is the same
+      // lie wearing a shorter list.
+      if (answer.stopped === "budget") {
+        throw new Error("opencode: listing cut short — use listing()");
+      }
+      return stubsOf(answer.rows);
     },
     /** The same enumeration WITH the integrity signal — every other agent
      * has offered this pair for some time and this one was still on the
