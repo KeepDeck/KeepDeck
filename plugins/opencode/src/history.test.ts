@@ -15,13 +15,30 @@ function ctx(results: ((string | null)[][] | Error)[]) {
 }
 
 describe("opencode history", () => {
-  it("lists unarchived sessions with time_updated as the fingerprint", async () => {
-    const { ctx: c, query } = ctx([[["ses_1", "1769121238325"]]]);
+  it("fingerprints a session by its own clock AND its newest part", async () => {
+    // The session row alone lies: on a real store 1271 of 1967 sessions
+    // hold parts newer than the row that speaks for them, so a scanner
+    // trusting it SKIPS sessions that changed and the index goes stale.
+    const { ctx: c, query } = ctx([[["ses_1", "1769121238325", "1769200000000"]]]);
     const history = opencodeHistory(c);
+
     expect(await history.list()).toEqual([
-      { sessionId: "ses_1", ref: "ses_1", mtime: 1769121238325, size: 0 },
+      {
+        sessionId: "ses_1",
+        ref: "ses_1",
+        mtime: 1769121238325,
+        size: 1769200000000,
+      },
     ]);
     expect(query.mock.calls[0][1]).toContain("time_archived IS NULL");
+    expect(query.mock.calls[0][1]).toContain("MAX(p.time_updated)");
+  });
+
+  it("a session with no parts fingerprints as zero, not as absent", async () => {
+    const { ctx: c } = ctx([[["ses_1", "1769121238325", null]]]);
+    expect(await opencodeHistory(c).list()).toEqual([
+      { sessionId: "ses_1", ref: "ses_1", mtime: 1769121238325, size: 0 },
+    ]);
   });
 
   it("a missing store lists empty instead of failing the scan", async () => {
