@@ -49,7 +49,7 @@ use crate::fswatch;
 use dialects::{claude_subagent_paths, last_of_each, TailWatch, TailedEvent};
 use reader::{drain_file, TailCursor};
 use route::{route, wrap, Routed};
-use totals::{accumulate_session_totals, SessionTotals};
+use totals::Folds;
 
 pub use dialects::TailFormat;
 pub use rollouts::LatestRollout;
@@ -65,14 +65,14 @@ struct TailState {
     token: String,
     format: TailFormat,
     root: TailCursor,
-    /// What this pane's agent asked to have carried out of its store, when
-    /// its plugin declared a dialect. Absent for an agent that has not moved
-    /// over: then only the format's own arms run, exactly as before.
+    /// What this pane's agent asked to have carried out of its store. An
+    /// empty list follows a file and carries nothing: there are no readings
+    /// of our own left to fall back on.
     watches: Vec<TailWatch>,
     subagents: HashMap<PathBuf, TailCursor>,
-    /// Running token cumulatives for formats whose files expose per-request
-    /// rows rather than a native session total.
-    totals: SessionTotals,
+    /// The running totals those watches asked for, one per watch that
+    /// declared a sum.
+    folds: Folds,
 }
 
 /// The live session-file tails, keyed by pane id — a shared
@@ -118,11 +118,13 @@ struct DrainReplay {
 }
 
 fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
-    let (mut events, root_rotated) =
-        drain_file(&state.path, &mut state.root, state.format, &state.watches);
-    if root_rotated {
-        state.totals = SessionTotals::default();
-    }
+    let (mut events, root_rotated) = drain_file(
+        &state.path,
+        &mut state.root,
+        &state.watches,
+        &mut state.folds,
+        true,
+    );
     if state.format != TailFormat::Claude {
         return (
             events,
@@ -139,14 +141,13 @@ fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
         if root_rotated {
             *cursor = TailCursor::default();
         }
+        // `root: false` — a subagent's abort is its own, never the pane's,
+        // and its file rotating on its own must not restart the session's
+        // totals.
         let (appended, sub_rotated) =
-            drain_file(&path, cursor, TailFormat::Claude, &state.watches);
+            drain_file(&path, cursor, &state.watches, &mut state.folds, false);
         any = any || sub_rotated;
-        for mut event in appended {
-            // A subagent's abort is its own, never the pane's.
-            event.root = false;
-            events.push(event);
-        }
+        events.extend(appended);
     }
     (
         events,
@@ -200,13 +201,14 @@ fn spawn_tailer(
                 let Ok(mut s) = state.lock() else { break };
                 let format = s.format;
                 let (events, replay) = drain_all(&mut s);
-                for mut event in events {
-                    // A subagent transcript's abort is the subagent's own
-                    // story: pane-level status reads only ROOT markers.
-                    if !event.root && event.payload["type"] == "session.interrupt" {
+                for event in events {
+                    // A subagent transcript's turn edges are the subagent's
+                    // own story: pane-level status reads only ROOT markers.
+                    // Its NUMBERS still count, which is why this drops the
+                    // record rather than the whole file's contribution.
+                    if !event.root && event.payload["lane"] == "status" {
                         continue;
                     }
-                    accumulate_session_totals(&mut s.totals, format, &mut event);
                     // A rotated file was re-read WHOLE: those events are a
                     // replay wearing the poller's clothes, and must say so
                     // — catch-up is what keeps a historical interrupt from
@@ -247,7 +249,7 @@ pub fn usage_watch_session_file(
         root: TailCursor::default(),
         watches,
         subagents: HashMap::new(),
-        totals: SessionTotals::default(),
+        folds: Folds::default(),
     }));
 
     // Watcher FIRST, catch-up second: an append landing during the catch-up
@@ -262,21 +264,17 @@ pub fn usage_watch_session_file(
     })?;
     let caught_up = {
         let mut s = state.lock().expect("tail state poisoned");
-        // Fold the WHOLE catch-up drain into the running cumulative in file
-        // order BEFORE last_of_each collapses it — the surviving last
-        // usage.record then carries the session total of everything before it.
-        let (mut drained, _) = drain_all(&mut s);
-        for event in &mut drained {
-            accumulate_session_totals(&mut s.totals, format, event);
-        }
-        let events = last_of_each(drained, format.catch_up_order());
+        // The drain folds the WHOLE file in order as it reads it, so the
+        // last record each watch carried already holds the session total of
+        // everything before it — which is exactly what survives the collapse.
+        let (drained, _) = drain_all(&mut s);
+        let events = last_of_each(drained, &s.watches);
         let count = events.len();
         for event in events {
             let report = wrap(&s.pane_id, &s.token, format.agent(), event, true);
-            // Through the SAME router as the live path — catch-up safety
-            // must not rest on `catch_up_order()` happening to list no
-            // interrupt kinds; the router's replayed-interrupt Drop rule
-            // holds here by construction.
+            // Through the SAME router as the live path: catch-up safety
+            // rests on two independent rules, the collapse dropping every
+            // status-lane record and the router dropping a replayed one.
             deliver_routed(&app, report);
         }
         count
@@ -312,10 +310,95 @@ pub fn usage_latest_codex_rollout() -> Option<LatestRollout> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::dialects::*;
-    
-    use super::totals::*;
     use super::*;
+
+    fn equals(key: &str, value: &str) -> RecordMatch {
+        RecordMatch {
+            key: key.into(),
+            equals: Some(value.into()),
+        }
+    }
+
+    /// The least specific watch there is: carry anything with a `type`,
+    /// keep that alone. Enough for the tests that are about FOLLOWING a
+    /// file rather than about what its records mean.
+    fn any_typed_record() -> Vec<TailWatch> {
+        vec![TailWatch {
+            clauses: vec![RecordMatch {
+                key: "type".into(),
+                equals: None,
+            }],
+            keep: vec!["type".into()],
+            lane: TailLane::Usage,
+            sum: None,
+        }]
+    }
+
+    /// A kimi-shaped declaration: every usage record adds.
+    fn summing_watch() -> Vec<TailWatch> {
+        vec![TailWatch {
+            clauses: vec![equals("type", "usage.record")],
+            keep: vec!["type".into()],
+            lane: TailLane::Usage,
+            sum: Some(TailSum {
+                buckets: BTreeMap::from([
+                    ("inputOther".to_string(), "usage.inputOther".to_string()),
+                    ("output".to_string(), "usage.output".to_string()),
+                ]),
+                dedup_by: None,
+                stamp_as: "sessionTotals".to_string(),
+            }),
+        }]
+    }
+
+    /// A claude-shaped declaration: rows repeating a message id are one
+    /// message, held at each bucket's maximum.
+    fn deduplicating_watch() -> Vec<TailWatch> {
+        vec![TailWatch {
+            clauses: vec![equals("type", "assistant")],
+            keep: vec!["message.id".into()],
+            lane: TailLane::Usage,
+            sum: Some(TailSum {
+                buckets: BTreeMap::from([
+                    (
+                        "input_tokens".to_string(),
+                        "message.usage.input_tokens".to_string(),
+                    ),
+                    (
+                        "output_tokens".to_string(),
+                        "message.usage.output_tokens".to_string(),
+                    ),
+                    (
+                        "cache_read_input_tokens".to_string(),
+                        "message.usage.cache_read_input_tokens".to_string(),
+                    ),
+                ]),
+                dedup_by: Some("message.id".to_string()),
+                stamp_as: "sessionTotals".to_string(),
+            }),
+        }]
+    }
+
+    /// The interrupt marker, on the status lane — declared AFTER a usage
+    /// watch wherever both are used, since the first match carries.
+    fn marker_watch() -> TailWatch {
+        TailWatch {
+            clauses: vec![RecordMatch {
+                key: "interruptedMessageId".into(),
+                equals: None,
+            }],
+            keep: vec!["interruptedMessageId".into()],
+            lane: TailLane::Status,
+            sum: None,
+        }
+    }
+
+    fn totals_of(event: &TailedEvent) -> &serde_json::Value {
+        &event.payload["record"]["sessionTotals"]
+    }
 
     /// Root-only drain, as the pre-split suite spelled it. Every fixture
     /// here either has no subagents dir or wants them too — `drain_all`
@@ -349,9 +432,9 @@ mod tests {
             token: "tok".into(),
             format: TailFormat::Codex,
             root: TailCursor::default(),
-            watches: Vec::new(),
+            watches: any_typed_record(),
             subagents: HashMap::new(),
-            totals: SessionTotals::default(),
+            folds: Folds::default(),
         }
     }
 
@@ -374,28 +457,24 @@ mod tests {
         let mut state = tail(path);
         state.format = TailFormat::Claude;
         // The marker reaches this side only because the pane's dialect asked
-        // for it. Without a watch there is nothing to tag, which is itself
-        // the state of a tail whose plugin has not moved over.
-        state.watches = vec![dialects::TailWatch {
-            clauses: vec![dialects::RecordMatch {
-                key: "interruptedMessageId".into(),
-                equals: None,
-            }],
-            keep: vec!["interruptedMessageId".into()],
-            lane: dialects::TailLane::Status,
-        }];
+        // for it — and the numbers watch is declared first, since the first
+        // match carries.
+        let mut watches = deduplicating_watch();
+        watches.push(marker_watch());
+        state.watches = watches;
+
         let (drained, _) = drain_all(&mut state);
-        let carried = drained
+        let marker = drained
             .iter()
-            .find(|event| event.payload["type"] == dialects::CARRIED_RECORD)
+            .find(|event| event.payload["lane"] == "status")
             .expect("subagent marker drained");
-        assert!(!carried.root, "a subagent marker must not read as root");
+        assert!(!marker.root, "a subagent marker must not read as root");
         assert!(
             drained
                 .iter()
-                .filter(|event| event.payload["type"] != dialects::CARRIED_RECORD)
+                .filter(|event| event.payload["lane"] == "usage")
                 .all(|event| event.root),
-            "root events keep their root tag"
+            "the root transcript's own rows keep their root tag"
         );
         fs::remove_dir_all(&dir).ok();
     }
@@ -483,42 +562,39 @@ mod tests {
 
 
     #[test]
-    fn drain_rotation_resets_the_kimi_cumulative() {
+    fn drain_rotation_resets_the_running_total() {
         let dir = temp_dir();
         let path = dir.join("wire.jsonl");
         let mut state = tail(path.clone());
         state.format = TailFormat::KimiWire;
+        state.watches = summing_watch();
 
         fs::write(&path, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
-        for mut event in drain(&mut state) {
-            accumulate_session_totals(&mut state.totals, TailFormat::KimiWire, &mut event);
-        }
-        assert_eq!(state.totals.kimi.input_other, 2400);
+        let events = drain(&mut state);
+        assert_eq!(totals_of(events.last().unwrap())["inputOther"], 2400);
 
-        // A shrunk file (rotation / new session): drain zeroes the cumulative
-        // so the new session sums from scratch, not atop the old one.
+        // A shrunk file (rotation / new session): the drain zeroes the
+        // cumulative BEFORE folding what it re-reads, so the new session sums
+        // from scratch rather than atop the finished one.
         fs::write(&path, format!("{USAGE_RECORD_LINE}\n")).unwrap();
         let events = drain(&mut state);
-        assert_eq!(state.totals, SessionTotals::default());
-        for mut event in events {
-            accumulate_session_totals(&mut state.totals, TailFormat::KimiWire, &mut event);
-        }
-        assert_eq!(state.totals.kimi.input_other, 1200);
+        assert_eq!(totals_of(events.last().unwrap())["inputOther"], 1200);
 
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn catch_up_last_record_carries_the_full_session_cumulative() {
-        // The crux invariant, end to end: fold the whole drain in file order,
-        // THEN last_of_each keeps the last usage.record — which must carry the
-        // cumulative of ALL prior records, not just its own line (mirrors the
-        // order in usage_watch_session_file). A refactor that ran last_of_each
-        // first would silently drop the earlier records' tokens.
+        // The crux invariant, end to end: the drain folds the whole file in
+        // order, THEN last_of_each keeps the last record each watch carried —
+        // which must hold the cumulative of ALL prior records, not just its
+        // own line. A refactor that collapsed first would silently drop the
+        // earlier records' tokens.
         let dir = temp_dir();
         let path = dir.join("wire.jsonl");
         let mut state = tail(path.clone());
         state.format = TailFormat::KimiWire;
+        state.watches = summing_watch();
         let record = |input: u64| {
             format!(
                 r#"{{"type":"usage.record","usage":{{"inputOther":{input},"output":10,"inputCacheRead":0,"inputCacheCreation":0}},"usageScope":"turn","time":1}}"#
@@ -530,27 +606,22 @@ mod tests {
         )
         .unwrap();
 
-        let mut drained = drain(&mut state);
-        for event in &mut drained {
-            accumulate_session_totals(&mut state.totals, TailFormat::KimiWire, event);
-        }
-        let kept = last_of_each(drained, TailFormat::KimiWire.catch_up_order());
-        let surviving = kept
-            .iter()
-            .find(|e| e.payload["type"] == "usage.record")
-            .expect("a usage.record survives catch-up");
-        assert_eq!(surviving.payload["sessionTotals"]["inputOther"], 600); // 100+200+300
-        assert_eq!(surviving.payload["sessionTotals"]["output"], 30);
+        let drained = drain(&mut state);
+        let kept = last_of_each(drained, &state.watches);
+        assert_eq!(kept.len(), 1, "one watch, one surviving record");
+        assert_eq!(totals_of(&kept[0])["inputOther"], 600); // 100+200+300
+        assert_eq!(totals_of(&kept[0])["output"], 30);
 
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn claude_catch_up_keeps_the_full_deduplicated_session_cumulative() {
+    fn catch_up_keeps_the_full_deduplicated_session_cumulative() {
         let dir = temp_dir();
         let path = dir.join("claude.jsonl");
         let mut state = tail(path.clone());
         state.format = TailFormat::Claude;
+        state.watches = deduplicating_watch();
         let repeated =
             CLAUDE_ASSISTANT_LINE.replace(r#""output_tokens":30"#, r#""output_tokens":45"#);
         let next = CLAUDE_ASSISTANT_LINE
@@ -562,18 +633,13 @@ mod tests {
         )
         .unwrap();
 
-        let mut drained = drain(&mut state);
-        for event in &mut drained {
-            accumulate_session_totals(&mut state.totals, TailFormat::Claude, event);
-        }
-        let kept = last_of_each(drained, TailFormat::Claude.catch_up_order());
+        let drained = drain(&mut state);
+        let kept = last_of_each(drained, &state.watches);
         assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].payload["type"], "assistant.usage");
-        assert_eq!(kept[0].payload["sessionTotals"]["output_tokens"], 50);
-        assert_eq!(
-            kept[0].payload["sessionTotals"]["cache_read_input_tokens"],
-            80000
-        );
+        // msg-1 contributes its MAXIMUM output (45, not 30+45), msg-2 its 5.
+        assert_eq!(totals_of(&kept[0])["output_tokens"], 50);
+        // The repeated row restates the same cache read — counted once.
+        assert_eq!(totals_of(&kept[0])["cache_read_input_tokens"], 80000);
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -601,7 +667,8 @@ mod tests {
 
         let mut state = tail(path);
         state.format = TailFormat::Claude;
-        let (mut drained, _) = drain_all(&mut state);
+        state.watches = deduplicating_watch();
+        let (drained, _) = drain_all(&mut state);
         assert_eq!(drained.len(), 2);
         assert!(
             drained
@@ -609,16 +676,12 @@ mod tests {
                 .all(|event| !event.payload.to_string().contains("SECRET")),
             "root and subagent transcript content must stay private"
         );
-        for event in &mut drained {
-            accumulate_session_totals(&mut state.totals, TailFormat::Claude, event);
-        }
-        let kept = last_of_each(drained, TailFormat::Claude.catch_up_order());
-        assert_eq!(kept[0].payload["sessionTotals"]["input_tokens"], 14);
-        assert_eq!(kept[0].payload["sessionTotals"]["output_tokens"], 37);
-        assert_eq!(
-            kept[0].payload["sessionTotals"]["cache_read_input_tokens"],
-            40100
-        );
+        let kept = last_of_each(drained, &state.watches);
+        // A subagent's rows are the session's cost too — only its turn edges
+        // are its own.
+        assert_eq!(totals_of(&kept[0])["input_tokens"], 14);
+        assert_eq!(totals_of(&kept[0])["output_tokens"], 37);
+        assert_eq!(totals_of(&kept[0])["cache_read_input_tokens"], 40100);
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -630,9 +693,8 @@ mod tests {
         fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
         let mut state = tail(path);
         state.format = TailFormat::Claude;
-        for mut event in drain_all(&mut state).0 {
-            accumulate_session_totals(&mut state.totals, TailFormat::Claude, &mut event);
-        }
+        state.watches = deduplicating_watch();
+        drain_all(&mut state);
 
         let subagents = dir.join("session-late/subagents");
         fs::create_dir_all(&subagents).unwrap();
@@ -641,10 +703,9 @@ mod tests {
             .replace(r#""output_tokens":30"#, r#""output_tokens":5"#);
         fs::write(subagents.join("agent-late.jsonl"), format!("{subagent}\n")).unwrap();
 
-        let (mut appended, _) = drain_all(&mut state);
+        let (appended, _) = drain_all(&mut state);
         assert_eq!(appended.len(), 1);
-        accumulate_session_totals(&mut state.totals, TailFormat::Claude, &mut appended[0]);
-        assert_eq!(appended[0].payload["sessionTotals"]["output_tokens"], 35);
+        assert_eq!(totals_of(&appended[0])["output_tokens"], 35);
         assert!(drain_all(&mut state).0.is_empty());
 
         fs::remove_dir_all(&dir).ok();
@@ -653,30 +714,35 @@ mod tests {
 
     #[test]
     fn reports_carry_the_agent_tag_and_the_catch_up_mark() {
+        let watches = any_typed_record();
+        let carry = |line: &[u8]| {
+            watched_event(line, &watches, &mut Folds::default()).expect("carried")
+        };
+
         let mut state = tail(PathBuf::from("/x/rollout.jsonl"));
-        let mut event = rollout_event(TURN_CONTEXT_LINE.as_bytes()).unwrap();
+        let mut event = carry(TURN_CONTEXT_LINE.as_bytes());
         event.source_mtime_ms = Some(1_234);
         let wrapped = report(&state, event, false);
         assert_eq!(wrapped.pane_id, "pane-1");
         assert_eq!(wrapped.token, "tok");
         assert_eq!(wrapped.payload["agent"], "codex");
-        assert_eq!(wrapped.payload["event"]["type"], "turn_context");
+        assert_eq!(wrapped.payload["event"]["record"]["type"], "turn_context");
         assert_eq!(wrapped.payload["catchUp"], false);
         assert_eq!(wrapped.payload["sourceAt"], SOURCE_ISO);
         assert_eq!(wrapped.payload["sourceMtimeMs"], 1_234);
 
+        // The agent tag is the tail's, not the record's — and a store that
+        // stamps unix millis keeps its own instant just the same.
         state.format = TailFormat::KimiWire;
-        let event = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
-        let wrapped = report(&state, event, true);
+        let wrapped = report(&state, carry(USAGE_RECORD_LINE.as_bytes()), true);
         assert_eq!(wrapped.payload["agent"], "kimi");
         assert_eq!(wrapped.payload["catchUp"], true);
         assert_eq!(wrapped.payload["sourceAt"], 1_784_800_000_000_u64);
 
         state.format = TailFormat::Claude;
-        let event = claude_event(CLAUDE_ASSISTANT_LINE.as_bytes()).unwrap();
-        let wrapped = report(&state, event, true);
+        let wrapped = report(&state, carry(CLAUDE_ASSISTANT_LINE.as_bytes()), true);
         assert_eq!(wrapped.payload["agent"], "claude");
-        assert_eq!(wrapped.payload["event"]["type"], "assistant.usage");
+        assert_eq!(wrapped.payload["event"]["record"]["type"], "assistant");
     }
 
     #[test]
@@ -727,8 +793,12 @@ mod tests {
         fs::write(&path, format!("{LLM_REQUEST_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
         let events = drain(&mut state);
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0].payload["type"], "llm.request");
-        assert_eq!(events[1].payload["type"], "usage.record");
+        assert_eq!(events[0].payload["record"]["type"], "llm.request");
+        assert_eq!(events[1].payload["record"]["type"], "usage.record");
+        assert!(
+            !events[0].payload.to_string().contains("SECRET"),
+            "a prompt must not ride out of the store"
+        );
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -782,7 +852,7 @@ mod tests {
         let first = rx
             .recv_timeout(Duration::from_secs(10))
             .expect("a usage report within 10s");
-        assert_eq!(first.payload["event"]["type"], "token_count");
+        assert_eq!(first.payload["event"]["record"]["type"], "event_msg");
 
         // A sibling session's rollout in the same day-dir must NOT leak in.
         fs::write(
@@ -796,7 +866,7 @@ mod tests {
         let second = rx
             .recv_timeout(Duration::from_secs(10))
             .expect("the appended event within 10s");
-        assert_eq!(second.payload["event"]["type"], "turn_context");
+        assert_eq!(second.payload["event"]["record"]["type"], "turn_context");
 
         fs::remove_dir_all(&dir).ok();
     }

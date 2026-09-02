@@ -28,7 +28,7 @@ export function createUsageMaintenanceLane({
   const sweepNewestCodex = () => {
     if (sweptCodex || disposed) return;
     const found = [...declarations.current()].find(
-      ([, declared]) => declared.tail === "codex",
+      ([, declared]) => declared.tail?.format === "codex",
     );
     if (!found) return;
     sweptCodex = true;

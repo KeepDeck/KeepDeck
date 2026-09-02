@@ -7,8 +7,39 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use super::dialects::{last_of_each, SourceTimestamp, TailFormat};
+use super::dialects::{
+    last_of_each, RecordMatch, SourceTimestamp, TailLane, TailWatch,
+};
 use super::reader::{drain_file, TailCursor};
+use super::totals::Folds;
+
+/// The one record this sweep is looking for, said in the same descriptor a
+/// dialect would use.
+///
+/// It is a COPY of something codex's plugin also declares, and that is the
+/// debt this whole file represents: the sweep hardcodes the sessions tree,
+/// the `rollout-*` naming and the day partitions, so knowing which record
+/// carries the account's limits adds nothing it did not already know. All of
+/// it is topology, all of it belongs to the plugin, and it moves when the
+/// plugin gains a way to be asked cold — with no pane, no binding and no
+/// watch armed.
+fn swept_record() -> Vec<TailWatch> {
+    vec![TailWatch {
+        clauses: vec![
+            RecordMatch {
+                key: "type".into(),
+                equals: Some("event_msg".into()),
+            },
+            RecordMatch {
+                key: "payload.type".into(),
+                equals: Some("token_count".into()),
+            },
+        ],
+        keep: vec!["payload".into()],
+        lane: TailLane::Usage,
+        sum: None,
+    }]
+}
 
 /// Every `rollout-*.jsonl` under the sessions tree, newest mtime first.
 fn rollouts_newest_first(root: &std::path::Path) -> Vec<(std::time::SystemTime, PathBuf)> {
@@ -69,16 +100,16 @@ const BOOT_SWEEP_MAX_FILES: usize = 10;
 
 fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
     let files = rollouts_newest_first(root);
+    let watches = swept_record();
     for (modified, path) in files.into_iter().take(BOOT_SWEEP_MAX_FILES) {
-        // A cold read needs no TailState — one cursor from offset zero.
+        // A cold read needs no TailState — one cursor from offset zero, and
+        // a fold nothing asks for, since the swept record carries no sum.
         let mut cursor = TailCursor::default();
-        // No watch here: this is the boot sweep over a COLD store, and what
-        // it wants is the last of each usage kind. Carrying records for a
-        // dialect would replay a finished session's edges as if fresh.
-        let (events, _) = drain_file(&path, &mut cursor, TailFormat::Codex, &[]);
-        let event = last_of_each(events, TailFormat::Codex.catch_up_order())
-            .into_iter()
-            .find(|e| e.payload.get("type").and_then(|t| t.as_str()) == Some("token_count"));
+        let mut folds = Folds::default();
+        let (events, _) = drain_file(&path, &mut cursor, &watches, &mut folds, true);
+        // Only the newest limits matter: a finished session's earlier ones
+        // were superseded by its own later ones.
+        let event = last_of_each(events, &watches).into_iter().next_back();
         if let Some(event) = event {
             let mtime_ms = modified
                 .duration_since(std::time::UNIX_EPOCH)
@@ -139,8 +170,11 @@ mod tests {
         set_mtime(&empty_of_usage, 3_000);
 
         let found = latest_rollout_usage_in(&root).expect("usage found");
-        assert_eq!(found.event["type"], "token_count");
-        assert_eq!(found.event["rate_limits"]["primary"]["used_percent"], 33.0);
+        // The sweep hands back what a live tail hands back — a carried
+        // record — so one normalizer reads both.
+        let payload = &found.event["record"]["payload"];
+        assert_eq!(payload["type"], "token_count");
+        assert_eq!(payload["rate_limits"]["primary"]["used_percent"], 33.0);
         assert_eq!(
             found.source_at,
             Some(SourceTimestamp::Iso(SOURCE_ISO.into()))

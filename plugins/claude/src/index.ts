@@ -28,7 +28,7 @@ import {
   renderClaudeMail,
 } from "./status";
 import { claudeTail } from "./tail";
-import { normalizeClaudeStatusline } from "./usage";
+import { claudeUsageWatches, normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
 import { claudeLiveSessions } from "./liveSessions";
 
@@ -220,7 +220,7 @@ const plugin: KeepDeckPlugin = {
       // deduplicated cumulative tokens.
       usage: {
         normalize: normalizeClaudeStatusline,
-        tail: "claude",
+        tail: { format: "claude", watches: claudeUsageWatches },
       },
       status: {
         normalize: normalizeClaudeStatus,

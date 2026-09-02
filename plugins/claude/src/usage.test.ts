@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { normalizeClaudeStatusline } from "./usage";
+import {
+  CARRIED_RECORD,
+  watchMatches,
+  watchProject,
+} from "@keepdeck/plugin-api";
+import { claudeUsageWatches, normalizeClaudeStatusline } from "./usage";
 
 /** The documented statusLine stdin (docs 2.1.x), as the reporter forwards
  * it — payload shape `{agent, statusline}`. */
@@ -79,12 +84,18 @@ describe("normalizeClaudeStatusline", () => {
       {
         agent: "claude",
         event: {
-          type: "assistant.usage",
-          sessionTotals: {
-            input_tokens: 10,
-            output_tokens: 20,
-            cache_read_input_tokens: 300,
-            cache_creation_input_tokens: 40,
+          type: CARRIED_RECORD,
+          lane: "usage",
+          // The ONLY thing a transcript record carries out: the total the
+          // host folded from the sum this plugin declared. `keep` is empty,
+          // so nothing of the conversation travels beside it.
+          record: {
+            sessionTotals: {
+              input_tokens: 10,
+              output_tokens: 20,
+              cache_read_input_tokens: 300,
+              cache_creation_input_tokens: 40,
+            },
           },
         },
       },
@@ -103,6 +114,31 @@ describe("normalizeClaudeStatusline", () => {
         reportedAt: AT,
       },
     });
+  });
+
+  it("declares a transcript watch that carries nothing but the total", () => {
+    // The pairing that matters: the watch matches an assistant row carrying
+    // counts, and `keep` names NO field of it — so the conversation cannot
+    // ride out of a transcript, structurally rather than by rule.
+    const row = {
+      type: "assistant",
+      message: {
+        id: "msg-1",
+        content: [{ type: "text", text: "SECRET ANSWER" }],
+        usage: { input_tokens: 12, output_tokens: 30 },
+      },
+    };
+    const watch = claudeUsageWatches.find((candidate) =>
+      watchMatches(candidate, row),
+    );
+    expect(watch).toBeDefined();
+    expect(watchProject(watch!, row)).toEqual({});
+    // And a row with no counts at all is not carried.
+    expect(
+      claudeUsageWatches.some((candidate) =>
+        watchMatches(candidate, { type: "assistant", message: { id: "x" } }),
+      ),
+    ).toBe(false);
   });
 
   it("never claims unavailability from cost — resumed sessions carry cost first", () => {

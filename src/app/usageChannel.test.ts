@@ -190,7 +190,7 @@ describe("createUsageChannel", () => {
           usage: {
             capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
-            tail: "codex",
+            tail: { format: "codex", watches: [] },
             limits: {
               poll: "codex-app-server",
               normalize: () => null,
@@ -266,10 +266,16 @@ describe("createUsageChannel", () => {
         payload: {
           agent: "codex",
           event: {
-            type: "token_count",
-            info: {
-              last_token_usage: { total_tokens: 37_696 },
-              model_context_window: 258_400,
+            type: "store.record",
+            lane: "usage",
+            record: {
+              payload: {
+                type: "token_count",
+                info: {
+                  last_token_usage: { total_tokens: 37_696 },
+                  model_context_window: 258_400,
+                },
+              },
             },
           },
         },
@@ -532,7 +538,7 @@ describe("createUsageChannel", () => {
           usage: {
             capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
-            tail: "kimi-wire",
+            tail: { format: "kimi-wire", watches: [] },
             limits: {
               poll: "kimi-usages",
               normalize: (_body, at) => ({
@@ -671,8 +677,29 @@ describe("createUsageChannel", () => {
   });
 
   it("sweeps the newest on-disk codex rollout at boot, stamped with the file's age", async () => {
+    // The REAL normalizer, over the shape the sweep actually hands back: a
+    // carried record, the same one a live tail delivers. The sweep reads a
+    // cold store with a watch of the host's own, and if that watch and the
+    // plugin's declaration ever disagree the account chip goes quietly blank
+    // at boot — which a stubbed normalizer could never show.
+    ipc.contributions[1]!.entry.usage!.normalize = normalizeCodexRollout;
     ipc.latestCodexRollout.mockResolvedValue({
-      event: { type: "token_count" },
+      event: {
+        type: "store.record",
+        lane: "usage",
+        record: {
+          payload: {
+            type: "token_count",
+            rate_limits: {
+              primary: {
+                used_percent: 40,
+                window_minutes: 10_080,
+                resets_at: 1_784_834_810,
+              },
+            },
+          },
+        },
+      },
       sourceAt: "1970-01-01T00:00:02.000Z",
       mtimeMs: 1_234,
     });

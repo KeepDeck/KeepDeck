@@ -49,7 +49,11 @@ import {
 } from "./sessionBinding";
 
 const usageByAgent = new Map<string, AgentUsage>([
-  ["codex", { tail: "codex" } as AgentUsage],
+  [
+    "codex",
+    // Only `tail` is read here; the lane never normalizes in these tests.
+    { tail: { format: "codex", watches: [] } } as unknown as AgentUsage,
+  ],
 ]);
 
 let deck: DeckActions;

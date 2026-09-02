@@ -112,6 +112,7 @@ mod tests {
             source_at: Some(SourceTimestamp::Iso("2026-08-01T10:00:00Z".into())),
             source_mtime_ms: Some(1234),
             root: true,
+            slot: Some(0),
         }
     }
 

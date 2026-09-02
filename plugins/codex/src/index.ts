@@ -20,7 +20,11 @@ import {
   renderCodexMail,
 } from "./status";
 import { codexTail } from "./tail";
-import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
+import {
+  codexUsageWatches,
+  normalizeCodexRateLimits,
+  normalizeCodexRollout,
+} from "./usage";
 
 /** The `-c` override args arming the reporters — SessionStart identity plus
  * the turn-lifecycle events; `[]` when neither script resolves. All rules
@@ -149,7 +153,7 @@ const plugin: KeepDeckPlugin = {
       // come from the host's one shared official app-server manager.
       usage: {
         normalize: normalizeCodexRollout,
-        tail: "codex",
+        tail: { format: "codex", watches: codexUsageWatches },
         limits: {
           poll: "codex-app-server",
           normalize: normalizeCodexRateLimits,

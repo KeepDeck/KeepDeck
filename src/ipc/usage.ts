@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { TailWatch } from "@keepdeck/plugin-api";
+import type { TailWatch, UsageTailFormat } from "@keepdeck/plugin-api";
 
 /**
  * Usage-report events: a pane's agent process reports rate-limit windows,
@@ -36,11 +36,12 @@ export function watchSessionFile(
   paneId: string,
   path: string,
   token: string,
-  format: "claude" | "codex" | "kimi-wire",
+  format: UsageTailFormat,
   /** The pane's agent's own declaration of which records to carry out of its
-   * store, when its plugin has a tail dialect. The backend applies these
-   * without reading them: it compares the keys it is given and copies the
-   * ones it is named. Omitted = only the format's own arms run. */
+   * store — both lanes of it, the numbers and the turn edges. The backend
+   * applies these without reading them: it compares the keys it is given and
+   * copies the ones it is named. An empty list carries NOTHING; there are no
+   * readings of the host's own left behind them. */
   watches?: readonly TailWatch[],
 ): Promise<void> {
   return invoke("usage_watch_session_file", {

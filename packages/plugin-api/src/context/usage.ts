@@ -8,6 +8,7 @@
  * Everything here is plain data in and plain data out, so a normalizer runs
  * identically in-process or across the external tier's RPC boundary.
  */
+import { CARRIED_RECORD, type TailWatch } from "./sessionTail.ts";
 
 /** One provider rate-limit window, normalized across CLIs. Labels derive
  * from `windowMinutes` — NEVER from field position: codex plans disagree
@@ -104,7 +105,39 @@ export type UsageNormalizer = (
  * account state, or null when unreadable. */
 export type LimitsNormalizer = (body: string, at: number) => AccountUsage | null;
 
-/** Session-file dialects the host's native tailer speaks. */
+/**
+ * How the host's native tailer reads this agent's session store for the
+ * numbers.
+ *
+ * This used to be the NAME of a dialect — "claude", "codex", "kimi-wire" —
+ * and the reader held an arm per name: which lines carry counts, which
+ * fields to trim them down to, how to add them up. Three agents' formats,
+ * written into the side that was supposed to know none of them, where every
+ * new file-fed CLI meant another arm and every CLI that changed its store
+ * meant a change to the host.
+ *
+ * What replaces it is the same descriptor the status lane already uses. The
+ * plugin says which records carry counts and what to keep of them; the
+ * reader compares keys and copies fields. Nothing here names an agent.
+ */
+export interface UsageTail {
+  /** Which records carry this agent's numbers, and what a total over them
+   * is made of. Every watch here rides the usage lane. */
+  readonly watches: readonly TailWatch[];
+  /**
+   * The dialect name the host still knows this agent's store by.
+   *
+   * All that is left of the old arrangement, and it no longer parses
+   * anything: the reader keeps it to tag reports with an agent, and one
+   * cold path — the boot sweep over codex's sessions tree — still uses it to
+   * find whose store to walk. Both are topology rather than format, and both
+   * go when topology does.
+   */
+  readonly format: UsageTailFormat;
+}
+
+/** Session-file dialects the host's native tailer still knows by name.
+ * @deprecated Nothing reads a record by this any more — see `UsageTail`. */
 export type UsageTailFormat = "claude" | "codex" | "kimi-wire";
 
 /** Native polled limit sources the host offers. */
@@ -129,9 +162,9 @@ export interface AgentUsage {
   /** Normalize this agent's bridge usage payloads (statusLine reports,
    * tailed session-file events — whatever its reporters emit). */
   normalize: UsageNormalizer;
-  /** Follow the session file named by this agent's bindings with the given
-   * dialect (the binding's transcriptPath is the file). */
-  tail?: UsageTailFormat;
+  /** Follow the session file named by this agent's bindings (the binding's
+   * transcriptPath is the file), carrying the records this declares. */
+  tail?: UsageTail;
   /** Account limits live behind a native source: the host fetches the named
    * source on a slow interval while one of this agent's panes is live; the
    * plugin reads the opaque body. */
@@ -141,6 +174,28 @@ export interface AgentUsage {
 /* ---- Authoring helpers ----------------------------------------------- *
  * The tolerant-reading idiom every normalizer shares: never throw, drop
  * what doesn't parse, keep the rest. */
+
+/**
+ * The fields a usage watch carried, out of one tailer report — or null when
+ * this report is not a carried record at all.
+ *
+ * A normalizer's first move, and the reason it is here rather than repeated
+ * in each plugin: the envelope around a carried record is the HOST's
+ * transport, so a plugin that reached into it by hand would be reading a
+ * shape it does not own, in as many copies as there are agents.
+ *
+ * What comes back is flat, and its keys are the ones the watch named — a
+ * dotted `keep` arrives as a dotted KEY, not as rebuilt nesting, so
+ * `message.usage.output_tokens` is read under exactly that name.
+ */
+export function carriedUsageRecord(
+  payload: unknown,
+): Record<string, unknown> | null {
+  if (!isJsonRecord(payload)) return null;
+  const event = payload.event;
+  if (!isJsonRecord(event) || event.type !== CARRIED_RECORD) return null;
+  return isJsonRecord(event.record) ? event.record : null;
+}
 
 /** Whether `value` is a plain JSON object: not null, not an array. */
 export function isJsonRecord(value: unknown): value is Record<string, unknown> {

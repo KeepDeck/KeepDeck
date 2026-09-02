@@ -1,26 +1,57 @@
 import { describe, expect, it } from "vitest";
-import { normalizeKimiUsages, normalizeKimiWire } from "./usage";
+import {
+  CARRIED_RECORD,
+  watchMatches,
+  watchProject,
+} from "@keepdeck/plugin-api";
+import {
+  kimiUsageWatches,
+  normalizeKimiUsages,
+  normalizeKimiWire,
+} from "./usage";
 
 const AT = 1_784_800_000_000;
+
+/**
+ * One raw wire record, put through the watches kimi actually DECLARES.
+ *
+ * The two halves have to be tested together or not at all: a `keep` that
+ * stopped naming a field the normalizer reads is invisible to a test that
+ * hand-builds the carried record, and shows up only as a number that
+ * quietly stopped arriving. `sessionTotals` is the host's stamp, added here
+ * where the host adds it — onto the carried record.
+ */
+function tailed(
+  record: Record<string, unknown>,
+  sessionTotals?: Record<string, unknown>,
+) {
+  const watch = kimiUsageWatches.find((candidate) =>
+    watchMatches(candidate, record),
+  );
+  if (!watch) throw new Error("no declared watch carries this record");
+  const carried = watchProject(watch, record);
+  if (sessionTotals) carried.sessionTotals = sessionTotals;
+  return {
+    agent: "kimi",
+    event: { type: CARRIED_RECORD, record: carried, lane: "usage" },
+  };
+}
 
 describe("normalizeKimiWire", () => {
   it("maps a usage.record to tokens and context occupancy", () => {
     const result = normalizeKimiWire(
-      {
-        agent: "kimi",
-        event: {
-          type: "usage.record",
-          model: "kimi-code/k3",
-          usage: {
-            inputOther: 1200,
-            output: 300,
-            inputCacheRead: 40_000,
-            inputCacheCreation: 900,
-          },
-          usageScope: "turn",
-          time: AT,
+      tailed({
+        type: "usage.record",
+        model: "kimi-code/k3",
+        usage: {
+          inputOther: 1200,
+          output: 300,
+          inputCacheRead: 40_000,
+          inputCacheCreation: 900,
         },
-      },
+        usageScope: "turn",
+        time: AT,
+      }),
       AT,
     );
     expect(result?.account).toBeNull();
@@ -41,9 +72,8 @@ describe("normalizeKimiWire", () => {
 
   it("reads the host's session cumulative into totalTokens", () => {
     const result = normalizeKimiWire(
-      {
-        agent: "kimi",
-        event: {
+      tailed(
+        {
           type: "usage.record",
           model: "kimi-code/k3",
           usage: {
@@ -54,15 +84,16 @@ describe("normalizeKimiWire", () => {
           },
           usageScope: "turn",
           time: AT,
-          // Stamped by the host tailer, summed across the session's records.
-          sessionTotals: {
-            inputOther: 2000,
-            output: 350,
-            inputCacheRead: 81_000,
-            inputCacheCreation: 900,
-          },
         },
-      },
+        // Stamped by the host tailer, folded across the session's records
+        // by the sum this plugin declared.
+        {
+          inputOther: 2000,
+          output: 350,
+          inputCacheRead: 81_000,
+          inputCacheCreation: 900,
+        },
+      ),
       AT,
     );
     // Cumulative in/out for the session — each bucket summed separately.
@@ -83,10 +114,12 @@ describe("normalizeKimiWire", () => {
 
   it("maps a trimmed llm.request to the window size and model", () => {
     const result = normalizeKimiWire(
-      {
-        agent: "kimi",
-        event: { type: "llm.request", model: "kimi-code/k3", maxTokens: 1_048_576 },
-      },
+      tailed({
+        type: "llm.request",
+        model: "kimi-code/k3",
+        maxTokens: 1_048_576,
+        messages: [{ role: "user", content: "SECRET PROMPT" }],
+      }),
       AT,
     );
     expect(result?.pane).toEqual({
@@ -102,15 +135,12 @@ describe("normalizeKimiWire", () => {
     // the bare id here made one pane label the same model two ways depending
     // on which event landed last.
     const result = normalizeKimiWire(
-      {
-        agent: "kimi",
-        event: {
-          type: "llm.request",
-          model: "k3-256k",
-          modelAlias: "kimi-code/k3-256k",
-          maxTokens: 262_144,
-        },
-      },
+      tailed({
+        type: "llm.request",
+        model: "k3-256k",
+        modelAlias: "kimi-code/k3-256k",
+        maxTokens: 262_144,
+      }),
       AT,
     );
     expect(result?.pane?.model).toBe("kimi-code/k3-256k");
@@ -118,10 +148,62 @@ describe("normalizeKimiWire", () => {
 
   it("falls back to the bare id when no alias came", () => {
     const result = normalizeKimiWire(
-      { agent: "kimi", event: { type: "llm.request", model: "k3-256k" } },
+      tailed({ type: "llm.request", model: "k3-256k" }),
       AT,
     );
     expect(result?.pane?.model).toBe("k3-256k");
+  });
+
+  it("never carries the prompt out of the wire", () => {
+    // `llm.request` holds the whole conversation. The declaration names
+    // three scalars, so the rest was never copied — the guarantee is
+    // structural, not a rule anyone has to remember.
+    const carried = tailed({
+      type: "llm.request",
+      model: "k3-256k",
+      maxTokens: 1,
+      messages: [{ role: "user", content: "SECRET PROMPT" }],
+    });
+    expect(JSON.stringify(carried)).not.toContain("SECRET");
+    expect(Object.keys(carried.event.record).sort()).toEqual([
+      "maxTokens",
+      "model",
+      "type",
+    ]);
+  });
+
+  it("counts a compaction's cost without reading it as a turn", () => {
+    // kimi scopes the compaction request's own spend to the SESSION, and it
+    // sits between full_compaction.begin and .complete on the wire. Its cost
+    // is real — the fold takes it, so totalTokens still moves. Its input is
+    // the context that was just DISCARDED: read as a turn it would put the
+    // pre-compaction size on the gauge at the moment the context emptied
+    // (measured live: 305k shown against a real 39k).
+    const result = normalizeKimiWire(
+      tailed(
+        {
+          type: "usage.record",
+          model: "kimi-code/kimi-for-coding",
+          usage: {
+            inputOther: 293_569,
+            output: 2786,
+            inputCacheRead: 11_264,
+            inputCacheCreation: 0,
+          },
+          usageScope: "session",
+          time: AT,
+        },
+        { inputOther: 1_089_817, output: 103_403, inputCacheRead: 46_543_729 },
+      ),
+      AT,
+    );
+    expect(result?.pane?.totalTokens).toEqual({
+      input: 1_089_817,
+      output: 103_403,
+      cacheRead: 46_543_729,
+    });
+    expect(result?.pane?.context).toBeUndefined();
+    expect(result?.pane?.lastTurnTokens).toBeUndefined();
   });
 
   it("returns null for unrecognizable events", () => {

@@ -3,6 +3,7 @@ import {
   paneAgentType,
   paneHasProcess,
 } from "../domain/deck";
+import type { TailWatch } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
 import { unwatchSessionFile, watchSessionFile } from "../ipc/usage";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
@@ -19,6 +20,16 @@ export function createUsageTailsLane({
 }: UsageLaneContext): UsageLane {
   let disposed = false;
   const tailed = new Set<string>();
+
+  /** Everything this agent asked to have carried out of its store: the
+   * records that carry its numbers, then the ones that carry its turn edges.
+   * ORDER MATTERS twice — the first watch to match a record carries it, and
+   * the usage watches' order is the catch-up order, so what qualifies the
+   * numbers lands before them. */
+  const watchesFor = (agentId: string): TailWatch[] => [
+    ...(declarations.current().get(agentId)?.tail?.watches ?? []),
+    ...(tailOf(agentId)?.watches ?? []),
+  ];
 
   const settleArm = (paneId: string) => {
     if (disposed || !tailed.has(paneId)) {
@@ -50,7 +61,7 @@ export function createUsageTailsLane({
         if (!paneHasProcess(pane)) continue;
         const sessionId = pane.session?.id;
         if (!sessionId || tailed.has(pane.id)) continue;
-        if (usage.get(paneAgentType(pane))?.tail !== "codex") continue;
+        if (usage.get(paneAgentType(pane))?.tail?.format !== "codex") continue;
         const token = peekPaneSpawnSpec(pane.id)?.token;
         if (!token) continue;
 
@@ -85,8 +96,8 @@ export function createUsageTailsLane({
               "codex",
               // Read HERE rather than before the search: finding a store is
               // a walk, and a plugin toggled during it would leave this
-              // arming a dialect that is no longer declared.
-              tailOf(agentId)?.watches,
+              // arming a declaration that is no longer made.
+              watchesFor(agentId),
             ).then(() => settleArm(paneId));
           })
           .catch((error) => {
@@ -131,8 +142,9 @@ export function createUsageTailsLane({
     );
     const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
     if (!pane) return;
-    const format = declarations.current().get(paneAgentType(pane))?.tail;
-    if (!format) {
+    const agentId = paneAgentType(pane);
+    const tail = declarations.current().get(agentId)?.tail;
+    if (!tail) {
       log.debug(
         "web:usage",
         `${paneId}: agent declares no tail — skipped`,
@@ -142,13 +154,13 @@ export function createUsageTailsLane({
 
     // The agent's own declaration of which records to carry, handed through
     // verbatim: the backend applies it without reading it.
-    const watches = tailOf(paneAgentType(pane))?.watches;
+    const watches = watchesFor(agentId);
     log.debug(
       "web:usage",
-      `${paneId}: arming ${format} tail from binding${watches?.length ? `, carrying ${watches.length} record shape(s) for its dialect` : ""}`,
+      `${paneId}: arming ${tail.format} tail from binding, carrying ${watches.length} record shape(s) it declared`,
     );
     tailed.add(paneId);
-    void watchSessionFile(paneId, transcriptPath, token, format, watches)
+    void watchSessionFile(paneId, transcriptPath, token, tail.format, watches)
       .then(() => settleArm(paneId))
       .catch((error) => {
         tailed.delete(paneId);

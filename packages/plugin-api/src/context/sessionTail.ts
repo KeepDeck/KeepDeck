@@ -166,6 +166,61 @@ export interface TailWatch {
    * which, so the dialect that named it says.
    */
   readonly lane: TailLane;
+  /**
+   * Fold these records into a running session total, stamped onto each one
+   * as it is carried.
+   *
+   * DECLARED rather than done here, and that is not a compromise — it is the
+   * only arrangement that works. A session store is read once at arming, and
+   * the reader keeps the LAST record of each watch rather than every one: a
+   * large transcript holds twelve thousand rows that carry counts, and
+   * handing them all over to be added up would cost eight megabytes across
+   * the boundary every time a pane is armed. So the addition has to happen
+   * where the bytes already are, and what travels is the sum.
+   *
+   * What that side must NOT have is an opinion about it. Which records carry
+   * counts, which buckets a total is made of, and whether repeated rows are
+   * one message or several are all facts about one CLI's format — so they
+   * are said here, as data, and applied by a reader that adds the numbers it
+   * was named without knowing what any of them mean.
+   */
+  readonly sum?: TailSum;
+}
+
+/**
+ * A running total over the records one watch carries.
+ *
+ * The whole arithmetic, and deliberately no more: named buckets, added up,
+ * with one rule for stores that repeat themselves. Anything a store needs
+ * beyond this is interpretation, and interpretation belongs to the plugin's
+ * own normalizer — which reads the stamped total the same as any other
+ * field.
+ */
+export interface TailSum {
+  /**
+   * The buckets to add: the name each total is stamped under, mapped to the
+   * dotted path it is read from on the original record.
+   *
+   * Separate buckets rather than one number because they are not
+   * interchangeable — a re-read context prefix is not fresh input, and
+   * summing them together would report a session as having spent what it
+   * merely re-sent.
+   */
+  readonly buckets: Readonly<Record<string, string>>;
+  /**
+   * The field identifying which message a row belongs to, when a store
+   * writes one message as several rows.
+   *
+   * A claude transcript repeats an assistant message id as its content and
+   * tool blocks arrive, each row restating the message's counts so far.
+   * Added plainly they would multiply a turn's cost by the number of blocks
+   * in it; rows sharing this field are instead held at each bucket's
+   * MAXIMUM, and only the growth joins the total. Omit for a store whose
+   * every row is its own event.
+   */
+  readonly dedupBy?: string;
+  /** The key the running total is stamped under on each carried record. */
+  readonly stampAs: string;
 }
 
 /** The two questions a session store answers. `status` moves the pane's
@@ -173,6 +228,16 @@ export interface TailWatch {
  * because they fail differently: a wrong status stops mail, a wrong number
  * misinforms. */
 export type TailLane = "status" | "usage";
+
+/**
+ * The type a carried record travels under, on either lane.
+ *
+ * One name for every dialect, and one DEFINITION of that name: the reader
+ * that stamps it and every plugin that recognizes it are agreeing on a wire
+ * literal, and a literal agreed in four places is one rename away from a
+ * plugin that silently stops seeing its own records.
+ */
+export const CARRIED_RECORD = "store.record";
 
 /** Whether a record satisfies every clause. The host applies this; it lives
  * here so both sides read the descriptor the same way, and so a plugin can

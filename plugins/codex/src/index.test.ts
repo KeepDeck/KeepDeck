@@ -6,6 +6,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
 import { renderCodexMail } from "./status";
+import { codexUsageWatches } from "./usage";
 
 /** Activate against a minimal fake ctx; returns the registered agent.
  *
@@ -322,7 +323,8 @@ describe("codex plugin identity", () => {
 
   it("declares the shared app-server account-limits source", () => {
     const agent = activate(null);
-    expect(agent.usage?.tail).toBe("codex");
+    expect(agent.usage?.tail?.format).toBe("codex");
+    expect(agent.usage?.tail?.watches).toEqual(codexUsageWatches);
     expect(agent.usage?.limits?.poll).toBe("codex-app-server");
   });
 

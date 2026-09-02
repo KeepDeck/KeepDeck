@@ -6,6 +6,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
 import { ASKS_FOR_MAIL, renderClaudeMail } from "./status";
+import { claudeUsageWatches } from "./usage";
 
 /** Activate against a minimal fake ctx; returns the registered agent.
  * `resources` maps script name → resolved path (missing name = null), so a
@@ -299,7 +300,10 @@ describe("claude plugin hooks", () => {
 
 describe("claude plugin identity", () => {
   it("declares the Claude transcript usage tail", () => {
-    expect(activate(null).usage?.tail).toBe("claude");
+    const tail = activate(null).usage?.tail;
+    expect(tail?.format).toBe("claude");
+    // And says which records carry the numbers — the host reads none of it.
+    expect(tail?.watches).toEqual(claudeUsageWatches);
   });
 
   it("ships the brand mark in Anthropic's tint", () => {
