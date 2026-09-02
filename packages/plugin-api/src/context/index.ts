@@ -142,6 +142,12 @@ export {
   type SessionReader,
 } from "./sessionRead.ts";
 export {
+  addPass,
+  driftedAway,
+  followOnce,
+  type FollowStep,
+} from "./sessionFollow.ts";
+export {
   tailPass,
   type SessionTailDialect,
   type TailPass,
