@@ -327,16 +327,26 @@ export const normalizeClaudeStatus: StatusNormalizer = (
 /**
  * Messages waiting for this pane, in the shape claude's hooks accept.
  *
- * Two events can carry mail and no others. `Stop` is the one that matters:
- * blocking it hands the text over AND keeps the agent running, so a
- * teammate's answer arrives without anyone paying for a fresh wake.
- * `UserPromptSubmit` appends to the turn the user just opened, which is
- * where mail that arrived while the pane was idle belongs.
+ * Four events can carry mail and no others. `Stop` blocks and hands the text
+ * over while keeping the agent running, so a teammate's answer arrives
+ * without anyone paying for a fresh wake. `UserPromptSubmit` appends to the
+ * turn the user just opened, which is where mail that arrived while the pane
+ * was idle belongs. `SessionStart` spares a starting pane the terminal
+ * entirely.
+ *
+ * `PostToolBatch` is the one that arrives WHILE THE AGENT IS WORKING, and it
+ * is why a person can now correct a running agent through mail instead of
+ * typing over their own half-written message. claude's own description of
+ * it: fired once after every tool call in a batch has resolved, BEFORE THE
+ * NEXT MODEL REQUEST — so the words are in front of the model on that very
+ * request, and the mechanism is the block `Stop` already uses.
  *
  * The framing is the entire point of this channel. `<teammate-message>`
  * says whose words these are, and the sentence after it says what that
  * means — another agent's output, to be weighed, not an instruction from
- * the human. A terminal paste can promise none of that.
+ * the human, and one that cannot widen what the reader may do. A terminal
+ * paste can promise none of that, which is the whole reason mid-turn
+ * delivery goes here and never through the keyboard.
  */
 /**
  * The events armed to ASK, declared beside the renderer that has to answer
@@ -352,6 +362,7 @@ export const ASKS_FOR_MAIL: ReadonlySet<string> = new Set([
   "Stop",
   "UserPromptSubmit",
   "SessionStart",
+  "PostToolBatch",
 ]);
 
 export const renderClaudeMail: MailReplyRenderer = ({ event, messages, waiting }) => {
@@ -360,6 +371,18 @@ export const renderClaudeMail: MailReplyRenderer = ({ event, messages, waiting }
     case "Stop":
       // Blocking is what keeps the turn alive to read this. The reason IS
       // the delivery — claude puts it in front of the model verbatim.
+      return JSON.stringify({ decision: "block", reason: text });
+    case "PostToolBatch":
+      // The same shape as `Stop`, one boundary earlier — and the reason this
+      // is worth its own case rather than falling in with `Stop` is WHEN it
+      // fires: the turn is still running, so nothing here ends it and nothing
+      // waits for it to end.
+      //
+      // A block this event cannot use is DISCARDED rather than misapplied —
+      // claude's own log says as much ("PostToolBatch block discarded, turn
+      // ended by …"). That is the safe direction: the messages left the queue
+      // to travel in this answer, and an answer that does not land is put
+      // back by the caller rather than lost.
       return JSON.stringify({ decision: "block", reason: text });
     case "UserPromptSubmit":
       return JSON.stringify({
@@ -382,8 +405,8 @@ export const renderClaudeMail: MailReplyRenderer = ({ event, messages, waiting }
         },
       });
     default:
-      // Every other armed event (PostToolUse, Notification, the subagent
-      // brackets) reports a fact and can carry nothing back.
+      // Every other armed event (per-tool `PostToolUse`, Notification, the
+      // subagent brackets) reports a fact and can carry nothing back.
       return null;
   }
 };

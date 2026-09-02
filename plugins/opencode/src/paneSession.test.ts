@@ -66,15 +66,11 @@ describe("the pane's session", () => {
       expect(pane.rootOf("ses_child")).toBe("ses_root");
     });
 
-    it("takes the turn flag by assignment, so a doubled ending stays ended", () => {
-      const pane = paneSession(undefined);
-      pane.setTurnInFlight(true);
-      // An abort ends a turn with TWO idles about 19ms apart. A counter would
-      // come out of that below zero and read as a turn still running.
-      pane.setTurnInFlight(false);
-      pane.setTurnInFlight(false);
-      expect(pane.turnInFlight).toBe(false);
-    });
+    // The turn flag that used to live here is gone with its only reader.
+    // It existed so the courier could refuse the deck's doorbell while a
+    // turn ran; the doorbell is answered mid-turn now, which is the whole of
+    // this pane's mid-turn channel, and a flag nobody asks about is a fact
+    // to keep in step for nothing.
   });
 
   describe("binding", () => {

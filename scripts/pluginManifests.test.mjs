@@ -76,6 +76,47 @@ describe("built-in plugin manifests", () => {
     }
   });
 
+  it("declares mail features only where mail is actually implemented, and coherently", () => {
+    // Presence means supported and absence means unsupported — that is the
+    // whole contract behind the Settings row, and it is only worth anything
+    // if the declaration and the code agree. Settings builds its catalog as
+    // the UNION over installed plugins, so one agent declaring `mail.mid-turn`
+    // is what makes every other agent's row say "Not supported" — a declared
+    // feature nobody implements would quietly mislabel three panes.
+    //
+    // Reaching a RUNNING turn is checked as a pair rather than by symbol: no
+    // signature separates the events that carry mail mid-turn from the ones
+    // that carry it at a boundary — which of a CLI's events do that is the
+    // plugin's own knowledge, and this file has no business learning it.
+    // What it can check is the implication, which holds for every CLI: an
+    // agent that can be handed mail mid-turn is by construction one that can
+    // be handed mail when a turn ends.
+    const MAIL_SURFACE = /\b(renderMail|frameTeammateMail)/;
+    for (const path of MANIFESTS) {
+      const { id, contributes } = JSON.parse(readFileSync(path, "utf8"));
+      const src = join(dirname(path), "src");
+      const rendersMail = readdirSync(src, { withFileTypes: true, recursive: true })
+        .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
+        .filter((entry) => !entry.name.includes(".test."))
+        .some((entry) =>
+          MAIL_SURFACE.test(readFileSync(join(entry.parentPath, entry.name), "utf8")),
+        );
+      for (const agent of contributes?.agents ?? []) {
+        const ids = new Set((agent.features ?? []).map((feature) => feature.id));
+        expect(
+          ids.has("mail.turn-end"),
+          `${path} (${id}/${agent.id}) ${rendersMail ? "renders mail but does not declare mail.turn-end" : "declares mail.turn-end with no renderer"}`,
+        ).toBe(rendersMail);
+        if (ids.has("mail.mid-turn")) {
+          expect(
+            ids.has("mail.turn-end"),
+            `${path} (${id}/${agent.id}) declares mail.mid-turn without mail.turn-end`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
   it("carries a parseable own version", () => {
     // The plugin's DISPLAY version, which stays semver — distinct from the
     // integer API floor above.

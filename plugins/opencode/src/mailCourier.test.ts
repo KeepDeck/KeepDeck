@@ -264,22 +264,27 @@ describe("opencode mail courier", () => {
     expect(last(prompts)?.body?.parts?.[0]?.text).toBe("ship it");
   });
 
-  it("leaves a doorbell rung mid-turn to the boundary that is already coming", async () => {
-    // Injecting into a running turn is not something opencode promises
-    // anything about, and the session.idle closing that turn collects moments
-    // later — so the wake is consumed and the delivery waits for it.
+  it("answers a doorbell rung MID-TURN, without waiting for the boundary", async () => {
+    // The mid-turn channel, and the whole point of it: a person can correct a
+    // working agent through mail instead of typing over their own unsent
+    // message. Everywhere else the deck reaches a running turn through a
+    // hook; opencode has none, so the doorbell IS the hook.
+    //
+    // This used to wait for the `session.idle` that closes the turn — true
+    // that it comes moments later, and that wait is exactly what made
+    // steering this agent impossible.
     const courier = await start();
     await courier.event(created("ses_root"));
     await courier.event(busy("ses_root"));
     prompts.length = 0;
     asked.length = 0;
-    writeFileSync(join(dir, "mail.wake"), "");
-    await sleep(60);
-    expect(asked).toEqual([]);
-
     pending.push({ v: 1, prompt: "ship it" });
-    await courier.event(idle("ses_root"));
+    writeFileSync(join(dir, "mail.wake"), "");
+
+    await ringUntil(() => prompts.length > 0);
+    // Delivered INSIDE the running turn: no idle event has been fed.
     expect(last(prompts)?.body?.parts?.[0]?.text).toBe("ship it");
+    expect(existsSync(join(dir, "mail.wake"))).toBe(false);
   });
 
   it("submits through opencode's own prompt when no session exists yet", async () => {

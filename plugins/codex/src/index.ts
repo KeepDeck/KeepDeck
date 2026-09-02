@@ -84,11 +84,14 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
           (event) => ({
             event,
             // `--ask` makes the reporter WAIT for the deck and print its
-            // answer. Only the two turn boundaries can act on one: Stop
-            // blocks and continues, UserPromptSubmit spills extra context
-            // into the turn just opened. PermissionRequest and PostToolUse
-            // read nothing back, and asking there would cost a round trip
-            // per tool call.
+            // answer. Stop blocks and continues; UserPromptSubmit spills
+            // extra context into the turn just opened; PostToolUse does the
+            // same one boundary earlier, while the turn is still running,
+            // which is the only way to reach a working agent without typing
+            // into its terminal. It costs a round trip per TOOL CALL, and
+            // that is the price of the mid-turn channel — the deck answers
+            // in milliseconds when nothing is waiting. PermissionRequest
+            // genuinely reads nothing back.
             command: `/bin/sh ${shellQuote(status)} codex${
               ASKS_FOR_MAIL.has(event) ? " --ask" : ""
             }`,

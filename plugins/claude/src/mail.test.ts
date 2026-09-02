@@ -35,6 +35,21 @@ describe("renderClaudeMail", () => {
     expect(reason).toContain("mail-1");
   });
 
+  it("blocks PostToolBatch, which reaches a turn that is still running", () => {
+    // The mid-turn door, and the point of the whole feature: a person can
+    // correct a working agent through mail instead of typing over their own
+    // half-written message, because nothing here touches the terminal.
+    //
+    // The SHAPE is asserted, not merely that something rendered: this event
+    // takes the block, like `Stop`, and not the `additionalContext` envelope
+    // its neighbours use — claude reads only one of the two here, and the
+    // wrong one is a delivery that vanishes without an error on either side.
+    const parsed = JSON.parse(render("PostToolBatch")!);
+    expect(parsed.decision).toBe("block");
+    expect(parsed.reason).toContain("which port?");
+    expect(parsed.hookSpecificOutput).toBeUndefined();
+  });
+
   it("appends to a turn the user just opened", () => {
     const parsed = JSON.parse(render("UserPromptSubmit")!);
     expect(parsed.hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
