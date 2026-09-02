@@ -39,6 +39,24 @@ export interface SessionTailDialect<Req, Item> {
   readonly format: SessionFormat<Req, Item>;
 
   /**
+   * Which records are worth carrying out of the store at all, said as DATA
+   * so the side that reads the bytes can apply it without understanding it.
+   *
+   * This is what keeps the follower cheap without teaching the reader a
+   * format. Measured on real stores, a filter like this passes a few percent
+   * of the bytes; without one, following a claude transcript would carry a
+   * third of a gigabyte of message content to somebody who wants four
+   * fields. The reader compares keys and copies the ones named — it cannot
+   * tell an interrupt from a tool result, and does not need to.
+   *
+   * Deliberately two rules and no more. Equality and presence, joined by
+   * "and", with no nesting and no "or": everything past that belongs in
+   * [`read`], where a real language already exists. A descriptor that grows
+   * conditions is a query language nobody voted for.
+   */
+  readonly watch: TailWatch;
+
+  /**
    * The store to follow for a live pane, or null when this agent has none to
    * follow yet.
    *
@@ -80,6 +98,64 @@ export interface SessionTailDialect<Req, Item> {
    * as well as for tags.
    */
   ignores(record: Item): boolean;
+}
+
+/**
+ * One condition on a record's top-level key.
+ *
+ * Flat on purpose: a path into nested objects is the first step of a query
+ * language, and the second step is asking for it to have an `or`.
+ */
+export interface RecordMatch {
+  /** The key this clause is about. */
+  readonly key: string;
+  /** The exact string it must hold. Omit to ask only that it is there. */
+  readonly equals?: string;
+}
+
+/**
+ * What to carry out of a store, and what to leave in it.
+ *
+ * `keep` is the half that matters for more than cost: a record crosses as
+ * the named fields and nothing else, so a store's contents cannot ride out
+ * of it by accident. A dialect that never names a message field cannot leak
+ * a message — not as a rule anyone has to remember, but because the field
+ * was never copied.
+ */
+export interface TailWatch {
+  /** Every clause must hold for the record to be carried. */
+  readonly match: readonly RecordMatch[];
+  /** Top-level keys to copy. Nothing else leaves the store. */
+  readonly keep: readonly string[];
+}
+
+/** Whether a record satisfies every clause. The host applies this; it lives
+ * here so both sides read the descriptor the same way, and so a plugin can
+ * test its own watch without a host. */
+export function watchMatches(
+  watch: TailWatch,
+  record: Readonly<Record<string, unknown>>,
+): boolean {
+  return watch.match.every((clause) => {
+    const value = record[clause.key];
+    if (clause.equals !== undefined) return value === clause.equals;
+    // Presence, and an empty string is not presence: a key written blank is
+    // how several stores say "no value", and treating it as one would carry
+    // records that say nothing.
+    return value !== undefined && value !== null && value !== "";
+  });
+}
+
+/** The named fields and nothing else. */
+export function watchProject(
+  watch: TailWatch,
+  record: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const kept: Record<string, unknown> = {};
+  for (const key of watch.keep) {
+    if (record[key] !== undefined) kept[key] = record[key];
+  }
+  return kept;
 }
 
 /** What the host can tell a dialect about the pane it is following. Small on

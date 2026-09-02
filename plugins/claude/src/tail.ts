@@ -80,6 +80,25 @@ function instantOf(value: unknown): number | null {
 export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
   format: jsonl<ClaudeRecord>(),
 
+  /**
+   * The one shape worth carrying out of a claude transcript, and the three
+   * fields worth carrying with it.
+   *
+   * The reader applying this cannot tell an interrupt from a tool result: it
+   * compares two keys and copies three. What that buys is measured — a
+   * claude transcript is mostly assistant records, which are the fat ones,
+   * and a follower without this would carry a session's whole output to
+   * somebody who wants a timestamp.
+   *
+   * `keep` names no message field, so a message cannot leave the transcript
+   * through here. Not as a rule to remember — the field is simply never
+   * copied.
+   */
+  watch: {
+    match: [{ key: "type", equals: "user" }, { key: "interruptedMessageId" }],
+    keep: ["type", "interruptedMessageId", "timestamp"],
+  },
+
   /** claude's own reporter names the transcript it writes, so there is no
    * path to reconstruct here — no project slug, no directory rule. A pane
    * whose agent has not reported yet has no store to follow, and that is an

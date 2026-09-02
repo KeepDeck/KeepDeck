@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tailPass } from "@keepdeck/plugin-api";
+import { tailPass, watchMatches, watchProject } from "@keepdeck/plugin-api";
 import { claudeTail } from "./tail";
 
 const target = { sessionId: "ses_1", store: "/h/p/-repo/ses_1.jsonl", cwd: "/repo" };
@@ -94,6 +94,44 @@ describe("claudeTail", () => {
     );
     expect(pass).toEqual({ reported: 1, ignored: 3, unknown: 1 });
     expect(seen).toHaveLength(1);
+  });
+
+  it("carries out exactly the records it reports on, and nothing else", () => {
+    // The invariant behind the descriptor living beside the reader. The two
+    // must agree and nothing else would notice them disagreeing: a watch
+    // narrower than `read` starves it silently, and one wider pays for
+    // records it will throw away — on a claude transcript, the wider mistake
+    // is the expensive one, because the records it would carry are the fat
+    // ones.
+    const lines = [
+      { type: "user", interruptedMessageId: "m", timestamp: "2026-08-14T21:20:29.661Z" },
+      { type: "user", timestamp: "2026-08-14T21:20:29.661Z" },
+      { type: "assistant", message: { content: "everything the model said" } },
+      { type: "queue-operation", content: "what the person typed" },
+    ];
+    for (const line of lines) {
+      const carried = watchMatches(claudeTail.watch, line);
+      const reported = claudeTail.read(line) !== null;
+      expect(carried, JSON.stringify(line)).toBe(reported);
+    }
+  });
+
+  it("leaves the conversation in the transcript", () => {
+    // `keep` names no message field, so a message cannot leave through here.
+    // Not a rule to remember — the field is never copied.
+    const projected = watchProject(claudeTail.watch, {
+      type: "user",
+      interruptedMessageId: "m",
+      timestamp: "2026-08-14T21:20:29.661Z",
+      message: { content: "the thing the user actually said" },
+      cwd: "/home/somebody/private-repo",
+      parentUuid: "106fefea",
+    });
+    expect(projected).toEqual({
+      type: "user",
+      interruptedMessageId: "m",
+      timestamp: "2026-08-14T21:20:29.661Z",
+    });
   });
 
   it("takes the store claude's own reporter named, and waits when there is none", () => {

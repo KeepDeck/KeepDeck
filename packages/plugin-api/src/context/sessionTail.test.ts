@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentStatusEvent } from "./status.ts";
 import { jsonl, type JsonlRequest } from "./sessionRead.ts";
-import { tailPass, type SessionTailDialect } from "./sessionTail.ts";
+import {
+  tailPass,
+  watchMatches,
+  watchProject,
+  type SessionTailDialect,
+} from "./sessionTail.ts";
 
 /** A record shape close enough to a real transcript to make the three
  * answers distinguishable: one that MEANS something, one that is ordinary
@@ -10,6 +15,10 @@ type Record = { type?: string; interruptedMessageId?: string; at?: number };
 
 const dialect: SessionTailDialect<JsonlRequest, Record> = {
   format: jsonl<Record>(),
+  watch: {
+    match: [{ key: "type", equals: "user" }, { key: "interruptedMessageId" }],
+    keep: ["type", "interruptedMessageId", "at"],
+  },
   follow: (pane) => (pane.sessionId ? { path: `/store/${pane.sessionId}` } : null),
   read: (record) =>
     record.type === "user" && record.interruptedMessageId
@@ -17,6 +26,57 @@ const dialect: SessionTailDialect<JsonlRequest, Record> = {
       : null,
   ignores: (record) => record.type === "user" || record.type === "assistant",
 };
+
+describe("watchMatches", () => {
+  it("joins its clauses with AND, and nothing else", () => {
+    // Two rules and no more, on purpose: equality and presence. Everything
+    // past that belongs in `read`, where a real language already exists — a
+    // descriptor that grows conditions is a query language nobody voted for.
+    const watch = dialect.watch;
+    expect(watchMatches(watch, { type: "user", interruptedMessageId: "m" })).toBe(true);
+    expect(watchMatches(watch, { type: "assistant", interruptedMessageId: "m" })).toBe(
+      false,
+    );
+    expect(watchMatches(watch, { type: "user" })).toBe(false);
+  });
+
+  it("does not count a blank value as presence", () => {
+    // A key written empty is how several stores say "no value". Carried as a
+    // hit, it would hand the dialect records that say nothing — and for this
+    // dialect, an empty interrupted-message id is exactly a record that says
+    // nothing.
+    expect(
+      watchMatches(dialect.watch, { type: "user", interruptedMessageId: "" }),
+    ).toBe(false);
+    expect(
+      watchMatches(dialect.watch, { type: "user", interruptedMessageId: null }),
+    ).toBe(false);
+  });
+});
+
+describe("watchProject", () => {
+  it("copies the named fields and leaves the store's contents behind", () => {
+    // The half that matters for more than cost. A dialect that never names a
+    // message field cannot leak a message — not as a rule anyone remembers,
+    // but because the field is never copied.
+    const record = {
+      type: "user",
+      interruptedMessageId: "m",
+      at: 5,
+      message: { content: "everything the model said" },
+      cwd: "/home/somebody/secret-project",
+    };
+    expect(watchProject(dialect.watch, record)).toEqual({
+      type: "user",
+      interruptedMessageId: "m",
+      at: 5,
+    });
+  });
+
+  it("omits a named field the record does not carry", () => {
+    expect(watchProject(dialect.watch, { type: "user" })).toEqual({ type: "user" });
+  });
+});
 
 describe("tailPass", () => {
   it("separates the two reasons a dialect says nothing", () => {

@@ -149,9 +149,13 @@ export {
 } from "./sessionFollow.ts";
 export {
   tailPass,
+  watchMatches,
+  watchProject,
+  type RecordMatch,
   type SessionTailDialect,
   type TailPass,
   type TailTarget,
+  type TailWatch,
 } from "./sessionTail.ts";
 export {
   CONTENT_CAP,
