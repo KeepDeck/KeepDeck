@@ -48,6 +48,86 @@ impl TailFormat {
     }
 }
 
+/// One condition on a record's top-level key (mirrors the TS wire).
+///
+/// Flat and two-valued on purpose: a key equals a string, or a key is merely
+/// there. A path into nested objects is the first step of a query language
+/// and an `or` is the second, and this side must stay a comparison rather
+/// than become an interpreter.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordMatch {
+    pub key: String,
+    /// The exact string it must hold. Absent = presence is enough.
+    pub equals: Option<String>,
+}
+
+/// What a plugin's dialect asks to be carried out of its store.
+///
+/// This is what lets THIS side stop understanding the store. It compares the
+/// keys it was given and copies the ones it was named; it cannot tell an
+/// interrupt from a tool result, and does not need to. Which records mean
+/// what is answered on the other side, by the dialect that wrote this.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TailWatch {
+    /// Every clause must hold.
+    #[serde(rename = "match")]
+    pub clauses: Vec<RecordMatch>,
+    /// Top-level keys to copy. NOTHING else leaves the store — which is why
+    /// a dialect that never names a message field cannot carry a message
+    /// out of a transcript by accident.
+    pub keep: Vec<String>,
+}
+
+/// The payload type a carried record travels under. One name for every
+/// dialect: this side is not saying what happened, only that a record its
+/// watcher was told to carry has arrived.
+pub(super) const CARRIED_RECORD: &str = "store.record";
+
+/// Test one line against a watch and carry the named fields, or nothing.
+///
+/// Runs BEFORE a format's own arms, and independently of them: the arms
+/// still extract usage, which has not moved yet. A line can satisfy both,
+/// and then it travels twice — once as this side's reading of the numbers,
+/// once as the record the other side will read for itself.
+pub(super) fn watched_event(line: &[u8], watch: &TailWatch) -> Option<TailedEvent> {
+    let value: Value = serde_json::from_slice(line).ok()?;
+    let object = value.as_object()?;
+    for clause in &watch.clauses {
+        let held = object.get(&clause.key);
+        let ok = match &clause.equals {
+            Some(want) => held.and_then(Value::as_str) == Some(want.as_str()),
+            // Presence, and a blank is not presence: a key written empty is
+            // how several stores say "no value", and carrying those would
+            // hand the dialect records that say nothing.
+            None => match held {
+                None | Some(Value::Null) => false,
+                Some(Value::String(text)) => !text.is_empty(),
+                Some(_) => true,
+            },
+        };
+        if !ok {
+            return None;
+        }
+    }
+    let mut kept = serde_json::Map::new();
+    for key in &watch.keep {
+        if let Some(held) = object.get(key) {
+            kept.insert(key.clone(), held.clone());
+        }
+    }
+    Some(TailedEvent {
+        payload: json!({ "type": CARRIED_RECORD, "record": Value::Object(kept) }),
+        // Provenance stays this side's job: the freshness guard is about the
+        // deck's clock against the store's, which is a fact about following
+        // a file rather than about any agent's format.
+        source_at: iso_timestamp(&value),
+        source_mtime_ms: None,
+        root: true,
+    })
+}
+
 /// Honest time carried by the source event. Codex writes an ISO timestamp on
 /// each rollout line; Kimi uses unix milliseconds. The file mtime travels
 /// separately as a fallback because parsing and wall-clock validation belong
@@ -94,24 +174,12 @@ pub(super) fn claude_event(line: &[u8]) -> Option<TailedEvent> {
     // STRUCTURED `interruptedMessageId` field of the appended user record,
     // never on the "[Request interrupted…]" text, so an assistant merely
     // quoting the phrase cannot trip it.
-    if kind == "user" {
-        let interrupted = value
-            .get("interruptedMessageId")
-            .and_then(Value::as_str)
-            .is_some_and(|id| !id.is_empty());
-        if !interrupted {
-            return None;
-        }
-        let source_at = iso_timestamp(&value);
-        return Some(TailedEvent {
-            // claude's marker exists only for the user's own Esc — the
-            // reason is fixed, spelled out for one wire shape with codex.
-            payload: json!({ "type": "session.interrupt", "reason": "interrupted" }),
-            source_at,
-            source_mtime_ms: None,
-            root: true,
-        });
-    }
+    // The interrupt marker used to be read here: this side looked for
+    // `interruptedMessageId`, decided the record meant the user's Esc, and
+    // minted a word for it. Which records of a claude transcript mean what
+    // is claude's plugin's to say, and it now says it — the record travels
+    // as itself, carried by the watch its dialect declared, and the meaning
+    // is applied on the side that knows the format.
     if kind != "assistant" {
         return None;
     }
@@ -330,33 +398,70 @@ mod tests {
         assert_eq!(claude_event(b"not json"), None);
     }
 
-    // The interrupt markers ride on the record's STRUCTURE, never its prose:
-    // claude's dedicated `interruptedMessageId` field, codex's `turn_aborted`
-    // record type — an assistant merely quoting the phrase trips neither.
+    // Interrupts ride on the record's STRUCTURE, never its prose. claude's
+    // marker now travels as the record itself, carried by the watch its own
+    // plugin declared; codex's `turn_aborted` is still read here, and moves
+    // when its plugin does.
     #[test]
-    fn interrupt_markers_become_session_interrupt_events() {
+    fn an_interrupt_travels_as_the_record_its_dialect_asked_for() {
         let claude_marker = format!(
             r#"{{"type":"user","interruptedMessageId":"msg-7","timestamp":"{SOURCE_ISO}","message":{{"role":"user","content":[{{"type":"text","text":"[Request interrupted by user]"}}]}}}}"#
         );
-        let event = claude_event(claude_marker.as_bytes()).expect("interrupt");
+        // THIS SIDE no longer reads claude's marker. What a transcript
+        // record means is claude's plugin's to say, and it says it through a
+        // watch: this side compares the keys it was handed and copies the
+        // ones it was named, without knowing that any of it is an interrupt.
+        assert_eq!(claude_event(claude_marker.as_bytes()), None);
+
+        let watch = TailWatch {
+            clauses: vec![
+                RecordMatch {
+                    key: "type".into(),
+                    equals: Some("user".into()),
+                },
+                RecordMatch {
+                    key: "interruptedMessageId".into(),
+                    equals: None,
+                },
+            ],
+            keep: vec![
+                "type".into(),
+                "interruptedMessageId".into(),
+                "timestamp".into(),
+            ],
+        };
+        let event = watched_event(claude_marker.as_bytes(), &watch).expect("carried");
+        assert_eq!(event.payload["type"], CARRIED_RECORD);
+        // The named fields and NOTHING else: the record in the fixture
+        // carries a message, and it does not travel.
         assert_eq!(
-            event.payload,
-            serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })
+            event.payload["record"],
+            serde_json::json!({
+                "type": "user",
+                "interruptedMessageId": "msg-7",
+                "timestamp": SOURCE_ISO,
+            })
         );
+        // Provenance stays this side's: the freshness guard is about the
+        // deck's clock against the store's, not about anyone's format.
         assert_eq!(
             event.source_at,
             Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
         );
         // An ordinary user record — even one QUOTING the marker text — is
-        // not an interrupt.
+        // not carried, because the key it is matched on is absent.
         assert_eq!(
-            claude_event(
-                br#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#
+            watched_event(
+                br#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#,
+                &watch
             ),
             None
         );
+        // A key written blank is not presence: several stores say "no
+        // value" that way, and carrying those hands the other side records
+        // that say nothing.
         assert_eq!(
-            claude_event(br#"{"type":"user","interruptedMessageId":""}"#),
+            watched_event(br#"{"type":"user","interruptedMessageId":""}"#, &watch),
             None
         );
 

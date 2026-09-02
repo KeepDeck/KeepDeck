@@ -127,6 +127,10 @@ export interface TailWatch {
   readonly match: readonly RecordMatch[];
   /** Top-level keys to copy. Nothing else leaves the store. */
   readonly keep: readonly string[];
+  // No lane. A carried record travels the turn-status channel, because that
+  // is the only channel a dialect answers on today — and a field naming a
+  // choice with one option is a member nobody reads. It arrives with the
+  // second lane, together with whatever reads it.
 }
 
 /** Whether a record satisfies every clause. The host applies this; it lives

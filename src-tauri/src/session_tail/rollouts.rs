@@ -83,7 +83,10 @@ fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
     for (modified, path) in files.into_iter().take(BOOT_SWEEP_MAX_FILES) {
         // A cold read needs no TailState — one cursor from offset zero.
         let mut cursor = TailCursor::default();
-        let (events, _) = drain_file(&path, &mut cursor, TailFormat::Codex);
+        // No watch here: this is the boot sweep over a COLD store, and what
+        // it wants is the last of each usage kind. Carrying records for a
+        // dialect would replay a finished session's edges as if fresh.
+        let (events, _) = drain_file(&path, &mut cursor, TailFormat::Codex, None);
         let event = last_of_each(events, TailFormat::Codex.catch_up_order())
             .into_iter()
             .find(|e| e.payload.get("type").and_then(|t| t.as_str()) == Some("token_count"));

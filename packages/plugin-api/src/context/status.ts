@@ -13,6 +13,7 @@
  */
 
 import { asNonEmptyString } from "./usage.ts";
+import type { SessionTailDialect } from "./sessionTail.ts";
 
 /** Why an agent is waiting on the user. `permission` = a tool-approval
  * prompt is up; `question` = the agent itself asked for input. */
@@ -136,6 +137,15 @@ export interface AgentStatus {
    * waiting, and one round trip serves both. Absent = this agent has no
    * labelled channel, and its mail arrives through the terminal instead. */
   renderMail?: MailReplyRenderer;
+  /** What one record of this agent's OWN session store means, for the edges
+   * no hook carries.
+   *
+   * Absent = this agent's store is not followed for status, and the only
+   * turn edges it has are its hooks'. Present = the host carries the records
+   * this dialect's `watch` names, and `normalize` is where its `read` gets
+   * applied — the two are the same contribution because they answer the same
+   * question from two sources. */
+  tail?: SessionTailDialect<never, never>;
   /** How the deck nudges this pane into taking a turn when mail is waiting
    * and no turn boundary is coming on its own.
    *

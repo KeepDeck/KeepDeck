@@ -46,7 +46,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::bridge::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 use crate::fswatch;
 
-use dialects::{claude_subagent_paths, last_of_each, TailedEvent};
+use dialects::{claude_subagent_paths, last_of_each, TailWatch, TailedEvent};
 use reader::{drain_file, TailCursor};
 use route::{route, wrap, Routed};
 use totals::{accumulate_session_totals, SessionTotals};
@@ -65,6 +65,10 @@ struct TailState {
     token: String,
     format: TailFormat,
     root: TailCursor,
+    /// What this pane's agent asked to have carried out of its store, when
+    /// its plugin declared a dialect. Absent for an agent that has not moved
+    /// over: then only the format's own arms run, exactly as before.
+    watch: Option<TailWatch>,
     subagents: HashMap<PathBuf, TailCursor>,
     /// Running token cumulatives for formats whose files expose per-request
     /// rows rather than a native session total.
@@ -114,7 +118,8 @@ struct DrainReplay {
 }
 
 fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
-    let (mut events, root_rotated) = drain_file(&state.path, &mut state.root, state.format);
+    let (mut events, root_rotated) =
+        drain_file(&state.path, &mut state.root, state.format, state.watch.as_ref());
     if root_rotated {
         state.totals = SessionTotals::default();
     }
@@ -134,7 +139,8 @@ fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
         if root_rotated {
             *cursor = TailCursor::default();
         }
-        let (appended, sub_rotated) = drain_file(&path, cursor, TailFormat::Claude);
+        let (appended, sub_rotated) =
+            drain_file(&path, cursor, TailFormat::Claude, state.watch.as_ref());
         any = any || sub_rotated;
         for mut event in appended {
             // A subagent's abort is its own, never the pane's.
@@ -227,6 +233,7 @@ pub fn usage_watch_session_file(
     path: String,
     token: String,
     format: TailFormat,
+    watch: Option<TailWatch>,
 ) -> Result<(), String> {
     // Replace-first: the OLD tail must be gone before the new watcher arms,
     // or a same-path rebind briefly runs two tails and duplicates events.
@@ -238,6 +245,7 @@ pub fn usage_watch_session_file(
         token,
         format,
         root: TailCursor::default(),
+        watch,
         subagents: HashMap::new(),
         totals: SessionTotals::default(),
     }));
@@ -342,6 +350,7 @@ mod tests {
             token: "tok".into(),
             format: TailFormat::Codex,
             root: TailCursor::default(),
+            watch: None,
             subagents: HashMap::new(),
             totals: SessionTotals::default(),
         }
@@ -365,16 +374,26 @@ mod tests {
 
         let mut state = tail(path);
         state.format = TailFormat::Claude;
+        // The marker reaches this side only because the pane's dialect asked
+        // for it. Without a watch there is nothing to tag, which is itself
+        // the state of a tail whose plugin has not moved over.
+        state.watch = Some(dialects::TailWatch {
+            clauses: vec![dialects::RecordMatch {
+                key: "interruptedMessageId".into(),
+                equals: None,
+            }],
+            keep: vec!["interruptedMessageId".into()],
+        });
         let (drained, _) = drain_all(&mut state);
-        let interrupt = drained
+        let carried = drained
             .iter()
-            .find(|event| event.payload["type"] == "session.interrupt")
+            .find(|event| event.payload["type"] == dialects::CARRIED_RECORD)
             .expect("subagent marker drained");
-        assert!(!interrupt.root, "a subagent marker must not read as root");
+        assert!(!carried.root, "a subagent marker must not read as root");
         assert!(
             drained
                 .iter()
-                .filter(|event| event.payload["type"] != "session.interrupt")
+                .filter(|event| event.payload["type"] != dialects::CARRIED_RECORD)
                 .all(|event| event.root),
             "root events keep their root tag"
         );

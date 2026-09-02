@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { TailWatch } from "@keepdeck/plugin-api";
 
 /**
  * Usage-report events: a pane's agent process reports rate-limit windows,
@@ -36,8 +37,19 @@ export function watchSessionFile(
   path: string,
   token: string,
   format: "claude" | "codex" | "kimi-wire",
+  /** The pane's agent's own declaration of which records to carry out of its
+   * store, when its plugin has a tail dialect. The backend applies it without
+   * reading it: it compares the keys it is given and copies the ones it is
+   * named. Omitted = only the format's own arms run. */
+  watch?: TailWatch,
 ): Promise<void> {
-  return invoke("usage_watch_session_file", { paneId, path, token, format });
+  return invoke("usage_watch_session_file", {
+    paneId,
+    path,
+    token,
+    format,
+    watch: watch ?? null,
+  });
 }
 
 /** Stop following a pane's session file (pane closed / workspace gone). */

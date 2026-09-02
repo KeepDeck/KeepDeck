@@ -19,6 +19,7 @@ export function createUsageTailsLane({
   deck,
   declarations,
   bindings,
+  watchOf,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
   const tailed = new Set<string>();
@@ -76,6 +77,10 @@ export function createUsageTailsLane({
               path,
               token,
               "codex",
+              // Read HERE rather than before the lookup: the lookup is a
+              // round trip, and a plugin toggled during it would leave this
+              // arming a dialect that is no longer declared.
+              watchOf("codex"),
             ).then(() => settleArm(paneId));
           })
           .catch((error) => {
@@ -129,9 +134,15 @@ export function createUsageTailsLane({
       return;
     }
 
-    log.debug("web:usage", `${paneId}: arming ${format} tail from binding`);
+    // The agent's own declaration of which records to carry, handed through
+    // verbatim: the backend applies it without reading it.
+    const watch = watchOf(paneAgentType(pane));
+    log.debug(
+      "web:usage",
+      `${paneId}: arming ${format} tail from binding${watch ? ", carrying records for its dialect" : ""}`,
+    );
     tailed.add(paneId);
-    void watchSessionFile(paneId, transcriptPath, token, format)
+    void watchSessionFile(paneId, transcriptPath, token, format, watch)
       .then(() => settleArm(paneId))
       .catch((error) => {
         tailed.delete(paneId);

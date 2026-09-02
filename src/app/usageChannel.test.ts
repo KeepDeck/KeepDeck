@@ -307,6 +307,9 @@ describe("createUsageChannel", () => {
       "/x/rollout.jsonl",
       "tok-1",
       "codex",
+      // This agent declares no tail dialect, so nothing extra is carried —
+      // the state of every pane whose plugin has not moved over.
+      undefined,
     );
   });
 
@@ -368,6 +371,7 @@ describe("createUsageChannel", () => {
       "/x/sessions/rollout-019f.jsonl",
       "tok-1",
       "codex",
+      undefined,
     );
   });
 
@@ -393,6 +397,9 @@ describe("createUsageChannel", () => {
       "/x/rollout.jsonl",
       "tok-1",
       "codex",
+      // This agent declares no tail dialect, so nothing extra is carried —
+      // the state of every pane whose plugin has not moved over.
+      undefined,
     );
   });
 
@@ -419,6 +426,7 @@ describe("createUsageChannel", () => {
         "/x/rollout.jsonl",
         "tok-1",
         "codex",
+        undefined,
       );
     } finally {
       vi.useRealTimers();

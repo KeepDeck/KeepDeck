@@ -97,6 +97,10 @@ describe("usage tails — a suspended pane's watcher", () => {
       deck: store,
       attribution,
       bindings,
+      // No agent here declares a tail dialect, which is the state of every
+      // pane whose plugin has not moved over: the follower arms as before
+      // and carries nothing extra.
+      watchOf: () => undefined,
       // The tails lane only arms watchers; events reach the store via the
       // reports lane, so a fresh, unobserved instance satisfies the context.
       usage: createUsageManager(),

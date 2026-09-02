@@ -4,7 +4,7 @@
 
 use serde_json::json;
 
-use super::dialects::TailedEvent;
+use super::dialects::{TailedEvent, CARRIED_RECORD};
 use crate::bridge::Report;
 
 /// The transport keys `wrap` writes and `route` reads back. One set of
@@ -60,17 +60,31 @@ pub(super) enum Routed {
 /// time so the tracker can drop a marker that predates the turn it would
 /// end. Everything else is usage, catch-up or live alike.
 pub(super) fn route(report: Report) -> Routed {
-    if report.payload[EVENT_KEY]["type"] != "session.interrupt" {
+    let kind = report.payload[EVENT_KEY]["type"].as_str().unwrap_or_default();
+    // A record a dialect asked to have carried is not this side's reading of
+    // anything — it travels as itself, and what it MEANS is applied by the
+    // plugin that named it. It rides the status channel because that is the
+    // only channel a dialect answers on today.
+    let carried = kind == CARRIED_RECORD;
+    if !carried && kind != "session.interrupt" {
         return Routed::Usage(report);
     }
     if report.payload[CATCH_UP_KEY] == true {
         return Routed::Drop;
     }
-    let mut body = json!({
-        "agent": report.payload["agent"],
-        "kind": "session.interrupt",
-        "reason": report.payload[EVENT_KEY]["reason"],
-    });
+    let mut body = if carried {
+        json!({
+            "agent": report.payload["agent"],
+            "kind": CARRIED_RECORD,
+            "record": report.payload[EVENT_KEY]["record"],
+        })
+    } else {
+        json!({
+            "agent": report.payload["agent"],
+            "kind": "session.interrupt",
+            "reason": report.payload[EVENT_KEY]["reason"],
+        })
+    };
     for key in ["sourceAt", "sourceMtimeMs"] {
         if !report.payload[key].is_null() {
             body[key] = report.payload[key].clone();

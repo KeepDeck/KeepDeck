@@ -27,6 +27,7 @@ import {
   normalizeClaudeStatus,
   renderClaudeMail,
 } from "./status";
+import { claudeTail } from "./tail";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
 import { claudeLiveSessions } from "./liveSessions";
@@ -221,7 +222,14 @@ const plugin: KeepDeckPlugin = {
         normalize: normalizeClaudeStatusline,
         tail: "claude",
       },
-      status: { normalize: normalizeClaudeStatus, renderMail: renderClaudeMail },
+      status: {
+        normalize: normalizeClaudeStatus,
+        renderMail: renderClaudeMail,
+        // What a transcript record means, for the one edge claude pushes no
+        // hook for. The host reads the `watch` to know which records to
+        // carry; `normalize` applies the `read` to what arrives.
+        tail: claudeTail as never,
+      },
       history: claudeHistory(ctx),
       liveSessions: claudeLiveSessions(ctx),
       hooks: {
