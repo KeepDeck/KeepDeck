@@ -49,11 +49,17 @@
   overflow-y: auto;
 }
 
+/* Centred in the seat, not resting on its ceiling: the body reserves a
+   floor for the state swaps above, and a one-line answer left at the top
+   of it reads as a list that failed to draw rather than as the whole
+   answer. Rows keep their own top alignment — a list starts at the top. */
 .artifacts__placeholder {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  justify-content: center;
   gap: 6px;
-  padding: 28px 0 32px;
+  padding: 24px 0;
   color: #565e6b;
   font-size: 13px;
   text-align: center;
