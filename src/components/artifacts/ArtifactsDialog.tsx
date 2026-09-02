@@ -1,10 +1,10 @@
-import { formatAge } from "../../domain/usage";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
+import { rowMeta } from "./rowMeta";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
 
 interface ArtifactsDialogProps {
@@ -35,7 +35,7 @@ export function ArtifactsDialog({
   canClose = true,
 }: ArtifactsDialogProps) {
   const registry = useArtifactsRegistry(activeWs?.id ?? null);
-  const { rows, error, busyId, copiedId, confirm } = registry;
+  const { view, error, busyId, copiedId, confirm } = registry;
   // Escape belongs to the confirm while one is stacked over this dialog:
   // the handlers stack, so a single press would answer the question AND
   // close the surface underneath it. `canClose` is the caller's half of
@@ -44,7 +44,9 @@ export function ArtifactsDialog({
   // The rows are sorted newest-first by the store, so the head row is the
   // clock's floor: a publish seconds after the last tick must not render
   // as an age in the future.
-  const now = useWallClock(rows?.[0]?.updatedAt ?? 0);
+  const now = useWallClock(
+    view.kind === "rows" ? (view.rows[0]?.updatedAt ?? 0) : 0,
+  );
 
   return (
     <ModalOverlay>
@@ -65,34 +67,35 @@ export function ArtifactsDialog({
           here — the address is resolved on the spot.
         </p>
 
-        {error !== null && (rows?.length ?? 0) > 0 && (
+        {/* A refusal that arrives while rows are on screen has nowhere
+            else to go — the body is showing the list it could not
+            refresh. */}
+        {error !== null && view.kind === "rows" && (
           <p className="artifacts__error kd-selectable" role="alert">
             {error}
           </p>
         )}
 
         <div className="artifacts__body">
-          {activeWs === null ? (
+          {view.kind === "noWorkspace" ? (
             <div className="artifacts__placeholder">
               <span className="artifacts__placeholder-title">
                 No workspace open
               </span>
               <span>Artifacts belong to a workspace — open one first</span>
             </div>
-          ) : rows === null ? (
+          ) : view.kind === "loading" ? (
             <div className="artifacts__placeholder">Loading…</div>
-          ) : error !== null && rows.length === 0 ? (
-            // A store that REFUSED renders as itself, never as a workspace
-            // that has published nothing.
+          ) : view.kind === "refusal" ? (
             <div className="artifacts__placeholder">
               <span
                 className="artifacts__placeholder-title kd-selectable"
                 role="alert"
               >
-                {error}
+                {view.message}
               </span>
             </div>
-          ) : rows.length === 0 ? (
+          ) : view.kind === "empty" ? (
             <div className="artifacts__placeholder">
               <span className="artifacts__placeholder-title">
                 Nothing published yet
@@ -104,7 +107,9 @@ export function ArtifactsDialog({
             </div>
           ) : (
             <ul className="artifacts__list">
-              {rows.map((row) => (
+              {view.rows.map((row) => {
+                const meta = rowMeta(row, now);
+                return (
                 <li key={row.id} className="artifacts__row">
                   {/* The row IS the control — a list row is one of the
                       archetypes the shared Button deliberately does not
@@ -121,12 +126,8 @@ export function ArtifactsDialog({
                   >
                     <span className="artifacts__row-title">{row.title}</span>
                     <span className="artifacts__row-meta">
-                      <code>{row.id}</code>
-                      {` · v${row.versionCount} · ${formatAge(
-                        row.updatedAt,
-                        now,
-                      )}`}
-                      {row.lastAuthor === "" ? "" : ` · ${row.lastAuthor}`}
+                      <code>{meta.id}</code>
+                      {meta.tail}
                     </span>
                   </button>
                   <div className="artifacts__row-actions">
@@ -153,7 +154,8 @@ export function ArtifactsDialog({
                     </button>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>

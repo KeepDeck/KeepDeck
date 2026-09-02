@@ -12,6 +12,7 @@ import {
 } from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
 import { describeError } from "../../ipc/log";
+import { viewOf, type ArtifactsView } from "./view";
 
 /** How long a copied-id acknowledgement stays on its row. */
 const COPIED_ACK_MS = 1500;
@@ -27,10 +28,8 @@ interface ArtifactConfirm {
 }
 
 export interface ArtifactsRegistry {
-  /** The workspace's artifacts, or `null` while the first read is still
-   * out — an empty list must not claim "nothing published" before the
-   * store has answered. */
-  rows: readonly ArtifactMetaRow[] | null;
+  /** What the body shows — the classification lives in [`viewOf`]. */
+  view: ArtifactsView;
   /** The last refusal, in the words of whoever actually knows the reason:
    * the failed enable when the store never opened, otherwise the store
    * itself (its sentences are written to be read). Cleared by the next
@@ -227,12 +226,15 @@ export function useArtifactsRegistry(
       .finally(() => setBusyId((current) => (current === id ? null : current)));
   }, [confirm, workspaceId]);
 
+  // The enable's reason REPLACES the store's only when the store
+  // refused: a live store that failed one open (server down mid-click)
+  // has its own answer, and the stale claim story is not it.
+  const shownError =
+    error !== null && enableRefusal !== null ? enableRefusal : error;
+
   return {
-    rows,
-    // The enable's reason REPLACES the store's only when the store
-    // refused: a live store that failed one open (server down mid-click)
-    // has its own answer, and the stale claim story is not it.
-    error: error !== null && enableRefusal !== null ? enableRefusal : error,
+    view: viewOf(workspaceId, rows, shownError),
+    error: shownError,
     busyId,
     copiedId,
     confirm,

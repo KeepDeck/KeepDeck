@@ -66,6 +66,14 @@ const mount = () => {
 /** Let the pending IPC promises settle into state. */
 const settle = () => act(async () => {});
 
+/** What the body is showing: the ids when it is a list, otherwise the
+ * name of the variant — one assertion covers both what is on screen and
+ * which of the five states produced it. */
+const shown = (): readonly string[] | string =>
+  registry.view.kind === "rows"
+    ? registry.view.rows.map((row) => row.id)
+    : registry.view.kind;
+
 beforeEach(() => {
   workspaceId = "ws-1";
   // The app-wide status is a singleton; a landed enable is the neutral
@@ -94,9 +102,9 @@ afterEach(() => {
 describe("useArtifactsRegistry", () => {
   it("holds `null` until the store answers, so loading never reads as empty", async () => {
     mount();
-    expect(registry.rows).toBeNull();
+    expect(shown()).toBe("loading");
     await settle();
-    expect(registry.rows?.map((r) => r.id)).toEqual(["auth-flow", "deck-layout"]);
+    expect(shown()).toEqual(["auth-flow", "deck-layout"]);
     expect(listed).toHaveBeenCalledWith({ workspaceId: "ws-1" });
   });
 
@@ -111,7 +119,9 @@ describe("useArtifactsRegistry", () => {
     expect(registry.error).toBe(
       "artifact store is off — turn the artifacts experiment on first",
     );
-    expect(registry.rows).toEqual([]);
+    // A refusal, NOT an empty workspace — the two are one row apart in
+    // the classification and a world apart on screen.
+    expect(shown()).toBe("refusal");
   });
 
   it("blames the failed enable, not the user's setting, when the store never opened", async () => {
@@ -206,7 +216,7 @@ describe("useArtifactsRegistry", () => {
     expect(removed).toHaveBeenCalledWith({ workspaceId: "ws-1", slug: "auth-flow" });
     // Announced, not spliced out locally: other surfaces show this store
     // too, and a delete kept to one of them leaves the rest lying.
-    expect(registry.rows?.map((r) => r.id)).toEqual(["deck-layout"]);
+    expect(shown()).toEqual(["deck-layout"]);
     expect(registry.confirm).toBeNull();
   });
 
@@ -282,7 +292,7 @@ describe("useArtifactsRegistry", () => {
     await settle();
 
     expect(registry.error).toBe("artifact store is off");
-    expect(registry.rows?.map((r) => r.id)).toEqual(["auth-flow", "deck-layout"]);
+    expect(shown()).toEqual(["auth-flow", "deck-layout"]);
     expect(registry.busyId).toBeNull();
   });
 
@@ -310,19 +320,21 @@ describe("useArtifactsRegistry", () => {
     // Rows in hand belong to the workspace that was just left, so the
     // list is UNKNOWN from the moment of the switch — not stale content
     // under a new name.
-    expect(registry.rows).toBeNull();
+    expect(shown()).toBe("loading");
     answers[1]?.([row("deck-layout")]);
     answers[0]?.([row("auth-flow")]);
     await settle();
-    expect(registry.rows?.map((r) => r.id)).toEqual(["deck-layout"]);
+    expect(shown()).toEqual(["deck-layout"]);
   });
 
-  it("reads nothing when there is no workspace, and says so as an empty list", async () => {
+  it("reads no store at all without a workspace, and says which nothing it is", async () => {
+    // Distinct from "nothing published": there is no workspace to have
+    // published into, and the two placeholders say different things.
     workspaceId = null;
     mount();
     await settle();
     expect(listed).not.toHaveBeenCalled();
-    expect(registry.rows).toEqual([]);
+    expect(shown()).toBe("noWorkspace");
     expect(registry.error).toBeNull();
   });
 
@@ -337,10 +349,10 @@ describe("useArtifactsRegistry", () => {
 
     act(() => artifactChanges.changed());
 
-    expect(registry.rows?.map((r) => r.id)).toEqual(["auth-flow", "deck-layout"]);
+    expect(shown()).toEqual(["auth-flow", "deck-layout"]);
     answers[0]?.([row("auth-flow")]);
     await settle();
-    expect(registry.rows?.map((r) => r.id)).toEqual(["auth-flow"]);
+    expect(shown()).toEqual(["auth-flow"]);
   });
 
   it("re-reads when the app writes — a list read once is stale the moment an agent publishes", async () => {
@@ -352,6 +364,6 @@ describe("useArtifactsRegistry", () => {
     act(() => artifactChanges.changed());
     await settle();
     expect(listed).toHaveBeenCalledTimes(2);
-    expect(registry.rows).toHaveLength(3);
+    expect(shown()).toHaveLength(3);
   });
 });
