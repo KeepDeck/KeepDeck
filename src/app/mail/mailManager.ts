@@ -702,10 +702,25 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
           return woken + RENUDGE_AFTER_MS;
         }
         if (!deps.wake(paneId)) {
-          log.debug("web:mail", `no input channel to wake: ${trace(head)}`);
+          // WHY it refused is said by the channel, which is the only side
+          // that knows — this end gets a bool.
+          log.debug("web:mail", `the channel refused the nudge: ${trace(head)}`);
           return null;
         }
-        log.info("web:mail", `nudged the pane into a turn for: ${trace(head)}`);
+        // The pane's state AT THE MOMENT OF THE NUDGE, because that is the
+        // question this line exists to answer and the one it could not.
+        // Asked whether a nudge had ever landed in a running turn, the log
+        // could neither confirm nor deny it, and the gap was filled with a
+        // reconstruction that turned out to be wrong.
+        //
+        // It should read `working` only for a pane whose agent collects
+        // nothing at its boundaries — every other case is held. Anything
+        // else here is the deck believing a pane is idle while its turn has
+        // already begun, which is the window `decideDelivery` cannot see.
+        log.info(
+          "web:mail",
+          `nudged the pane into a turn for: ${trace(head)} (pane was ${deps.activityOf(paneId)?.state ?? "silent"}, hook ${asksAtTurnEnd(paneId) ? "collects" : "does not collect"})`,
+        );
         lastWakeAt.set(paneId, at);
         return at + RENUDGE_AFTER_MS;
       }

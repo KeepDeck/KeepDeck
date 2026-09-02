@@ -39,10 +39,13 @@ function setup(
     cliVersion?: string;
     /** The answer reaches nobody — the hook timed out, or its process died. */
     lost?: boolean;
+    /** What the pane is doing. Default is a running turn; a permission
+     * prompt is the one state a hand-over refuses. */
+    activity?: PaneActivity;
   } = {},
 ) {
   const manager: MailManager = createMailManager({
-    activityOf: () => WORKING,
+    activityOf: () => options.activity ?? WORKING,
     subscribeActivity: () => () => {},
     subscribeChannels: () => () => {},
     wake: () => true,
@@ -212,6 +215,32 @@ describe("answerMailAsk", () => {
     expect(h.replies).toHaveLength(1);
     expect(h.replies[0].id).toBe("a b/../x".padEnd(70, "!"));
     expect(h.replies[0].body).toContain("take the parser");
+  });
+
+  it("does not call a refused hand-over an empty inbox", () => {
+    // The one place this lane lied about itself. A pane parked on a
+    // permission prompt is refused at the door, so the hook goes away with
+    // nothing — and the log said "nothing waiting", which is the opposite of
+    // what happened: the queue is full and the pane is stuck.
+    //
+    // Asserted as the ABSENCE of the false phrase rather than the presence of
+    // a new one: what must never come back is the lie, not the wording that
+    // replaced it.
+    const h = setup({ activity: { state: "waiting", since: 1, reason: "permission" } });
+    h.manager.send({ from: A, toPaneId: "pane-2", kind: "task", body: "take the parser" });
+    expect(h.manager.waiting("pane-2")).toBe(1);
+
+    const lines: string[] = [];
+    const spy = vi
+      .spyOn(log, "info")
+      .mockImplementation((_scope, message) => lines.push(message));
+    h.channel.answer("pane-2", asking());
+    spy.mockRestore();
+
+    // Nothing was handed over, and the message is still queued.
+    expect(h.replies).toEqual([{ paneId: "pane-2", id: "askABC", body: "" }]);
+    expect(h.manager.waiting("pane-2")).toBe(1);
+    expect(lines.join("\n")).not.toContain("nothing waiting");
   });
 
   it("keeps an agent's own words out of the log line about it", () => {

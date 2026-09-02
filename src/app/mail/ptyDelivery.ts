@@ -17,6 +17,7 @@
  * channel's ignorance. The words now travel through the labelled channel the
  * turn opens, or through an MCP call the agent makes itself.
  */
+import { log } from "../../ipc/log";
 import { paneInputReady, paneInputSettled, submitToPane } from "../paneInput";
 
 /**
@@ -48,8 +49,29 @@ const WAKE_LINE =
  * cannot tell that from a landed nudge — nothing answers a keystroke — so the
  * settle window is checked rather than guessed at, and a refusal here is a
  * retry rather than a loss.
+ *
+ * Each refusal says WHICH, because the three are different problems wearing
+ * one boolean: a pane with no channel is one the deck never mounted, a pane
+ * that has not settled is one whose CLI is still booting, and a refused
+ * submit is the transport failing under a pane that looked ready. The caller
+ * cannot tell them apart — it gets a bool — and its own line ("no input
+ * channel to wake") names only the first, which is wrong two times in three.
  */
 export function wakePaneForMail(paneId: string, now?: number): boolean {
-  if (!paneInputReady(paneId) || !paneInputSettled(paneId, now)) return false;
-  return submitToPane(paneId, WAKE_LINE);
+  if (!paneInputReady(paneId)) {
+    log.debug("web:mail", `${paneId} has no input channel yet`);
+    return false;
+  }
+  if (!paneInputSettled(paneId, now)) {
+    log.debug(
+      "web:mail",
+      `${paneId} is writable but not settled — a line typed now would sit in the composer`,
+    );
+    return false;
+  }
+  if (!submitToPane(paneId, WAKE_LINE)) {
+    log.debug("web:mail", `${paneId} refused the submit`);
+    return false;
+  }
+  return true;
 }
