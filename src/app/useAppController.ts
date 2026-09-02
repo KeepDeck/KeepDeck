@@ -34,6 +34,7 @@ import { useUpdate } from "./useUpdate";
 import { buildDockTabs } from "../components/dock/useDockTabs";
 import type { SessionHandle } from "../domain/journal";
 import { DEFAULT_SETTINGS } from "../domain/settings";
+import { artifactsDoorOpen } from "./artifacts/door";
 import {
   closeHotkeyTarget,
   findWorkspace,
@@ -445,7 +446,12 @@ export function useAppController() {
     closeSettings: modal.closeSettings,
     openSkills: modal.openSkills,
     closeSkills: modal.closeSkills,
-    openArtifacts: modal.openArtifacts,
+    /** The registry's door, or null when the app offers none — the view
+     * renders what it is handed and decides nothing about who may open
+     * the artifacts surface. */
+    openArtifacts: artifactsDoorOpen(settings)
+      ? () => void modal.openArtifacts()
+      : null,
     closeArtifacts: modal.closeArtifacts,
     openStats: modal.openStats,
     closeStats: modal.closeStats,

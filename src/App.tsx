@@ -163,13 +163,7 @@ function App() {
         canOpenDialog={canOpenDialog}
         onOpenStats={() => void openStats()}
         onOpenSkills={() => void openSkills()}
-        // The registry is the artifacts experiment's own surface: no
-        // toggle, no door. The setting is the ONE gate here — whether the
-        // backend enable actually landed is the dialog's story to tell,
-        // in the store's own words.
-        onOpenArtifacts={
-          settings?.artifacts ? () => void openArtifacts() : null
-        }
+        onOpenArtifacts={openArtifacts}
         onOpenSettings={() => void openSettings()}
         notifications={
           showBell
