@@ -37,28 +37,30 @@
   font-size: 12px;
 }
 
-/* One seat for every state. Loading, empty, a refusal and a short list
-   are all things this box says within a few milliseconds of each other,
-   and a card that resizes between them reads as a flinch rather than as
-   an answer. Tall enough for the placeholder block; longer lists grow
-   the card up to its max and then scroll inside it. */
+/* Reserves NOTHING: a list is as tall as it has rows, and one artifact
+   under a card sized for six reads as a card that lost five. The steady
+   size the state swaps need belongs to the placeholder below, which is
+   the only thing that changes shape within milliseconds. */
 .artifacts__body {
   display: flex;
   flex-direction: column;
-  min-height: 168px;
+  min-height: 0;
   overflow-y: auto;
 }
 
-/* Centred in the seat, not resting on its ceiling: the body reserves a
-   floor for the state swaps above, and a one-line answer left at the top
-   of it reads as a list that failed to draw rather than as the whole
-   answer. Rows keep their own top alignment — a list starts at the top. */
+/* One seat for the three text states — loading, empty, a store's
+   refusal. They replace each other fast enough that differing heights
+   read as a flinch, so they share a floor and sit centred in it rather
+   than hanging from its ceiling. The floor is HERE and not on the body
+   for the reason above: rows want none of it, and they start at the
+   top. */
 .artifacts__placeholder {
   display: flex;
   flex: 1;
   flex-direction: column;
   justify-content: center;
   gap: 6px;
+  min-height: 120px;
   padding: 24px 0;
   color: #565e6b;
   font-size: 13px;

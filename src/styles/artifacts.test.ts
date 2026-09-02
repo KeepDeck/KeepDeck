@@ -3,11 +3,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { appCss } from "./testSupport";
 
 /**
- * The registry's body is the one box that shows four things within
- * milliseconds of each other — loading, empty, a store's refusal, a short
- * list. Both rules here were user-visible regressions in a row: without a
- * floor the card resized on every read, and with a floor but no centring
- * the one-line answers hung from its ceiling.
+ * Where the registry's steady height lives, and where it must not.
+ *
+ * Both rules here were user-visible regressions, in this order: a floor
+ * on the BODY made a one-row list sit under a card sized for six, and
+ * the same floor without centring left the one-line states hanging from
+ * its ceiling. The three text states share a size; rows never do.
  */
 function mountDialog() {
   const source = document.createElement("style");
@@ -33,21 +34,20 @@ afterEach(() => {
 });
 
 describe("Artifacts registry layout", () => {
-  it("reserves a floor, so the card does not resize between states", () => {
+  it("lets a list be exactly as tall as it has rows", () => {
+    // A floor here is what put one artifact under a card sized for six.
     const { body } = mountDialog();
-    const floor = getComputedStyle(body).minHeight;
-    expect(floor).toMatch(/^\d+px$/);
-    expect(Number.parseFloat(floor)).toBeGreaterThan(0);
+    expect(Number.parseFloat(getComputedStyle(body).minHeight || "0")).toBe(0);
   });
 
-  it("centres the placeholder in that floor instead of hanging it from the top", () => {
+  it("gives the text states one size, and centres them in it", () => {
     const { placeholder } = mountDialog();
     const style = getComputedStyle(placeholder);
-    // Fills the reserved seat…
+    // Loading, empty and a refusal replace each other within
+    // milliseconds; differing heights read as a flinch.
+    expect(Number.parseFloat(style.minHeight)).toBeGreaterThan(0);
+    // Fills that seat, and sits in the middle of it rather than on top.
     expect(style.flexGrow).toBe("1");
-    // …and sits in the middle of it. The list keeps its own alignment:
-    // rows start at the top, which is why this belongs to the placeholder
-    // rather than to the body.
     expect(style.justifyContent).toBe("center");
   });
 });
