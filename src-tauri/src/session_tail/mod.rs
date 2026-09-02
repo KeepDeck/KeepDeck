@@ -28,7 +28,6 @@
 
 mod dialects;
 mod reader;
-mod rollouts;
 mod route;
 #[cfg(test)]
 mod test_support;
@@ -41,34 +40,39 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use serde::Deserialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::bridge::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 use crate::fswatch;
 
-use dialects::{claude_subagent_paths, last_of_each, TailWatch, TailedEvent};
+use dialects::{last_of_each, sibling_paths, TailWatch, TailedEvent};
 use reader::{drain_file, TailCursor};
 use route::{route, wrap, Routed};
 use totals::Folds;
 
-pub use dialects::TailFormat;
-pub use rollouts::LatestRollout;
-
 /// One followed session: where every source file is up to and how to
-/// attribute what it yields. Claude owns a root transcript plus lazily
-/// appearing `<session>/subagents/*.jsonl`; the other formats use only root.
-/// The token is the pane's spawn-plan secret, passed by the webview at watch
-/// time so tailer reports ride the reporter envelope's verification path.
+/// attribute what it yields. The token is the pane's spawn-plan secret,
+/// passed by the webview at watch time so tailer reports ride the reporter
+/// envelope's verification path.
 struct TailState {
     path: PathBuf,
     pane_id: String,
     token: String,
-    format: TailFormat,
+    /// The agent whose pane this is, as the deck knows it — passed at
+    /// arming rather than derived here. Reports ride under it, and the side
+    /// that hands it over is the side that knows which plugin will read
+    /// them back.
+    agent: String,
     root: TailCursor,
     /// What this pane's agent asked to have carried out of its store. An
     /// empty list follows a file and carries nothing: there are no readings
     /// of our own left to fall back on.
     watches: Vec<TailWatch>,
+    /// A directory of files contributing to the SAME session, when this
+    /// agent's dialect named one. Listed every poll: the files appear as
+    /// the work that writes them starts.
+    siblings: Option<PathBuf>,
     subagents: HashMap<PathBuf, TailCursor>,
     /// The running totals those watches asked for, one per watch that
     /// declared a sum.
@@ -125,7 +129,7 @@ fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
         &mut state.folds,
         true,
     );
-    if state.format != TailFormat::Claude {
+    let Some(directory) = state.siblings.clone() else {
         return (
             events,
             DrainReplay {
@@ -133,10 +137,9 @@ fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
                 any: root_rotated,
             },
         );
-    }
+    };
     let mut any = root_rotated;
-    let paths = claude_subagent_paths(&state.path);
-    for path in paths {
+    for path in sibling_paths(&directory) {
         let cursor = state.subagents.entry(path.clone()).or_default();
         if root_rotated {
             *cursor = TailCursor::default();
@@ -199,7 +202,7 @@ fn spawn_tailer(
                     break;
                 }
                 let Ok(mut s) = state.lock() else { break };
-                let format = s.format;
+                let agent = s.agent.clone();
                 let (events, replay) = drain_all(&mut s);
                 for event in events {
                     // A subagent transcript's turn edges are the subagent's
@@ -216,12 +219,30 @@ fn spawn_tailer(
                     // OWN file, so a subagent's rotation can never cost a
                     // fresh root Esc its delivery.
                     let catch_up = if event.root { replay.root } else { replay.any };
-                    deliver(wrap(&s.pane_id, &s.token, format.agent(), event, catch_up));
+                    deliver(wrap(&s.pane_id, &s.token, &agent, event, catch_up));
                 }
             }
         })
         .map_err(|e| format!("usage tail thread failed to start: {e}"))?;
     Ok(TailPoller { stop })
+}
+
+/// Everything the webview says about one tail as it arms it.
+///
+/// One argument rather than five, because it is one thing: where the session
+/// is written, who it belongs to, and what its agent asked to have carried
+/// out of it. Nothing here is derived on this side — every field is an
+/// answer only the other side has.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TailArming {
+    path: String,
+    /// The pane's spawn-plan secret, so tailer reports ride the reporter
+    /// envelope's verification path.
+    token: String,
+    agent: String,
+    watches: Vec<TailWatch>,
+    siblings: Option<String>,
 }
 
 /// Follow one pane's session file, emitting its current usage state right
@@ -232,22 +253,22 @@ pub fn usage_watch_session_file(
     app: AppHandle,
     tails: State<UsageTails>,
     pane_id: String,
-    path: String,
-    token: String,
-    format: TailFormat,
-    watches: Vec<TailWatch>,
+    tail: TailArming,
 ) -> Result<(), String> {
     // Replace-first: the OLD tail must be gone before the new watcher arms,
     // or a same-path rebind briefly runs two tails and duplicates events.
     tails.0.remove(&pane_id);
 
+    let path = tail.path;
+    let agent = tail.agent;
     let state = Arc::new(Mutex::new(TailState {
         path: PathBuf::from(&path),
         pane_id: pane_id.clone(),
-        token,
-        format,
+        token: tail.token,
+        agent: agent.clone(),
         root: TailCursor::default(),
-        watches,
+        watches: tail.watches,
+        siblings: tail.siblings.map(PathBuf::from),
         subagents: HashMap::new(),
         folds: Folds::default(),
     }));
@@ -271,7 +292,7 @@ pub fn usage_watch_session_file(
         let events = last_of_each(drained, &s.watches);
         let count = events.len();
         for event in events {
-            let report = wrap(&s.pane_id, &s.token, format.agent(), event, true);
+            let report = wrap(&s.pane_id, &s.token, &agent, event, true);
             // Through the SAME router as the live path: catch-up safety
             // rests on two independent rules, the collapse dropping every
             // status-lane record and the router dropping a replayed one.
@@ -282,7 +303,7 @@ pub fn usage_watch_session_file(
     // One line per arm — the difference between "tail broken" and "tail
     // never armed" cost a blind debugging session once.
     log::info!(
-        "usage tail: pane={pane_id} format={format:?} file={:?} catch-up={caught_up}",
+        "usage tail: pane={pane_id} agent={agent} file={:?} catch-up={caught_up}",
         PathBuf::from(&path).file_name().unwrap_or_default(),
     );
     tails.0.insert(pane_id, watcher);
@@ -296,11 +317,58 @@ pub fn usage_unwatch_session_file(tails: State<UsageTails>, pane_id: String) {
     tails.0.remove(&pane_id);
 }
 
-/// The boot catch-up command — see [`rollouts`]. Thin wrapper: tauri's
-/// command macros must live where `generate_handler!` names them.
+/// One carried record of a cold read, with the instant it claims for itself.
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColdRecord {
+    event: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_at: Option<dialects::SourceTimestamp>,
+}
+
+/// What one cold read found, and how old the file it found it in is.
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColdRead {
+    records: Vec<ColdRecord>,
+    mtime_ms: u64,
+}
+
+/// Read a store ONCE, from the beginning, with nobody following it.
+///
+/// The boot catch-up: an agent that also runs outside KeepDeck can have
+/// spent quota this deck never saw, so its own files can know fresher limits
+/// than a persisted snapshot. Which files those are is the agent's to say —
+/// this used to walk one particular CLI's day-partitioned sessions tree,
+/// matching one particular record kind, in the side that is not supposed to
+/// know either. It is handed a path and a declaration now.
+///
+/// The answer is the same collapse a live arming produces — the last record
+/// of each watch — so one normalizer reads a cold store and a live one
+/// without being told which it is looking at. `None` when the file carries
+/// nothing the declaration asked for, which is how a caller knows to try the
+/// next candidate.
 #[tauri::command(async)]
-pub fn usage_latest_codex_rollout() -> Option<LatestRollout> {
-    rollouts::latest_codex_rollout()
+pub fn usage_read_store_cold(path: String, watches: Vec<TailWatch>) -> Option<ColdRead> {
+    let path = PathBuf::from(path);
+    let mtime_ms = std::fs::metadata(&path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_millis() as u64)?;
+    // A cold read needs no TailState: one cursor from zero, and a fold that
+    // starts empty because this file IS the whole session it describes.
+    let mut cursor = TailCursor::default();
+    let mut folds = Folds::default();
+    let (drained, _) = drain_file(&path, &mut cursor, &watches, &mut folds, true);
+    let records: Vec<ColdRecord> = last_of_each(drained, &watches)
+        .into_iter()
+        .map(|event| ColdRecord {
+            event: event.payload,
+            source_at: event.source_at,
+        })
+        .collect();
+    (!records.is_empty()).then_some(ColdRead { records, mtime_ms })
 }
 
 // The TUI-resume fallback resolver used to be a command here. It named an
@@ -410,13 +478,7 @@ mod tests {
     /// The pre-split wire wrapper, kept as a test-local shim so the suite's
     /// many call sites read as before; production goes through [`wrap`].
     fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> Report {
-        wrap(
-            &state.pane_id,
-            &state.token,
-            state.format.agent(),
-            event,
-            catch_up,
-        )
+        wrap(&state.pane_id, &state.token, &state.agent, event, catch_up)
     }
     use std::fs::{self, OpenOptions};
     use std::io::Write;
@@ -430,11 +492,23 @@ mod tests {
             path,
             pane_id: "pane-1".into(),
             token: "tok".into(),
-            format: TailFormat::Codex,
+            agent: "codex".into(),
             root: TailCursor::default(),
             watches: any_typed_record(),
+            siblings: None,
             subagents: HashMap::new(),
             folds: Folds::default(),
+        }
+    }
+
+    /// A tail whose dialect named a directory of contributing files. The
+    /// rule turning a store's path into that directory is the agent's; here
+    /// it arrives already applied, which is exactly how production gets it.
+    fn tail_with_siblings(path: PathBuf, siblings: PathBuf) -> TailState {
+        TailState {
+            agent: "claude".into(),
+            siblings: Some(siblings),
+            ..tail(path)
         }
     }
 
@@ -454,8 +528,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut state = tail(path);
-        state.format = TailFormat::Claude;
+        let mut state = tail_with_siblings(path, subagents.clone());
         // The marker reaches this side only because the pane's dialect asked
         // for it — and the numbers watch is declared first, since the first
         // match carries.
@@ -488,7 +561,6 @@ mod tests {
         let path = dir.join("rollout-rot.jsonl");
         fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
         let mut state = tail(path.clone());
-        state.format = TailFormat::Claude;
         let (_, replay) = drain_all(&mut state);
         assert!(!replay.root, "first drain is a plain read");
 
@@ -515,8 +587,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut state = tail(path.clone());
-        state.format = TailFormat::Claude;
+        let mut state = tail_with_siblings(path.clone(), subagents.clone());
         let (first, _) = drain_all(&mut state);
         assert_eq!(first.len(), 2, "root row + subagent row");
         assert!(drain_all(&mut state).0.is_empty(), "all consumed");
@@ -546,8 +617,7 @@ mod tests {
         let sub = subagents.join("agent-a.jsonl");
         fs::write(&sub, format!("{CLAUDE_ASSISTANT_LINE}\n{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
 
-        let mut state = tail(path.clone());
-        state.format = TailFormat::Claude;
+        let mut state = tail_with_siblings(path.clone(), subagents.clone());
         drain_all(&mut state);
 
         // Only the SUBAGENT file shrinks; the root is untouched.
@@ -566,7 +636,6 @@ mod tests {
         let dir = temp_dir();
         let path = dir.join("wire.jsonl");
         let mut state = tail(path.clone());
-        state.format = TailFormat::KimiWire;
         state.watches = summing_watch();
 
         fs::write(&path, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
@@ -593,7 +662,6 @@ mod tests {
         let dir = temp_dir();
         let path = dir.join("wire.jsonl");
         let mut state = tail(path.clone());
-        state.format = TailFormat::KimiWire;
         state.watches = summing_watch();
         let record = |input: u64| {
             format!(
@@ -620,7 +688,6 @@ mod tests {
         let dir = temp_dir();
         let path = dir.join("claude.jsonl");
         let mut state = tail(path.clone());
-        state.format = TailFormat::Claude;
         state.watches = deduplicating_watch();
         let repeated =
             CLAUDE_ASSISTANT_LINE.replace(r#""output_tokens":30"#, r#""output_tokens":45"#);
@@ -665,8 +732,7 @@ mod tests {
             );
         fs::write(subagents.join("agent-a.jsonl"), format!("{subagent}\n")).unwrap();
 
-        let mut state = tail(path);
-        state.format = TailFormat::Claude;
+        let mut state = tail_with_siblings(path, subagents.clone());
         state.watches = deduplicating_watch();
         let (drained, _) = drain_all(&mut state);
         assert_eq!(drained.len(), 2);
@@ -691,12 +757,13 @@ mod tests {
         let dir = temp_dir();
         let path = dir.join("session-late.jsonl");
         fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
-        let mut state = tail(path);
-        state.format = TailFormat::Claude;
+        let subagents = dir.join("session-late/subagents");
+        // Named at arming, and the directory does not exist yet — which is
+        // the point: it appears when the first subagent starts.
+        let mut state = tail_with_siblings(path, subagents.clone());
         state.watches = deduplicating_watch();
         drain_all(&mut state);
 
-        let subagents = dir.join("session-late/subagents");
         fs::create_dir_all(&subagents).unwrap();
         let subagent = CLAUDE_ASSISTANT_LINE
             .replace("msg-1", "msg-late")
@@ -711,6 +778,49 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
+
+    #[test]
+    fn a_cold_read_answers_with_the_same_collapse_a_live_arming_does() {
+        // The boot catch-up. What comes back must be indistinguishable from
+        // what a live tail delivers, because ONE normalizer reads both — and
+        // it is never told which it is looking at.
+        let dir = temp_dir();
+        let path = dir.join("cold.jsonl");
+        let watches = summing_watch();
+        fs::write(&path, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
+        set_mtime(&path, 2_000);
+
+        let found =
+            usage_read_store_cold(path.to_string_lossy().into(), watches).expect("read");
+        assert_eq!(found.mtime_ms, 2_000_000);
+        assert_eq!(found.records.len(), 1, "the last record of the one watch");
+        let record = &found.records[0].event["record"];
+        // Folded over the WHOLE file, exactly as an arming drain folds it.
+        assert_eq!(record["sessionTotals"]["inputOther"], 2400);
+        assert_eq!(
+            found.records[0].source_at,
+            Some(dialects::SourceTimestamp::UnixMillis(1_784_800_000_000))
+        );
+
+        // A store carrying nothing the declaration asked for is how the
+        // caller learns to try the next candidate.
+        let empty = dir.join("empty.jsonl");
+        fs::write(&empty, format!("{LLM_REQUEST_LINE}\n")).unwrap();
+        assert_eq!(
+            usage_read_store_cold(empty.to_string_lossy().into(), summing_watch()),
+            None
+        );
+        // So is a file that is not there at all.
+        assert_eq!(
+            usage_read_store_cold(
+                dir.join("missing.jsonl").to_string_lossy().into(),
+                summing_watch()
+            ),
+            None
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn reports_carry_the_agent_tag_and_the_catch_up_mark() {
@@ -731,15 +841,16 @@ mod tests {
         assert_eq!(wrapped.payload["sourceAt"], SOURCE_ISO);
         assert_eq!(wrapped.payload["sourceMtimeMs"], 1_234);
 
-        // The agent tag is the tail's, not the record's — and a store that
-        // stamps unix millis keeps its own instant just the same.
-        state.format = TailFormat::KimiWire;
+        // The agent tag is what the tail was ARMED with, never anything read
+        // out of the record — and a store that stamps unix millis keeps its
+        // own instant just the same.
+        state.agent = "kimi".into();
         let wrapped = report(&state, carry(USAGE_RECORD_LINE.as_bytes()), true);
         assert_eq!(wrapped.payload["agent"], "kimi");
         assert_eq!(wrapped.payload["catchUp"], true);
         assert_eq!(wrapped.payload["sourceAt"], 1_784_800_000_000_u64);
 
-        state.format = TailFormat::Claude;
+        state.agent = "claude".into();
         let wrapped = report(&state, carry(CLAUDE_ASSISTANT_LINE.as_bytes()), true);
         assert_eq!(wrapped.payload["agent"], "claude");
         assert_eq!(wrapped.payload["event"]["record"]["type"], "assistant");
@@ -788,7 +899,6 @@ mod tests {
         let dir = temp_dir();
         let path = dir.join("wire.jsonl");
         let mut state = tail(path.clone());
-        state.format = TailFormat::KimiWire;
 
         fs::write(&path, format!("{LLM_REQUEST_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
         let events = drain(&mut state);

@@ -301,9 +301,12 @@ describe("claude plugin hooks", () => {
 describe("claude plugin identity", () => {
   it("declares the Claude transcript usage tail", () => {
     const tail = activate(null).usage?.tail;
-    expect(tail?.format).toBe("claude");
-    // And says which records carry the numbers — the host reads none of it.
+    // Which records carry the numbers, and where the same session's other
+    // files are. The host reads neither — it applies them.
     expect(tail?.watches).toEqual(claudeUsageWatches);
+    expect(tail?.siblings?.("/p/session-1.jsonl")).toBe(
+      "/p/session-1/subagents",
+    );
   });
 
   it("ships the brand mark in Anthropic's tint", () => {

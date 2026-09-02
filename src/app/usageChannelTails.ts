@@ -61,17 +61,23 @@ export function createUsageTailsLane({
         if (!paneHasProcess(pane)) continue;
         const sessionId = pane.session?.id;
         if (!sessionId || tailed.has(pane.id)) continue;
-        if (usage.get(paneAgentType(pane))?.tail?.format !== "codex") continue;
-        const token = peekPaneSpawnSpec(pane.id)?.token;
-        if (!token) continue;
-
         const paneId = pane.id;
         const agentId = paneAgentType(pane);
+        const tail = usage.get(agentId)?.tail;
+        if (!tail) continue;
+        const token = peekPaneSpawnSpec(paneId)?.token;
+        if (!token) continue;
+
         const dialect = tailOf(agentId);
         if (!dialect) {
           // Nothing to ask. An agent whose plugin declares no dialect has no
           // store this lane can find on its own — the host used to know
           // where one CLI kept its files, and that knowledge went home.
+          //
+          // This used to be gated to ONE agent by name, which was the host
+          // saying out loud that it knew whose sessions could be resumed
+          // outside the deck. Asking whoever can be asked is the same
+          // behaviour: a dialect with nothing to find answers null.
           continue;
         }
         tailed.add(paneId);
@@ -93,11 +99,13 @@ export function createUsageTailsLane({
               paneId,
               path,
               token,
-              "codex",
+              agentId,
               // Read HERE rather than before the search: finding a store is
               // a walk, and a plugin toggled during it would leave this
               // arming a declaration that is no longer made.
               watchesFor(agentId),
+              declarations.current().get(agentId)?.tail?.siblings?.(path) ??
+                null,
             ).then(() => settleArm(paneId));
           })
           .catch((error) => {
@@ -155,12 +163,20 @@ export function createUsageTailsLane({
     // The agent's own declaration of which records to carry, handed through
     // verbatim: the backend applies it without reading it.
     const watches = watchesFor(agentId);
+    const siblings = tail.siblings?.(transcriptPath) ?? null;
     log.debug(
       "web:usage",
-      `${paneId}: arming ${tail.format} tail from binding, carrying ${watches.length} record shape(s) it declared`,
+      `${paneId}: arming ${agentId} tail from binding, carrying ${watches.length} record shape(s) it declared${siblings ? ` plus whatever lands in ${siblings}` : ""}`,
     );
     tailed.add(paneId);
-    void watchSessionFile(paneId, transcriptPath, token, tail.format, watches)
+    void watchSessionFile(
+      paneId,
+      transcriptPath,
+      token,
+      agentId,
+      watches,
+      siblings,
+    )
       .then(() => settleArm(paneId))
       .catch((error) => {
         tailed.delete(paneId);

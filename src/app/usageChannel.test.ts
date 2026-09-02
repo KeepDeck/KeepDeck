@@ -45,7 +45,7 @@ const ipc = vi.hoisted(() => ({
   fetchCodexRateLimits: vi.fn(),
   fetchKimiUsages: vi.fn(),
   findCodexRollout: vi.fn(),
-  latestCodexRollout: vi.fn(),
+  readStoreCold: vi.fn(),
   loadUsageCache: vi.fn(),
   saveUsageCache: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
@@ -62,7 +62,7 @@ vi.mock("../ipc/usage", () => ({
   fetchCodexRateLimits: ipc.fetchCodexRateLimits,
   fetchKimiUsages: ipc.fetchKimiUsages,
   findCodexRollout: ipc.findCodexRollout,
-  latestCodexRollout: ipc.latestCodexRollout,
+  readStoreCold: ipc.readStoreCold,
   loadUsageCache: ipc.loadUsageCache,
   saveUsageCache: ipc.saveUsageCache,
 }));
@@ -190,7 +190,12 @@ describe("createUsageChannel", () => {
           usage: {
             capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
-            tail: { format: "codex", watches: [] },
+            tail: {
+              watches: [],
+              // The agent names its own candidates; the lane reads them in
+              // order until one makes an account claim.
+              sweep: () => Promise.resolve(["/newest.jsonl"]),
+            },
             limits: {
               poll: "codex-app-server",
               normalize: () => null,
@@ -229,7 +234,7 @@ describe("createUsageChannel", () => {
       .mockResolvedValue({ body: "{}", sourceAt: Date.now() });
     ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
-    ipc.latestCodexRollout.mockReset().mockResolvedValue(null);
+    ipc.readStoreCold.mockReset().mockResolvedValue(null);
     ipc.loadUsageCache.mockReset().mockResolvedValue(null);
     ipc.saveUsageCache.mockReset().mockResolvedValue(undefined);
     ipc.peekPaneSpawnSpec
@@ -342,10 +347,13 @@ describe("createUsageChannel", () => {
       "pane-1",
       "/x/rollout.jsonl",
       "tok-1",
+      // The AGENT, not a dialect name — the lane knows whose pane this is.
       "codex",
       // Exactly what the plugin declared — the lane passes it through
       // without reading it.
       CODEX_WATCHES,
+      // codex keeps a session in one file, so it names no siblings.
+      null,
     );
   });
 
@@ -408,6 +416,7 @@ describe("createUsageChannel", () => {
       "tok-1",
       "codex",
       CODEX_WATCHES,
+      null,
     );
   });
 
@@ -432,10 +441,13 @@ describe("createUsageChannel", () => {
       "pane-1",
       "/x/rollout.jsonl",
       "tok-1",
+      // The AGENT, not a dialect name — the lane knows whose pane this is.
       "codex",
       // Exactly what the plugin declared — the lane passes it through
       // without reading it.
       CODEX_WATCHES,
+      // codex keeps a session in one file, so it names no siblings.
+      null,
     );
   });
 
@@ -463,6 +475,7 @@ describe("createUsageChannel", () => {
         "tok-1",
         "codex",
         CODEX_WATCHES,
+        null,
       );
     } finally {
       vi.useRealTimers();
@@ -538,7 +551,7 @@ describe("createUsageChannel", () => {
           usage: {
             capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
-            tail: { format: "kimi-wire", watches: [] },
+            tail: { watches: [] },
             limits: {
               poll: "kimi-usages",
               normalize: (_body, at) => ({
@@ -683,24 +696,28 @@ describe("createUsageChannel", () => {
     // plugin's declaration ever disagree the account chip goes quietly blank
     // at boot — which a stubbed normalizer could never show.
     ipc.contributions[1]!.entry.usage!.normalize = normalizeCodexRollout;
-    ipc.latestCodexRollout.mockResolvedValue({
-      event: {
-        type: "store.record",
-        lane: "usage",
-        record: {
-          payload: {
-            type: "token_count",
-            rate_limits: {
-              primary: {
-                used_percent: 40,
-                window_minutes: 10_080,
-                resets_at: 1_784_834_810,
+    ipc.readStoreCold.mockResolvedValue({
+      records: [
+        {
+          event: {
+            type: "store.record",
+            lane: "usage",
+            record: {
+              payload: {
+                type: "token_count",
+                rate_limits: {
+                  primary: {
+                    used_percent: 40,
+                    window_minutes: 10_080,
+                    resets_at: 1_784_834_810,
+                  },
+                },
               },
             },
           },
+          sourceAt: "1970-01-01T00:00:02.000Z",
         },
-      },
-      sourceAt: "1970-01-01T00:00:02.000Z",
+      ],
       mtimeMs: 1_234,
     });
     // No codex pane anywhere — the account chip still catches up from disk.
@@ -712,17 +729,20 @@ describe("createUsageChannel", () => {
     });
     // Account state only: without a pane there is nothing to attribute.
     expect(usage.getSnapshot().panes.size).toBe(0);
+    // The candidate the AGENT named, read with the watches it declared.
+    expect(ipc.readStoreCold).toHaveBeenCalledWith("/newest.jsonl", []);
 
     // Remounting lanes never re-sweeps.
     await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {});
-    expect(ipc.latestCodexRollout).toHaveBeenCalledTimes(1);
+    expect(ipc.readStoreCold).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to rollout mtime when boot provenance is from the future", async () => {
-    ipc.latestCodexRollout.mockResolvedValue({
-      event: { type: "token_count" },
-      sourceAt: "2099-01-01T00:00:00.000Z",
+    ipc.readStoreCold.mockResolvedValue({
+      records: [
+        { event: { type: "token_count" }, sourceAt: "2099-01-01T00:00:00.000Z" },
+      ],
       mtimeMs: 1_234,
     });
 

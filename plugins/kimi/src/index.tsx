@@ -71,7 +71,7 @@ const plugin: KeepDeckPlugin = {
       // behind the polled usages endpoint (kimi's own /usage queries it too).
       usage: {
         normalize: normalizeKimiWire,
-        tail: { format: "kimi-wire", watches: kimiUsageWatches },
+        tail: { watches: kimiUsageWatches },
         limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
       },
       // Turn lifecycle from the companion's hooks — the fullest surface of

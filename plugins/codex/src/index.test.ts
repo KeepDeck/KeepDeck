@@ -323,8 +323,10 @@ describe("codex plugin identity", () => {
 
   it("declares the shared app-server account-limits source", () => {
     const agent = activate(null);
-    expect(agent.usage?.tail?.format).toBe("codex");
     expect(agent.usage?.tail?.watches).toEqual(codexUsageWatches);
+    // A rollout records the ACCOUNT's limits, so codex asks to be swept at
+    // boot — it is also run outside the deck, where quota is spent unseen.
+    expect(agent.usage?.tail?.sweep).toBeTypeOf("function");
     expect(agent.usage?.limits?.poll).toBe("codex-app-server");
   });
 

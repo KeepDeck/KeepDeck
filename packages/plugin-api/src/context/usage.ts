@@ -124,21 +124,38 @@ export interface UsageTail {
   /** Which records carry this agent's numbers, and what a total over them
    * is made of. Every watch here rides the usage lane. */
   readonly watches: readonly TailWatch[];
-  /**
-   * The dialect name the host still knows this agent's store by.
-   *
-   * All that is left of the old arrangement, and it no longer parses
-   * anything: the reader keeps it to tag reports with an agent, and one
-   * cold path — the boot sweep over codex's sessions tree — still uses it to
-   * find whose store to walk. Both are topology rather than format, and both
-   * go when topology does.
-   */
-  readonly format: UsageTailFormat;
-}
 
-/** Session-file dialects the host's native tailer still knows by name.
- * @deprecated Nothing reads a record by this any more — see `UsageTail`. */
-export type UsageTailFormat = "claude" | "codex" | "kimi-wire";
+  /**
+   * A directory of files that contribute to the SAME session as the store
+   * being followed, or null when this agent keeps its session in one file.
+   *
+   * Claude writes a subagent's turns to `<transcript>/subagents/*.jsonl`,
+   * and those rows are the session's cost as much as the root file's — but
+   * the rule that turns one path into the other is claude's. The host used
+   * to hold it, which meant every pane of every agent paid a directory read
+   * per poll for a convention only one of them has.
+   *
+   * Given the store's path, answer with a directory. The host lists it each
+   * poll rather than once, because the files appear as subagents start —
+   * long after the tail was armed.
+   */
+  siblings?(store: string): string | null;
+
+  /**
+   * Stores worth reading cold at startup, newest first, when this agent's
+   * store records the ACCOUNT's state.
+   *
+   * The boot catch-up: an agent that also runs outside KeepDeck can have
+   * spent quota the deck never saw, so its own files can know fresher limits
+   * than a persisted snapshot. The host reads these one at a time until a
+   * normalizer makes an account claim, then stops — so answer with a bounded
+   * list, and put the likeliest first.
+   *
+   * Omit unless the store really carries account state; a per-pane token
+   * count is worth nothing before any pane exists.
+   */
+  sweep?(): Promise<readonly string[]>;
+}
 
 /** Native polled limit sources the host offers. */
 export type UsageLimitsSource = "codex-app-server" | "kimi-usages";

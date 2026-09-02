@@ -29,6 +29,55 @@ export const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
  * the session's first turn lands, so a pane that has reported its id but not
  * yet worked has no file — and the caller simply asks again later.
  */
+/**
+ * The newest rollouts on disk, newest first — the boot catch-up's candidates.
+ *
+ * Codex runs outside KeepDeck too, so its own files can know fresher account
+ * limits than anything this deck persisted. A just-launched session writes
+ * its rollout before any turn, though, so the newest file often carries no
+ * limits at all and the real last word is one or two files back — hence a
+ * LIST rather than an answer, read in order until one says something.
+ *
+ * Bounded twice over: the walk stops descending once it has enough, and the
+ * day partitions are visited newest-first, so an account with years of
+ * history costs the same as one with a week.
+ */
+export async function newestRollouts(
+  ctx: PluginContext,
+  limit: number,
+): Promise<string[]> {
+  const found: { path: string; mtime: number }[] = [];
+  const walk = async (path: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await ctx.services.fs.readDir(path);
+    } catch {
+      // One unreadable partition is not an answer about the account; the
+      // rest of the walk still is.
+      return;
+    }
+    const dirs: string[] = [];
+    for (const entry of entries) {
+      if (entry.kind === "dir") {
+        dirs.push(entry.path);
+        continue;
+      }
+      if (entry.kind !== "file") continue;
+      if (!FILE_UUID.test(entry.name)) continue;
+      found.push({ path: entry.path, mtime: entry.mtime ?? 0 });
+    }
+    for (const dir of dirs.sort().reverse()) {
+      if (found.length >= limit) return;
+      await walk(dir);
+    }
+  };
+  await walk(ROOT);
+  return found
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, limit)
+    .map((entry) => entry.path);
+}
+
 export async function findRollout(
   ctx: PluginContext,
   sessionId: string,

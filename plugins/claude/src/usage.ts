@@ -20,6 +20,22 @@ import {
  */
 
 /**
+ * Where claude keeps the transcripts of one session's subagents.
+ *
+ * A subagent writes its own turns to `<transcript-without-extension>/
+ * subagents/*.jsonl`, and those rows are the session's cost as much as the
+ * root file's — a session whose work happened in subagents would otherwise
+ * report almost nothing. Only its turn EDGES stay its own: a subagent's
+ * abort is not the pane's.
+ *
+ * The host used to hold this rule, which meant a pane of every OTHER agent
+ * paid a directory read per poll for a convention only claude has.
+ */
+export function claudeSubagentDirectory(store: string): string {
+  return `${store.replace(/\.[^./]*$/, "")}/subagents`;
+}
+
+/**
  * What a claude transcript is worth reading for the numbers, and what a
  * session total over it is made of.
  *

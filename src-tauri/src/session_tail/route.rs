@@ -21,7 +21,7 @@ const CATCH_UP_KEY: &str = "catchUp";
 pub(super) fn wrap(
     pane_id: &str,
     token: &str,
-    agent: &'static str,
+    agent: &str,
     event: TailedEvent,
     catch_up: bool,
 ) -> Report {

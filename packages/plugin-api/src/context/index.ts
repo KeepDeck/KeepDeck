@@ -50,7 +50,6 @@ export type {
   UsageLimitsSource,
   UsageNormalizer,
   UsageTail,
-  UsageTailFormat,
   UsageWindow,
 } from "./usage.ts";
 export {

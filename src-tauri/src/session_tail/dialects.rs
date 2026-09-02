@@ -9,31 +9,13 @@ use std::path::PathBuf;
 
 use super::totals::Folds;
 
-/// The name the webview still calls a store by.
-///
-/// It used to be the dialect: each variant owned a line filter, a catch-up
-/// order and a set of parse arms, which is how three CLIs' formats came to
-/// live in the side that was meant to know none of them. All of that is
-/// declared by the plugins now, and what is left is a label — the `agent`
-/// tag reports ride under, and the one cold path that still walks a
-/// particular CLI's sessions tree. Both are topology, and both are going.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum TailFormat {
-    Claude,
-    Codex,
-    KimiWire,
-}
-
-impl TailFormat {
-    pub(super) fn agent(self) -> &'static str {
-        match self {
-            TailFormat::Claude => "claude",
-            TailFormat::Codex => "codex",
-            TailFormat::KimiWire => "kimi",
-        }
-    }
-}
+// A `TailFormat` enum stood here — Claude, Codex, KimiWire — and each
+// variant owned a line filter, a catch-up order and a set of parse arms.
+// That is how three CLIs' formats came to live in the side meant to know
+// none of them. The last two things it was still good for are gone with it:
+// the `agent` tag a report rides under is passed at arming by the side that
+// knows the pane, and the shape of a store is described by the plugin whose
+// store it is. Nothing in this module names an agent now.
 
 /// One condition on a record's field, named by a dotted path (mirrors the
 /// TS wire).
@@ -261,11 +243,14 @@ pub(super) struct TailedEvent {
 // the records and the fields, a sum names the arithmetic — and this file
 // compares keys and copies values without knowing whose store it is in.
 
-/// Claude subagents write their own assistant rows next to the root
-/// transcript. Discover them every poll because the directory and files can
-/// appear after the watch is armed.
-pub(super) fn claude_subagent_paths(root: &std::path::Path) -> Vec<PathBuf> {
-    let directory = root.with_extension("").join("subagents");
+/// The `.jsonl` files in a directory the followed store's own dialect named
+/// as contributing to the SAME session.
+///
+/// Read every poll rather than once, because the files appear as the work
+/// that writes them starts — long after the tail was armed. Which directory
+/// is not asked here: the rule that turns a transcript's path into its
+/// siblings' is the agent's, and it arrives already applied.
+pub(super) fn sibling_paths(directory: &std::path::Path) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(directory) else {
         return Vec::new();
     };

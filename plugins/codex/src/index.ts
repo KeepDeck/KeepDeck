@@ -19,6 +19,7 @@ import {
   normalizeCodexStatus,
   renderCodexMail,
 } from "./status";
+import { newestRollouts } from "./store";
 import { codexTail } from "./tail";
 import {
   codexUsageWatches,
@@ -153,7 +154,15 @@ const plugin: KeepDeckPlugin = {
       // come from the host's one shared official app-server manager.
       usage: {
         normalize: normalizeCodexRollout,
-        tail: { format: "codex", watches: codexUsageWatches },
+        tail: {
+          watches: codexUsageWatches,
+          // A rollout records the ACCOUNT's limits, so the newest files on
+          // disk are worth reading before any pane exists. Ten because a
+          // just-launched session writes its rollout before its first turn:
+          // the newest file can be empty of limits while the real last word
+          // sits a file or two back.
+          sweep: () => newestRollouts(ctx, 10),
+        },
         limits: {
           poll: "codex-app-server",
           normalize: normalizeCodexRateLimits,
