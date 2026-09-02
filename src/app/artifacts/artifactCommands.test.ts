@@ -50,6 +50,7 @@ function setup(panes: Workspace["panes"]) {
   const registry = createCommandRegistry();
   const dispose = registerArtifactCommands(registry, {
     deck: () => ({ workspaces: [ws(panes)] }),
+    changed: () => {},
   });
   const run = async (
     id: string,

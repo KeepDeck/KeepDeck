@@ -57,8 +57,15 @@ export interface ArtifactCommandDeps {
    * surfaces re-read on it. Distinct from `announce`, which is about the
    * user's attention and so fires for first publishes and deletes only:
    * a version that changes nothing worth a notification still changes
-   * what a list is showing. */
-  changed?: () => void;
+   * what a list is showing.
+   *
+   * REQUIRED, not optional — the artifacts policy's own rule, applied
+   * here: a default would let the composition root forget the binding
+   * and leave the failure invisible. Dropped, an agent's publish would
+   * still land in the store while every open surface quietly stopped
+   * re-reading, and no focused test would notice. Required, the compiler
+   * does. */
+  changed: () => void;
 }
 
 /** The refusal every artifact tool gives an anonymous caller — reason
@@ -226,7 +233,7 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         message,
         autoOpen,
       });
-      deps.changed?.();
+      deps.changed();
       if (wire.isNew && deps.announce) {
         deps.announce({
           kind: "published",
@@ -324,7 +331,7 @@ function deleteCommand(deps: ArtifactCommandDeps): CommandSpec {
         workspaceId: caller.workspaceId,
         slug: id,
       });
-      if (outcome.deleted) deps.changed?.();
+      if (outcome.deleted) deps.changed();
       if (outcome.deleted && deps.announce) {
         deps.announce({
           kind: "deleted",

@@ -167,21 +167,14 @@ export function createAppRuntime(
     },
     { enable: artifactsEnable, disable: artifactsDisable },
     (transition) => {
-      // A failed transition MUST be visible somewhere: the contention
-      // refusal ("owned by another KeepDeck process") would otherwise be
-      // dropped entirely — the toggle reads On while the store is
-      // claimed elsewhere, and the only symptom is every publish
-      // refusing. The log is the floor; the gate retraction (below) is
-      // the behavior; the status keeps the REASON, which is the only
-      // copy of it — the store itself knows only that it is closed.
+      // A failed transition MUST be visible somewhere, and each half of
+      // that has ONE owner: the policy logs the failed call (it is the
+      // one that made it), the gate retraction below is the behavior,
+      // and the status keeps the REASON — the only copy of it, since the
+      // store itself knows nothing but that it is closed. Logging here
+      // as well printed every backend refusal twice, in the same words.
       artifactsEnableOk = transition.ok;
       artifactsEnableStatus.record(transition);
-      if (!transition.ok) {
-        log.warn(
-          "web:artifacts",
-          `artifacts ${transition.desired ? "enable" : "disable"} failed: ${transition.detail}`,
-        );
-      }
       // Every claim flip changes the bundled skills staging gate — the
       // tier's arming follows the claim, and the staging memo only
       // invalidates on skill writes, so without this a flip leaves panes
