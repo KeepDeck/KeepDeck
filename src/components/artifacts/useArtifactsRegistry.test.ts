@@ -179,8 +179,14 @@ describe("useArtifactsRegistry", () => {
 
     act(() => registry.requestDelete("auth-flow"));
     // The TITLE, not the id: the question has to name what the user is
-    // looking at.
-    expect(registry.confirm).toEqual({ id: "auth-flow", title: "The auth-flow" });
+    // looking at. The stamp rides along so the answer belongs to THIS
+    // row rather than to whatever wears its id later.
+    expect(registry.confirm).toEqual({
+      id: "auth-flow",
+      title: "The auth-flow",
+      updatedAt: 1_700_000_000_000,
+      versionCount: 2,
+    });
     expect(removed).not.toHaveBeenCalled();
 
     act(() => registry.cancelConfirm());
@@ -202,6 +208,68 @@ describe("useArtifactsRegistry", () => {
     // too, and a delete kept to one of them leaves the rest lying.
     expect(registry.rows?.map((r) => r.id)).toEqual(["deck-layout"]);
     expect(registry.confirm).toBeNull();
+  });
+
+  it("withdraws the question when the row moves under it", async () => {
+    // An id is not an identity: a delete frees it, and the next publish
+    // under the same id is a NEW artifact. An agent doing exactly that
+    // while the user sits on the question would leave the answer aimed at
+    // something they never saw — the modal blocks the human, not the
+    // agent.
+    mount();
+    await settle();
+    act(() => registry.requestDelete("auth-flow"));
+    expect(registry.confirm).not.toBeNull();
+
+    // Same id, new artifact: version 1 again, a newer stamp.
+    listed.mockResolvedValueOnce([
+      row("auth-flow", { versionCount: 1, updatedAt: 1_700_000_009_999 }),
+      row("deck-layout"),
+    ]);
+    act(() => artifactChanges.changed());
+    await settle();
+
+    expect(registry.confirm).toBeNull();
+    expect(removed).not.toHaveBeenCalled();
+  });
+
+  it("keeps the question standing while its own row is untouched", async () => {
+    // The cure must not be a surface that closes itself whenever anything
+    // else in the workspace is published.
+    mount();
+    await settle();
+    act(() => registry.requestDelete("auth-flow"));
+
+    listed.mockResolvedValueOnce([row("auth-flow"), row("deck-layout"), row("port-map")]);
+    act(() => artifactChanges.changed());
+    await settle();
+
+    expect(registry.confirm).toEqual({
+      id: "auth-flow",
+      title: "The auth-flow",
+      updatedAt: 1_700_000_000_000,
+      versionCount: 2,
+    });
+  });
+
+  it("does not claim the store changed when nothing was deleted", async () => {
+    // Deleting is idempotent; a no-op that announced a change would send
+    // every subscriber to walk the store again over nothing. The agent's
+    // delete already obeys this rule.
+    removed.mockResolvedValueOnce({
+      id: "auth-flow",
+      deleted: false,
+      versionCount: null,
+      createdAt: null,
+    });
+    mount();
+    await settle();
+    act(() => registry.requestDelete("auth-flow"));
+
+    act(() => registry.confirmDelete());
+    await settle();
+
+    expect(listed).toHaveBeenCalledTimes(1);
   });
 
   it("a refused delete says so and leaves the row where it is", async () => {

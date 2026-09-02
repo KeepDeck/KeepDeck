@@ -16,6 +16,16 @@ import { describeError } from "../../ipc/log";
 /** How long a copied-id acknowledgement stays on its row. */
 const COPIED_ACK_MS = 1500;
 
+/** A deletion the user has been asked about, and the row it was asked
+ * about — the stamp is what makes the answer belong to that row and not
+ * merely to its id. */
+interface ArtifactConfirm {
+  id: string;
+  title: string;
+  updatedAt: number;
+  versionCount: number;
+}
+
 export interface ArtifactsRegistry {
   /** The workspace's artifacts, or `null` while the first read is still
    * out — an empty list must not claim "nothing published" before the
@@ -30,9 +40,11 @@ export interface ArtifactsRegistry {
   busyId: string | null;
   /** The row whose id sits in the clipboard, until the ack expires. */
   copiedId: string | null;
-  /** The deletion waiting for an answer — the row's TITLE too, because
-   * that is what the question has to name. */
-  confirm: { id: string; title: string } | null;
+  /** The deletion waiting for an answer. The TITLE because that is what
+   * the question has to name, and the row's STAMP because an id alone
+   * does not identify what the user agreed to delete — see
+   * [`requestDelete`]. */
+  confirm: ArtifactConfirm | null;
   open(id: string): void;
   copyId(id: string): void;
   /** Ask. Deleting takes every version and cannot be undone, so nothing
@@ -73,9 +85,7 @@ export function useArtifactsRegistry(
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<{ id: string; title: string } | null>(
-    null,
-  );
+  const [confirm, setConfirm] = useState<ArtifactConfirm | null>(null);
   const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Every publish and delete this app makes bumps the revision, which is
   // the read's other input — so the list follows the store instead of
@@ -165,10 +175,33 @@ export function useArtifactsRegistry(
       // to ask.
       const row = rows?.find((candidate) => candidate.id === id);
       if (row === undefined) return;
-      setConfirm({ id, title: row.title });
+      setConfirm({
+        id,
+        title: row.title,
+        updatedAt: row.updatedAt,
+        versionCount: row.versionCount,
+      });
     },
     [rows],
   );
+
+  // An id is not an identity here: deleting an artifact frees its id, and
+  // the next publish under that id is a NEW artifact with a fresh token
+  // (the store calls it a resurrection). An agent that deletes and
+  // republishes `draft` while the user sits on the question would leave
+  // the answer pointing at something they never saw — and the modal
+  // blocks the human, not the agent. So the question stands only while
+  // its row does, unchanged: any move under it withdraws the question
+  // rather than re-aiming it.
+  useEffect(() => {
+    if (confirm === null || rows === null) return;
+    const row = rows.find((candidate) => candidate.id === confirm.id);
+    const same =
+      row !== undefined &&
+      row.updatedAt === confirm.updatedAt &&
+      row.versionCount === confirm.versionCount;
+    if (!same) setConfirm(null);
+  }, [rows, confirm]);
 
   const cancelConfirm = useCallback(() => setConfirm(null), []);
 
@@ -178,12 +211,17 @@ export function useArtifactsRegistry(
     setConfirm(null);
     setBusyId(id);
     void artifactDelete({ workspaceId, slug: id })
-      .then(() => {
+      .then((outcome) => {
         setError(null);
         // Announced on the app's one channel rather than dropped from the
         // list here: this surface is not the only one showing the store,
         // and a delete it kept to itself would leave the others lying.
-        artifactChanges.changed();
+        //
+        // Only when something WENT, which is the same rule the agent's
+        // delete obeys: deleting is idempotent, and a no-op that claimed
+        // the store had changed would send every subscriber to walk it
+        // again over nothing.
+        if (outcome.deleted) artifactChanges.changed();
       })
       .catch((e: unknown) => setError(describeError(e)))
       .finally(() => setBusyId((current) => (current === id ? null : current)));
