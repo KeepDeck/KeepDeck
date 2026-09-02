@@ -29,6 +29,7 @@ import {
   awaitsAnswer,
   decideDelivery,
   decideHandover,
+  doorName,
   sendRefusal,
   droppedNotice,
   forgottenNotice,
@@ -39,6 +40,7 @@ import {
   senderName,
   type CancelOutcome,
   type Mail,
+  type MailDoor,
   type MailKind,
   type MailLimits,
   type MailSender,
@@ -756,18 +758,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * has usually taken some journal entries already, and the budget covers
    * the whole answer, not the queue's share of it.
    */
-  function drainQueue(
-    paneId: string,
-    collected: Mail[],
-    opts: {
-      /** Whether the two hold clauses apply. They do when the deck is about
-       * to push at a pane; they do not when the pane is the one asking. */
-      holds: boolean;
-      /** Names the lane in the log — the only window onto which door a
-       * message left through. */
-      lane: string;
-    },
-  ): void {
+  function drainQueue(paneId: string, collected: Mail[], door: MailDoor): void {
     const queue = queues.get(paneId);
     if (!queue) return;
     let carried = collected.reduce((sum, mail) => sum + mail.body.length, 0);
@@ -789,16 +780,24 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         );
         break;
       }
-      // A pane parked on a permission prompt is unsafe to push at through
-      // either door. Asked rather than repeated: copied once, it became a
-      // fifth reason to hold that the terminal honoured and the briefing
-      // path silently ignored.
-      if (opts.holds && decideHandover(deps.activityOf(paneId)) === "hold") break;
+      // Whether a pane parked on a permission prompt is safe to hand to is
+      // the DOOR's question, and it is asked rather than answered here:
+      // copied into this file once, it became a reason to hold that the
+      // terminal honoured and the briefing path silently ignored.
+      if (decideHandover(deps.activityOf(paneId), door) === "hold") {
+        // Said out loud, because the alternative reading of a break here is
+        // "the queue was empty", and those are opposite facts about a pane.
+        log.debug(
+          "web:mail",
+          `held from ${doorName(door)}, the pane is at a prompt: ${trace(head)}`,
+        );
+        break;
+      }
       queue.shift();
       // Asking for it IS reading it — the one moment the deck can witness
       // rather than assume.
       remember(paneId, head, "read");
-      log.info("web:mail", `handed to ${opts.lane}: ${trace(head)}`);
+      log.info("web:mail", `handed to ${doorName(door)}: ${trace(head)}`);
       collected.push(head);
       carried += head.body.length;
     }
@@ -846,7 +845,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
 
     takeAtTurnEnd(paneId) {
       const taken: Mail[] = [];
-      drainQueue(paneId, taken, { holds: true, lane: "the turn-end hook" });
+      drainQueue(paneId, taken, "turn-boundary");
       // Whatever is left (a held prompt, a fresh notice) still needs its
       // timer, and the queue just moved under it.
       drain();
@@ -987,11 +986,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // behind was stranded there, out of reach of the turn-boundary
       // hand-over, which reads the queue and nothing else.
       //
-      // The two refusals a hand-over honours do not apply here: a permission
-      // prompt is about pushing AT a pane and this is the pane asking, and
-      // standing context is held back from the TERMINAL, while this answer
-      // travels as the call's own result.
-      drainQueue(paneId, messages, { holds: false, lane: "an explicit read" });
+      // Which refusals apply is the door's answer, not this call site's: a
+      // permission prompt is about pushing AT a pane and this is the pane
+      // asking, and standing context is held back from the TERMINAL, while
+      // this answer travels as the call's own result.
+      drainQueue(paneId, messages, "explicit-read");
 
       // Re-reading the journal is a different question, and it is asked from
       // the OTHER end: an agent whose context was rebuilt wants where things

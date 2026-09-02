@@ -189,21 +189,55 @@ export type MailVerdict =
   | { kind: "hold"; reason: MailHoldReason };
 
 /**
- * Whether `mail` may be handed over at a turn boundary, when the agent has
- * come asking for it.
+ * How the agent came for its mail.
  *
- * The two clauses it shares with [`decideDelivery`] are shared on purpose —
- * they were copied into the application owner once, and a fifth reason to
- * hold would then have been honoured on the terminal path and ignored on the
- * labelled one, which is the path a briefing exclusively uses.
+ * Not a label on the log line — the door is the only thing that decides
+ * whether the permission clause applies, and until it had a name that fact
+ * travelled as a boolean the CALLER set. A boolean says which behaviour the
+ * caller wanted; this says which situation it is in, and the behaviour is
+ * derived here. The difference shows the moment a third door arrives: it
+ * takes a member, not a second flag beside the first.
+ */
+export type MailDoor =
+  /** The agent's own hook, asked as a turn ends. The deck is answering, but
+   * the pane is still one the deck is pushing text AT — a hook's answer is
+   * printed into the session — so the prompt clause holds here. */
+  | "turn-boundary"
+  /** The agent called for its mail itself. The words travel back as that
+   * call's own result, which is the one route that touches neither the
+   * terminal nor the session's input. */
+  | "explicit-read";
+
+/**
+ * Whether `mail` may be handed over, given how the agent came for it.
+ *
+ * The clause it shares with [`decideDelivery`] is shared on purpose — it was
+ * copied into the application owner once, and a fifth reason to hold would
+ * then have been honoured on the terminal path and ignored on the labelled
+ * one, which is the path a briefing exclusively uses.
  *
  * What it does NOT share is the rest: everything below the permission clause
  * in `decideDelivery` decides between the two channels, and this IS the
  * labelled channel. Standing context is the clearest case — held there,
- * delivered here, because this is the moment it was waiting for.
+ * delivered here, because this is the moment it was waiting for, and no door
+ * changes that.
  */
-export function decideHandover(activity: PaneActivity | undefined): "hand" | "hold" {
+export function decideHandover(
+  activity: PaneActivity | undefined,
+  door: MailDoor,
+): "hand" | "hold" {
+  // The pane is the one asking, so there is nothing to be unsafe about: a
+  // permission prompt is a fact about pushing AT a pane, and an answer to a
+  // call the agent made is not a push.
+  if (door === "explicit-read") return "hand";
   return parkedOnAPrompt(activity) ? "hold" : "hand";
+}
+
+/** The door in the words a log line wants. Derived rather than passed beside
+ * the door, because a caller free to name its own lane is a caller free to
+ * name it something the door is not. */
+export function doorName(door: MailDoor): string {
+  return door === "turn-boundary" ? "the turn-end hook" : "an explicit read";
 }
 
 /**

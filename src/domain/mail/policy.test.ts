@@ -227,24 +227,47 @@ describe("isOverdue", () => {
 
 describe("decideHandover", () => {
   it("shares the one clause it has with the terminal's verdict, rather than copying it", () => {
-    // A pane parked on a permission prompt is unsafe to push at through
-    // either door. Copied into the application owner once, it made a reason
-    // to hold that the terminal path honoured and this one — the path a
-    // briefing exclusively uses — silently ignored.
-    expect(decideHandover(approving)).toBe("hold");
+    // A pane parked on a permission prompt is unsafe to PUSH at, and a hook's
+    // answer is printed into the session. Copied into the application owner
+    // once, this made a reason to hold that the terminal path honoured and
+    // this one — the path a briefing exclusively uses — silently ignored.
+    expect(decideHandover(approving, "turn-boundary")).toBe("hold");
     expect(decideDelivery(mail(), approving)).toEqual({
       kind: "hold",
       reason: "permission",
     });
-    expect(decideHandover(done)).toBe("hand");
+    expect(decideHandover(done, "turn-boundary")).toBe("hand");
+  });
+
+  it("hands to a pane at a prompt when the PANE is the one asking", () => {
+    // The whole of what the door decides. An answer to a call the agent made
+    // travels back as that call's result, touching neither the terminal nor
+    // the session's input — so the clause about pushing at a parked pane has
+    // nothing to apply to.
+    //
+    // It used to be a boolean the call site passed, which says which
+    // behaviour the caller wanted rather than which situation it is in. Both
+    // doors are asserted here for that reason: the pair is the rule, and one
+    // of them alone would pass with the argument ignored.
+    expect(decideHandover(approving, "explicit-read")).toBe("hand");
+    expect(decideHandover(approving, "turn-boundary")).toBe("hold");
+    for (const activity of [working, done, failed, asking, undefined]) {
+      expect(decideHandover(activity, "explicit-read"), String(activity?.state)).toBe(
+        "hand",
+      );
+      expect(decideHandover(activity, "turn-boundary"), String(activity?.state)).toBe(
+        "hand",
+      );
+    }
   });
 
   it("hands over the standing context the other channel refuses to touch", () => {
     // The one place the two verdicts MUST differ: a briefing is held from the
     // terminal forever and delivered here, because this is the moment it was
-    // waiting for.
+    // waiting for — through either door, since neither is the terminal.
     const briefing = mail({ kind: "team", at: 0 });
-    expect(decideHandover(done)).toBe("hand");
+    expect(decideHandover(done, "turn-boundary")).toBe("hand");
+    expect(decideHandover(done, "explicit-read")).toBe("hand");
     expect(decideDelivery(briefing, done)).toEqual({
       kind: "hold",
       reason: "labelled-only",
@@ -259,7 +282,7 @@ describe("decideHandover", () => {
     // the message says — and its sender is told it is waiting instead.
     const old = mail({ at: 0 });
     const now = MAIL_LIMITS.undeliveredMs * 10;
-    expect(decideHandover(done)).toBe("hand");
+    expect(decideHandover(done, "turn-boundary")).toBe("hand");
     expect(decideDelivery(old, done)).toEqual({ kind: "wake" });
     expect(isOverdue(old, now)).toBe(true);
   });
