@@ -122,6 +122,12 @@ describe("kimi teams manifest", () => {
     // The one thing the text must actually make happen: a pane cannot be
     // told its role statically, so it has to go and ask.
     expect(skill).toContain("mail.inbox");
+    // And it must not restate a rule it cannot derive. Static prose is the
+    // one surface `kindGuidance` cannot compose, so a copy of that sentence
+    // here has no way of following the rule when it changes — this file
+    // promised an interrupt for a whole release after delivery stopped
+    // reading the kind. It points at the tool's description instead.
+    expect(skill).not.toContain("interrupt");
   });
 
   it("declares where its skills live, since they are not in the plugin root", () => {

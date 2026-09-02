@@ -343,7 +343,7 @@ export function createMailService(
         // refusal arms no timer — so the walk has to be re-run by hand. The
         // usual case finds an empty queue and does nothing; the case that
         // matters is a hand-over that gave the messages back, which must not
-        // wait out `hookWaitMs` for a nudge it could have had now.
+        // sit on an idle pane until something else happens to drive a pass.
         manager?.reconsider();
       };
     },

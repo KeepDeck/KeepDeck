@@ -13,11 +13,6 @@ import { isLeadAddress, parseRoleAddress } from "./roles";
 export interface MailLimits {
   /** How long a message stays worth delivering after it was spoken. */
   undeliveredMs: number;
-  /** How long to hope the receiver takes a turn of its own before spending
-   * one on it. At a turn boundary the agent asks the deck what is waiting
-   * and the message rides in free; past this, the deck nudges the pane into
-   * a turn instead — which delivers just as properly and costs one. */
-  hookWaitMs: number;
   /** How much teammate BODY text may leave the queue at one turn boundary,
    * in characters.
    *
@@ -45,14 +40,6 @@ export interface MailLimits {
  * already approved. That case is the whole reason a held message needs a
  * clock: late is worse than never, because never can be reported back.
  *
- * `hookWaitMs` — 45 seconds buys a free ride often enough to be worth it (a
- * teammate mid-task reaches a boundary well inside it) without making a
- * message to an idle agent feel lost. It is a COST knob, not a correctness
- * one: waiting longer is cheaper and slower, waiting less is the reverse,
- * and either way the message arrives through the same labelled channel. It
- * must stay well under `undeliveredMs`, or the nudge would never get a turn
- * before the message aged out.
- *
  * `handoverChars` — 32 000 is two full-size messages, or a great many
  * ordinary ones, and it is a CEILING rather than a target: a hand-over
  * always carries at least one message, however long, so nothing can be
@@ -61,19 +48,19 @@ export interface MailLimits {
  */
 export const MAIL_LIMITS: MailLimits = {
   undeliveredMs: 5 * 60_000,
-  hookWaitMs: 45_000,
   handoverChars: 32_000,
 };
 
-/** Why a message is still sitting undelivered. Both resolve on their own —
- * one when the user answers, one when the process reports — which is why
- * neither is a failure. */
+/** Why a message is still sitting undelivered. Every one resolves on its own
+ * — when the user answers the prompt, when the turn ends, when the agent
+ * comes asking — which is why none of them is a failure. */
 export type MailHoldReason =
   /** The pane is parked on a permission prompt. */
   | "permission"
-  /** This agent asks the deck for its mail at a turn boundary. Waiting buys
-   * a labelled envelope instead of a paste that reads like the user typed
-   * it — and that a TUI may not even submit. */
+  /** A turn is running, and this agent asks the deck for its mail when one
+   * ends. Waiting costs nothing: the boundary is coming by definition, and
+   * what it buys is a labelled envelope instead of a keystroke typed at
+   * somebody mid-sentence. */
   | "turn-boundary"
   /** This message may only arrive labelled, and the labelled channel has
    * not asked yet. See [`isStandingContext`]. */
@@ -144,16 +131,22 @@ export function isResponse(kind: MailKind): boolean {
 }
 
 /**
- * What choosing a kind COSTS, in the words its sender needs.
+ * What choosing a kind MEANS, in the words its sender needs.
  *
- * Since [`decideDelivery`] started reading the kind, this is no longer a
- * label on a message — it decides whether a teammate is pulled out of its
- * work. An agent picking one is deciding how to spend somebody else's turn,
- * and "task, question, answer, note" told it none of that.
+ * It used to say when a message would land, because [`decideDelivery`] read
+ * the kind and a teammate mid-turn was interrupted for some kinds and not
+ * others. Delivery no longer reads it at all, and the sentence promising the
+ * interrupt outlived the interrupt by long enough to be quoted back at the
+ * deck — so what it describes is now the one thing the kind still decides:
+ * [`awaitsAnswer`], which is what the deck books as outstanding and what an
+ * `all: true` read shows a pane as still owing.
  *
  * Derived from the predicate rather than written beside it, so the sentence
  * cannot say one thing while the code does another. Two surfaces disagreeing
- * about how mail works is the defect this whole feature keeps producing.
+ * about how mail works is the defect this whole feature keeps producing —
+ * and it is why the framing and the advice moved in here as well. Both were
+ * hand-copied at the two call sites, both said "it decides when it lands",
+ * and both had to be found by hand to stop saying it.
  */
 export function kindGuidance(kinds: readonly MailKind[]): string {
   const named = (chosen: readonly MailKind[]) => chosen.join(" and ");
@@ -165,12 +158,11 @@ export function kindGuidance(kinds: readonly MailKind[]): string {
     chosen.length === 1 ? single : plural;
   const asks = kinds.filter(awaitsAnswer);
   const rest = kinds.filter((kind) => !awaitsAnswer(kind));
-  // Both halves say "while it is working", because that is the only case the
-  // kind decides. An IDLE teammate is nudged for anything — it will reach no
-  // turn boundary on its own, so waiting for one would mean never arriving.
-  // Said without that clause, this promised a sender that notes are free,
-  // and idle is the ordinary state of a teammate between tasks.
-  return `while a teammate is working, ${named(asks)} ${one(asks, "interrupts", "interrupt")} it and ${one(asks, "costs", "cost")} it a turn, and ${named(rest)} ${one(rest, "waits", "wait")} for the turn boundary it is already heading for. A teammate that is idle is roused for any of them, because nothing else will bring it back.`;
+  // Timing is said too, in its own sentence, because saying nothing about it
+  // is what let the old promise stand unchallenged: a sender picking a kind
+  // is looking for its effect, and will read one into the choice if the text
+  // leaves the question open. It is now the same answer for every kind.
+  return `${named(asks)} ${one(asks, "expects", "expect")} something back, and the deck books it as still on the reader until they answer; ${named(rest)} ${one(rest, "leaves", "leave")} nothing open. When it lands is not part of the choice: every kind waits for the reader's next turn boundary, and a reader that is idle is roused because it will reach none on its own. Say what is true — a wrong kind either leaves you waiting on an answer nobody was asked for, or leaves a teammate owing one you never wanted.`;
 }
 export type MailVerdict =
   /**
@@ -269,18 +261,16 @@ function parkedOnAPrompt(activity: PaneActivity | undefined): boolean {
 export function decideDelivery(
   mail: Mail,
   activity: PaneActivity | undefined,
-  now: number,
-  limits: MailLimits = MAIL_LIMITS,
   /** Whether this pane's agent ASKS the deck for its mail when a turn ends.
    * False for a CLI with no such hook, and for one whose plugin does not
    * render mail — either way nothing collects at that pane's boundaries and
    * the words have to be fetched through MCP. */
   asksAtTurnEnd = false,
 ): MailVerdict {
-  // No clause for age. A message that has waited too long is a fact its
-  // SENDER is told about ([`isOverdue`]) — it is not a reason to stop trying
-  // to deliver it, and the receiver is the only party that can judge whether
-  // its contents still matter.
+  // No clause for age, and none for the clock at all. A message that has
+  // waited too long is a fact its SENDER is told about ([`isOverdue`]) — it
+  // is not a reason to stop trying to deliver it, and the receiver is the
+  // only party that can judge whether its contents still matter.
   // See [`parkedOnAPrompt`] for why this outranks everything below it.
   if (parkedOnAPrompt(activity)) return { kind: "hold", reason: "permission" };
   // A message that may only arrive labelled never touches the terminal —
@@ -308,30 +298,21 @@ export function decideDelivery(
   // Nothing collects at this pane's boundaries — that is what having no
   // labelled channel MEANS — so deferring to one strands the message.
   if (!asksAtTurnEnd) return { kind: "wake" };
+  // A turn is running, so a boundary is coming BY DEFINITION and the message
+  // rides it for free. Waiting for one is therefore not a bet — it is the
+  // one case where the free ride is certain, and it is unconditional: the
+  // kind of the message does not enter into it.
+  //
+  // It used to. Mail expecting an answer waited 45 seconds and then nudged
+  // anyway, on the theory that asking somebody for something is worth a turn
+  // of its own. It is not, because a nudge into a RUNNING turn buys no turn:
+  // the keystroke lands in the CLI's input queue, where it sits behind
+  // whatever the person was typing and takes their unsent text with it when
+  // it finally submits. The deck's own reminder destroying a half-written
+  // message is a straight loss, and the boundary it was impatient for was
+  // never more than seconds away.
   if (activity?.state === "working") {
-    // A turn is running, so a boundary is coming by definition and the
-    // message can ride it for free. What decides whether it is worth paying
-    // for a turn of its own is what the message EXPECTS: [`awaitsAnswer`]
-    // is true of exactly the kinds that need something back from this agent,
-    // and you spend somebody's turn to ask them for something, not to
-    // inform them.
-    //
-    // Routine mail waits without a clock. The clock used to apply to
-    // everything, so a pane still working after the wait fell through to a
-    // nudge — into a RUNNING turn, where it lands in the input queue and
-    // fires a turn of its own later. A ten-minute build collected one of
-    // those every 45 seconds.
-    if (!awaitsAnswer(mail.kind)) return { kind: "hold", reason: "turn-boundary" };
-    // Something that does expect an answer still waits a little, in case the
-    // boundary is near enough that the ride is free after all.
-    //
-    // Measured: a lead stopped 11 seconds before its team's three answers
-    // arrived, and every one of them then sat the full wait — 45 seconds of
-    // nothing, ending in the nudge that could have been sent at once. That
-    // pane was stopped, not working, which is the branch below.
-    if (now - mail.at < limits.hookWaitMs) {
-      return { kind: "hold", reason: "turn-boundary" };
-    }
+    return { kind: "hold", reason: "turn-boundary" };
   }
   // Nudge the pane into a turn and let ITS OWN channel carry the words. The
   // message stays where it is: the terminal's job here is to wake, never to

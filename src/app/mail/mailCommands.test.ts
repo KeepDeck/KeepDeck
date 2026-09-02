@@ -263,17 +263,20 @@ describe("mail.inbox", () => {
     }
   });
 
-  it("tells the caller what choosing a kind costs, in the tool's own description", async () => {
+  it("tells the caller what choosing a kind means, in the tool's own description", async () => {
     // The briefing carries this too, but the briefing is what an agent reads
     // once; the description is what it reads at the moment it is choosing.
-    // Both are composed from the predicate, and only one of them had a test.
+    // Both are the same sentence from the same function now — the framing
+    // around it was hand-copied at these two sites, and the copy here went
+    // on promising an interrupt after delivery stopped reading the kind.
     const { registry } = setup();
     const kind = registry
       .list()
       .find((command) => command.id === "mail.send")
       ?.args?.find((arg) => arg.name === "kind");
-    expect(kind?.description).toContain("interrupt it and cost it a turn");
-    expect(kind?.description).toContain("idle is roused");
+    expect(kind?.description).toContain("expect something back");
+    expect(kind?.description).toContain("When it lands is not part of the choice");
+    expect(kind?.description).not.toContain("interrupt");
   });
 
   it("refuses a replyTo an agent supplies — the edge is the deck's", async () => {

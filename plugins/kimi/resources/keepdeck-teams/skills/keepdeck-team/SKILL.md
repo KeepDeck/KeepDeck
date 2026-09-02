@@ -36,11 +36,11 @@ what you are answering — the subject, not an id. A send that answers
 `queued` has been accepted and will reach the other agent at its next turn —
 there is nothing for you to retry.
 
-The `kind` you choose decides when it lands. While a teammate is working, a
-`task` or a `question` interrupts it and costs it a turn, while an `answer`
-or a `note` waits for the turn boundary it is already heading for; an idle
-teammate is roused by any of them. Choose by what is true — an interrupt
-nobody needed is a teammate's turn spent for nothing.
+The `kind` you choose says whether you are leaving somebody owing you an
+answer. It does not decide when the message lands. What each kind means is
+spelled out in `mail.send`'s own description, which you read at the moment
+you are choosing — take it from there rather than from memory, and say what
+is true.
 
 Read what is new with `mail.inbox`. Reading is what marks a message read, so
 a plain call will not offer it again; pass `all: true` when you need to see

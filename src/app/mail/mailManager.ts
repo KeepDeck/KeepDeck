@@ -73,6 +73,27 @@ const INBOX_CEILING = 200;
 const QUEUE_LIMIT = 50;
 
 /**
+ * How long a nudge is given to produce a turn before the pane is nudged
+ * again.
+ *
+ * A RETRY CADENCE, and nothing else. It lived in the domain's limits as
+ * `hookWaitMs`, where it also decided how long a message was held back from
+ * a working pane before the deck gave up and typed at it — a wait for a hook,
+ * which is what the name described. Nothing waits for a hook any more:
+ * [`decideDelivery`] holds for a working pane unconditionally and reads no
+ * clock at all, so the only thing this paces is `drainPane` trying again
+ * after a nudge that produced nothing. That is the queue owner's business,
+ * not a rule about mail, and it is the last reader of the number.
+ *
+ * The value is unchanged at 45 seconds: it is a COST knob, not a correctness
+ * one — longer is quieter and slower, shorter is the reverse. It must stay
+ * well under [`MailLimits.undeliveredMs`], which is when `drainPane` stops
+ * nudging for a message altogether; a cadence at or above that window would
+ * spend the whole window on a single attempt.
+ */
+const RENUDGE_AFTER_MS = 45_000;
+
+/**
  * One delivered message and where it stands with its receiver.
  *
  * The states are linear and each edge is an event the deck WITNESSES, never
@@ -618,13 +639,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     let index = 0;
     while (index < queue.length) {
       const head = queue[index];
-      const verdict = decideDelivery(
-        head,
-        deps.activityOf(paneId),
-        at,
-        limits,
-        asksAtTurnEnd(paneId),
-      );
+      const verdict = decideDelivery(head, deps.activityOf(paneId), asksAtTurnEnd(paneId));
       // The message's own restriction, not the pane's: step over it and keep
       // looking. It leaves through `takeAtTurnEnd` or not at all — and it
       // schedules NOTHING, because standing context keeps no clock. There is
@@ -635,27 +650,19 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         index += 1;
         continue;
       }
-      // Held for a turn boundary: the wait is bounded, so the deadline is
-      // when waiting stops being worth it — not when the message dies.
-      // Missing that distinction would leave a pane whose turn never ends
-      // silently losing its mail instead of falling back to the terminal.
-      if (verdict.kind === "hold" && verdict.reason === "turn-boundary") {
-        log.debug("web:mail", `held for a turn boundary: ${trace(head)}`);
-        // Only a message that will give up waiting needs a deadline. One
-        // that expects an answer nudges once the wait runs out; routine mail
-        // waits for the boundary however long it takes, and resolves through
-        // the activity subscription like the permission hold below — so
-        // arming a timer for it would wake the pass to decide nothing.
-        return awaitsAnswer(head.kind) ? head.at + limits.hookWaitMs : null;
-      }
-      // Held on a permission prompt, which resolves through the activity
-      // subscription. Nothing else is worth waking a pass for: the deadline
-      // this used to schedule was the instant the message expired, and now
-      // that nothing expires it is a fixed point that slides permanently
-      // into the past — `Math.max(1, …)` then re-arms the timer at a
-      // millisecond, forever. That hazard was already documented here for
-      // standing context, which never had an expiry instant; taking expiry
-      // away gave every other message the same shape.
+      // Every remaining hold is a fact about the PANE — its turn is running,
+      // or it is parked on a permission prompt — and both resolve through the
+      // activity subscription, which is why neither arms a timer.
+      //
+      // The turn-boundary hold used to arm one: mail expecting an answer got
+      // a deadline, and past it the pane was nudged mid-turn. Nothing is
+      // impatient any longer, so that deadline has nothing to wake up and do
+      // — and a pane whose turn never ends loses nothing by its going, since
+      // the nudge it armed landed in the very turn it was waiting out.
+      // Nor has anything else here — the timer this branch scheduled before
+      // was the instant a message expired, and now that nothing expires it is
+      // a fixed point sliding permanently into the past, which `Math.max(1,
+      // …)` then re-armed at a millisecond, forever.
       if (verdict.kind === "hold") {
         log.debug("web:mail", `held on ${verdict.reason}: ${trace(head)}`);
         return null;
@@ -689,8 +696,8 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         if (deps.activityOf(paneId)?.state === "working" && woken !== undefined) {
           return null;
         }
-        if (woken !== undefined && at - woken < limits.hookWaitMs) {
-          return woken + limits.hookWaitMs;
+        if (woken !== undefined && at - woken < RENUDGE_AFTER_MS) {
+          return woken + RENUDGE_AFTER_MS;
         }
         if (!deps.wake(paneId)) {
           log.debug("web:mail", `no input channel to wake: ${trace(head)}`);
@@ -698,7 +705,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         }
         log.info("web:mail", `nudged the pane into a turn for: ${trace(head)}`);
         lastWakeAt.set(paneId, at);
-        return at + limits.hookWaitMs;
+        return at + RENUDGE_AFTER_MS;
       }
     }
     return null;
