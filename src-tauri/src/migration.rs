@@ -77,16 +77,35 @@ fn migrate(old_config: &Path, old_data: &Path, home: &Path) -> Summary {
 /// ask for. An occupied seat leaves the legacy tree exactly where it is:
 /// whatever already lives in the home is this build's, and an older tree
 /// must never land on top of it.
+///
+/// A failure SPEAKS, unlike its document-shaped sibling's. `adopt` can
+/// afford silence: the copy is cheap and the next launch simply tries
+/// again. A move that keeps failing — a home on another volume (EXDEV),
+/// a directory the user cannot write — repeats forever with the tree
+/// stranded and the seat empty, and the caller logs nothing when every
+/// other step was a no-op. Where that leaves the tree is the one thing
+/// the user needs told.
 fn adopt_tree(old: &Path, new: &Path) -> bool {
     if !old.exists() || new.exists() {
         return false;
     }
     if let Some(parent) = new.parent() {
-        if fs::create_dir_all(parent).is_err() {
+        if let Err(error) = fs::create_dir_all(parent) {
+            log::warn!("preparing {} failed: {error}", parent.display());
             return false;
         }
     }
-    fs::rename(old, new).is_ok()
+    match fs::rename(old, new) {
+        Ok(()) => true,
+        Err(error) => {
+            log::warn!(
+                "the tree at {} stays where it is — moving it to {} failed: {error}",
+                old.display(),
+                new.display()
+            );
+            false
+        }
+    }
 }
 
 /// Copy `old` to `new` unless `new` already exists (the home's document

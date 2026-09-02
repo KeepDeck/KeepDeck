@@ -149,7 +149,12 @@ pub fn run() {
             // they can only be reaped at the NEXT startup, here.
             clipboard::sweep_stale_clipboard_files();
             // Adopt state a legacy install left in the identifier-keyed
-            // dirs — before the webview boots and asks for the deck.
+            // dirs — before the webview boots and asks for the deck, and
+            // before it can enable the artifacts store: that adoption
+            // moves a tree only into an EMPTY seat, so an enable that
+            // claimed the home's store first would make the legacy one
+            // unadoptable forever. Setup runs to completion before the
+            // webview gets the loop, which is what keeps the order.
             migration::run(app.handle());
             // The CLI bridge: agents report their session ids through this
             // run's inbox; the lock and watcher live as managed state for
