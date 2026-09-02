@@ -65,48 +65,14 @@ impl Default for ArtifactsState {
 /// the whole feature unreachable, and untestable, by construction. Every
 /// other path this app persists to already honors the per-flavor home;
 /// this was the one that did not.
-fn store_root(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    use tauri::Manager as _;
-    let root = crate::paths::keepdeck_home()
-        .ok_or_else(|| "no KeepDeck home to hold the artifact store".to_string())?
-        .join("artifacts");
-    if let Ok(legacy) = app.path().app_data_dir().map(|dir| dir.join("artifacts")) {
-        // Only the RELEASE flavor adopts: everything under the bundle
-        // identifier was written by the installed app, so a debug build
-        // finding it first would take a store that is not its flavor's.
-        adopt_legacy_store(&legacy, &root, !cfg!(debug_assertions));
-    }
-    Ok(root)
-}
-
-/// Move a pre-home store into the home, once.
-///
-/// Best-effort BY CONTRACT: this may not fail an enable, and it may not
-/// destroy anything. A move that does not happen leaves the old tree
-/// exactly where it was and this build starts with an empty store — a
-/// state the user can inspect and fix by hand, which a half-copied tree
-/// would not be.
-fn adopt_legacy_store(legacy: &std::path::Path, root: &std::path::Path, may_adopt: bool) {
-    if !may_adopt || root.exists() || !legacy.exists() {
-        return;
-    }
-    if let Some(parent) = root.parent() {
-        if let Err(error) = std::fs::create_dir_all(parent) {
-            log::warn!("artifacts: preparing {} failed: {error}", parent.display());
-            return;
-        }
-    }
-    match std::fs::rename(legacy, root) {
-        Ok(()) => log::info!(
-            "artifacts: adopted the store from {} into {}",
-            legacy.display(),
-            root.display()
-        ),
-        Err(error) => log::warn!(
-            "artifacts: the store stays at {} — moving it failed: {error}",
-            legacy.display()
-        ),
-    }
+/// A store left by a pre-home install is adopted by [`crate::migration`],
+/// which owns that whole story for every kind of legacy state — including
+/// the rule that only a release build without a `KEEPDECK_HOME` override
+/// may carry it off. Nothing about it belongs here.
+fn store_root() -> Result<std::path::PathBuf, String> {
+    crate::paths::keepdeck_home()
+        .map(|home| home.join("artifacts"))
+        .ok_or_else(|| "no KeepDeck home to hold the artifact store".to_string())
 }
 
 /// Now, in unix milliseconds — versions carry `at` stamps.
@@ -184,11 +150,8 @@ fn enable_at(
 }
 
 #[tauri::command(async)]
-pub fn artifacts_enable(
-    app: tauri::AppHandle,
-    state: State<ArtifactsState>,
-) -> Result<u16, String> {
-    let root = store_root(&app)?;
+pub fn artifacts_enable(state: State<ArtifactsState>) -> Result<u16, String> {
+    let root = store_root()?;
     enable_at(&state, &root, server::DisplayServer::start)
 }
 
@@ -545,58 +508,4 @@ mod tests {
         state.store.disable();
     }
 
-    /// Build a legacy tree with one artifact-shaped file in it.
-    fn legacy_tree(at: &std::path::Path) {
-        std::fs::create_dir_all(at.join("ws/ws-1/auth-flow")).unwrap();
-        std::fs::write(at.join("ws/ws-1/auth-flow/manifest.json"), b"{}").unwrap();
-    }
-
-    #[test]
-    fn adoption_moves_the_pre_home_store_once_and_only_into_an_empty_seat() {
-        let temp = tempfile::tempdir().unwrap();
-        let legacy = temp.path().join("bundle/artifacts");
-        let root = temp.path().join("home/artifacts");
-        legacy_tree(&legacy);
-
-        adopt_legacy_store(&legacy, &root, true);
-
-        assert!(root.join("ws/ws-1/auth-flow/manifest.json").exists());
-        assert!(!legacy.exists(), "the old tree moved, not copied");
-
-        // A second run has a seat that is already taken: the store that
-        // lives here now must never be overwritten by an older one.
-        legacy_tree(&legacy);
-        adopt_legacy_store(&legacy, &root, true);
-        assert!(legacy.exists(), "occupied seat left the old tree alone");
-    }
-
-    #[test]
-    fn a_debug_flavor_never_adopts_the_installed_app_s_store() {
-        // The whole point of the home split: two flavors, two stores. A
-        // dev build that starts first must not walk off with the
-        // release's artifacts.
-        let temp = tempfile::tempdir().unwrap();
-        let legacy = temp.path().join("bundle/artifacts");
-        let root = temp.path().join("home/artifacts");
-        legacy_tree(&legacy);
-
-        adopt_legacy_store(&legacy, &root, false);
-
-        assert!(legacy.join("ws/ws-1/auth-flow/manifest.json").exists());
-        assert!(!root.exists());
-    }
-
-    #[test]
-    fn nothing_to_adopt_is_silence_not_a_created_root() {
-        // Absence is normal operation (a first run, a wiped store) — the
-        // enable that follows creates its own root under the claim, and
-        // this step must not leave an empty one behind that would then
-        // read as "already adopted".
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("home/artifacts");
-
-        adopt_legacy_store(&temp.path().join("bundle/artifacts"), &root, true);
-
-        assert!(!root.exists());
-    }
 }

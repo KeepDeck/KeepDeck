@@ -8,6 +8,8 @@
 //! renamed `*.migrated` — retired rather than deleted, but invisible to a
 //! legacy binary, so wiping the home can never resurrect an ancient deck.
 //! The legacy session spool is simply removed: postbacks are ephemeral.
+//! The artifact store — a whole tree, not a document — is MOVED, and only
+//! into an empty seat.
 //!
 //! Only a release build without `KEEPDECK_HOME` migrates — the shared legacy
 //! deck is the user's real one and belongs to the release home; a debug
@@ -46,11 +48,12 @@ struct Summary {
     deck_adopted: bool,
     bak_adopted: bool,
     spool_removed: bool,
+    artifacts_adopted: bool,
 }
 
 impl Summary {
     fn any(&self) -> bool {
-        self.deck_adopted || self.bak_adopted || self.spool_removed
+        self.deck_adopted || self.bak_adopted || self.spool_removed || self.artifacts_adopted
     }
 }
 
@@ -61,7 +64,29 @@ fn migrate(old_config: &Path, old_data: &Path, home: &Path) -> Summary {
         deck_adopted: adopt(&old_config.join("deck.json"), &home.join("deck.json")),
         bak_adopted: adopt(&old_config.join("deck.json.bak"), &home.join("deck.json.bak")),
         spool_removed: fs::remove_dir_all(old_data.join("session-spool")).is_ok(),
+        artifacts_adopted: adopt_tree(&old_data.join("artifacts"), &home.join("artifacts")),
     }
+}
+
+/// Move a whole legacy TREE into the home, and only into an empty seat.
+///
+/// A move, not the copy-then-retire `adopt` does: a document is small
+/// enough that leaving a retired twin behind buys discoverability
+/// cheaply, while an artifact store is every version of every page a
+/// fleet ever published — a second copy of it is a cost the user did not
+/// ask for. An occupied seat leaves the legacy tree exactly where it is:
+/// whatever already lives in the home is this build's, and an older tree
+/// must never land on top of it.
+fn adopt_tree(old: &Path, new: &Path) -> bool {
+    if !old.exists() || new.exists() {
+        return false;
+    }
+    if let Some(parent) = new.parent() {
+        if fs::create_dir_all(parent).is_err() {
+            return false;
+        }
+    }
+    fs::rename(old, new).is_ok()
 }
 
 /// Copy `old` to `new` unless `new` already exists (the home's document
@@ -168,6 +193,41 @@ mod tests {
 
         assert_eq!(migrate(&legacy, &legacy, &home), Summary::default());
         assert_eq!(fs::read_to_string(home.join("deck.json")).unwrap(), "doc");
+    }
+
+    #[test]
+    fn the_artifact_store_travels_whole_and_only_into_an_empty_seat() {
+        let (legacy, home) = dirs();
+        write(&legacy.join("artifacts/ws/ws-1/auth-flow/manifest.json"), "{}");
+
+        let summary = migrate(&legacy, &legacy, &home);
+
+        assert!(summary.artifacts_adopted);
+        assert_eq!(
+            fs::read_to_string(home.join("artifacts/ws/ws-1/auth-flow/manifest.json")).unwrap(),
+            "{}"
+        );
+        // Moved, not copied: no second store of every published page.
+        assert!(!legacy.join("artifacts").exists());
+    }
+
+    #[test]
+    fn a_store_already_in_the_home_is_never_landed_on() {
+        // The home's store is THIS build's, claimed and served; an older
+        // tree from a shared legacy dir must not replace it, and must not
+        // be destroyed either.
+        let (legacy, home) = dirs();
+        write(&legacy.join("artifacts/ws/ws-1/old/manifest.json"), "old");
+        write(&home.join("artifacts/ws/ws-1/current/manifest.json"), "current");
+
+        let summary = migrate(&legacy, &legacy, &home);
+
+        assert!(!summary.artifacts_adopted);
+        assert!(legacy.join("artifacts/ws/ws-1/old/manifest.json").exists());
+        assert_eq!(
+            fs::read_to_string(home.join("artifacts/ws/ws-1/current/manifest.json")).unwrap(),
+            "current"
+        );
     }
 
     #[test]
