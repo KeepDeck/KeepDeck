@@ -52,11 +52,15 @@ export interface PublishIpcResult {
   indexUrl: string | null;
 }
 
-/** One list row (mirrors Rust `ArtifactMeta`, camelCase on the wire). */
+/** One list row (mirrors Rust `ArtifactMeta`, camelCase on the wire).
+ *
+ * No `format`: the Rust struct carries none — the format is pinned in the
+ * manifest and rides the READ, not the listing. Declared here it typed as
+ * `"html"` a field that arrives `undefined`, which is the shape a
+ * consumer cannot defend against. */
 export interface ArtifactMetaRow {
   id: string;
   title: string;
-  format: "html";
   versionCount: number;
   updatedAt: number;
   lastAuthor: string;
