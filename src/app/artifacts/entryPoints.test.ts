@@ -3,6 +3,7 @@ import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { announceArtifact } from "./producers";
 import {
   artifactSource,
+  openArtifactByRef,
   openArtifactFromNotification,
 } from "./entryPoints";
 import type { NotificationSource } from "../../domain/notifications";
@@ -92,6 +93,38 @@ describe("artifactSource", () => {
     });
     expect(deleted.artifactId).toBeUndefined();
     expect(JSON.stringify(published)).not.toContain("http");
+  });
+});
+
+describe("openArtifactByRef", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("a ref that names no artifact goes to the workspace index", async () => {
+    // The arm the delete-built notification and a future index door both
+    // take: the server's entry is identifier-only, so "no artifact" is an
+    // empty slug and the index is the answer — never a slug probe whose
+    // 404 the caller would have to interpret.
+    vi.mocked(artifactResolveUrls).mockResolvedValue({
+      url: "http://127.0.0.1:41/a/t/x",
+      indexUrl: "http://127.0.0.1:41/i/",
+    });
+
+    const opened = await openArtifactByRef("ws-1", null);
+
+    expect(artifactResolveUrls).toHaveBeenCalledWith({ workspaceId: "ws-1" }, "");
+    expect(openUrl).toHaveBeenCalledWith("http://127.0.0.1:41/i/");
+    expect(opened).toBe("http://127.0.0.1:41/i/");
+  });
+
+  it("lets a refusal through — each door decides how loudly to react", async () => {
+    // The registry shows it; the notification router swallows it. Neither
+    // can happen if the ladder swallows it first.
+    vi.mocked(artifactResolveUrls).mockRejectedValue(new Error("display off"));
+
+    await expect(openArtifactByRef("ws-1", "x")).rejects.toThrow("display off");
+    expect(openUrl).not.toHaveBeenCalled();
   });
 });
 
