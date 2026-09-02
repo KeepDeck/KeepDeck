@@ -60,31 +60,26 @@ pub(super) enum Routed {
 /// time so the tracker can drop a marker that predates the turn it would
 /// end. Everything else is usage, catch-up or live alike.
 pub(super) fn route(report: Report) -> Routed {
-    let kind = report.payload[EVENT_KEY]["type"].as_str().unwrap_or_default();
     // A record a dialect asked to have carried is not this side's reading of
     // anything — it travels as itself, and what it MEANS is applied by the
     // plugin that named it. It rides the status channel because that is the
     // only channel a dialect answers on today.
-    let carried = kind == CARRIED_RECORD;
-    if !carried && kind != "session.interrupt" {
+    //
+    // This used to branch on `session.interrupt`, a word this side minted
+    // after deciding for itself what a transcript line meant. Both agents
+    // that had such a line now read their own, so nothing mints it and the
+    // branch is gone with them.
+    if report.payload[EVENT_KEY]["type"] != CARRIED_RECORD {
         return Routed::Usage(report);
     }
     if report.payload[CATCH_UP_KEY] == true {
         return Routed::Drop;
     }
-    let mut body = if carried {
-        json!({
-            "agent": report.payload["agent"],
-            "kind": CARRIED_RECORD,
-            "record": report.payload[EVENT_KEY]["record"],
-        })
-    } else {
-        json!({
-            "agent": report.payload["agent"],
-            "kind": "session.interrupt",
-            "reason": report.payload[EVENT_KEY]["reason"],
-        })
-    };
+    let mut body = json!({
+        "agent": report.payload["agent"],
+        "kind": CARRIED_RECORD,
+        "record": report.payload[EVENT_KEY]["record"],
+    });
     for key in ["sourceAt", "sourceMtimeMs"] {
         if !report.payload[key].is_null() {
             body[key] = report.payload[key].clone();
@@ -126,21 +121,26 @@ mod tests {
         );
         assert!(matches!(route(usage), Routed::Usage(_)));
 
-        let marker = wrap(
+        let carried = wrap(
             "pane-1",
             "tok",
             "codex",
-            event(serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })),
+            event(serde_json::json!({
+                "type": CARRIED_RECORD,
+                "record": { "timestamp": "2026-08-01T10:00:00Z", "payload.type": "turn_aborted" },
+            })),
             false,
         );
-        let Routed::Status(status) = route(marker) else {
-            panic!("an interrupt marker must switch channels");
+        let Routed::Status(status) = route(carried) else {
+            panic!("a carried record must switch channels");
         };
         assert_eq!(status.pane_id, "pane-1");
         assert_eq!(status.token, "tok");
         assert_eq!(status.payload["agent"], "codex");
-        assert_eq!(status.payload["kind"], "session.interrupt");
-        assert_eq!(status.payload["reason"], "interrupted");
+        assert_eq!(status.payload["kind"], CARRIED_RECORD);
+        // The record travels whole and unread: this side does not know that
+        // any of it is an abort.
+        assert_eq!(status.payload["record"]["payload.type"], "turn_aborted");
         // The marker's own time survives the reshape — the tracker's
         // stale-marker guard depends on it.
         assert_eq!(status.payload["sourceAt"], "2026-08-01T10:00:00Z");
@@ -149,11 +149,17 @@ mod tests {
 
     #[test]
     fn a_replayed_interrupt_is_dropped_whole() {
+        // A record read out of the EXISTING file describes a turn that ended
+        // before this deck was looking. Acted on, it would end the turn
+        // running right now — so it never reaches the channel at all.
         let replay = wrap(
             "pane-1",
             "tok",
             "claude",
-            event(serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })),
+            event(serde_json::json!({
+                "type": CARRIED_RECORD,
+                "record": { "interruptedMessageId": "msg-1" },
+            })),
             true,
         );
         assert_eq!(route(replay), Routed::Drop);

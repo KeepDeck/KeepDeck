@@ -48,18 +48,29 @@ impl TailFormat {
     }
 }
 
-/// One condition on a record's top-level key (mirrors the TS wire).
+/// One condition on a record's field, named by a dotted path (mirrors the
+/// TS wire).
 ///
-/// Flat and two-valued on purpose: a key equals a string, or a key is merely
-/// there. A path into nested objects is the first step of a query language
-/// and an `or` is the second, and this side must stay a comparison rather
-/// than become an interpreter.
+/// Two-valued on purpose: a field equals a string, or a field is merely
+/// there. The path is traversal and nothing more — this side stays a
+/// comparison rather than becoming an interpreter.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordMatch {
+    /// `type`, or `payload.type` — codex records an abort one level down.
     pub key: String,
     /// The exact string it must hold. Absent = presence is enough.
     pub equals: Option<String>,
+}
+
+/// Walk a dotted path. Anything that is not an object on the way down ends
+/// the walk, so a store that changed a field's shape reads as absence.
+fn at<'a>(record: &'a Value, path: &str) -> Option<&'a Value> {
+    let mut held = record;
+    for segment in path.split('.') {
+        held = held.as_object()?.get(segment)?;
+    }
+    Some(held)
 }
 
 /// What a plugin's dialect asks to be carried out of its store.
@@ -93,9 +104,9 @@ pub(super) const CARRIED_RECORD: &str = "store.record";
 /// once as the record the other side will read for itself.
 pub(super) fn watched_event(line: &[u8], watch: &TailWatch) -> Option<TailedEvent> {
     let value: Value = serde_json::from_slice(line).ok()?;
-    let object = value.as_object()?;
+    value.as_object()?;
     for clause in &watch.clauses {
-        let held = object.get(&clause.key);
+        let held = at(&value, &clause.key);
         let ok = match &clause.equals {
             Some(want) => held.and_then(Value::as_str) == Some(want.as_str()),
             // Presence, and a blank is not presence: a key written empty is
@@ -111,9 +122,12 @@ pub(super) fn watched_event(line: &[u8], watch: &TailWatch) -> Option<TailedEven
             return None;
         }
     }
+    // A dotted name survives as a dotted KEY rather than rebuilding the
+    // nesting: what was asked for is what arrives, under the name it was
+    // asked for, and nothing invites a dialect to expect the rest of a shape.
     let mut kept = serde_json::Map::new();
     for key in &watch.keep {
-        if let Some(held) = object.get(key) {
+        if let Some(held) = at(&value, key) {
             kept.insert(key.clone(), held.clone());
         }
     }
@@ -232,16 +246,11 @@ pub(super) fn rollout_event(line: &[u8]) -> Option<TailedEvent> {
             let payload = value.get("payload")?;
             match payload.get("type")?.as_str()? {
                 "token_count" => payload.clone(),
-                // codex pushes NO hook on a user interrupt; the rollout's
-                // `turn_aborted` record is the witness. The record TYPE is
-                // the marker (assistant text can't trip it). The reason
-                // rides along: only "interrupted" is the user's hand — the
-                // other aborts still END the turn, but labelling them
-                // "Interrupted" would claim an Esc nobody pressed.
-                "turn_aborted" => json!({
-                    "type": "session.interrupt",
-                    "reason": payload.get("reason").and_then(Value::as_str).unwrap_or("interrupted"),
-                }),
+                // `turn_aborted` used to be read here, and is not any more.
+                // Which of codex's records mean a turn ended, and which of
+                // its abort reasons is a person's hand rather than the model
+                // giving up, is codex's plugin's to say — it says it through
+                // the watch it declares, and the record travels as itself.
                 _ => return None,
             }
         }
@@ -468,16 +477,45 @@ mod tests {
         let codex_marker = format!(
             r#"{{"timestamp":"{SOURCE_ISO}","type":"event_msg","payload":{{"type":"turn_aborted","turn_id":"t-1","reason":"interrupted"}}}}"#
         );
-        let event = rollout_event(codex_marker.as_bytes()).expect("interrupt");
+        // This side no longer reads codex's abort either.
+        assert_eq!(rollout_event(codex_marker.as_bytes()), None);
+
+        // It carries it, through a NESTED clause. codex hides the abort one
+        // level down, inside a class that also carries its usage numbers and
+        // the assistant's own text — matching the class alone would put a
+        // session's output on the bus to learn one fact.
+        let codex_watch = TailWatch {
+            clauses: vec![
+                RecordMatch {
+                    key: "type".into(),
+                    equals: Some("event_msg".into()),
+                },
+                RecordMatch {
+                    key: "payload.type".into(),
+                    equals: Some("turn_aborted".into()),
+                },
+            ],
+            keep: vec![
+                "timestamp".into(),
+                "payload.type".into(),
+                "payload.reason".into(),
+            ],
+        };
+        let event = watched_event(codex_marker.as_bytes(), &codex_watch).expect("carried");
+        // Dotted names survive as dotted KEYS: what was asked for arrives
+        // under the name it was asked for, and `turn_id` — which nobody
+        // named — does not travel.
         assert_eq!(
-            event.payload,
-            serde_json::json!({ "type": "session.interrupt", "reason": "interrupted" })
+            event.payload["record"],
+            serde_json::json!({
+                "timestamp": SOURCE_ISO,
+                "payload.type": "turn_aborted",
+                "payload.reason": "interrupted",
+            })
         );
-        // Non-user aborts keep their reason — the turn ended, but nobody
-        // pressed Esc, and the label must be able to say so.
-        let budget_marker = r#"{"type":"event_msg","payload":{"type":"turn_aborted","reason":"budget_exceeded"}}"#;
-        let event = rollout_event(budget_marker.as_bytes()).expect("abort");
-        assert_eq!(event.payload["reason"], "budget_exceeded");
+        // The class alone is not enough: usage rides the same one.
+        let token_count = r#"{"type":"event_msg","payload":{"type":"token_count","info":{}}}"#;
+        assert_eq!(watched_event(token_count.as_bytes(), &codex_watch), None);
     }
 
     #[test]

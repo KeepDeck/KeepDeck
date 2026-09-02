@@ -19,6 +19,7 @@ import {
   normalizeCodexStatus,
   renderCodexMail,
 } from "./status";
+import { codexTail } from "./tail";
 import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
 
 /** The `-c` override args arming the reporters — SessionStart identity plus
@@ -154,7 +155,14 @@ const plugin: KeepDeckPlugin = {
           normalize: normalizeCodexRateLimits,
         },
       },
-      status: { normalize: normalizeCodexStatus, renderMail: renderCodexMail },
+      status: {
+        normalize: normalizeCodexStatus,
+        renderMail: renderCodexMail,
+        // What a rollout record means, for the turn edge codex pushes no
+        // hook for. The host reads the `watch` to know what to carry;
+        // `normalize` applies the `read` to what arrives.
+        tail: codexTail as never,
+      },
       history: codexHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {

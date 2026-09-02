@@ -107,33 +107,37 @@ describe("normalizeCodexStatus", () => {
     ).toEqual({ kind: "waiting", at: 300, reason: "permission" });
   });
 
-  it("maps every abort marker to interrupted, at its own time", () => {
-    expect(
-      normalizeCodexStatus(
-        {
-          agent: "codex",
-          kind: "session.interrupt",
-          reason: "interrupted",
-          sourceAt: "2026-08-01T10:00:00Z",
-        },
-        400,
-      ),
-    ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-01T10:00:00Z") });
+  it("reads the carried rollout record itself, not the host's word for it", () => {
+    // The host carried this because THIS plugin's watch named it — two
+    // clauses, one of them a level down — and copied two fields. What it
+    // means is decided here.
+    const carried = (extra: Record<string, unknown> = {}) => ({
+      agent: "codex",
+      kind: "store.record",
+      record: {
+        timestamp: "2026-08-01T10:00:00Z",
+        "payload.type": "turn_aborted",
+        ...extra,
+      },
+    });
+    expect(normalizeCodexStatus(carried(), 400)).toEqual({
+      kind: "interrupted",
+      at: Date.parse("2026-08-01T10:00:00Z"),
+    });
+
     // A non-Esc abort did not COMPLETE either — "Done" would announce a
-    // finish nobody got; the quiet "Interrupted" is the smaller lie.
+    // finish nobody got; the quiet "Interrupted" is the smaller lie. The
+    // reason is not even carried now, because every one reads the same.
     expect(
-      normalizeCodexStatus(
-        { agent: "codex", kind: "session.interrupt", reason: "budget_exceeded" },
-        400,
-      ),
-    ).toEqual({ kind: "interrupted", at: 400 });
-    // No usable source time falls back to receipt.
+      normalizeCodexStatus(carried({ "payload.reason": "budget_exceeded" }), 400),
+    ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-01T10:00:00Z") });
+
+    // No usable time is no edge: the guard places this instant against the
+    // turn it would end, and one it cannot place would end a running turn.
     expect(
-      normalizeCodexStatus(
-        { agent: "codex", kind: "session.interrupt", reason: "interrupted" },
-        400,
-      ),
-    ).toEqual({ kind: "interrupted", at: 400 });
+      normalizeCodexStatus(carried({ timestamp: "not a date" }), 400),
+    ).toBeNull();
+    expect(normalizeCodexStatus({ agent: "codex", kind: "store.record" }, 400)).toBeNull();
   });
 
   it("drops untracked events and garbage", () => {

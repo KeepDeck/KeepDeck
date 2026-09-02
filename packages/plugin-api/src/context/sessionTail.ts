@@ -101,16 +101,33 @@ export interface SessionTailDialect<Req, Item> {
 }
 
 /**
- * One condition on a record's top-level key.
+ * One condition on a record's field, named by a dotted path.
  *
- * Flat on purpose: a path into nested objects is the first step of a query
- * language, and the second step is asking for it to have an `or`.
+ * The path arrived because a second store needed it and could not be
+ * expressed without it: codex records an abort as `payload.type`, one level
+ * down, so a descriptor that could only see top-level keys would have failed
+ * for one of the two agents it exists to serve. It is traversal and nothing
+ * more — still equality or presence, still joined by "and", still no `or`.
+ * A condition this cannot say belongs in [`read`], where a real language
+ * already exists.
  */
 export interface RecordMatch {
-  /** The key this clause is about. */
+  /** The field this clause is about: `type`, or `payload.type`. */
   readonly key: string;
   /** The exact string it must hold. Omit to ask only that it is there. */
   readonly equals?: string;
+}
+
+/** Walk a dotted path. Anything that is not an object on the way down ends
+ * the walk — a store that changed a field's shape reads as absence rather
+ * than as a crash. */
+function at(record: unknown, path: string): unknown {
+  let held: unknown = record;
+  for (const segment of path.split(".")) {
+    if (typeof held !== "object" || held === null) return undefined;
+    held = (held as Record<string, unknown>)[segment];
+  }
+  return held;
 }
 
 /**
@@ -141,7 +158,7 @@ export function watchMatches(
   record: Readonly<Record<string, unknown>>,
 ): boolean {
   return watch.match.every((clause) => {
-    const value = record[clause.key];
+    const value = at(record, clause.key);
     if (clause.equals !== undefined) return value === clause.equals;
     // Presence, and an empty string is not presence: a key written blank is
     // how several stores say "no value", and treating it as one would carry
@@ -150,14 +167,22 @@ export function watchMatches(
   });
 }
 
-/** The named fields and nothing else. */
+/**
+ * The named fields and nothing else.
+ *
+ * A dotted name survives as a dotted KEY rather than rebuilding the nesting:
+ * the carried record is a small flat thing to be read once, and reproducing
+ * a shape would invite a dialect to expect the rest of it. What was asked
+ * for is what arrives, under the name it was asked for.
+ */
 export function watchProject(
   watch: TailWatch,
   record: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> {
   const kept: Record<string, unknown> = {};
   for (const key of watch.keep) {
-    if (record[key] !== undefined) kept[key] = record[key];
+    const value = at(record, key);
+    if (value !== undefined) kept[key] = value;
   }
   return kept;
 }
