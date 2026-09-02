@@ -61,7 +61,9 @@ describe("renderOpencodeMail", () => {
       )!,
     );
     expect(both.prompt).toContain("3 more message(s) are waiting");
-    expect(both.context).not.toContain("waiting");
+    // The line, not the bare word: "waiting" turns up in the frame's own
+    // prose, and a proxy that loose calls a reworded promise a regression.
+    expect(both.context).not.toContain("more message(s) are waiting");
   });
 
   it("frames both halves as another agent's words", () => {
