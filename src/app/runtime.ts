@@ -32,6 +32,7 @@ import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
 import { registerArtifactCommands } from "./artifacts/artifactCommands";
 import { artifactChanges } from "./artifacts/changes";
+import { artifactsEnableStatus } from "./artifacts/enableStatus";
 import { announceArtifact } from "./artifacts/producers";
 import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc/artifacts";
 import { createPaneAttribution } from "./paneAttribution";
@@ -171,9 +172,10 @@ export function createAppRuntime(
       // dropped entirely — the toggle reads On while the store is
       // claimed elsewhere, and the only symptom is every publish
       // refusing. The log is the floor; the gate retraction (below) is
-      // the behavior; the ExperimentalSection surface is a graduation
-      // polish (the mcpStatus.error precedent).
+      // the behavior; the status keeps the REASON, which is the only
+      // copy of it — the store itself knows only that it is closed.
       artifactsEnableOk = transition.ok;
+      artifactsEnableStatus.record(transition);
       if (!transition.ok) {
         log.warn(
           "web:artifacts",

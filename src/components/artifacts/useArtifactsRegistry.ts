@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { artifactChanges } from "../../app/artifacts/changes";
+import {
+  artifactsEnableStatus,
+  refusalOf,
+} from "../../app/artifacts/enableStatus";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import { artifactList, type ArtifactMetaRow } from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
@@ -13,9 +17,10 @@ export interface ArtifactsRegistry {
    * out — an empty list must not claim "nothing published" before the
    * store has answered. */
   rows: readonly ArtifactMetaRow[] | null;
-  /** The last refusal, verbatim from the store (its sentences are written
-   * to be read: "artifact store is off — turn the artifacts experiment on
-   * first"). Cleared by the next successful action. */
+  /** The last refusal, in the words of whoever actually knows the reason:
+   * the failed enable when the store never opened, otherwise the store
+   * itself (its sentences are written to be read). Cleared by the next
+   * successful action. */
   error: string | null;
   /** The row an action is in flight for; one at a time. */
   busyId: string | null;
@@ -56,6 +61,16 @@ export function useArtifactsRegistry(
     artifactChanges.subscribe,
     artifactChanges.revision,
     artifactChanges.revision,
+  );
+  // Why the store is shut, when it is. The store cannot say — it knows
+  // only that it is closed, and answers everyone with "turn the
+  // experiment on first", which is exactly wrong for a user who did.
+  const enableRefusal = refusalOf(
+    useSyncExternalStore(
+      artifactsEnableStatus.subscribe,
+      artifactsEnableStatus.last,
+      artifactsEnableStatus.last,
+    ),
   );
 
   useEffect(() => {
@@ -119,5 +134,15 @@ export function useArtifactsRegistry(
       .catch((e: unknown) => setError(describeError(e)));
   }, []);
 
-  return { rows, error, busyId, copiedId, open, copyId };
+  return {
+    rows,
+    // The enable's reason REPLACES the store's only when the store
+    // refused: a live store that failed one open (server down mid-click)
+    // has its own answer, and the stale claim story is not it.
+    error: error !== null && enableRefusal !== null ? enableRefusal : error,
+    busyId,
+    copiedId,
+    open,
+    copyId,
+  };
 }

@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { artifactChanges } from "../../app/artifacts/changes";
+import { artifactsEnableStatus } from "../../app/artifacts/enableStatus";
 import type { ArtifactMetaRow } from "../../ipc/artifacts";
 import { useArtifactsRegistry, type ArtifactsRegistry } from "./useArtifactsRegistry";
 
@@ -61,6 +62,9 @@ const settle = () => act(async () => {});
 
 beforeEach(() => {
   workspaceId = "ws-1";
+  // The app-wide status is a singleton; a landed enable is the neutral
+  // state every case but the contention one starts from.
+  artifactsEnableStatus.record({ desired: true, ok: true, detail: null });
   listed.mockReset().mockResolvedValue([row("auth-flow"), row("deck-layout")]);
   resolved
     .mockReset()
@@ -96,6 +100,26 @@ describe("useArtifactsRegistry", () => {
       "artifact store is off — turn the artifacts experiment on first",
     );
     expect(registry.rows).toEqual([]);
+  });
+
+  it("blames the failed enable, not the user's setting, when the store never opened", async () => {
+    // The bug this exists for: the experiment is ON, another KeepDeck
+    // owns the claim, and the only sentence the store has is "turn the
+    // artifacts experiment on first" — which sends the user to a switch
+    // that is already where it should be.
+    artifactsEnableStatus.record({
+      desired: true,
+      ok: false,
+      detail: "artifact store is owned by another KeepDeck process",
+    });
+    listed.mockRejectedValueOnce(
+      new Error("artifact store is off — turn the artifacts experiment on first"),
+    );
+    mount();
+    await settle();
+    expect(registry.error).toBe(
+      "artifact store is owned by another KeepDeck process",
+    );
   });
 
   it("resolves the address at the click, not at the listing", async () => {
