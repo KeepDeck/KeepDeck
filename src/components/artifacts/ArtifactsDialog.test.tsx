@@ -92,13 +92,35 @@ describe("ArtifactsDialog", () => {
     expect(document.body.textContent).not.toContain("127.0.0.1");
   });
 
-  it("opens a row through the resolve ladder", async () => {
+  it("opens through the row itself, which carries no Open button", async () => {
     render();
     await settle();
-    act(() => rowsOnScreen()[0]?.querySelector<HTMLButtonElement>("button:last-child")?.click());
+    // The row is the control; pressing a row is how a list says "this one".
+    expect(buttonWithText("Open")).toBeUndefined();
+
+    act(() =>
+      rowsOnScreen()[0]
+        ?.querySelector<HTMLButtonElement>(".artifacts__row-open")
+        ?.click(),
+    );
     await settle();
+
     expect(resolved).toHaveBeenCalledWith({ workspaceId: "ws-1" }, "auth-flow");
     expect(opened).toHaveBeenCalledWith("http://127.0.0.1:56513/a/tok/auth-flow");
+  });
+
+  it("keeps Copy id beside the row control, not inside it", async () => {
+    // A button inside a button is invalid markup and, worse, a copy that
+    // also opens the artifact.
+    render();
+    await settle();
+
+    act(() => buttonWithText("Copy id")?.click());
+    await settle();
+
+    expect(copied).toHaveBeenCalledWith("auth-flow");
+    expect(resolved).not.toHaveBeenCalled();
+    expect(opened).not.toHaveBeenCalled();
   });
 
   it("acknowledges a copied id on the row that was copied", async () => {

@@ -101,9 +101,21 @@ export function ArtifactsDialog({
             <ul className="artifacts__list">
               {rows.map((row) => (
                 <li key={row.id} className="artifacts__row">
-                  <div className="artifacts__row-text">
+                  {/* The row IS the control — a list row is one of the
+                      archetypes the shared Button deliberately does not
+                      cover, so it is spelled here. Copy id stays a real
+                      button beside it rather than inside it: nesting one
+                      button in another is invalid, and the two answer
+                      different questions anyway. */}
+                  <button
+                    type="button"
+                    className="artifacts__row-open"
+                    aria-label={`Open ${row.title}`}
+                    disabled={busyId === row.id}
+                    onClick={() => registry.open(row.id)}
+                  >
                     <span className="artifacts__row-title">{row.title}</span>
-                    <span className="artifacts__row-meta kd-selectable">
+                    <span className="artifacts__row-meta">
                       <code>{row.id}</code>
                       {` · v${row.versionCount} · ${formatAge(
                         row.updatedAt,
@@ -111,7 +123,7 @@ export function ArtifactsDialog({
                       )}`}
                       {row.lastAuthor === "" ? "" : ` · ${row.lastAuthor}`}
                     </span>
-                  </div>
+                  </button>
                   <div className="artifacts__row-actions">
                     <Button
                       variant="secondary"
@@ -119,14 +131,6 @@ export function ArtifactsDialog({
                       onClick={() => registry.copyId(row.id)}
                     >
                       {copiedId === row.id ? "Copied" : "Copy id"}
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={busyId === row.id}
-                      onClick={() => registry.open(row.id)}
-                    >
-                      Open
                     </Button>
                   </div>
                 </li>
