@@ -21,8 +21,10 @@
 import {
   jsonl,
   type JsonlRequest,
+  type PluginContext,
   type SessionTailDialect,
 } from "@keepdeck/plugin-api";
+import { findRollout } from "./store";
 
 /**
  * The carried record, as the watch below projects it.
@@ -41,30 +43,16 @@ function instantOf(value: unknown): number | null {
   return Number.isFinite(at) ? at : null;
 }
 
-export const codexTail: SessionTailDialect<JsonlRequest, CarriedRollout> = {
-  format: jsonl<CarriedRollout>(),
-
-  /**
-   * codex names no store for itself: its reporter reports a session id, and
-   * the rollout lives in a day-partitioned tree under the CLI's own home.
-   * Finding it is still the host's, and this asks only for what the host
-   * already resolved — the move of that search is its own step.
-   */
-  follow: (pane) => (pane.store ? { path: pane.store } : null),
-
-  /**
-   * `event_msg` lines whose payload is an abort, and the two fields that
-   * place it.
-   *
-   * Narrower than "every event_msg" on purpose. codex's usage numbers ride
-   * `event_msg` too, and so does the assistant's own text — carrying the
-   * whole class would put a session's output on the app's bus to learn one
-   * fact. The nested clause is what keeps it to the one record type.
-   *
-   * The abort's REASON is not carried, because nothing reads it: every
-   * reason means the same edge here. A field named but unread is a field
-   * that leaves the store for nothing.
-   */
+/**
+ * The half that needs nothing from the machine: which records to carry, what
+ * one means, and what this dialect claims to know.
+ *
+ * Apart from `follow` because the split is real — deciding what a record
+ * means is a pure reading of it, while finding the store is a walk over a
+ * filesystem. Keeping them apart is what lets the normalizer and the tests
+ * use the reading without conjuring a plugin context to do it.
+ */
+export const codexRecords = {
   watch: {
     match: [
       { key: "type", equals: "event_msg" },
@@ -73,13 +61,13 @@ export const codexTail: SessionTailDialect<JsonlRequest, CarriedRollout> = {
     keep: ["timestamp", "payload.type"],
   },
 
-  read: (record) => {
+  read: (record: CarriedRollout) => {
     if (record["payload.type"] !== "turn_aborted") return null;
     const at = instantOf(record.timestamp);
     // Undatable is unreportable: the staleness guard places this instant
     // against the turn the edge would end, and an edge it cannot place would
     // end a turn that is running.
-    return at === null ? null : { kind: "interrupted", at };
+    return at === null ? null : ({ kind: "interrupted", at } as const);
   },
 
   /**
@@ -89,4 +77,35 @@ export const codexTail: SessionTailDialect<JsonlRequest, CarriedRollout> = {
    * whole point of the question.
    */
   ignores: () => false,
-};
+} satisfies Pick<
+  SessionTailDialect<JsonlRequest, CarriedRollout>,
+  "watch" | "read" | "ignores"
+>;
+
+export const codexTail = (
+  ctx: PluginContext,
+): SessionTailDialect<JsonlRequest, CarriedRollout> => ({
+  format: jsonl<CarriedRollout>(),
+  ...codexRecords,
+
+  /**
+   * codex names no store for itself: its reporter reports a session id and
+   * nothing else, so the rollout has to be FOUND — in a day-partitioned tree
+   * under the CLI's own home, by a filename that carries the id.
+   *
+   * That search used to live in the backend, which meant the host knew where
+   * a foreign CLI keeps its files and would have to be edited when codex
+   * moved house. It is the same walk this plugin's history browser already
+   * does over the same tree, and it now shares one description of it.
+   *
+   * A pane that reported an id but has not worked yet has no rollout — codex
+   * writes it when the first turn lands — and null here is that ordinary
+   * state, not a failure.
+   */
+  follow: async (pane) => {
+    if (pane.store) return { path: pane.store };
+    if (!pane.sessionId) return null;
+    const path = await findRollout(ctx, pane.sessionId);
+    return path ? { path } : null;
+  },
+});

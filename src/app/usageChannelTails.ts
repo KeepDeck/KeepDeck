@@ -4,11 +4,7 @@ import {
   paneHasProcess,
 } from "../domain/deck";
 import { log } from "../ipc/log";
-import {
-  findCodexRollout,
-  unwatchSessionFile,
-  watchSessionFile,
-} from "../ipc/usage";
+import { unwatchSessionFile, watchSessionFile } from "../ipc/usage";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
@@ -19,7 +15,7 @@ export function createUsageTailsLane({
   deck,
   declarations,
   bindings,
-  watchOf,
+  tailOf,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
   const tailed = new Set<string>();
@@ -59,14 +55,24 @@ export function createUsageTailsLane({
         if (!token) continue;
 
         const paneId = pane.id;
+        const agentId = paneAgentType(pane);
+        const dialect = tailOf(agentId);
+        if (!dialect) {
+          // Nothing to ask. An agent whose plugin declares no dialect has no
+          // store this lane can find on its own — the host used to know
+          // where one CLI kept its files, and that knowledge went home.
+          continue;
+        }
         tailed.add(paneId);
-        log.debug("web:usage", `${paneId}: fallback lookup for ${sessionId}`);
-        void findCodexRollout(sessionId)
-          .then((path) => {
+        log.debug("web:usage", `${paneId}: asking ${agentId} to find ${sessionId}`);
+        void dialect
+          .follow({ sessionId, store: null, cwd: pane.cwd ?? null })
+          .then((request) => {
+            const path = (request as { path?: string } | null)?.path;
             if (!path) {
               log.debug(
                 "web:usage",
-                `${paneId}: no rollout for ${sessionId} yet`,
+                `${paneId}: ${agentId} has no store for ${sessionId} yet`,
               );
               tailed.delete(paneId);
               return;
@@ -77,10 +83,10 @@ export function createUsageTailsLane({
               path,
               token,
               "codex",
-              // Read HERE rather than before the lookup: the lookup is a
-              // round trip, and a plugin toggled during it would leave this
+              // Read HERE rather than before the search: finding a store is
+              // a walk, and a plugin toggled during it would leave this
               // arming a dialect that is no longer declared.
-              watchOf("codex"),
+              tailOf(agentId)?.watch,
             ).then(() => settleArm(paneId));
           })
           .catch((error) => {
@@ -136,7 +142,7 @@ export function createUsageTailsLane({
 
     // The agent's own declaration of which records to carry, handed through
     // verbatim: the backend applies it without reading it.
-    const watch = watchOf(paneAgentType(pane));
+    const watch = tailOf(paneAgentType(pane))?.watch;
     log.debug(
       "web:usage",
       `${paneId}: arming ${format} tail from binding${watch ? ", carrying records for its dialect" : ""}`,

@@ -6,7 +6,7 @@ import {
   type MailReplyRenderer,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
-import { codexTail } from "./tail";
+import { codexRecords } from "./tail";
 
 /** The teammate framing both events below carry, worded once for every CLI
  * in [`frameTeammateMail`]. */
@@ -229,7 +229,7 @@ export const normalizeCodexStatus: StatusNormalizer = (
     // A rollout record the host carried because THIS plugin's watch named
     // it. The host did not read it: it compared two keys, one of them a
     // level down, and copied two fields. What it means is decided here.
-    return isJsonRecord(payload.record) ? codexTail.read(payload.record) : null;
+    return isJsonRecord(payload.record) ? codexRecords.read(payload.record) : null;
   }
   if (!isJsonRecord(payload.event)) return null;
   switch (payload.event.hook_event_name) {

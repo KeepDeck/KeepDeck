@@ -78,12 +78,11 @@ export function fetchCodexRateLimits(): Promise<CodexRateLimitsRead> {
   return invoke("codex_rate_limits_read");
 }
 
-/** Resolve a codex session's rollout path by its recorded id — the fallback
- * for TUI resumes, where codex fires no SessionStart hook and no binding
- * carries the path (observed on 0.144.5). */
-export function findCodexRollout(sessionId: string): Promise<string | null> {
-  return invoke("usage_find_codex_rollout", { sessionId });
-}
+// Resolving a codex session's rollout used to live here, as a host command
+// that knew the CLI's day-partitioned tree and its filename shape. It went
+// home: the agent's own plugin already walked that tree for its history
+// browser, and a store's layout is the agent's to know. What the host asks
+// now is the dialect — see `SessionTailDialect.follow`.
 
 /** Mirrors the Rust `LatestRollout`: the newest on-disk usage event, its
  * source time when available, and the file-mtime fallback. */

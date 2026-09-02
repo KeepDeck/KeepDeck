@@ -43,22 +43,11 @@ fn rollouts_newest_first(root: &std::path::Path) -> Vec<(std::time::SystemTime, 
     found
 }
 
-/// Locate a codex session's rollout by its recorded id — the fallback for
-/// TUI resumes: codex (observed on 0.144.5) fires SessionStart in `exec`
-/// and `exec resume` but NOT in the interactive `resume`, so no binding
-/// carries the path. Rollout names end `-<session_id>.jsonl`; the newest
-/// match wins.
-fn find_rollout_in(root: &std::path::Path, session_id: &str) -> Option<PathBuf> {
-    let suffix = format!("-{session_id}.jsonl");
-    rollouts_newest_first(root)
-        .into_iter()
-        .map(|(_, path)| path)
-        .find(|path| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.ends_with(&suffix))
-        })
-}
+// Locating a rollout BY SESSION ID lived here, for the TUI resume where
+// codex fires no SessionStart and no binding carries a path. It is the
+// plugin's now — the same walk its history browser already does — so this
+// file is left with the one job that is genuinely the host's: the boot
+// sweep, which wants the newest rollout on disk and does not care whose.
 
 /// The last usage event of the newest rollout on disk, its source time and
 /// that FILE's mtime fallback. This is the boot catch-up: codex runs outside
@@ -119,20 +108,6 @@ pub(super) fn latest_codex_rollout() -> Option<LatestRollout> {
     latest_rollout_usage_in(&codex_sessions_root()?)
 }
 
-/// The fallback resolver. The id is sanitized to uuid characters — it names
-/// a file suffix, nothing else may ride in.
-pub(super) fn find_codex_rollout(session_id: &str) -> Option<String> {
-    if session_id.is_empty()
-        || !session_id
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() || c == '-')
-    {
-        return None;
-    }
-    find_rollout_in(&codex_sessions_root()?, session_id)
-        .map(|p| p.to_string_lossy().into_owned())
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -141,27 +116,8 @@ mod tests {
     use super::super::test_support::*;
     use super::*;
 
-    #[test]
-    fn find_rollout_walks_the_day_tree_and_prefers_the_newest_match() {
-        let root = temp_dir();
-        let sid = "019f7683-d6f4-7b00-8e66-00c4694731be";
-        let old_day = root.join("2026/07/17");
-        let new_day = root.join("2026/07/18");
-        fs::create_dir_all(&old_day).unwrap();
-        fs::create_dir_all(&new_day).unwrap();
-        fs::write(
-            old_day.join(format!("rollout-2026-07-17T01-00-00-{sid}.jsonl")),
-            "x",
-        )
-        .unwrap();
-        fs::write(new_day.join("rollout-2026-07-18T02-00-00-other.jsonl"), "x").unwrap();
-        let newest = new_day.join(format!("rollout-2026-07-18T03-00-00-{sid}.jsonl"));
-        fs::write(&newest, "x").unwrap();
-
-        assert_eq!(find_rollout_in(&root, sid), Some(newest));
-        assert_eq!(find_rollout_in(&root, "0000-none"), None);
-        fs::remove_dir_all(&root).ok();
-    }
+    // The by-session-id search this file used to hold is tested where it now
+    // lives — in codex's own plugin, over its own store description.
 
     #[test]
     fn boot_sweep_returns_the_newest_rollout_that_carries_usage() {

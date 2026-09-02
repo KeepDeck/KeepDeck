@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { watchMatches, watchProject } from "@keepdeck/plugin-api";
-import { codexTail } from "./tail";
+import { codexRecords } from "./tail";
 
 const ISO = "2026-08-01T10:00:00Z";
 const abort = (reason?: string) => ({
@@ -15,16 +15,16 @@ describe("codexTail", () => {
     // assistant's own text. Carrying the whole class would put a session's
     // output on the app's bus to learn one fact — the nested clause is what
     // keeps it to the one record type.
-    expect(watchMatches(codexTail.watch, abort())).toBe(true);
+    expect(watchMatches(codexRecords.watch, abort())).toBe(true);
     expect(
-      watchMatches(codexTail.watch, {
+      watchMatches(codexRecords.watch, {
         timestamp: ISO,
         type: "event_msg",
         payload: { type: "token_count", info: { total: 1 } },
       }),
     ).toBe(false);
     expect(
-      watchMatches(codexTail.watch, {
+      watchMatches(codexRecords.watch, {
         timestamp: ISO,
         type: "turn_context",
         payload: { model: "gpt-5" },
@@ -34,7 +34,7 @@ describe("codexTail", () => {
 
   it("keeps the dotted names it asked for, and the payload's bulk stays behind", () => {
     expect(
-      watchProject(codexTail.watch, {
+      watchProject(codexRecords.watch, {
         timestamp: ISO,
         type: "event_msg",
         payload: {
@@ -57,7 +57,7 @@ describe("codexTail", () => {
     // it, and a field named but unread leaves the store for nothing.
     for (const reason of [undefined, "interrupted", "budget_exceeded", "replaced"]) {
       expect(
-        codexTail.read(watchProject(codexTail.watch, abort(reason))),
+        codexRecords.read(watchProject(codexRecords.watch, abort(reason))),
         String(reason),
       ).toEqual({ kind: "interrupted", at: Date.parse(ISO) });
     }
@@ -67,15 +67,15 @@ describe("codexTail", () => {
     // The staleness guard places this instant against the turn the edge
     // would end; one it cannot place would end a turn that is running.
     expect(
-      codexTail.read({ "payload.type": "turn_aborted", timestamp: "not a date" }),
+      codexRecords.read({ "payload.type": "turn_aborted", timestamp: "not a date" }),
     ).toBeNull();
-    expect(codexTail.read({ "payload.type": "turn_aborted" })).toBeNull();
+    expect(codexRecords.read({ "payload.type": "turn_aborted" })).toBeNull();
   });
 
   it("claims to know nothing it did not ask for", () => {
     // Every carried record IS an abort, because the watch saw to it. One
     // that arrives and is not is a rollout whose shape moved, and the count
     // of those is the only warning anyone gets.
-    expect(codexTail.ignores({ "payload.type": "something-new" })).toBe(false);
+    expect(codexRecords.ignores()).toBe(false);
   });
 });

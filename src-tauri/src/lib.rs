@@ -277,7 +277,6 @@ pub fn run() {
             head_watch::worktree_unwatch,
             session_tail::usage_watch_session_file,
             session_tail::usage_unwatch_session_file,
-            session_tail::usage_find_codex_rollout,
             session_tail::usage_latest_codex_rollout,
             codex_app_server::codex_rate_limits_read,
             kimi_usage::kimi_usages_fetch,

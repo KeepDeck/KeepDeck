@@ -65,8 +65,13 @@ export interface SessionTailDialect<Req, Item> {
    * day-partitioned tree, a third a single wire log. A host that knew those
    * shapes would be a host that names agents, and every new file-fed CLI
    * would be an edit to it.
+   *
+   * ASYNC because finding a store can mean looking for it. An agent that
+   * names its own file answers immediately; one that reports only a session
+   * id has to be searched for, and that search is the plugin's — it is the
+   * same walk its history browser already does over the same tree.
    */
-  follow(pane: TailTarget): Req | null;
+  follow(pane: TailTarget): Promise<Req | null>;
 
   /**
    * What this record says about the pane's turn — or null, which is the

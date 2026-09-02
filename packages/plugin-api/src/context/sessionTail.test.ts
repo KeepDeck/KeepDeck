@@ -19,7 +19,8 @@ const dialect: SessionTailDialect<JsonlRequest, Record> = {
     match: [{ key: "type", equals: "user" }, { key: "interruptedMessageId" }],
     keep: ["type", "interruptedMessageId", "at"],
   },
-  follow: (pane) => (pane.sessionId ? { path: `/store/${pane.sessionId}` } : null),
+  follow: async (pane) =>
+    pane.sessionId ? { path: `/store/${pane.sessionId}` } : null,
   read: (record) =>
     record.type === "user" && record.interruptedMessageId
       ? { kind: "interrupted", at: record.at ?? 0 }
@@ -123,15 +124,17 @@ describe("tailPass", () => {
     });
   });
 
-  it("asks a dialect where to look, and takes null for an answer", () => {
+  it("asks a dialect where to look, and takes null for an answer", async () => {
     // A pane whose agent has not spoken yet has no session to follow, and
     // that is an ordinary state rather than a failure — the store arrives on
     // a later pass. Topology is the dialect's answer because the shape of a
     // store is the agent's business: a host that knew it would be a host
     // that names agents.
-    expect(dialect.follow({ sessionId: "ses_1", store: null, cwd: null })).toEqual({
-      path: "/store/ses_1",
-    });
-    expect(dialect.follow({ sessionId: null, store: null, cwd: "/work" })).toBeNull();
+    await expect(
+      dialect.follow({ sessionId: "ses_1", store: null, cwd: null }),
+    ).resolves.toEqual({ path: "/store/ses_1" });
+    await expect(
+      dialect.follow({ sessionId: null, store: null, cwd: "/work" }),
+    ).resolves.toBeNull();
   });
 });

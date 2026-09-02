@@ -21,6 +21,15 @@ import { createUsageChannel, type UsageChannel } from "./usageChannel";
 import type { DeckStore } from "./deckStore";
 import type { Deck } from "./useDeck";
 
+/** What the codex fixture's dialect asks to have carried. Shared between the
+ * declaration and the assertions so the two cannot drift: what the lane must
+ * pass through is exactly what the plugin declared, never a shape this file
+ * invented on the way. */
+const CODEX_WATCH = {
+  match: [{ key: "type", equals: "event_msg" }],
+  keep: ["timestamp"],
+};
+
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -38,7 +47,10 @@ const ipc = vi.hoisted(() => ({
   saveUsageCache: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
   // The agents contribution list the channel reads its declarations from.
-  contributions: [] as { pluginId: string; entry: { id: string; usage?: AgentUsage } }[],
+  contributions: [] as {
+    pluginId: string;
+    entry: { id: string; usage?: AgentUsage; status?: unknown };
+  }[],
 }));
 vi.mock("../ipc/usage", () => ({
   onUsageReport: ipc.onUsageReport,
@@ -181,6 +193,21 @@ describe("createUsageChannel", () => {
               normalize: () => null,
             },
           },
+          // The dialect stands in for codex's own, and its `follow` is the
+          // search that used to live in the backend: a pane with only a
+          // session id has its store FOUND rather than handed over. The
+          // fake keeps the search a promise, which is what the lane has to
+          // survive — a pane can close while it is still walking.
+          status: {
+            normalize: () => null,
+            tail: {
+              watch: CODEX_WATCH,
+              follow: async ({ sessionId }: { sessionId: string | null }) => {
+                const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
+                return path ? { path } : null;
+              },
+            },
+          },
         },
       },
     ];
@@ -307,9 +334,9 @@ describe("createUsageChannel", () => {
       "/x/rollout.jsonl",
       "tok-1",
       "codex",
-      // This agent declares no tail dialect, so nothing extra is carried —
-      // the state of every pane whose plugin has not moved over.
-      undefined,
+      // Exactly what the plugin declared — the lane passes it through
+      // without reading it.
+      CODEX_WATCH,
     );
   });
 
@@ -371,7 +398,7 @@ describe("createUsageChannel", () => {
       "/x/sessions/rollout-019f.jsonl",
       "tok-1",
       "codex",
-      undefined,
+      CODEX_WATCH,
     );
   });
 
@@ -397,9 +424,9 @@ describe("createUsageChannel", () => {
       "/x/rollout.jsonl",
       "tok-1",
       "codex",
-      // This agent declares no tail dialect, so nothing extra is carried —
-      // the state of every pane whose plugin has not moved over.
-      undefined,
+      // Exactly what the plugin declared — the lane passes it through
+      // without reading it.
+      CODEX_WATCH,
     );
   });
 
@@ -426,7 +453,7 @@ describe("createUsageChannel", () => {
         "/x/rollout.jsonl",
         "tok-1",
         "codex",
-        undefined,
+        CODEX_WATCH,
       );
     } finally {
       vi.useRealTimers();

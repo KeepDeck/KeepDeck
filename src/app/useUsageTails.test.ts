@@ -15,7 +15,9 @@ const ipc = vi.hoisted(() => ({
     (paneId: string, path: string, token: string, format: string) => Promise<void>
   >(() => Promise.resolve()),
   unwatchSessionFile: vi.fn(() => Promise.resolve()),
-  findCodexRollout: vi.fn(() => Promise.resolve("/rollout.jsonl")),
+  findCodexRollout: vi.fn<(sessionId: string) => Promise<string | null>>(() =>
+    Promise.resolve("/rollout.jsonl"),
+  ),
   onSessionBound: vi.fn(() => Promise.resolve(() => {})),
 }));
 vi.mock("../ipc/usage", () => ({
@@ -97,10 +99,18 @@ describe("usage tails — a suspended pane's watcher", () => {
       deck: store,
       attribution,
       bindings,
-      // No agent here declares a tail dialect, which is the state of every
-      // pane whose plugin has not moved over: the follower arms as before
-      // and carries nothing extra.
-      watchOf: () => undefined,
+      // These panes reach the tail through the FALLBACK — a recorded session
+      // with no binding — and finding the store is now the dialect's answer
+      // rather than a command of the host's. The fake is that search, over
+      // the same mocked lookup this file already had.
+      tailOf: () =>
+        ({
+          watch: { match: [], keep: [] },
+          follow: async ({ sessionId }: { sessionId: string | null }) => {
+            const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
+            return path ? { path } : null;
+          },
+        }) as never,
       // The tails lane only arms watchers; events reach the store via the
       // reports lane, so a fresh, unobserved instance satisfies the context.
       usage: createUsageManager(),

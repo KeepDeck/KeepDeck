@@ -161,7 +161,7 @@ const plugin: KeepDeckPlugin = {
         // What a rollout record means, for the turn edge codex pushes no
         // hook for. The host reads the `watch` to know what to carry;
         // `normalize` applies the `read` to what arrives.
-        tail: codexTail as never,
+        tail: codexTail(ctx) as never,
       },
       history: codexHistory(ctx),
       hooks: {

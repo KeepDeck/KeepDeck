@@ -134,11 +134,11 @@ describe("claudeTail", () => {
     });
   });
 
-  it("takes the store claude's own reporter named, and waits when there is none", () => {
+  it("takes the store claude's own reporter named, and waits when there is none", async () => {
     // No project slug to reconstruct and no directory rule: the path was
     // REPORTED. A pane whose agent has not spoken yet simply has nothing to
     // follow, and that is ordinary — the store arrives on a later look.
-    expect(claudeTail.follow(target)).toEqual({ path: target.store });
-    expect(claudeTail.follow({ ...target, store: null })).toBeNull();
+    await expect(claudeTail.follow(target)).resolves.toEqual({ path: target.store });
+    await expect(claudeTail.follow({ ...target, store: null })).resolves.toBeNull();
   });
 });

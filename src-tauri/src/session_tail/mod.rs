@@ -305,11 +305,10 @@ pub fn usage_latest_codex_rollout() -> Option<LatestRollout> {
     rollouts::latest_codex_rollout()
 }
 
-/// The TUI-resume fallback resolver command — see [`rollouts`].
-#[tauri::command(async)]
-pub fn usage_find_codex_rollout(session_id: String) -> Option<String> {
-    rollouts::find_codex_rollout(&session_id)
-}
+// The TUI-resume fallback resolver used to be a command here. It named an
+// agent in the host's own command surface and knew where that agent keeps
+// its files; both are the agent's business, and its plugin was already
+// walking the same tree for its history browser. The dialect answers now.
 
 #[cfg(test)]
 mod tests {

@@ -103,7 +103,7 @@ export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
    * path to reconstruct here — no project slug, no directory rule. A pane
    * whose agent has not reported yet has no store to follow, and that is an
    * ordinary state: it arrives on a later look. */
-  follow: (pane) => (pane.store ? { path: pane.store } : null),
+  follow: async (pane) => (pane.store ? { path: pane.store } : null),
 
   read: (record) => {
     if (record.type !== "user") return null;
