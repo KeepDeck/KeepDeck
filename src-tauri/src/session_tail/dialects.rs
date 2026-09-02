@@ -89,6 +89,19 @@ pub struct TailWatch {
     /// a dialect that never names a message field cannot carry a message
     /// out of a transcript by accident.
     pub keep: Vec<String>,
+    /// Which channel the carried record belongs on. DECLARED, because
+    /// deriving it would mean reading the record — and not reading records is
+    /// the whole of this side's job.
+    pub lane: TailLane,
+}
+
+/// The two questions a session store answers. This side does not know which
+/// one any record answers; it forwards what it was told.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TailLane {
+    Status,
+    Usage,
 }
 
 /// The payload type a carried record travels under. One name for every
@@ -132,7 +145,14 @@ pub(super) fn watched_event(line: &[u8], watch: &TailWatch) -> Option<TailedEven
         }
     }
     Some(TailedEvent {
-        payload: json!({ "type": CARRIED_RECORD, "record": Value::Object(kept) }),
+        payload: json!({
+            "type": CARRIED_RECORD,
+            "record": Value::Object(kept),
+            "lane": match watch.lane {
+                TailLane::Status => "status",
+                TailLane::Usage => "usage",
+            },
+        }),
         // Provenance stays this side's job: the freshness guard is about the
         // deck's clock against the store's, which is a fact about following
         // a file rather than about any agent's format.
@@ -438,6 +458,7 @@ mod tests {
                 "interruptedMessageId".into(),
                 "timestamp".into(),
             ],
+            lane: TailLane::Status,
         };
         let event = watched_event(claude_marker.as_bytes(), &watch).expect("carried");
         assert_eq!(event.payload["type"], CARRIED_RECORD);
@@ -500,6 +521,7 @@ mod tests {
                 "payload.type".into(),
                 "payload.reason".into(),
             ],
+            lane: TailLane::Status,
         };
         let event = watched_event(codex_marker.as_bytes(), &codex_watch).expect("carried");
         // Dotted names survive as dotted KEYS: what was asked for arrives

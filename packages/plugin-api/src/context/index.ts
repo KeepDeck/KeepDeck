@@ -153,6 +153,7 @@ export {
   watchProject,
   type RecordMatch,
   type SessionTailDialect,
+  type TailLane,
   type TailPass,
   type TailTarget,
   type TailWatch,

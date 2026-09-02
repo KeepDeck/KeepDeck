@@ -382,6 +382,7 @@ mod tests {
                 equals: None,
             }],
             keep: vec!["interruptedMessageId".into()],
+            lane: dialects::TailLane::Status,
         });
         let (drained, _) = drain_all(&mut state);
         let carried = drained

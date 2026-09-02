@@ -59,6 +59,7 @@ export const codexRecords = {
       { key: "payload.type", equals: "turn_aborted" },
     ],
     keep: ["timestamp", "payload.type"],
+    lane: "status",
   },
 
   read: (record: CarriedRollout) => {

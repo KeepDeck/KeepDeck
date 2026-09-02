@@ -72,6 +72,15 @@ pub(super) fn route(report: Report) -> Routed {
     if report.payload[EVENT_KEY]["type"] != CARRIED_RECORD {
         return Routed::Usage(report);
     }
+    // The lane the dialect DECLARED. A record about the numbers rides the
+    // usage channel and keeps the wrapper it came in — its normalizer reads
+    // the whole envelope, catch-up mark included, because restoring the last
+    // known cost after a restart is exactly what a replay is for.
+    if report.payload[EVENT_KEY]["lane"] == "usage" {
+        return Routed::Usage(report);
+    }
+    // A status edge from a replay is a turn that ended before this deck was
+    // looking, and acting on it would end the turn running now.
     if report.payload[CATCH_UP_KEY] == true {
         return Routed::Drop;
     }

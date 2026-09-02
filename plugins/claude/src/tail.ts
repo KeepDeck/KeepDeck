@@ -97,6 +97,7 @@ export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
   watch: {
     match: [{ key: "type", equals: "user" }, { key: "interruptedMessageId" }],
     keep: ["type", "interruptedMessageId", "timestamp"],
+    lane: "status",
   },
 
   /** claude's own reporter names the transcript it writes, so there is no

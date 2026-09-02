@@ -149,11 +149,23 @@ export interface TailWatch {
   readonly match: readonly RecordMatch[];
   /** Top-level keys to copy. Nothing else leaves the store. */
   readonly keep: readonly string[];
-  // No lane. A carried record travels the turn-status channel, because that
-  // is the only channel a dialect answers on today — and a field naming a
-  // choice with one option is a member nobody reads. It arrives with the
-  // second lane, together with whatever reads it.
+  /**
+   * Which channel the carried record belongs on.
+   *
+   * Declared rather than derived, because deriving it would mean reading the
+   * record — and the whole point of the descriptor is that the side applying
+   * it does not. A store's records answer two different questions: what the
+   * turn is doing, and what it cost. Nothing about a record's SHAPE says
+   * which, so the dialect that named it says.
+   */
+  readonly lane: TailLane;
 }
+
+/** The two questions a session store answers. `status` moves the pane's
+ * card and gates mail delivery; `usage` moves the numbers. They are separate
+ * because they fail differently: a wrong status stops mail, a wrong number
+ * misinforms. */
+export type TailLane = "status" | "usage";
 
 /** Whether a record satisfies every clause. The host applies this; it lives
  * here so both sides read the descriptor the same way, and so a plugin can

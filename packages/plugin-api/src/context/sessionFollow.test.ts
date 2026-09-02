@@ -17,6 +17,7 @@ const dialect: SessionTailDialect<JsonlRequest, Record> = {
   watch: {
     match: [{ key: "type", equals: "user" }, { key: "interruptedMessageId" }],
     keep: ["type", "interruptedMessageId", "at"],
+    lane: "status",
   },
   follow: async (pane) =>
     pane.sessionId ? { path: `/store/${pane.sessionId}` } : null,
