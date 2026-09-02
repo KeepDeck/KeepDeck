@@ -89,6 +89,14 @@ export interface TailTarget {
   /** The session id this pane's CLI reported for itself, when it has
    * reported one. A pane whose agent has not spoken yet has none. */
   readonly sessionId: string | null;
+  /** The store this pane's CLI named for itself, when its reporter says so.
+   *
+   * Present for an agent that tells the deck where it writes; absent for one
+   * that does not, and then finding the store is the dialect's own work —
+   * which is the point of asking the dialect rather than deriving a path in
+   * the host. A path that arrives here was REPORTED, so it needs no rule
+   * about slugs or day-partitioned trees to reconstruct. */
+  readonly store: string | null;
   /** The directory the pane's process runs in. Some stores are addressed by
    * the working directory rather than by a session id. */
   readonly cwd: string | null;

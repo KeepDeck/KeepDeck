@@ -69,9 +69,9 @@ describe("tailPass", () => {
     // a later pass. Topology is the dialect's answer because the shape of a
     // store is the agent's business: a host that knew it would be a host
     // that names agents.
-    expect(dialect.follow({ sessionId: "ses_1", cwd: null })).toEqual({
+    expect(dialect.follow({ sessionId: "ses_1", store: null, cwd: null })).toEqual({
       path: "/store/ses_1",
     });
-    expect(dialect.follow({ sessionId: null, cwd: "/work" })).toBeNull();
+    expect(dialect.follow({ sessionId: null, store: null, cwd: "/work" })).toBeNull();
   });
 });
