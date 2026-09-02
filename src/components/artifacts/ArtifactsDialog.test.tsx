@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { artifactChanges } from "../../app/artifacts/changes";
 import type { ArtifactMetaRow } from "../../ipc/artifacts";
 import { ArtifactsDialog } from "./ArtifactsDialog";
 
@@ -108,6 +109,19 @@ describe("ArtifactsDialog", () => {
     expect(copied).toHaveBeenCalledWith("auth-flow");
     expect(rowsOnScreen()[0]?.textContent).toContain("Copied");
     expect(rowsOnScreen()[1]?.textContent).toContain("Copy id");
+  });
+
+  it("follows the store on its own, with no refresh control to press", async () => {
+    render();
+    await settle();
+    expect(rowsOnScreen()).toHaveLength(2);
+    expect(buttonWithText("Refresh")).toBeUndefined();
+
+    listed.mockResolvedValueOnce([row("auth-flow"), row("deck-layout"), row("port-map")]);
+    act(() => artifactChanges.changed());
+    await settle();
+
+    expect(rowsOnScreen()).toHaveLength(3);
   });
 
   it("says nothing is published only when the store said so", async () => {

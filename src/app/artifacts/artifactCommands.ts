@@ -53,6 +53,12 @@ export interface ArtifactCommandDeps {
     slug: string;
     paneLabel: string;
   }) => void;
+  /** Every write that LANDED, republishes included — the store's own
+   * surfaces re-read on it. Distinct from `announce`, which is about the
+   * user's attention and so fires for first publishes and deletes only:
+   * a version that changes nothing worth a notification still changes
+   * what a list is showing. */
+  changed?: () => void;
 }
 
 /** The refusal every artifact tool gives an anonymous caller — reason
@@ -220,6 +226,7 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         message,
         autoOpen,
       });
+      deps.changed?.();
       if (wire.isNew && deps.announce) {
         deps.announce({
           kind: "published",
@@ -317,6 +324,7 @@ function deleteCommand(deps: ArtifactCommandDeps): CommandSpec {
         workspaceId: caller.workspaceId,
         slug: id,
       });
+      if (outcome.deleted) deps.changed?.();
       if (outcome.deleted && deps.announce) {
         deps.announce({
           kind: "deleted",

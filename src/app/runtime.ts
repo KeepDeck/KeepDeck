@@ -31,6 +31,7 @@ import { createPaneIdentity } from "./mcp/paneIdentity";
 import { paneIdBySpawnSecret, peekPaneSpawnSpec } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
 import { registerArtifactCommands } from "./artifacts/artifactCommands";
+import { artifactChanges } from "./artifacts/changes";
 import { announceArtifact } from "./artifacts/producers";
 import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc/artifacts";
 import { createPaneAttribution } from "./paneAttribution";
@@ -206,6 +207,7 @@ export function createAppRuntime(
             announceArtifact(event, {
               workspaces: () => deckStore.getSnapshot().workspaces,
             }),
+          changed: () => artifactChanges.changed(),
         },
       );
     } else if (!shouldRun && disposeArtifactCommands !== null) {

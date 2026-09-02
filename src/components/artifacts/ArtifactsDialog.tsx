@@ -51,13 +51,6 @@ export function ArtifactsDialog({
       >
         <div className="artifacts__head">
           <h2 className="form__title artifacts__title">Artifacts</h2>
-          {/* No `title` on the text buttons here or in the rows: in the
-              host's WebView it draws nothing a sighted user sees, and it
-              would REPLACE the accessible name the visible label already
-              gives. */}
-          <Button variant="ghost" size="sm" onClick={registry.reload}>
-            Refresh
-          </Button>
           <CloseButton label="Close artifacts" onClick={onClose} autoFocus />
         </div>
 

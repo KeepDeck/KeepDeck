@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { artifactChanges } from "../../app/artifacts/changes";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import { artifactList, type ArtifactMetaRow } from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
@@ -22,7 +23,6 @@ export interface ArtifactsRegistry {
   copiedId: string | null;
   open(id: string): void;
   copyId(id: string): void;
-  reload(): void;
 }
 
 /**
@@ -46,10 +46,17 @@ export function useArtifactsRegistry(
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  /** Bumped by `reload` — the effect's other input, so one code path does
-   * every read (mount, workspace change, refresh). */
-  const [nonce, setNonce] = useState(0);
   const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Every publish and delete this app makes bumps the revision, which is
+  // the read's other input — so the list follows the store instead of
+  // waiting to be asked. There is no refresh control by design: the
+  // writer is in this process, and a button would be the user doing what
+  // the app already knows.
+  const revision = useSyncExternalStore(
+    artifactChanges.subscribe,
+    artifactChanges.revision,
+    artifactChanges.revision,
+  );
 
   useEffect(() => {
     if (workspaceId === null) {
@@ -80,7 +87,7 @@ export function useArtifactsRegistry(
     return () => {
       live = false;
     };
-  }, [workspaceId, nonce]);
+  }, [workspaceId, revision]);
 
   useEffect(
     () => () => {
@@ -88,8 +95,6 @@ export function useArtifactsRegistry(
     },
     [],
   );
-
-  const reload = useCallback(() => setNonce((n) => n + 1), []);
 
   const open = useCallback(
     (id: string) => {
@@ -114,5 +119,5 @@ export function useArtifactsRegistry(
       .catch((e: unknown) => setError(describeError(e)));
   }, []);
 
-  return { rows, error, busyId, copiedId, open, copyId, reload };
+  return { rows, error, busyId, copiedId, open, copyId };
 }

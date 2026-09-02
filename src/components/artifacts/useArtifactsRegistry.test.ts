@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { artifactChanges } from "../../app/artifacts/changes";
 import type { ArtifactMetaRow } from "../../ipc/artifacts";
 import { useArtifactsRegistry, type ArtifactsRegistry } from "./useArtifactsRegistry";
 
@@ -172,11 +173,13 @@ describe("useArtifactsRegistry", () => {
     expect(registry.error).toBeNull();
   });
 
-  it("re-reads on demand — a list read once is stale the moment an agent publishes", async () => {
+  it("re-reads when the app writes — a list read once is stale the moment an agent publishes", async () => {
+    // No refresh control exists, and none should: the writer is in this
+    // process, so the list follows it instead of waiting to be asked.
     mount();
     await settle();
     listed.mockResolvedValueOnce([row("auth-flow"), row("deck-layout"), row("port-map")]);
-    act(() => registry.reload());
+    act(() => artifactChanges.changed());
     await settle();
     expect(listed).toHaveBeenCalledTimes(2);
     expect(registry.rows).toHaveLength(3);
