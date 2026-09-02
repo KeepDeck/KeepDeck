@@ -94,11 +94,11 @@ export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
    * through here. Not as a rule to remember — the field is simply never
    * copied.
    */
-  watch: {
+  watches: [{
     match: [{ key: "type", equals: "user" }, { key: "interruptedMessageId" }],
     keep: ["type", "interruptedMessageId", "timestamp"],
     lane: "status",
-  },
+  }],
 
   /** claude's own reporter names the transcript it writes, so there is no
    * path to reconstruct here — no project slug, no directory rule. A pane

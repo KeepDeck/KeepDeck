@@ -105,7 +105,7 @@ describe("usage tails — a suspended pane's watcher", () => {
       // the same mocked lookup this file already had.
       tailOf: () =>
         ({
-          watch: { match: [], keep: [] },
+          watches: [],
           follow: async ({ sessionId }: { sessionId: string | null }) => {
             const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
             return path ? { path } : null;

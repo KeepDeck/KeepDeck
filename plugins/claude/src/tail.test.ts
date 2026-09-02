@@ -110,7 +110,7 @@ describe("claudeTail", () => {
       { type: "queue-operation", content: "what the person typed" },
     ];
     for (const line of lines) {
-      const carried = watchMatches(claudeTail.watch, line);
+      const carried = watchMatches(claudeTail.watches[0], line);
       const reported = claudeTail.read(line) !== null;
       expect(carried, JSON.stringify(line)).toBe(reported);
     }
@@ -119,7 +119,7 @@ describe("claudeTail", () => {
   it("leaves the conversation in the transcript", () => {
     // `keep` names no message field, so a message cannot leave through here.
     // Not a rule to remember — the field is never copied.
-    const projected = watchProject(claudeTail.watch, {
+    const projected = watchProject(claudeTail.watches[0], {
       type: "user",
       interruptedMessageId: "m",
       timestamp: "2026-08-14T21:20:29.661Z",

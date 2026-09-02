@@ -25,10 +25,13 @@ import type { Deck } from "./useDeck";
  * declaration and the assertions so the two cannot drift: what the lane must
  * pass through is exactly what the plugin declared, never a shape this file
  * invented on the way. */
-const CODEX_WATCH = {
-  match: [{ key: "type", equals: "event_msg" }],
-  keep: ["timestamp"],
-};
+const CODEX_WATCHES = [
+  {
+    match: [{ key: "type", equals: "event_msg" }],
+    keep: ["timestamp"],
+    lane: "status",
+  },
+];
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -201,7 +204,7 @@ describe("createUsageChannel", () => {
           status: {
             normalize: () => null,
             tail: {
-              watch: CODEX_WATCH,
+              watches: CODEX_WATCHES,
               follow: async ({ sessionId }: { sessionId: string | null }) => {
                 const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
                 return path ? { path } : null;
@@ -336,7 +339,7 @@ describe("createUsageChannel", () => {
       "codex",
       // Exactly what the plugin declared — the lane passes it through
       // without reading it.
-      CODEX_WATCH,
+      CODEX_WATCHES,
     );
   });
 
@@ -398,7 +401,7 @@ describe("createUsageChannel", () => {
       "/x/sessions/rollout-019f.jsonl",
       "tok-1",
       "codex",
-      CODEX_WATCH,
+      CODEX_WATCHES,
     );
   });
 
@@ -426,7 +429,7 @@ describe("createUsageChannel", () => {
       "codex",
       // Exactly what the plugin declared — the lane passes it through
       // without reading it.
-      CODEX_WATCH,
+      CODEX_WATCHES,
     );
   });
 
@@ -453,7 +456,7 @@ describe("createUsageChannel", () => {
         "/x/rollout.jsonl",
         "tok-1",
         "codex",
-        CODEX_WATCH,
+        CODEX_WATCHES,
       );
     } finally {
       vi.useRealTimers();

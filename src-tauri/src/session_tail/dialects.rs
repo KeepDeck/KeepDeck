@@ -115,11 +115,18 @@ pub(super) const CARRIED_RECORD: &str = "store.record";
 /// still extract usage, which has not moved yet. A line can satisfy both,
 /// and then it travels twice — once as this side's reading of the numbers,
 /// once as the record the other side will read for itself.
-pub(super) fn watched_event(line: &[u8], watch: &TailWatch) -> Option<TailedEvent> {
+pub(super) fn watched_event(line: &[u8], watches: &[TailWatch]) -> Option<TailedEvent> {
     let value: Value = serde_json::from_slice(line).ok()?;
     value.as_object()?;
+    // First match carries. A dialect that wants two readings of one record
+    // says so on its own side, where saying so is cheap; here, trying on
+    // after a hit would send the same record twice under two lanes.
+    watches.iter().find_map(|watch| carry(&value, watch))
+}
+
+fn carry(value: &Value, watch: &TailWatch) -> Option<TailedEvent> {
     for clause in &watch.clauses {
-        let held = at(&value, &clause.key);
+        let held = at(value, &clause.key);
         let ok = match &clause.equals {
             Some(want) => held.and_then(Value::as_str) == Some(want.as_str()),
             // Presence, and a blank is not presence: a key written empty is
@@ -140,7 +147,7 @@ pub(super) fn watched_event(line: &[u8], watch: &TailWatch) -> Option<TailedEven
     // asked for, and nothing invites a dialect to expect the rest of a shape.
     let mut kept = serde_json::Map::new();
     for key in &watch.keep {
-        if let Some(held) = at(&value, key) {
+        if let Some(held) = at(value, key) {
             kept.insert(key.clone(), held.clone());
         }
     }
@@ -156,7 +163,7 @@ pub(super) fn watched_event(line: &[u8], watch: &TailWatch) -> Option<TailedEven
         // Provenance stays this side's job: the freshness guard is about the
         // deck's clock against the store's, which is a fact about following
         // a file rather than about any agent's format.
-        source_at: iso_timestamp(&value),
+        source_at: iso_timestamp(value),
         source_mtime_ms: None,
         root: true,
     })
@@ -460,7 +467,7 @@ mod tests {
             ],
             lane: TailLane::Status,
         };
-        let event = watched_event(claude_marker.as_bytes(), &watch).expect("carried");
+        let event = watched_event(claude_marker.as_bytes(), std::slice::from_ref(&watch)).expect("carried");
         assert_eq!(event.payload["type"], CARRIED_RECORD);
         // The named fields and NOTHING else: the record in the fixture
         // carries a message, and it does not travel.
@@ -483,7 +490,7 @@ mod tests {
         assert_eq!(
             watched_event(
                 br#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#,
-                &watch
+                std::slice::from_ref(&watch)
             ),
             None
         );
@@ -491,7 +498,7 @@ mod tests {
         // value" that way, and carrying those hands the other side records
         // that say nothing.
         assert_eq!(
-            watched_event(br#"{"type":"user","interruptedMessageId":""}"#, &watch),
+            watched_event(br#"{"type":"user","interruptedMessageId":""}"#, std::slice::from_ref(&watch)),
             None
         );
 
@@ -523,7 +530,7 @@ mod tests {
             ],
             lane: TailLane::Status,
         };
-        let event = watched_event(codex_marker.as_bytes(), &codex_watch).expect("carried");
+        let event = watched_event(codex_marker.as_bytes(), std::slice::from_ref(&codex_watch)).expect("carried");
         // Dotted names survive as dotted KEYS: what was asked for arrives
         // under the name it was asked for, and `turn_id` — which nobody
         // named — does not travel.
@@ -537,7 +544,7 @@ mod tests {
         );
         // The class alone is not enough: usage rides the same one.
         let token_count = r#"{"type":"event_msg","payload":{"type":"token_count","info":{}}}"#;
-        assert_eq!(watched_event(token_count.as_bytes(), &codex_watch), None);
+        assert_eq!(watched_event(token_count.as_bytes(), std::slice::from_ref(&codex_watch)), None);
     }
 
     #[test]

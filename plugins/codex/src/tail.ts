@@ -53,14 +53,14 @@ function instantOf(value: unknown): number | null {
  * use the reading without conjuring a plugin context to do it.
  */
 export const codexRecords = {
-  watch: {
+  watches: [{
     match: [
       { key: "type", equals: "event_msg" },
       { key: "payload.type", equals: "turn_aborted" },
     ],
     keep: ["timestamp", "payload.type"],
     lane: "status",
-  },
+  }],
 
   read: (record: CarriedRollout) => {
     if (record["payload.type"] !== "turn_aborted") return null;
@@ -80,7 +80,7 @@ export const codexRecords = {
   ignores: () => false,
 } satisfies Pick<
   SessionTailDialect<JsonlRequest, CarriedRollout>,
-  "watch" | "read" | "ignores"
+  "watches" | "read" | "ignores"
 >;
 
 export const codexTail = (

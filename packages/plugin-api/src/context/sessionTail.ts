@@ -53,8 +53,15 @@ export interface SessionTailDialect<Req, Item> {
    * "and", with no nesting and no "or": everything past that belongs in
    * [`read`], where a real language already exists. A descriptor that grows
    * conditions is a query language nobody voted for.
+   *
+   * A LIST, because a store answers with more than one shape: the numbers
+   * arrive as one kind of record and the model that qualifies them as
+   * another, and joining those into a single condition would need the `or`
+   * this deliberately does not have. Tried in order, and the FIRST match
+   * carries — so a dialect that wants two readings of one record has to say
+   * so in `read`, where saying so is cheap.
    */
-  readonly watch: TailWatch;
+  readonly watches: readonly TailWatch[];
 
   /**
    * The store to follow for a live pane, or null when this agent has none to

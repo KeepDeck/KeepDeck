@@ -86,7 +86,7 @@ export function createUsageTailsLane({
               // Read HERE rather than before the search: finding a store is
               // a walk, and a plugin toggled during it would leave this
               // arming a dialect that is no longer declared.
-              tailOf(agentId)?.watch,
+              tailOf(agentId)?.watches,
             ).then(() => settleArm(paneId));
           })
           .catch((error) => {
@@ -142,13 +142,13 @@ export function createUsageTailsLane({
 
     // The agent's own declaration of which records to carry, handed through
     // verbatim: the backend applies it without reading it.
-    const watch = tailOf(paneAgentType(pane))?.watch;
+    const watches = tailOf(paneAgentType(pane))?.watches;
     log.debug(
       "web:usage",
-      `${paneId}: arming ${format} tail from binding${watch ? ", carrying records for its dialect" : ""}`,
+      `${paneId}: arming ${format} tail from binding${watches?.length ? `, carrying ${watches.length} record shape(s) for its dialect` : ""}`,
     );
     tailed.add(paneId);
-    void watchSessionFile(paneId, transcriptPath, token, format, watch)
+    void watchSessionFile(paneId, transcriptPath, token, format, watches)
       .then(() => settleArm(paneId))
       .catch((error) => {
         tailed.delete(paneId);

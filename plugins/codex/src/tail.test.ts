@@ -15,16 +15,16 @@ describe("codexTail", () => {
     // assistant's own text. Carrying the whole class would put a session's
     // output on the app's bus to learn one fact — the nested clause is what
     // keeps it to the one record type.
-    expect(watchMatches(codexRecords.watch, abort())).toBe(true);
+    expect(watchMatches(codexRecords.watches[0], abort())).toBe(true);
     expect(
-      watchMatches(codexRecords.watch, {
+      watchMatches(codexRecords.watches[0], {
         timestamp: ISO,
         type: "event_msg",
         payload: { type: "token_count", info: { total: 1 } },
       }),
     ).toBe(false);
     expect(
-      watchMatches(codexRecords.watch, {
+      watchMatches(codexRecords.watches[0], {
         timestamp: ISO,
         type: "turn_context",
         payload: { model: "gpt-5" },
@@ -34,7 +34,7 @@ describe("codexTail", () => {
 
   it("keeps the dotted names it asked for, and the payload's bulk stays behind", () => {
     expect(
-      watchProject(codexRecords.watch, {
+      watchProject(codexRecords.watches[0], {
         timestamp: ISO,
         type: "event_msg",
         payload: {
@@ -57,7 +57,7 @@ describe("codexTail", () => {
     // it, and a field named but unread leaves the store for nothing.
     for (const reason of [undefined, "interrupted", "budget_exceeded", "replaced"]) {
       expect(
-        codexRecords.read(watchProject(codexRecords.watch, abort(reason))),
+        codexRecords.read(watchProject(codexRecords.watches[0], abort(reason))),
         String(reason),
       ).toEqual({ kind: "interrupted", at: Date.parse(ISO) });
     }

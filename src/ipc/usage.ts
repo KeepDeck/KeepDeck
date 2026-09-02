@@ -38,17 +38,17 @@ export function watchSessionFile(
   token: string,
   format: "claude" | "codex" | "kimi-wire",
   /** The pane's agent's own declaration of which records to carry out of its
-   * store, when its plugin has a tail dialect. The backend applies it without
-   * reading it: it compares the keys it is given and copies the ones it is
-   * named. Omitted = only the format's own arms run. */
-  watch?: TailWatch,
+   * store, when its plugin has a tail dialect. The backend applies these
+   * without reading them: it compares the keys it is given and copies the
+   * ones it is named. Omitted = only the format's own arms run. */
+  watches?: readonly TailWatch[],
 ): Promise<void> {
   return invoke("usage_watch_session_file", {
     paneId,
     path,
     token,
     format,
-    watch: watch ?? null,
+    watches: watches ?? [],
   });
 }
 

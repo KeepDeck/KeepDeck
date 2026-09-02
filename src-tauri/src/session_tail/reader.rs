@@ -48,7 +48,7 @@ pub(super) fn drain_file(
     path: &std::path::Path,
     cursor: &mut TailCursor,
     format: TailFormat,
-    watch: Option<&TailWatch>,
+    watches: &[TailWatch],
 ) -> (Vec<TailedEvent>, bool) {
     let Ok(mut file) = File::open(path) else {
         return (Vec::new(), false);
@@ -99,7 +99,7 @@ pub(super) fn drain_file(
             Err(_) | Ok(0) => break,
             Ok(read) => {
                 cursor.offset += read as u64;
-                parse_chunk(cursor, &chunk[..read], format, watch, file_mtime_ms, &mut events);
+                parse_chunk(cursor, &chunk[..read], format, watches, file_mtime_ms, &mut events);
             }
         }
     }
@@ -110,7 +110,7 @@ fn parse_chunk(
     cursor: &mut TailCursor,
     chunk: &[u8],
     format: TailFormat,
-    watch: Option<&TailWatch>,
+    watches: &[TailWatch],
     file_mtime_ms: Option<u64>,
     events: &mut Vec<TailedEvent>,
 ) {
@@ -128,10 +128,10 @@ fn parse_chunk(
         let fragment = &chunk[start..nl];
         if cursor.partial.len() + fragment.len() <= MAX_PARTIAL_BYTES {
             if cursor.partial.is_empty() {
-                push_event(format, watch, fragment, file_mtime_ms, events);
+                push_event(format, watches, fragment, file_mtime_ms, events);
             } else {
                 cursor.partial.extend_from_slice(fragment);
-                push_event(format, watch, &cursor.partial, file_mtime_ms, events);
+                push_event(format, watches, &cursor.partial, file_mtime_ms, events);
                 cursor.partial.clear();
             }
         } else {
@@ -151,7 +151,7 @@ fn parse_chunk(
 
 fn push_event(
     format: TailFormat,
-    watch: Option<&TailWatch>,
+    watches: &[TailWatch],
     line: &[u8],
     file_mtime_ms: Option<u64>,
     events: &mut Vec<TailedEvent>,
@@ -160,7 +160,7 @@ fn push_event(
     // arms: those still extract usage, which has not moved. A line can
     // satisfy both and then travels twice — once as this side's reading of
     // the numbers, once as the record the other side reads for itself.
-    let carried = watch.and_then(|watch| watched_event(line, watch));
+    let carried = watched_event(line, watches);
     for mut event in carried.into_iter().chain(format.event(line)) {
         event.source_mtime_ms = file_mtime_ms;
         if event.source_at.is_none() {
@@ -179,7 +179,7 @@ mod tests {
     use super::*;
 
     fn drain(path: &std::path::Path, cursor: &mut TailCursor) -> Vec<TailedEvent> {
-        drain_file(path, cursor, TailFormat::Codex, None).0
+        drain_file(path, cursor, TailFormat::Codex, &[]).0
     }
 
     #[test]
@@ -274,7 +274,7 @@ mod tests {
         let path = dir.join("rollout-swap.jsonl");
         let mut cursor = TailCursor::default();
         fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
-        let (events, rotated) = drain_file(&path, &mut cursor, TailFormat::Codex, None);
+        let (events, rotated) = drain_file(&path, &mut cursor, TailFormat::Codex, &[]);
         assert_eq!(events.len(), 1);
         assert!(!rotated);
 
@@ -285,7 +285,7 @@ mod tests {
         )
         .unwrap();
         fs::rename(&staged, &path).unwrap();
-        let (events, rotated) = drain_file(&path, &mut cursor, TailFormat::Codex, None);
+        let (events, rotated) = drain_file(&path, &mut cursor, TailFormat::Codex, &[]);
         assert_eq!(events.len(), 3, "the whole new file re-reads from zero");
         assert!(rotated, "a different inode at the same path is a rotation");
         fs::remove_dir_all(&dir).ok();

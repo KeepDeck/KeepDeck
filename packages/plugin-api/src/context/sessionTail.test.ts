@@ -15,11 +15,11 @@ type Record = { type?: string; interruptedMessageId?: string; at?: number };
 
 const dialect: SessionTailDialect<JsonlRequest, Record> = {
   format: jsonl<Record>(),
-  watch: {
+  watches: [{
     match: [{ key: "type", equals: "user" }, { key: "interruptedMessageId" }],
     keep: ["type", "interruptedMessageId", "at"],
     lane: "status",
-  },
+  }],
   follow: async (pane) =>
     pane.sessionId ? { path: `/store/${pane.sessionId}` } : null,
   read: (record) =>
@@ -34,7 +34,7 @@ describe("watchMatches", () => {
     // Two rules and no more, on purpose: equality and presence. Everything
     // past that belongs in `read`, where a real language already exists — a
     // descriptor that grows conditions is a query language nobody voted for.
-    const watch = dialect.watch;
+    const watch = dialect.watches[0];
     expect(watchMatches(watch, { type: "user", interruptedMessageId: "m" })).toBe(true);
     expect(watchMatches(watch, { type: "assistant", interruptedMessageId: "m" })).toBe(
       false,
@@ -48,10 +48,10 @@ describe("watchMatches", () => {
     // dialect, an empty interrupted-message id is exactly a record that says
     // nothing.
     expect(
-      watchMatches(dialect.watch, { type: "user", interruptedMessageId: "" }),
+      watchMatches(dialect.watches[0], { type: "user", interruptedMessageId: "" }),
     ).toBe(false);
     expect(
-      watchMatches(dialect.watch, { type: "user", interruptedMessageId: null }),
+      watchMatches(dialect.watches[0], { type: "user", interruptedMessageId: null }),
     ).toBe(false);
   });
 });
@@ -68,7 +68,7 @@ describe("watchProject", () => {
       message: { content: "everything the model said" },
       cwd: "/home/somebody/secret-project",
     };
-    expect(watchProject(dialect.watch, record)).toEqual({
+    expect(watchProject(dialect.watches[0], record)).toEqual({
       type: "user",
       interruptedMessageId: "m",
       at: 5,
@@ -76,7 +76,7 @@ describe("watchProject", () => {
   });
 
   it("omits a named field the record does not carry", () => {
-    expect(watchProject(dialect.watch, { type: "user" })).toEqual({ type: "user" });
+    expect(watchProject(dialect.watches[0], { type: "user" })).toEqual({ type: "user" });
   });
 });
 

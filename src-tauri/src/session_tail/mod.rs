@@ -68,7 +68,7 @@ struct TailState {
     /// What this pane's agent asked to have carried out of its store, when
     /// its plugin declared a dialect. Absent for an agent that has not moved
     /// over: then only the format's own arms run, exactly as before.
-    watch: Option<TailWatch>,
+    watches: Vec<TailWatch>,
     subagents: HashMap<PathBuf, TailCursor>,
     /// Running token cumulatives for formats whose files expose per-request
     /// rows rather than a native session total.
@@ -119,7 +119,7 @@ struct DrainReplay {
 
 fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
     let (mut events, root_rotated) =
-        drain_file(&state.path, &mut state.root, state.format, state.watch.as_ref());
+        drain_file(&state.path, &mut state.root, state.format, &state.watches);
     if root_rotated {
         state.totals = SessionTotals::default();
     }
@@ -140,7 +140,7 @@ fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, DrainReplay) {
             *cursor = TailCursor::default();
         }
         let (appended, sub_rotated) =
-            drain_file(&path, cursor, TailFormat::Claude, state.watch.as_ref());
+            drain_file(&path, cursor, TailFormat::Claude, &state.watches);
         any = any || sub_rotated;
         for mut event in appended {
             // A subagent's abort is its own, never the pane's.
@@ -233,7 +233,7 @@ pub fn usage_watch_session_file(
     path: String,
     token: String,
     format: TailFormat,
-    watch: Option<TailWatch>,
+    watches: Vec<TailWatch>,
 ) -> Result<(), String> {
     // Replace-first: the OLD tail must be gone before the new watcher arms,
     // or a same-path rebind briefly runs two tails and duplicates events.
@@ -245,7 +245,7 @@ pub fn usage_watch_session_file(
         token,
         format,
         root: TailCursor::default(),
-        watch,
+        watches,
         subagents: HashMap::new(),
         totals: SessionTotals::default(),
     }));
@@ -349,7 +349,7 @@ mod tests {
             token: "tok".into(),
             format: TailFormat::Codex,
             root: TailCursor::default(),
-            watch: None,
+            watches: Vec::new(),
             subagents: HashMap::new(),
             totals: SessionTotals::default(),
         }
@@ -376,14 +376,14 @@ mod tests {
         // The marker reaches this side only because the pane's dialect asked
         // for it. Without a watch there is nothing to tag, which is itself
         // the state of a tail whose plugin has not moved over.
-        state.watch = Some(dialects::TailWatch {
+        state.watches = vec![dialects::TailWatch {
             clauses: vec![dialects::RecordMatch {
                 key: "interruptedMessageId".into(),
                 equals: None,
             }],
             keep: vec!["interruptedMessageId".into()],
             lane: dialects::TailLane::Status,
-        });
+        }];
         let (drained, _) = drain_all(&mut state);
         let carried = drained
             .iter()
