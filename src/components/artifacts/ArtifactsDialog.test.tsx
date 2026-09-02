@@ -17,16 +17,22 @@ import { ArtifactsDialog } from "./ArtifactsDialog";
 vi.mock("../../ipc/artifacts", () => ({
   artifactList: vi.fn(),
   artifactResolveUrls: vi.fn(),
+  artifactDelete: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
 vi.mock("../../ipc/clipboard", () => ({ writeText: vi.fn() }));
 
 import { openUrl } from "../../ipc/app";
-import { artifactList, artifactResolveUrls } from "../../ipc/artifacts";
+import {
+  artifactDelete,
+  artifactList,
+  artifactResolveUrls,
+} from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
 
 const listed = vi.mocked(artifactList);
 const resolved = vi.mocked(artifactResolveUrls);
+const removed = vi.mocked(artifactDelete);
 const opened = vi.mocked(openUrl);
 const copied = vi.mocked(writeText);
 
@@ -73,6 +79,12 @@ beforeEach(() => {
   });
   opened.mockReset().mockResolvedValue(undefined);
   copied.mockReset().mockResolvedValue(undefined);
+  removed.mockReset().mockResolvedValue({
+    id: "auth-flow",
+    deleted: true,
+    versionCount: 1,
+    createdAt: 1,
+  });
 });
 
 afterEach(() => act(() => root.unmount()));
@@ -144,6 +156,29 @@ describe("ArtifactsDialog", () => {
     await settle();
 
     expect(rowsOnScreen()).toHaveLength(3);
+  });
+
+  it("deletes from the row's ×, but only through a confirmation", async () => {
+    render();
+    await settle();
+
+    act(() =>
+      rowsOnScreen()[0]
+        ?.querySelector<HTMLButtonElement>(".artifacts__remove")
+        ?.click(),
+    );
+
+    // The question is asked in-app and names the artifact.
+    expect(document.body.textContent).toContain("Delete artifact");
+    expect(document.body.textContent).toContain("The auth-flow");
+    expect(removed).not.toHaveBeenCalled();
+
+    listed.mockResolvedValueOnce([row("deck-layout")]);
+    act(() => buttonWithText("Delete")?.click());
+    await settle();
+
+    expect(removed).toHaveBeenCalledWith({ workspaceId: "ws-1", slug: "auth-flow" });
+    expect(rowsOnScreen()).toHaveLength(1);
   });
 
   it("says nothing is published only when the store said so", async () => {

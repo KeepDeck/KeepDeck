@@ -18,16 +18,22 @@ import { useArtifactsRegistry, type ArtifactsRegistry } from "./useArtifactsRegi
 vi.mock("../../ipc/artifacts", () => ({
   artifactList: vi.fn(),
   artifactResolveUrls: vi.fn(),
+  artifactDelete: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
 vi.mock("../../ipc/clipboard", () => ({ writeText: vi.fn() }));
 
 import { openUrl } from "../../ipc/app";
-import { artifactList, artifactResolveUrls } from "../../ipc/artifacts";
+import {
+  artifactDelete,
+  artifactList,
+  artifactResolveUrls,
+} from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
 
 const listed = vi.mocked(artifactList);
 const resolved = vi.mocked(artifactResolveUrls);
+const removed = vi.mocked(artifactDelete);
 const opened = vi.mocked(openUrl);
 const copied = vi.mocked(writeText);
 
@@ -71,6 +77,12 @@ beforeEach(() => {
     .mockResolvedValue({ url: "http://127.0.0.1:56513/a/tok/auth-flow", indexUrl: "http://127.0.0.1:56513/idx/" });
   opened.mockReset().mockResolvedValue(undefined);
   copied.mockReset().mockResolvedValue(undefined);
+  removed.mockReset().mockResolvedValue({
+    id: "auth-flow",
+    deleted: true,
+    versionCount: 2,
+    createdAt: 1,
+  });
 });
 
 afterEach(() => {
@@ -159,6 +171,51 @@ describe("useArtifactsRegistry", () => {
     expect(registry.error).toBe("display server is down");
     expect(registry.busyId).toBeNull();
     expect(opened).not.toHaveBeenCalled();
+  });
+
+  it("asks before deleting, names the artifact in the question, and a cancel touches nothing", async () => {
+    mount();
+    await settle();
+
+    act(() => registry.requestDelete("auth-flow"));
+    // The TITLE, not the id: the question has to name what the user is
+    // looking at.
+    expect(registry.confirm).toEqual({ id: "auth-flow", title: "The auth-flow" });
+    expect(removed).not.toHaveBeenCalled();
+
+    act(() => registry.cancelConfirm());
+    expect(registry.confirm).toBeNull();
+    expect(removed).not.toHaveBeenCalled();
+  });
+
+  it("a confirmed delete goes to the store and is announced to the whole app", async () => {
+    mount();
+    await settle();
+    act(() => registry.requestDelete("auth-flow"));
+
+    listed.mockResolvedValueOnce([row("deck-layout")]);
+    act(() => registry.confirmDelete());
+    await settle();
+
+    expect(removed).toHaveBeenCalledWith({ workspaceId: "ws-1", slug: "auth-flow" });
+    // Announced, not spliced out locally: other surfaces show this store
+    // too, and a delete kept to one of them leaves the rest lying.
+    expect(registry.rows?.map((r) => r.id)).toEqual(["deck-layout"]);
+    expect(registry.confirm).toBeNull();
+  });
+
+  it("a refused delete says so and leaves the row where it is", async () => {
+    removed.mockRejectedValueOnce(new Error("artifact store is off"));
+    mount();
+    await settle();
+    act(() => registry.requestDelete("auth-flow"));
+
+    act(() => registry.confirmDelete());
+    await settle();
+
+    expect(registry.error).toBe("artifact store is off");
+    expect(registry.rows?.map((r) => r.id)).toEqual(["auth-flow", "deck-layout"]);
+    expect(registry.busyId).toBeNull();
   });
 
   it("copies the IDENTITY, not an address, and lets the ack expire", async () => {

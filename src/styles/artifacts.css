@@ -153,5 +153,32 @@
 .artifacts__row-actions {
   display: flex;
   flex: none;
+  align-items: center;
   gap: 6px;
+}
+
+/* The row-level delete: a small text ×, the idiom the workspaces rail and
+   the journal rows already use. Always present rather than revealed on
+   hover — a control that appears only under a pointer cannot be reached
+   by a Tab at all. */
+.artifacts__remove {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #565e6b;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.artifacts__remove:hover,
+.artifacts__remove:focus-visible {
+  background-color: #2a1f1f;
+  color: #d98b7f;
+  outline: none;
 }

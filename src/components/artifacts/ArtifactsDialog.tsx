@@ -1,6 +1,7 @@
 import { formatAge } from "../../domain/usage";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
@@ -33,9 +34,13 @@ export function ArtifactsDialog({
   onClose,
   canClose = true,
 }: ArtifactsDialogProps) {
-  useEscape(onClose, canClose);
   const registry = useArtifactsRegistry(activeWs?.id ?? null);
-  const { rows, error, busyId, copiedId } = registry;
+  const { rows, error, busyId, copiedId, confirm } = registry;
+  // Escape belongs to the confirm while one is stacked over this dialog:
+  // the handlers stack, so a single press would answer the question AND
+  // close the surface underneath it. `canClose` is the caller's half of
+  // the same rule, for a transaction stacked over the whole app.
+  useEscape(onClose, canClose && confirm === null);
   // The rows are sorted newest-first by the store, so the head row is the
   // clock's floor: a publish seconds after the last tick must not render
   // as an age in the future.
@@ -132,6 +137,20 @@ export function ArtifactsDialog({
                     >
                       {copiedId === row.id ? "Copied" : "Copy id"}
                     </Button>
+                    {/* The row-level delete idiom — a small text ×, the
+                        one the workspaces rail and the journal rows use.
+                        The header's shared close glyph means "close this
+                        surface" and must not come to mean "destroy this
+                        thing". */}
+                    <button
+                      type="button"
+                      className="artifacts__remove"
+                      title="Delete artifact"
+                      aria-label={`Delete ${row.title}`}
+                      onClick={() => registry.requestDelete(row.id)}
+                    >
+                      ×
+                    </button>
                   </div>
                 </li>
               ))}
@@ -139,6 +158,18 @@ export function ArtifactsDialog({
           )}
         </div>
       </div>
+
+      {confirm !== null && (
+        <ConfirmDialog
+          title="Delete artifact"
+          message={`Delete "${confirm.title}"? Every version goes, its open pages say goodbye, and the id stops resolving`}
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          destructive
+          onConfirm={registry.confirmDelete}
+          onCancel={registry.cancelConfirm}
+        />
+      )}
     </ModalOverlay>
   );
 }

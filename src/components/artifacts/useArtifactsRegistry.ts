@@ -5,7 +5,11 @@ import {
   refusalOf,
 } from "../../app/artifacts/enableStatus";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
-import { artifactList, type ArtifactMetaRow } from "../../ipc/artifacts";
+import {
+  artifactDelete,
+  artifactList,
+  type ArtifactMetaRow,
+} from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
 import { describeError } from "../../ipc/log";
 
@@ -26,8 +30,16 @@ export interface ArtifactsRegistry {
   busyId: string | null;
   /** The row whose id sits in the clipboard, until the ack expires. */
   copiedId: string | null;
+  /** The deletion waiting for an answer — the row's TITLE too, because
+   * that is what the question has to name. */
+  confirm: { id: string; title: string } | null;
   open(id: string): void;
   copyId(id: string): void;
+  /** Ask. Deleting takes every version and cannot be undone, so nothing
+   * here deletes without a confirmed answer. */
+  requestDelete(id: string): void;
+  confirmDelete(): void;
+  cancelConfirm(): void;
 }
 
 /**
@@ -61,6 +73,9 @@ export function useArtifactsRegistry(
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{ id: string; title: string } | null>(
+    null,
+  );
   const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Every publish and delete this app makes bumps the revision, which is
   // the read's other input — so the list follows the store instead of
@@ -143,6 +158,37 @@ export function useArtifactsRegistry(
       .catch((e: unknown) => setError(describeError(e)));
   }, []);
 
+  const requestDelete = useCallback(
+    (id: string) => {
+      // The question names the TITLE, so it is read from the row the user
+      // pointed at — a row that has since left the list has no question
+      // to ask.
+      const row = rows?.find((candidate) => candidate.id === id);
+      if (row === undefined) return;
+      setConfirm({ id, title: row.title });
+    },
+    [rows],
+  );
+
+  const cancelConfirm = useCallback(() => setConfirm(null), []);
+
+  const confirmDelete = useCallback(() => {
+    if (confirm === null || workspaceId === null) return;
+    const { id } = confirm;
+    setConfirm(null);
+    setBusyId(id);
+    void artifactDelete({ workspaceId, slug: id })
+      .then(() => {
+        setError(null);
+        // Announced on the app's one channel rather than dropped from the
+        // list here: this surface is not the only one showing the store,
+        // and a delete it kept to itself would leave the others lying.
+        artifactChanges.changed();
+      })
+      .catch((e: unknown) => setError(describeError(e)))
+      .finally(() => setBusyId((current) => (current === id ? null : current)));
+  }, [confirm, workspaceId]);
+
   return {
     rows,
     // The enable's reason REPLACES the store's only when the store
@@ -151,7 +197,11 @@ export function useArtifactsRegistry(
     error: error !== null && enableRefusal !== null ? enableRefusal : error,
     busyId,
     copiedId,
+    confirm,
     open,
     copyId,
+    requestDelete,
+    confirmDelete,
+    cancelConfirm,
   };
 }
