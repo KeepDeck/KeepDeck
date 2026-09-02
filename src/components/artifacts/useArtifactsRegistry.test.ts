@@ -182,6 +182,10 @@ describe("useArtifactsRegistry", () => {
     // they were asked — the stale one first.
     workspaceId = "ws-2";
     act(() => root.render(createElement(Probe)));
+    // Rows in hand belong to the workspace that was just left, so the
+    // list is UNKNOWN from the moment of the switch — not stale content
+    // under a new name.
+    expect(registry.rows).toBeNull();
     answers[1]?.([row("deck-layout")]);
     answers[0]?.([row("auth-flow")]);
     await settle();
@@ -195,6 +199,23 @@ describe("useArtifactsRegistry", () => {
     expect(listed).not.toHaveBeenCalled();
     expect(registry.rows).toEqual([]);
     expect(registry.error).toBeNull();
+  });
+
+  it("keeps the rows up while it re-reads, so the dialog does not flinch", async () => {
+    // The read is a local disk walk: blanking the list for its duration
+    // swapped the rows for a placeholder and back, which on every publish
+    // is a card that jumps rather than a list that updated.
+    mount();
+    await settle();
+    const answers: Array<(rows: ArtifactMetaRow[]) => void> = [];
+    listed.mockImplementationOnce(() => new Promise((res) => answers.push(res)));
+
+    act(() => artifactChanges.changed());
+
+    expect(registry.rows?.map((r) => r.id)).toEqual(["auth-flow", "deck-layout"]);
+    answers[0]?.([row("auth-flow")]);
+    await settle();
+    expect(registry.rows?.map((r) => r.id)).toEqual(["auth-flow"]);
   });
 
   it("re-reads when the app writes — a list read once is stale the moment an agent publishes", async () => {

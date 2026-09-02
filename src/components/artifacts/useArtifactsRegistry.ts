@@ -47,7 +47,17 @@ export interface ArtifactsRegistry {
 export function useArtifactsRegistry(
   workspaceId: string | null,
 ): ArtifactsRegistry {
-  const [rows, setRows] = useState<readonly ArtifactMetaRow[] | null>(null);
+  // The listing carries WHOSE it is. That is what makes "still loading"
+  // derivable instead of a state someone has to remember to set: rows are
+  // unknown exactly while the ones in hand belong to another workspace.
+  // Clearing them on every read instead would blank the list — and
+  // collapse the dialog — on each publish, for the few milliseconds a
+  // local read takes.
+  const [listing, setListing] = useState<{
+    ws: string | null;
+    rows: readonly ArtifactMetaRow[];
+  } | null>(null);
+  const rows = listing !== null && listing.ws === workspaceId ? listing.rows : null;
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -77,26 +87,25 @@ export function useArtifactsRegistry(
     if (workspaceId === null) {
       // No workspace, no store to read: an honest empty rather than a
       // list that never lands and reads as "loading" forever.
-      setRows([]);
+      setListing({ ws: null, rows: [] });
       setError(null);
       return;
     }
-    // A workspace switch (or a refresh) must not be overtaken by the read
+    // A workspace switch (or a re-read) must not be overtaken by the read
     // it replaced: a late answer for the previous workspace would paint
     // another workspace's artifacts under this one's name.
     let live = true;
-    setRows(null);
     void artifactList({ workspaceId })
       .then((listed) => {
         if (!live) return;
-        setRows(listed);
+        setListing({ ws: workspaceId, rows: listed });
         setError(null);
       })
       .catch((e: unknown) => {
         if (!live) return;
         // The list is UNKNOWN, not empty — a store that refused must not
         // render as a workspace that published nothing.
-        setRows([]);
+        setListing({ ws: workspaceId, rows: [] });
         setError(describeError(e));
       });
     return () => {

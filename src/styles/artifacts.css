@@ -37,10 +37,15 @@
   font-size: 12px;
 }
 
+/* One seat for every state. Loading, empty, a refusal and a short list
+   are all things this box says within a few milliseconds of each other,
+   and a card that resizes between them reads as a flinch rather than as
+   an answer. Tall enough for the placeholder block; longer lists grow
+   the card up to its max and then scroll inside it. */
 .artifacts__body {
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 168px;
   overflow-y: auto;
 }
 
