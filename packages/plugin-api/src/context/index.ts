@@ -142,6 +142,12 @@ export {
   type SessionReader,
 } from "./sessionRead.ts";
 export {
+  tailPass,
+  type SessionTailDialect,
+  type TailPass,
+  type TailTarget,
+} from "./sessionTail.ts";
+export {
   CONTENT_CAP,
   walkSession,
   type SessionDialect,
