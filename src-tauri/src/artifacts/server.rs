@@ -978,7 +978,7 @@ mod tests {
         )
         .unwrap();
         await_subscribers(&server, "ws-1", "gone", 1);
-        store.delete("ws-1", "gone").unwrap();
+        store.delete("ws-1", "gone", None).unwrap();
         // The delete command's bye walk (mod.rs) — replicated here: the
         // server's own broadcast_bye.
         server.broadcast_bye("ws-1", "gone", "artifact deleted");

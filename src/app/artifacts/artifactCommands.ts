@@ -33,11 +33,11 @@ import {
 import { getSettings } from "../settingsManager";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
-  artifactDelete,
   artifactList,
   artifactPublish,
   artifactRead,
 } from "../../ipc/artifacts";
+import { deleteArtifact } from "./remove";
 
 /** What the Rust publish result gives the command layer (urls null while
  * the display server is down — a publish never fails on that). */
@@ -327,11 +327,12 @@ function deleteCommand(deps: ArtifactCommandDeps): CommandSpec {
       const caller = callerContext(source, deps);
       const id = str(args, "id");
       if (!id) throw new Error("delete needs an id");
-      const outcome = await artifactDelete({
-        workspaceId: caller.workspaceId,
-        slug: id,
-      });
-      if (outcome.deleted) deps.changed();
+      // No expected generation: an agent's delete is an instruction about
+      // a NAME, not an answer about a row it was shown.
+      const outcome = await deleteArtifact(
+        { workspaceId: caller.workspaceId, slug: id },
+        { changed: deps.changed },
+      );
       if (outcome.deleted && deps.announce) {
         deps.announce({
           kind: "deleted",

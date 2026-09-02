@@ -17,7 +17,15 @@ export type ArtifactsView =
   /** The store said why it cannot answer; its words, verbatim. */
   | { kind: "refusal"; message: string }
   | { kind: "empty" }
-  | { kind: "rows"; rows: readonly ArtifactMetaRow[] };
+  | {
+      kind: "rows";
+      rows: readonly ArtifactMetaRow[];
+      /** A refusal that arrived while these rows were up — a failed
+       * refresh, a failed open. It rides WITH them because there is
+       * nowhere else for it to go, and because deciding that beside the
+       * markup is how the two facts drift apart. */
+      banner: string | null;
+    };
 
 /**
  * Which of the five, from the three facts that decide it.
@@ -34,7 +42,7 @@ export function viewOf(
 ): ArtifactsView {
   if (workspaceId === null) return { kind: "noWorkspace" };
   if (rows === null) return { kind: "loading" };
-  if (rows.length > 0) return { kind: "rows", rows };
+  if (rows.length > 0) return { kind: "rows", rows, banner: error };
   if (error !== null) return { kind: "refusal", message: error };
   return { kind: "empty" };
 }

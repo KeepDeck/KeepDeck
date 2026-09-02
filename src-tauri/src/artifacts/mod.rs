@@ -229,6 +229,10 @@ pub struct ReadPayload {
 pub struct DeletePayload {
     workspace_id: String,
     slug: String,
+    /// Which incarnation of the slug the caller means. Present when a
+    /// human was ASKED about a row and is now answering; absent for an
+    /// agent, whose delete is an instruction about a name.
+    expected_generation: Option<String>,
 }
 
 /// The notification router's identifier-only URL entry (B10): no token
@@ -400,7 +404,11 @@ pub fn artifact_delete(
 ) -> Result<DeleteOutcome, String> {
     let out = state
         .store
-        .delete(&payload.workspace_id, &payload.slug)
+        .delete(
+            &payload.workspace_id,
+            &payload.slug,
+            payload.expected_generation.as_deref(),
+        )
         .map_err(|e| e.0)?;
     if out.deleted {
         let server = state.server.lock().expect("artifacts server poisoned");

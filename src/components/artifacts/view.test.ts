@@ -8,6 +8,7 @@ const row = (id: string): ArtifactMetaRow => ({
   versionCount: 2,
   updatedAt: 1_700_000_000_000,
   lastAuthor: "support 1",
+  generation: `gen-${id}`,
 });
 
 describe("viewOf", () => {

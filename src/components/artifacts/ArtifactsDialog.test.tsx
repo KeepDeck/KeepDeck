@@ -42,6 +42,7 @@ const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow =
   versionCount: 3,
   updatedAt: Date.now(),
   lastAuthor: "support 1",
+  generation: `gen-${id}`,
   ...over,
 });
 
@@ -177,7 +178,13 @@ describe("ArtifactsDialog", () => {
     act(() => buttonWithText("Delete")?.click());
     await settle();
 
-    expect(removed).toHaveBeenCalledWith({ workspaceId: "ws-1", slug: "auth-flow" });
+    // The answer names the incarnation it was asked about, so the store
+    // refuses if the id came to mean something else in between.
+    expect(removed).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      slug: "auth-flow",
+      expectedGeneration: "gen-auth-flow",
+    });
     expect(rowsOnScreen()).toHaveLength(1);
   });
 

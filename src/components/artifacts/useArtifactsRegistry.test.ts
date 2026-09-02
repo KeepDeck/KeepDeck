@@ -43,8 +43,18 @@ const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow =
   versionCount: 2,
   updatedAt: 1_700_000_000_000,
   lastAuthor: "support 1",
+  generation: `gen-${id}`,
   ...over,
 });
+
+/** The refusal on screen: the whole body when there is nothing else to
+ * show, the banner over the rows when there is. */
+const refusalShown = (): string | null =>
+  registry.view.kind === "refusal"
+    ? registry.view.message
+    : registry.view.kind === "rows"
+      ? registry.view.banner
+      : null;
 
 let registry: ArtifactsRegistry;
 let host: HTMLDivElement;
@@ -116,7 +126,7 @@ describe("useArtifactsRegistry", () => {
     );
     mount();
     await settle();
-    expect(registry.error).toBe(
+    expect(refusalShown()).toBe(
       "artifact store is off — turn the artifacts experiment on first",
     );
     // A refusal, NOT an empty workspace — the two are one row apart in
@@ -139,7 +149,7 @@ describe("useArtifactsRegistry", () => {
     );
     mount();
     await settle();
-    expect(registry.error).toBe(
+    expect(refusalShown()).toBe(
       "artifact store is owned by another KeepDeck process",
     );
   });
@@ -178,7 +188,7 @@ describe("useArtifactsRegistry", () => {
     await settle();
     act(() => registry.open("auth-flow"));
     await settle();
-    expect(registry.error).toBe("display server is down");
+    expect(refusalShown()).toBe("display server is down");
     expect(registry.busyId).toBeNull();
     expect(opened).not.toHaveBeenCalled();
   });
@@ -192,10 +202,10 @@ describe("useArtifactsRegistry", () => {
     // looking at. The stamp rides along so the answer belongs to THIS
     // row rather than to whatever wears its id later.
     expect(registry.confirm).toEqual({
+      workspaceId: "ws-1",
       id: "auth-flow",
       title: "The auth-flow",
-      updatedAt: 1_700_000_000_000,
-      versionCount: 2,
+      generation: "gen-auth-flow",
     });
     expect(removed).not.toHaveBeenCalled();
 
@@ -213,7 +223,13 @@ describe("useArtifactsRegistry", () => {
     act(() => registry.confirmDelete());
     await settle();
 
-    expect(removed).toHaveBeenCalledWith({ workspaceId: "ws-1", slug: "auth-flow" });
+    // The generation rides along: the store refuses if the id came to
+    // mean something else between the question and the answer.
+    expect(removed).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      slug: "auth-flow",
+      expectedGeneration: "gen-auth-flow",
+    });
     // Announced, not spliced out locally: other surfaces show this store
     // too, and a delete kept to one of them leaves the rest lying.
     expect(shown()).toEqual(["deck-layout"]);
@@ -231,9 +247,10 @@ describe("useArtifactsRegistry", () => {
     act(() => registry.requestDelete("auth-flow"));
     expect(registry.confirm).not.toBeNull();
 
-    // Same id, new artifact: version 1 again, a newer stamp.
+    // Same id, different artifact: a resurrection carries a new
+    // generation.
     listed.mockResolvedValueOnce([
-      row("auth-flow", { versionCount: 1, updatedAt: 1_700_000_009_999 }),
+      row("auth-flow", { versionCount: 1, generation: "gen-resurrected" }),
       row("deck-layout"),
     ]);
     act(() => artifactChanges.changed());
@@ -255,11 +272,45 @@ describe("useArtifactsRegistry", () => {
     await settle();
 
     expect(registry.confirm).toEqual({
+      workspaceId: "ws-1",
       id: "auth-flow",
       title: "The auth-flow",
-      updatedAt: 1_700_000_000_000,
-      versionCount: 2,
+      generation: "gen-auth-flow",
     });
+  });
+
+  it("refuses an answer given after the workspace moved, without waiting for a re-read", async () => {
+    // `workspace.switch` is an agent command: the workspace under an
+    // open dialog can change between the question and the answer. The
+    // effect that notices runs a render later, so the refusal has to be
+    // synchronous — otherwise the press deletes the OTHER workspace's
+    // artifact of the same name.
+    mount();
+    await settle();
+    act(() => registry.requestDelete("auth-flow"));
+
+    workspaceId = "ws-2";
+    act(() => root.render(createElement(Probe)));
+    act(() => registry.confirmDelete());
+    await settle();
+
+    expect(removed).not.toHaveBeenCalled();
+    expect(registry.confirm).toBeNull();
+  });
+
+  it("keeps a readable list when a refresh fails, and says so beside it", async () => {
+    // A transient read failure must not swap rows the store DID answer
+    // with for a placeholder — the list is still the last true thing it
+    // said, and the news belongs beside it.
+    mount();
+    await settle();
+
+    listed.mockRejectedValueOnce(new Error("read failed"));
+    act(() => artifactChanges.changed());
+    await settle();
+
+    expect(shown()).toEqual(["auth-flow", "deck-layout"]);
+    expect(refusalShown()).toBe("read failed");
   });
 
   it("does not claim the store changed when nothing was deleted", async () => {
@@ -291,7 +342,7 @@ describe("useArtifactsRegistry", () => {
     act(() => registry.confirmDelete());
     await settle();
 
-    expect(registry.error).toBe("artifact store is off");
+    expect(refusalShown()).toBe("artifact store is off");
     expect(shown()).toEqual(["auth-flow", "deck-layout"]);
     expect(registry.busyId).toBeNull();
   });
@@ -335,7 +386,7 @@ describe("useArtifactsRegistry", () => {
     await settle();
     expect(listed).not.toHaveBeenCalled();
     expect(shown()).toBe("noWorkspace");
-    expect(registry.error).toBeNull();
+    expect(refusalShown()).toBeNull();
   });
 
   it("keeps the rows up while it re-reads, so the dialog does not flinch", async () => {

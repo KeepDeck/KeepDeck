@@ -5,11 +5,8 @@ import {
   refusalOf,
 } from "../../app/artifacts/enableStatus";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
-import {
-  artifactDelete,
-  artifactList,
-  type ArtifactMetaRow,
-} from "../../ipc/artifacts";
+import { deleteArtifact } from "../../app/artifacts/remove";
+import { artifactList, type ArtifactMetaRow } from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
 import { describeError } from "../../ipc/log";
 import { viewOf, type ArtifactsView } from "./view";
@@ -17,24 +14,21 @@ import { viewOf, type ArtifactsView } from "./view";
 /** How long a copied-id acknowledgement stays on its row. */
 const COPIED_ACK_MS = 1500;
 
-/** A deletion the user has been asked about, and the row it was asked
- * about — the stamp is what makes the answer belong to that row and not
- * merely to its id. */
+/** A deletion the user has been asked about, and WHICH thing it was
+ * asked about: the workspace it belongs to and the incarnation of the id
+ * that was on screen. An id alone is not an identity — deleting frees
+ * it, and a workspace can be switched under an open dialog by an agent
+ * running `workspace.switch`. */
 interface ArtifactConfirm {
+  workspaceId: string;
   id: string;
   title: string;
-  updatedAt: number;
-  versionCount: number;
+  generation: string;
 }
 
 export interface ArtifactsRegistry {
   /** What the body shows — the classification lives in [`viewOf`]. */
   view: ArtifactsView;
-  /** The last refusal, in the words of whoever actually knows the reason:
-   * the failed enable when the store never opened, otherwise the store
-   * itself (its sentences are written to be read). Cleared by the next
-   * successful action. */
-  error: string | null;
   /** The row an action is in flight for; one at a time. */
   busyId: string | null;
   /** The row whose id sits in the clipboard, until the ack expires. */
@@ -127,9 +121,17 @@ export function useArtifactsRegistry(
       })
       .catch((e: unknown) => {
         if (!live) return;
-        // The list is UNKNOWN, not empty — a store that refused must not
-        // render as a workspace that published nothing.
-        setListing({ ws: workspaceId, rows: [] });
+        // A refresh that failed leaves the rows it could not refresh ON
+        // SCREEN — they are the last thing the store did say, and a
+        // transient read failure must not swap a readable list for a
+        // placeholder. Only a workspace that never answered falls to
+        // empty, where the refusal becomes the whole body: a store that
+        // refused must never render as one that published nothing.
+        setListing((current) =>
+          current !== null && current.ws === workspaceId
+            ? current
+            : { ws: workspaceId, rows: [] },
+        );
         setError(describeError(e));
       });
     return () => {
@@ -173,55 +175,61 @@ export function useArtifactsRegistry(
       // pointed at — a row that has since left the list has no question
       // to ask.
       const row = rows?.find((candidate) => candidate.id === id);
-      if (row === undefined) return;
+      if (row === undefined || workspaceId === null) return;
       setConfirm({
+        workspaceId,
         id,
         title: row.title,
-        updatedAt: row.updatedAt,
-        versionCount: row.versionCount,
+        generation: row.generation,
       });
     },
-    [rows],
+    [rows, workspaceId],
   );
 
-  // An id is not an identity here: deleting an artifact frees its id, and
-  // the next publish under that id is a NEW artifact with a fresh token
-  // (the store calls it a resurrection). An agent that deletes and
-  // republishes `draft` while the user sits on the question would leave
-  // the answer pointing at something they never saw — and the modal
-  // blocks the human, not the agent. So the question stands only while
-  // its row does, unchanged: any move under it withdraws the question
-  // rather than re-aiming it.
+  // A question about a row that is no longer there is a question about
+  // nothing: withdraw it rather than re-aim it. Asking again costs one
+  // press, against a deletion that cannot be undone.
+  //
+  // This is the KIND half. It cannot be the safe half — whatever a list
+  // says is already the past by the time an answer travels, and the read
+  // that would notice is still in flight while the user presses. What
+  // makes the answer safe is the store comparing the same generation
+  // under the guard it deletes with; this only keeps a stale question
+  // off the screen.
   useEffect(() => {
-    if (confirm === null || rows === null) return;
+    if (confirm === null) return;
+    if (confirm.workspaceId !== workspaceId) {
+      setConfirm(null);
+      return;
+    }
+    if (rows === null) return;
     const row = rows.find((candidate) => candidate.id === confirm.id);
-    const same =
-      row !== undefined &&
-      row.updatedAt === confirm.updatedAt &&
-      row.versionCount === confirm.versionCount;
-    if (!same) setConfirm(null);
-  }, [rows, confirm]);
+    if (row === undefined || row.generation !== confirm.generation) {
+      setConfirm(null);
+    }
+  }, [rows, confirm, workspaceId]);
 
   const cancelConfirm = useCallback(() => setConfirm(null), []);
 
   const confirmDelete = useCallback(() => {
-    if (confirm === null || workspaceId === null) return;
-    const { id } = confirm;
+    if (confirm === null) return;
+    // SYNCHRONOUSLY, not via the effect above: `workspace.switch` is an
+    // agent command, so the workspace under an open dialog can change
+    // between the question and the answer, and the effect that notices
+    // runs a render later. Answering then would delete the other
+    // workspace's artifact of the same name.
+    if (confirm.workspaceId !== workspaceId) {
+      setConfirm(null);
+      return;
+    }
+    const { id, generation } = confirm;
     setConfirm(null);
     setBusyId(id);
-    void artifactDelete({ workspaceId, slug: id })
-      .then((outcome) => {
-        setError(null);
-        // Announced on the app's one channel rather than dropped from the
-        // list here: this surface is not the only one showing the store,
-        // and a delete it kept to itself would leave the others lying.
-        //
-        // Only when something WENT, which is the same rule the agent's
-        // delete obeys: deleting is idempotent, and a no-op that claimed
-        // the store had changed would send every subscriber to walk it
-        // again over nothing.
-        if (outcome.deleted) artifactChanges.changed();
-      })
+    void deleteArtifact(
+      { workspaceId: confirm.workspaceId, slug: id, expectedGeneration: generation },
+      { changed: artifactChanges.changed },
+    )
+      .then(() => setError(null))
       .catch((e: unknown) => setError(describeError(e)))
       .finally(() => setBusyId((current) => (current === id ? null : current)));
   }, [confirm, workspaceId]);
@@ -233,8 +241,11 @@ export function useArtifactsRegistry(
     error !== null && enableRefusal !== null ? enableRefusal : error;
 
   return {
+    // The ONE place a refusal is placed: as the whole body when there is
+    // nothing else to show, as a banner over rows when there is. The
+    // view renders the arm it is given and never combines the two facts
+    // itself.
     view: viewOf(workspaceId, rows, shownError),
-    error: shownError,
     busyId,
     copiedId,
     confirm,

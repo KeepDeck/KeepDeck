@@ -9,6 +9,7 @@ const row = (over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow => ({
   versionCount: 3,
   updatedAt: NOW - 7_200_000,
   lastAuthor: "support 1",
+  generation: "gen-1",
   ...over,
 });
 

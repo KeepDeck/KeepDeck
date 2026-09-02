@@ -35,7 +35,7 @@ export function ArtifactsDialog({
   canClose = true,
 }: ArtifactsDialogProps) {
   const registry = useArtifactsRegistry(activeWs?.id ?? null);
-  const { view, error, busyId, copiedId, confirm } = registry;
+  const { view, busyId, copiedId, confirm } = registry;
   // Escape belongs to the confirm while one is stacked over this dialog:
   // the handlers stack, so a single press would answer the question AND
   // close the surface underneath it. `canClose` is the caller's half of
@@ -67,12 +67,9 @@ export function ArtifactsDialog({
           here — the address is resolved on the spot.
         </p>
 
-        {/* A refusal that arrives while rows are on screen has nowhere
-            else to go — the body is showing the list it could not
-            refresh. */}
-        {error !== null && view.kind === "rows" && (
+        {view.kind === "rows" && view.banner !== null && (
           <p className="artifacts__error kd-selectable" role="alert">
-            {error}
+            {view.banner}
           </p>
         )}
 

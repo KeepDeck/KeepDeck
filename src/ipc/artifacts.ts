@@ -64,6 +64,12 @@ export interface ArtifactMetaRow {
   versionCount: number;
   updatedAt: number;
   lastAuthor: string;
+  /** Which incarnation of this id the row describes. Opaque, and NOT the
+   * artifact's token: deleting frees an id, so the next publish under it
+   * is a different artifact wearing the same name, and this is what
+   * tells them apart. Handed back on a delete that answers a question
+   * about this row. */
+  generation: string;
 }
 
 export async function artifactList(payload: {
@@ -114,6 +120,11 @@ export interface ArtifactDeleteResult {
 export async function artifactDelete(payload: {
   workspaceId: string;
   slug: string;
+  /** Refuse unless the id still names this incarnation — for a caller
+   * acting on an answer about a row it showed. The store compares under
+   * the same guard as the removal, which a caller cannot do. Omitted by
+   * an agent, whose delete is an instruction about a name. */
+  expectedGeneration?: string;
 }): Promise<ArtifactDeleteResult> {
   return await invoke("artifact_delete", { payload });
 }
