@@ -1,4 +1,5 @@
 import { askForPaneBack } from "./app/resumeOutcome";
+import { ArtifactsDialog } from "./components/artifacts/ArtifactsDialog";
 import { TeamDialog } from "./components/workspace/TeamDialog";
 import { restartToUpdate } from "./app/updateManager";
 import { updateActionView } from "./app/updateAction";
@@ -99,6 +100,8 @@ function App() {
     closeSettings,
     openSkills,
     closeSkills,
+    openArtifacts,
+    closeArtifacts,
     openStats,
     closeStats,
     selectStatsTab,
@@ -108,6 +111,7 @@ function App() {
     showBell,
     showForm,
     skillsOpen,
+    artifactsOpen,
     specByPane,
     statsOpen,
     statsTab,
@@ -159,6 +163,13 @@ function App() {
         canOpenDialog={canOpenDialog}
         onOpenStats={() => void openStats()}
         onOpenSkills={() => void openSkills()}
+        // The registry is the artifacts experiment's own surface: no
+        // toggle, no door. The setting is the ONE gate here — whether the
+        // backend enable actually landed is the dialog's story to tell,
+        // in the store's own words.
+        onOpenArtifacts={
+          settings?.artifacts ? () => void openArtifacts() : null
+        }
         onOpenSettings={() => void openSettings()}
         notifications={
           showBell
@@ -406,6 +417,13 @@ function App() {
             <SkillsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}
               onClose={closeSkills}
+              canClose={canCloseDialog}
+            />
+          )}
+          {artifactsOpen && (
+            <ArtifactsDialog
+              activeWs={active ? { id: active.id, name: active.name } : null}
+              onClose={closeArtifacts}
               canClose={canCloseDialog}
             />
           )}

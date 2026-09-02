@@ -39,6 +39,7 @@ const BASE: DeckBarProps = {
   canOpenDialog: true,
   onOpenStats: () => {},
   onOpenSkills: () => {},
+  onOpenArtifacts: null,
   onOpenSettings: () => {},
   notifications: null,
 };
@@ -82,6 +83,10 @@ describe("DeckBar", () => {
     expect(byText("+ Team")).toBeUndefined();
     expect(byLabel("Toggle dock panel")).toBeNull();
     expect(host.querySelector("[data-bell]")).toBeNull();
+    // The artifacts door is one of these: the experiment is off far more
+    // often than it is on, and a door to a feature that is not running
+    // leads to a refusal.
+    expect(byLabel("Open artifacts")).toBeNull();
     expect(byText("+ Agent")).toBeDefined();
   });
 
@@ -122,6 +127,7 @@ describe("DeckBar", () => {
       onAddTeam: () => calls.push("team"),
       onOpenStats: () => calls.push("stats"),
       onOpenSkills: () => calls.push("skills"),
+      onOpenArtifacts: () => calls.push("artifacts"),
       onOpenSettings: () => calls.push("settings"),
       dock: { open: false, onToggle: () => calls.push("dock") },
     });
@@ -133,6 +139,7 @@ describe("DeckBar", () => {
     act(() => byLabel("Toggle dock panel")?.click());
     act(() => byLabel("Open statistics")?.click());
     act(() => byLabel("Open skills")?.click());
+    act(() => byLabel("Open artifacts")?.click());
     act(() => byLabel("Open settings")?.click());
     expect(calls).toEqual([
       "rail",
@@ -141,6 +148,7 @@ describe("DeckBar", () => {
       "dock",
       "stats",
       "skills",
+      "artifacts",
       "settings",
     ]);
   });
