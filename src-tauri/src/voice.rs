@@ -13,10 +13,9 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use keepdeck_voice::{is_silence, resample, rms, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE};
-// Parakeet is Apple-Silicon only (its ONNX runtime has no Intel-macOS binary).
-#[cfg(target_arch = "aarch64")]
-use keepdeck_voice::ParakeetEngine;
+use keepdeck_voice::{
+    is_silence, resample, rms, ParakeetEngine, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE,
+};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 
@@ -26,16 +25,12 @@ use crate::downloads;
 #[serde(rename_all = "camelCase")]
 pub enum EngineType {
     Whisper,
-    #[cfg(target_arch = "aarch64")]
     Parakeet,
 }
 
 #[tauri::command]
 pub fn voice_engines() -> Vec<&'static str> {
-    let mut engines = vec!["whisper"];
-    #[cfg(target_arch = "aarch64")]
-    engines.push("parakeet");
-    engines
+    vec!["whisper", "parakeet"]
 }
 
 fn resolve_model_path(plugin_id: &str, relative: &str) -> Result<PathBuf, String> {
@@ -61,7 +56,6 @@ struct ActiveCapture {
 /// arm carries the serializing lock.
 enum CachedEngine {
     Whisper(Arc<WhisperEngine>),
-    #[cfg(target_arch = "aarch64")]
     Parakeet(Arc<Mutex<ParakeetEngine>>),
 }
 
@@ -69,7 +63,6 @@ impl Clone for CachedEngine {
     fn clone(&self) -> Self {
         match self {
             CachedEngine::Whisper(e) => CachedEngine::Whisper(e.clone()),
-            #[cfg(target_arch = "aarch64")]
             CachedEngine::Parakeet(e) => CachedEngine::Parakeet(e.clone()),
         }
     }
@@ -343,7 +336,6 @@ pub async fn voice_capture_stop(
                             EngineType::Whisper => CachedEngine::Whisper(Arc::new(
                                 WhisperEngine::load(&load_path).map_err(|e| e.to_string())?,
                             )),
-                            #[cfg(target_arch = "aarch64")]
                             EngineType::Parakeet => CachedEngine::Parakeet(Arc::new(Mutex::new(
                                 ParakeetEngine::load(&load_path).map_err(|e| e.to_string())?,
                             ))),
@@ -362,7 +354,6 @@ pub async fn voice_capture_stop(
                 CachedEngine::Whisper(whisper) => whisper
                     .transcribe(&samples, language.as_deref(), prompt.as_deref())
                     .map_err(|e| e.to_string())?,
-                #[cfg(target_arch = "aarch64")]
                 CachedEngine::Parakeet(parakeet) => parakeet
                     .lock()
                     .expect("poisoned")

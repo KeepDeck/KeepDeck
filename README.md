@@ -12,7 +12,7 @@ reliability over the fleet, not the renderer.
 curl -fsSL https://raw.githubusercontent.com/KeepDeck/KeepDeck/main/install.sh | sh
 ```
 
-This downloads the latest build for your Mac (Apple Silicon or Intel) and
+This downloads the latest build for your Mac (Apple Silicon only) and
 installs KeepDeck to `/Applications`. The build is unsigned, so the installer
 removes the download's quarantine attribute; the app then opens without a
 Gatekeeper prompt.

@@ -113,8 +113,7 @@ jobs:
             --version "$VERSION" \
             --repo "${{ github.repository }}" \
             --out assets/latest.json \
-            --payload darwin-aarch64=assets/KeepDeck-macos-arm64.app.tar.gz \
-            --payload darwin-x86_64=assets/KeepDeck-macos-x64.app.tar.gz
+            --payload darwin-aarch64=assets/KeepDeck-macos-arm64.app.tar.gz
 
       - name: Publish the rolling "latest" release
         env:
@@ -137,11 +136,8 @@ jobs:
           # next check).
           gh release upload latest \
             assets/KeepDeck-macos-arm64.zip \
-            assets/KeepDeck-macos-x64.zip \
             assets/KeepDeck-macos-arm64.app.tar.gz \
             assets/KeepDeck-macos-arm64.app.tar.gz.sig \
-            assets/KeepDeck-macos-x64.app.tar.gz \
-            assets/KeepDeck-macos-x64.app.tar.gz.sig \
             --clobber
           gh release upload latest assets/latest.json --clobber
           # Idempotent touch-up: the content is static, but the edit heals
@@ -176,11 +172,8 @@ jobs:
           esac
           gh release upload "$VERSION" \
             assets/KeepDeck-macos-arm64.zip \
-            assets/KeepDeck-macos-x64.zip \
             assets/KeepDeck-macos-arm64.app.tar.gz \
             assets/KeepDeck-macos-arm64.app.tar.gz.sig \
-            assets/KeepDeck-macos-x64.app.tar.gz \
-            assets/KeepDeck-macos-x64.app.tar.gz.sig \
             --clobber
 
       - name: Build and upload the accumulated changelog

@@ -16,7 +16,7 @@ describe("parseArgs", () => {
         "--repo", "KeepDeck/KeepDeck",
         "--out", "latest.json",
         "--payload", "darwin-aarch64=a.app.tar.gz",
-        "--payload", "darwin-x86_64=x.app.tar.gz",
+        "--payload", "linux-aarch64=b.app.tar.gz",
       ]),
     ).toEqual({
       version: "1.2.3",
@@ -24,7 +24,7 @@ describe("parseArgs", () => {
       out: "latest.json",
       payloads: {
         "darwin-aarch64": "a.app.tar.gz",
-        "darwin-x86_64": "x.app.tar.gz",
+        "linux-aarch64": "b.app.tar.gz",
       },
     });
   });
@@ -90,12 +90,10 @@ describe("end to end", () => {
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("writes latest.json for real payload files", () => {
+  it("writes latest.json for a real payload file", () => {
     dir = mkdtempSync(join(tmpdir(), "kd-manifest-"));
-    for (const arch of ["arm64", "x64"]) {
-      writeFileSync(join(dir, `KeepDeck-macos-${arch}.app.tar.gz`), "payload");
-      writeFileSync(join(dir, `KeepDeck-macos-${arch}.app.tar.gz.sig`), `sig-${arch}\n`);
-    }
+    writeFileSync(join(dir, "KeepDeck-macos-arm64.app.tar.gz"), "payload");
+    writeFileSync(join(dir, "KeepDeck-macos-arm64.app.tar.gz.sig"), "sig-arm64\n");
     const out = join(dir, "latest.json");
     execFileSync(process.execPath, [
       SCRIPT,
@@ -103,7 +101,6 @@ describe("end to end", () => {
       "--repo", "KeepDeck/KeepDeck",
       "--out", out,
       "--payload", `darwin-aarch64=${join(dir, "KeepDeck-macos-arm64.app.tar.gz")}`,
-      "--payload", `darwin-x86_64=${join(dir, "KeepDeck-macos-x64.app.tar.gz")}`,
     ]);
     const manifest = JSON.parse(readFileSync(out, "utf8"));
     expect(manifest.version).toBe("9.9.9");
@@ -112,6 +109,5 @@ describe("end to end", () => {
       signature: "sig-arm64",
       url: "https://github.com/KeepDeck/KeepDeck/releases/download/latest/KeepDeck-macos-arm64.app.tar.gz",
     });
-    expect(manifest.platforms["darwin-x86_64"].signature).toBe("sig-x64");
   });
 });

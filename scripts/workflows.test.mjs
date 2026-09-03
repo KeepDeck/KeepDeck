@@ -90,11 +90,10 @@ describe("build-macos workflow", () => {
     expect(build.jobs.build.steps[0].with.ref).toBe("${{ inputs.ref }}");
   });
 
-  it("builds both supported architectures natively", () => {
+  it("builds Apple Silicon natively", () => {
     expect(build.jobs.build.strategy["fail-fast"]).toBe(false);
     expect(build.jobs.build.strategy.matrix.include).toEqual([
       { runner: "macos-latest", arch: "arm64" },
-      { runner: "macos-15-intel", arch: "x64" },
     ]);
   });
 
@@ -231,10 +230,8 @@ describe("release workflow", () => {
     expect(archive.run).not.toContain("v$VERSION");
     expect(archive.run).toContain("--notes-file notes.md");
     expect(archive.run).toContain('--target "${{ needs.pin.outputs.sha }}"');
-    for (const arch of ["arm64", "x64"]) {
-      expect(archive.run).toContain(`assets/KeepDeck-macos-${arch}.zip`);
-      expect(archive.run).toContain(`assets/KeepDeck-macos-${arch}.app.tar.gz`);
-    }
+    expect(archive.run).toContain("assets/KeepDeck-macos-arm64.zip");
+    expect(archive.run).toContain("assets/KeepDeck-macos-arm64.app.tar.gz");
     // ...but exactly one latest.json may exist (the rolling release's), and
     // the "Latest" badge stays on the rolling release too.
     expect(archive.run).not.toContain("latest.json");
@@ -245,16 +242,13 @@ describe("release workflow", () => {
     );
   });
 
-  it("builds the updater manifest for both platforms", () => {
+  it("builds the updater manifest for the Apple Silicon platform", () => {
     const manifest = release.jobs.publish.steps.find(
       (s) => s.name === "Build the updater manifest",
     );
     expect(manifest.run).toContain("scripts/release-manifest.mjs");
     expect(manifest.run).toContain(
       "--payload darwin-aarch64=assets/KeepDeck-macos-arm64.app.tar.gz",
-    );
-    expect(manifest.run).toContain(
-      "--payload darwin-x86_64=assets/KeepDeck-macos-x64.app.tar.gz",
     );
   });
 
@@ -274,11 +268,9 @@ describe("release workflow", () => {
     expect(manifestUpload).toBeGreaterThan(payloadUpload);
     // Every asset the manifest points at is uploaded in the first batch.
     const batch = publish.run.slice(0, publish.run.indexOf("latest.json"));
-    for (const arch of ["arm64", "x64"]) {
-      expect(batch).toContain(`assets/KeepDeck-macos-${arch}.zip`);
-      expect(batch).toContain(`assets/KeepDeck-macos-${arch}.app.tar.gz`);
-      expect(batch).toContain(`assets/KeepDeck-macos-${arch}.app.tar.gz.sig`);
-    }
+    expect(batch).toContain("assets/KeepDeck-macos-arm64.zip");
+    expect(batch).toContain("assets/KeepDeck-macos-arm64.app.tar.gz");
+    expect(batch).toContain("assets/KeepDeck-macos-arm64.app.tar.gz.sig");
   });
 
   it("builds the accumulated changelog only after the version is archived", () => {
