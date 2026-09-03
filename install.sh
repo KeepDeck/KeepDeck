@@ -23,7 +23,10 @@ fi
 
 case "$(uname -m)" in
   arm64) asset="KeepDeck-macos-arm64.zip" ;;  # Apple Silicon
-  x86_64) asset="KeepDeck-macos-x64.zip" ;;   # Intel
+  x86_64)
+    echo "KeepDeck no longer supports Intel Macs — builds are Apple Silicon only." >&2
+    exit 1
+    ;;
   *) echo "unsupported CPU architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 

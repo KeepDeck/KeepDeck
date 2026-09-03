@@ -61,7 +61,6 @@ bundle_dir="$(dirname "$(dirname "$app_path")")"   # …/release/bundle
 version="$(node -p "require('./package.json').version")"
 case "$(uname -m)" in
   arm64) arch="aarch64" ;;
-  x86_64) arch="x64" ;;
   *) arch="$(uname -m)" ;;
 esac
 dmg_path="${bundle_dir}/dmg/${app_name}_${version}_${arch}.dmg"
