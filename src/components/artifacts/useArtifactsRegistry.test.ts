@@ -19,6 +19,7 @@ vi.mock("../../ipc/artifacts", () => ({
   artifactList: vi.fn(),
   artifactResolveUrls: vi.fn(),
   artifactDelete: vi.fn(),
+  artifactVersions: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
 vi.mock("../../ipc/clipboard", () => ({ writeText: vi.fn() }));
@@ -28,12 +29,14 @@ import {
   artifactDelete,
   artifactList,
   artifactResolveUrls,
+  artifactVersions,
 } from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
 
 const listed = vi.mocked(artifactList);
 const resolved = vi.mocked(artifactResolveUrls);
 const removed = vi.mocked(artifactDelete);
+const history = vi.mocked(artifactVersions);
 const opened = vi.mocked(openUrl);
 const copied = vi.mocked(writeText);
 
@@ -101,6 +104,10 @@ beforeEach(() => {
     versionCount: 2,
     createdAt: 1,
   });
+  history.mockReset().mockResolvedValue([
+    { n: 1, authorLabel: "support 1", at: 1_000, size: 10 },
+    { n: 2, authorLabel: "support 2", at: 2_000, size: 20, message: "fixed the axis" },
+  ]);
 });
 
 afterEach(() => {
@@ -311,6 +318,42 @@ describe("useArtifactsRegistry", () => {
 
     expect(shown()).toEqual(["auth-flow", "deck-layout"]);
     expect(refusalShown()).toBe("read failed");
+  });
+
+  it("opens one history at a time and reads it only when asked", async () => {
+    mount();
+    await settle();
+    // A listing shows counts; the history of the row nobody opened costs
+    // nothing.
+    expect(history).not.toHaveBeenCalled();
+
+    act(() => registry.toggleVersions("auth-flow"));
+    expect(registry.expanded).toEqual({ id: "auth-flow", versions: null });
+    await settle();
+    expect(history).toHaveBeenCalledWith({ workspaceId: "ws-1", slug: "auth-flow" });
+    expect(registry.expanded?.versions).toHaveLength(2);
+
+    // A second row replaces the first rather than growing the dialog
+    // into a list of lists.
+    act(() => registry.toggleVersions("deck-layout"));
+    await settle();
+    expect(registry.expanded?.id).toBe("deck-layout");
+
+    // The same row again closes it.
+    act(() => registry.toggleVersions("deck-layout"));
+    expect(registry.expanded).toBeNull();
+  });
+
+  it("says why a history could not be read, and closes it", async () => {
+    history.mockRejectedValueOnce(new Error("artifact store is off"));
+    mount();
+    await settle();
+
+    act(() => registry.toggleVersions("auth-flow"));
+    await settle();
+
+    expect(registry.expanded).toBeNull();
+    expect(refusalShown()).toBe("artifact store is off");
   });
 
   it("does not claim the store changed when nothing was deleted", async () => {

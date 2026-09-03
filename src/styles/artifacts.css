@@ -157,6 +157,52 @@
   gap: 6px;
 }
 
+/* The open history, indented under the row it belongs to so the two read
+   as one thing rather than as a second list. */
+.artifacts__history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 4px;
+  padding: 8px 12px 10px 24px;
+  border-left: 1px solid #262d3d;
+  margin-left: 12px;
+}
+
+.artifacts__history-note {
+  color: #565e6b;
+  font-size: 12px;
+}
+
+.artifacts__version {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.artifacts__version-n {
+  flex: none;
+  width: 32px;
+  color: #8b93a7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.artifacts__version-when,
+.artifacts__version-author {
+  flex: none;
+  color: #565e6b;
+}
+
+/* The one part that can be long: an agent's note about what changed. */
+.artifacts__version-message {
+  overflow: hidden;
+  color: #9aa0a6;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* The row-level delete: a small text ×, the idiom the workspaces rail and
    the journal rows already use. Always present rather than revealed on
    hover — a control that appears only under a pointer cannot be reached

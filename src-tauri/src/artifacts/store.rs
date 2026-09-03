@@ -313,6 +313,26 @@ impl ArtifactsStore {
         })
     }
 
+    /// One artifact's versions, oldest first — the order they were
+    /// written in, which is the order a history is read in.
+    ///
+    /// Separate from [`list`] rather than carried by it: a row shows a
+    /// COUNT, and paying for every artifact's whole history on every
+    /// listing to satisfy the one row a user opens is the wrong trade.
+    /// An artifact that is not there has no history, which is an empty
+    /// one — absence is normal operation here, never an error.
+    pub fn versions(
+        &self,
+        workspace_id: &str,
+        slug: &str,
+    ) -> StoreResult<Vec<VersionMeta>> {
+        self.with_enabled(|root, _data| {
+            Ok(load_manifest(root, workspace_id, slug)?
+                .map(|manifest| manifest.versions)
+                .unwrap_or_default())
+        })
+    }
+
     /// List a workspace's artifacts — newest first by `updated_at`.
     pub fn list(&self, workspace_id: &str) -> StoreResult<Vec<ArtifactMeta>> {
         self.with_enabled(|root, _data| {
@@ -1092,6 +1112,21 @@ mod tests {
         let (store, _dir, _root) = store_with_root("conditional-absent");
         let out = store.delete("ws-1", "never-was", Some("dead-beef")).unwrap();
         assert!(!out.deleted);
+    }
+
+    #[test]
+    fn versions_read_oldest_first_and_absence_is_an_empty_history() {
+        let (store, _dir, _root) = store_with_root("history");
+        store.publish(&identity(), content_request(Some("doc"), b"<p>1</p>"), 1000).unwrap();
+        store.publish(&identity(), content_request(Some("doc"), b"<p>2</p>"), 2000).unwrap();
+
+        let history = store.versions("ws-1", "doc").unwrap();
+        assert_eq!(history.iter().map(|v| v.n).collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(history[0].at, 1000);
+
+        // Absence is normal operation, not a fault: a slug nobody
+        // published simply has no history.
+        assert!(store.versions("ws-1", "never-was").unwrap().is_empty());
     }
 
     #[test]

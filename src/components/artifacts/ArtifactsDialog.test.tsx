@@ -18,6 +18,7 @@ vi.mock("../../ipc/artifacts", () => ({
   artifactList: vi.fn(),
   artifactResolveUrls: vi.fn(),
   artifactDelete: vi.fn(),
+  artifactVersions: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
 vi.mock("../../ipc/clipboard", () => ({ writeText: vi.fn() }));
@@ -27,12 +28,14 @@ import {
   artifactDelete,
   artifactList,
   artifactResolveUrls,
+  artifactVersions,
 } from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
 
 const listed = vi.mocked(artifactList);
 const resolved = vi.mocked(artifactResolveUrls);
 const removed = vi.mocked(artifactDelete);
+const history = vi.mocked(artifactVersions);
 const opened = vi.mocked(openUrl);
 const copied = vi.mocked(writeText);
 
@@ -86,6 +89,10 @@ beforeEach(() => {
     versionCount: 1,
     createdAt: 1,
   });
+  history.mockReset().mockResolvedValue([
+    { n: 1, authorLabel: "support 1", at: Date.now(), size: 10 },
+    { n: 2, authorLabel: "support 2", at: Date.now(), size: 20, message: "fixed the axis" },
+  ]);
 });
 
 afterEach(() => act(() => root.unmount()));
@@ -186,6 +193,26 @@ describe("ArtifactsDialog", () => {
       expectedGeneration: "gen-auth-flow",
     });
     expect(rowsOnScreen()).toHaveLength(1);
+  });
+
+  it("shows a row's history newest first, under that row", async () => {
+    // Iteration history is the shape of an artifact, and until now only
+    // agents could see it.
+    render();
+    await settle();
+
+    act(() => buttonWithText("History")?.click());
+    await settle();
+
+    const opened = document.querySelector(".artifacts__history");
+    expect(opened).not.toBeNull();
+    // Directly after the row it belongs to, not at the end of the list.
+    expect(opened?.previousElementSibling).toBe(rowsOnScreen()[0]);
+    const lines = Array.from(
+      opened?.querySelectorAll(".artifacts__version-n") ?? [],
+    ).map((n) => n.textContent);
+    expect(lines).toEqual(["v2", "v1"]);
+    expect(opened?.textContent).toContain("fixed the axis");
   });
 
   it("says nothing is published only when the store said so", async () => {

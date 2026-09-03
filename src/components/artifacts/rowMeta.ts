@@ -1,5 +1,22 @@
 import { formatAge } from "../../domain/usage";
-import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import type {
+  ArtifactMetaRow,
+  ArtifactVersionRow,
+} from "../../ipc/artifacts";
+
+/**
+ * A history reads newest first, while the store writes it oldest first —
+ * the row above it says "2h ago" about the newest version, and a list
+ * that started at v1 would put the oldest line closest to it.
+ *
+ * A copy, because the store's array is the caller's and reversing in
+ * place would rearrange what someone else is holding.
+ */
+export function versionsNewestFirst(
+  versions: readonly ArtifactVersionRow[],
+): ArtifactVersionRow[] {
+  return [...versions].reverse();
+}
 
 /**
  * The row's identity line, in the order it is meant to be read:

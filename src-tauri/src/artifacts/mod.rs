@@ -322,6 +322,41 @@ pub fn artifact_publish(
     })
 }
 
+/// One version as a surface shows it. The manifest's own shape minus
+/// what only the store uses: `author_pane_id` is an internal id nothing
+/// on screen can do anything with.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionRow {
+    n: u64,
+    author_label: String,
+    at: u64,
+    size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+#[tauri::command(async)]
+pub fn artifact_versions(
+    state: State<ArtifactsState>,
+    payload: ReadPayload,
+) -> Result<Vec<VersionRow>, String> {
+    let versions = state
+        .store
+        .versions(&payload.workspace_id, &payload.slug)
+        .map_err(|e| e.0)?;
+    Ok(versions
+        .into_iter()
+        .map(|v| VersionRow {
+            n: v.n,
+            author_label: v.author_label,
+            at: v.at,
+            size: v.size,
+            message: v.message,
+        })
+        .collect())
+}
+
 #[tauri::command(async)]
 pub fn artifact_list(
     state: State<ArtifactsState>,

@@ -78,6 +78,26 @@ export async function artifactList(payload: {
   return await invoke("artifact_list", { payload });
 }
 
+/** One version as a surface shows it (mirrors Rust `VersionRow`). No
+ * author pane id: an internal identifier nothing on screen can act on. */
+export interface ArtifactVersionRow {
+  n: number;
+  authorLabel: string;
+  at: number;
+  size: number;
+  message?: string;
+}
+
+/** One artifact's history, oldest first. Separate from the listing on
+ * purpose: a row shows a count, and only the row a user opens pays for
+ * its versions. */
+export async function artifactVersions(payload: {
+  workspaceId: string;
+  slug: string;
+}): Promise<ArtifactVersionRow[]> {
+  return await invoke("artifact_versions", { payload });
+}
+
 /** The read result (mirrors Rust `ReadOutcome`): inline content, or the
  * over-cap arm's size and honest note. Tagged by `kind`. */
 export type ArtifactReadResult =

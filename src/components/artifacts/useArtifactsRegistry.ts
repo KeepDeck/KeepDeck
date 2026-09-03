@@ -6,7 +6,12 @@ import {
 } from "../../app/artifacts/enableStatus";
 import { openArtifactByRef } from "../../app/artifacts/entryPoints";
 import { deleteArtifact } from "../../app/artifacts/remove";
-import { artifactList, type ArtifactMetaRow } from "../../ipc/artifacts";
+import {
+  artifactList,
+  artifactVersions,
+  type ArtifactMetaRow,
+  type ArtifactVersionRow,
+} from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
 import { describeError } from "../../ipc/log";
 import { viewOf, type ArtifactsView } from "./view";
@@ -33,11 +38,20 @@ export interface ArtifactsRegistry {
   busyId: string | null;
   /** The row whose id sits in the clipboard, until the ack expires. */
   copiedId: string | null;
+  /** The row whose history is open, and that history — `versions` is
+   * null while the read is still out. Iteration history is the shape of
+   * an artifact, and until now only agents could see it. */
+  expanded: {
+    id: string;
+    versions: readonly ArtifactVersionRow[] | null;
+  } | null;
   /** The deletion waiting for an answer, or null. What it carries and
    * why is [`ArtifactConfirm`]'s to say. */
   confirm: ArtifactConfirm | null;
   open(id: string): void;
   copyId(id: string): void;
+  /** Open one row's history, or close the open one. */
+  toggleVersions(id: string): void;
   /** Ask. Deleting takes every version and cannot be undone, so nothing
    * here deletes without a confirmed answer. */
   requestDelete(id: string): void;
@@ -77,6 +91,10 @@ export function useArtifactsRegistry(
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ArtifactConfirm | null>(null);
+  const [expanded, setExpanded] = useState<{
+    id: string;
+    versions: readonly ArtifactVersionRow[] | null;
+  } | null>(null);
   const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Every publish and delete this app makes bumps the revision, which is
   // the read's other input — so the list follows the store instead of
@@ -167,6 +185,32 @@ export function useArtifactsRegistry(
       .catch((e: unknown) => setError(describeError(e)));
   }, []);
 
+  const toggleVersions = useCallback(
+    (id: string) => {
+      if (workspaceId === null) return;
+      // One open at a time: a second row's history replaces the first's
+      // rather than growing the dialog into a list of lists.
+      if (expanded?.id === id) {
+        setExpanded(null);
+        return;
+      }
+      setExpanded({ id, versions: null });
+      void artifactVersions({ workspaceId, slug: id })
+        .then((history) =>
+          // Only if this row is still the open one: a fast second click
+          // must not be overwritten by the first row's answer.
+          setExpanded((current) =>
+            current?.id === id ? { id, versions: history } : current,
+          ),
+        )
+        .catch((e: unknown) => {
+          setExpanded((current) => (current?.id === id ? null : current));
+          setError(describeError(e));
+        });
+    },
+    [workspaceId, expanded],
+  );
+
   const requestDelete = useCallback(
     (id: string) => {
       // The question names the TITLE, so it is read from the row the user
@@ -246,9 +290,13 @@ export function useArtifactsRegistry(
     view: viewOf(workspaceId, rows, shownError),
     busyId,
     copiedId,
+    // A history belongs to the row it was opened from. When the rows are
+    // another workspace's — or gone — so is the history.
+    expanded: rows === null ? null : expanded,
     confirm,
     open,
     copyId,
+    toggleVersions,
     requestDelete,
     confirmDelete,
     cancelConfirm,

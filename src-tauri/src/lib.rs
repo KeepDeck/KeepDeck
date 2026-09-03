@@ -180,6 +180,7 @@ pub fn run() {
             artifacts::artifacts_disable,
             artifacts::artifact_publish,
             artifacts::artifact_list,
+            artifacts::artifact_versions,
             artifacts::artifact_read,
             artifacts::artifact_delete,
             artifacts::artifact_resolve_urls,

@@ -1,10 +1,12 @@
+import { Fragment } from "react";
+import { formatAge } from "../../domain/usage";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
-import { rowMeta } from "./rowMeta";
+import { rowMeta, versionsNewestFirst } from "./rowMeta";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
 
 interface ArtifactsDialogProps {
@@ -35,7 +37,7 @@ export function ArtifactsDialog({
   canClose = true,
 }: ArtifactsDialogProps) {
   const registry = useArtifactsRegistry(activeWs?.id ?? null);
-  const { view, busyId, copiedId, confirm } = registry;
+  const { view, busyId, copiedId, confirm, expanded } = registry;
   // Escape belongs to the confirm while one is stacked over this dialog:
   // the handlers stack, so a single press would answer the question AND
   // close the surface underneath it. `canClose` is the caller's half of
@@ -107,7 +109,8 @@ export function ArtifactsDialog({
               {view.rows.map((row) => {
                 const meta = rowMeta(row, now);
                 return (
-                <li key={row.id} className="artifacts__row">
+                <Fragment key={row.id}>
+                <li className="artifacts__row">
                   {/* The row IS the control — a list row is one of the
                       archetypes the shared Button deliberately does not
                       cover, so it is spelled here. Copy id stays a real
@@ -135,6 +138,13 @@ export function ArtifactsDialog({
                     >
                       {copiedId === row.id ? "Copied" : "Copy id"}
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => registry.toggleVersions(row.id)}
+                    >
+                      {expanded?.id === row.id ? "Hide history" : "History"}
+                    </Button>
                     {/* The row-level delete idiom — a small text ×, the
                         one the workspaces rail and the journal rows use.
                         The header's shared close glyph means "close this
@@ -151,6 +161,41 @@ export function ArtifactsDialog({
                     </button>
                   </div>
                 </li>
+                {/* The history sits UNDER its row and beside it in the
+                    list, never inside it: a row is one control, and a
+                    list of versions within a button is the nesting the
+                    delete × already avoids. */}
+                {expanded?.id === row.id && (
+                  <li className="artifacts__history">
+                    {expanded.versions === null ? (
+                      <span className="artifacts__history-note">Loading…</span>
+                    ) : expanded.versions.length === 0 ? (
+                      <span className="artifacts__history-note">
+                        No versions — the artifact went while this opened
+                      </span>
+                    ) : (
+                      versionsNewestFirst(expanded.versions).map((version) => (
+                        <div key={version.n} className="artifacts__version">
+                          <span className="artifacts__version-n">
+                            v{version.n}
+                          </span>
+                          <span className="artifacts__version-when">
+                            {formatAge(version.at, now)}
+                          </span>
+                          <span className="artifacts__version-author">
+                            {version.authorLabel}
+                          </span>
+                          {version.message !== undefined && (
+                            <span className="artifacts__version-message">
+                              {version.message}
+                            </span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </li>
+                )}
+                </Fragment>
                 );
               })}
             </ul>
