@@ -21,7 +21,6 @@ vi.mock("../../ipc/artifacts", () => ({
   artifactVersions: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
-vi.mock("../../ipc/clipboard", () => ({ writeText: vi.fn() }));
 
 import { openUrl } from "../../ipc/app";
 import {
@@ -30,14 +29,12 @@ import {
   artifactResolveUrls,
   artifactVersions,
 } from "../../ipc/artifacts";
-import { writeText } from "../../ipc/clipboard";
 
 const listed = vi.mocked(artifactList);
 const resolved = vi.mocked(artifactResolveUrls);
 const removed = vi.mocked(artifactDelete);
 const history = vi.mocked(artifactVersions);
 const opened = vi.mocked(openUrl);
-const copied = vi.mocked(writeText);
 
 const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow => ({
   id,
@@ -82,7 +79,6 @@ beforeEach(() => {
     indexUrl: "http://127.0.0.1:56513/idx/",
   });
   opened.mockReset().mockResolvedValue(undefined);
-  copied.mockReset().mockResolvedValue(undefined);
   removed.mockReset().mockResolvedValue({
     id: "auth-flow",
     deleted: true,
@@ -99,8 +95,8 @@ afterEach(() => act(() => root.unmount()));
 
 describe("ArtifactsDialog", () => {
   it("gives each row its identity, not its address", async () => {
-    // A url is what dies on restart, so a row must not offer one to copy
-    // down or read off — the id and the version count are what it shows.
+    // A url is what dies on restart, so a row does not show one at all —
+    // the id, the version count and who touched it last are what it says.
     render();
     await settle();
     expect(rowsOnScreen()).toHaveLength(2);
@@ -127,30 +123,6 @@ describe("ArtifactsDialog", () => {
 
     expect(resolved).toHaveBeenCalledWith({ workspaceId: "ws-1" }, "auth-flow");
     expect(opened).toHaveBeenCalledWith("http://127.0.0.1:56513/a/tok/auth-flow");
-  });
-
-  it("keeps Copy id beside the row control, not inside it", async () => {
-    // A button inside a button is invalid markup and, worse, a copy that
-    // also opens the artifact.
-    render();
-    await settle();
-
-    act(() => buttonWithText("Copy id")?.click());
-    await settle();
-
-    expect(copied).toHaveBeenCalledWith("auth-flow");
-    expect(resolved).not.toHaveBeenCalled();
-    expect(opened).not.toHaveBeenCalled();
-  });
-
-  it("acknowledges a copied id on the row that was copied", async () => {
-    render();
-    await settle();
-    act(() => buttonWithText("Copy id")?.click());
-    await settle();
-    expect(copied).toHaveBeenCalledWith("auth-flow");
-    expect(rowsOnScreen()[0]?.textContent).toContain("Copied");
-    expect(rowsOnScreen()[1]?.textContent).toContain("Copy id");
   });
 
   it("follows the store on its own, with no refresh control to press", async () => {

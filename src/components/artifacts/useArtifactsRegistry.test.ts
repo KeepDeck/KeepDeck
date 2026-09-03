@@ -25,7 +25,6 @@ vi.mock("../../ipc/artifacts", () => ({
   artifactVersions: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
-vi.mock("../../ipc/clipboard", () => ({ writeText: vi.fn() }));
 
 import { openUrl } from "../../ipc/app";
 import {
@@ -34,14 +33,12 @@ import {
   artifactResolveUrls,
   artifactVersions,
 } from "../../ipc/artifacts";
-import { writeText } from "../../ipc/clipboard";
 
 const listed = vi.mocked(artifactList);
 const resolved = vi.mocked(artifactResolveUrls);
 const removed = vi.mocked(artifactDelete);
 const history = vi.mocked(artifactVersions);
 const opened = vi.mocked(openUrl);
-const copied = vi.mocked(writeText);
 
 const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow => ({
   id,
@@ -112,7 +109,6 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ url: "http://127.0.0.1:56513/a/tok/auth-flow", indexUrl: "http://127.0.0.1:56513/idx/" });
   opened.mockReset().mockResolvedValue(undefined);
-  copied.mockReset().mockResolvedValue(undefined);
   removed.mockReset().mockResolvedValue({
     id: "auth-flow",
     deleted: true,
@@ -442,19 +438,6 @@ describe("useArtifactsRegistry", () => {
     expect(refusalShown()).toBe("artifact store is off");
     expect(shown()).toEqual(["auth-flow", "deck-layout"]);
     expect(registry.busyId).toBeNull();
-  });
-
-  it("copies the IDENTITY, not an address, and lets the ack expire", async () => {
-    vi.useFakeTimers();
-    mount();
-    await settle();
-    act(() => registry.copyId("auth-flow"));
-    await settle();
-    // The whole point of the surface: a url dies with the port, an id does not.
-    expect(copied).toHaveBeenCalledWith("auth-flow");
-    expect(registry.copiedId).toBe("auth-flow");
-    act(() => void vi.advanceTimersByTime(2_000));
-    expect(registry.copiedId).toBeNull();
   });
 
   it("does not let a workspace's late answer paint under another's name", async () => {

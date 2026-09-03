@@ -25,8 +25,8 @@ interface ArtifactsDialogProps {
  * It exists because an artifact's URL is mortal by construction: the
  * display server takes a fresh port every launch, so a link that left
  * this app answers nothing after a restart. What survives is the
- * identity, so this surface hands out identities (copy the id) and
- * resolves one into a live url only at the moment it is opened.
+ * identity, so this surface keeps the identities and resolves one into
+ * a live url only at the moment a row is opened.
  *
  * The SHELL: chrome, the placeholder ladder, the rows. Every transition
  * belongs to `useArtifactsRegistry`.
@@ -37,7 +37,7 @@ export function ArtifactsDialog({
   canClose = true,
 }: ArtifactsDialogProps) {
   const registry = useArtifactsRegistry(activeWs?.id ?? null);
-  const { view, busyId, copiedId, confirm, expanded } = registry;
+  const { view, busyId, confirm, expanded } = registry;
   // Escape belongs to the confirm while one is stacked over this dialog:
   // the handlers stack, so a single press would answer the question AND
   // close the surface underneath it. `canClose` is the caller's half of
@@ -113,10 +113,10 @@ export function ArtifactsDialog({
                 <li className="artifacts__row">
                   {/* The row IS the control — a list row is one of the
                       archetypes the shared Button deliberately does not
-                      cover, so it is spelled here. Copy id stays a real
-                      button beside it rather than inside it: nesting one
-                      button in another is invalid, and the two answer
-                      different questions anyway. */}
+                      cover, so it is spelled here. The actions beside it
+                      stay OUTSIDE it: a button within a button is invalid
+                      markup, and a press meant for one would carry into
+                      the other. */}
                   <button
                     type="button"
                     className="artifacts__row-open"
@@ -131,13 +131,6 @@ export function ArtifactsDialog({
                     </span>
                   </button>
                   <div className="artifacts__row-actions">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => registry.copyId(row.id)}
-                    >
-                      {copiedId === row.id ? "Copied" : "Copy id"}
-                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
