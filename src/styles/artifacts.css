@@ -72,13 +72,22 @@
   font-size: 14px;
 }
 
+/* The window's spacer: its height is every row's measured sum and the
+   items inside it are positioned, so it neither lays them out nor gets
+   shrunk by the scrolling column above it. */
 .artifacts__list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex: none;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* One measured box per artifact — the row, and its history when open.
+   The separation lives here as padding rather than as a gap or a
+   margin: a gap has nothing to space in a positioned list, and a margin
+   is outside the box the virtualizer measures. */
+.artifacts__item {
+  padding-bottom: 2px;
 }
 
 /* The row carries no padding of its own: the open control holds it, so

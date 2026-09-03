@@ -4,6 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { artifactChanges } from "../../app/artifacts/changes";
 import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import {
+  installResizeObserver,
+  pinListViewport,
+} from "../../ui/virtualGeometry.test-support";
 import { ArtifactsDialog } from "./ArtifactsDialog";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -48,6 +52,10 @@ const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow =
 
 let host: HTMLDivElement;
 let root: Root;
+// The list is windowed, and happy-dom computes no geometry: without a
+// pinned viewport the virtualizer sees a zero-height container and
+// draws nothing at all. This imitates the browser, not the list.
+let restoreViewport: () => void;
 
 // The dialog portals to document.body, so every query starts there.
 const buttonWithText = (text: string) =>
@@ -70,6 +78,8 @@ const render = (
 const settle = () => act(async () => {});
 
 beforeEach(() => {
+  installResizeObserver();
+  restoreViewport = pinListViewport("artifacts__body", 600);
   document.body.innerHTML = "";
   host = document.body.appendChild(document.createElement("div"));
   root = createRoot(host);
@@ -91,7 +101,10 @@ beforeEach(() => {
   ]);
 });
 
-afterEach(() => act(() => root.unmount()));
+afterEach(() => {
+  act(() => root.unmount());
+  restoreViewport();
+});
 
 describe("ArtifactsDialog", () => {
   it("gives each row its identity, not its address", async () => {
@@ -185,6 +198,27 @@ describe("ArtifactsDialog", () => {
     ).map((n) => n.textContent);
     expect(lines).toEqual(["v2", "v1"]);
     expect(opened?.textContent).toContain("fixed the axis");
+  });
+
+  it("draws a window of a long list, not the whole of it", async () => {
+    // A workspace has no artifact ceiling — an agent publishes as many
+    // as the work needs, and nothing prunes them.
+    listed.mockResolvedValueOnce(
+      Array.from({ length: 500 }, (_, i) => row(`a${i}`)),
+    );
+    render();
+    await settle();
+
+    const drawn = rowsOnScreen().length;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(50);
+    // …and the scrollbar still describes all of them: the spacer is the
+    // measured sum, so the list is as tall as 500 rows even though 500
+    // rows are not in the DOM.
+    const spacer = document.querySelector<HTMLElement>(".artifacts__list");
+    expect(Number.parseFloat(spacer?.style.height ?? "0")).toBeGreaterThan(
+      drawn * 56,
+    );
   });
 
   it("says nothing is published only when the store said so", async () => {

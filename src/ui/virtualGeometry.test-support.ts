@@ -9,12 +9,15 @@
  * value. No production code reads anything from here.
  */
 
-/** Pins the list scroll container (and everything inside it) to a
- * viewport size. `rowHeight` defaults to 64; pass the ESTIMATE (72)
- * when a test needs measurement to be a no-op (offsets computed from
- * the estimate never shift after the first measure — the stability
- * witnesses need that). Returns a restore function. */
+/** Pins one list's scroll container (and everything inside it) to a
+ * viewport size. `list` is the container's class — a second virtualized
+ * list arrived and the selector stopped being a property of this file.
+ * `rowHeight` defaults to 64; pass the ESTIMATE when a test needs
+ * measurement to be a no-op (offsets computed from the estimate never
+ * shift after the first measure — the stability witnesses need that).
+ * Returns a restore function. */
 export function pinListViewport(
+  list: string,
   height: number,
   width = 800,
   rowHeight = 64,
@@ -25,14 +28,14 @@ export function pinListViewport(
   ): DOMRect {
     const base = original.call(this);
     const el = this as HTMLElement;
-    if (el.closest?.(".browser__list") || el.classList?.contains("browser__list")) {
+    if (el.closest?.(`.${list}`) || el.classList?.contains(list)) {
       // Everything inside the list reports the CONTAINER's box as its
       // own: the virtualizer's viewport probe reads the container, and
       // any per-row measurement reads the pinned row height.
       return {
         ...base,
         width,
-        height: el.classList?.contains("browser__list") ? height : rowHeight,
+        height: el.classList?.contains(list) ? height : rowHeight,
         top: 0,
         bottom: height,
         left: 0,

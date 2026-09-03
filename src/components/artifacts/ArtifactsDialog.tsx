@@ -1,5 +1,6 @@
-import { Fragment } from "react";
+import { useRef } from "react";
 import { formatAge } from "../../domain/usage";
+import type { ArtifactMetaRow } from "../../ipc/artifacts";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
@@ -8,6 +9,11 @@ import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
 import { rowMeta, versionsNewestFirst } from "./rowMeta";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
+import { useRowWindow } from "./useRowWindow";
+
+/** One array identity for every non-list state: a fresh `[]` per render
+ * would give the window a new input each time and re-key its memos. */
+const EMPTY: readonly ArtifactMetaRow[] = [];
 
 interface ArtifactsDialogProps {
   /** The workspace whose artifacts these are; `null` when no workspace is
@@ -49,6 +55,9 @@ export function ArtifactsDialog({
   const now = useWallClock(
     view.kind === "rows" ? (view.rows[0]?.updatedAt ?? 0) : 0,
   );
+  // The body is the scroll container the window measures against.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const rowWindow = useRowWindow(view.kind === "rows" ? view.rows : EMPTY, bodyRef);
 
   return (
     <ModalOverlay>
@@ -75,7 +84,7 @@ export function ArtifactsDialog({
           </p>
         )}
 
-        <div className="artifacts__body">
+        <div className="artifacts__body" ref={bodyRef}>
           {view.kind === "noWorkspace" ? (
             <div className="artifacts__placeholder">
               <span className="artifacts__placeholder-title">
@@ -105,12 +114,37 @@ export function ArtifactsDialog({
               </span>
             </div>
           ) : (
-            <ul className="artifacts__list">
-              {view.rows.map((row) => {
+            // The spacer: the measured height of every row, with the
+            // window's items absolutely positioned inside it. The list
+            // stays ONE ul/li list and the scroll container stays the
+            // body above.
+            <ul
+              className="artifacts__list"
+              style={{ height: `${rowWindow.totalSize}px`, position: "relative" }}
+            >
+              {rowWindow.items.map((item) => {
+                const row = view.rows[item.index];
                 const meta = rowMeta(row, now);
                 return (
-                <Fragment key={row.id}>
-                <li className="artifacts__row">
+                // ONE measured box per artifact: the row, and the history
+                // when this is the open one. They are one item because
+                // they move together and are measured together — the
+                // history is what makes an item's height differ from its
+                // neighbours' by an order of magnitude.
+                <li
+                  key={item.key}
+                  ref={rowWindow.measure}
+                  data-index={item.index}
+                  className="artifacts__item"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${item.start}px)`,
+                  }}
+                >
+                <div className="artifacts__row">
                   {/* The row IS the control — a list row is one of the
                       archetypes the shared Button deliberately does not
                       cover, so it is spelled here. The actions beside it
@@ -153,22 +187,16 @@ export function ArtifactsDialog({
                       ×
                     </button>
                   </div>
-                </li>
-                {/* The history sits UNDER its row and beside it in the
-                    list, never inside it: a row is one control, and a
-                    list of versions within a button is the nesting the
-                    delete × already avoids.
-                    Drawn whole, not windowed, and nothing bounds it: an
-                    artifact keeps every version it was ever published
-                    with. Real ones run to tens (the busiest on this
-                    machine has 29), one history is open at a time, and
-                    the body scrolls — so the cost lands in the thousands,
-                    which nothing here produces yet. The list this app
-                    does window is paged out of an index; if a history
-                    ever reaches that scale it wants the same treatment,
-                    not a limit on how often a page may be revised. */}
+                </div>
+                {/* The history sits UNDER its row and outside the row's
+                    control, never inside it: a list of versions within a
+                    button is the nesting the delete × already avoids.
+                    Drawn whole rather than windowed in its own right —
+                    one history is open at a time and they run to tens.
+                    If one ever reaches the scale the LIST is windowed
+                    for, it wants the same treatment. */}
                 {expanded?.id === row.id && (
-                  <li className="artifacts__history">
+                  <div className="artifacts__history">
                     {expanded.versions === null ? (
                       <span className="artifacts__history-note">Loading…</span>
                     ) : expanded.versions.length === 0 ? (
@@ -195,9 +223,9 @@ export function ArtifactsDialog({
                         </div>
                       ))
                     )}
-                  </li>
+                  </div>
                 )}
-                </Fragment>
+                </li>
                 );
               })}
             </ul>

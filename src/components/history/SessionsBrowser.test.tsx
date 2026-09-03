@@ -10,7 +10,7 @@ import type { JoinEntry, SessionRecord } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
 import { SessionRowView } from "./SessionRowView";
-import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
+import { installResizeObserver, pinListViewport } from "../../ui/virtualGeometry.test-support";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -185,7 +185,7 @@ describe("SessionsBrowser", () => {
     // This imitates the BROWSER (the adapter is test-support), not the
     // list's own logic.
     installResizeObserver();
-    restoreViewport = pinListViewport(600);
+    restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -693,7 +693,7 @@ describe("SessionsBrowser journal section", () => {
       Promise.resolve({ exists: true, isWorktree: false, branch: null }),
     );
     installResizeObserver();
-    restoreViewport = pinListViewport(600);
+    restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -910,7 +910,7 @@ describe("SessionsBrowser journal join", () => {
       Promise.resolve({ exists: true, isWorktree: false, branch: null }),
     );
     installResizeObserver();
-    restoreViewport = pinListViewport(600);
+    restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -1492,7 +1492,7 @@ describe("row render stability — the effect, not the memo", () => {
     // Row height = the ESTIMATE (72): measurement is then a no-op on
     // offsets, and a row re-render can only mean a REAL prop changed —
     // the thing this suite exists to count.
-    restoreViewport = pinListViewport(600, 800, 72);
+    restoreViewport = pinListViewport("browser__list", 600, 800, 72);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -1611,7 +1611,7 @@ describe("virtualized list — the window, not the pile", () => {
   let restoreViewport: () => void = () => {};
   beforeEach(() => {
     installResizeObserver();
-    restoreViewport = pinListViewport(600);
+    restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -1926,7 +1926,7 @@ describe("virtualized list — the window, not the pile", () => {
       other: laneOf(manyHits(80, "g"), { total: 80 }),
     });
     restoreViewport();
-    restoreViewport = pinListViewport(600, 800, 72);
+    restoreViewport = pinListViewport("browser__list", 600, 800, 72);
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
     const list = document.querySelector<HTMLUListElement>(".browser__list")!;
@@ -1973,7 +1973,7 @@ describe("virtualized list — the window, not the pile", () => {
     // shifts starts AFTER the correction by amounts the stand cannot
     // attribute honestly.
     restoreViewport();
-    restoreViewport = pinListViewport(600, 800, 72);
+    restoreViewport = pinListViewport("browser__list", 600, 800, 72);
     await mountBrowser(a);
     for (let i = 0; i < 3; i++) await act(async () => {});
     const list = document.querySelector<HTMLUListElement>(".browser__list")!;
@@ -2086,7 +2086,7 @@ describe("virtualized list — the window, not the pile", () => {
     vi.setSystemTime(nowMs);
     try {
       installResizeObserver();
-      const restore = pinListViewport(600);
+      const restore = pinListViewport("browser__list", 600);
       document.body.innerHTML = "<div id='host'></div>";
       root = createRoot(document.getElementById("host")!);
       await act(async () =>
@@ -2156,7 +2156,7 @@ describe("unified row guard — both blocks, one markup", () => {
       Promise.resolve({ exists: true, isWorktree: false, branch: null }),
     );
     installResizeObserver();
-    restoreViewport = pinListViewport(600);
+    restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
