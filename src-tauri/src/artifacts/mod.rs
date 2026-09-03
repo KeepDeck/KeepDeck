@@ -336,10 +336,21 @@ pub struct VersionRow {
     message: Option<String>,
 }
 
+/// One artifact, named. Its own type rather than a borrowed `ReadPayload`:
+/// that one carries a `version`, and a command that silently ignores a
+/// field its payload declares is a command whose caller cannot tell what
+/// it was asked.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactPayload {
+    workspace_id: String,
+    slug: String,
+}
+
 #[tauri::command(async)]
 pub fn artifact_versions(
     state: State<ArtifactsState>,
-    payload: ReadPayload,
+    payload: ArtifactPayload,
 ) -> Result<Vec<VersionRow>, String> {
     let versions = state
         .store

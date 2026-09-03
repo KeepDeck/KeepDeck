@@ -298,9 +298,12 @@ mod tests {
 
     /// THE EXPORT PIN: an exported page never renders the goodbye.
     ///
-    /// The property is user-visible, not structural — a reader who saves a
-    /// file must not open it to "This page's server went away". It is
-    /// stated as the ABSENCE OF A LIVE SUBSCRIPTION because that is the
+    /// The property is user-visible, not structural — a reader who saves
+    /// a file must not open it to a banner about a server they were never
+    /// talking to. The banner's WORDING is deliberately not quoted here:
+    /// it belongs to `refresh.js`, and a copy of it in this docblock
+    /// would be a second one to keep true. It is stated as the ABSENCE OF
+    /// A LIVE SUBSCRIPTION because that is the
     /// only cause: the export meta-CSP permits inline script but names no
     /// `connect-src`, so it falls back to `default-src 'none'`, the
     /// subscription is refused by policy, the refusal fires `error`, and
