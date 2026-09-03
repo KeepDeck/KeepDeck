@@ -157,7 +157,14 @@ export function ArtifactsDialog({
                 {/* The history sits UNDER its row and beside it in the
                     list, never inside it: a row is one control, and a
                     list of versions within a button is the nesting the
-                    delete × already avoids. */}
+                    delete × already avoids.
+                    Drawn whole, not windowed: a history cannot grow
+                    unbounded — the manifest holding it is refused past
+                    64 KiB, which at the density real ones run (~310
+                    bytes an entry) tops out near two hundred, and only
+                    one is open at a time. The sessions browser windows
+                    its list because that one is paged out of an index
+                    with no ceiling at all. */}
                 {expanded?.id === row.id && (
                   <li className="artifacts__history">
                     {expanded.versions === null ? (
