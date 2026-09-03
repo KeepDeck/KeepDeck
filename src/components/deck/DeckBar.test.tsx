@@ -104,16 +104,53 @@ describe("DeckBar", () => {
   it("gives quota the middle zone, alone", () => {
     // Pinned left it sat above the rail's column and read as the rail's own
     // heading; pinned right it queued behind the verbs. The centre belongs to
-    // nothing else, which is the whole reason it can hold this.
-    render({ workspaceName: "Личный проект" });
+    // nothing else, which is the whole reason it can hold this — so "alone"
+    // is asserted with the one control that used to share it present.
+    render({
+      workspaceName: "Личный проект",
+      updateAction: {
+        label: "Update available",
+        title: "Version 0.22.0 is available",
+        disabled: false,
+        action: { kind: "openUpdatesSettings" },
+      },
+    });
     expect(
       host.querySelector(".deck__bar-center [data-usage]"),
     ).not.toBeNull();
     expect(host.querySelector(".deck__bar-left [data-usage]")).toBeNull();
     expect(host.querySelector(".deck__bar-right [data-usage]")).toBeNull();
+    expect(
+      host.querySelector(".deck__bar-center")?.childElementCount,
+    ).toBe(1);
     // The project stays on the left, where "where am I" is answered.
     expect(host.querySelector(".deck__bar-left")?.textContent).toContain(
       "Личный проект",
+    );
+  });
+
+  it("stands the update control among the verbs, in front of Create", () => {
+    // An update is something to DO, so it belongs to the right-hand run and
+    // not beside a reading of the fleet. Order is the assertion: Create keeps
+    // its place against the panels, and the update leads.
+    render({
+      updateAction: {
+        label: "Update available",
+        title: "Version 0.22.0 is available",
+        disabled: false,
+        action: { kind: "openUpdatesSettings" },
+      },
+    });
+    const right = host.querySelector(".deck__bar-right")!;
+    const order = Array.from(right.querySelectorAll("button")).map(
+      (button) => button.textContent,
+    );
+    expect(order.indexOf("Update available")).toBe(0);
+    expect(order.indexOf("+ Agent")).toBe(1);
+    // Its own group, so Create neither gains nor loses a neighbour when the
+    // update comes and goes.
+    expect(byText("Update available")!.closest(".bar__group")).not.toBe(
+      byText("+ Agent")!.closest(".bar__group"),
     );
   });
 
