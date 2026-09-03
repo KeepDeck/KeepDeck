@@ -2,8 +2,8 @@ import { useState } from "react";
 import { isStatsTab, type StatsTab } from "../domain/usage/statsTabs";
 
 /**
- * THE owner of the app-surface dialog layer: which of the three exclusive
- * dialogs (settings, statistics, skills) is open, and every verb that
+ * THE owner of the app-surface dialog layer: which of the four exclusive
+ * dialogs (settings, statistics, skills, artifacts) is open, and every verb that
  * opens, closes or retargets one. All entry points — toolbar, hotkey,
  * update banner, notification deep link, future command — speak these
  * verbs, so the gate ("one dialog at a time, never over a transaction")
@@ -25,10 +25,12 @@ export function useModalRouter({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<string | undefined>();
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsTab, setStatsTab] = useState<StatsTab>("overview");
 
-  const anyDialogOpen = settingsOpen || statsOpen || skillsOpen;
+  const anyDialogOpen =
+    settingsOpen || statsOpen || skillsOpen || artifactsOpen;
   const canOpenDialog = !transactionOpen && !anyDialogOpen;
 
   const openSettings = (sectionId?: string): boolean => {
@@ -51,6 +53,16 @@ export function useModalRouter({
   const closeSkills = () => {
     if (transactionOpen) return;
     setSkillsOpen(false);
+  };
+
+  const openArtifacts = (): boolean => {
+    if (!canOpenDialog) return false;
+    setArtifactsOpen(true);
+    return true;
+  };
+  const closeArtifacts = () => {
+    if (transactionOpen) return;
+    setArtifactsOpen(false);
   };
 
   /** The Stats trio: a deep link arriving while the dialog is already open
@@ -90,6 +102,9 @@ export function useModalRouter({
     skillsOpen,
     openSkills,
     closeSkills,
+    artifactsOpen,
+    openArtifacts,
+    closeArtifacts,
     statsOpen,
     statsTab,
     openStats,

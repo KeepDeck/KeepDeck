@@ -13,6 +13,23 @@ pub(super) fn mint_token() -> String {
     Uuid::new_v4().simple().to_string()
 }
 
+/// The artifact's GENERATION: a stable, opaque name for this incarnation
+/// of a slug, safe to hand outside.
+///
+/// Derived from the token because the token is exactly what changes when
+/// a deleted slug is republished — the store calls that a resurrection,
+/// and the whole point of a generation is to tell the two apart. It is a
+/// one-way digest, never the token itself: B10 keeps the raw token off
+/// every surface but the URL, since a token IS the URL's authority,
+/// while this cannot address anything.
+///
+/// Short on purpose. A conditional delete compares two of these; it is
+/// not a secret and needs no more room than it takes to be different.
+pub(super) fn generation_of(token: &str) -> String {
+    let digest = Sha256::digest(token.as_bytes());
+    digest[..8].iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Constant-time equality for token comparison: length differences are
 /// absorbed by the hash, the digest compare is fixed-shape.
 pub(super) fn token_eq(a: &str, b: &str) -> bool {

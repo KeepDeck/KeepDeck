@@ -43,6 +43,30 @@ export function artifactSource(event: ArtifactEvent): Extract<
   };
 }
 
+/**
+ * Open one artifact by its IDENTITY — the ONE ladder every door climbs.
+ *
+ * The address is resolved at the moment of the click and never stored:
+ * the display server's port is fresh on every launch, so a url a surface
+ * kept from last time is a url that answers nothing. `slug === null`
+ * names no artifact and goes straight to the workspace index (the
+ * delete-built notification source); a named artifact that has since
+ * died falls back to the same index.
+ *
+ * Throws whatever the resolve threw — the notification router swallows
+ * it, a dialog shows it, and neither has to know the other's answer.
+ */
+export async function openArtifactByRef(
+  workspaceId: string,
+  slug: string | null,
+): Promise<string> {
+  const resolved = await artifactResolveUrls({ workspaceId }, slug ?? "");
+  const target =
+    slug === null ? resolved.indexUrl : (resolved.url ?? resolved.indexUrl);
+  await openUrl(target);
+  return target;
+}
+
 /** The click handler for artifacts-sourced notifications. Returns the
  * resolution so tests can assert the fallback ladder without a browser. */
 export async function openArtifactFromNotification(
@@ -65,18 +89,11 @@ export async function openArtifactFromNotification(
     // (The lifetime check lives with the caller's deck knowledge — the
     // workspace existence is verifiable Rust-side too, but the INSTANCE
     // comparison is deck-model knowledge.)
-    const resolved = await artifactResolveUrls(
-      { workspaceId: source.workspace.id },
-      source.artifactId ?? "",
+    const opened = await openArtifactByRef(
+      source.workspace.id,
+      source.artifactId ?? null,
     );
-    if (source.artifactId === undefined) {
-      // The delete-built source: straight to the index, no slug probe.
-      await openUrl(resolved.indexUrl);
-      return { opened: resolved.indexUrl };
-    }
-    const target = resolved.url || resolved.indexUrl;
-    await openUrl(target);
-    return { opened: target };
+    return { opened };
   } catch (error) {
     // Toggle off, server down, workspace gone — notifications outlive
     // all three. Silent no-op + log; never an error dialog off a click.

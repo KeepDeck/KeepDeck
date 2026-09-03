@@ -48,7 +48,14 @@ import { Button } from "../../ui/Button";
 import { MenuButton, type MenuAction } from "../../ui/MenuButton";
 import { BAR_TIP_DELAY_MS, TipButton } from "../../ui/TipButton";
 import { Tooltip } from "../../ui/Tooltip";
-import { DockIcon, GearIcon, SidebarIcon, SkillsIcon, StatsIcon } from "../AppIcons";
+import {
+  ArtifactsIcon,
+  DockIcon,
+  GearIcon,
+  SidebarIcon,
+  SkillsIcon,
+  StatsIcon,
+} from "../AppIcons";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { UsageChips } from "../usage/UsageChips";
 
@@ -89,6 +96,9 @@ export interface DeckBarProps {
   canOpenDialog: boolean;
   onOpenStats(): void;
   onOpenSkills(): void;
+  /** The artifacts registry, or null while the experiment is off — a door
+   * to a feature that is not running is a door to a refusal. */
+  onOpenArtifacts: (() => void) | null;
   onOpenSettings(): void;
 
   /** The notification bell, or null when notifications are off or delegated
@@ -116,6 +126,7 @@ export function DeckBar({
   canOpenDialog,
   onOpenStats,
   onOpenSkills,
+  onOpenArtifacts,
   onOpenSettings,
   notifications,
 }: DeckBarProps) {
@@ -301,6 +312,17 @@ export function DeckBar({
           >
             <SkillsIcon />
           </TipButton>
+          {onOpenArtifacts && (
+            <TipButton
+              variant="ghost"
+              size="sm"
+              tip="Open artifacts"
+              onClick={onOpenArtifacts}
+              disabled={!canOpenDialog}
+            >
+              <ArtifactsIcon />
+            </TipButton>
+          )}
           <TipButton
             variant="ghost"
             size="sm"

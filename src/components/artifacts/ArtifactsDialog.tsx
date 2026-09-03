@@ -1,0 +1,219 @@
+import { Fragment } from "react";
+import { formatAge } from "../../domain/usage";
+import { Button } from "../../ui/Button";
+import { CloseButton } from "../../ui/CloseButton";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { ModalOverlay } from "../../ui/ModalOverlay";
+import { useEscape } from "../../ui/useEscape";
+import { useWallClock } from "../../ui/useWallClock";
+import { rowMeta, versionsNewestFirst } from "./rowMeta";
+import { useArtifactsRegistry } from "./useArtifactsRegistry";
+
+interface ArtifactsDialogProps {
+  /** The workspace whose artifacts these are; `null` when no workspace is
+   * open — the store is workspace-scoped, so there is nothing to list. */
+  activeWs: { id: string; name: string } | null;
+  onClose(): void;
+  /** False while a transaction is stacked over this dialog: `onClose`
+   * refuses then, so Escape must not be claimed either. */
+  canClose?: boolean;
+}
+
+/**
+ * The artifacts registry — the app-side door to what agents published.
+ *
+ * It exists because an artifact's URL is mortal by construction: the
+ * display server takes a fresh port every launch, so a link that left
+ * this app answers nothing after a restart. What survives is the
+ * identity, so this surface hands out identities (copy the id) and
+ * resolves one into a live url only at the moment it is opened.
+ *
+ * The SHELL: chrome, the placeholder ladder, the rows. Every transition
+ * belongs to `useArtifactsRegistry`.
+ */
+export function ArtifactsDialog({
+  activeWs,
+  onClose,
+  canClose = true,
+}: ArtifactsDialogProps) {
+  const registry = useArtifactsRegistry(activeWs?.id ?? null);
+  const { view, busyId, copiedId, confirm, expanded } = registry;
+  // Escape belongs to the confirm while one is stacked over this dialog:
+  // the handlers stack, so a single press would answer the question AND
+  // close the surface underneath it. `canClose` is the caller's half of
+  // the same rule, for a transaction stacked over the whole app.
+  useEscape(onClose, canClose && confirm === null);
+  // The rows are sorted newest-first by the store, so the head row is the
+  // clock's floor: a publish seconds after the last tick must not render
+  // as an age in the future.
+  const now = useWallClock(
+    view.kind === "rows" ? (view.rows[0]?.updatedAt ?? 0) : 0,
+  );
+
+  return (
+    <ModalOverlay>
+      <div
+        className="form artifacts"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Artifacts"
+      >
+        <div className="artifacts__head">
+          <h2 className="form__title artifacts__title">Artifacts</h2>
+          <CloseButton label="Close artifacts" onClick={onClose} autoFocus />
+        </div>
+
+        <p className="artifacts__hint">
+          A published page is served on a port that changes every time
+          KeepDeck starts, so an old link stops answering. Open one from
+          here — the address is resolved on the spot.
+        </p>
+
+        {view.kind === "rows" && view.banner !== null && (
+          <p className="artifacts__error kd-selectable" role="alert">
+            {view.banner}
+          </p>
+        )}
+
+        <div className="artifacts__body">
+          {view.kind === "noWorkspace" ? (
+            <div className="artifacts__placeholder">
+              <span className="artifacts__placeholder-title">
+                No workspace open
+              </span>
+              <span>Artifacts belong to a workspace — open one first</span>
+            </div>
+          ) : view.kind === "loading" ? (
+            <div className="artifacts__placeholder">Loading…</div>
+          ) : view.kind === "refusal" ? (
+            <div className="artifacts__placeholder">
+              <span
+                className="artifacts__placeholder-title kd-selectable"
+                role="alert"
+              >
+                {view.message}
+              </span>
+            </div>
+          ) : view.kind === "empty" ? (
+            <div className="artifacts__placeholder">
+              <span className="artifacts__placeholder-title">
+                Nothing published yet
+              </span>
+              <span>
+                Agents publish pages here; they open in your browser and
+                refresh themselves as the agent iterates
+              </span>
+            </div>
+          ) : (
+            <ul className="artifacts__list">
+              {view.rows.map((row) => {
+                const meta = rowMeta(row, now);
+                return (
+                <Fragment key={row.id}>
+                <li className="artifacts__row">
+                  {/* The row IS the control — a list row is one of the
+                      archetypes the shared Button deliberately does not
+                      cover, so it is spelled here. Copy id stays a real
+                      button beside it rather than inside it: nesting one
+                      button in another is invalid, and the two answer
+                      different questions anyway. */}
+                  <button
+                    type="button"
+                    className="artifacts__row-open"
+                    aria-label={`Open ${row.title}`}
+                    disabled={busyId === row.id}
+                    onClick={() => registry.open(row.id)}
+                  >
+                    <span className="artifacts__row-title">{row.title}</span>
+                    <span className="artifacts__row-meta">
+                      <code>{meta.id}</code>
+                      {meta.tail}
+                    </span>
+                  </button>
+                  <div className="artifacts__row-actions">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => registry.copyId(row.id)}
+                    >
+                      {copiedId === row.id ? "Copied" : "Copy id"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => registry.toggleVersions(row.id)}
+                    >
+                      {expanded?.id === row.id ? "Hide history" : "History"}
+                    </Button>
+                    {/* The row-level delete idiom — a small text ×, the
+                        one the workspaces rail and the journal rows use.
+                        The header's shared close glyph means "close this
+                        surface" and must not come to mean "destroy this
+                        thing". */}
+                    <button
+                      type="button"
+                      className="artifacts__remove"
+                      title="Delete artifact"
+                      aria-label={`Delete ${row.title}`}
+                      onClick={() => registry.requestDelete(row.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </li>
+                {/* The history sits UNDER its row and beside it in the
+                    list, never inside it: a row is one control, and a
+                    list of versions within a button is the nesting the
+                    delete × already avoids. */}
+                {expanded?.id === row.id && (
+                  <li className="artifacts__history">
+                    {expanded.versions === null ? (
+                      <span className="artifacts__history-note">Loading…</span>
+                    ) : expanded.versions.length === 0 ? (
+                      <span className="artifacts__history-note">
+                        No versions — the artifact went while this opened
+                      </span>
+                    ) : (
+                      versionsNewestFirst(expanded.versions).map((version) => (
+                        <div key={version.n} className="artifacts__version">
+                          <span className="artifacts__version-n">
+                            v{version.n}
+                          </span>
+                          <span className="artifacts__version-when">
+                            {formatAge(version.at, now)}
+                          </span>
+                          <span className="artifacts__version-author">
+                            {version.authorLabel}
+                          </span>
+                          {version.message !== undefined && (
+                            <span className="artifacts__version-message">
+                              {version.message}
+                            </span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </li>
+                )}
+                </Fragment>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {confirm !== null && (
+        <ConfirmDialog
+          title="Delete artifact"
+          message={`Delete "${confirm.title}"? Every version goes, its open pages say goodbye, and the id stops resolving`}
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          destructive
+          onConfirm={registry.confirmDelete}
+          onCancel={registry.cancelConfirm}
+        />
+      )}
+    </ModalOverlay>
+  );
+}

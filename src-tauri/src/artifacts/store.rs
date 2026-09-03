@@ -36,7 +36,7 @@ use serde::{Deserialize, Serialize};
 use crate::state::write_atomic;
 
 use super::claim::{self, ClaimedRoot};
-use super::token::mint_token;
+use super::token::{self, mint_token};
 
 /// Caps mirrored from the TS domain (its `model.ts` owns the canonical
 /// numbers and their tests; these must not drift).
@@ -102,6 +102,10 @@ pub struct ArtifactMeta {
     pub version_count: u64,
     pub updated_at: u64,
     pub last_author: String,
+    /// Which incarnation of this slug the row describes — see
+    /// [`token::generation_of`]. A surface that asks a question about a
+    /// row hands this back when it acts on the answer.
+    pub generation: String,
 }
 
 /// The publish identity — host fact resolved TS-side, never an agent arg.
@@ -309,6 +313,26 @@ impl ArtifactsStore {
         })
     }
 
+    /// One artifact's versions, oldest first — the order they were
+    /// written in, which is the order a history is read in.
+    ///
+    /// Separate from [`list`] rather than carried by it: a row shows a
+    /// COUNT, and paying for every artifact's whole history on every
+    /// listing to satisfy the one row a user opens is the wrong trade.
+    /// An artifact that is not there has no history, which is an empty
+    /// one — absence is normal operation here, never an error.
+    pub fn versions(
+        &self,
+        workspace_id: &str,
+        slug: &str,
+    ) -> StoreResult<Vec<VersionMeta>> {
+        self.with_enabled(|root, _data| {
+            Ok(load_manifest(root, workspace_id, slug)?
+                .map(|manifest| manifest.versions)
+                .unwrap_or_default())
+        })
+    }
+
     /// List a workspace's artifacts — newest first by `updated_at`.
     pub fn list(&self, workspace_id: &str) -> StoreResult<Vec<ArtifactMeta>> {
         self.with_enabled(|root, _data| {
@@ -329,9 +353,10 @@ impl ArtifactsStore {
                     out.push(ArtifactMeta {
                         id: slug,
                         title: manifest.title,
-                                version_count: manifest.versions.len() as u64,
+                        version_count: manifest.versions.len() as u64,
                         updated_at: last.map(|v| v.at).unwrap_or(manifest.created),
                         last_author: last.map(|v| v.author_label.clone()).unwrap_or_default(),
+                        generation: token::generation_of(&manifest.token),
                     });
                 }
             }
@@ -405,10 +430,25 @@ impl ArtifactsStore {
 
     /// Delete: whole-directory removal, idempotent no-op on absence, the
     /// identity-race-informative metadata in the response.
+    /// Delete every version of one artifact.
+    ///
+    /// `expected` makes it CONDITIONAL, and that arm exists for exactly
+    /// one caller: a human who was asked a question. Deleting frees the
+    /// slug, so the next publish under it is a different artifact
+    /// wearing the same name — and a surface that answered "yes, delete
+    /// this one" can only name the slug, which by then means something
+    /// else. Checking on the client cannot close that: whatever it read
+    /// is already the past by the time the delete arrives. The compare
+    /// therefore happens HERE, under the same guard as the removal, so
+    /// nothing can slip between the two.
+    ///
+    /// An agent passes none: its delete is an instruction about a name,
+    /// not an answer about a thing it was shown.
     pub fn delete(
         &self,
         workspace_id: &str,
         slug: &str,
+        expected: Option<&str>,
     ) -> StoreResult<DeleteOutcome> {
         self.with_enabled(|root, data| {
             let _guard = data.lock().expect("artifacts data poisoned");
@@ -422,6 +462,14 @@ impl ArtifactsStore {
                     created_at: None,
                 }),
                 Some(manifest) => {
+                    let generation = token::generation_of(&manifest.token);
+                    if let Some(expected) = expected {
+                        if expected != generation {
+                            return Err(StoreError::new(format!(
+                                "{slug} changed since you were asked — nothing was deleted"
+                            )));
+                        }
+                    }
                     let version_count = manifest.versions.len() as u64;
                     let created_at = manifest.created;
                     remove_dir_all_best_effort(&dir)?;
@@ -1018,22 +1066,74 @@ mod tests {
     fn delete_is_idempotent_whole_dir_and_informative() {
         let (store, _dir, root) = store_with_root("delete");
         store.publish(&identity(), content_request(Some("gone"), b"<p/>"), 1000).unwrap();
-        let first = store.delete("ws-1", "gone").unwrap();
+        let first = store.delete("ws-1", "gone", None).unwrap();
         assert!(first.deleted);
         assert_eq!(first.version_count, Some(1));
         assert_eq!(first.created_at, Some(1000));
         assert!(!root.join("ws/ws-1/gone").exists(), "whole dir removed");
 
-        let retry = store.delete("ws-1", "gone").unwrap();
+        let retry = store.delete("ws-1", "gone", None).unwrap();
         assert!(!retry.deleted);
         assert_eq!(retry.version_count, None);
+    }
+
+    #[test]
+    fn a_conditional_delete_refuses_a_slug_that_became_someone_else() {
+        // The whole point: a human is asked about the row they can see,
+        // and answers a moment later. In between, an agent can delete and
+        // republish the same id — a different artifact wearing the same
+        // name. Only a compare INSIDE the guard can tell, because
+        // whatever the asker read is already the past.
+        let (store, _dir, root) = store_with_root("conditional");
+        store.publish(&identity(), content_request(Some("draft"), b"<p/>"), 1000).unwrap();
+        let asked_about = store.list("ws-1").unwrap()[0].generation.clone();
+
+        store.delete("ws-1", "draft", None).unwrap();
+        store.publish(&identity(), content_request(Some("draft"), b"<p/>"), 3000).unwrap();
+
+        let refused = store.delete("ws-1", "draft", Some(&asked_about));
+        assert!(refused.is_err(), "the answer was about the artifact that is gone");
+        assert!(
+            root.join("ws/ws-1/draft").exists(),
+            "the artifact nobody was asked about survives"
+        );
+
+        // The one standing now can still be deleted, by its own generation.
+        let current = store.list("ws-1").unwrap()[0].generation.clone();
+        assert_ne!(current, asked_about, "a resurrection is a new generation");
+        assert!(store.delete("ws-1", "draft", Some(&current)).unwrap().deleted);
+    }
+
+    #[test]
+    fn a_conditional_delete_of_an_absent_artifact_stays_the_idempotent_no_op() {
+        // Absence is not a mismatch: nothing is there to be the wrong
+        // thing, and a delete that finds nothing has always answered
+        // "nothing was deleted" rather than failing.
+        let (store, _dir, _root) = store_with_root("conditional-absent");
+        let out = store.delete("ws-1", "never-was", Some("dead-beef")).unwrap();
+        assert!(!out.deleted);
+    }
+
+    #[test]
+    fn versions_read_oldest_first_and_absence_is_an_empty_history() {
+        let (store, _dir, _root) = store_with_root("history");
+        store.publish(&identity(), content_request(Some("doc"), b"<p>1</p>"), 1000).unwrap();
+        store.publish(&identity(), content_request(Some("doc"), b"<p>2</p>"), 2000).unwrap();
+
+        let history = store.versions("ws-1", "doc").unwrap();
+        assert_eq!(history.iter().map(|v| v.n).collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(history[0].at, 1000);
+
+        // Absence is normal operation, not a fault: a slug nobody
+        // published simply has no history.
+        assert!(store.versions("ws-1", "never-was").unwrap().is_empty());
     }
 
     #[test]
     fn delete_then_republish_is_resurrection() {
         let (store, _dir, _root) = store_with_root("resurrect");
         let first = store.publish(&identity(), content_request(Some("phoenix"), b"<p/>"), 1000).unwrap();
-        store.delete("ws-1", "phoenix").unwrap();
+        store.delete("ws-1", "phoenix", None).unwrap();
         let second = store.publish(&identity(), content_request(Some("phoenix"), b"<p/>"), 3000).unwrap();
         assert!(second.is_new, "resurrection is a first publish");
         assert_eq!(second.version, 1);

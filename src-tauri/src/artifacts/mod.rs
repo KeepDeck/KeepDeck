@@ -55,13 +55,24 @@ impl Default for ArtifactsState {
     }
 }
 
-/// The store root under the app's data dir (`<home>/artifacts`).
-fn store_root(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    use tauri::Manager as _;
-    app.path()
-        .app_data_dir()
-        .map(|dir| dir.join("artifacts"))
-        .map_err(|e| format!("resolving the data dir failed: {e}"))
+/// The store root: `<keepdeck home>/artifacts`.
+///
+/// The home is the app's OWN ([`crate::paths`]), not Tauri's data dir.
+/// That dir is derived from the bundle identifier and is therefore the
+/// same folder for a debug build and the installed one, while the store
+/// root's claim is exclusive — so the two flavors collided on it: a dev
+/// build beside a running release could never take the claim, which left
+/// the whole feature unreachable, and untestable, by construction. Every
+/// other path this app persists to already honors the per-flavor home;
+/// this was the one that did not.
+/// A store left by a pre-home install is adopted by [`crate::migration`],
+/// which owns that whole story for every kind of legacy state — including
+/// the rule that only a release build without a `KEEPDECK_HOME` override
+/// may carry it off. Nothing about it belongs here.
+fn store_root() -> Result<std::path::PathBuf, String> {
+    crate::paths::keepdeck_home()
+        .map(|home| home.join("artifacts"))
+        .ok_or_else(|| "no KeepDeck home to hold the artifact store".to_string())
 }
 
 /// Now, in unix milliseconds — versions carry `at` stamps.
@@ -139,11 +150,8 @@ fn enable_at(
 }
 
 #[tauri::command(async)]
-pub fn artifacts_enable(
-    app: tauri::AppHandle,
-    state: State<ArtifactsState>,
-) -> Result<u16, String> {
-    let root = store_root(&app)?;
+pub fn artifacts_enable(state: State<ArtifactsState>) -> Result<u16, String> {
+    let root = store_root()?;
     enable_at(&state, &root, server::DisplayServer::start)
 }
 
@@ -221,6 +229,10 @@ pub struct ReadPayload {
 pub struct DeletePayload {
     workspace_id: String,
     slug: String,
+    /// Which incarnation of the slug the caller means. Present when a
+    /// human was ASKED about a row and is now answering; absent for an
+    /// agent, whose delete is an instruction about a name.
+    expected_generation: Option<String>,
 }
 
 /// The notification router's identifier-only URL entry (B10): no token
@@ -310,6 +322,52 @@ pub fn artifact_publish(
     })
 }
 
+/// One version as a surface shows it. The manifest's own shape minus
+/// what only the store uses: `author_pane_id` is an internal id nothing
+/// on screen can do anything with.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionRow {
+    n: u64,
+    author_label: String,
+    at: u64,
+    size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+/// One artifact, named. Its own type rather than a borrowed `ReadPayload`:
+/// that one carries a `version`, and a command that silently ignores a
+/// field its payload declares is a command whose caller cannot tell what
+/// it was asked.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactPayload {
+    workspace_id: String,
+    slug: String,
+}
+
+#[tauri::command(async)]
+pub fn artifact_versions(
+    state: State<ArtifactsState>,
+    payload: ArtifactPayload,
+) -> Result<Vec<VersionRow>, String> {
+    let versions = state
+        .store
+        .versions(&payload.workspace_id, &payload.slug)
+        .map_err(|e| e.0)?;
+    Ok(versions
+        .into_iter()
+        .map(|v| VersionRow {
+            n: v.n,
+            author_label: v.author_label,
+            at: v.at,
+            size: v.size,
+            message: v.message,
+        })
+        .collect())
+}
+
 #[tauri::command(async)]
 pub fn artifact_list(
     state: State<ArtifactsState>,
@@ -392,7 +450,11 @@ pub fn artifact_delete(
 ) -> Result<DeleteOutcome, String> {
     let out = state
         .store
-        .delete(&payload.workspace_id, &payload.slug)
+        .delete(
+            &payload.workspace_id,
+            &payload.slug,
+            payload.expected_generation.as_deref(),
+        )
         .map_err(|e| e.0)?;
     if out.deleted {
         let server = state.server.lock().expect("artifacts server poisoned");
@@ -499,4 +561,5 @@ mod tests {
         state.store.enable(&root).expect("claim after rollback");
         state.store.disable();
     }
+
 }

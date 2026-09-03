@@ -34,6 +34,7 @@ import { useUpdate } from "./useUpdate";
 import { buildDockTabs } from "../components/dock/useDockTabs";
 import type { SessionHandle } from "../domain/journal";
 import { DEFAULT_SETTINGS } from "../domain/settings";
+import { artifactsDoorOpen } from "./artifacts/door";
 import {
   closeHotkeyTarget,
   findWorkspace,
@@ -445,6 +446,27 @@ export function useAppController() {
     closeSettings: modal.closeSettings,
     openSkills: modal.openSkills,
     closeSkills: modal.closeSkills,
+    /** Three controls the top bar offers only sometimes, each composed
+     * HERE rather than in the markup: whether a control exists is a
+     * policy about the app's state — a setting, a live workspace, a
+     * plugin's contribution — and the bar's whole say in it is a null
+     * check. Assembled in a JSX prop, each was a decision standing
+     * between the elements it also laid out. */
+    openArtifacts: artifactsDoorOpen(settings)
+      ? () => void modal.openArtifacts()
+      : null,
+    openTeamDialog:
+      settings?.agentTeams && active
+        ? () => setTeamDialog({ editing: null })
+        : null,
+    dockControl:
+      pluginDockTabs.length > 0
+        ? {
+            open: dockOpen,
+            onToggle: () => active && deck.toggleDock(active.id),
+          }
+        : null,
+    closeArtifacts: modal.closeArtifacts,
     openStats: modal.openStats,
     closeStats: modal.closeStats,
     selectStatsTab: modal.selectStatsTab,
@@ -454,6 +476,7 @@ export function useAppController() {
     showBell,
     showForm,
     skillsOpen: modal.skillsOpen,
+    artifactsOpen: modal.artifactsOpen,
     specByPane,
     statsOpen: modal.statsOpen,
     statsTab: modal.statsTab,

@@ -33,11 +33,11 @@ import {
 import { getSettings } from "../settingsManager";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
-  artifactDelete,
   artifactList,
   artifactPublish,
   artifactRead,
 } from "../../ipc/artifacts";
+import { deleteArtifact } from "./remove";
 
 /** What the Rust publish result gives the command layer (urls null while
  * the display server is down — a publish never fails on that). */
@@ -53,6 +53,19 @@ export interface ArtifactCommandDeps {
     slug: string;
     paneLabel: string;
   }) => void;
+  /** Every write that LANDED, republishes included — the store's own
+   * surfaces re-read on it. Distinct from `announce`, which is about the
+   * user's attention and so fires for first publishes and deletes only:
+   * a version that changes nothing worth a notification still changes
+   * what a list is showing.
+   *
+   * REQUIRED, not optional — the artifacts policy's own rule, applied
+   * here: a default would let the composition root forget the binding
+   * and leave the failure invisible. Dropped, an agent's publish would
+   * still land in the store while every open surface quietly stopped
+   * re-reading, and no focused test would notice. Required, the compiler
+   * does. */
+  changed: () => void;
 }
 
 /** The refusal every artifact tool gives an anonymous caller — reason
@@ -220,6 +233,7 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         message,
         autoOpen,
       });
+      deps.changed();
       if (wire.isNew && deps.announce) {
         deps.announce({
           kind: "published",
@@ -313,10 +327,12 @@ function deleteCommand(deps: ArtifactCommandDeps): CommandSpec {
       const caller = callerContext(source, deps);
       const id = str(args, "id");
       if (!id) throw new Error("delete needs an id");
-      const outcome = await artifactDelete({
-        workspaceId: caller.workspaceId,
-        slug: id,
-      });
+      // No expected generation: an agent's delete is an instruction about
+      // a NAME, not an answer about a row it was shown.
+      const outcome = await deleteArtifact(
+        { workspaceId: caller.workspaceId, slug: id },
+        { changed: deps.changed },
+      );
       if (outcome.deleted && deps.announce) {
         deps.announce({
           kind: "deleted",

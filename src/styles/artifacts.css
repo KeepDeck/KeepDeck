@@ -1,0 +1,230 @@
+/* Artifacts registry ([artifacts]) — the app-side door to what agents
+   published: a .form card holding one scrolling list of rows, each row a
+   title, its identity line, and the two things a human does with it. */
+.artifacts {
+  width: min(680px, 92vw);
+  max-width: none;
+  max-height: min(680px, 86vh);
+}
+
+.artifacts__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* The title's spacing moves to the head row it shares with Refresh and
+   the ✕; `auto` pushes both to the right end. */
+.artifacts__title {
+  margin: 0 auto 0 0;
+}
+
+.artifacts__hint {
+  margin: 0 0 16px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.artifacts__error {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid #4a2b28;
+  border-radius: 6px;
+  background-color: #1f1412;
+  color: #d98b7f;
+  font-size: 12px;
+}
+
+/* Reserves NOTHING: a list is as tall as it has rows, and one artifact
+   under a card sized for six reads as a card that lost five. The steady
+   size the state swaps need belongs to the placeholder below, which is
+   the only thing that changes shape within milliseconds. */
+.artifacts__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* One seat for the three text states — loading, empty, a store's
+   refusal. They replace each other fast enough that differing heights
+   read as a flinch, so they share a floor and sit centred in it rather
+   than hanging from its ceiling. The floor is HERE and not on the body
+   for the reason above: rows want none of it, and they start at the
+   top. */
+.artifacts__placeholder {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 120px;
+  padding: 24px 0;
+  color: #565e6b;
+  font-size: 13px;
+  text-align: center;
+}
+
+.artifacts__placeholder-title {
+  color: #9aa0a6;
+  font-size: 14px;
+}
+
+.artifacts__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The row carries no padding of its own: the open control holds it, so
+   the whole strip a pointer reads as one row is inside the thing that
+   answers a click. */
+.artifacts__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 10px;
+  border-radius: 8px;
+}
+
+.artifacts__row:hover {
+  background-color: #161c28;
+}
+
+/* The row IS the control. Stripped to nothing and dressed by the row
+   around it — the shared button primitive covers priorities, not list
+   rows, and dressing one as a button would say the wrong thing about
+   what pressing it does. */
+.artifacts__row-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 2px 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifacts__row-open:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* Keyboard reach has to be visible: the row's own hover says nothing to
+   a Tab. */
+.artifacts__row-open:focus-visible {
+  outline: 1px solid #3b82f6;
+  outline-offset: -1px;
+}
+
+.artifacts__row-title {
+  overflow: hidden;
+  color: #c5c8c6;
+  font-size: 14px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The identity line — the durable half of an artifact, and the half a
+   teammate is given. The id leads it for exactly that reason. */
+.artifacts__row-meta {
+  overflow: hidden;
+  color: #565e6b;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.artifacts__row-meta code {
+  color: #8b93a7;
+  font-size: 12px;
+}
+
+.artifacts__row-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The open history, indented under the row it belongs to so the two read
+   as one thing rather than as a second list. */
+.artifacts__history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 4px;
+  padding: 8px 12px 10px 24px;
+  border-left: 1px solid #262d3d;
+  margin-left: 12px;
+}
+
+.artifacts__history-note {
+  color: #565e6b;
+  font-size: 12px;
+}
+
+.artifacts__version {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.artifacts__version-n {
+  flex: none;
+  width: 32px;
+  color: #8b93a7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.artifacts__version-when,
+.artifacts__version-author {
+  flex: none;
+  color: #565e6b;
+}
+
+/* The one part that can be long: an agent's note about what changed. */
+.artifacts__version-message {
+  overflow: hidden;
+  color: #9aa0a6;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The row-level delete: a small text ×, the idiom the workspaces rail and
+   the journal rows already use. Always present rather than revealed on
+   hover — a control that appears only under a pointer cannot be reached
+   by a Tab at all. */
+.artifacts__remove {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #565e6b;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.artifacts__remove:hover,
+.artifacts__remove:focus-visible {
+  background-color: #2a1f1f;
+  color: #d98b7f;
+  outline: none;
+}

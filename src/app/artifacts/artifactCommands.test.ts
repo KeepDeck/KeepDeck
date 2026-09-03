@@ -50,6 +50,7 @@ function setup(panes: Workspace["panes"]) {
   const registry = createCommandRegistry();
   const dispose = registerArtifactCommands(registry, {
     deck: () => ({ workspaces: [ws(panes)] }),
+    changed: () => {},
   });
   const run = async (
     id: string,
@@ -326,13 +327,18 @@ describe("registerArtifactCommands", () => {
     ).rejects.toThrow(/deck-internal/);
   });
 
-  it("announce fires on isNew, NEVER on republish, and on delete", async () => {
+  it("announce fires on isNew, NEVER on republish, and on delete — changed fires on every landed write", async () => {
+    // The two signals answer different questions: announce is about the
+    // user's attention, changed is about what a surface is showing. A
+    // republish is precisely where they must disagree.
     const announce = vi.fn();
+    const changed = vi.fn();
     const deck = () => ({ workspaces: [ws([pane()])] });
     const registry = createCommandRegistry();
     registerArtifactCommands(registry, {
       deck,
       announce,
+      changed,
     });
     const run = async (id: string, args: Record<string, unknown>, source: CommandSource) => {
       const result = await registry.execute(id, args as never, source);
@@ -346,6 +352,7 @@ describe("registerArtifactCommands", () => {
     expect(announce).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "published", slug: "auth-flow" }),
     );
+    expect(changed).toHaveBeenCalledTimes(1);
 
     // Republish (isNew false in the IPC result): NO announce.
     vi.mocked(artifactPublish).mockResolvedValue({
@@ -354,6 +361,8 @@ describe("registerArtifactCommands", () => {
     });
     await run("artifact.publish", { title: "T", format: "html", content: "y" }, paneSource());
     expect(announce).toHaveBeenCalledTimes(1);
+    // …but the list DID change: a new version, a new stamp, a new author.
+    expect(changed).toHaveBeenCalledTimes(2);
 
     // Delete (deleted true): announce("deleted").
     vi.mocked(artifactDelete).mockResolvedValue({ id: "auth-flow", deleted: true, versionCount: 2, createdAt: 1 });
@@ -362,10 +371,13 @@ describe("registerArtifactCommands", () => {
     expect(announce).toHaveBeenLastCalledWith(
       expect.objectContaining({ kind: "deleted", slug: "auth-flow" }),
     );
+    expect(changed).toHaveBeenCalledTimes(3);
 
     // Idempotent no-op delete (deleted false): NO announce.
     vi.mocked(artifactDelete).mockResolvedValue({ id: "auth-flow", deleted: false, versionCount: null, createdAt: null });
     await run("artifact.delete", { id: "auth-flow" }, paneSource());
     expect(announce).toHaveBeenCalledTimes(2);
+    // Nothing was removed, so nothing on screen went stale either.
+    expect(changed).toHaveBeenCalledTimes(3);
   });
 });

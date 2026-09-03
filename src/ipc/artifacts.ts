@@ -52,20 +52,50 @@ export interface PublishIpcResult {
   indexUrl: string | null;
 }
 
-/** One list row (mirrors Rust `ArtifactMeta`, camelCase on the wire). */
+/** One list row (mirrors Rust `ArtifactMeta`, camelCase on the wire).
+ *
+ * No `format`: the Rust struct carries none — the format is pinned in the
+ * manifest and rides the READ, not the listing. Declared here it typed as
+ * `"html"` a field that arrives `undefined`, which is the shape a
+ * consumer cannot defend against. */
 export interface ArtifactMetaRow {
   id: string;
   title: string;
-  format: "html";
   versionCount: number;
   updatedAt: number;
   lastAuthor: string;
+  /** Which incarnation of this id the row describes. Opaque, and NOT the
+   * artifact's token: deleting frees an id, so the next publish under it
+   * is a different artifact wearing the same name, and this is what
+   * tells them apart. Handed back on a delete that answers a question
+   * about this row. */
+  generation: string;
 }
 
 export async function artifactList(payload: {
   workspaceId: string;
 }): Promise<ArtifactMetaRow[]> {
   return await invoke("artifact_list", { payload });
+}
+
+/** One version as a surface shows it (mirrors Rust `VersionRow`). No
+ * author pane id: an internal identifier nothing on screen can act on. */
+export interface ArtifactVersionRow {
+  n: number;
+  authorLabel: string;
+  at: number;
+  size: number;
+  message?: string;
+}
+
+/** One artifact's history, oldest first. Separate from the listing on
+ * purpose: a row shows a count, and only the row a user opens pays for
+ * its versions. */
+export async function artifactVersions(payload: {
+  workspaceId: string;
+  slug: string;
+}): Promise<ArtifactVersionRow[]> {
+  return await invoke("artifact_versions", { payload });
 }
 
 /** The read result (mirrors Rust `ReadOutcome`): inline content, or the
@@ -110,6 +140,11 @@ export interface ArtifactDeleteResult {
 export async function artifactDelete(payload: {
   workspaceId: string;
   slug: string;
+  /** Refuse unless the id still names this incarnation — for a caller
+   * acting on an answer about a row it showed. The store compares under
+   * the same guard as the removal, which a caller cannot do. Omitted by
+   * an agent, whose delete is an instruction about a name. */
+  expectedGeneration?: string;
 }): Promise<ArtifactDeleteResult> {
   return await invoke("artifact_delete", { payload });
 }
