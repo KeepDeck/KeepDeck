@@ -34,6 +34,9 @@ export interface ArtifactsRegistry {
   view: ArtifactsView;
   /** The row an action is in flight for; one at a time. */
   busyId: string | null;
+  /** What the user is searching for; "" while they are not. */
+  query: string;
+  search(query: string): void;
   /** The open history, or null. Iteration history is the shape of an
    * artifact, and until now only agents could see it. */
   expanded: ArtifactHistory | null;
@@ -82,6 +85,11 @@ export function useArtifactsRegistry(
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ArtifactConfirm | null>(null);
   const [expanded, setExpanded] = useState<ArtifactHistory | null>(null);
+  // The search lives HERE and nowhere on disk: the rows in hand are the
+  // whole workspace, so a query is a filter over what is already read —
+  // no index to build, nothing to invalidate, and one re-read of the
+  // store when it changes, not one per keystroke.
+  const [query, setQuery] = useState("");
   /** Which history read the answers on the wire belong to. */
   const historyAsk = useRef(0);
   // Every publish and delete this app makes bumps the revision, which is
@@ -266,8 +274,10 @@ export function useArtifactsRegistry(
     // nothing else to show, as a banner over rows when there is. The
     // view renders the arm it is given and never combines the two facts
     // itself.
-    view: viewOf(workspaceId, rows, shownError),
+    view: viewOf(workspaceId, rows, shownError, query),
     busyId,
+    query,
+    search: setQuery,
     expanded,
     confirm,
     open,

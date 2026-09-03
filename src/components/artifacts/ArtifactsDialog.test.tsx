@@ -219,6 +219,38 @@ describe("ArtifactsDialog", () => {
     );
   });
 
+  it("narrows the list as the user types, and says so when nothing is left", async () => {
+    render();
+    await settle();
+    expect(rowsOnScreen()).toHaveLength(2);
+
+    const search = document.querySelector<HTMLInputElement>(".artifacts__search")!;
+    // React tracks a controlled input's value through its own setter, so
+    // a plain assignment is invisible to it — the sessions browser's
+    // tests type the same way.
+    const type = (text: string) =>
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          Object.getPrototypeOf(search),
+          "value",
+        )!.set!.call(search, text);
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+    type("deck");
+    expect(rowsOnScreen()).toHaveLength(1);
+    expect(rowsOnScreen()[0]?.textContent).toContain("deck-layout");
+    // No re-read: the rows in hand are the whole workspace, so a query
+    // is a filter, not a question for the store.
+    expect(listed).toHaveBeenCalledTimes(1);
+
+    type("zzz");
+    expect(rowsOnScreen()).toHaveLength(0);
+    expect(document.body.textContent).toContain("Nothing matches");
+    // …and the box is still there to fix what was typed.
+    expect(document.querySelector(".artifacts__search")).not.toBeNull();
+  });
+
   it("says nothing is published only when the store said so", async () => {
     listed.mockResolvedValueOnce([]);
     render();

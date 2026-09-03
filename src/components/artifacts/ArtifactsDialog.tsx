@@ -43,7 +43,7 @@ export function ArtifactsDialog({
   canClose = true,
 }: ArtifactsDialogProps) {
   const registry = useArtifactsRegistry(activeWs?.id ?? null);
-  const { view, busyId, confirm, expanded } = registry;
+  const { view, busyId, confirm, expanded, query } = registry;
   // Escape belongs to the confirm while one is stacked over this dialog:
   // the handlers stack, so a single press would answer the question AND
   // close the surface underneath it. `canClose` is the caller's half of
@@ -71,6 +71,19 @@ export function ArtifactsDialog({
           <h2 className="form__title artifacts__title">Artifacts</h2>
           <CloseButton label="Close artifacts" onClick={onClose} autoFocus />
         </div>
+
+        {/* The search box stands whenever a list could be searched —
+            including when the query emptied it, which is exactly when
+            the user needs it back to change what they typed. */}
+        {(view.kind === "rows" || view.kind === "noMatch") && (
+          <input
+            className="artifacts__search"
+            value={query}
+            placeholder="Search this workspace — titles and ids"
+            aria-label="Search artifacts"
+            onChange={(e) => registry.search(e.target.value)}
+          />
+        )}
 
         <p className="artifacts__hint">
           A published page is served on a port that changes every time
@@ -102,6 +115,13 @@ export function ArtifactsDialog({
               >
                 {view.message}
               </span>
+            </div>
+          ) : view.kind === "noMatch" ? (
+            <div className="artifacts__placeholder">
+              <span className="artifacts__placeholder-title">
+                Nothing matches “{view.query}”
+              </span>
+              <span>This workspace has artifacts; none of them by that name</span>
             </div>
           ) : view.kind === "empty" ? (
             <div className="artifacts__placeholder">

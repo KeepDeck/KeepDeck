@@ -17,6 +17,10 @@ export type ArtifactsView =
   /** The store said why it cannot answer; its words, verbatim. */
   | { kind: "refusal"; message: string }
   | { kind: "empty" }
+  /** A workspace that HAS artifacts, none of which the query names. A
+   * different sentence from an empty workspace, and the difference is
+   * the only thing that tells a user their search was the problem. */
+  | { kind: "noMatch"; query: string }
   | {
       kind: "rows";
       rows: readonly ArtifactMetaRow[];
@@ -39,10 +43,41 @@ export function viewOf(
   workspaceId: string | null,
   rows: readonly ArtifactMetaRow[] | null,
   error: string | null,
+  query: string,
 ): ArtifactsView {
   if (workspaceId === null) return { kind: "noWorkspace" };
   if (rows === null) return { kind: "loading" };
-  if (rows.length > 0) return { kind: "rows", rows, banner: error };
+  const matched = matching(rows, query);
+  if (matched.length > 0) return { kind: "rows", rows: matched, banner: error };
   if (error !== null) return { kind: "refusal", message: error };
+  // Nothing to show, and the two reasons are not the same news: the
+  // workspace is empty, or the query is.
+  if (rows.length > 0) return { kind: "noMatch", query: query.trim() };
   return { kind: "empty" };
+}
+
+/**
+ * The rows a query names — its TITLE or its id, case-insensitively, by
+ * substring.
+ *
+ * The id is searched beside the title because it is the half people are
+ * given and the half they type: a teammate who was told `auth-flow`
+ * searches for `auth-flow`, and a search that only read titles would
+ * answer nothing to the one identifier the feature hands out.
+ *
+ * No index and no cache: the rows in hand ARE the population — the
+ * store lists a workspace whole — and each is an id and a title, so a
+ * pass over a thousand of them costs less than the keystroke that asked.
+ */
+export function matching(
+  rows: readonly ArtifactMetaRow[],
+  query: string,
+): readonly ArtifactMetaRow[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return rows;
+  return rows.filter(
+    (row) =>
+      row.title.toLowerCase().includes(needle) ||
+      row.id.toLowerCase().includes(needle),
+  );
 }
