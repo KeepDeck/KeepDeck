@@ -45,7 +45,6 @@ const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow =
   title: `The ${id}`,
   versionCount: 2,
   updatedAt: 1_700_000_000_000,
-  lastAuthor: "support 1",
   generation: `gen-${id}`,
   ...over,
 });
@@ -116,8 +115,8 @@ beforeEach(() => {
     createdAt: 1,
   });
   history.mockReset().mockResolvedValue([
-    { n: 1, authorLabel: "support 1", at: 1_000, size: 10 },
-    { n: 2, authorLabel: "support 2", at: 2_000, size: 20, message: "fixed the axis" },
+    { n: 1, at: 1_000, size: 10 },
+    { n: 2, at: 2_000, size: 20, message: "fixed the axis" },
   ]);
 });
 
@@ -372,7 +371,7 @@ describe("useArtifactsRegistry", () => {
     workspaceId = "ws-2";
     act(() => root.render(createElement(Probe)));
     await settle();
-    act(() => answer([{ n: 1, authorLabel: "ws-1's author", at: 1, size: 1 }]));
+    act(() => answer([{ n: 1, at: 1, size: 1 }]));
     await settle();
 
     expect(registry.expanded).toBeNull();
@@ -388,7 +387,7 @@ describe("useArtifactsRegistry", () => {
     act(() => registry.toggleVersions("auth-flow"));
     expect(registry.expanded).toBeNull();
 
-    act(() => answer([{ n: 1, authorLabel: "support 1", at: 1, size: 1 }]));
+    act(() => answer([{ n: 1, at: 1, size: 1 }]));
     await settle();
 
     expect(registry.expanded).toBeNull();

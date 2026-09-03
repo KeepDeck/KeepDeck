@@ -120,7 +120,7 @@ describe("registerArtifactCommands", () => {
     ).rejects.toThrow(/deck-internal/);
   });
 
-  it("rung 3: a resolved pane with a cwd publishes through the IPC with identity as host fact", async () => {
+  it("rung 3: a resolved pane with a cwd publishes through the IPC with the workspace as host fact", async () => {
     const { run } = setup([pane()]);
     const result = await run(
       "artifact.publish",
@@ -130,8 +130,6 @@ describe("registerArtifactCommands", () => {
     expect(artifactPublish).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "ws-1",
-        paneId: "pane-1",
-        label: "support 1",
         cwd: "/repo",
         slug: "auth-flow",
       }),
@@ -144,8 +142,12 @@ describe("registerArtifactCommands", () => {
     // `isNew` is OFF the agent wire (the design's drop-it rule) — the
     // negative assertion is the pin (it once shipped ON, test-locked).
     expect(result).not.toHaveProperty("isNew");
-    // No token anywhere in the wire result.
+    // No token anywhere in the wire result — and no author: who
+    // published is not recorded.
     expect(JSON.stringify(result)).not.toContain('"token"');
+    const sent = vi.mocked(artifactPublish).mock.calls[0][0];
+    expect(Object.keys(sent)).not.toContain("label");
+    expect(Object.keys(sent)).not.toContain("paneId");
   });
 
   it("rung 2: a provisioning pane with no cwd keeps content and refuses path with the remedy", async () => {
@@ -224,7 +226,6 @@ describe("registerArtifactCommands", () => {
       title: "T",
       format: "html",
       content: "x",
-      authorLabel: "l",
       at: 1,
     });
     const { run } = setup([pane()]);

@@ -537,7 +537,7 @@ mod tests {
     // moved to `crate::http`, but these tests still read sockets directly.
     use std::io::Read;
     use crate::artifacts::store::{
-        ArtifactFormat, ArtifactsStore, PublishIdentity, PublishRequest,
+        ArtifactFormat, ArtifactsStore, PublishRequest,
     };
     // `Read` rides the file's own `use std::io::{...}` — no test re-import.
     use std::os::fd::AsRawFd as _;
@@ -629,11 +629,7 @@ mod tests {
     fn publish(store: &ArtifactsStore, slug: &str, body: &[u8]) -> String {
         store
             .publish(
-                &PublishIdentity {
-                    workspace_id: "ws-1".into(),
-                    pane_id: "pane-1".into(),
-                    label: "support 1".into(),
-                },
+                "ws-1",
                 PublishRequest {
                     slug: Some(slug),
                     title: "T",
@@ -907,11 +903,7 @@ mod tests {
         for i in 2..=40u64 {
             store
                 .publish(
-                    &PublishIdentity {
-                        workspace_id: "ws-1".into(),
-                        pane_id: "p".into(),
-                        label: "l".into(),
-                    },
+                    "ws-1",
                     PublishRequest {
                         slug: Some("wedge"),
                         title: "T",
@@ -997,11 +989,7 @@ mod tests {
         // A title with markup: the index must escape it.
         store
             .publish(
-                &PublishIdentity {
-                    workspace_id: "ws-1".into(),
-                    pane_id: "p".into(),
-                    label: "<script>l</script>".into(),
-                },
+                "ws-1",
                 PublishRequest {
                     slug: Some("evil"),
                     title: "<script>t</script>",
@@ -1038,11 +1026,7 @@ mod tests {
         for (n, body) in [(2u64, &b"<body>v2</body>"[..]), (3, &b"<body>v3</body>"[..])] {
             store
                 .publish(
-                    &PublishIdentity {
-                        workspace_id: "ws-1".into(),
-                        pane_id: "p".into(),
-                        label: "l".into(),
-                    },
+                    "ws-1",
                     PublishRequest {
                         slug: Some("many"),
                         title: "T",

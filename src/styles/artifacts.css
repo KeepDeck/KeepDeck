@@ -198,8 +198,7 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.artifacts__version-when,
-.artifacts__version-author {
+.artifacts__version-when {
   flex: none;
   color: #565e6b;
 }

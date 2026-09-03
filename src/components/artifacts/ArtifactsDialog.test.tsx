@@ -45,7 +45,6 @@ const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow =
   title: `The ${id}`,
   versionCount: 3,
   updatedAt: Date.now(),
-  lastAuthor: "support 1",
   generation: `gen-${id}`,
   ...over,
 });
@@ -96,8 +95,8 @@ beforeEach(() => {
     createdAt: 1,
   });
   history.mockReset().mockResolvedValue([
-    { n: 1, authorLabel: "support 1", at: Date.now(), size: 10 },
-    { n: 2, authorLabel: "support 2", at: Date.now(), size: 20, message: "fixed the axis" },
+    { n: 1, at: Date.now(), size: 10 },
+    { n: 2, at: Date.now(), size: 20, message: "fixed the axis" },
   ]);
 });
 
@@ -109,7 +108,7 @@ afterEach(() => {
 describe("ArtifactsDialog", () => {
   it("gives each row its identity, not its address", async () => {
     // A url is what dies on restart, so a row does not show one at all —
-    // the id, the version count and who touched it last are what it says.
+    // its id and its version count are what it says.
     render();
     await settle();
     expect(rowsOnScreen()).toHaveLength(2);
@@ -117,7 +116,6 @@ describe("ArtifactsDialog", () => {
     expect(first).toContain("The auth-flow");
     expect(first).toContain("auth-flow");
     expect(first).toContain("v3");
-    expect(first).toContain("support 1");
     expect(document.body.textContent).not.toContain("127.0.0.1");
   });
 

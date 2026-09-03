@@ -3,8 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 /**
  * The artifacts feature's Rust surface — the enable pair (§B11: the
  * store claim and the display server ride together) and the artifact_*
- * command handlers (§D1: identity is host fact in the payload, never an
- * agent argument). Throws on failure — callers decide how loudly to
+ * command handlers (§D1: the workspace is host fact in the payload,
+ * never an agent argument). Throws on failure — callers decide how loudly to
  * react; a store refusal sentence is designed to be agent-readable.
  */
 
@@ -22,8 +22,6 @@ export async function artifactsDisable(): Promise<void> {
 
 export interface ArtifactPublishPayload {
   workspaceId: string;
-  paneId: string;
-  label: string;
   cwd: string | null;
   slug?: string;
   title: string;
@@ -63,7 +61,6 @@ export interface ArtifactMetaRow {
   title: string;
   versionCount: number;
   updatedAt: number;
-  lastAuthor: string;
   /** Which incarnation of this id the row describes. Opaque, and NOT the
    * artifact's token: deleting frees an id, so the next publish under it
    * is a different artifact wearing the same name, and this is what
@@ -78,11 +75,9 @@ export async function artifactList(payload: {
   return await invoke("artifact_list", { payload });
 }
 
-/** One version as a surface shows it (mirrors Rust `VersionRow`). No
- * author pane id: an internal identifier nothing on screen can act on. */
+/** One version as a surface shows it (mirrors Rust `VersionRow`). */
 export interface ArtifactVersionRow {
   n: number;
-  authorLabel: string;
   at: number;
   size: number;
   message?: string;
@@ -108,7 +103,6 @@ export type ArtifactReadResult =
       title: string;
       format: "html";
       content: string;
-      authorLabel: string;
       at: number;
     }
   | {

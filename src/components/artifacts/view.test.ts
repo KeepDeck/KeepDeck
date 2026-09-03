@@ -7,7 +7,6 @@ const row = (id: string): ArtifactMetaRow => ({
   title: `The ${id}`,
   versionCount: 2,
   updatedAt: 1_700_000_000_000,
-  lastAuthor: "support 1",
   generation: `gen-${id}`,
 });
 

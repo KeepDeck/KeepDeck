@@ -49,11 +49,6 @@ pub(crate) const CONTENT_CAP_BYTES: usize = 256 * 1024;
 pub(crate) const FILE_CAP_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const TITLE_MAX: usize = 200;
 pub(crate) const MESSAGE_MAX: usize = 500;
-/// The identity label's cap: a label rides in EVERY version entry and in
-/// the index, so an unbounded one is repeated as many times as an
-/// artifact has been published — and read by a human in a list, where a
-/// paragraph where a name belongs is its own kind of broken.
-pub(crate) const LABEL_MAX: usize = 200;
 
 /// What an artifact IS. One member, and the type survives its own
 /// singularity on purpose: the format is pinned in every manifest, rides
@@ -78,8 +73,6 @@ impl ArtifactFormat {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VersionMeta {
     pub n: u64,
-    pub author_pane_id: String,
-    pub author_label: String,
     pub at: u64,
     pub size: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -107,19 +100,10 @@ pub struct ArtifactMeta {
     pub title: String,
     pub version_count: u64,
     pub updated_at: u64,
-    pub last_author: String,
     /// Which incarnation of this slug the row describes — see
     /// [`token::generation_of`]. A surface that asks a question about a
     /// row hands this back when it acts on the answer.
     pub generation: String,
-}
-
-/// The publish identity — host fact resolved TS-side, never an agent arg.
-#[derive(Debug, Clone)]
-pub struct PublishIdentity {
-    pub workspace_id: String,
-    pub pane_id: String,
-    pub label: String,
 }
 
 /// What the store hands the command handler for one publish.
@@ -225,7 +209,7 @@ impl ArtifactsStore {
     /// retries past every collision), then write.
     pub fn publish(
         &self,
-        identity: &PublishIdentity,
+        workspace_id: &str,
         request: PublishRequest<'_>,
         now_ms: u64,
     ) -> StoreResult<PublishOutcome> {
@@ -241,11 +225,6 @@ impl ArtifactsStore {
                     )));
                 }
             }
-            if identity.label.chars().count() > LABEL_MAX {
-                return Err(StoreError::new(format!(
-                    "author label must be ≤{LABEL_MAX} chars"
-                )));
-            }
             let format = request.format;
             let bytes = read_source(root, &request)?;
             let _guard = data.lock().expect("artifacts data poisoned");
@@ -254,10 +233,10 @@ impl ArtifactsStore {
             // EXPLICIT slug (absent for minted requests); suffix occupancy
             // is a directory probe.
             let existing = match request.slug {
-                Some(slug) => load_manifest(root, identity.workspace_id.as_str(), slug)?,
+                Some(slug) => load_manifest(root, workspace_id, slug)?,
                 None => None,
             };
-            let slug = resolve_slug(existing.as_ref(), &request, root, &identity.workspace_id)?;
+            let slug = resolve_slug(existing.as_ref(), &request, root, &workspace_id)?;
             let slug = slug.as_str();
 
             let (outcome, mut manifest) = match existing {
@@ -287,15 +266,13 @@ impl ArtifactsStore {
                 }
             };
 
-            let dir = artifact_dir(root, &identity.workspace_id, slug);
+            let dir = artifact_dir(root, &workspace_id, slug);
             fs::create_dir_all(&dir).map_err(|e| StoreError::new(format!("creating artifact directory failed: {e}")))?;
             let file_name = format!("v{}.{ext}", outcome.version, ext = manifest.format.extension());
             write_atomic(&dir.join(&file_name), &bytes)
                 .map_err(|e| StoreError::new(format!("writing version file failed: {e}")))?;
             manifest.versions.push(VersionMeta {
                 n: outcome.version,
-                author_pane_id: identity.pane_id.clone(),
-                author_label: identity.label.clone(),
                 at: now_ms,
                 size: bytes.len() as u64,
                 message: request.message.map(str::to_string),
@@ -350,7 +327,6 @@ impl ArtifactsStore {
                         title: manifest.title,
                         version_count: manifest.versions.len() as u64,
                         updated_at: last.map(|v| v.at).unwrap_or(manifest.created),
-                        last_author: last.map(|v| v.author_label.clone()).unwrap_or_default(),
                         generation: token::generation_of(&manifest.token),
                     });
                 }
@@ -417,7 +393,6 @@ impl ArtifactsStore {
                 title: manifest.title,
                 format: manifest.format,
                 bytes,
-                author_label: entry.author_label.clone(),
                 at: entry.at,
             })
         })
@@ -562,7 +537,6 @@ pub struct IndexRow {
     pub id: String,
     pub title: String,
     pub version_count: u64,
-    pub last_author: String,
     pub token: String,
 }
 
@@ -578,11 +552,6 @@ pub fn store_meta(root: &Path, ws: &str) -> Vec<IndexRow> {
                 id: slug,
                 title: manifest.title,
                 version_count: manifest.versions.len() as u64,
-                last_author: manifest
-                    .versions
-                    .last()
-                    .map(|v| v.author_label.clone())
-                    .unwrap_or_default(),
                 token: manifest.token,
             });
         }
@@ -603,7 +572,6 @@ pub enum ReadResult {
         title: String,
         format: ArtifactFormat,
         bytes: Vec<u8>,
-        author_label: String,
         at: u64,
     },
     OverCap {
@@ -977,13 +945,8 @@ mod tests {
         (store, dir, root)
     }
 
-    fn identity() -> PublishIdentity {
-        PublishIdentity {
-            workspace_id: "ws-1".into(),
-            pane_id: "pane-1".into(),
-            label: "support 1".into(),
-        }
-    }
+    /// Every publish in these tests belongs to the same workspace.
+    const WS: &str = "ws-1";
 
     fn content_request<'a>(slug: Option<&'a str>, content: &'a [u8]) -> PublishRequest<'a> {
         PublishRequest {
@@ -1001,7 +964,7 @@ mod tests {
     fn roundtrip_publish_manifest_list_read() {
         let (store, _dir, root) = store_with_root("roundtrip");
         let out = store
-            .publish(&identity(), content_request(Some("auth-flow"), b"<h1>v1</h1>"), 1000)
+            .publish(WS, content_request(Some("auth-flow"), b"<h1>v1</h1>"), 1000)
             .unwrap();
         assert_eq!((out.slug.as_str(), out.version, out.is_new), ("auth-flow", 1, true));
 
@@ -1014,7 +977,6 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, "auth-flow");
         assert_eq!(list[0].version_count, 1);
-        assert_eq!(list[0].last_author, "support 1");
 
         match store.read("ws-1", "auth-flow", None).unwrap() {
             ReadResult::Inline { bytes, version, .. } => {
@@ -1026,26 +988,23 @@ mod tests {
     }
 
     #[test]
-    fn republish_appends_and_attributes_each_version() {
+    fn republish_appends_rather_than_replacing() {
         let (store, _dir, _root) = store_with_root("append");
-        store.publish(&identity(), content_request(Some("x"), b"one"), 1000).unwrap();
-        let mut other = identity();
-        other.pane_id = "pane-2".into();
-        other.label = "support 2".into();
-        let out = store.publish(&other, content_request(Some("x"), b"two"), 2000).unwrap();
+        store.publish(WS, content_request(Some("x"), b"one"), 1000).unwrap();
+        let out = store.publish(WS, content_request(Some("x"), b"two"), 2000).unwrap();
         assert_eq!((out.version, out.is_new), (2, false));
         let list = store.list("ws-1").unwrap();
         assert_eq!(list[0].version_count, 2);
-        assert_eq!(list[0].last_author, "support 2");
+        assert_eq!(store.versions("ws-1", "x").unwrap().len(), 2);
     }
 
     #[test]
     fn mint_retries_past_a_stranger_canvas() {
         let (store, _dir, _root) = store_with_root("mint");
         // Someone else holds auth-flow; a minted title derives the same base.
-        store.publish(&identity(), content_request(Some("auth-flow"), b"<p/>"), 1000).unwrap();
+        store.publish(WS, content_request(Some("auth-flow"), b"<p/>"), 1000).unwrap();
         let out = store
-            .publish(&identity(), content_request(None, b"<p/>"), 2000)
+            .publish(WS, content_request(None, b"<p/>"), 2000)
             .unwrap();
         assert_eq!(out.slug, "auth-flow-2");
         assert!(out.is_new);
@@ -1054,7 +1013,7 @@ mod tests {
     #[test]
     fn delete_is_idempotent_whole_dir_and_informative() {
         let (store, _dir, root) = store_with_root("delete");
-        store.publish(&identity(), content_request(Some("gone"), b"<p/>"), 1000).unwrap();
+        store.publish(WS, content_request(Some("gone"), b"<p/>"), 1000).unwrap();
         let first = store.delete("ws-1", "gone", None).unwrap();
         assert!(first.deleted);
         assert_eq!(first.version_count, Some(1));
@@ -1074,11 +1033,11 @@ mod tests {
         // name. Only a compare INSIDE the guard can tell, because
         // whatever the asker read is already the past.
         let (store, _dir, root) = store_with_root("conditional");
-        store.publish(&identity(), content_request(Some("draft"), b"<p/>"), 1000).unwrap();
+        store.publish(WS, content_request(Some("draft"), b"<p/>"), 1000).unwrap();
         let asked_about = store.list("ws-1").unwrap()[0].generation.clone();
 
         store.delete("ws-1", "draft", None).unwrap();
-        store.publish(&identity(), content_request(Some("draft"), b"<p/>"), 3000).unwrap();
+        store.publish(WS, content_request(Some("draft"), b"<p/>"), 3000).unwrap();
 
         let refused = store.delete("ws-1", "draft", Some(&asked_about));
         assert!(refused.is_err(), "the answer was about the artifact that is gone");
@@ -1106,8 +1065,8 @@ mod tests {
     #[test]
     fn versions_read_oldest_first_and_absence_is_an_empty_history() {
         let (store, _dir, _root) = store_with_root("history");
-        store.publish(&identity(), content_request(Some("doc"), b"<p>1</p>"), 1000).unwrap();
-        store.publish(&identity(), content_request(Some("doc"), b"<p>2</p>"), 2000).unwrap();
+        store.publish(WS, content_request(Some("doc"), b"<p>1</p>"), 1000).unwrap();
+        store.publish(WS, content_request(Some("doc"), b"<p>2</p>"), 2000).unwrap();
 
         let history = store.versions("ws-1", "doc").unwrap();
         assert_eq!(history.iter().map(|v| v.n).collect::<Vec<_>>(), vec![1, 2]);
@@ -1121,9 +1080,9 @@ mod tests {
     #[test]
     fn delete_then_republish_is_resurrection() {
         let (store, _dir, _root) = store_with_root("resurrect");
-        let first = store.publish(&identity(), content_request(Some("phoenix"), b"<p/>"), 1000).unwrap();
+        let first = store.publish(WS, content_request(Some("phoenix"), b"<p/>"), 1000).unwrap();
         store.delete("ws-1", "phoenix", None).unwrap();
-        let second = store.publish(&identity(), content_request(Some("phoenix"), b"<p/>"), 3000).unwrap();
+        let second = store.publish(WS, content_request(Some("phoenix"), b"<p/>"), 3000).unwrap();
         assert!(second.is_new, "resurrection is a first publish");
         assert_eq!(second.version, 1);
         assert_ne!(first.token, second.token, "fresh token, old URLs die");
@@ -1132,25 +1091,25 @@ mod tests {
     #[test]
     fn malformed_manifest_quarantines_never_crashes() {
         let (store, _dir, root) = store_with_root("quarantine");
-        store.publish(&identity(), content_request(Some("sick"), b"<p/>"), 1000).unwrap();
+        store.publish(WS, content_request(Some("sick"), b"<p/>"), 1000).unwrap();
         std::fs::write(root.join("ws/ws-1/sick/manifest.json"), b"{ not json").unwrap();
         // The artifact 404s (absence), the store keeps working.
         let list = store.list("ws-1").unwrap();
         assert!(list.iter().all(|a| a.id != "sick"));
         assert!(store.read("ws-1", "sick", None).is_err());
         // And a new publish under the same slug resurrects cleanly.
-        let out = store.publish(&identity(), content_request(Some("sick"), b"<p/>"), 2000).unwrap();
+        let out = store.publish(WS, content_request(Some("sick"), b"<p/>"), 2000).unwrap();
         assert!(out.is_new);
     }
 
     #[test]
     fn manual_rm_leaves_normal_operation() {
         let (store, _dir, root) = store_with_root("rm-rf");
-        store.publish(&identity(), content_request(Some("a"), b"<p/>"), 1000).unwrap();
+        store.publish(WS, content_request(Some("a"), b"<p/>"), 1000).unwrap();
         std::fs::remove_file(root.join("ws/ws-1/a/manifest.json")).unwrap();
         // Absent manifest = absence: list empty, publish recreates.
         assert!(store.list("ws-1").unwrap().is_empty());
-        let out = store.publish(&identity(), content_request(Some("a"), b"<p/>"), 2000).unwrap();
+        let out = store.publish(WS, content_request(Some("a"), b"<p/>"), 2000).unwrap();
         assert!(out.is_new);
     }
 
@@ -1162,18 +1121,15 @@ mod tests {
         for i in 0..2u64 {
             let store = Arc::clone(&store);
             handles.push(std::thread::spawn(move || {
-                let mut who = identity();
-                who.pane_id = format!("pane-{i}");
-                who.label = format!("racer-{i}");
                 store
-                    .publish(&who, content_request(Some("race"), b"<p/>"), 1000 + i)
+                    .publish(WS, content_request(Some("race"), b"<p/>"), 1000 + i)
                     .unwrap()
             }));
         }
         let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
         let mut versions: Vec<u64> = results.iter().map(|o| o.version).collect();
         versions.sort_unstable();
-        assert_eq!(versions, vec![1, 2], "one artifact, both attributed");
+        assert_eq!(versions, vec![1, 2], "one artifact, two versions");
         let list = store.list("ws-1").unwrap();
         assert_eq!(list[0].version_count, 2);
     }
@@ -1181,7 +1137,7 @@ mod tests {
     #[test]
     fn drop_workspace_is_total_and_idempotent() {
         let (store, _dir, root) = store_with_root("drop");
-        store.publish(&identity(), content_request(Some("a"), b"<p/>"), 1000).unwrap();
+        store.publish(WS, content_request(Some("a"), b"<p/>"), 1000).unwrap();
         store.drop_workspace("ws-1").unwrap();
         assert!(!root.join("ws/ws-1").exists());
         store.drop_workspace("ws-1").unwrap(); // absent is fine
@@ -1203,7 +1159,7 @@ mod tests {
             message: None,
             cwd: Some(boundary.to_str().unwrap()),
         };
-        store.publish(&identity(), ok_request, 1000).unwrap();
+        store.publish(WS, ok_request, 1000).unwrap();
 
         // A symlink INSIDE the boundary pointing OUT: the concrete §6
         // defeat — canonicalize resolves through it, the prefix check is
@@ -1221,7 +1177,7 @@ mod tests {
             message: None,
             cwd: Some(boundary.to_str().unwrap()),
         };
-        let err = store.publish(&identity(), escape_request, 2000).unwrap_err();
+        let err = store.publish(WS, escape_request, 2000).unwrap_err();
         assert!(err.0.contains("inside the pane's cwd"), "symlink escape: {}", err.0);
 
         // No boundary + the path arm = refusal with the remedy (the
@@ -1235,7 +1191,7 @@ mod tests {
             message: None,
             cwd: None,
         };
-        let err = store.publish(&identity(), no_cwd_request, 3000).unwrap_err();
+        let err = store.publish(WS, no_cwd_request, 3000).unwrap_err();
         assert!(err.0.contains("needs a pane cwd"), "no-boundary refusal: {}", err.0);
 
         // Wrong extension vs declared format: refused.
@@ -1250,7 +1206,7 @@ mod tests {
             message: None,
             cwd: Some(boundary.to_str().unwrap()),
         };
-        let err = store.publish(&identity(), wrong_request, 4000).unwrap_err();
+        let err = store.publish(WS, wrong_request, 4000).unwrap_err();
         assert!(err.0.contains("does not match"), "extension gate: {}", err.0);
 
         // The store's own root is not a publishable source.
@@ -1266,7 +1222,7 @@ mod tests {
             message: None,
             cwd: Some(_root.to_str().unwrap()),
         };
-        let err = store.publish(&identity(), self_request, 5000).unwrap_err();
+        let err = store.publish(WS, self_request, 5000).unwrap_err();
         assert!(err.0.contains("not a publishable source"), "store wall: {}", err.0);
 
         // Oversized file: refused.
@@ -1281,20 +1237,20 @@ mod tests {
             message: None,
             cwd: Some(boundary.to_str().unwrap()),
         };
-        let err = store.publish(&identity(), big_request, 6000).unwrap_err();
+        let err = store.publish(WS, big_request, 6000).unwrap_err();
         assert!(err.0.contains("cap"), "file cap: {}", err.0);
     }
 
     #[test]
     fn a_crash_orphan_version_file_is_overwritten_by_the_next_publish() {
         let (store, _dir, root) = store_with_root("orphan");
-        store.publish(&identity(), content_request(Some("o"), b"one"), 1000).unwrap();
+        store.publish(WS, content_request(Some("o"), b"one"), 1000).unwrap();
         // A crash between the version write and the manifest write leaves
         // v2.html orphaned; the next publish computes v2 again and its
         // bytes replace the orphan's.
         std::fs::write(root.join("ws/ws-1/o/v2.html"), b"orphan bytes").unwrap();
         let out = store
-            .publish(&identity(), content_request(Some("o"), b"real two"), 2000)
+            .publish(WS, content_request(Some("o"), b"real two"), 2000)
             .unwrap();
         assert_eq!(out.version, 2);
         let body = std::fs::read(root.join("ws/ws-1/o/v2.html")).unwrap();
@@ -1304,7 +1260,7 @@ mod tests {
     #[test]
     fn an_empty_versions_manifest_quarantines_strictly() {
         let (store, _dir, root) = store_with_root("empty-versions");
-        store.publish(&identity(), content_request(Some("phantom"), b"<p/>"), 1000).unwrap();
+        store.publish(WS, content_request(Some("phantom"), b"<p/>"), 1000).unwrap();
         let manifest_path = root.join("ws/ws-1/phantom/manifest.json");
         let raw = std::fs::read_to_string(&manifest_path).unwrap();
         let mut doc: serde_json::Value = serde_json::from_str(&raw).unwrap();
@@ -1319,7 +1275,7 @@ mod tests {
     #[test]
     fn listing_survives_quarantine_siblings_and_junk_dirs() {
         let (store, _dir, root) = store_with_root("junk");
-        store.publish(&identity(), content_request(Some("live"), b"<p/>"), 1000).unwrap();
+        store.publish(WS, content_request(Some("live"), b"<p/>"), 1000).unwrap();
         // A quarantined aside (dotted name) and a junk dir an agent
         // mkdir'd — neither bricks the listing.
         std::fs::create_dir_all(root.join("ws/ws-1/sick.123.quarantined")).unwrap();
@@ -1329,11 +1285,11 @@ mod tests {
         assert_eq!(list[0].id, "live");
         // And the malformed-manifest flow specifically: quarantine, then
         // list AGAIN (the bricked-list regression), then recover.
-        store.publish(&identity(), content_request(Some("sick"), b"<p/>"), 2000).unwrap();
+        store.publish(WS, content_request(Some("sick"), b"<p/>"), 2000).unwrap();
         std::fs::write(root.join("ws/ws-1/sick/manifest.json"), b"{ not json").unwrap();
         let _ = store.read("ws-1", "sick", None);
         store.list("ws-1").unwrap(); // <-- used to brick forever
-        let out = store.publish(&identity(), content_request(Some("sick"), b"<p/>"), 3000).unwrap();
+        let out = store.publish(WS, content_request(Some("sick"), b"<p/>"), 3000).unwrap();
         assert!(out.is_new);
         let list = store.list("ws-1").unwrap();
         assert!(list.iter().any(|a| a.id == "sick"));
@@ -1429,8 +1385,6 @@ mod tests {
                 versions: (1..=e.version_count)
                     .map(|n| VersionMeta {
                         n,
-                        author_pane_id: "p".into(),
-                        author_label: "l".into(),
                         at: 0,
                         size: 1,
                         message: None,
@@ -1498,10 +1452,10 @@ mod tests {
         let (store, _dir, _root) = store_with_root("cap");
         let at_cap = vec![b'x'; CONTENT_CAP_BYTES];
         let ok = content_request(Some("cap"), &at_cap);
-        store.publish(&identity(), ok, 1000).unwrap();
+        store.publish(WS, ok, 1000).unwrap();
         let over_cap = vec![b'x'; CONTENT_CAP_BYTES + 1];
         let over = content_request(Some("cap2"), &over_cap);
-        let err = store.publish(&identity(), over, 2000).unwrap_err();
+        let err = store.publish(WS, over, 2000).unwrap_err();
         assert!(err.0.contains("cap"), "content cap: {}", err.0);
     }
 
@@ -1520,7 +1474,7 @@ mod tests {
             message: None,
             cwd: Some(dir.path().to_str().unwrap()),
         };
-        store.publish(&identity(), request, 1000).unwrap();
+        store.publish(WS, request, 1000).unwrap();
         match store.read("ws-1", "big-artifact", None).unwrap() {
             ReadResult::OverCap { note, size, .. } => {
                 assert!(note.contains("browser"), "note points at the durable forms: {note}");

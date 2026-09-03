@@ -212,9 +212,6 @@ export function ArtifactsDialog({
                           <span className="artifacts__version-when">
                             {formatAge(version.at, now)}
                           </span>
-                          <span className="artifacts__version-author">
-                            {version.authorLabel}
-                          </span>
                           {version.message !== undefined && (
                             <span className="artifacts__version-message">
                               {version.message}
