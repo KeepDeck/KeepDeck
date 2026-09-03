@@ -7,8 +7,7 @@
 // it via .github/workflows/release.yml, and it works locally the same way.
 //
 //   node scripts/release-manifest.mjs --version 1.2.3 --repo owner/name \
-//     --out latest.json --payload darwin-aarch64=path/to/arm64.app.tar.gz \
-//     --payload darwin-x86_64=path/to/x64.app.tar.gz
+//     --out latest.json --payload darwin-aarch64=path/to/arm64.app.tar.gz
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
