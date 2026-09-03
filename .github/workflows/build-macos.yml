@@ -1,5 +1,5 @@
-# Reusable macOS build: produces the per-arch app bundle zip plus the signed
-# updater payload for an exact ref, natively on each architecture (no fragile
+# Reusable macOS build: produces the app bundle zip plus the signed updater
+# payload for an exact ref, natively on Apple Silicon (no fragile
 # cross-compile). Called by release.yml; artifacts land in the caller's run.
 name: Build macOS
 
@@ -26,8 +26,6 @@ jobs:
         include:
           - runner: macos-latest # Apple Silicon
             arch: arm64
-          - runner: macos-15-intel # Intel
-            arch: x64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
