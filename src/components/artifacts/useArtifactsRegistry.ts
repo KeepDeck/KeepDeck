@@ -33,10 +33,8 @@ export interface ArtifactsRegistry {
   busyId: string | null;
   /** The row whose id sits in the clipboard, until the ack expires. */
   copiedId: string | null;
-  /** The deletion waiting for an answer. The TITLE because that is what
-   * the question has to name, and the row's STAMP because an id alone
-   * does not identify what the user agreed to delete — see
-   * [`requestDelete`]. */
+  /** The deletion waiting for an answer, or null. What it carries and
+   * why is [`ArtifactConfirm`]'s to say. */
   confirm: ArtifactConfirm | null;
   open(id: string): void;
   copyId(id: string): void;
