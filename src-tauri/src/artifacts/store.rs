@@ -16,8 +16,13 @@
 //!
 //! Untrusted input: agents share our OS user and can write `data_dir`
 //! directly, so every manifest read parses as UNTRUSTED — strict shape
-//! checks, size cap, and a malformed manifest quarantines THAT artifact
-//! with a loud log (never a crash, never a fallback guess). NotFound is
+//! checks, and a malformed manifest quarantines THAT artifact with a
+//! loud log (never a crash, never a fallback guess). The shape is what
+//! defends: a hand-edited token interpolates into a CSP header and a URL
+//! segment, so it must be 32 hex characters or nothing. Manifest SIZE is
+//! not a defence and no longer pretends to be — the version files, whose
+//! size is the resource that matters, are stat-checked before they are
+//! read. NotFound is
 //! ABSENCE, not corruption (the skills library's `sorted_dirs` precedent):
 //! manual `rm -rf` is a supported operation and every partial state it can
 //! leave behind is normal operation here.
@@ -44,9 +49,10 @@ pub(crate) const CONTENT_CAP_BYTES: usize = 256 * 1024;
 pub(crate) const FILE_CAP_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const TITLE_MAX: usize = 200;
 pub(crate) const MESSAGE_MAX: usize = 500;
-/// The identity label's cap: labels interpolate into every version entry
-/// and the index; an unbounded one would inflate manifests past their
-/// parse cap (write-succeeds-then-quarantines, the silent-loss class).
+/// The identity label's cap: a label rides in EVERY version entry and in
+/// the index, so an unbounded one is repeated as many times as an
+/// artifact has been published — and read by a human in a list, where a
+/// paragraph where a name belongs is its own kind of broken.
 pub(crate) const LABEL_MAX: usize = 200;
 
 /// What an artifact IS. One member, and the type survives its own
@@ -225,11 +231,9 @@ impl ArtifactsStore {
     ) -> StoreResult<PublishOutcome> {
         self.with_enabled(|root, data| {
             let title = validate_title(request.title)?;
-            // The stored state's own bounds: a message or label past its
-            // cap inflates the manifest past MANIFEST_CAP_BYTES — the
-            // write would succeed and the NEXT load would quarantine it
-            // (publish-Ok-then-artifact-vanishes, the silent-loss class).
-            // Bounded at the write, not just the wire.
+            // The stored state's own bounds, not just the wire's: these
+            // strings are read back in a list and a history, where a
+            // message the length of a chapter is not a message.
             if let Some(message) = request.message {
                 if message.chars().count() > MESSAGE_MAX {
                     return Err(StoreError::new(format!(
@@ -298,15 +302,6 @@ impl ArtifactsStore {
             });
             let manifest_bytes = serde_json::to_vec(&manifest)
                 .map_err(|e| StoreError::new(format!("encoding manifest failed: {e}")))?;
-            // The belt to the caps' braces: whatever the entry sizes, the
-            // serialized manifest must stay inside what load_manifest will
-            // accept — a write the next read would quarantine is a bug
-            // caught here, at the write, where it can refuse loudly.
-            if manifest_bytes.len() as u64 > MANIFEST_CAP_BYTES {
-                return Err(StoreError::new(
-                    "this artifact's manifest exceeds the store's parse cap — remove old versions or shorten metadata",
-                ));
-            }
             write_atomic(&dir.join(MANIFEST_FILE), &manifest_bytes)
                 .map_err(|e| StoreError::new(format!("writing manifest failed: {e}")))?;
             Ok(outcome)
@@ -510,8 +505,6 @@ impl ArtifactsStore {
 }
 
 const MANIFEST_FILE: &str = "manifest.json";
-/// A manifest larger than this is untrusted garbage, not state.
-const MANIFEST_CAP_BYTES: u64 = 64 * 1024;
 
 // ---- read-only helpers for the display server (slice 5) ----
 // These re-read from disk per call (the H1 no-cache rule) and never
@@ -710,10 +703,6 @@ fn load_manifest(
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(StoreError::new(format!("reading {slug}'s manifest failed: {e}"))),
     };
-    if bytes.len() as u64 > MANIFEST_CAP_BYTES {
-        quarantine(&dir, slug, "manifest over cap");
-        return Ok(None);
-    }
     match serde_json::from_slice::<Manifest>(&bytes) {
         Ok(manifest) => {
             // STRICT SHAPE: version numbers dense from 1, never empty,

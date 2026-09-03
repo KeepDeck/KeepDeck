@@ -158,13 +158,15 @@ export function ArtifactsDialog({
                     list, never inside it: a row is one control, and a
                     list of versions within a button is the nesting the
                     delete × already avoids.
-                    Drawn whole, not windowed: a history cannot grow
-                    unbounded — the manifest holding it is refused past
-                    64 KiB, which at the density real ones run (~310
-                    bytes an entry) tops out near two hundred, and only
-                    one is open at a time. The sessions browser windows
-                    its list because that one is paged out of an index
-                    with no ceiling at all. */}
+                    Drawn whole, not windowed, and nothing bounds it: an
+                    artifact keeps every version it was ever published
+                    with. Real ones run to tens (the busiest on this
+                    machine has 29), one history is open at a time, and
+                    the body scrolls — so the cost lands in the thousands,
+                    which nothing here produces yet. The list this app
+                    does window is paged out of an index; if a history
+                    ever reaches that scale it wants the same treatment,
+                    not a limit on how often a page may be revised. */}
                 {expanded?.id === row.id && (
                   <li className="artifacts__history">
                     {expanded.versions === null ? (
