@@ -485,6 +485,23 @@ describe("useArtifactsRegistry", () => {
     expect(shown()).toEqual(["auth-flow"]);
   });
 
+  it("hands the same rows array back until something actually changes", async () => {
+    // The window keys its measurement memo on this reference: a fresh
+    // array per render re-measures every row on every keystroke and on
+    // the wall clock's tick.
+    mount();
+    await settle();
+    const first = registry.view;
+    act(() => root.render(createElement(Probe)));
+    expect(registry.view).toBe(first);
+
+    act(() => registry.search("auth"));
+    const filtered = registry.view;
+    expect(filtered).not.toBe(first);
+    act(() => root.render(createElement(Probe)));
+    expect(registry.view).toBe(filtered);
+  });
+
   it("re-reads when the app writes — a list read once is stale the moment an agent publishes", async () => {
     // No refresh control exists, and none should: the writer is in this
     // process, so the list follows it instead of waiting to be asked.

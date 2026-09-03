@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { artifactChanges } from "../../app/artifacts/changes";
 import {
   artifactsEnableStatus,
@@ -269,12 +276,23 @@ export function useArtifactsRegistry(
   const shownError =
     error !== null && enableRefusal !== null ? enableRefusal : error;
 
-  return {
+  // MEMOISED for its IDENTITY, not for the work — classifying five
+  // states and filtering a list is nothing. A filtered list is a NEW
+  // array every time it is built, and the window below keys its
+  // measurement memo on that array's reference: rebuilt per render, it
+  // re-measured every row on every keystroke, and on the wall clock's
+  // tick. The stable input is what keeps the window's memo alive.
+  const view = useMemo(
     // The ONE place a refusal is placed: as the whole body when there is
     // nothing else to show, as a banner over rows when there is. The
     // view renders the arm it is given and never combines the two facts
     // itself.
-    view: viewOf(workspaceId, rows, shownError, query),
+    () => viewOf(workspaceId, rows, shownError, query),
+    [workspaceId, rows, shownError, query],
+  );
+
+  return {
+    view,
     busyId,
     query,
     search: setQuery,
