@@ -37,7 +37,9 @@ first. If a publish is refused with "needs one of `path` or `content`", the
 content never made it into the call: write the bytes to a file in your cwd and
 publish the path.
 
-The result carries TWO urls — the artifact's and the workspace index. PRINT BOTH, verbatim. They are SESSION-SCOPED: the port is fresh on every KeepDeck launch, so a url in scrollback works until KeepDeck restarts. What is durable is the id — say it too, and republish to hand out a live url again.
+The result carries TWO urls — the artifact's and the workspace index. PRINT BOTH, verbatim. They are SESSION-SCOPED: the port is fresh on every KeepDeck launch, so a url in scrollback works until KeepDeck restarts. What is durable is the ID — say it too, always.
+
+**Never republish just to hand out a working url.** A version is a change to the artifact, and one published because an address expired says the page changed when nothing did. The user reopens an artifact from KeepDeck, under Artifacts, which resolves a live url at the moment they click; you give them the id.
 
 The FIRST publish of a new artifact opens in the user's browser automatically (they can turn that off). Later versions NEVER re-open a tab: the open page refreshes by itself.
 

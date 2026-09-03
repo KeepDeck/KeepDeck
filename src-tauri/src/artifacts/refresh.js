@@ -1,9 +1,10 @@
 (()=>{if(window.__keepdeckRefresh)return;window.__keepdeckRefresh=1;
-const note=()=>{const n=document.createElement("div");
+const id=decodeURIComponent(location.pathname.split("/").pop()||"");
+const note=(text)=>{const n=document.createElement("div");
 n.setAttribute("style","background:#fff;color:#000;padding:8px;position:fixed;bottom:0;left:0;right:0;z-index:9999");
-n.textContent="This page's server went away — republish or reopen from the agent's message.";
+n.textContent=text;
 document.body.appendChild(n);};
 const es=new EventSource(location.pathname+"/events"+location.search);
 es.addEventListener("version",()=>location.reload());
-es.addEventListener("bye",()=>{es.close();note();});
-es.addEventListener("error",()=>{es.close();note();});})();
+es.addEventListener("bye",(e)=>{es.close();note(`This page is no longer served: ${e.data||"it was withdrawn"}.`);});
+es.addEventListener("error",()=>{es.close();note(id?`KeepDeck stopped serving this page. "${id}" is still there — open it from KeepDeck, under Artifacts.`:"KeepDeck stopped serving this page. Open it again from KeepDeck, under Artifacts.");});})();
