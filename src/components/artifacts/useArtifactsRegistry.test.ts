@@ -4,7 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { artifactChanges } from "../../app/artifacts/changes";
 import { artifactsEnableStatus } from "../../app/artifacts/enableStatus";
-import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import type {
+  ArtifactMetaRow,
+  ArtifactVersionRow,
+} from "../../ipc/artifacts";
 import { useArtifactsRegistry, type ArtifactsRegistry } from "./useArtifactsRegistry";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -78,6 +81,18 @@ const mount = () => {
 
 /** Let the pending IPC promises settle into state. */
 const settle = () => act(async () => {});
+
+/** A history read that answers only when the test says so. */
+const heldHistory = () => {
+  let answer: (versions: ArtifactVersionRow[]) => void = () => {};
+  history.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+  );
+  return (versions: ArtifactVersionRow[]) => answer(versions);
+};
 
 /** What the body is showing: the ids when it is a list, otherwise the
  * name of the variant — one assertion covers both what is on screen and
@@ -328,7 +343,12 @@ describe("useArtifactsRegistry", () => {
     expect(history).not.toHaveBeenCalled();
 
     act(() => registry.toggleVersions("auth-flow"));
-    expect(registry.expanded).toEqual({ id: "auth-flow", versions: null });
+    expect(registry.expanded).toEqual({
+      workspaceId: "ws-1",
+      id: "auth-flow",
+      generation: "gen-auth-flow",
+      versions: null,
+    });
     await settle();
     expect(history).toHaveBeenCalledWith({ workspaceId: "ws-1", slug: "auth-flow" });
     expect(registry.expanded?.versions).toHaveLength(2);
@@ -341,6 +361,40 @@ describe("useArtifactsRegistry", () => {
 
     // The same row again closes it.
     act(() => registry.toggleVersions("deck-layout"));
+    expect(registry.expanded).toBeNull();
+  });
+
+  it("does not show one workspace's history under another's artifact", async () => {
+    // Both workspaces have a `draft`. The read is still out when
+    // `workspace.switch` — an agent command — moves the ground.
+    const answer = heldHistory();
+    listed.mockResolvedValue([row("draft")]);
+    mount();
+    await settle();
+    act(() => registry.toggleVersions("draft"));
+
+    workspaceId = "ws-2";
+    act(() => root.render(createElement(Probe)));
+    await settle();
+    act(() => answer([{ n: 1, authorLabel: "ws-1's author", at: 1, size: 1 }]));
+    await settle();
+
+    expect(registry.expanded).toBeNull();
+  });
+
+  it("drops a history answer the user already moved on from", async () => {
+    // Open, then close: the answer still in flight describes a
+    // disclosure nobody is looking at.
+    const answer = heldHistory();
+    mount();
+    await settle();
+    act(() => registry.toggleVersions("auth-flow"));
+    act(() => registry.toggleVersions("auth-flow"));
+    expect(registry.expanded).toBeNull();
+
+    act(() => answer([{ n: 1, authorLabel: "support 1", at: 1, size: 1 }]));
+    await settle();
+
     expect(registry.expanded).toBeNull();
   });
 

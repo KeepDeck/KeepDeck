@@ -14,21 +14,23 @@ import {
 } from "../../ipc/artifacts";
 import { writeText } from "../../ipc/clipboard";
 import { describeError } from "../../ipc/log";
+import { fateOf, type RowRef } from "./rowRef";
 import { viewOf, type ArtifactsView } from "./view";
 
 /** How long a copied-id acknowledgement stays on its row. */
 const COPIED_ACK_MS = 1500;
 
-/** A deletion the user has been asked about, and WHICH thing it was
- * asked about: the workspace it belongs to and the incarnation of the id
- * that was on screen. An id alone is not an identity — deleting frees
- * it, and a workspace can be switched under an open dialog by an agent
- * running `workspace.switch`. */
-interface ArtifactConfirm {
-  workspaceId: string;
-  id: string;
+/** A deletion the user has been asked about, and WHICH row it was asked
+ * about ([`RowRef`]) — plus the title, because that is what the question
+ * has to name. */
+interface ArtifactConfirm extends RowRef {
   title: string;
-  generation: string;
+}
+
+/** An open history, and WHICH row it belongs to. The versions are null
+ * while the read is still out. */
+interface ArtifactHistory extends RowRef {
+  versions: readonly ArtifactVersionRow[] | null;
 }
 
 export interface ArtifactsRegistry {
@@ -38,13 +40,9 @@ export interface ArtifactsRegistry {
   busyId: string | null;
   /** The row whose id sits in the clipboard, until the ack expires. */
   copiedId: string | null;
-  /** The row whose history is open, and that history — `versions` is
-   * null while the read is still out. Iteration history is the shape of
-   * an artifact, and until now only agents could see it. */
-  expanded: {
-    id: string;
-    versions: readonly ArtifactVersionRow[] | null;
-  } | null;
+  /** The open history, or null. Iteration history is the shape of an
+   * artifact, and until now only agents could see it. */
+  expanded: ArtifactHistory | null;
   /** The deletion waiting for an answer, or null. What it carries and
    * why is [`ArtifactConfirm`]'s to say. */
   confirm: ArtifactConfirm | null;
@@ -91,10 +89,9 @@ export function useArtifactsRegistry(
   const [busyId, setBusyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ArtifactConfirm | null>(null);
-  const [expanded, setExpanded] = useState<{
-    id: string;
-    versions: readonly ArtifactVersionRow[] | null;
-  } | null>(null);
+  const [expanded, setExpanded] = useState<ArtifactHistory | null>(null);
+  /** Which history read the answers on the wire belong to. */
+  const historyAsk = useRef(0);
   const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Every publish and delete this app makes bumps the revision, which is
   // the read's other input — so the list follows the store instead of
@@ -187,28 +184,36 @@ export function useArtifactsRegistry(
 
   const toggleVersions = useCallback(
     (id: string) => {
-      if (workspaceId === null) return;
+      const row = rows?.find((candidate) => candidate.id === id);
+      if (workspaceId === null || row === undefined) return;
+      // Every answer and every failure below is stamped with the ask it
+      // belongs to. An id is not enough: the same row can be opened,
+      // closed and opened again while a read is out, and the first
+      // answer would then fill the second disclosure with a history
+      // taken before the change that prompted it.
+      const ask = (historyAsk.current += 1);
       // One open at a time: a second row's history replaces the first's
       // rather than growing the dialog into a list of lists.
       if (expanded?.id === id) {
         setExpanded(null);
         return;
       }
-      setExpanded({ id, versions: null });
+      const ref: RowRef = { workspaceId, id, generation: row.generation };
+      setExpanded({ ...ref, versions: null });
       void artifactVersions({ workspaceId, slug: id })
-        .then((history) =>
-          // Only if this row is still the open one: a fast second click
-          // must not be overwritten by the first row's answer.
-          setExpanded((current) =>
-            current?.id === id ? { id, versions: history } : current,
-          ),
-        )
+        .then((history) => {
+          if (ask !== historyAsk.current) return;
+          setExpanded({ ...ref, versions: history });
+        })
         .catch((e: unknown) => {
-          setExpanded((current) => (current?.id === id ? null : current));
+          // A refusal belongs to the ask that earned it: shown after the
+          // user moved on, it is a foreign error over someone else's row.
+          if (ask !== historyAsk.current) return;
+          setExpanded(null);
           setError(describeError(e));
         });
     },
-    [workspaceId, expanded],
+    [workspaceId, expanded, rows],
   );
 
   const requestDelete = useCallback(
@@ -239,17 +244,18 @@ export function useArtifactsRegistry(
   // under the guard it deletes with; this only keeps a stale question
   // off the screen.
   useEffect(() => {
-    if (confirm === null) return;
-    if (confirm.workspaceId !== workspaceId) {
-      setConfirm(null);
-      return;
-    }
-    if (rows === null) return;
-    const row = rows.find((candidate) => candidate.id === confirm.id);
-    if (row === undefined || row.generation !== confirm.generation) {
+    if (confirm !== null && fateOf(confirm, workspaceId, rows) === "gone") {
       setConfirm(null);
     }
-  }, [rows, confirm, workspaceId]);
+    // The same rule for the same reason: a history is a row held open
+    // across an await, and a row that left takes its history with it —
+    // otherwise ws-1's versions reappear under ws-2's artifact of the
+    // same name, or under the resurrection that replaced it.
+    if (expanded !== null && fateOf(expanded, workspaceId, rows) === "gone") {
+      historyAsk.current += 1;
+      setExpanded(null);
+    }
+  }, [rows, confirm, expanded, workspaceId]);
 
   const cancelConfirm = useCallback(() => setConfirm(null), []);
 
@@ -290,9 +296,7 @@ export function useArtifactsRegistry(
     view: viewOf(workspaceId, rows, shownError),
     busyId,
     copiedId,
-    // A history belongs to the row it was opened from. When the rows are
-    // another workspace's — or gone — so is the history.
-    expanded: rows === null ? null : expanded,
+    expanded,
     confirm,
     open,
     copyId,
