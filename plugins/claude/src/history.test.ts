@@ -280,7 +280,7 @@ describe("claude history", () => {
         cwd: "/repo",
         message: {
           role: "user",
-          content: "/Users/a/Projects/FEEDBACK.md — проанализируй файл",
+          content: "/Users/a/Projects/FEEDBACK.md — analyse this file",
         },
       }),
     ].join("\n");

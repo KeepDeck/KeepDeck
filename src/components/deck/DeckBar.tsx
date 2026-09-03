@@ -170,35 +170,47 @@ export function DeckBar({
         </div>
       </div>
 
-      {/* Quota sits in the MIDDLE, in its own zone.
+      {/* Quota sits in the MIDDLE, alone in its own zone.
           Pinned left it landed directly above the rail's column and read as
           the rail's own heading; pinned right it queued behind the verbs and
           became one more thing to sort. The centre belongs to nothing else,
           so a reading of the fleet can hold it without borrowing meaning from
           a neighbour. True centring needs a grid: with a flex row the middle
-          only looks centred while the two sides happen to match. */}
+          only looks centred while the two sides happen to match. Nothing else
+          joins it — a second occupant makes the centre a list, and a list has
+          no centre. */}
       <div className="deck__bar-center">
         <UsageChips
           agents={agents}
           liveAgents={usageLiveAgents}
           onOpenStats={onOpenStats}
         />
-        {updateAction && (
-          <Tooltip tip={updateAction.title} delayMs={BAR_TIP_DELAY_MS}>
-            <Button
-              variant="secondary"
-              size="sm"
-              className="bar__update"
-              onClick={() => onUpdateAction(updateAction.action)}
-              disabled={updateAction.disabled}
-              label={updateAction.label}
-            >
-              {updateAction.label}
-            </Button>
-          </Tooltip>
-        )}
       </div>
       <div className="deck__bar-right">
+        {/* UPDATE — a verb, so it lives among the verbs rather than beside a
+            reading of the fleet. It leads the right-hand run, one seam in
+            front of Create: the two are the only things here that CHANGE
+            something, and of the two an update is the rarer, which is why it
+            stands first and Create keeps the position it always had relative
+            to the panels. Its own group, so appearing and going again costs
+            the create control no change of shape. */}
+        {updateAction && (
+          <div className="bar__group">
+            <Tooltip tip={updateAction.title} delayMs={BAR_TIP_DELAY_MS}>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="bar__update"
+                onClick={() => onUpdateAction(updateAction.action)}
+                disabled={updateAction.disabled}
+                label={updateAction.label}
+              >
+                {updateAction.label}
+              </Button>
+            </Tooltip>
+          </div>
+        )}
+
         {/* CREATE — the bar's one affirmative act, and the only filled control
             on it. Adding an agent and starting a team are the same kind of
             thing (deciding who works here), so they are one control with two

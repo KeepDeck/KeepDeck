@@ -14,21 +14,21 @@ const WIRE = [
   JSON.stringify({ type: "metadata", protocol_version: "1.4" }),
   JSON.stringify({
     type: "context.append_message",
-    message: { role: "user", content: [{ type: "text", text: "проверь тесты" }] },
+    message: { role: "user", content: [{ type: "text", text: "check the tests" }] },
   }),
   JSON.stringify({ type: "step.begin" }),
   JSON.stringify({
     type: "context.append_loop_event",
-    event: { type: "content.part", part: { type: "text", text: "запускаю тесты" } },
+    event: { type: "content.part", part: { type: "text", text: "running the tests" } },
   }),
   JSON.stringify({ type: "tool.call", tool: "bash" }),
   JSON.stringify({
     type: "context.append_loop_event",
-    event: { type: "content.part", part: { type: "text", text: "все зелёные" } },
+    event: { type: "content.part", part: { type: "text", text: "all green" } },
   }),
   JSON.stringify({
     type: "turn.steer",
-    input: [{ type: "text", text: "и линтер прогони" }],
+    input: [{ type: "text", text: "run the linter too" }],
     origin: { kind: "user" },
     time: 1784318704583,
   }),
@@ -40,11 +40,11 @@ const WIRE = [
   }),
   JSON.stringify({
     type: "context.append_loop_event",
-    event: { type: "content.part", part: { type: "text", text: "линтер чист" } },
+    event: { type: "content.part", part: { type: "text", text: "linter is clean" } },
   }),
   JSON.stringify({
     type: "context.append_message",
-    message: { role: "user", content: [{ type: "text", text: "спасибо" }] },
+    message: { role: "user", content: [{ type: "text", text: "thanks" }] },
   }),
 ].join("\n");
 
@@ -363,15 +363,15 @@ describe("kimi history", () => {
       "user",
     ]);
     // Distinct steps (a tool ran between them) — never glued run-on.
-    expect(turns[1].text).toBe("запускаю тесты\nвсе зелёные");
-    expect(turns[3].text).toBe("линтер чист");
+    expect(turns[1].text).toBe("running the tests\nall green");
+    expect(turns[3].text).toBe("linter is clean");
   });
 
   it("a user turn.steer is a real mid-turn user message; a background-task one is noise", async () => {
     const wire = "/k/wd_a_1/session_s1/agents/main/wire.jsonl";
     const history = kimiHistory(ctx({ [wire]: WIRE }, {}));
     const turns = await history.transcript(wire, { offset: 0, limit: 20 });
-    expect(turns[2]).toEqual({ role: "user", text: "и линтер прогони" });
+    expect(turns[2]).toEqual({ role: "user", text: "run the linter too" });
     // The notification steer (origin background_task) appears nowhere.
     expect(turns.some((t) => t.text.includes("notification"))).toBe(false);
   });
@@ -407,16 +407,16 @@ describe("kimi history", () => {
   it("turn.ended closes the held answer — two in a row stay two turns", async () => {
     expect(
       await readTurns([
-        userSaid("вопрос"),
-        fragment("ответ один"),
+        userSaid("question"),
+        fragment("answer one"),
         ended("completed"),
-        fragment("ответ два"),
+        fragment("answer two"),
         ended("completed"),
       ]),
     ).toEqual([
-      { role: "user", text: "вопрос" },
-      { role: "assistant", text: "ответ один" },
-      { role: "assistant", text: "ответ два" },
+      { role: "user", text: "question" },
+      { role: "assistant", text: "answer one" },
+      { role: "assistant", text: "answer two" },
     ]);
   });
 
@@ -426,37 +426,37 @@ describe("kimi history", () => {
     // folding it into the next turn would misattribute it.
     const turns = await readTurns([
       userSaid("q"),
-      fragment("прерванный"),
+      fragment("interrupted"),
       ended("cancelled"),
-      fragment("упавший"),
+      fragment("failed"),
       ended("failed"),
     ]);
-    expect(turns.map((t) => t.text)).toEqual(["q", "прерванный", "упавший"]);
+    expect(turns.map((t) => t.text)).toEqual(["q", "interrupted", "failed"]);
   });
 
   it("turn.ended over an empty buffer adds no turn of its own", async () => {
     // 13 of the 121 arrive this way. The record is a boundary, not speech.
     expect(
       await readTurns([
-        userSaid("вопрос"),
-        fragment("ответ"),
+        userSaid("question"),
+        fragment("answer"),
         ended("completed"),
         ended("completed"),
-        userSaid("ещё"),
+        userSaid("more"),
       ]),
     ).toEqual([
-      { role: "user", text: "вопрос" },
-      { role: "assistant", text: "ответ" },
-      { role: "user", text: "ещё" },
+      { role: "user", text: "question" },
+      { role: "assistant", text: "answer" },
+      { role: "user", text: "more" },
     ]);
   });
 
   it("a last answer with no turn.ended still arrives — the fallback holds", async () => {
     // Older CLIs wrote no such record, and a live session's newest turn has
     // not ended yet. `end` is what closes those.
-    expect(await readTurns([userSaid("q"), fragment("последний ответ")])).toEqual([
+    expect(await readTurns([userSaid("q"), fragment("last answer")])).toEqual([
       { role: "user", text: "q" },
-      { role: "assistant", text: "последний ответ" },
+      { role: "assistant", text: "last answer" },
     ]);
   });
 });

@@ -32,13 +32,14 @@
   min-width: 0;
 }
 
-/* The middle zone holds one thing and never grows into its neighbours: the
-   grid's `auto` column is only as wide as the chips are, and the chips
-   already shrink by their own rule. */
+/* The middle zone holds one thing — the quota chips, and nothing else ever —
+   and never grows into its neighbours: the grid's `auto` column is only as
+   wide as the chips are, and the chips already shrink by their own rule. One
+   occupant is also why there is no `gap` here: a second would make the centre
+   a list, and a list has no centre. */
 .deck__bar-center {
   display: flex;
   align-items: center;
-  gap: 8px;
   justify-self: center;
   min-width: 0;
 }
