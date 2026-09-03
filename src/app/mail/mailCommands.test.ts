@@ -224,7 +224,7 @@ describe("mail.inbox", () => {
     // refused — it got through only on a second try after being told the
     // roles.
     const { registry, workspaces, mail } = setup();
-    const lead = from("pane-1", "ws-1", "Структура команды и количество подчинённых");
+    const lead = from("pane-1", "ws-1", "Team structure and the number of direct reports");
     workspaces[0].panes[0].team = { name: "test", role: "lead" };
     await run(
       registry,
@@ -238,7 +238,7 @@ describe("mail.inbox", () => {
       pane: {
         paneId: "pane-1",
         workspaceId: "ws-1",
-        label: "Структура команды и количество подчинённых",
+        label: "Team structure and the number of direct reports",
         role: "lead",
       },
     });
@@ -259,7 +259,7 @@ describe("mail.inbox", () => {
         messages: { from: { address: string; label: string } }[];
       };
       expect(messages[0].from.address).toBe("lead");
-      expect(messages[0].from.label).toBe("Структура команды и количество подчинённых");
+      expect(messages[0].from.label).toBe("Team structure and the number of direct reports");
     }
   });
 

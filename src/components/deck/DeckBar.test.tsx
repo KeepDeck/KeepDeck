@@ -107,7 +107,7 @@ describe("DeckBar", () => {
     // nothing else, which is the whole reason it can hold this — so "alone"
     // is asserted with the one control that used to share it present.
     render({
-      workspaceName: "Личный проект",
+      workspaceName: "Personal project",
       updateAction: {
         label: "Update available",
         title: "Version 0.22.0 is available",
@@ -125,7 +125,7 @@ describe("DeckBar", () => {
     ).toBe(1);
     // The project stays on the left, where "where am I" is answered.
     expect(host.querySelector(".deck__bar-left")?.textContent).toContain(
-      "Личный проект",
+      "Personal project",
     );
   });
 
@@ -318,9 +318,9 @@ describe("DeckBar", () => {
   it("names the workspace only when the rail is not saying it", () => {
     render({ railCollapsed: false, workspaceName: null });
     expect(host.querySelector(".deck__active-ws")).toBeNull();
-    render({ railCollapsed: true, workspaceName: "Личный проект" });
+    render({ railCollapsed: true, workspaceName: "Personal project" });
     expect(host.querySelector(".deck__active-ws")?.textContent).toBe(
-      "Личный проект",
+      "Personal project",
     );
   });
 });
