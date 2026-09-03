@@ -446,12 +446,26 @@ export function useAppController() {
     closeSettings: modal.closeSettings,
     openSkills: modal.openSkills,
     closeSkills: modal.closeSkills,
-    /** The registry's door, or null when the app offers none — the view
-     * renders what it is handed and decides nothing about who may open
-     * the artifacts surface. */
+    /** Three controls the top bar offers only sometimes, each composed
+     * HERE rather than in the markup: whether a control exists is a
+     * policy about the app's state — a setting, a live workspace, a
+     * plugin's contribution — and the bar's whole say in it is a null
+     * check. Assembled in a JSX prop, each was a decision standing
+     * between the elements it also laid out. */
     openArtifacts: artifactsDoorOpen(settings)
       ? () => void modal.openArtifacts()
       : null,
+    openTeamDialog:
+      settings?.agentTeams && active
+        ? () => setTeamDialog({ editing: null })
+        : null,
+    dockControl:
+      pluginDockTabs.length > 0
+        ? {
+            open: dockOpen,
+            onToggle: () => active && deck.toggleDock(active.id),
+          }
+        : null,
     closeArtifacts: modal.closeArtifacts,
     openStats: modal.openStats,
     closeStats: modal.closeStats,

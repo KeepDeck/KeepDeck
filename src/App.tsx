@@ -67,7 +67,6 @@ function App() {
     deckLayout,
     dismissAlert,
     dockMode,
-    dockOpen,
     dockTabs,
     error,
     failedPanes,
@@ -82,7 +81,6 @@ function App() {
     openNotification,
     orchestrator,
     paneViewActions,
-    pluginDockTabs,
     pluginTopBarActions,
     pushAlert,
     railCollapsed,
@@ -101,6 +99,8 @@ function App() {
     openSkills,
     closeSkills,
     openArtifacts,
+    openTeamDialog,
+    dockControl,
     closeArtifacts,
     openStats,
     closeStats,
@@ -146,19 +146,8 @@ function App() {
         onAddAgent={() => {
           if (canAddAgent && active) void agentFlow.openFor(active);
         }}
-        onAddTeam={
-          settings.agentTeams && active
-            ? () => setTeamDialog({ editing: null })
-            : null
-        }
-        dock={
-          pluginDockTabs.length > 0
-            ? {
-                open: dockOpen,
-                onToggle: () => active && deck.toggleDock(active.id),
-              }
-            : null
-        }
+        onAddTeam={openTeamDialog}
+        dock={dockControl}
         pluginActions={pluginTopBarActions}
         canOpenDialog={canOpenDialog}
         onOpenStats={() => void openStats()}
