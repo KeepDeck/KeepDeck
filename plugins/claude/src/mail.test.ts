@@ -14,25 +14,34 @@ const render = (
 ) => renderClaudeMail({ event: { hook_event_name }, messages, cliVersion: null });
 
 describe("renderClaudeMail", () => {
-  it("blocks Stop, which hands the words over AND keeps the turn alive", () => {
-    // The whole reason this event is worth asking on: without blocking, the
-    // turn ends and the message costs a fresh wake to deliver.
+  it("hands the words over at Stop AND keeps the turn alive", () => {
+    // The whole reason this event is worth asking on: without it the turn
+    // ends and the message costs a fresh wake to deliver.
     const parsed = JSON.parse(render("Stop")!);
-    expect(parsed.decision).toBe("block");
-    expect(parsed.reason).toContain("which port?");
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("Stop");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("which port?");
+  });
+
+  it("does not file a teammate's words as a hook error", () => {
+    // A block would ALSO keep this turn alive — `Stop` is the one event
+    // where it does — and that is how mail travelled here at first. It also
+    // pushed the message onto claude's error list, which raises "Stop hook
+    // error occurred" on the first delivery of every turn. The envelope is
+    // what separates the two, so the envelope is what is pinned.
+    expect(JSON.parse(render("Stop")!).decision).toBeUndefined();
   });
 
   it("says whose words these are, and what that means", () => {
     // The thing a terminal paste can never promise. The tag names the
     // source; the sentence after it tells the model how much authority to
     // give it, which is the actual protection.
-    const { reason } = JSON.parse(render("Stop")!);
-    expect(reason).toContain("<teammate-message>");
-    expect(reason).toContain("</teammate-message>");
-    expect(reason).toContain("Agent 1");
-    expect(reason).toContain("not an");
-    expect(reason).toContain("instruction from your user");
-    expect(reason).toContain("mail-1");
+    const { additionalContext } = JSON.parse(render("Stop")!).hookSpecificOutput;
+    expect(additionalContext).toContain("<teammate-message>");
+    expect(additionalContext).toContain("</teammate-message>");
+    expect(additionalContext).toContain("Agent 1");
+    expect(additionalContext).toContain("not an");
+    expect(additionalContext).toContain("instruction from your user");
+    expect(additionalContext).toContain("mail-1");
   });
 
   it("reaches a turn that is still running WITHOUT ending it", () => {
@@ -52,17 +61,24 @@ describe("renderClaudeMail", () => {
     expect(parsed.decision).toBeUndefined();
   });
 
-  it("blocks the one event where blocking keeps a turn alive, and no other", () => {
-    // The invariant the bug above broke. `Stop` and `PostToolBatch` look
-    // alike from here — both hand words to a model that is already running —
-    // so the block is easy to carry across, and carried across it stops the
-    // loop instead of feeding it. Asserted over the whole asking set rather
-    // than per event: a fifth event armed later gets this question asked of
-    // it for free, which is what nothing did for this one.
-    const blocking = [...ASKS_FOR_MAIL].filter(
-      (event) => JSON.parse(render(event)!).decision === "block",
-    );
-    expect(blocking).toEqual(["Stop"]);
+  it("carries every armed event in the same envelope, under its own name", () => {
+    // The invariant both shipped bugs broke, and the reason it is asserted
+    // over the whole asking set rather than per event: a fifth event armed
+    // later gets this question asked of it for free, which is what nothing
+    // did for the two that got it wrong.
+    //
+    // `decision` is what the two mistakes had in common. It reads like a
+    // portable way to hand words to a running model and is not one: on
+    // `PostToolBatch` it stops the agentic loop, on `Stop` it files the
+    // message as a hook error. Nothing here may use it.
+    for (const event of ASKS_FOR_MAIL) {
+      const parsed = JSON.parse(render(event)!);
+      expect(parsed.hookSpecificOutput?.hookEventName, event).toBe(event);
+      expect(parsed.hookSpecificOutput.additionalContext, event).toContain(
+        "which port?",
+      );
+      expect(parsed.decision, event).toBeUndefined();
+    }
   });
 
   it("appends to a turn the user just opened", () => {
@@ -75,7 +91,9 @@ describe("renderClaudeMail", () => {
     const out = render("Stop", [
       { id: "mail-9", kind: "undelivered", body: "did not arrive", from: null },
     ]);
-    expect(JSON.parse(out!).reason).toContain("KeepDeck");
+    expect(JSON.parse(out!).hookSpecificOutput.additionalContext).toContain(
+      "KeepDeck",
+    );
   });
 
   it("declines every event that cannot carry a reply", () => {
@@ -88,15 +106,15 @@ describe("renderClaudeMail", () => {
   });
 
   it("carries several messages in one hand-over", () => {
-    const { reason } = JSON.parse(
+    const { additionalContext } = JSON.parse(
       render("Stop", [
         { id: "mail-1", kind: "task", body: "first", from: "Agent 1" },
         { id: "mail-2", kind: "note", body: "second", from: "Agent 3", replyTo: "mail-0" },
       ])!,
-    );
-    expect(reason).toContain("first");
-    expect(reason).toContain("second");
-    expect(reason).toContain("answering mail-0");
+    ).hookSpecificOutput;
+    expect(additionalContext).toContain("first");
+    expect(additionalContext).toContain("second");
+    expect(additionalContext).toContain("answering mail-0");
   });
 });
 

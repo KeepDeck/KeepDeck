@@ -91,8 +91,8 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
     });
   };
   /** The four events that can carry mail BACK, and the only ones armed to
-   * ask. `Stop` blocks and hands a teammate's words over while keeping the
-   * turn alive to read them, so nothing pays for a fresh wake.
+   * ask. `Stop` hands a teammate's words over while keeping the turn alive
+   * to read them, so nothing pays for a fresh wake.
    * `UserPromptSubmit` appends to a turn the user just opened, which is
    * where mail that arrived while the pane sat idle belongs. `SessionStart`
    * is what spares a STARTING pane the terminal: a freshly spawned agent
