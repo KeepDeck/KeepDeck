@@ -83,10 +83,10 @@ describe("claude plugin hooks", () => {
     // so a broken command stops status with no error anywhere.
     const command = "/bin/sh '/App/resources/kd-status-hook.sh' claude";
     // Some of them ask as well as report. `--ask` makes the reporter wait
-    // for the deck's answer and print it — Stop can be blocked to hand mail
-    // over without a fresh wake, UserPromptSubmit can append to the turn
-    // just opened, and PostToolBatch takes the same block one boundary
-    // earlier, while the turn is still running. Arming it on the rest would
+    // for the deck's answer and print it — Stop hands mail over without a
+    // fresh wake, UserPromptSubmit appends to the turn just opened, and
+    // PostToolBatch injects context into the next model request, while the
+    // turn is still running. Arming it on the rest would
     // buy a round trip per TOOL CALL for an answer that event cannot use.
     const asking = `${command} --ask`;
     // SessionStart asks too, on the STATUS reporter: a freshly spawned

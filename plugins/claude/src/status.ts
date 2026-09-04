@@ -332,19 +332,28 @@ export const normalizeClaudeStatus: StatusNormalizer = (
 /**
  * Messages waiting for this pane, in the shape claude's hooks accept.
  *
- * Four events can carry mail and no others. `Stop` blocks and hands the text
- * over while keeping the agent running, so a teammate's answer arrives
- * without anyone paying for a fresh wake. `UserPromptSubmit` appends to the
- * turn the user just opened, which is where mail that arrived while the pane
- * was idle belongs. `SessionStart` spares a starting pane the terminal
- * entirely.
+ * Four events can carry mail and no others. `Stop` hands the text over while
+ * keeping the agent running, so a teammate's answer arrives without anyone
+ * paying for a fresh wake. `UserPromptSubmit` appends to the turn the user
+ * just opened, which is where mail that arrived while the pane was idle
+ * belongs. `SessionStart` spares a starting pane the terminal entirely.
  *
  * `PostToolBatch` is the one that arrives WHILE THE AGENT IS WORKING, and it
  * is why a person can now correct a running agent through mail instead of
  * typing over their own half-written message. claude's own description of
  * it: fired once after every tool call in a batch has resolved, BEFORE THE
  * NEXT MODEL REQUEST — so the words are in front of the model on that very
- * request, and the mechanism is the block `Stop` already uses.
+ * request.
+ *
+ * ONE ENVELOPE FOR ALL FOUR: `hookSpecificOutput.additionalContext` under
+ * the event's own name. claude calls it "non-error feedback delivered to the
+ * model; the conversation continues so the model can act on it", and that
+ * sentence is the whole of what this channel wants. The alternative —
+ * `{decision:"block", reason}` — is not a second way to say the same thing.
+ * It means something DIFFERENT on each event, and both meanings cost us:
+ * blocked, `PostToolBatch` stops the agentic loop instead of feeding it,
+ * and blocked, `Stop` files a teammate's words as a hook ERROR. Each shipped
+ * once. Neither failed loudly. See the two cases below.
  *
  * The framing is the entire point of this channel. `<teammate-message>`
  * says whose words these are, and the sentence after it says what that
@@ -374,21 +383,44 @@ export const renderClaudeMail: MailReplyRenderer = ({ event, messages, waiting }
   const text = frameTeammateMail(messages, waiting);
   switch (event.hook_event_name) {
     case "Stop":
-      // Blocking is what keeps the turn alive to read this. The reason IS
-      // the delivery — claude puts it in front of the model verbatim.
-      return JSON.stringify({ decision: "block", reason: text });
+      // Blocking this event WOULD work — it is the one place a block keeps
+      // the turn alive rather than ending it, and that is how mail travelled
+      // here at first. What it also does is file the message as an error.
+      // claude's Stop aggregator collects both channels into one list and
+      // continues on either, but only a block is additionally pushed onto
+      // the ERROR list — which then raises `Stop hook error occurred · ctrl+o
+      // to see`, suppressed from the second block of a turn onward and so
+      // shown on the first delivery of every turn. A teammate's question is
+      // not an error, and the person watching the pane was being told it was.
+      // (Measured on 2.1.261.)
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "Stop",
+          additionalContext: text,
+        },
+      });
     case "PostToolBatch":
-      // The same shape as `Stop`, one boundary earlier — and the reason this
-      // is worth its own case rather than falling in with `Stop` is WHEN it
-      // fires: the turn is still running, so nothing here ends it and nothing
-      // waits for it to end.
+      // The mid-turn door — and the event where a block does not merely cost
+      // something, it destroys the delivery. claude words the pair itself: a
+      // blocked `Stop` "prevents Claude from stopping, continues the
+      // conversation", a blocked `PostToolBatch` "stops the agentic loop
+      // before the next model call". Its runner agrees — a blocking answer
+      // yields `hook_stopped_continuation` and returns `{reason:
+      // "hook_stopped"}`, so the words reach the SCREEN and the model is
+      // never asked again. Sent that way, mail ended the very turn it was
+      // meant to steer, which is what shipped here first.
       //
-      // A block this event cannot use is DISCARDED rather than misapplied —
-      // claude's own log says as much ("PostToolBatch block discarded, turn
-      // ended by …"). That is the safe direction: the messages left the queue
-      // to travel in this answer, and an answer that does not land is put
-      // back by the caller rather than lost.
-      return JSON.stringify({ decision: "block", reason: text });
+      // `additionalContext`, in this event's own words: "return
+      // additionalContext via hookSpecificOutput to inject context once for
+      // the whole batch". The runner appends it to the messages the NEXT
+      // model request carries — precisely the request this hook runs before,
+      // which is what makes the delivery mid-turn. (Measured on 2.1.261.)
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PostToolBatch",
+          additionalContext: text,
+        },
+      });
     case "UserPromptSubmit":
       return JSON.stringify({
         hookSpecificOutput: {
