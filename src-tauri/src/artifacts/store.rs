@@ -491,6 +491,31 @@ pub fn manifest_for(root: &Path, ws: &str, slug: &str) -> Result<Option<Manifest
     manifest_for_inner(root, ws, slug).map_err(|e| e.0)
 }
 
+/// Is this artifact still there — one stat, no read, no parse.
+///
+/// For the caller that asks nothing else: the keepalive tick, which
+/// wants to notice a directory somebody removed and holds no interest
+/// in what the manifest says. Reading it whole to answer a yes/no cost
+/// the size of an artifact's entire history, every tick, for as long as
+/// a tab stayed open — an unbounded price paid over and over for one
+/// bit.
+///
+/// A manifest that is present but CORRUPT answers `true` here, where a
+/// parse would have called it gone. That is the honest answer to the
+/// question asked: the artifact was not removed. Corruption is found by
+/// every path that actually reads one, and quarantining is a write —
+/// which a keepalive thread has no business performing on a timer.
+pub fn artifact_exists(root: &Path, ws: &str, slug: &str) -> bool {
+    // The store's own door, as every other entry point: these strings
+    // arrive from a subscription registry, and a path is built from them.
+    if require_safe(ws, "workspace id").is_err() || require_slug(slug).is_err() {
+        return false;
+    }
+    fs::metadata(artifact_dir(root, ws, slug).join(MANIFEST_FILE))
+        .map(|meta| meta.is_file())
+        .unwrap_or(false)
+}
+
 /// The ws scan (B3): every workspace's artifact under `slug`, for
 /// token-resolving an incoming request. O(workspaces) — a stated design.
 pub fn scan_workspaces(root: &Path, slug: &str) -> Result<Vec<(String, Manifest)>, String> {
@@ -1075,6 +1100,27 @@ mod tests {
         // Absence is normal operation, not a fault: a slug nobody
         // published simply has no history.
         assert!(store.versions("ws-1", "never-was").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_manifest_written_before_authorship_was_dropped_still_reads() {
+        // The cost of being wrong here is every existing artifact
+        // quarantined at once, so the tolerance is pinned by a manifest
+        // in the OLD shape — raw JSON with the fields this store stopped
+        // writing — rather than by knowing how serde behaves.
+        let (store, _dir, root) = store_with_root("legacy-shape");
+        store.publish(WS, content_request(Some("old"), b"<p/>"), 1000).unwrap();
+        let path = root.join("ws/ws-1/old/manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        manifest["versions"][0]["author_pane_id"] = "pane-1".into();
+        manifest["versions"][0]["author_label"] = "◐ Отправка через 45 сек".into();
+        std::fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let listed = store.list("ws-1").unwrap();
+        assert_eq!(listed.len(), 1, "an old manifest is read, not quarantined");
+        assert_eq!(listed[0].version_count, 1);
+        assert!(root.join("ws/ws-1/old").exists());
     }
 
     #[test]
