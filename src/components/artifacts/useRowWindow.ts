@@ -29,6 +29,14 @@ export interface RowWindow {
  * its whole version history — so heights differ by an order of
  * magnitude within one list, and an estimate alone would put the
  * scrollbar and the rows in different places.
+ *
+ * A row scrolled out of the window is UNMOUNTED, and focus inside it
+ * goes with it — accepted, deliberately, rather than carried to a
+ * neighbour the way the sessions browser carries it. What makes that
+ * cheap here is the modal: the background is `inert`, so the keyboard
+ * cannot fall past the dialog, and the next Tab resumes at its first
+ * control instead of at the top of the app. The row also left the
+ * viewport, which is the same thing the user just did with it.
  */
 export function useRowWindow(
   rows: readonly ArtifactMetaRow[],
