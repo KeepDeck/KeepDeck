@@ -61,6 +61,7 @@ export {
   clampPercent,
   collectTokenCounts,
   isJsonRecord,
+  tailWatches,
 } from "./usage.ts";
 export type {
   CommandArgSpec,

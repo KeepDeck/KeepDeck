@@ -9,7 +9,7 @@
 //! reads the bytes. The rules are declarations now ([`TailSum`]); what is
 //! left here is the adding.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use serde_json::{Number, Value};
 
@@ -21,7 +21,23 @@ use super::dialects::{at, TailSum};
 struct WatchFold {
     totals: BTreeMap<String, u64>,
     by_key: HashMap<String, BTreeMap<String, u64>>,
+    /// Consecutive records in which a bucket's path did not read as a number,
+    /// and the buckets already complained about. See [`BUCKET_SILENT_FOR`].
+    misses: BTreeMap<String, u32>,
+    complained: BTreeSet<String>,
 }
+
+/// How many records in a row a bucket may fail to resolve before the reader
+/// says so out loud.
+///
+/// A bucket missing from ONE record is ordinary — a store need not report
+/// every count on every line. A bucket missing from every record in a row is
+/// a path that does not exist: a typo in the declaration, or a field the CLI
+/// renamed. Both read as zero, both under-report spend forever, and neither
+/// leaves a trace — the user sees a number that is too small and there is
+/// nothing to look at. The threshold is what separates the two, and it is
+/// generous because a false complaint costs more than a late one.
+const BUCKET_SILENT_FOR: u32 = 20;
 
 /// Every fold of one followed session, keyed by the watch that declared it.
 ///
@@ -48,13 +64,39 @@ impl Folds {
     /// have it counted.
     pub(super) fn fold(&mut self, slot: usize, sum: &TailSum, record: &Value) -> Value {
         let state = self.per_watch.entry(slot).or_default();
-        let bucket = |path: &str| at(record, path).and_then(Value::as_u64).unwrap_or(0);
+        // Read a bucket, and keep score of the ones that never read. The
+        // arithmetic treats an unreadable path as zero — it has nothing
+        // better to do with it — so the only defence against a wrong path is
+        // that somebody eventually hears about it.
+        //
+        // CAVEAT for the next editor: this closure borrows `misses` and
+        // `complained` and nothing else, which is the only reason the loops
+        // below may still reach `totals` and `by_key` while it lives. Touch
+        // another field of `state` in here and the borrow checker will refuse
+        // the whole function rather than this line.
+        let mut bucket = |name: &str, path: &str| match at(record, path).and_then(Value::as_u64) {
+            Some(count) => {
+                state.misses.insert(name.to_string(), 0);
+                count
+            }
+            None => {
+                let missed = state.misses.entry(name.to_string()).or_default();
+                *missed += 1;
+                if *missed >= BUCKET_SILENT_FOR && state.complained.insert(name.to_string()) {
+                    log::warn!(
+                        "session tail: bucket {name:?} has read as nothing for {missed} records \
+                         in a row at {path:?} — the total for it is being under-counted"
+                    );
+                }
+                0
+            }
+        };
 
         match &sum.dedup_by {
             // Every row is its own event: it simply adds.
             None => {
                 for (name, path) in &sum.buckets {
-                    *state.totals.entry(name.clone()).or_default() += bucket(path);
+                    *state.totals.entry(name.clone()).or_default() += bucket(name, path);
                 }
             }
             // Rows sharing an identity are ONE message restating itself as
@@ -70,7 +112,7 @@ impl Folds {
                 };
                 let held = state.by_key.entry(key.to_string()).or_default();
                 for (name, path) in &sum.buckets {
-                    let incoming = bucket(path);
+                    let incoming = bucket(name, path);
                     let previous = held.get(name).copied().unwrap_or(0);
                     if incoming > previous {
                         held.insert(name.clone(), incoming);
@@ -187,6 +229,75 @@ mod tests {
             folds.fold(0, &declared, &partial),
             serde_json::json!({ "input": 0, "output": 7 })
         );
+    }
+
+    #[test]
+    fn a_bucket_that_never_resolves_does_not_disturb_the_ones_that_do() {
+        // A path that reads as nothing is counted as zero — there is nothing
+        // better to do with it — and past a run of them the reader says so in
+        // the log. What must NOT happen is the complaint costing the fold its
+        // arithmetic, or the miss counter leaking into the totals.
+        let mut folds = Folds::default();
+        let declared = TailSum {
+            buckets: BTreeMap::from([
+                ("output".to_string(), "usage.output".to_string()),
+                ("typo".to_string(), "usage.ouptut".to_string()),
+            ]),
+            dedup_by: None,
+            stamp_as: "sessionTotals".to_string(),
+        };
+
+        let mut last = Value::Null;
+        for _ in 0..(BUCKET_SILENT_FOR + 5) {
+            last = folds.fold(0, &declared, &record("a", 0, 3));
+        }
+        assert_eq!(
+            last,
+            serde_json::json!({ "output": 75, "typo": 0 }),
+            "the readable bucket keeps its arithmetic; the unreadable one stays zero"
+        );
+
+        // And a bucket that starts reading again is forgiven: the run is what
+        // is counted, not the lifetime.
+        let readable = TailSum {
+            buckets: BTreeMap::from([("typo".to_string(), "usage.output".to_string())]),
+            dedup_by: None,
+            stamp_as: "sessionTotals".to_string(),
+        };
+        let after = folds.fold(0, &readable, &record("a", 0, 4));
+        assert_eq!(after["typo"], 4);
+    }
+
+    #[test]
+    fn only_a_whole_non_negative_number_reads_as_a_count() {
+        // The buckets are counts, so the reader takes unsigned integers and
+        // nothing else. A float, a negative or a numeric STRING is not a
+        // near-miss to be coerced — it is a store reporting something this
+        // fold was not told how to add, and coercing it would invent a
+        // number nobody wrote. It reads as nothing, which the run counter
+        // then reports on if it keeps happening.
+        let declared = TailSum {
+            buckets: BTreeMap::from([("n".to_string(), "usage.n".to_string())]),
+            dedup_by: None,
+            stamp_as: "sessionTotals".to_string(),
+        };
+        for odd in [
+            serde_json::json!(1.5),
+            serde_json::json!(-3),
+            serde_json::json!("7"),
+            serde_json::json!(null),
+        ] {
+            let record = serde_json::json!({ "usage": { "n": odd } });
+            assert_eq!(
+                Folds::default().fold(0, &declared, &record)["n"],
+                0,
+                "{odd} is not a count"
+            );
+        }
+        // ...and a whole one still counts, so the rule is about the VALUE
+        // rather than about the path having gone wrong.
+        let record = serde_json::json!({ "usage": { "n": 7 } });
+        assert_eq!(Folds::default().fold(0, &declared, &record)["n"], 7);
     }
 
     #[test]

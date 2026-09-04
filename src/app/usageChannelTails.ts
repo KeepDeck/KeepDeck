@@ -3,7 +3,7 @@ import {
   paneAgentType,
   paneHasProcess,
 } from "../domain/deck";
-import type { TailWatch } from "@keepdeck/plugin-api";
+import { tailWatches, type TailWatch } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
 import { unwatchSessionFile, watchSessionFile } from "../ipc/usage";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
@@ -34,15 +34,11 @@ export function createUsageTailsLane({
    */
   const searching = new Set<string>();
 
-  /** Everything this agent asked to have carried out of its store: the
-   * records that carry its numbers, then the ones that carry its turn edges.
-   * ORDER MATTERS twice — the first watch to match a record carries it, and
-   * the usage watches' order is the catch-up order, so what qualifies the
-   * numbers lands before them. */
-  const watchesFor = (agentId: string): TailWatch[] => [
-    ...(declarations.current().get(agentId)?.tail?.watches ?? []),
-    ...(tailOf(agentId)?.watches ?? []),
-  ];
+  /** Everything this agent asked to have carried out of its store. The
+   * merge — and the order it must happen in — belongs to the contract, not
+   * to this lane: see [`tailWatches`]. */
+  const watchesFor = (agentId: string): readonly TailWatch[] =>
+    tailWatches(declarations.current().get(agentId)?.tail, tailOf(agentId));
 
   const settleArm = (paneId: string) => {
     if (disposed || !tailed.has(paneId)) {

@@ -193,6 +193,34 @@ export interface AgentUsage {
  * what doesn't parse, keep the rest. */
 
 /**
+ * Everything one agent asked to have carried out of its store, in the order
+ * the reader must try it.
+ *
+ * An agent declares its watches in TWO places, because they answer to two
+ * different halves of its contribution: the records that carry its numbers
+ * belong to the usage contract, the ones that carry its turn edges to the
+ * status contract. Merging them is a THIRD decision, and it lives here
+ * rather than at the call site because order is load-bearing twice over and
+ * a rule that lives in a comment beside one caller is a rule the next caller
+ * will not know about:
+ *
+ * - the FIRST watch to match a record carries it, so whichever list goes
+ *   first can silently take a record the other one was written for;
+ * - the usage watches' own order is the CATCH-UP order — what qualifies the
+ *   numbers has to land before the numbers.
+ *
+ * Usage first, therefore, and the numbers keep their declared order. A
+ * plugin that wants one record read two ways says so in its dialect's
+ * `read`, where saying so is cheap.
+ */
+export function tailWatches(
+  usage: UsageTail | undefined,
+  status: { readonly watches: readonly TailWatch[] } | undefined,
+): readonly TailWatch[] {
+  return [...(usage?.watches ?? []), ...(status?.watches ?? [])];
+}
+
+/**
  * The fields a usage watch carried, out of one tailer report — or null when
  * this report is not a carried record at all.
  *
