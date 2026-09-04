@@ -19,8 +19,10 @@ export type ArtifactsView =
   | { kind: "empty" }
   /** A workspace that HAS artifacts, none of which the query names. A
    * different sentence from an empty workspace, and the difference is
-   * the only thing that tells a user their search was the problem. */
-  | { kind: "noMatch"; query: string }
+   * the only thing that tells a user their search was the problem. It
+   * carries a banner for the same reason the rows arm does: this is a
+   * list we HAVE, and news about it belongs beside it. */
+  | { kind: "noMatch"; query: string; banner: string | null }
   | {
       kind: "rows";
       rows: readonly ArtifactMetaRow[];
@@ -34,10 +36,12 @@ export type ArtifactsView =
 /**
  * Which of the five, from the three facts that decide it.
  *
- * The order is the meaning. Rows outrank a failure, so a read that fails
- * while a list is up leaves the list readable and lets the banner carry
- * the news; and a refusal outranks emptiness, so a store that could not
- * answer is never read as a workspace that has published nothing.
+ * The order is the meaning. A list we have outranks a failure — whether
+ * the query left rows on screen or none — so a read that fails while a
+ * list is up never takes the list, or the box that filters it, away; the
+ * banner carries the news instead. A refusal outranks emptiness, so a
+ * store that could not answer is never read as a workspace that has
+ * published nothing.
  */
 export function viewOf(
   workspaceId: string | null,
@@ -49,10 +53,15 @@ export function viewOf(
   if (rows === null) return { kind: "loading" };
   const matched = matching(rows, query);
   if (matched.length > 0) return { kind: "rows", rows: matched, banner: error };
+  // A list we HAVE, filtered to nothing, is the QUERY's doing — and it
+  // outranks a refusal for a reason that is not taste: the search box
+  // renders for these two arms, so answering a failed refresh with a
+  // refusal here takes the box away and strands the user with a query
+  // they can no longer clear. The failure still shows, as a banner.
+  if (rows.length > 0) {
+    return { kind: "noMatch", query: query.trim(), banner: error };
+  }
   if (error !== null) return { kind: "refusal", message: error };
-  // Nothing to show, and the two reasons are not the same news: the
-  // workspace is empty, or the query is.
-  if (rows.length > 0) return { kind: "noMatch", query: query.trim() };
   return { kind: "empty" };
 }
 

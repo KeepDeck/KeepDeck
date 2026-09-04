@@ -61,7 +61,28 @@ describe("searching a workspace's artifacts", () => {
     expect(viewOf("ws-1", rows, null, "zzz")).toEqual({
       kind: "noMatch",
       query: "zzz",
+      banner: null,
     });
     expect(viewOf("ws-1", [], null, "zzz").kind).toBe("empty");
+  });
+});
+
+describe("a failed read while a list is in hand", () => {
+  const rows = [row("auth-flow")];
+
+  it("never takes the list away, matched or not", () => {
+    // The trap this closes: a failed refresh under a query that matches
+    // nothing used to answer `refusal`, which unmounts the search box —
+    // stranding the user with a query they could no longer clear.
+    expect(viewOf("ws-1", rows, "read failed", "").kind).toBe("rows");
+    expect(viewOf("ws-1", rows, "read failed", "zzz")).toEqual({
+      kind: "noMatch",
+      query: "zzz",
+      banner: "read failed",
+    });
+  });
+
+  it("is the whole body only when there is no list at all", () => {
+    expect(viewOf("ws-1", [], "read failed", "zzz").kind).toBe("refusal");
   });
 });

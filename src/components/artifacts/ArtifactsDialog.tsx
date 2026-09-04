@@ -7,6 +7,7 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
+import { isRow } from "./rowRef";
 import { rowMeta, versionsNewestFirst } from "./rowMeta";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
 import { useRowWindow } from "./useRowWindow";
@@ -91,7 +92,8 @@ export function ArtifactsDialog({
           here — the address is resolved on the spot.
         </p>
 
-        {view.kind === "rows" && view.banner !== null && (
+        {(view.kind === "rows" || view.kind === "noMatch") &&
+          view.banner !== null && (
           <p className="artifacts__error kd-selectable" role="alert">
             {view.banner}
           </p>
@@ -145,6 +147,11 @@ export function ArtifactsDialog({
               {rowWindow.items.map((item) => {
                 const row = view.rows[item.index];
                 const meta = rowMeta(row, now);
+                // The FULL ref, not the id: the effect that drops a
+                // stale history runs after paint, and an id alone would
+                // draw one workspace's versions under another's artifact
+                // of the same name for that frame.
+                const openHere = expanded !== null && isRow(expanded, row);
                 return (
                 // ONE measured box per artifact: the row, and the history
                 // when this is the open one. They are one item because
@@ -190,7 +197,7 @@ export function ArtifactsDialog({
                       size="sm"
                       onClick={() => registry.toggleVersions(row.id)}
                     >
-                      {expanded?.id === row.id ? "Hide history" : "History"}
+                      {openHere ? "Hide history" : "History"}
                     </Button>
                     {/* The row-level delete idiom — a small text ×, the
                         one the workspaces rail and the journal rows use.
@@ -215,7 +222,7 @@ export function ArtifactsDialog({
                     one history is open at a time and they run to tens.
                     If one ever reaches the scale the LIST is windowed
                     for, it wants the same treatment. */}
-                {expanded?.id === row.id && (
+                {openHere && (
                   <div className="artifacts__history">
                     {expanded.versions === null ? (
                       <span className="artifacts__history-note">Loading…</span>

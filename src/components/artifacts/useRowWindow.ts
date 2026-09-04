@@ -1,5 +1,6 @@
 import { useCallback, type RefObject } from "react";
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
+import { useRowAnchoring } from "../../ui/useRowAnchoring";
 import type { ArtifactMetaRow } from "../../ipc/artifacts";
 
 /** Rows drawn beyond the visible edge, so a scroll never shows a gap. */
@@ -45,8 +46,24 @@ export function useRowWindow(
     getItemKey: useCallback((index: number) => rows[index].id, [rows]),
   });
 
+  const items = virtualizer.getVirtualItems();
+  // Rows arrive ABOVE the one being read — an agent publishes and the
+  // list is newest-first — and a window that only re-measures leaves the
+  // scroll where it was, sliding the read row down by a row's height per
+  // publish, often out of sight. The correction is the sessions
+  // browser's, shared rather than rewritten: what inserts differs per
+  // list, what to do about it does not.
+  useRowAnchoring({
+    listRef: scrollRef,
+    queue: rows,
+    keyOf: (row) => row.id,
+    virtualItems: items,
+    lastVirtualIndex: items.length > 0 ? items[items.length - 1].index : 0,
+    rowVirtualizer: virtualizer,
+  });
+
   return {
-    items: virtualizer.getVirtualItems(),
+    items,
     totalSize: virtualizer.getTotalSize(),
     measure: virtualizer.measureElement,
   };

@@ -4,30 +4,43 @@ import type {
   ReactVirtualizer,
   VirtualItem,
 } from "@tanstack/react-virtual";
-import { rowKeyOf, type UnifiedSessionRow } from "../../../domain/journal";
-import { pickAnchor, type AnchorState } from "../rowAnchor";
+import { pickAnchor, type AnchorState } from "./rowAnchor";
 
-interface UseRowAnchoringInput {
-  listRef: RefObject<HTMLUListElement | null>;
-  queue: readonly UnifiedSessionRow[];
+interface UseRowAnchoringInput<Row> {
+  /** The SCROLL container — a list element in one caller, the panel
+   * around it in another. Only its scroll offset is read. */
+  listRef: RefObject<HTMLElement | null>;
+  /** The full list, stable by identity between renders — the effect
+   * below acts on a CHANGE of this array and on nothing else. */
+  queue: readonly Row[];
+  /** A row's identity. Stable, and never an index: the whole point is
+   * to survive a list whose composition moved. */
+  keyOf: (row: Row) => string;
   virtualItems: readonly VirtualItem[];
   lastVirtualIndex: number;
   rowVirtualizer: Pick<
-    ReactVirtualizer<HTMLUListElement, HTMLLIElement>,
+    ReactVirtualizer<HTMLElement, HTMLElement>,
     "getOffsetForIndex" | "measure"
   >;
 }
 
-/** Keep the first visible row at its viewport offset when the flat queue
- * grows above it. The anchor is keyed by row identity, not by a virtual
- * index that paging can shift. */
-export function useRowAnchoring({
+/** Keep the first visible row at its viewport offset when the list grows
+ * above it. The anchor is keyed by row identity, not by a virtual index
+ * that an insertion can shift.
+ *
+ * Shared by every windowed list in the app: what moves rows in above the
+ * one being read differs per list — a landed page here, an agent's
+ * publish there — but the correction does not, and a second copy of it
+ * would be a second place for the two-effects rule below to be got
+ * wrong. */
+export function useRowAnchoring<Row>({
   listRef,
   queue,
+  keyOf,
   virtualItems,
   lastVirtualIndex,
   rowVirtualizer,
-}: UseRowAnchoringInput): void {
+}: UseRowAnchoringInput<Row>): void {
   // The insertion-above correction — TWO SEPARATE EFFECTS, never one:
   // ARMING remembers the first fully visible row and its offset (it
   // runs on RANGE changes — ordinary scrolling re-arms, that is the
@@ -68,7 +81,7 @@ export function useRowAnchoring({
     const prev = anchorRef.current;
     if (prev === null) return;
     const scrollTop = list.scrollTop;
-    const nextIndex = queue.findIndex((r) => rowKeyOf(r) === prev.key);
+    const nextIndex = queue.findIndex((r) => keyOf(r) === prev.key);
     if (nextIndex >= 0) {
       const at = rowVirtualizer.getOffsetForIndex(nextIndex, "start");
       if (at) {
