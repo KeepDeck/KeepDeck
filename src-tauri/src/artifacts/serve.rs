@@ -146,11 +146,10 @@ pub(super) fn serve_index(stream: &mut TcpStream, root: &Path, ws: &str) {
             .collect::<Vec<_>>()
             .join(" ");
         entries.push_str(&format!(
-            "<li><a href=\"/a/{token}/{slug}\">{title}</a> <small>by {author}</small> · <small>{versions}</small> · <a href=\"/a/{token}/{slug}/export\">export</a></li>",
+            "<li><a href=\"/a/{token}/{slug}\">{title}</a> · <small>{versions}</small> · <a href=\"/a/{token}/{slug}/export\">export</a></li>",
             token = token,
             slug = slug,
             title = escape_html(&meta.title),
-            author = escape_html(&meta.last_author),
             versions = versions,
         ));
     }

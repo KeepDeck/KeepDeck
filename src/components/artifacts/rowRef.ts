@@ -48,3 +48,17 @@ export function fateOf(
   if (row === undefined || row.generation !== ref.generation) return "gone";
   return "stands";
 }
+
+/**
+ * Is this ref the row in front of us — asked at RENDER, where the
+ * question is "draw this under that one".
+ *
+ * The generation, not the id alone: an id is reused by whatever is
+ * published under it next, and the effect that drops a stale ref runs
+ * after paint. Matching by id there would show one workspace's history
+ * under another workspace's artifact of the same name, for the frame
+ * between a list landing and the effect noticing.
+ */
+export function isRow(ref: RowRef, row: ArtifactMetaRow): boolean {
+  return ref.id === row.id && ref.generation === row.generation;
+}

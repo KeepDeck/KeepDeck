@@ -49,23 +49,11 @@ export function validateSlug(input: string): Slug | null {
   return SLUG_GRAMMAR.test(input) ? (input as Slug) : null;
 }
 
-/** The identity snapshot recorded on every version. Full, not a bare
- * paneId: pane-N slots are reused, so a bare id is ambiguous after reuse —
- * the label snapshot is what makes an old version's author readable (the
- * journal's precedent). */
-export interface IdentitySnapshot {
-  paneId: string;
-  workspaceId: string;
-  label: string;
-}
-
 /** One version's manifest entry. `n` is the chain position (1-based);
  * the filename is DERIVED from `{n}` + the artifact's pinned format —
  * there is deliberately no `file` field to hand-edit into a read oracle. */
 export interface ArtifactVersionMeta {
   n: number;
-  authorPaneId: string;
-  authorLabel: string;
   at: number;
   size: number;
   message?: string;
@@ -79,7 +67,6 @@ export interface ArtifactMeta {
   format: ArtifactFormat;
   versionCount: number;
   updatedAt: number;
-  lastAuthor: string;
 }
 
 /** Caps. `content` is the inline convenience path (rides the bridge as

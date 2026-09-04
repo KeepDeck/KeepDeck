@@ -20,6 +20,24 @@
   margin: 0 auto 0 0;
 }
 
+/* Dressed like the sessions browser's search, which is the app's one
+   search field — a second look for the same act would say they are
+   different acts. */
+.artifacts__search {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  color: #d6d9df;
+  font-size: 13px;
+}
+
+.artifacts__search:focus {
+  outline: none;
+  border-color: #3a4658;
+}
+
 .artifacts__hint {
   margin: 0 0 16px;
   color: #6b7280;
@@ -72,13 +90,22 @@
   font-size: 14px;
 }
 
+/* The window's spacer: its height is every row's measured sum and the
+   items inside it are positioned, so it neither lays them out nor gets
+   shrunk by the scrolling column above it. */
 .artifacts__list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex: none;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* One measured box per artifact — the row, and its history when open.
+   The separation lives here as padding rather than as a gap or a
+   margin: a gap has nothing to space in a positioned list, and a margin
+   is outside the box the virtualizer measures. */
+.artifacts__item {
+  padding-bottom: 2px;
 }
 
 /* The row carries no padding of its own: the open control holds it, so
@@ -189,8 +216,7 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.artifacts__version-when,
-.artifacts__version-author {
+.artifacts__version-when {
   flex: none;
   color: #565e6b;
 }

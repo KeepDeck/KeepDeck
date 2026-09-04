@@ -1,13 +1,20 @@
-import { Fragment } from "react";
+import { useRef } from "react";
 import { formatAge } from "../../domain/usage";
+import type { ArtifactMetaRow } from "../../ipc/artifacts";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
+import { isRow } from "./rowRef";
 import { rowMeta, versionsNewestFirst } from "./rowMeta";
 import { useArtifactsRegistry } from "./useArtifactsRegistry";
+import { useRowWindow } from "./useRowWindow";
+
+/** One array identity for every non-list state: a fresh `[]` per render
+ * would give the window a new input each time and re-key its memos. */
+const EMPTY: readonly ArtifactMetaRow[] = [];
 
 interface ArtifactsDialogProps {
   /** The workspace whose artifacts these are; `null` when no workspace is
@@ -25,8 +32,8 @@ interface ArtifactsDialogProps {
  * It exists because an artifact's URL is mortal by construction: the
  * display server takes a fresh port every launch, so a link that left
  * this app answers nothing after a restart. What survives is the
- * identity, so this surface hands out identities (copy the id) and
- * resolves one into a live url only at the moment it is opened.
+ * identity, so this surface keeps the identities and resolves one into
+ * a live url only at the moment a row is opened.
  *
  * The SHELL: chrome, the placeholder ladder, the rows. Every transition
  * belongs to `useArtifactsRegistry`.
@@ -37,7 +44,7 @@ export function ArtifactsDialog({
   canClose = true,
 }: ArtifactsDialogProps) {
   const registry = useArtifactsRegistry(activeWs?.id ?? null);
-  const { view, busyId, copiedId, confirm, expanded } = registry;
+  const { view, busyId, confirm, expanded, query } = registry;
   // Escape belongs to the confirm while one is stacked over this dialog:
   // the handlers stack, so a single press would answer the question AND
   // close the surface underneath it. `canClose` is the caller's half of
@@ -49,6 +56,9 @@ export function ArtifactsDialog({
   const now = useWallClock(
     view.kind === "rows" ? (view.rows[0]?.updatedAt ?? 0) : 0,
   );
+  // The body is the scroll container the window measures against.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const rowWindow = useRowWindow(view.kind === "rows" ? view.rows : EMPTY, bodyRef);
 
   return (
     <ModalOverlay>
@@ -63,19 +73,33 @@ export function ArtifactsDialog({
           <CloseButton label="Close artifacts" onClick={onClose} autoFocus />
         </div>
 
+        {/* The search box stands whenever a list could be searched —
+            including when the query emptied it, which is exactly when
+            the user needs it back to change what they typed. */}
+        {(view.kind === "rows" || view.kind === "noMatch") && (
+          <input
+            className="artifacts__search"
+            value={query}
+            placeholder="Search this workspace — titles and ids"
+            aria-label="Search artifacts"
+            onChange={(e) => registry.search(e.target.value)}
+          />
+        )}
+
         <p className="artifacts__hint">
           A published page is served on a port that changes every time
           KeepDeck starts, so an old link stops answering. Open one from
           here — the address is resolved on the spot.
         </p>
 
-        {view.kind === "rows" && view.banner !== null && (
+        {(view.kind === "rows" || view.kind === "noMatch") &&
+          view.banner !== null && (
           <p className="artifacts__error kd-selectable" role="alert">
             {view.banner}
           </p>
         )}
 
-        <div className="artifacts__body">
+        <div className="artifacts__body" ref={bodyRef}>
           {view.kind === "noWorkspace" ? (
             <div className="artifacts__placeholder">
               <span className="artifacts__placeholder-title">
@@ -94,6 +118,13 @@ export function ArtifactsDialog({
                 {view.message}
               </span>
             </div>
+          ) : view.kind === "noMatch" ? (
+            <div className="artifacts__placeholder">
+              <span className="artifacts__placeholder-title">
+                Nothing matches “{view.query}”
+              </span>
+              <span>This workspace has artifacts; none of them by that name</span>
+            </div>
           ) : view.kind === "empty" ? (
             <div className="artifacts__placeholder">
               <span className="artifacts__placeholder-title">
@@ -105,18 +136,48 @@ export function ArtifactsDialog({
               </span>
             </div>
           ) : (
-            <ul className="artifacts__list">
-              {view.rows.map((row) => {
+            // The spacer: the measured height of every row, with the
+            // window's items absolutely positioned inside it. The list
+            // stays ONE ul/li list and the scroll container stays the
+            // body above.
+            <ul
+              className="artifacts__list"
+              style={{ height: `${rowWindow.totalSize}px`, position: "relative" }}
+            >
+              {rowWindow.items.map((item) => {
+                const row = view.rows[item.index];
                 const meta = rowMeta(row, now);
+                // The FULL ref, not the id: the effect that drops a
+                // stale history runs after paint, and an id alone would
+                // draw one workspace's versions under another's artifact
+                // of the same name for that frame.
+                const openHere = expanded !== null && isRow(expanded, row);
                 return (
-                <Fragment key={row.id}>
-                <li className="artifacts__row">
+                // ONE measured box per artifact: the row, and the history
+                // when this is the open one. They are one item because
+                // they move together and are measured together — the
+                // history is what makes an item's height differ from its
+                // neighbours' by an order of magnitude.
+                <li
+                  key={item.key}
+                  ref={rowWindow.measure}
+                  data-index={item.index}
+                  className="artifacts__item"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${item.start}px)`,
+                  }}
+                >
+                <div className="artifacts__row">
                   {/* The row IS the control — a list row is one of the
                       archetypes the shared Button deliberately does not
-                      cover, so it is spelled here. Copy id stays a real
-                      button beside it rather than inside it: nesting one
-                      button in another is invalid, and the two answer
-                      different questions anyway. */}
+                      cover, so it is spelled here. The actions beside it
+                      stay OUTSIDE it: a button within a button is invalid
+                      markup, and a press meant for one would carry into
+                      the other. */}
                   <button
                     type="button"
                     className="artifacts__row-open"
@@ -132,18 +193,11 @@ export function ArtifactsDialog({
                   </button>
                   <div className="artifacts__row-actions">
                     <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => registry.copyId(row.id)}
-                    >
-                      {copiedId === row.id ? "Copied" : "Copy id"}
-                    </Button>
-                    <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => registry.toggleVersions(row.id)}
                     >
-                      {expanded?.id === row.id ? "Hide history" : "History"}
+                      {openHere ? "Hide history" : "History"}
                     </Button>
                     {/* The row-level delete idiom — a small text ×, the
                         one the workspaces rail and the journal rows use.
@@ -160,13 +214,16 @@ export function ArtifactsDialog({
                       ×
                     </button>
                   </div>
-                </li>
-                {/* The history sits UNDER its row and beside it in the
-                    list, never inside it: a row is one control, and a
-                    list of versions within a button is the nesting the
-                    delete × already avoids. */}
-                {expanded?.id === row.id && (
-                  <li className="artifacts__history">
+                </div>
+                {/* The history sits UNDER its row and outside the row's
+                    control, never inside it: a list of versions within a
+                    button is the nesting the delete × already avoids.
+                    Drawn whole rather than windowed in its own right —
+                    one history is open at a time and they run to tens.
+                    If one ever reaches the scale the LIST is windowed
+                    for, it wants the same treatment. */}
+                {openHere && (
+                  <div className="artifacts__history">
                     {expanded.versions === null ? (
                       <span className="artifacts__history-note">Loading…</span>
                     ) : expanded.versions.length === 0 ? (
@@ -182,9 +239,6 @@ export function ArtifactsDialog({
                           <span className="artifacts__version-when">
                             {formatAge(version.at, now)}
                           </span>
-                          <span className="artifacts__version-author">
-                            {version.authorLabel}
-                          </span>
                           {version.message !== undefined && (
                             <span className="artifacts__version-message">
                               {version.message}
@@ -193,9 +247,9 @@ export function ArtifactsDialog({
                         </div>
                       ))
                     )}
-                  </li>
+                  </div>
                 )}
-                </Fragment>
+                </li>
                 );
               })}
             </ul>

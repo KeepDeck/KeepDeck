@@ -8,23 +8,17 @@ const row = (over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow => ({
   title: "The auth flow",
   versionCount: 3,
   updatedAt: NOW - 7_200_000,
-  lastAuthor: "support 1",
   generation: "gen-1",
   ...over,
 });
 
 describe("rowMeta", () => {
-  it("reads id first, then version, age and author", () => {
+  it("reads id first, then version and age", () => {
     // The id leads because it is the half that survives a restart.
     expect(rowMeta(row(), NOW)).toEqual({
       id: "auth-flow",
-      tail: " · v3 · 2h ago · support 1",
+      tail: " · v3 · 2h ago",
     });
   });
 
-  it("leaves out an author the store does not have", () => {
-    // Not an empty tail: a trailing separator reads as a value that
-    // failed to load rather than as one that was never there.
-    expect(rowMeta(row({ lastAuthor: "" }), NOW).tail).toBe(" · v3 · 2h ago");
-  });
 });

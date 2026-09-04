@@ -33,7 +33,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::artifacts::serve;
-use crate::artifacts::store::{manifest_for, Manifest};
+use crate::artifacts::store::{artifact_exists, manifest_for, Manifest};
 use crate::artifacts::token::{mint_token, token_eq};
 use crate::http::request::Request;
 use crate::http::{respond_empty, Status};
@@ -466,8 +466,11 @@ fn subscribe(
 // first event is now always the NEXT version.)
 
 /// ONE keepalive tick thread per server (B4): walks the registry every
-/// 15s — a manifest re-read per distinct artifact doubles as the
-/// rm-the-dir backstop (gone → bye + close); alive → `: ping`.
+/// 15s — one STAT per distinct artifact doubles as the rm-the-dir
+/// backstop (gone → bye + close); alive → `: ping`. A stat, not a read:
+/// the question is whether the artifact is still there, and reading a
+/// manifest to answer it charged the size of a whole version history
+/// every fifteen seconds for as long as a tab stayed open.
 /// NO unwrap anywhere in this loop: a panicking tick thread would take
 /// the whole backstop with it silently (keepalive stops, rm-detection
 /// stops, no restart) — exactly the silent-stale-tab failure F-E exists
@@ -486,11 +489,7 @@ fn tick_loop(shared: Arc<Shared>) {
             .cloned()
             .collect();
         for (ws, slug) in keys {
-            let alive = manifest_for(&shared.root, &ws, &slug)
-                .ok()
-                .flatten()
-                .is_some();
-            if !alive {
+            if !artifact_exists(&shared.root, &ws, &slug) {
                 let mut registry = shared.subs.lock().expect("subs poisoned");
                 if let Some(entries) = registry.remove(&(ws, slug)) {
                     for entry in entries {
@@ -537,7 +536,7 @@ mod tests {
     // moved to `crate::http`, but these tests still read sockets directly.
     use std::io::Read;
     use crate::artifacts::store::{
-        ArtifactFormat, ArtifactsStore, PublishIdentity, PublishRequest,
+        ArtifactFormat, ArtifactsStore, PublishRequest,
     };
     // `Read` rides the file's own `use std::io::{...}` — no test re-import.
     use std::os::fd::AsRawFd as _;
@@ -629,11 +628,7 @@ mod tests {
     fn publish(store: &ArtifactsStore, slug: &str, body: &[u8]) -> String {
         store
             .publish(
-                &PublishIdentity {
-                    workspace_id: "ws-1".into(),
-                    pane_id: "pane-1".into(),
-                    label: "support 1".into(),
-                },
+                "ws-1",
                 PublishRequest {
                     slug: Some(slug),
                     title: "T",
@@ -907,11 +902,7 @@ mod tests {
         for i in 2..=40u64 {
             store
                 .publish(
-                    &PublishIdentity {
-                        workspace_id: "ws-1".into(),
-                        pane_id: "p".into(),
-                        label: "l".into(),
-                    },
+                    "ws-1",
                     PublishRequest {
                         slug: Some("wedge"),
                         title: "T",
@@ -997,11 +988,7 @@ mod tests {
         // A title with markup: the index must escape it.
         store
             .publish(
-                &PublishIdentity {
-                    workspace_id: "ws-1".into(),
-                    pane_id: "p".into(),
-                    label: "<script>l</script>".into(),
-                },
+                "ws-1",
                 PublishRequest {
                     slug: Some("evil"),
                     title: "<script>t</script>",
@@ -1038,11 +1025,7 @@ mod tests {
         for (n, body) in [(2u64, &b"<body>v2</body>"[..]), (3, &b"<body>v3</body>"[..])] {
             store
                 .publish(
-                    &PublishIdentity {
-                        workspace_id: "ws-1".into(),
-                        pane_id: "p".into(),
-                        label: "l".into(),
-                    },
+                    "ws-1",
                     PublishRequest {
                         slug: Some("many"),
                         title: "T",

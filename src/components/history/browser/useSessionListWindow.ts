@@ -6,7 +6,7 @@ import {
 } from "@tanstack/react-virtual";
 import type { LaneApi } from "../../../app/useSessionsBrowser";
 import { rowKeyOf, type UnifiedSessionRow } from "../../../domain/journal";
-import { useRowAnchoring } from "./useRowAnchoring";
+import { useRowAnchoring } from "../../../ui/useRowAnchoring";
 
 const OVERSCAN_ROWS = 6;
 const PAGE_AHEAD = 40;
@@ -99,6 +99,7 @@ export function useSessionListWindow({
   useRowAnchoring({
     listRef,
     queue,
+    keyOf: rowKeyOf,
     virtualItems,
     lastVirtualIndex,
     rowVirtualizer,

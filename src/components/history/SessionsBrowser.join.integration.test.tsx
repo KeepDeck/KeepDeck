@@ -138,7 +138,7 @@ import {
 } from "../../app/useSessionsBrowser";
 import { rowKeyOf } from "../../domain/journal/sessionRow";
 import { SessionsBrowser } from "./SessionsBrowser";
-import { installResizeObserver, pinListViewport } from "./virtualGeometry.test-support";
+import { installResizeObserver, pinListViewport } from "../../ui/virtualGeometry.test-support";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -210,7 +210,7 @@ describe("SessionsBrowser journal join × real plugin pair", () => {
     kimi.reads.length = 0;
     sessionIndex.set({ scanning: false, revision: 1 });
     installResizeObserver();
-    restoreViewport = pinListViewport(600);
+    restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -355,7 +355,7 @@ describe("SessionsBrowser late-landing transition (E7 characterization)", () => 
     });
     sessionIndex.set({ scanning: false, revision: 1, invalidated: new Set() });
     installResizeObserver();
-    restoreViewport = pinListViewport(600);
+    restoreViewport = pinListViewport("browser__list", 600);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });

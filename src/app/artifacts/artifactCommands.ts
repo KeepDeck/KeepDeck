@@ -222,8 +222,6 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         getSettings()?.artifactAutoOpen ?? DEFAULT_SETTINGS.artifactAutoOpen;
       const wire = await artifactPublish({
         workspaceId: caller.workspaceId,
-        paneId: caller.paneId,
-        label: caller.label,
         cwd: caller.cwd,
         slug: str(args, "id"),
         title,

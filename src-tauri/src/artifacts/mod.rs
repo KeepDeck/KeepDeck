@@ -172,9 +172,12 @@ pub fn artifacts_disable(state: State<ArtifactsState>) {
 
 // ---- the artifact_* commands over the store ----
 //
-// Identity is HOST FACT, resolved TS-side from the command source and
-// passed in the payload — never an agent-supplied argument (the §6
-// verdict). `cwd` rides the same payload as `Option<String>`: the
+// The WORKSPACE is host fact, resolved TS-side from the command source
+// and passed in the payload — never an agent-supplied argument (the §6
+// verdict). Who published is not recorded at all: a pane's label is its
+// live title, so what a version kept was a snapshot of a moving string,
+// and nothing needs the answer. `cwd` rides the same payload as
+// `Option<String>`: the
 // three-rung ladder's rung 2 (provisioning pane) publishes `content`
 // with no boundary.
 
@@ -182,8 +185,6 @@ pub fn artifacts_disable(state: State<ArtifactsState>) {
 #[serde(rename_all = "camelCase")]
 pub struct PublishPayload {
     workspace_id: String,
-    pane_id: String,
-    label: String,
     cwd: Option<String>,
     slug: Option<String>,
     title: String,
@@ -250,7 +251,7 @@ pub fn artifact_publish(
     state: State<ArtifactsState>,
     payload: PublishPayload,
 ) -> Result<PublishResult, String> {
-    use store::{ArtifactFormat, PublishIdentity, PublishRequest};
+    use store::{ArtifactFormat, PublishRequest};
     // The door states what it accepts, and there is one thing: "md" is
     // refused here like any other word, because an artifact IS an html
     // page and no second renderer exists behind this call.
@@ -263,11 +264,6 @@ pub fn artifact_publish(
         }
     };
     let content = payload.content.as_deref().map(str::as_bytes);
-    let identity = PublishIdentity {
-        workspace_id: payload.workspace_id.clone(),
-        pane_id: payload.pane_id,
-        label: payload.label,
-    };
     let request = PublishRequest {
         slug: payload.slug.as_deref(),
         title: &payload.title,
@@ -279,7 +275,7 @@ pub fn artifact_publish(
     };
     let out = state
         .store
-        .publish(&identity, request, unix_time_ms())
+        .publish(&payload.workspace_id, request, unix_time_ms())
         .map_err(|e| e.0)?;
     // The display tail — everything here runs AFTER the store's data
     // mutex released (publish returned): compose URLs (null when the
@@ -322,14 +318,11 @@ pub fn artifact_publish(
     })
 }
 
-/// One version as a surface shows it. The manifest's own shape minus
-/// what only the store uses: `author_pane_id` is an internal id nothing
-/// on screen can do anything with.
+/// One version as a surface shows it — the manifest's own shape.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionRow {
     n: u64,
-    author_label: String,
     at: u64,
     size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -360,7 +353,6 @@ pub fn artifact_versions(
         .into_iter()
         .map(|v| VersionRow {
             n: v.n,
-            author_label: v.author_label,
             at: v.at,
             size: v.size,
             message: v.message,
@@ -392,7 +384,6 @@ pub enum ReadOutcome {
         title: String,
         format: store::ArtifactFormat,
         content: String,
-        author_label: String,
         at: u64,
     },
     #[serde(rename_all = "camelCase")]
@@ -422,7 +413,6 @@ pub fn artifact_read(
             title,
             format,
             bytes,
-            author_label,
             at,
         } => ReadOutcome::Inline {
             id: slug,
@@ -430,7 +420,6 @@ pub fn artifact_read(
             title,
             format,
             content: String::from_utf8_lossy(&bytes).into_owned(),
-            author_label,
             at,
         },
         ReadResult::OverCap { slug, version, size, title, note, .. } => ReadOutcome::OverCap {

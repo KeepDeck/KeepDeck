@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { artifactChanges } from "../../app/artifacts/changes";
 import {
   artifactsEnableStatus,
@@ -12,13 +19,9 @@ import {
   type ArtifactMetaRow,
   type ArtifactVersionRow,
 } from "../../ipc/artifacts";
-import { writeText } from "../../ipc/clipboard";
 import { describeError } from "../../ipc/log";
 import { fateOf, type RowRef } from "./rowRef";
 import { viewOf, type ArtifactsView } from "./view";
-
-/** How long a copied-id acknowledgement stays on its row. */
-const COPIED_ACK_MS = 1500;
 
 /** A deletion the user has been asked about, and WHICH row it was asked
  * about ([`RowRef`]) — plus the title, because that is what the question
@@ -38,8 +41,9 @@ export interface ArtifactsRegistry {
   view: ArtifactsView;
   /** The row an action is in flight for; one at a time. */
   busyId: string | null;
-  /** The row whose id sits in the clipboard, until the ack expires. */
-  copiedId: string | null;
+  /** What the user is searching for; "" while they are not. */
+  query: string;
+  search(query: string): void;
   /** The open history, or null. Iteration history is the shape of an
    * artifact, and until now only agents could see it. */
   expanded: ArtifactHistory | null;
@@ -47,7 +51,6 @@ export interface ArtifactsRegistry {
    * why is [`ArtifactConfirm`]'s to say. */
   confirm: ArtifactConfirm | null;
   open(id: string): void;
-  copyId(id: string): void;
   /** Open one row's history, or close the open one. */
   toggleVersions(id: string): void;
   /** Ask. Deleting takes every version and cannot be undone, so nothing
@@ -87,12 +90,15 @@ export function useArtifactsRegistry(
   const rows = listing !== null && listing.ws === workspaceId ? listing.rows : null;
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ArtifactConfirm | null>(null);
   const [expanded, setExpanded] = useState<ArtifactHistory | null>(null);
+  // The search lives HERE and nowhere on disk: the rows in hand are the
+  // whole workspace, so a query is a filter over what is already read —
+  // no index to build, nothing to invalidate, and one re-read of the
+  // store when it changes, not one per keystroke.
+  const [query, setQuery] = useState("");
   /** Which history read the answers on the wire belong to. */
   const historyAsk = useRef(0);
-  const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Every publish and delete this app makes bumps the revision, which is
   // the read's other input — so the list follows the store instead of
   // waiting to be asked. There is no refresh control by design: the
@@ -152,13 +158,6 @@ export function useArtifactsRegistry(
     };
   }, [workspaceId, revision]);
 
-  useEffect(
-    () => () => {
-      if (ackTimer.current !== null) clearTimeout(ackTimer.current);
-    },
-    [],
-  );
-
   const open = useCallback(
     (id: string) => {
       if (workspaceId === null) return;
@@ -170,17 +169,6 @@ export function useArtifactsRegistry(
     },
     [workspaceId],
   );
-
-  const copyId = useCallback((id: string) => {
-    void writeText(id)
-      .then(() => {
-        setError(null);
-        setCopiedId(id);
-        if (ackTimer.current !== null) clearTimeout(ackTimer.current);
-        ackTimer.current = setTimeout(() => setCopiedId(null), COPIED_ACK_MS);
-      })
-      .catch((e: unknown) => setError(describeError(e)));
-  }, []);
 
   const toggleVersions = useCallback(
     (id: string) => {
@@ -288,18 +276,29 @@ export function useArtifactsRegistry(
   const shownError =
     error !== null && enableRefusal !== null ? enableRefusal : error;
 
-  return {
+  // MEMOISED for its IDENTITY, not for the work — classifying five
+  // states and filtering a list is nothing. A filtered list is a NEW
+  // array every time it is built, and the window below keys its
+  // measurement memo on that array's reference: rebuilt per render, it
+  // re-measured every row on every keystroke, and on the wall clock's
+  // tick. The stable input is what keeps the window's memo alive.
+  const view = useMemo(
     // The ONE place a refusal is placed: as the whole body when there is
     // nothing else to show, as a banner over rows when there is. The
     // view renders the arm it is given and never combines the two facts
     // itself.
-    view: viewOf(workspaceId, rows, shownError),
+    () => viewOf(workspaceId, rows, shownError, query),
+    [workspaceId, rows, shownError, query],
+  );
+
+  return {
+    view,
     busyId,
-    copiedId,
+    query,
+    search: setQuery,
     expanded,
     confirm,
     open,
-    copyId,
     toggleVersions,
     requestDelete,
     confirmDelete,

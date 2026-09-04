@@ -4,6 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { artifactChanges } from "../../app/artifacts/changes";
 import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import {
+  installResizeObserver,
+  pinListViewport,
+} from "../../ui/virtualGeometry.test-support";
 import { ArtifactsDialog } from "./ArtifactsDialog";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -21,7 +25,6 @@ vi.mock("../../ipc/artifacts", () => ({
   artifactVersions: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
-vi.mock("../../ipc/clipboard", () => ({ writeText: vi.fn() }));
 
 import { openUrl } from "../../ipc/app";
 import {
@@ -30,27 +33,28 @@ import {
   artifactResolveUrls,
   artifactVersions,
 } from "../../ipc/artifacts";
-import { writeText } from "../../ipc/clipboard";
 
 const listed = vi.mocked(artifactList);
 const resolved = vi.mocked(artifactResolveUrls);
 const removed = vi.mocked(artifactDelete);
 const history = vi.mocked(artifactVersions);
 const opened = vi.mocked(openUrl);
-const copied = vi.mocked(writeText);
 
 const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow => ({
   id,
   title: `The ${id}`,
   versionCount: 3,
   updatedAt: Date.now(),
-  lastAuthor: "support 1",
   generation: `gen-${id}`,
   ...over,
 });
 
 let host: HTMLDivElement;
 let root: Root;
+// The list is windowed, and happy-dom computes no geometry: without a
+// pinned viewport the virtualizer sees a zero-height container and
+// draws nothing at all. This imitates the browser, not the list.
+let restoreViewport: () => void;
 
 // The dialog portals to document.body, so every query starts there.
 const buttonWithText = (text: string) =>
@@ -73,6 +77,8 @@ const render = (
 const settle = () => act(async () => {});
 
 beforeEach(() => {
+  installResizeObserver();
+  restoreViewport = pinListViewport("artifacts__body", 600);
   document.body.innerHTML = "";
   host = document.body.appendChild(document.createElement("div"));
   root = createRoot(host);
@@ -82,7 +88,6 @@ beforeEach(() => {
     indexUrl: "http://127.0.0.1:56513/idx/",
   });
   opened.mockReset().mockResolvedValue(undefined);
-  copied.mockReset().mockResolvedValue(undefined);
   removed.mockReset().mockResolvedValue({
     id: "auth-flow",
     deleted: true,
@@ -90,17 +95,20 @@ beforeEach(() => {
     createdAt: 1,
   });
   history.mockReset().mockResolvedValue([
-    { n: 1, authorLabel: "support 1", at: Date.now(), size: 10 },
-    { n: 2, authorLabel: "support 2", at: Date.now(), size: 20, message: "fixed the axis" },
+    { n: 1, at: Date.now(), size: 10 },
+    { n: 2, at: Date.now(), size: 20, message: "fixed the axis" },
   ]);
 });
 
-afterEach(() => act(() => root.unmount()));
+afterEach(() => {
+  act(() => root.unmount());
+  restoreViewport();
+});
 
 describe("ArtifactsDialog", () => {
   it("gives each row its identity, not its address", async () => {
-    // A url is what dies on restart, so a row must not offer one to copy
-    // down or read off — the id and the version count are what it shows.
+    // A url is what dies on restart, so a row does not show one at all —
+    // its id and its version count are what it says.
     render();
     await settle();
     expect(rowsOnScreen()).toHaveLength(2);
@@ -108,7 +116,6 @@ describe("ArtifactsDialog", () => {
     expect(first).toContain("The auth-flow");
     expect(first).toContain("auth-flow");
     expect(first).toContain("v3");
-    expect(first).toContain("support 1");
     expect(document.body.textContent).not.toContain("127.0.0.1");
   });
 
@@ -127,30 +134,6 @@ describe("ArtifactsDialog", () => {
 
     expect(resolved).toHaveBeenCalledWith({ workspaceId: "ws-1" }, "auth-flow");
     expect(opened).toHaveBeenCalledWith("http://127.0.0.1:56513/a/tok/auth-flow");
-  });
-
-  it("keeps Copy id beside the row control, not inside it", async () => {
-    // A button inside a button is invalid markup and, worse, a copy that
-    // also opens the artifact.
-    render();
-    await settle();
-
-    act(() => buttonWithText("Copy id")?.click());
-    await settle();
-
-    expect(copied).toHaveBeenCalledWith("auth-flow");
-    expect(resolved).not.toHaveBeenCalled();
-    expect(opened).not.toHaveBeenCalled();
-  });
-
-  it("acknowledges a copied id on the row that was copied", async () => {
-    render();
-    await settle();
-    act(() => buttonWithText("Copy id")?.click());
-    await settle();
-    expect(copied).toHaveBeenCalledWith("auth-flow");
-    expect(rowsOnScreen()[0]?.textContent).toContain("Copied");
-    expect(rowsOnScreen()[1]?.textContent).toContain("Copy id");
   });
 
   it("follows the store on its own, with no refresh control to press", async () => {
@@ -213,6 +196,59 @@ describe("ArtifactsDialog", () => {
     ).map((n) => n.textContent);
     expect(lines).toEqual(["v2", "v1"]);
     expect(opened?.textContent).toContain("fixed the axis");
+  });
+
+  it("draws a window of a long list, not the whole of it", async () => {
+    // A workspace has no artifact ceiling — an agent publishes as many
+    // as the work needs, and nothing prunes them.
+    listed.mockResolvedValueOnce(
+      Array.from({ length: 500 }, (_, i) => row(`a${i}`)),
+    );
+    render();
+    await settle();
+
+    const drawn = rowsOnScreen().length;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(50);
+    // …and the scrollbar still describes all of them: the spacer is the
+    // measured sum, so the list is as tall as 500 rows even though 500
+    // rows are not in the DOM.
+    const spacer = document.querySelector<HTMLElement>(".artifacts__list");
+    expect(Number.parseFloat(spacer?.style.height ?? "0")).toBeGreaterThan(
+      drawn * 56,
+    );
+  });
+
+  it("narrows the list as the user types, and says so when nothing is left", async () => {
+    render();
+    await settle();
+    expect(rowsOnScreen()).toHaveLength(2);
+
+    const search = document.querySelector<HTMLInputElement>(".artifacts__search")!;
+    // React tracks a controlled input's value through its own setter, so
+    // a plain assignment is invisible to it — the sessions browser's
+    // tests type the same way.
+    const type = (text: string) =>
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          Object.getPrototypeOf(search),
+          "value",
+        )!.set!.call(search, text);
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+    type("deck");
+    expect(rowsOnScreen()).toHaveLength(1);
+    expect(rowsOnScreen()[0]?.textContent).toContain("deck-layout");
+    // No re-read: the rows in hand are the whole workspace, so a query
+    // is a filter, not a question for the store.
+    expect(listed).toHaveBeenCalledTimes(1);
+
+    type("zzz");
+    expect(rowsOnScreen()).toHaveLength(0);
+    expect(document.body.textContent).toContain("Nothing matches");
+    // …and the box is still there to fix what was typed.
+    expect(document.querySelector(".artifacts__search")).not.toBeNull();
   });
 
   it("says nothing is published only when the store said so", async () => {

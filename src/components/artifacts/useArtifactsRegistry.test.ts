@@ -25,7 +25,6 @@ vi.mock("../../ipc/artifacts", () => ({
   artifactVersions: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
-vi.mock("../../ipc/clipboard", () => ({ writeText: vi.fn() }));
 
 import { openUrl } from "../../ipc/app";
 import {
@@ -34,21 +33,18 @@ import {
   artifactResolveUrls,
   artifactVersions,
 } from "../../ipc/artifacts";
-import { writeText } from "../../ipc/clipboard";
 
 const listed = vi.mocked(artifactList);
 const resolved = vi.mocked(artifactResolveUrls);
 const removed = vi.mocked(artifactDelete);
 const history = vi.mocked(artifactVersions);
 const opened = vi.mocked(openUrl);
-const copied = vi.mocked(writeText);
 
 const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow => ({
   id,
   title: `The ${id}`,
   versionCount: 2,
   updatedAt: 1_700_000_000_000,
-  lastAuthor: "support 1",
   generation: `gen-${id}`,
   ...over,
 });
@@ -112,7 +108,6 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ url: "http://127.0.0.1:56513/a/tok/auth-flow", indexUrl: "http://127.0.0.1:56513/idx/" });
   opened.mockReset().mockResolvedValue(undefined);
-  copied.mockReset().mockResolvedValue(undefined);
   removed.mockReset().mockResolvedValue({
     id: "auth-flow",
     deleted: true,
@@ -120,8 +115,8 @@ beforeEach(() => {
     createdAt: 1,
   });
   history.mockReset().mockResolvedValue([
-    { n: 1, authorLabel: "support 1", at: 1_000, size: 10 },
-    { n: 2, authorLabel: "support 2", at: 2_000, size: 20, message: "fixed the axis" },
+    { n: 1, at: 1_000, size: 10 },
+    { n: 2, at: 2_000, size: 20, message: "fixed the axis" },
   ]);
 });
 
@@ -376,7 +371,7 @@ describe("useArtifactsRegistry", () => {
     workspaceId = "ws-2";
     act(() => root.render(createElement(Probe)));
     await settle();
-    act(() => answer([{ n: 1, authorLabel: "ws-1's author", at: 1, size: 1 }]));
+    act(() => answer([{ n: 1, at: 1, size: 1 }]));
     await settle();
 
     expect(registry.expanded).toBeNull();
@@ -392,7 +387,7 @@ describe("useArtifactsRegistry", () => {
     act(() => registry.toggleVersions("auth-flow"));
     expect(registry.expanded).toBeNull();
 
-    act(() => answer([{ n: 1, authorLabel: "support 1", at: 1, size: 1 }]));
+    act(() => answer([{ n: 1, at: 1, size: 1 }]));
     await settle();
 
     expect(registry.expanded).toBeNull();
@@ -444,19 +439,6 @@ describe("useArtifactsRegistry", () => {
     expect(registry.busyId).toBeNull();
   });
 
-  it("copies the IDENTITY, not an address, and lets the ack expire", async () => {
-    vi.useFakeTimers();
-    mount();
-    await settle();
-    act(() => registry.copyId("auth-flow"));
-    await settle();
-    // The whole point of the surface: a url dies with the port, an id does not.
-    expect(copied).toHaveBeenCalledWith("auth-flow");
-    expect(registry.copiedId).toBe("auth-flow");
-    act(() => void vi.advanceTimersByTime(2_000));
-    expect(registry.copiedId).toBeNull();
-  });
-
   it("does not let a workspace's late answer paint under another's name", async () => {
     const answers: Array<(rows: ArtifactMetaRow[]) => void> = [];
     listed.mockImplementation(() => new Promise((res) => answers.push(res)));
@@ -501,6 +483,23 @@ describe("useArtifactsRegistry", () => {
     answers[0]?.([row("auth-flow")]);
     await settle();
     expect(shown()).toEqual(["auth-flow"]);
+  });
+
+  it("hands the same rows array back until something actually changes", async () => {
+    // The window keys its measurement memo on this reference: a fresh
+    // array per render re-measures every row on every keystroke and on
+    // the wall clock's tick.
+    mount();
+    await settle();
+    const first = registry.view;
+    act(() => root.render(createElement(Probe)));
+    expect(registry.view).toBe(first);
+
+    act(() => registry.search("auth"));
+    const filtered = registry.view;
+    expect(filtered).not.toBe(first);
+    act(() => root.render(createElement(Probe)));
+    expect(registry.view).toBe(filtered);
   });
 
   it("re-reads when the app writes — a list read once is stale the moment an agent publishes", async () => {
