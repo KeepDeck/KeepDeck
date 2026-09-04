@@ -136,7 +136,14 @@ export interface RecordMatch {
 function at(record: unknown, path: string): unknown {
   let held: unknown = record;
   for (const segment of path.split(".")) {
-    if (typeof held !== "object" || held === null) return undefined;
+    // An ARRAY is not an object here, however JavaScript classes it. The
+    // segment would otherwise read as an index and `items.0` would resolve —
+    // on this side only, since the host walks objects alone. A plugin would
+    // then test a watch that works in its own suite and carries nothing in
+    // production. Caught by the shared corpus on its first run.
+    if (typeof held !== "object" || held === null || Array.isArray(held)) {
+      return undefined;
+    }
     held = (held as Record<string, unknown>)[segment];
   }
   return held;
@@ -195,6 +202,17 @@ export interface TailWatch {
  * beyond this is interpretation, and interpretation belongs to the plugin's
  * own normalizer — which reads the stamped total the same as any other
  * field.
+ *
+ * WHERE THE LINE IS, for whoever is tempted to widen this. What may live
+ * here is a fold that is COMMUTATIVE per key: the answer must not depend on
+ * the order records arrived in, because the reader replays a file from
+ * wherever its cursor happens to be and has no notion of a first or a last.
+ * `dedupBy` qualifies — a per-key maximum is the same however the rows are
+ * shuffled. "The newest row wins", "subtract a baseline", "only rows where
+ * X" do not: each needs an ordering or a condition, and adding one turns a
+ * description into a small language with a control flow nobody voted for.
+ * Those belong in [`SessionTailDialect.read`], where a real language already
+ * exists and the plugin — which knows the format — is the one running it.
  */
 export interface TailSum {
   /**

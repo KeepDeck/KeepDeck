@@ -523,6 +523,64 @@ mod tests {
         assert!(last_of_each(Vec::new(), &watches).is_empty());
     }
 
+    /// The other side of the conformance corpus.
+    ///
+    /// A watch is WRITTEN in TypeScript and APPLIED here. The types are a
+    /// wire contract and cannot be merged, but the SEMANTICS can drift —
+    /// one side quietly growing a trim, a coercion or a looser notion of
+    /// presence while the other never hears of it, and the same watch then
+    /// carrying different records depending on who read it. Nothing but this
+    /// file binds the two.
+    ///
+    /// `include_str!` on purpose: a corpus that moved or vanished is a build
+    /// failure, not a suite that quietly runs zero cases. Its first run
+    /// already earned its keep — the two path walkers disagreed about
+    /// arrays, and the plugin side was wrong.
+    #[test]
+    fn both_readers_agree_on_the_descriptor_language() {
+        #[derive(serde::Deserialize)]
+        struct Carried {
+            watch: usize,
+            record: Value,
+        }
+        #[derive(serde::Deserialize)]
+        struct Case {
+            name: String,
+            watches: Vec<TailWatch>,
+            record: Value,
+            carried: Option<Carried>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Corpus {
+            cases: Vec<Case>,
+        }
+
+        let corpus: Corpus = serde_json::from_str(include_str!(
+            "../../../packages/plugin-api/conformance/watch-cases.json"
+        ))
+        .expect("the shared corpus parses");
+        assert!(
+            corpus.cases.len() > 15,
+            "a corpus that silently emptied lets both sides pass while agreeing on nothing"
+        );
+
+        for case in corpus.cases {
+            let line = serde_json::to_vec(&case.record).unwrap();
+            let carried = watched_event(&line, &case.watches, &mut Folds::default());
+            match (carried, case.carried) {
+                (None, None) => {}
+                (Some(event), Some(want)) => {
+                    assert_eq!(event.slot, Some(want.watch), "{}", case.name);
+                    assert_eq!(event.payload["record"], want.record, "{}", case.name);
+                }
+                (Some(event), None) => {
+                    panic!("{}: carried {} when nothing should be", case.name, event.payload)
+                }
+                (None, Some(_)) => panic!("{}: carried nothing", case.name),
+            }
+        }
+    }
+
     #[test]
     fn catch_up_never_replays_a_status_record() {
         // A record read out of the EXISTING file describes a turn that ended
