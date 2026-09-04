@@ -85,8 +85,8 @@ describe("claude plugin hooks", () => {
     // Some of them ask as well as report. `--ask` makes the reporter wait
     // for the deck's answer and print it — Stop can be blocked to hand mail
     // over without a fresh wake, UserPromptSubmit can append to the turn
-    // just opened, and PostToolBatch takes the same block one boundary
-    // earlier, while the turn is still running. Arming it on the rest would
+    // just opened, and PostToolBatch injects context into the next model
+    // request, while the turn is still running. Arming it on the rest would
     // buy a round trip per TOOL CALL for an answer that event cannot use.
     const asking = `${command} --ask`;
     // SessionStart asks too, on the STATUS reporter: a freshly spawned

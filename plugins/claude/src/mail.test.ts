@@ -35,19 +35,34 @@ describe("renderClaudeMail", () => {
     expect(reason).toContain("mail-1");
   });
 
-  it("blocks PostToolBatch, which reaches a turn that is still running", () => {
+  it("reaches a turn that is still running WITHOUT ending it", () => {
     // The mid-turn door, and the point of the whole feature: a person can
     // correct a working agent through mail instead of typing over their own
     // half-written message, because nothing here touches the terminal.
     //
-    // The SHAPE is asserted, not merely that something rendered: this event
-    // takes the block, like `Stop`, and not the `additionalContext` envelope
-    // its neighbours use — claude reads only one of the two here, and the
-    // wrong one is a delivery that vanishes without an error on either side.
+    // The SHAPE is asserted, not merely that something rendered. This event
+    // takes the `additionalContext` envelope its neighbours use and NOT the
+    // block `Stop` takes: claude words the two as opposites — a blocked
+    // `Stop` "continues the conversation", a blocked `PostToolBatch` "stops
+    // the agentic loop before the next model call". The block shipped here
+    // once, and it ended the very turn the mail was sent to steer.
     const parsed = JSON.parse(render("PostToolBatch")!);
-    expect(parsed.decision).toBe("block");
-    expect(parsed.reason).toContain("which port?");
-    expect(parsed.hookSpecificOutput).toBeUndefined();
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("PostToolBatch");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("which port?");
+    expect(parsed.decision).toBeUndefined();
+  });
+
+  it("blocks the one event where blocking keeps a turn alive, and no other", () => {
+    // The invariant the bug above broke. `Stop` and `PostToolBatch` look
+    // alike from here — both hand words to a model that is already running —
+    // so the block is easy to carry across, and carried across it stops the
+    // loop instead of feeding it. Asserted over the whole asking set rather
+    // than per event: a fifth event armed later gets this question asked of
+    // it for free, which is what nothing did for this one.
+    const blocking = [...ASKS_FOR_MAIL].filter(
+      (event) => JSON.parse(render(event)!).decision === "block",
+    );
+    expect(blocking).toEqual(["Stop"]);
   });
 
   it("appends to a turn the user just opened", () => {
