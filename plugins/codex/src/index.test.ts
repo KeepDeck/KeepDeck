@@ -6,6 +6,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
 import { renderCodexMail } from "./status";
+import { codexUsageWatches } from "./usage";
 
 /** Activate against a minimal fake ctx; returns the registered agent.
  *
@@ -115,17 +116,19 @@ describe("codex plugin hooks", () => {
     // WHICH events ask the deck back, pinned because nothing else would
     // notice it changing: the reporter is silent on failure, so a stale or
     // missing `--ask` stops mail reaching this CLI with no error anywhere.
-    // Only the two turn boundaries can act on an answer — Stop blocks and
-    // continues, UserPromptSubmit spills into the turn just opened — and
-    // asking on a per-tool-call event would buy a round trip for an answer
-    // it cannot use. SessionStart is NOT here: codex can inject there, but
-    // the identity reporter holds that event and `-c` REPLACES rather than
-    // merges, so a second arming would drop session binding.
+    // Stop blocks and continues; UserPromptSubmit spills into the turn just
+    // opened; PostToolUse does the same while the turn is still RUNNING,
+    // which is the only way to reach a working agent without typing into its
+    // terminal — and it is the one that costs a round trip per tool call.
+    // PermissionRequest reads nothing back. SessionStart is NOT here: codex
+    // can inject there, but the identity reporter holds that event and `-c`
+    // REPLACES rather than merges, so a second arming would drop session
+    // binding.
     for (const [event, asks] of [
       ["Stop", true],
       ["UserPromptSubmit", true],
+      ["PostToolUse", true],
       ["PermissionRequest", false],
-      ["PostToolUse", false],
     ] as const) {
       const rule = out.args.find((a) => a.startsWith(`hooks.${event}=`))!;
       expect(rule.includes("codex --ask"), event).toBe(asks);
@@ -320,7 +323,10 @@ describe("codex plugin identity", () => {
 
   it("declares the shared app-server account-limits source", () => {
     const agent = activate(null);
-    expect(agent.usage?.tail).toBe("codex");
+    expect(agent.usage?.tail?.watches).toEqual(codexUsageWatches);
+    // A rollout records the ACCOUNT's limits, so codex asks to be swept at
+    // boot — it is also run outside the deck, where quota is spent unseen.
+    expect(agent.usage?.tail?.sweep).toBeTypeOf("function");
     expect(agent.usage?.limits?.poll).toBe("codex-app-server");
   });
 

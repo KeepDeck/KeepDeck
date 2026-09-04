@@ -84,16 +84,16 @@ describe("decideDelivery", () => {
     // An agent with no labelled channel gets the wake and nothing else, and
     // gets it at once: none of the deferrals below can ever be repaid at
     // that pane's boundaries.
-    expect(decideDelivery(mail(), working, SENT_AT)).toEqual({ kind: "wake" });
+    expect(decideDelivery(mail(), working)).toEqual({ kind: "wake" });
   });
 
   it("wakes a pane parked on a question, which the message probably answers", () => {
-    expect(decideDelivery(mail(), asking, SENT_AT)).toEqual({ kind: "wake" });
+    expect(decideDelivery(mail(), asking)).toEqual({ kind: "wake" });
   });
 
   it("wakes a finished pane, starting a new turn", () => {
-    expect(decideDelivery(mail(), done, SENT_AT)).toEqual({ kind: "wake" });
-    expect(decideDelivery(mail(), failed, SENT_AT)).toEqual({ kind: "wake" });
+    expect(decideDelivery(mail(), done)).toEqual({ kind: "wake" });
+    expect(decideDelivery(mail(), failed)).toEqual({ kind: "wake" });
   });
 
   it("holds a briefing whatever the pane is doing — it may only arrive labelled", () => {
@@ -104,35 +104,21 @@ describe("decideDelivery", () => {
     // otherwise deliver.
     const briefing = mail({ kind: "team" });
     for (const activity of [working, asking, done, failed, undefined]) {
-      expect(decideDelivery(briefing, activity, SENT_AT)).toEqual({
+      expect(decideDelivery(briefing, activity), String(activity?.state)).toEqual({
         kind: "hold",
         reason: "labelled-only",
       });
     }
-    // Forever, for an agent that has no labelled channel: there is no later
-    // moment at which typing it in becomes acceptable.
-    const late = SENT_AT + MAIL_LIMITS.hookWaitMs;
-    expect(decideDelivery(briefing, done, late)).toEqual({
-      kind: "hold",
-      reason: "labelled-only",
-    });
     // And having a labelled channel does not change it: a nudge is a
     // keystroke too, and spending one to make an agent come asking for pure
     // context is the same intrusion in a thinner disguise. A starting agent
     // gets its briefing from its own SessionStart instead.
-    for (const activity of [working, done, undefined]) {
+    for (const activity of [working, asking, done, failed, undefined]) {
       expect(
-        decideDelivery(briefing, activity, late, MAIL_LIMITS, true),
+        decideDelivery(briefing, activity, true),
         String(activity?.state),
       ).toEqual({ kind: "hold", reason: "labelled-only" });
     }
-    // And it keeps NO clock. A briefing cannot go stale — it is as true an
-    // hour later — while an agent that takes no turn for an hour is exactly
-    // the one that would lose it and then be handed a teammate's task with
-    // no idea who is asking.
-    expect(
-      decideDelivery(briefing, done, SENT_AT + MAIL_LIMITS.undeliveredMs * 12),
-    ).toEqual({ kind: "hold", reason: "labelled-only" });
   });
 
   it("still wakes what a pane is meant to ACT on", () => {
@@ -141,14 +127,12 @@ describe("decideDelivery", () => {
     // report exists to move the receiver, and the wake is the only thing
     // that rouses an idle CLI so it can come and be moved.
     for (const kind of ["task", "question", "answer", "note", "undelivered"] as const) {
-      expect(decideDelivery(mail({ kind }), done, SENT_AT)).toEqual({
-        kind: "wake",
-      });
+      expect(decideDelivery(mail({ kind }), done), kind).toEqual({ kind: "wake" });
     }
   });
 
   it("holds at a permission prompt — the one state where text answers a menu", () => {
-    expect(decideDelivery(mail(), approving, SENT_AT)).toEqual({
+    expect(decideDelivery(mail(), approving)).toEqual({
       kind: "hold",
       reason: "permission",
     });
@@ -162,10 +146,10 @@ describe("decideDelivery", () => {
     // undelivered until a person typed into it by hand. Whether the nudge
     // can actually be typed is the channel's question, and the channel is
     // the one thing that can answer it.
-    expect(decideDelivery(mail(), undefined, SENT_AT)).toEqual({ kind: "wake" });
+    expect(decideDelivery(mail(), undefined)).toEqual({ kind: "wake" });
   });
 
-  it("decides the same thing however long a message has waited", () => {
+  it("answers from the pane and the message alone — no clock reaches it", () => {
     // Age used to outrank every verdict here, and a message older than the
     // window was destroyed: a teammate running a ten-minute build lost
     // everything written to it, on the argument that a correction arriving
@@ -173,44 +157,40 @@ describe("decideDelivery", () => {
     // the RECEIVER's to make — it is the only party that knows what the
     // message says — so the clock moved out of this decision entirely and
     // became something the SENDER is told ([`isOverdue`]).
+    //
+    // Still worth asserting with the clock gone from the signature, because
+    // `mail.at` arrives on the message: reading it against `Date.now()` is
+    // the one way a clock could come back without anything to review.
     const fresh = mail();
     const old = mail({ at: 0 });
-    const late = MAIL_LIMITS.undeliveredMs * 10;
     for (const activity of [working, asking, done, failed, approving, undefined]) {
-      expect(decideDelivery(old, activity, late), String(activity?.state)).toEqual(
-        decideDelivery(fresh, activity, late),
-      );
+      for (const asks of [false, true]) {
+        expect(
+          decideDelivery(old, activity, asks),
+          `${String(activity?.state)} / asks=${asks}`,
+        ).toEqual(decideDelivery(fresh, activity, asks));
+      }
     }
   });
 
-  it("holds right up to the boundary — the cutoff is inclusive of the limit only", () => {
-    const justInTime = SENT_AT + MAIL_LIMITS.undeliveredMs - 1;
-    expect(decideDelivery(mail(), approving, justInTime)).toEqual({
-      kind: "hold",
-      reason: "permission",
-    });
-    expect(decideDelivery(mail(), working, justInTime)).toEqual({ kind: "wake" });
-  });
-
-  it("waits for a turn boundary when the agent will come asking", () => {
+  it("waits for a turn boundary whatever the message expects", () => {
     // The channel split: a running turn is the one state where a BETTER way
     // in is coming, because the agent asks the deck when the turn ends and
     // an answer given there is labelled rather than pasted.
-    expect(decideDelivery(mail(), working, SENT_AT, MAIL_LIMITS, true)).toEqual({
-      kind: "hold",
-      reason: "turn-boundary",
-    });
-  });
-
-  it("stops waiting and NUDGES rather than losing the message", () => {
-    // A turn can run far longer than a course correction stays useful, so
-    // the wait is bounded. What the terminal does at the end of it is wake
-    // the pane, not carry the words: the turn that starts fires the hook,
-    // and the hook delivers properly.
-    const spent = SENT_AT + MAIL_LIMITS.hookWaitMs;
-    expect(decideDelivery(mail(), working, spent, MAIL_LIMITS, true)).toEqual({
-      kind: "wake",
-    });
+    //
+    // The kinds are asserted TOGETHER, and their being indistinguishable is
+    // the point. Mail expecting an answer used to wait 45 seconds and then
+    // be typed at anyway, on the theory that asking somebody for something
+    // is worth a turn of its own. It buys no turn: the keystroke joins the
+    // CLI's input queue behind whatever the person was typing, and takes
+    // their unsent text with it when it finally submits. The kind still
+    // decides who is left owing an answer — it decides nothing here.
+    for (const kind of ["task", "question", "answer", "note", "undelivered"] as const) {
+      expect(decideDelivery(mail({ kind }), working, true), kind).toEqual({
+        kind: "hold",
+        reason: "turn-boundary",
+      });
+    }
   });
 
   it("waits only while a turn is RUNNING — nothing else brings a boundary", () => {
@@ -218,54 +198,28 @@ describe("decideDelivery", () => {
     // agent fires no hook, so waiting on one is pure latency: measured at
     // exactly 45 seconds for a lead's three answers, which arrived 11
     // seconds after it had stopped.
-    expect(decideDelivery(mail(), working, SENT_AT, MAIL_LIMITS, true)).toEqual({
+    expect(decideDelivery(mail(), working, true)).toEqual({
       kind: "hold",
       reason: "turn-boundary",
     });
     for (const activity of [done, failed, asking, undefined]) {
-      expect(
-        decideDelivery(mail(), activity, SENT_AT, MAIL_LIMITS, true),
-        String(activity?.state),
-      ).toEqual({ kind: "wake" });
+      expect(decideDelivery(mail(), activity, true), String(activity?.state)).toEqual({
+        kind: "wake",
+      });
     }
     // ...and a permission prompt outranks it, hook or not.
-    expect(decideDelivery(mail(), approving, SENT_AT, MAIL_LIMITS, true)).toEqual({
+    expect(decideDelivery(mail(), approving, true)).toEqual({
       kind: "hold",
       reason: "permission",
     });
   });
+});
 
-  it("nudges once the wait for a hook is spent", () => {
-    // The bound is what keeps the preference from becoming a trap: an idle
-    // agent fires no hook, so waiting longer only runs the clock out. The
-    // nudge buys a turn, and the turn is what carries the message.
-    const late = SENT_AT + MAIL_LIMITS.hookWaitMs;
-    expect(decideDelivery(mail(), done, late, MAIL_LIMITS, true)).toEqual({
-      kind: "wake",
-    });
-    // And the wait is strictly shorter than the life of the message, or the
-    // fallback would never get a turn.
-    expect(MAIL_LIMITS.hookWaitMs).toBeLessThan(MAIL_LIMITS.undeliveredMs);
-  });
-
-
+describe("isOverdue", () => {
   it("reads the limits it is given, not only the shipped ones", () => {
     // Guards against the bound being read from the module constant instead
     // of the argument — a bug no default-limits test can see.
-    const limits = {
-      undeliveredMs: 10,
-      hookWaitMs: 5,
-      handoverChars: 100,
-    };
-    // The wait before a nudge is the one bound this decision still reads.
-    const asking = mail({ kind: "question" });
-    expect(decideDelivery(asking, working, SENT_AT + 5, limits, true)).toEqual({
-      kind: "wake",
-    });
-    expect(decideDelivery(asking, working, SENT_AT + 4, limits, true)).toEqual({
-      kind: "hold",
-      reason: "turn-boundary",
-    });
+    const limits = { undeliveredMs: 10, handoverChars: 100 };
     expect(isOverdue(mail(), SENT_AT + 10, limits)).toBe(true);
     expect(isOverdue(mail(), SENT_AT + 9, limits)).toBe(false);
   });
@@ -273,26 +227,48 @@ describe("decideDelivery", () => {
 
 describe("decideHandover", () => {
   it("shares the one clause it has with the terminal's verdict, rather than copying it", () => {
-    // A pane parked on a permission prompt is unsafe to push at through
-    // either door. Copied into the application owner once, it made a reason
-    // to hold that the terminal path honoured and this one — the path a
-    // briefing exclusively uses — silently ignored.
-    expect(decideHandover(approving)).toBe("hold");
-    expect(decideDelivery(mail(), approving, SENT_AT)).toEqual({
+    // A pane parked on a permission prompt is unsafe to PUSH at, and a hook's
+    // answer is printed into the session. Copied into the application owner
+    // once, this made a reason to hold that the terminal path honoured and
+    // this one — the path a briefing exclusively uses — silently ignored.
+    expect(decideHandover(approving, "turn-boundary")).toBe("hold");
+    expect(decideDelivery(mail(), approving)).toEqual({
       kind: "hold",
       reason: "permission",
     });
-    expect(decideHandover(done)).toBe("hand");
+    expect(decideHandover(done, "turn-boundary")).toBe("hand");
+  });
+
+  it("hands to a pane at a prompt when the PANE is the one asking", () => {
+    // The whole of what the door decides. An answer to a call the agent made
+    // travels back as that call's result, touching neither the terminal nor
+    // the session's input — so the clause about pushing at a parked pane has
+    // nothing to apply to.
+    //
+    // It used to be a boolean the call site passed, which says which
+    // behaviour the caller wanted rather than which situation it is in. Both
+    // doors are asserted here for that reason: the pair is the rule, and one
+    // of them alone would pass with the argument ignored.
+    expect(decideHandover(approving, "explicit-read")).toBe("hand");
+    expect(decideHandover(approving, "turn-boundary")).toBe("hold");
+    for (const activity of [working, done, failed, asking, undefined]) {
+      expect(decideHandover(activity, "explicit-read"), String(activity?.state)).toBe(
+        "hand",
+      );
+      expect(decideHandover(activity, "turn-boundary"), String(activity?.state)).toBe(
+        "hand",
+      );
+    }
   });
 
   it("hands over the standing context the other channel refuses to touch", () => {
     // The one place the two verdicts MUST differ: a briefing is held from the
     // terminal forever and delivered here, because this is the moment it was
-    // waiting for.
+    // waiting for — through either door, since neither is the terminal.
     const briefing = mail({ kind: "team", at: 0 });
-    const now = MAIL_LIMITS.undeliveredMs * 10;
-    expect(decideHandover(done)).toBe("hand");
-    expect(decideDelivery(briefing, done, now)).toEqual({
+    expect(decideHandover(done, "turn-boundary")).toBe("hand");
+    expect(decideHandover(done, "explicit-read")).toBe("hand");
+    expect(decideDelivery(briefing, done)).toEqual({
       kind: "hold",
       reason: "labelled-only",
     });
@@ -306,8 +282,8 @@ describe("decideHandover", () => {
     // the message says — and its sender is told it is waiting instead.
     const old = mail({ at: 0 });
     const now = MAIL_LIMITS.undeliveredMs * 10;
-    expect(decideHandover(done)).toBe("hand");
-    expect(decideDelivery(old, done, now)).toEqual({ kind: "wake" });
+    expect(decideHandover(done, "turn-boundary")).toBe("hand");
+    expect(decideDelivery(old, done)).toEqual({ kind: "wake" });
     expect(isOverdue(old, now)).toBe(true);
   });
 

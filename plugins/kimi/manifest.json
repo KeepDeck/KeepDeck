@@ -1,7 +1,7 @@
 {
   "id": "keepdeck.kimi",
   "name": "Kimi Code",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "minApiVersion": 39,
   "category": "cli",
   "description": "Adds the Kimi Code CLI with exact session resume and an optional one-time setup for session persistence.",
@@ -49,6 +49,11 @@
             "id": "execution.yolo",
             "label": "YOLO mode",
             "group": "execution"
+          },
+          {
+            "id": "mail.turn-end",
+            "label": "Mail at the turn boundary",
+            "group": "mail"
           }
         ]
       }

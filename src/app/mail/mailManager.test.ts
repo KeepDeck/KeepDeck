@@ -16,6 +16,15 @@ const approving: PaneActivity = { state: "waiting", since: 1, reason: "permissio
  * when a test just wants the next pass to have run. */
 const PAST_SPACING = 5_000;
 
+/** Comfortably past the manager's re-nudge cadence, for the tests that want
+ * the next nudge to be due.
+ *
+ * Deliberately a local number rather than the manager's own constant: the
+ * cadence is its private business, and a test asserting "longer than that"
+ * keeps meaning what it says when the value is tuned. Raise the cadence past
+ * this and these tests fail loudly, which is the right way round. */
+const PAST_RENUDGE = 60_000;
+
 /** The reply edge on the message with this body, read off the pane it was
  * sent to. Named rather than positional, and loud when it never landed. */
 function edgeOn(
@@ -134,8 +143,8 @@ describe("createMailManager", () => {
 
   it("does not nudge twice within one wait window", () => {
     // The old spacing kept two pastes from landing in one input buffer. The
-    // same clock now paces the nudge: a pane is prodded at most once per
-    // wait window, however many messages pile up behind the one it has not
+    // same cadence now paces the nudge: a pane is prodded at most once per
+    // window, however many messages pile up behind the one it has not
     // answered.
     const h = harness();
     h.reports(B.paneId, done);
@@ -149,7 +158,7 @@ describe("createMailManager", () => {
     });
     expect(second).toMatchObject({ ok: true, delivered: false });
     expect(h.woken).toEqual([B.paneId]);
-    h.advance(MAIL_LIMITS.hookWaitMs);
+    h.advance(PAST_RENUDGE);
     expect(h.woken).toEqual([B.paneId, B.paneId]);
   });
 
@@ -603,55 +612,48 @@ describe("createMailManager", () => {
     expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual(["done"]);
   });
 
-  it("nudges a working pane for something that expects an answer", () => {
-    // The terminal's whole remaining job for an agent that can receive mail
-    // properly. Pushing the message itself is what left a teammate's task
-    // sitting unsent in a composer, indistinguishable from a delivery; a
-    // nudge that fails loses a keystroke and the message is still queued.
-    const h = harness({ asksAtTurnEnd: true });
-    h.reports(B.paneId, { state: "working", since: 500 });
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
-    h.advance(MAIL_LIMITS.hookWaitMs);
-    expect(h.woken).toEqual([B.paneId]);
-    // NOTHING was handed over, and the message is still there for the turn
-    // the nudge is about to start.
-    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
-      "which port?",
-    ]);
-  });
-
-  it("lets a working pane finish, for mail that expects nothing back", () => {
-    // The clock used to apply to every kind, so a pane still working after
-    // the wait fell through to a nudge — into a RUNNING turn, where it lands
-    // in the input queue and fires a turn of its own later. A ten-minute
-    // build collected one of those every 45 seconds, and the message was
-    // dropped at the end anyway.
-    const h = harness({ asksAtTurnEnd: true });
-    h.reports(B.paneId, { state: "working", since: 500 });
-    h.manager.send({ from: A, toPaneId: B.paneId, kind: "note", body: "CI is red on main" });
-    h.advance(MAIL_LIMITS.hookWaitMs * 4);
-    // Drive a pass explicitly, with the clock long past the wait. Relying on
-    // an armed timer would prove nothing: routine mail arms none, so the
-    // assertion would hold even if the rule under test were gone.
-    h.reports(B.paneId, { state: "working", since: 500 });
-    expect(h.woken).toEqual([]);
-    // It is waiting, not lost: the boundary this turn is heading for hands
-    // it over.
-    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([
-      "CI is red on main",
-    ]);
+  it("lets a working pane finish, whatever the message expects", () => {
+    // Mail expecting an answer used to wait 45 seconds and then be typed at
+    // anyway, into a RUNNING turn — where the keystroke joins the CLI's
+    // input queue behind whatever the person was typing and takes their
+    // unsent text with it when it finally submits. A ten-minute build
+    // collected one of those every 45 seconds.
+    //
+    // Both kinds are driven here BECAUSE they are indistinguishable now:
+    // `question` took the impatient path and `note` the patient one, and
+    // asserting them together is what says the split is gone.
+    for (const kind of ["question", "note"] as const) {
+      const h = harness({ asksAtTurnEnd: true });
+      h.reports(B.paneId, { state: "working", since: 500 });
+      h.manager.send({ from: A, toPaneId: B.paneId, kind, body: kind });
+      h.advance(PAST_RENUDGE * 4);
+      // Drive a pass explicitly, with the clock long past any wait the deck
+      // used to keep. Relying on an armed timer would prove nothing: a hold
+      // arms none, so the assertion would hold even if the rule under test
+      // were gone.
+      h.reports(B.paneId, { state: "working", since: 500 });
+      expect(h.woken, kind).toEqual([]);
+      // Waiting, not lost: the boundary this turn is heading for hands it
+      // over.
+      expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual([kind]);
+    }
   });
 
   it("does not queue a second nudge behind one a running turn has not answered yet", () => {
     // A nudge into a running turn is not lost — it is in the CLI's input
     // queue and will fire a turn on its own. Repeating it queues another,
     // and the pane pays for every one when the current turn ends.
-    const h = harness({ asksAtTurnEnd: true });
+    //
+    // On a pane with NO labelled channel, which is the only pane that can
+    // reach this guard now: one that asks at its boundaries is held for the
+    // boundary before the question of nudging comes up at all. Run with the
+    // hook on, this test would pass with the guard deleted.
+    const h = harness();
     h.reports(B.paneId, done);
     h.manager.send({ from: A, toPaneId: B.paneId, kind: "question", body: "which port?" });
     expect(h.woken).toEqual([B.paneId]);
     h.reports(B.paneId, { state: "working", since: 2 });
-    h.advance(MAIL_LIMITS.hookWaitMs * 3);
+    h.advance(PAST_RENUDGE * 3);
     expect(h.woken).toEqual([B.paneId]);
   });
 
@@ -670,7 +672,7 @@ describe("createMailManager", () => {
     expect(h.woken).toEqual([B.paneId]);
     // ...and it IS worth repeating once that long has gone by with nothing
     // collected: the first nudge evidently produced no turn.
-    h.advance(MAIL_LIMITS.hookWaitMs);
+    h.advance(PAST_RENUDGE);
     expect(h.woken).toEqual([B.paneId, B.paneId]);
   });
 

@@ -19,7 +19,13 @@ import {
   normalizeCodexStatus,
   renderCodexMail,
 } from "./status";
-import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
+import { newestRollouts } from "./store";
+import { codexTail } from "./tail";
+import {
+  codexUsageWatches,
+  normalizeCodexRateLimits,
+  normalizeCodexRollout,
+} from "./usage";
 
 /** The `-c` override args arming the reporters — SessionStart identity plus
  * the turn-lifecycle events; `[]` when neither script resolves. All rules
@@ -84,11 +90,14 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
           (event) => ({
             event,
             // `--ask` makes the reporter WAIT for the deck and print its
-            // answer. Only the two turn boundaries can act on one: Stop
-            // blocks and continues, UserPromptSubmit spills extra context
-            // into the turn just opened. PermissionRequest and PostToolUse
-            // read nothing back, and asking there would cost a round trip
-            // per tool call.
+            // answer. Stop blocks and continues; UserPromptSubmit spills
+            // extra context into the turn just opened; PostToolUse does the
+            // same one boundary earlier, while the turn is still running,
+            // which is the only way to reach a working agent without typing
+            // into its terminal. It costs a round trip per TOOL CALL, and
+            // that is the price of the mid-turn channel — the deck answers
+            // in milliseconds when nothing is waiting. PermissionRequest
+            // genuinely reads nothing back.
             command: `/bin/sh ${shellQuote(status)} codex${
               ASKS_FOR_MAIL.has(event) ? " --ask" : ""
             }`,
@@ -145,13 +154,28 @@ const plugin: KeepDeckPlugin = {
       // come from the host's one shared official app-server manager.
       usage: {
         normalize: normalizeCodexRollout,
-        tail: "codex",
+        tail: {
+          watches: codexUsageWatches,
+          // A rollout records the ACCOUNT's limits, so the newest files on
+          // disk are worth reading before any pane exists. Ten because a
+          // just-launched session writes its rollout before its first turn:
+          // the newest file can be empty of limits while the real last word
+          // sits a file or two back.
+          sweep: () => newestRollouts(ctx, 10),
+        },
         limits: {
           poll: "codex-app-server",
           normalize: normalizeCodexRateLimits,
         },
       },
-      status: { normalize: normalizeCodexStatus, renderMail: renderCodexMail },
+      status: {
+        normalize: normalizeCodexStatus,
+        renderMail: renderCodexMail,
+        // What a rollout record means, for the turn edge codex pushes no
+        // hook for. The host reads the `watch` to know what to carry;
+        // `normalize` applies the `read` to what arrives.
+        tail: codexTail(ctx) as never,
+      },
       history: codexHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {

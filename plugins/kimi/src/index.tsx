@@ -18,7 +18,11 @@ import {
 } from "./setupController";
 import { createSetupSection } from "./SetupSection";
 import { normalizeKimiStatus, renderKimiMail } from "./status";
-import { normalizeKimiUsages, normalizeKimiWire } from "./usage";
+import {
+  kimiUsageWatches,
+  normalizeKimiUsages,
+  normalizeKimiWire,
+} from "./usage";
 
 let activeController: ReturnType<typeof createKimiSetupController> | null = null;
 
@@ -67,7 +71,7 @@ const plugin: KeepDeckPlugin = {
       // behind the polled usages endpoint (kimi's own /usage queries it too).
       usage: {
         normalize: normalizeKimiWire,
-        tail: "kimi-wire",
+        tail: { watches: kimiUsageWatches },
         limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
       },
       // Turn lifecycle from the companion's hooks — the fullest surface of

@@ -8,6 +8,7 @@
  * Everything here is plain data in and plain data out, so a normalizer runs
  * identically in-process or across the external tier's RPC boundary.
  */
+import { CARRIED_RECORD, type TailWatch } from "./sessionTail.ts";
 
 /** One provider rate-limit window, normalized across CLIs. Labels derive
  * from `windowMinutes` — NEVER from field position: codex plans disagree
@@ -104,8 +105,57 @@ export type UsageNormalizer = (
  * account state, or null when unreadable. */
 export type LimitsNormalizer = (body: string, at: number) => AccountUsage | null;
 
-/** Session-file dialects the host's native tailer speaks. */
-export type UsageTailFormat = "claude" | "codex" | "kimi-wire";
+/**
+ * How the host's native tailer reads this agent's session store for the
+ * numbers.
+ *
+ * This used to be the NAME of a dialect — "claude", "codex", "kimi-wire" —
+ * and the reader held an arm per name: which lines carry counts, which
+ * fields to trim them down to, how to add them up. Three agents' formats,
+ * written into the side that was supposed to know none of them, where every
+ * new file-fed CLI meant another arm and every CLI that changed its store
+ * meant a change to the host.
+ *
+ * What replaces it is the same descriptor the status lane already uses. The
+ * plugin says which records carry counts and what to keep of them; the
+ * reader compares keys and copies fields. Nothing here names an agent.
+ */
+export interface UsageTail {
+  /** Which records carry this agent's numbers, and what a total over them
+   * is made of. Every watch here rides the usage lane. */
+  readonly watches: readonly TailWatch[];
+
+  /**
+   * A directory of files that contribute to the SAME session as the store
+   * being followed, or null when this agent keeps its session in one file.
+   *
+   * Claude writes a subagent's turns to `<transcript>/subagents/*.jsonl`,
+   * and those rows are the session's cost as much as the root file's — but
+   * the rule that turns one path into the other is claude's. The host used
+   * to hold it, which meant every pane of every agent paid a directory read
+   * per poll for a convention only one of them has.
+   *
+   * Given the store's path, answer with a directory. The host lists it each
+   * poll rather than once, because the files appear as subagents start —
+   * long after the tail was armed.
+   */
+  siblings?(store: string): string | null;
+
+  /**
+   * Stores worth reading cold at startup, newest first, when this agent's
+   * store records the ACCOUNT's state.
+   *
+   * The boot catch-up: an agent that also runs outside KeepDeck can have
+   * spent quota the deck never saw, so its own files can know fresher limits
+   * than a persisted snapshot. The host reads these one at a time until a
+   * normalizer makes an account claim, then stops — so answer with a bounded
+   * list, and put the likeliest first.
+   *
+   * Omit unless the store really carries account state; a per-pane token
+   * count is worth nothing before any pane exists.
+   */
+  sweep?(): Promise<readonly string[]>;
+}
 
 /** Native polled limit sources the host offers. */
 export type UsageLimitsSource = "codex-app-server" | "kimi-usages";
@@ -129,9 +179,9 @@ export interface AgentUsage {
   /** Normalize this agent's bridge usage payloads (statusLine reports,
    * tailed session-file events — whatever its reporters emit). */
   normalize: UsageNormalizer;
-  /** Follow the session file named by this agent's bindings with the given
-   * dialect (the binding's transcriptPath is the file). */
-  tail?: UsageTailFormat;
+  /** Follow the session file named by this agent's bindings (the binding's
+   * transcriptPath is the file), carrying the records this declares. */
+  tail?: UsageTail;
   /** Account limits live behind a native source: the host fetches the named
    * source on a slow interval while one of this agent's panes is live; the
    * plugin reads the opaque body. */
@@ -141,6 +191,56 @@ export interface AgentUsage {
 /* ---- Authoring helpers ----------------------------------------------- *
  * The tolerant-reading idiom every normalizer shares: never throw, drop
  * what doesn't parse, keep the rest. */
+
+/**
+ * Everything one agent asked to have carried out of its store, in the order
+ * the reader must try it.
+ *
+ * An agent declares its watches in TWO places, because they answer to two
+ * different halves of its contribution: the records that carry its numbers
+ * belong to the usage contract, the ones that carry its turn edges to the
+ * status contract. Merging them is a THIRD decision, and it lives here
+ * rather than at the call site because order is load-bearing twice over and
+ * a rule that lives in a comment beside one caller is a rule the next caller
+ * will not know about:
+ *
+ * - the FIRST watch to match a record carries it, so whichever list goes
+ *   first can silently take a record the other one was written for;
+ * - the usage watches' own order is the CATCH-UP order — what qualifies the
+ *   numbers has to land before the numbers.
+ *
+ * Usage first, therefore, and the numbers keep their declared order. A
+ * plugin that wants one record read two ways says so in its dialect's
+ * `read`, where saying so is cheap.
+ */
+export function tailWatches(
+  usage: UsageTail | undefined,
+  status: { readonly watches: readonly TailWatch[] } | undefined,
+): readonly TailWatch[] {
+  return [...(usage?.watches ?? []), ...(status?.watches ?? [])];
+}
+
+/**
+ * The fields a usage watch carried, out of one tailer report — or null when
+ * this report is not a carried record at all.
+ *
+ * A normalizer's first move, and the reason it is here rather than repeated
+ * in each plugin: the envelope around a carried record is the HOST's
+ * transport, so a plugin that reached into it by hand would be reading a
+ * shape it does not own, in as many copies as there are agents.
+ *
+ * What comes back is flat, and its keys are the ones the watch named — a
+ * dotted `keep` arrives as a dotted KEY, not as rebuilt nesting, so
+ * `message.usage.output_tokens` is read under exactly that name.
+ */
+export function carriedUsageRecord(
+  payload: unknown,
+): Record<string, unknown> | null {
+  if (!isJsonRecord(payload)) return null;
+  const event = payload.event;
+  if (!isJsonRecord(event) || event.type !== CARRIED_RECORD) return null;
+  return isJsonRecord(event.record) ? event.record : null;
+}
 
 /** Whether `value` is a plain JSON object: not null, not an array. */
 export function isJsonRecord(value: unknown): value is Record<string, unknown> {

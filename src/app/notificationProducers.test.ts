@@ -513,13 +513,22 @@ describe("claude background agents, replayed end to end", () => {
     hook({ hook_event_name: "Stop", background_tasks: [runningSubagent] }, 200);
     expect(activity()).toEqual({ state: "working", since: 100 });
 
-    // Esc pushes no hook — the edge comes from the transcript tailer, which
-    // polls, so it is stamped with the MARKER's own time rather than
-    // receipt. Parking makes the phase arbitrarily long, so this is the
+    // Esc pushes no hook — the edge comes out of the transcript, carried by
+    // the record claude's own dialect asked for and read by that dialect. It
+    // is stamped with the RECORD's time rather than receipt, because the
+    // tail polls. Parking makes the phase arbitrarily long, so this is the
     // stale-marker surface the guard has to hold open across.
     tracker.report(
       "pane-1",
-      { agent: "claude", kind: "session.interrupt", sourceMtimeMs: 300 },
+      {
+        agent: "claude",
+        kind: "store.record",
+        record: {
+          type: "user",
+          interruptedMessageId: "msg_1",
+          timestamp: new Date(300).toISOString(),
+        },
+      },
       350,
     );
     expect(activity()).toEqual({ state: "done", at: 300, interrupted: true });

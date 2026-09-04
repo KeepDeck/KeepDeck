@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { TailWatch } from "@keepdeck/plugin-api";
 
 /**
  * Usage-report events: a pane's agent process reports rate-limit windows,
@@ -28,16 +29,37 @@ export function onUsageReport(
   );
 }
 
-/** Follow a pane's session file in the given dialect (Claude transcript,
- * Codex rollout, or Kimi wire); usage events arrive as reports carrying `token`.
- * Idempotent per pane — a rebind replaces the old tail. */
+/** Follow a pane's session file; its records arrive as reports carrying
+ * `token`. Idempotent per pane — a rebind replaces the old tail. */
 export function watchSessionFile(
   paneId: string,
   path: string,
   token: string,
-  format: "claude" | "codex" | "kimi-wire",
+  /** The agent whose pane this is. Reports ride under it, and it is passed
+   * from HERE because this is the side that knows which pane belongs to
+   * which plugin — the backend has no way to tell and no business guessing. */
+  agent: string,
+  /** The pane's agent's own declaration of which records to carry out of its
+   * store — both lanes of it, the numbers and the turn edges. The backend
+   * applies these without reading them: it compares the keys it is given and
+   * copies the ones it is named. An empty list carries NOTHING; there are no
+   * readings of the host's own left behind them. */
+  watches?: readonly TailWatch[],
+  /** A directory of files contributing to the same session, when the agent's
+   * dialect named one. Listed each poll: the files appear as the work that
+   * writes them starts. */
+  siblings?: string | null,
 ): Promise<void> {
-  return invoke("usage_watch_session_file", { paneId, path, token, format });
+  return invoke("usage_watch_session_file", {
+    paneId,
+    tail: {
+      path,
+      token,
+      agent,
+      watches: watches ?? [],
+      siblings: siblings ?? null,
+    },
+  });
 }
 
 /** Stop following a pane's session file (pane closed / workspace gone). */
@@ -66,29 +88,39 @@ export function fetchCodexRateLimits(): Promise<CodexRateLimitsRead> {
   return invoke("codex_rate_limits_read");
 }
 
-/** Resolve a codex session's rollout path by its recorded id — the fallback
- * for TUI resumes, where codex fires no SessionStart hook and no binding
- * carries the path (observed on 0.144.5). */
-export function findCodexRollout(sessionId: string): Promise<string | null> {
-  return invoke("usage_find_codex_rollout", { sessionId });
+// Resolving a codex session's rollout used to live here, as a host command
+// that knew the CLI's day-partitioned tree and its filename shape. It went
+// home: the agent's own plugin already walked that tree for its history
+// browser, and a store's layout is the agent's to know. What the host asks
+// now is the dialect — see `SessionTailDialect.follow`.
+
+/** One record a cold read carried, with the instant it claims for itself. */
+export interface ColdRecord {
+  event: unknown;
+  /** The record's own ISO time or unix milliseconds when it carries one;
+   * the file's mtime otherwise. */
+  sourceAt?: string | number;
 }
 
-/** Mirrors the Rust `LatestRollout`: the newest on-disk usage event, its
- * source time when available, and the file-mtime fallback. */
-export interface LatestCodexRollout {
-  event: unknown;
-  /** Event ISO time when Codex provided it; file mtime milliseconds
-   * otherwise. Optional only for compatibility with older hosts. */
-  sourceAt?: string | number;
+/** What one cold read found, and how old the file it came from is. */
+export interface ColdRead {
+  records: ColdRecord[];
   mtimeMs: number;
 }
 
-/** The newest usage event across ALL codex rollouts on disk — the boot
- * catch-up. Codex runs outside KeepDeck too, so its sessions dir can know
- * fresher limits than our persisted snapshot. Null when no rollout carries
- * usage (or codex was never used). */
-export function latestCodexRollout(): Promise<LatestCodexRollout | null> {
-  return invoke("usage_latest_codex_rollout");
+/** Read one store ONCE, from the beginning, with nobody following it — the
+ * boot catch-up over a file this deck never watched being written.
+ *
+ * The answer is the same collapse a live arming produces, so one normalizer
+ * reads a cold store and a live one without being told which. Null when the
+ * file carries nothing the declaration asked for, which is how a caller
+ * knows to try the next candidate. WHICH files are candidates is the agent's
+ * to say — see `UsageTail.sweep`. */
+export function readStoreCold(
+  path: string,
+  watches: readonly TailWatch[],
+): Promise<ColdRead | null> {
+  return invoke("usage_read_store_cold", { path, watches });
 }
 
 /** The persisted usage snapshot (last-known account windows), or null on

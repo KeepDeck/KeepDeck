@@ -1,4 +1,4 @@
-import type { AgentUsage } from "@keepdeck/plugin-api";
+import type { AgentUsage, SessionTailDialect } from "@keepdeck/plugin-api";
 import type { DeckStore } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import type { SessionBinding } from "./sessionBinding";
@@ -25,4 +25,10 @@ export interface UsageLaneContext {
   declarations: UsageDeclarations;
   /** The runtime's usage store — every lane writes through this value. */
   usage: UsageManager;
+  /** The agent's own dialect for its live store, when its plugin declared
+   * one. Two things come from it and nothing else does: WHICH store to
+   * follow, which the dialect may have to go and find, and WHAT to carry out
+   * of it, which is handed to the follower verbatim and applied without
+   * being read. Absent for an agent whose plugin has not declared one. */
+  tailOf(agentId: string): SessionTailDialect<never, never> | undefined;
 }

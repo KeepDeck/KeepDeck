@@ -3,9 +3,11 @@ import {
   asCount,
   asFiniteNumber,
   asNonEmptyString,
+  carriedUsageRecord,
   collectTokenCounts,
   isJsonRecord,
   type LimitsNormalizer,
+  type TailWatch,
   type TokenCounts,
   type UsageNormalizer,
   type UsageWindow,
@@ -29,6 +31,46 @@ import {
  *   pane is live; [`normalizeKimiUsages`] reads the response document.
  */
 
+/**
+ * Which wire records carry the numbers, and what a session total is made of.
+ *
+ * `llm.request` is declared FIRST because declaration order is the catch-up
+ * order — the window size has to land before the counts measured against it.
+ * It is also the record that must be trimmed hardest: the full event carries
+ * the prompt, and naming three scalars is what keeps a conversation inside
+ * the store rather than a rule anyone has to remember.
+ *
+ * The sum has no `dedupBy`: kimi writes one record per request and repeats
+ * nothing, so every row is its own event and simply adds. Buckets stay
+ * separate — `inputCacheRead` is the re-read context prefix, and folding it
+ * into fresh input would report a session as having spent what it re-sent.
+ */
+export const kimiUsageWatches: readonly TailWatch[] = [
+  {
+    match: [{ key: "type", equals: "llm.request" }],
+    // `modelAlias` is the name kimi SHOWS ("kimi-code/k3-256k") and the one
+    // `usage.record` reports; `model` is the bare id. Both travel, so one
+    // pane cannot label the same model two ways depending on which record
+    // arrived last.
+    keep: ["type", "model", "modelAlias", "maxTokens"],
+    lane: "usage",
+  },
+  {
+    match: [{ key: "type", equals: "usage.record" }],
+    keep: ["type", "model", "usage", "usageScope"],
+    lane: "usage",
+    sum: {
+      buckets: {
+        inputOther: "usage.inputOther",
+        output: "usage.output",
+        inputCacheRead: "usage.inputCacheRead",
+        inputCacheCreation: "usage.inputCacheCreation",
+      },
+      stampAs: "sessionTotals",
+    },
+  },
+];
+
 /** A kimi token bag ({inputOther, output, inputCacheRead, inputCacheCreation})
  * → normalized counts. The per-request `usage` and the host tailer's cumulative
  * `sessionTotals` share this exact shape (the latter is the former summed), so
@@ -46,9 +88,8 @@ function tokens(bag: Record<string, unknown> | undefined): TokenCounts | undefin
 }
 
 export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
-  if (!isJsonRecord(payload)) return null;
-  const event = payload.event;
-  if (!isJsonRecord(event)) return null;
+  const event = carriedUsageRecord(payload);
+  if (!event) return null;
 
   if (event.type === "llm.request") {
     // `model` is the bare id ("k3-256k"); `modelAlias` is the name kimi
@@ -78,17 +119,33 @@ export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
   const input = usage ? asFiniteNumber(usage.inputOther) : undefined;
   const cacheRead = usage ? asFiniteNumber(usage.inputCacheRead) : undefined;
   const cacheWrite = usage ? asFiniteNumber(usage.inputCacheCreation) : undefined;
-  const lastTurnTokens = tokens(usage);
+
+  // A record kimi scopes to the SESSION rather than to a turn is not a turn:
+  // it is a request the session made on its own behalf, and the one that
+  // exists is compaction — the wire brackets it between
+  // `full_compaction.begin` and `full_compaction.complete`.
+  //
+  // Its COST is real and counts, which is why the fold takes every record.
+  // Its input is not the context: it is the context that was just thrown
+  // away. Read as a turn, it puts the pre-compaction size on the gauge at
+  // the exact moment the context emptied — measured on three sessions, 305k
+  // shown against a real 39k, 242k against 35k, and 213k against 2k — and it
+  // stands there until the next real turn. So the numbers ride, and the
+  // reading of them as "this turn" and "what is in the window" does not.
+  const perTurn = event.usageScope !== "session";
+  const lastTurnTokens = perTurn ? tokens(usage) : undefined;
   // The request's full input (fresh + cache read + cache write) is what
   // occupies the context; the window size arrives via llm.request.
   const occupied =
-    input !== undefined || cacheRead !== undefined || cacheWrite !== undefined
+    perTurn &&
+    (input !== undefined || cacheRead !== undefined || cacheWrite !== undefined)
       ? (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)
       : undefined;
 
-  // The host tailer stamps a running SESSION cumulative onto each record —
-  // kimi itself carries no per-session total. Buckets are summed separately
-  // (inputCacheRead, the re-read prefix, stays out of fresh input).
+  // The host tailer stamps the running SESSION cumulative its dialect asked
+  // for onto each record — kimi itself carries no per-session total. Buckets
+  // are summed separately (inputCacheRead, the re-read prefix, stays out of
+  // fresh input).
   const totals = isJsonRecord(event.sessionTotals) ? event.sessionTotals : undefined;
   const totalTokens = tokens(totals);
 

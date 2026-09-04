@@ -1,7 +1,7 @@
 {
   "id": "keepdeck.claude",
   "name": "Claude Code",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "minApiVersion": 39,
   "category": "cli",
   "description": "Teaches KeepDeck the Claude Code CLI: catalog identity and detection; spawn, resume and session identity move in next.",
@@ -47,6 +47,16 @@
             "id": "execution.yolo",
             "label": "YOLO mode",
             "group": "execution"
+          },
+          {
+            "id": "mail.turn-end",
+            "label": "Mail at the turn boundary",
+            "group": "mail"
+          },
+          {
+            "id": "mail.mid-turn",
+            "label": "Mail while the agent is working",
+            "group": "mail"
           }
         ]
       }

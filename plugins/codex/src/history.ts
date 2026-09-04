@@ -10,13 +10,15 @@ import {
   type ReadScope,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
+import { FILE_UUID, ROOT } from "./store";
 
 /**
  * Discovery over codex's store ([F8] browser): date-partitioned rollouts at
  * `~/.codex/sessions/YYYY/MM/DD/rollout-<stamp>-<uuid>.jsonl`; the first
  * line's `session_meta` payload carries the id and cwd. Read-only via `fs`.
  */
-const ROOT = "~/.codex/sessions";
+// The store's shape lives in ./store, so the browser, the live tail and
+// anything else that has to find a rollout read one description of it.
 
 /** The log line needs a string; whatever the fs layer threw becomes one. */
 function errOf(e: unknown): string {
@@ -72,7 +74,6 @@ const dialect: SessionDialect<CodexState, CodexRecord> = {
   end: () => [],
 };
 
-const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
 
 export function codexHistory(ctx: PluginContext): AgentHistory {
   /** One reading of ONE rollout. (`walk`/`walkPartial` below are a different

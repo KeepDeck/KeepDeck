@@ -359,22 +359,23 @@ describe("teamNamesIn", () => {
 });
 
 describe("teamBriefing", () => {
-  it("says what choosing a kind costs a teammate", () => {
+  it("says what choosing a kind means for a teammate", () => {
     // The briefing is the only text always in context — a tool's own
     // description is not loaded until the agent has decided the tool is
-    // worth loading — so the fact that spends somebody else's turn is said
-    // here, and derived from the predicate that enforces it rather than
-    // written out beside it.
+    // worth loading — so what a kind decides is said here, and derived from
+    // the predicate that enforces it rather than written out beside it.
     const text = teamBriefing("api", "lead", ["lead", "impl-1"]);
     for (const kind of SENDABLE_KINDS) expect(text).toContain(kind);
     // The sides are the predicate's, not a copy of it.
-    const interrupting = SENDABLE_KINDS.filter(awaitsAnswer).join(" and ");
-    expect(text).toContain(`${interrupting} interrupt it`);
-    // And the condition is stated. Without it the sentence promised that
-    // notes are free, when an IDLE teammate — the ordinary state between
-    // tasks — is roused by any kind, since it will reach no boundary alone.
-    expect(text).toContain("while a teammate is working");
-    expect(text).toContain("idle is roused for any of them");
+    const asking = SENDABLE_KINDS.filter(awaitsAnswer).join(" and ");
+    expect(text).toContain(`${asking} expect something back`);
+    // And timing is stated, uniformly. Left unsaid, a sender picking a kind
+    // reads an effect into the choice — which is what the sentence this
+    // replaced promised outright, long after delivery stopped reading the
+    // kind at all.
+    expect(text).toContain("When it lands is not part of the choice");
+    expect(text).toContain("idle is roused");
+    expect(text).not.toContain("interrupt");
   });
 
   it("tells the holder what its OWN role is for", () => {
@@ -419,9 +420,9 @@ describe("teamBriefing", () => {
     expect(text).toContain("not as an order");
     expect(text).not.toContain("task");
     expect(text).not.toContain("lead");
-    // One kind is left on the interrupting side, and its verb agrees —
-    // "question interrupt it" read as a typo in every flat briefing.
-    expect(text).toContain("question interrupts it and costs it a turn");
+    // One kind is left on the asking side, and its verb agrees — "question
+    // expect something back" read as a typo in every flat briefing.
+    expect(text).toContain("question expects something back");
     for (const line of roleById("peer")!.charter) {
       expect(text).toContain(line);
     }

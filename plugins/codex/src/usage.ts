@@ -3,23 +3,57 @@ import {
   asCount,
   asFiniteNumber,
   asNonEmptyString,
+  carriedUsageRecord,
   clampPercent,
   collectTokenCounts,
   isJsonRecord,
   type AccountUsage,
   type LimitsNormalizer,
   type PaneUsage,
+  type TailWatch,
   type TokenCounts,
   type UsageNormalizer,
   type UsageWindow,
 } from "@keepdeck/plugin-api";
 
 /**
- * Codex usage normalizer — this plugin owns the rollout-event schema the
- * host's tailer forwards: `{agent:"codex", event}` where event is a
- * `token_count` (windows + tokens) or a `turn_context` (model). The store
- * merges the two — neither may erase the other.
+ * Codex usage normalizer — this plugin owns the rollout-record schema, both
+ * halves of it: which records carry the numbers (declared below) and what
+ * they mean. A `token_count` brings windows and tokens, a `turn_context`
+ * the model. The store merges the two — neither may erase the other.
  */
+
+/**
+ * Which rollout records carry the numbers.
+ *
+ * The context record is declared FIRST because declaration order is the
+ * catch-up order: on arming, the host keeps the last record of each watch
+ * and delivers them in this order, so the model and its window land before
+ * the counts they qualify.
+ *
+ * No `sum`. Codex keeps a running cumulative of its own inside
+ * `total_token_usage`, and a total folded on top of a total would double
+ * everything the session has spent.
+ *
+ * `token_count` is matched one level down, on `payload.type`: its class
+ * (`event_msg`) also carries the assistant's own text, and matching the
+ * class alone would put a session's output on the bus to learn one number.
+ */
+export const codexUsageWatches: readonly TailWatch[] = [
+  {
+    match: [{ key: "type", equals: "turn_context" }],
+    keep: ["type", "payload.model", "payload.effort"],
+    lane: "usage",
+  },
+  {
+    match: [
+      { key: "type", equals: "event_msg" },
+      { key: "payload.type", equals: "token_count" },
+    ],
+    keep: ["payload"],
+    lane: "usage",
+  },
+];
 
 /** One rate_limits window ({used_percent, window_minutes, resets_at
  * seconds}) → normalized, or null when the shape is off. */
@@ -179,14 +213,15 @@ function contextUsedPct(inContext: number, contextWindow: number): number {
  * here: a signed-out codex simply produces no rollout events.
  */
 export const normalizeCodexRollout: UsageNormalizer = (payload, at) => {
-  if (!isJsonRecord(payload)) return null;
-  const event = payload.event;
-  if (!isJsonRecord(event)) return null;
+  const record = carriedUsageRecord(payload);
+  if (!record) return null;
 
-  if (event.type === "turn_context") {
-    const model = asNonEmptyString(event.model);
+  if (record.type === "turn_context") {
+    // A dotted `keep` arrives as a dotted KEY — what was asked for, under
+    // the name it was asked for.
+    const model = asNonEmptyString(record["payload.model"]);
     if (!model) return { account: null, pane: null };
-    const effort = asNonEmptyString(event.effort);
+    const effort = asNonEmptyString(record["payload.effort"]);
     return {
       account: null,
       pane: {
@@ -196,7 +231,8 @@ export const normalizeCodexRollout: UsageNormalizer = (payload, at) => {
       },
     };
   }
-  if (event.type !== "token_count") return null;
+  const event = isJsonRecord(record.payload) ? record.payload : undefined;
+  if (!event || event.type !== "token_count") return null;
 
   let account: AccountUsage | null = null;
   const limits = isJsonRecord(event.rate_limits) ? event.rate_limits : undefined;

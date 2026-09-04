@@ -6,6 +6,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
 import { ASKS_FOR_MAIL, renderClaudeMail } from "./status";
+import { claudeUsageWatches } from "./usage";
 
 /** Activate against a minimal fake ctx; returns the registered agent.
  * `resources` maps script name → resolved path (missing name = null), so a
@@ -81,12 +82,12 @@ describe("claude plugin hooks", () => {
     // stale extra would be read as one — the reporter is silent on failure,
     // so a broken command stops status with no error anywhere.
     const command = "/bin/sh '/App/resources/kd-status-hook.sh' claude";
-    // Two of them ask as well as report. `--ask` makes the reporter wait
-    // for the deck's answer and print it, which only a turn boundary can
-    // act on — Stop can be blocked to hand mail over without a fresh wake,
-    // and UserPromptSubmit can append to the turn just opened. Arming it
-    // anywhere else would buy a round trip per tool call for an answer that
-    // event cannot use.
+    // Some of them ask as well as report. `--ask` makes the reporter wait
+    // for the deck's answer and print it — Stop can be blocked to hand mail
+    // over without a fresh wake, UserPromptSubmit can append to the turn
+    // just opened, and PostToolBatch takes the same block one boundary
+    // earlier, while the turn is still running. Arming it on the rest would
+    // buy a round trip per TOOL CALL for an answer that event cannot use.
     const asking = `${command} --ask`;
     // SessionStart asks too, on the STATUS reporter: a freshly spawned
     // agent has no turn and reports nothing, so this is the only moment its
@@ -107,6 +108,11 @@ describe("claude plugin hooks", () => {
     // produces — it runs through no turn — so without it a pane that
     // recorded a failure can never stop being red when the user rebuilds
     // its context. Losing any one is a silent hole in the lane.
+    //
+    // PostToolBatch is the exception to that sentence: it closes no hole in
+    // the lane and reports no edge the other nine lack. It is armed for MAIL
+    // alone — the one moment a running turn can be reached without a
+    // keystroke — which is why it appears here and never in the normalizer.
     const armed = [
       "UserPromptSubmit",
       "Stop",
@@ -114,6 +120,7 @@ describe("claude plugin hooks", () => {
       "Notification",
       "PostToolUse",
       "PostToolUseFailure",
+      "PostToolBatch",
       "SubagentStart",
       "SubagentStop",
       "SessionStart",
@@ -293,7 +300,13 @@ describe("claude plugin hooks", () => {
 
 describe("claude plugin identity", () => {
   it("declares the Claude transcript usage tail", () => {
-    expect(activate(null).usage?.tail).toBe("claude");
+    const tail = activate(null).usage?.tail;
+    // Which records carry the numbers, and where the same session's other
+    // files are. The host reads neither — it applies them.
+    expect(tail?.watches).toEqual(claudeUsageWatches);
+    expect(tail?.siblings?.("/p/session-1.jsonl")).toBe(
+      "/p/session-1/subagents",
+    );
   });
 
   it("ships the brand mark in Anthropic's tint", () => {

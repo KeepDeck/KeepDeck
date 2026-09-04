@@ -43,7 +43,22 @@ describe("renderCodexMail", () => {
     // Printing on these leaves a history cell in codex's transcript for no
     // effect at all.
     expect(render("PermissionRequest")).toBeNull();
-    expect(render("PostToolUse")).toBeNull();
+  });
+
+  it("reaches a RUNNING turn through PostToolUse", () => {
+    // The mid-turn door, and the point of the whole feature: a person can
+    // correct a working agent through mail instead of typing over their own
+    // half-written message.
+    //
+    // This event used to be refused here, on the belief that it read nothing
+    // back. codex's own generated schema for it allows exactly this pair,
+    // and its source calls what comes back "model-facing hook feedback".
+    expect(JSON.parse(render("PostToolUse") ?? "null")).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PostToolUse",
+        additionalContext: expect.stringContaining("take the parser"),
+      },
+    });
   });
 
   it("speaks the pre-0.147 schema to a pre-0.147 install", () => {
@@ -92,33 +107,37 @@ describe("normalizeCodexStatus", () => {
     ).toEqual({ kind: "waiting", at: 300, reason: "permission" });
   });
 
-  it("maps every abort marker to interrupted, at its own time", () => {
-    expect(
-      normalizeCodexStatus(
-        {
-          agent: "codex",
-          kind: "session.interrupt",
-          reason: "interrupted",
-          sourceAt: "2026-08-01T10:00:00Z",
-        },
-        400,
-      ),
-    ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-01T10:00:00Z") });
+  it("reads the carried rollout record itself, not the host's word for it", () => {
+    // The host carried this because THIS plugin's watch named it — two
+    // clauses, one of them a level down — and copied two fields. What it
+    // means is decided here.
+    const carried = (extra: Record<string, unknown> = {}) => ({
+      agent: "codex",
+      kind: "store.record",
+      record: {
+        timestamp: "2026-08-01T10:00:00Z",
+        "payload.type": "turn_aborted",
+        ...extra,
+      },
+    });
+    expect(normalizeCodexStatus(carried(), 400)).toEqual({
+      kind: "interrupted",
+      at: Date.parse("2026-08-01T10:00:00Z"),
+    });
+
     // A non-Esc abort did not COMPLETE either — "Done" would announce a
-    // finish nobody got; the quiet "Interrupted" is the smaller lie.
+    // finish nobody got; the quiet "Interrupted" is the smaller lie. The
+    // reason is not even carried now, because every one reads the same.
     expect(
-      normalizeCodexStatus(
-        { agent: "codex", kind: "session.interrupt", reason: "budget_exceeded" },
-        400,
-      ),
-    ).toEqual({ kind: "interrupted", at: 400 });
-    // No usable source time falls back to receipt.
+      normalizeCodexStatus(carried({ "payload.reason": "budget_exceeded" }), 400),
+    ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-01T10:00:00Z") });
+
+    // No usable time is no edge: the guard places this instant against the
+    // turn it would end, and one it cannot place would end a running turn.
     expect(
-      normalizeCodexStatus(
-        { agent: "codex", kind: "session.interrupt", reason: "interrupted" },
-        400,
-      ),
-    ).toEqual({ kind: "interrupted", at: 400 });
+      normalizeCodexStatus(carried({ timestamp: "not a date" }), 400),
+    ).toBeNull();
+    expect(normalizeCodexStatus({ agent: "codex", kind: "store.record" }, 400)).toBeNull();
   });
 
   it("drops untracked events and garbage", () => {
@@ -149,7 +168,7 @@ describe("the armed events and the renderer agree", () => {
         `${event} is armed to ask but renders nothing`,
       ).not.toBeNull();
     }
-    for (const event of ["PermissionRequest", "PostToolUse"]) {
+    for (const event of ["PermissionRequest"]) {
       expect(
         renderCodexMail({
           event: { hook_event_name: event },
@@ -159,5 +178,16 @@ describe("the armed events and the renderer agree", () => {
         `${event} renders mail but is not armed to ask`,
       ).toBeNull();
     }
+    // The RETIRED schema carries the mid-turn event no further than the
+    // boundary ones it already knew: whether it could was never measured,
+    // and inventing a shape there is refused wholesale by codex and printed
+    // into the pane. An install that old keeps its mail for a turn boundary.
+    expect(
+      renderCodexMail({
+        event: { hook_event_name: "PostToolUse" },
+        messages,
+        cliVersion: "0.146.0",
+      }),
+    ).toBeNull();
   });
 });

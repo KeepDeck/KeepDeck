@@ -15,10 +15,16 @@ import type { CommandSource } from "../commands";
  * What the message is FOR.
  *
  * Not decoration: it is the one hint the receiving agent gets about whether
- * this interrupts (`task`, `question`) or merely informs (`note`), and
- * `answer` is what closes a question the receiver itself asked. A union
- * rather than a free string so a new kind is a compile error at every site
- * that branches on it.
+ * somebody is left waiting on it — `task` and `question` expect something
+ * back ([`awaitsAnswer`]) while `note` merely informs, and `answer` is what
+ * closes a question the receiver itself asked. A union rather than a free
+ * string so a new kind is a compile error at every site that branches on it.
+ *
+ * It decides nothing about WHEN a message reaches a pane. It used to, and
+ * every surface that told an agent so had to be found by hand — this one,
+ * the briefing, the tool description, a plugin's static skill — which is why
+ * the sentence agents read is composed from [`awaitsAnswer`] rather than
+ * written out anywhere.
  */
 export type MailKind =
   | "task"

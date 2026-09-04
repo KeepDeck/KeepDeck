@@ -1,0 +1,218 @@
+{
+  "$comment": [
+    "The descriptor language, pinned once for both sides that read it.",
+    "",
+    "A watch is written by a plugin in TypeScript and applied by the host in",
+    "Rust, so the SEMANTICS live twice — and nothing but this file binds the",
+    "two. The risk is not a typo: it is one side quietly growing a rule (a",
+    "trim, a coercion, a looser notion of presence) that the other never",
+    "hears about. The same watch would then carry different records depending",
+    "on which reader saw it, and the divergence is invisible until somebody",
+    "reports a number that stopped arriving.",
+    "",
+    "Each case names a record, the watches offered, and what must come out:",
+    "`carried: null` for nothing, or the winning watch's index and the exact",
+    "projection. Both suites read THIS file — a case added here is a case",
+    "both must pass.",
+    "",
+    "`lane` is fixed at \"usage\" throughout: it decides where a carried record",
+    "goes, never whether it is carried, and routing is tested at the router."
+  ],
+  "cases": [
+    {
+      "name": "equality matches on a top-level field",
+      "watches": [
+        { "match": [{ "key": "type", "equals": "assistant" }], "keep": ["type"], "lane": "usage" }
+      ],
+      "record": { "type": "assistant", "other": 1 },
+      "carried": { "watch": 0, "record": { "type": "assistant" } }
+    },
+    {
+      "name": "equality refuses a different value",
+      "watches": [
+        { "match": [{ "key": "type", "equals": "assistant" }], "keep": ["type"], "lane": "usage" }
+      ],
+      "record": { "type": "user" },
+      "carried": null
+    },
+    {
+      "name": "equality refuses a non-string of the same shape",
+      "watches": [
+        { "match": [{ "key": "type", "equals": "7" }], "keep": ["type"], "lane": "usage" }
+      ],
+      "record": { "type": 7 },
+      "carried": null
+    },
+    {
+      "name": "presence accepts a non-empty string",
+      "watches": [
+        { "match": [{ "key": "id" }], "keep": ["id"], "lane": "usage" }
+      ],
+      "record": { "id": "msg_1" },
+      "carried": { "watch": 0, "record": { "id": "msg_1" } }
+    },
+    {
+      "name": "presence refuses an absent key",
+      "watches": [
+        { "match": [{ "key": "id" }], "keep": ["id"], "lane": "usage" }
+      ],
+      "record": { "other": "msg_1" },
+      "carried": null
+    },
+    {
+      "name": "presence refuses null",
+      "watches": [
+        { "match": [{ "key": "id" }], "keep": ["id"], "lane": "usage" }
+      ],
+      "record": { "id": null },
+      "carried": null
+    },
+    {
+      "name": "presence refuses an empty string — several stores spell 'no value' that way",
+      "watches": [
+        { "match": [{ "key": "id" }], "keep": ["id"], "lane": "usage" }
+      ],
+      "record": { "id": "" },
+      "carried": null
+    },
+    {
+      "name": "presence accepts zero — a number is a value, not a blank",
+      "watches": [
+        { "match": [{ "key": "count" }], "keep": ["count"], "lane": "usage" }
+      ],
+      "record": { "count": 0 },
+      "carried": { "watch": 0, "record": { "count": 0 } }
+    },
+    {
+      "name": "presence accepts false",
+      "watches": [
+        { "match": [{ "key": "flag" }], "keep": ["flag"], "lane": "usage" }
+      ],
+      "record": { "flag": false },
+      "carried": { "watch": 0, "record": { "flag": false } }
+    },
+    {
+      "name": "presence accepts an empty object and an empty array",
+      "watches": [
+        { "match": [{ "key": "bag" }, { "key": "list" }], "keep": ["bag", "list"], "lane": "usage" }
+      ],
+      "record": { "bag": {}, "list": [] },
+      "carried": { "watch": 0, "record": { "bag": {}, "list": [] } }
+    },
+    {
+      "name": "clauses are joined by AND — one failing clause refuses the record",
+      "watches": [
+        {
+          "match": [{ "key": "type", "equals": "user" }, { "key": "interruptedMessageId" }],
+          "keep": ["type"],
+          "lane": "usage"
+        }
+      ],
+      "record": { "type": "user" },
+      "carried": null
+    },
+    {
+      "name": "a dotted path walks into a nested object",
+      "watches": [
+        {
+          "match": [{ "key": "payload.type", "equals": "token_count" }],
+          "keep": ["payload.type"],
+          "lane": "usage"
+        }
+      ],
+      "record": { "payload": { "type": "token_count", "info": { "total": 3 } } },
+      "carried": { "watch": 0, "record": { "payload.type": "token_count" } }
+    },
+    {
+      "name": "a dotted path through a non-object reads as absence, never as an error",
+      "watches": [
+        { "match": [{ "key": "payload.type" }], "keep": ["payload.type"], "lane": "usage" }
+      ],
+      "record": { "payload": "a string where an object was expected" },
+      "carried": null
+    },
+    {
+      "name": "a dotted path into an array reads as absence",
+      "watches": [
+        { "match": [{ "key": "items.0" }], "keep": ["items.0"], "lane": "usage" }
+      ],
+      "record": { "items": ["first"] },
+      "carried": null
+    },
+    {
+      "name": "keep copies the named fields and nothing else",
+      "watches": [
+        {
+          "match": [{ "key": "type", "equals": "assistant" }],
+          "keep": ["type", "message.id"],
+          "lane": "usage"
+        }
+      ],
+      "record": {
+        "type": "assistant",
+        "message": { "id": "msg_1", "content": "SECRET" },
+        "cwd": "/x"
+      },
+      "carried": { "watch": 0, "record": { "type": "assistant", "message.id": "msg_1" } }
+    },
+    {
+      "name": "keep omits a field that is not there rather than writing a blank",
+      "watches": [
+        {
+          "match": [{ "key": "type", "equals": "assistant" }],
+          "keep": ["type", "missing", "message.absent"],
+          "lane": "usage"
+        }
+      ],
+      "record": { "type": "assistant", "message": { "id": "msg_1" } },
+      "carried": { "watch": 0, "record": { "type": "assistant" } }
+    },
+    {
+      "name": "keep carries a whole subtree when the subtree is what was named",
+      "watches": [
+        {
+          "match": [{ "key": "payload.type", "equals": "token_count" }],
+          "keep": ["payload"],
+          "lane": "usage"
+        }
+      ],
+      "record": { "type": "event_msg", "payload": { "type": "token_count", "info": { "total": 3 } } },
+      "carried": {
+        "watch": 0,
+        "record": { "payload": { "type": "token_count", "info": { "total": 3 } } }
+      }
+    },
+    {
+      "name": "keep may name nothing at all — the record's existence is the whole message",
+      "watches": [
+        { "match": [{ "key": "type", "equals": "assistant" }], "keep": [], "lane": "usage" }
+      ],
+      "record": { "type": "assistant", "message": { "content": "SECRET" } },
+      "carried": { "watch": 0, "record": {} }
+    },
+    {
+      "name": "the FIRST matching watch carries, and the later one never sees the record",
+      "watches": [
+        { "match": [{ "key": "type", "equals": "user" }], "keep": ["type"], "lane": "usage" },
+        { "match": [{ "key": "type", "equals": "user" }], "keep": ["promptId"], "lane": "usage" }
+      ],
+      "record": { "type": "user", "promptId": "p1" },
+      "carried": { "watch": 0, "record": { "type": "user" } }
+    },
+    {
+      "name": "a later watch carries what an earlier one refused",
+      "watches": [
+        { "match": [{ "key": "type", "equals": "assistant" }], "keep": ["type"], "lane": "usage" },
+        { "match": [{ "key": "type", "equals": "user" }], "keep": ["promptId"], "lane": "usage" }
+      ],
+      "record": { "type": "user", "promptId": "p1" },
+      "carried": { "watch": 1, "record": { "promptId": "p1" } }
+    },
+    {
+      "name": "no watches at all carries nothing",
+      "watches": [],
+      "record": { "type": "assistant" },
+      "carried": null
+    }
+  ]
+}

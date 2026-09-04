@@ -49,7 +49,7 @@ export type {
   TokenCounts,
   UsageLimitsSource,
   UsageNormalizer,
-  UsageTailFormat,
+  UsageTail,
   UsageWindow,
 } from "./usage.ts";
 export {
@@ -57,9 +57,11 @@ export {
   asCount,
   asFiniteNumber,
   asNonEmptyString,
+  carriedUsageRecord,
   clampPercent,
   collectTokenCounts,
   isJsonRecord,
+  tailWatches,
 } from "./usage.ts";
 export type {
   CommandArgSpec,
@@ -141,6 +143,25 @@ export {
   type SessionFormat,
   type SessionReader,
 } from "./sessionRead.ts";
+export {
+  addPass,
+  driftedAway,
+  followOnce,
+  type FollowStep,
+} from "./sessionFollow.ts";
+export {
+  CARRIED_RECORD,
+  tailPass,
+  watchMatches,
+  watchProject,
+  type RecordMatch,
+  type SessionTailDialect,
+  type TailLane,
+  type TailPass,
+  type TailSum,
+  type TailTarget,
+  type TailWatch,
+} from "./sessionTail.ts";
 export {
   CONTENT_CAP,
   walkSession,

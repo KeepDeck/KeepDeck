@@ -426,27 +426,33 @@ describe("normalizeClaudeStatus", () => {
     ).toBeNull();
   });
 
-  it("maps the tailer's interrupt marker at the marker's own time", () => {
+  it("reads the carried record itself, rather than the host's word for it", () => {
+    // The host no longer decides what a transcript line means. It carried
+    // this record because THIS plugin's watch named it, comparing two keys
+    // and copying three fields; the meaning is applied here.
+    const record = {
+      type: "user",
+      interruptedMessageId: "msg_1",
+      timestamp: "2026-08-01T10:00:00Z",
+    };
     expect(
-      normalizeClaudeStatus(
-        {
-          agent: "claude",
-          kind: "session.interrupt",
-          sourceAt: "2026-08-01T10:00:00Z",
-        },
-        500,
-      ),
+      normalizeClaudeStatus({ agent: "claude", kind: "store.record", record }, 500),
     ).toEqual({ kind: "interrupted", at: Date.parse("2026-08-01T10:00:00Z") });
-    // The mtime fallback, then receipt time when the marker names nothing.
+
+    // The record's OWN instant, never receipt: the tail polls, so receipt
+    // runs up to an interval late, and a marker stamped honestly is one the
+    // tracker can drop when it predates the turn it would end. An undatable
+    // marker is therefore no marker at all — there is nothing to place it
+    // against.
     expect(
       normalizeClaudeStatus(
-        { agent: "claude", kind: "session.interrupt", sourceMtimeMs: 1234 },
+        { agent: "claude", kind: "store.record", record: { ...record, timestamp: "" } },
         500,
       ),
-    ).toEqual({ kind: "interrupted", at: 1234 });
+    ).toBeNull();
     expect(
-      normalizeClaudeStatus({ agent: "claude", kind: "session.interrupt" }, 500),
-    ).toEqual({ kind: "interrupted", at: 500 });
+      normalizeClaudeStatus({ agent: "claude", kind: "store.record" }, 500),
+    ).toBeNull();
   });
 
   it("drops untracked events and garbage", () => {

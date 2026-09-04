@@ -289,16 +289,18 @@ export default async (input = {}) => {
         const status =
           typeof props.status === "object" ? props.status?.type : props.status;
         if (status !== "busy") return;
+        // Adopted for its ROOT alone. Whether a turn is running stopped
+        // mattering here when the doorbell started being answered mid-turn:
+        // the flag this used to keep had exactly one reader, and it was the
+        // refusal that made steering this agent impossible.
         await adoptRoot(props.sessionID);
-        if (props.sessionID === pane.root) pane.setTurnInFlight(true);
         return;
       }
       case "session.idle": {
         await adoptRoot(props.sessionID);
         if (props.sessionID !== pane.root) return;
-        pane.setTurnInFlight(false);
-        // The boundary the deck holds messages for: anything that arrived
-        // mid-turn lands here, and this is the cheapest turn it will ever get.
+        // Still the cheapest turn a message will ever get, and still where
+        // anything that arrived without a ring lands.
         await collect();
         return;
       }
@@ -312,9 +314,17 @@ export default async (input = {}) => {
    * about the mail is in the answer to the ask — so taking it down IS
    * reading it.
    *
-   * Ignored while a turn is running: injecting mid-turn is not something
-   * opencode promises anything about, and the `session.idle` closing that
-   * turn collects anyway, moments later.
+   * Answered WHILE A TURN RUNS, which is the whole of this pane's mid-turn
+   * channel. It used to be ignored there, on the argument that `session.idle`
+   * collects moments later anyway — true, and it is exactly the wait that
+   * makes correcting a working agent impossible. Everywhere else the deck
+   * reaches a running turn through a hook; opencode has no hooks, so the
+   * doorbell is the hook, and refusing it mid-turn left this the one agent a
+   * person could only steer by typing over their own unsent message.
+   *
+   * The words still travel the way they always did — through the courier's
+   * own ask, framed and attributed. Nothing is typed into the terminal here,
+   * mid-turn or not.
    */
   const takeDoorbell = () => {
     // `dir` is this pane's OWN inbox, so the doorbell needs no name of its
@@ -326,7 +336,9 @@ export default async (input = {}) => {
     } catch {
       return;
     }
-    if (!pane.turnInFlight) enqueue(collect);
+    // Through the queue either way: `collect` is not re-entrant, and a ring
+    // landing while one is in flight has to follow it rather than race it.
+    enqueue(collect);
   };
 
   try {

@@ -60,6 +60,30 @@ describe("kimi companion manifest", () => {
     }
   });
 
+  it("claims no mid-turn channel, because kimi has none", () => {
+    // The one agent of the four a person cannot correct while it works, and
+    // the manifest says so by leaving `mail.mid-turn` out — Settings then
+    // renders "Not supported" from the catalog the other three build.
+    //
+    // Pinned because absence is silent, and because the temptation to "fix"
+    // it by declaring the feature would produce a page that lies. What is
+    // missing is not the declaration: kimi discards the stdout of every
+    // observation-only hook (`void fireAndForgetTrigger`, both engines), so
+    // only two of its twenty events reach the model at all, and neither is
+    // mid-turn. The routes that exist — a running turn steered over kimi
+    // web's REST, or the unmerged PR that would let PreToolUse stdout in —
+    // are outside this pane: one needs the pane to stop being a terminal
+    // session, the other is somebody else's patch.
+    const declared = JSON.parse(
+      readFileSync(new URL("../manifest.json", import.meta.url), "utf8"),
+    ) as { contributes: { agents: { features?: { id: string }[] }[] } };
+    const ids = declared.contributes.agents.flatMap((agent) =>
+      (agent.features ?? []).map((feature) => feature.id),
+    );
+    expect(ids).toContain("mail.turn-end");
+    expect(ids).not.toContain("mail.mid-turn");
+  });
+
   it("keeps identity on its own reporter, which never asks", () => {
     // The session hook answers a different question entirely and takes no
     // reply; arming it to ask would make it wait for a file nobody writes.
@@ -122,6 +146,12 @@ describe("kimi teams manifest", () => {
     // The one thing the text must actually make happen: a pane cannot be
     // told its role statically, so it has to go and ask.
     expect(skill).toContain("mail.inbox");
+    // And it must not restate a rule it cannot derive. Static prose is the
+    // one surface `kindGuidance` cannot compose, so a copy of that sentence
+    // here has no way of following the rule when it changes — this file
+    // promised an interrupt for a whole release after delivery stopped
+    // reading the kind. It points at the tool's description instead.
+    expect(skill).not.toContain("interrupt");
   });
 
   it("declares where its skills live, since they are not in the plugin root", () => {

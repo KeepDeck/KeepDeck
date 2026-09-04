@@ -27,7 +27,12 @@ import {
   normalizeClaudeStatus,
   renderClaudeMail,
 } from "./status";
-import { normalizeClaudeStatusline } from "./usage";
+import { claudeTail } from "./tail";
+import {
+  claudeSubagentDirectory,
+  claudeUsageWatches,
+  normalizeClaudeStatusline,
+} from "./usage";
 import { claudeHistory } from "./history";
 import { claudeLiveSessions } from "./liveSessions";
 
@@ -85,16 +90,23 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       ],
     });
   };
-  /** The three events that can carry mail BACK, and the only ones armed to
-   * ask. `Stop` matters most: blocking it hands a teammate's words over and
-   * keeps the turn alive to read them, so nothing pays for a fresh wake.
+  /** The four events that can carry mail BACK, and the only ones armed to
+   * ask. `Stop` blocks and hands a teammate's words over while keeping the
+   * turn alive to read them, so nothing pays for a fresh wake.
    * `UserPromptSubmit` appends to a turn the user just opened, which is
    * where mail that arrived while the pane sat idle belongs. `SessionStart`
    * is what spares a STARTING pane the terminal: a freshly spawned agent
    * has no turn and reports nothing, so its briefing otherwise waits for a
-   * nudge typed into a CLI that has not finished booting. Asking on the
-   * rest would be a round trip per tool call for an answer none of them can
-   * act on.
+   * nudge typed into a CLI that has not finished booting.
+   *
+   * `PostToolBatch` is the mid-turn one, and the reason it is worth a round
+   * trip where per-tool `PostToolUse` is not: claude fires it ONCE per batch
+   * of tool calls rather than once per call, so the cost is per model
+   * request instead of per tool. Its own default timeout is the shortest of
+   * the four (15s against 120s for `Stop`); ours is tighter still at
+   * [`HOOK_TIMEOUT_SECONDS`], which is what the deck actually has to answer
+   * in. Asking on the REST would be a round trip per tool call for an answer
+   * none of them can act on.
    *
    * Only the STATUS reporter asks. SessionStart carries the identity
    * reporter too, and that one answers a different question and takes no
@@ -130,6 +142,10 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
     // cards at all, which leaves this the backstop for the one arriving too
     // damaged to recognise, and for any other failure the user answers by
     // rebuilding the context.
+    // PostToolBatch is armed for MAIL alone — it reports no status edge the
+    // other nine do not already carry. It fires once per batch, between the
+    // tool results and the next model request, which is the only moment a
+    // running turn can be reached without touching the terminal.
     for (const event of [
       "UserPromptSubmit",
       "Stop",
@@ -137,6 +153,7 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
       "Notification",
       "PostToolUse",
       "PostToolUseFailure",
+      "PostToolBatch",
       "SubagentStart",
       "SubagentStop",
       "SessionStart",
@@ -207,9 +224,19 @@ const plugin: KeepDeckPlugin = {
       // deduplicated cumulative tokens.
       usage: {
         normalize: normalizeClaudeStatusline,
-        tail: "claude",
+        tail: {
+          watches: claudeUsageWatches,
+          siblings: claudeSubagentDirectory,
+        },
       },
-      status: { normalize: normalizeClaudeStatus, renderMail: renderClaudeMail },
+      status: {
+        normalize: normalizeClaudeStatus,
+        renderMail: renderClaudeMail,
+        // What a transcript record means, for the one edge claude pushes no
+        // hook for. The host reads the `watch` to know which records to
+        // carry; `normalize` applies the `read` to what arrives.
+        tail: claudeTail as never,
+      },
       history: claudeHistory(ctx),
       liveSessions: claudeLiveSessions(ctx),
       hooks: {

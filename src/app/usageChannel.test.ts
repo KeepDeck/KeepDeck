@@ -21,6 +21,18 @@ import { createUsageChannel, type UsageChannel } from "./usageChannel";
 import type { DeckStore } from "./deckStore";
 import type { Deck } from "./useDeck";
 
+/** What the codex fixture's dialect asks to have carried. Shared between the
+ * declaration and the assertions so the two cannot drift: what the lane must
+ * pass through is exactly what the plugin declared, never a shape this file
+ * invented on the way. */
+const CODEX_WATCHES = [
+  {
+    match: [{ key: "type", equals: "event_msg" }],
+    keep: ["timestamp"],
+    lane: "status",
+  },
+];
+
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -33,12 +45,15 @@ const ipc = vi.hoisted(() => ({
   fetchCodexRateLimits: vi.fn(),
   fetchKimiUsages: vi.fn(),
   findCodexRollout: vi.fn(),
-  latestCodexRollout: vi.fn(),
+  readStoreCold: vi.fn(),
   loadUsageCache: vi.fn(),
   saveUsageCache: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
   // The agents contribution list the channel reads its declarations from.
-  contributions: [] as { pluginId: string; entry: { id: string; usage?: AgentUsage } }[],
+  contributions: [] as {
+    pluginId: string;
+    entry: { id: string; usage?: AgentUsage; status?: unknown };
+  }[],
 }));
 vi.mock("../ipc/usage", () => ({
   onUsageReport: ipc.onUsageReport,
@@ -47,7 +62,7 @@ vi.mock("../ipc/usage", () => ({
   fetchCodexRateLimits: ipc.fetchCodexRateLimits,
   fetchKimiUsages: ipc.fetchKimiUsages,
   findCodexRollout: ipc.findCodexRollout,
-  latestCodexRollout: ipc.latestCodexRollout,
+  readStoreCold: ipc.readStoreCold,
   loadUsageCache: ipc.loadUsageCache,
   saveUsageCache: ipc.saveUsageCache,
 }));
@@ -175,10 +190,30 @@ describe("createUsageChannel", () => {
           usage: {
             capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
-            tail: "codex",
+            tail: {
+              watches: [],
+              // The agent names its own candidates; the lane reads them in
+              // order until one makes an account claim.
+              sweep: () => Promise.resolve(["/newest.jsonl"]),
+            },
             limits: {
               poll: "codex-app-server",
               normalize: () => null,
+            },
+          },
+          // The dialect stands in for codex's own, and its `follow` is the
+          // search that used to live in the backend: a pane with only a
+          // session id has its store FOUND rather than handed over. The
+          // fake keeps the search a promise, which is what the lane has to
+          // survive — a pane can close while it is still walking.
+          status: {
+            normalize: () => null,
+            tail: {
+              watches: CODEX_WATCHES,
+              follow: async ({ sessionId }: { sessionId: string | null }) => {
+                const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
+                return path ? { path } : null;
+              },
             },
           },
         },
@@ -199,7 +234,7 @@ describe("createUsageChannel", () => {
       .mockResolvedValue({ body: "{}", sourceAt: Date.now() });
     ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
-    ipc.latestCodexRollout.mockReset().mockResolvedValue(null);
+    ipc.readStoreCold.mockReset().mockResolvedValue(null);
     ipc.loadUsageCache.mockReset().mockResolvedValue(null);
     ipc.saveUsageCache.mockReset().mockResolvedValue(undefined);
     ipc.peekPaneSpawnSpec
@@ -236,10 +271,16 @@ describe("createUsageChannel", () => {
         payload: {
           agent: "codex",
           event: {
-            type: "token_count",
-            info: {
-              last_token_usage: { total_tokens: 37_696 },
-              model_context_window: 258_400,
+            type: "store.record",
+            lane: "usage",
+            record: {
+              payload: {
+                type: "token_count",
+                info: {
+                  last_token_usage: { total_tokens: 37_696 },
+                  model_context_window: 258_400,
+                },
+              },
             },
           },
         },
@@ -306,7 +347,13 @@ describe("createUsageChannel", () => {
       "pane-1",
       "/x/rollout.jsonl",
       "tok-1",
+      // The AGENT, not a dialect name — the lane knows whose pane this is.
       "codex",
+      // Exactly what the plugin declared — the lane passes it through
+      // without reading it.
+      CODEX_WATCHES,
+      // codex keeps a session in one file, so it names no siblings.
+      null,
     );
   });
 
@@ -368,6 +415,8 @@ describe("createUsageChannel", () => {
       "/x/sessions/rollout-019f.jsonl",
       "tok-1",
       "codex",
+      CODEX_WATCHES,
+      null,
     );
   });
 
@@ -392,7 +441,13 @@ describe("createUsageChannel", () => {
       "pane-1",
       "/x/rollout.jsonl",
       "tok-1",
+      // The AGENT, not a dialect name — the lane knows whose pane this is.
       "codex",
+      // Exactly what the plugin declared — the lane passes it through
+      // without reading it.
+      CODEX_WATCHES,
+      // codex keeps a session in one file, so it names no siblings.
+      null,
     );
   });
 
@@ -419,6 +474,8 @@ describe("createUsageChannel", () => {
         "/x/rollout.jsonl",
         "tok-1",
         "codex",
+        CODEX_WATCHES,
+        null,
       );
     } finally {
       vi.useRealTimers();
@@ -494,7 +551,7 @@ describe("createUsageChannel", () => {
           usage: {
             capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
-            tail: "kimi-wire",
+            tail: { watches: [] },
             limits: {
               poll: "kimi-usages",
               normalize: (_body, at) => ({
@@ -633,9 +690,34 @@ describe("createUsageChannel", () => {
   });
 
   it("sweeps the newest on-disk codex rollout at boot, stamped with the file's age", async () => {
-    ipc.latestCodexRollout.mockResolvedValue({
-      event: { type: "token_count" },
-      sourceAt: "1970-01-01T00:00:02.000Z",
+    // The REAL normalizer, over the shape the sweep actually hands back: a
+    // carried record, the same one a live tail delivers. The sweep reads a
+    // cold store with a watch of the host's own, and if that watch and the
+    // plugin's declaration ever disagree the account chip goes quietly blank
+    // at boot — which a stubbed normalizer could never show.
+    ipc.contributions[1]!.entry.usage!.normalize = normalizeCodexRollout;
+    ipc.readStoreCold.mockResolvedValue({
+      records: [
+        {
+          event: {
+            type: "store.record",
+            lane: "usage",
+            record: {
+              payload: {
+                type: "token_count",
+                rate_limits: {
+                  primary: {
+                    used_percent: 40,
+                    window_minutes: 10_080,
+                    resets_at: 1_784_834_810,
+                  },
+                },
+              },
+            },
+          },
+          sourceAt: "1970-01-01T00:00:02.000Z",
+        },
+      ],
       mtimeMs: 1_234,
     });
     // No codex pane anywhere — the account chip still catches up from disk.
@@ -647,17 +729,20 @@ describe("createUsageChannel", () => {
     });
     // Account state only: without a pane there is nothing to attribute.
     expect(usage.getSnapshot().panes.size).toBe(0);
+    // The candidate the AGENT named, read with the watches it declared.
+    expect(ipc.readStoreCold).toHaveBeenCalledWith("/newest.jsonl", []);
 
     // Remounting lanes never re-sweeps.
     await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {});
-    expect(ipc.latestCodexRollout).toHaveBeenCalledTimes(1);
+    expect(ipc.readStoreCold).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to rollout mtime when boot provenance is from the future", async () => {
-    ipc.latestCodexRollout.mockResolvedValue({
-      event: { type: "token_count" },
-      sourceAt: "2099-01-01T00:00:00.000Z",
+    ipc.readStoreCold.mockResolvedValue({
+      records: [
+        { event: { type: "token_count" }, sourceAt: "2099-01-01T00:00:00.000Z" },
+      ],
       mtimeMs: 1_234,
     });
 

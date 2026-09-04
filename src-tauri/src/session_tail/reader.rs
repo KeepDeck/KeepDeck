@@ -5,7 +5,8 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
-use super::dialects::{SourceTimestamp, TailFormat, TailedEvent};
+use super::dialects::{watched_event, SourceTimestamp, TailWatch, TailedEvent};
+use super::totals::Folds;
 
 #[derive(Default)]
 pub(super) struct TailCursor {
@@ -40,10 +41,25 @@ const MAX_PARTIAL_BYTES: usize = 8 * 1024 * 1024;
 /// lines while carrying at most one bounded partial line. No prefix is ever
 /// drained from a Vec, so catch-up remains linear even for large transcripts.
 /// The bool reports a truncated/rotated file.
+///
+/// `watches` is the dialect's own declaration of which records to carry out
+/// of the store, and `folds` holds the running totals those watches asked
+/// for. An empty watch list carries nothing: there are no arms of our own
+/// left to fall back on.
+///
+/// `root` says whether this file IS the session or merely contributes to it
+/// (a claude subagent transcript). It decides two things that must agree: a
+/// carried record's `root` mark, and whether this file being rewritten
+/// starts the totals over. Only the session's own file can do the latter —
+/// a subagent rotating on its own would otherwise wipe a total the rest of
+/// the session had built, and the reset has to happen HERE, before the
+/// re-read rows are folded, rather than after the drain that produced them.
 pub(super) fn drain_file(
     path: &std::path::Path,
     cursor: &mut TailCursor,
-    format: TailFormat,
+    watches: &[TailWatch],
+    folds: &mut Folds,
+    root: bool,
 ) -> (Vec<TailedEvent>, bool) {
     let Ok(mut file) = File::open(path) else {
         return (Vec::new(), false);
@@ -73,6 +89,12 @@ pub(super) fn drain_file(
         cursor.offset = 0;
         cursor.partial.clear();
         cursor.skipping = false;
+        // Before a byte of the new file is parsed: the rows about to be
+        // re-read belong to a new session generation, and folding them onto
+        // the finished session's totals would add the two together.
+        if root {
+            folds.reset();
+        }
     }
     if identity.is_some() {
         cursor.identity = identity;
@@ -94,18 +116,35 @@ pub(super) fn drain_file(
             Err(_) | Ok(0) => break,
             Ok(read) => {
                 cursor.offset += read as u64;
-                parse_chunk(cursor, &chunk[..read], format, file_mtime_ms, &mut events);
+                parse_chunk(
+                    cursor,
+                    &chunk[..read],
+                    watches,
+                    folds,
+                    Provenance { file_mtime_ms, root },
+                    &mut events,
+                );
             }
         }
     }
     (events, rotated)
 }
 
+/// What this FILE lends every record read out of it: its mtime, as the
+/// fallback for a record that stamps no time of its own, and whether it is
+/// the session's own file or a contributor to it.
+#[derive(Clone, Copy)]
+struct Provenance {
+    file_mtime_ms: Option<u64>,
+    root: bool,
+}
+
 fn parse_chunk(
     cursor: &mut TailCursor,
     chunk: &[u8],
-    format: TailFormat,
-    file_mtime_ms: Option<u64>,
+    watches: &[TailWatch],
+    folds: &mut Folds,
+    from: Provenance,
     events: &mut Vec<TailedEvent>,
 ) {
     let mut start = 0;
@@ -122,10 +161,10 @@ fn parse_chunk(
         let fragment = &chunk[start..nl];
         if cursor.partial.len() + fragment.len() <= MAX_PARTIAL_BYTES {
             if cursor.partial.is_empty() {
-                push_event(format, fragment, file_mtime_ms, events);
+                push_event(watches, folds, fragment, from, events);
             } else {
                 cursor.partial.extend_from_slice(fragment);
-                push_event(format, &cursor.partial, file_mtime_ms, events);
+                push_event(watches, folds, &cursor.partial, from, events);
                 cursor.partial.clear();
             }
         } else {
@@ -144,18 +183,28 @@ fn parse_chunk(
 }
 
 fn push_event(
-    format: TailFormat,
+    watches: &[TailWatch],
+    folds: &mut Folds,
     line: &[u8],
-    file_mtime_ms: Option<u64>,
+    from: Provenance,
     events: &mut Vec<TailedEvent>,
 ) {
-    if let Some(mut event) = format.event(line) {
-        event.source_mtime_ms = file_mtime_ms;
-        if event.source_at.is_none() {
-            event.source_at = file_mtime_ms.map(SourceTimestamp::UnixMillis);
-        }
-        events.push(event);
+    // The dialect's watches are the whole of it now. This used to run them
+    // alongside a set of arms of our own, and a line satisfying both
+    // travelled twice — once as this side's reading of the numbers, once as
+    // the record the other side reads for itself. There is only the second.
+    let Some(mut event) = watched_event(line, watches, folds) else {
+        return;
+    };
+    event.source_mtime_ms = from.file_mtime_ms;
+    if event.source_at.is_none() {
+        event.source_at = from.file_mtime_ms.map(SourceTimestamp::UnixMillis);
     }
+    // Stamped by the FILE, not by the record: a subagent's abort is the
+    // subagent's own story, and no field of the record it was read from
+    // could say which transcript it came out of.
+    event.root = from.root;
+    events.push(event);
 }
 
 #[cfg(test)]
@@ -163,11 +212,28 @@ mod tests {
     use std::fs::{self, OpenOptions};
     use std::io::Write;
 
+    use super::super::dialects::{RecordMatch, TailLane};
     use super::super::test_support::*;
     use super::*;
 
+    /// These tests are about BYTES — torn lines, oversized lines, a file
+    /// swapped underneath the cursor — so the watch is the least specific one
+    /// that can exist: carry anything with a `type`, keep that and nothing
+    /// else. What the records mean is another module's test.
+    fn any_typed_record() -> Vec<TailWatch> {
+        vec![TailWatch {
+            clauses: vec![RecordMatch {
+                key: "type".into(),
+                equals: None,
+            }],
+            keep: vec!["type".into()],
+            lane: TailLane::Usage,
+            sum: None,
+        }]
+    }
+
     fn drain(path: &std::path::Path, cursor: &mut TailCursor) -> Vec<TailedEvent> {
-        drain_file(path, cursor, TailFormat::Codex).0
+        drain_file(path, cursor, &any_typed_record(), &mut Folds::default(), true).0
     }
 
     #[test]
@@ -190,8 +256,8 @@ mod tests {
         drop(file);
         let events = drain(&path, &mut cursor);
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0].payload["type"], "token_count");
-        assert_eq!(events[1].payload["type"], "turn_context");
+        assert_eq!(events[0].payload["record"]["type"], "event_msg");
+        assert_eq!(events[1].payload["record"]["type"], "turn_context");
 
         // Already consumed — nothing new.
         assert!(drain(&path, &mut cursor).is_empty());
@@ -200,7 +266,7 @@ mod tests {
         fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
         let events = drain(&path, &mut cursor);
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload["type"], "turn_context");
+        assert_eq!(events[0].payload["record"]["type"], "turn_context");
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -224,7 +290,7 @@ mod tests {
         drop(file);
         let events = drain(&path, &mut cursor);
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload["type"], "turn_context");
+        assert_eq!(events[0].payload["record"]["type"], "turn_context");
         assert!(!cursor.skipping);
 
         fs::remove_dir_all(&dir).ok();
@@ -247,7 +313,7 @@ mod tests {
         fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
         let events = drain(&path, &mut cursor);
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].payload["type"], "turn_context");
+        assert_eq!(events[0].payload["record"]["type"], "turn_context");
         assert!(!cursor.skipping);
 
         fs::remove_dir_all(&dir).ok();
@@ -262,7 +328,9 @@ mod tests {
         let path = dir.join("rollout-swap.jsonl");
         let mut cursor = TailCursor::default();
         fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
-        let (events, rotated) = drain_file(&path, &mut cursor, TailFormat::Codex);
+        let watches = any_typed_record();
+        let mut folds = Folds::default();
+        let (events, rotated) = drain_file(&path, &mut cursor, &watches, &mut folds, true);
         assert_eq!(events.len(), 1);
         assert!(!rotated);
 
@@ -273,7 +341,7 @@ mod tests {
         )
         .unwrap();
         fs::rename(&staged, &path).unwrap();
-        let (events, rotated) = drain_file(&path, &mut cursor, TailFormat::Codex);
+        let (events, rotated) = drain_file(&path, &mut cursor, &watches, &mut folds, true);
         assert_eq!(events.len(), 3, "the whole new file re-reads from zero");
         assert!(rotated, "a different inode at the same path is a rotation");
         fs::remove_dir_all(&dir).ok();

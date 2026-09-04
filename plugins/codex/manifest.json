@@ -1,7 +1,7 @@
 {
   "id": "keepdeck.codex",
   "name": "Codex",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "minApiVersion": 40,
   "category": "cli",
   "description": "Teaches KeepDeck the Codex CLI: catalog identity and detection; spawn, resume and session identity move in next.",
@@ -52,6 +52,16 @@
             "label": "Remote targets",
             "group": "execution",
             "parameters": { "schemes": ["ws", "wss"] }
+          },
+          {
+            "id": "mail.turn-end",
+            "label": "Mail at the turn boundary",
+            "group": "mail"
+          },
+          {
+            "id": "mail.mid-turn",
+            "label": "Mail while the agent is working",
+            "group": "mail"
           }
         ]
       }

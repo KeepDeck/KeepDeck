@@ -1,12 +1,12 @@
 import {
   frameTeammateMail,
   isJsonRecord,
-  statusSourceInstant,
   type AgentStatusEvent,
   type MailReplyInput,
   type MailReplyRenderer,
   type StatusNormalizer,
 } from "@keepdeck/plugin-api";
+import { codexRecords } from "./tail";
 
 /** The teammate framing both events below carry, worded once for every CLI
  * in [`frameTeammateMail`]. */
@@ -83,6 +83,14 @@ function renderLegacyCodexMail(
     case "UserPromptSubmit":
       return JSON.stringify({ additional_context: text });
     default:
+      // `PostToolUse` deliberately included: whether the retired schema
+      // carried mail on it was never measured, and guessing a shape here is
+      // the one failure mode this whole function exists to avoid — codex
+      // refuses the entire answer and prints the refusal into the pane. An
+      // install this old keeps its mail for a turn boundary, which is where
+      // it went before any of this, and pays a round trip per tool call for
+      // the refusal. That cost buys nothing, and it is the price of not
+      // inventing a schema for a release nobody here can test against.
       return null;
   }
 }
@@ -105,6 +113,21 @@ function renderLegacyCodexMail(
  * just addressed, which is where mail that arrived while the pane sat idle
  * belongs.
  *
+ * `PostToolUse` is the MID-TURN one, and the reason a person can correct a
+ * working agent through mail instead of typing over their own half-written
+ * message. It takes the same `additionalContext` envelope, under its own
+ * event name — codex's generated schema
+ * (`hooks/schema/generated/post-tool-use.command.output.schema.json`) allows
+ * exactly `hookEventName` + `additionalContext`, and codex's own source
+ * calls what comes back "model-facing hook feedback". This renderer used to
+ * refuse the event on the belief that it read nothing back; that belief was
+ * wrong, and it cost the mid-turn channel for as long as it stood.
+ *
+ * Its COST is real and worth stating: codex fires this once per TOOL CALL,
+ * not once per model request the way claude's `PostToolBatch` does, so a
+ * tool-heavy turn buys a round trip per call. The deck answers in
+ * milliseconds when there is no mail, which is what makes that affordable.
+ *
  * ⚠️ codex renders a history cell for a hook that PRINTS, so a delivery is
  * visible in the transcript. That is a cosmetic cost paid only when there
  * is actually mail — the reporter stays silent on every other turn — and it
@@ -122,6 +145,7 @@ function renderLegacyCodexMail(
 export const ASKS_FOR_MAIL: ReadonlySet<string> = new Set([
   "UserPromptSubmit",
   "Stop",
+  "PostToolUse",
 ]);
 
 export const renderCodexMail: MailReplyRenderer = (input) => {
@@ -140,9 +164,20 @@ export const renderCodexMail: MailReplyRenderer = (input) => {
           additionalContext: text,
         },
       });
+    case "PostToolUse":
+      // The mid-turn door: the turn keeps running and the words are context
+      // the model reads on its next request. The envelope is the same as
+      // `UserPromptSubmit`'s, under its own event name, because that is what
+      // codex's schema for this event allows.
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PostToolUse",
+          additionalContext: text,
+        },
+      });
     default:
-      // PermissionRequest and PostToolUse report a fact and read nothing
-      // back; printing there would leave a history cell for no effect.
+      // PermissionRequest reports a fact and reads nothing back; printing
+      // there would leave a history cell for no effect.
       return null;
   }
 };
@@ -190,8 +225,11 @@ export const normalizeCodexStatus: StatusNormalizer = (
   at,
 ): AgentStatusEvent | null => {
   if (!isJsonRecord(payload)) return null;
-  if (payload.kind === "session.interrupt") {
-    return { kind: "interrupted", at: statusSourceInstant(payload, at) };
+  if (payload.kind === "store.record") {
+    // A rollout record the host carried because THIS plugin's watch named
+    // it. The host did not read it: it compared two keys, one of them a
+    // level down, and copied two fields. What it means is decided here.
+    return isJsonRecord(payload.record) ? codexRecords.read(payload.record) : null;
   }
   if (!isJsonRecord(payload.event)) return null;
   switch (payload.event.hook_event_name) {

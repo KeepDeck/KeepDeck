@@ -166,10 +166,11 @@ export function registerMailCommands(
           name: "kind",
           type: "string",
           required: true,
-          // Not a bare list any more. The kind decides whether a teammate is
-          // pulled out of its work, so an agent choosing one is spending
-          // somebody else's turn — and it can only weigh that if it is told.
-          description: `What this is: ${SENDABLE_KINDS.join(", ")}. It decides when the message lands — ${kindGuidance(SENDABLE_KINDS)} Say what is true: an interrupt nobody needed is a teammate's turn spent for nothing.`,
+          // Not a bare list any more. The kind decides what the deck books as
+          // outstanding, so an agent choosing one is deciding who is left
+          // waiting — and it can only weigh that if it is told. The telling
+          // is [`kindGuidance`]'s whole job; this only names the values.
+          description: `What this is: ${SENDABLE_KINDS.join(", ")}. ${kindGuidance(SENDABLE_KINDS)}`,
         },
         { name: "body", type: "string", required: true, description: "The message" },
         // No `replyTo`. The deck derives the edge from what this pane was

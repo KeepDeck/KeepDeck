@@ -29,6 +29,7 @@ import {
   awaitsAnswer,
   decideDelivery,
   decideHandover,
+  doorName,
   sendRefusal,
   droppedNotice,
   forgottenNotice,
@@ -39,6 +40,7 @@ import {
   senderName,
   type CancelOutcome,
   type Mail,
+  type MailDoor,
   type MailKind,
   type MailLimits,
   type MailSender,
@@ -71,6 +73,27 @@ const INBOX_CEILING = 200;
 /** How many messages may WAIT for one pane. See [`enqueue`] for why a queue
  * needs a bound of its own now. */
 const QUEUE_LIMIT = 50;
+
+/**
+ * How long a nudge is given to produce a turn before the pane is nudged
+ * again.
+ *
+ * A RETRY CADENCE, and nothing else. It lived in the domain's limits as
+ * `hookWaitMs`, where it also decided how long a message was held back from
+ * a working pane before the deck gave up and typed at it — a wait for a hook,
+ * which is what the name described. Nothing waits for a hook any more:
+ * [`decideDelivery`] holds for a working pane unconditionally and reads no
+ * clock at all, so the only thing this paces is `drainPane` trying again
+ * after a nudge that produced nothing. That is the queue owner's business,
+ * not a rule about mail, and it is the last reader of the number.
+ *
+ * The value is unchanged at 45 seconds: it is a COST knob, not a correctness
+ * one — longer is quieter and slower, shorter is the reverse. It must stay
+ * well under [`MailLimits.undeliveredMs`], which is when `drainPane` stops
+ * nudging for a message altogether; a cadence at or above that window would
+ * spend the whole window on a single attempt.
+ */
+const RENUDGE_AFTER_MS = 45_000;
 
 /**
  * One delivered message and where it stands with its receiver.
@@ -618,13 +641,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     let index = 0;
     while (index < queue.length) {
       const head = queue[index];
-      const verdict = decideDelivery(
-        head,
-        deps.activityOf(paneId),
-        at,
-        limits,
-        asksAtTurnEnd(paneId),
-      );
+      const verdict = decideDelivery(head, deps.activityOf(paneId), asksAtTurnEnd(paneId));
       // The message's own restriction, not the pane's: step over it and keep
       // looking. It leaves through `takeAtTurnEnd` or not at all — and it
       // schedules NOTHING, because standing context keeps no clock. There is
@@ -635,27 +652,19 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         index += 1;
         continue;
       }
-      // Held for a turn boundary: the wait is bounded, so the deadline is
-      // when waiting stops being worth it — not when the message dies.
-      // Missing that distinction would leave a pane whose turn never ends
-      // silently losing its mail instead of falling back to the terminal.
-      if (verdict.kind === "hold" && verdict.reason === "turn-boundary") {
-        log.debug("web:mail", `held for a turn boundary: ${trace(head)}`);
-        // Only a message that will give up waiting needs a deadline. One
-        // that expects an answer nudges once the wait runs out; routine mail
-        // waits for the boundary however long it takes, and resolves through
-        // the activity subscription like the permission hold below — so
-        // arming a timer for it would wake the pass to decide nothing.
-        return awaitsAnswer(head.kind) ? head.at + limits.hookWaitMs : null;
-      }
-      // Held on a permission prompt, which resolves through the activity
-      // subscription. Nothing else is worth waking a pass for: the deadline
-      // this used to schedule was the instant the message expired, and now
-      // that nothing expires it is a fixed point that slides permanently
-      // into the past — `Math.max(1, …)` then re-arms the timer at a
-      // millisecond, forever. That hazard was already documented here for
-      // standing context, which never had an expiry instant; taking expiry
-      // away gave every other message the same shape.
+      // Every remaining hold is a fact about the PANE — its turn is running,
+      // or it is parked on a permission prompt — and both resolve through the
+      // activity subscription, which is why neither arms a timer.
+      //
+      // The turn-boundary hold used to arm one: mail expecting an answer got
+      // a deadline, and past it the pane was nudged mid-turn. Nothing is
+      // impatient any longer, so that deadline has nothing to wake up and do
+      // — and a pane whose turn never ends loses nothing by its going, since
+      // the nudge it armed landed in the very turn it was waiting out.
+      // Nor has anything else here — the timer this branch scheduled before
+      // was the instant a message expired, and now that nothing expires it is
+      // a fixed point sliding permanently into the past, which `Math.max(1,
+      // …)` then re-armed at a millisecond, forever.
       if (verdict.kind === "hold") {
         log.debug("web:mail", `held on ${verdict.reason}: ${trace(head)}`);
         return null;
@@ -689,16 +698,31 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         if (deps.activityOf(paneId)?.state === "working" && woken !== undefined) {
           return null;
         }
-        if (woken !== undefined && at - woken < limits.hookWaitMs) {
-          return woken + limits.hookWaitMs;
+        if (woken !== undefined && at - woken < RENUDGE_AFTER_MS) {
+          return woken + RENUDGE_AFTER_MS;
         }
         if (!deps.wake(paneId)) {
-          log.debug("web:mail", `no input channel to wake: ${trace(head)}`);
+          // WHY it refused is said by the channel, which is the only side
+          // that knows — this end gets a bool.
+          log.debug("web:mail", `the channel refused the nudge: ${trace(head)}`);
           return null;
         }
-        log.info("web:mail", `nudged the pane into a turn for: ${trace(head)}`);
+        // The pane's state AT THE MOMENT OF THE NUDGE, because that is the
+        // question this line exists to answer and the one it could not.
+        // Asked whether a nudge had ever landed in a running turn, the log
+        // could neither confirm nor deny it, and the gap was filled with a
+        // reconstruction that turned out to be wrong.
+        //
+        // It should read `working` only for a pane whose agent collects
+        // nothing at its boundaries — every other case is held. Anything
+        // else here is the deck believing a pane is idle while its turn has
+        // already begun, which is the window `decideDelivery` cannot see.
+        log.info(
+          "web:mail",
+          `nudged the pane into a turn for: ${trace(head)} (pane was ${deps.activityOf(paneId)?.state ?? "silent"}, hook ${asksAtTurnEnd(paneId) ? "collects" : "does not collect"})`,
+        );
         lastWakeAt.set(paneId, at);
-        return at + limits.hookWaitMs;
+        return at + RENUDGE_AFTER_MS;
       }
     }
     return null;
@@ -749,18 +773,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
    * has usually taken some journal entries already, and the budget covers
    * the whole answer, not the queue's share of it.
    */
-  function drainQueue(
-    paneId: string,
-    collected: Mail[],
-    opts: {
-      /** Whether the two hold clauses apply. They do when the deck is about
-       * to push at a pane; they do not when the pane is the one asking. */
-      holds: boolean;
-      /** Names the lane in the log — the only window onto which door a
-       * message left through. */
-      lane: string;
-    },
-  ): void {
+  function drainQueue(paneId: string, collected: Mail[], door: MailDoor): void {
     const queue = queues.get(paneId);
     if (!queue) return;
     let carried = collected.reduce((sum, mail) => sum + mail.body.length, 0);
@@ -782,16 +795,24 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
         );
         break;
       }
-      // A pane parked on a permission prompt is unsafe to push at through
-      // either door. Asked rather than repeated: copied once, it became a
-      // fifth reason to hold that the terminal honoured and the briefing
-      // path silently ignored.
-      if (opts.holds && decideHandover(deps.activityOf(paneId)) === "hold") break;
+      // Whether a pane parked on a permission prompt is safe to hand to is
+      // the DOOR's question, and it is asked rather than answered here:
+      // copied into this file once, it became a reason to hold that the
+      // terminal honoured and the briefing path silently ignored.
+      if (decideHandover(deps.activityOf(paneId), door) === "hold") {
+        // Said out loud, because the alternative reading of a break here is
+        // "the queue was empty", and those are opposite facts about a pane.
+        log.debug(
+          "web:mail",
+          `held from ${doorName(door)}, the pane is at a prompt: ${trace(head)}`,
+        );
+        break;
+      }
       queue.shift();
       // Asking for it IS reading it — the one moment the deck can witness
       // rather than assume.
       remember(paneId, head, "read");
-      log.info("web:mail", `handed to ${opts.lane}: ${trace(head)}`);
+      log.info("web:mail", `handed to ${doorName(door)}: ${trace(head)}`);
       collected.push(head);
       carried += head.body.length;
     }
@@ -839,7 +860,7 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
 
     takeAtTurnEnd(paneId) {
       const taken: Mail[] = [];
-      drainQueue(paneId, taken, { holds: true, lane: "the turn-end hook" });
+      drainQueue(paneId, taken, "turn-boundary");
       // Whatever is left (a held prompt, a fresh notice) still needs its
       // timer, and the queue just moved under it.
       drain();
@@ -980,11 +1001,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       // behind was stranded there, out of reach of the turn-boundary
       // hand-over, which reads the queue and nothing else.
       //
-      // The two refusals a hand-over honours do not apply here: a permission
-      // prompt is about pushing AT a pane and this is the pane asking, and
-      // standing context is held back from the TERMINAL, while this answer
-      // travels as the call's own result.
-      drainQueue(paneId, messages, { holds: false, lane: "an explicit read" });
+      // Which refusals apply is the door's answer, not this call site's: a
+      // permission prompt is about pushing AT a pane and this is the pane
+      // asking, and standing context is held back from the TERMINAL, while
+      // this answer travels as the call's own result.
+      drainQueue(paneId, messages, "explicit-read");
 
       // Re-reading the journal is a different question, and it is asked from
       // the OTHER end: an agent whose context was rebuilt wants where things

@@ -15,7 +15,9 @@ const ipc = vi.hoisted(() => ({
     (paneId: string, path: string, token: string, format: string) => Promise<void>
   >(() => Promise.resolve()),
   unwatchSessionFile: vi.fn(() => Promise.resolve()),
-  findCodexRollout: vi.fn(() => Promise.resolve("/rollout.jsonl")),
+  findCodexRollout: vi.fn<(sessionId: string) => Promise<string | null>>(() =>
+    Promise.resolve("/rollout.jsonl"),
+  ),
   onSessionBound: vi.fn(() => Promise.resolve(() => {})),
 }));
 vi.mock("../ipc/usage", () => ({
@@ -47,7 +49,11 @@ import {
 } from "./sessionBinding";
 
 const usageByAgent = new Map<string, AgentUsage>([
-  ["codex", { tail: "codex" } as AgentUsage],
+  [
+    "codex",
+    // Only `tail` is read here; the lane never normalizes in these tests.
+    { tail: { format: "codex", watches: [] } } as unknown as AgentUsage,
+  ],
 ]);
 
 let deck: DeckActions;
@@ -97,6 +103,18 @@ describe("usage tails — a suspended pane's watcher", () => {
       deck: store,
       attribution,
       bindings,
+      // These panes reach the tail through the FALLBACK — a recorded session
+      // with no binding — and finding the store is now the dialect's answer
+      // rather than a command of the host's. The fake is that search, over
+      // the same mocked lookup this file already had.
+      tailOf: () =>
+        ({
+          watches: [],
+          follow: async ({ sessionId }: { sessionId: string | null }) => {
+            const path = sessionId ? await ipc.findCodexRollout(sessionId) : null;
+            return path ? { path } : null;
+          },
+        }) as never,
       // The tails lane only arms watchers; events reach the store via the
       // reports lane, so a fresh, unobserved instance satisfies the context.
       usage: createUsageManager(),
@@ -168,5 +186,91 @@ describe("usage tails — a suspended pane's watcher", () => {
     await settle();
 
     expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
+  });
+});
+
+describe("usage tails — a store search racing a binding", () => {
+  // The lookup and the arm are two different claims on one pane, and they
+  // were held in ONE set. A search that came back empty released the pane,
+  // and a binding that had armed a real tail in the meantime lost it — the
+  // native watcher was torn down within the same second it was built.
+  // Measured live: a claude pane bound at 02:31:24, armed, unwatched
+  // immediately, and then sat on "working" forever, because nothing was
+  // reading the transcript where its interrupt marker was written.
+  it("a lookup that finds nothing leaves the binding's tail alone", async () => {
+    const store = createDeckStore();
+    deck = createDeckActions(store);
+    const attribution = createPaneAttribution({
+      workspaces: () => store.getSnapshot().workspaces,
+      secretOf: () => specs.token ?? undefined,
+    });
+
+    let announce: ((bound: {
+      paneId: string;
+      transcriptPath: string | null;
+      token: string;
+    }) => void) | null = null;
+    let answerLookup: ((path: string | null) => void) | null = null;
+
+    const lane = createUsageTailsLane({
+      deck: store,
+      attribution,
+      bindings: {
+        subscribe: (listener: never) => {
+          announce = listener;
+          return () => {};
+        },
+      } as never,
+      // The search hangs until the test lets it answer — that gap is where
+      // the binding lands.
+      tailOf: () =>
+        ({
+          watches: [],
+          follow: () =>
+            new Promise((resolve) => {
+              answerLookup = (path) => resolve(path ? { path } : null);
+            }),
+        }) as never,
+      usage: createUsageManager(),
+      declarations: {
+        current: () => usageByAgent,
+        subscribe: () => () => {},
+      },
+    });
+
+    try {
+      seed();
+      for (let i = 0; i < 4; i++) await act(async () => {});
+      expect(answerLookup).not.toBeNull();
+
+      // The binding arrives and arms a real tail — and the arm is still in
+      // flight when the search answers. That order is the whole bug: the
+      // arm's own settle step runs LAST, and it is the step that asks
+      // whether this pane is still claimed.
+      let finishArm: (() => void) | null = null;
+      ipc.watchSessionFile.mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finishArm = () => resolve())),
+      );
+      await act(async () => {
+        announce!({
+          paneId: "pane-1",
+          transcriptPath: "/x/rollout.jsonl",
+          token: "token-1",
+        });
+      });
+      for (let i = 0; i < 4; i++) await act(async () => {});
+      expect(ipc.watchSessionFile).toHaveBeenCalled();
+      ipc.unwatchSessionFile.mockClear();
+
+      // The search admits it found nothing, THEN the arm completes.
+      await act(async () => answerLookup!(null));
+      for (let i = 0; i < 4; i++) await act(async () => {});
+      await act(async () => finishArm!());
+      for (let i = 0; i < 4; i++) await act(async () => {});
+
+      expect(ipc.unwatchSessionFile).not.toHaveBeenCalled();
+    } finally {
+      lane.dispose();
+    }
   });
 });

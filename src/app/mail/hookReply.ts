@@ -160,7 +160,23 @@ function answerMailAsk(
     return answer("", render ? "malformed payload" : `${agent} renders no mail`);
   }
   const taken = manager.takeAtTurnEnd(paneId);
-  if (taken.length === 0) return answer("", "nothing waiting");
+  if (taken.length === 0) {
+    // "Nothing waiting" is only honest when nothing IS waiting. A hand-over
+    // the door refused leaves the queue exactly as it was, and answering an
+    // empty inbox there is the one lie this lane tells about itself — the
+    // pane looks idle in the log while its mail sits held.
+    //
+    // With nothing taken, the refusal has one cause: the budget cannot stop
+    // a walk before its first message, and standing context is stepped over
+    // rather than stopping it, so what is left is the permission prompt.
+    // The count was already being read a few lines below; it just was not
+    // being asked before the answer.
+    const held = manager.waiting(paneId);
+    return answer(
+      "",
+      held > 0 ? `${held} held — the pane is at a prompt` : "nothing waiting",
+    );
+  }
   const rendered = render({
     event,
     messages: taken.map(forAgent),

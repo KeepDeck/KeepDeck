@@ -1,13 +1,45 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
+import {
+  CARRIED_RECORD,
+  watchMatches,
+  watchProject,
+} from "@keepdeck/plugin-api";
+import {
+  codexUsageWatches,
+  normalizeCodexRateLimits,
+  normalizeCodexRollout,
+} from "./usage";
 
 const AT = 1_738_400_000_000;
+
+/**
+ * One raw rollout line, put through the watches codex actually DECLARES.
+ *
+ * The declaration and the normalizer are one answer in two halves, and a
+ * test that hand-built the carried record would let them drift: a `keep`
+ * that stopped naming a field reads as a number that quietly went missing,
+ * never as a failure.
+ */
+function tailed(line: Record<string, unknown>) {
+  const watch = codexUsageWatches.find((candidate) =>
+    watchMatches(candidate, line),
+  );
+  if (!watch) throw new Error("no declared watch carries this record");
+  return {
+    agent: "codex",
+    event: {
+      type: CARRIED_RECORD,
+      record: watchProject(watch, line),
+      lane: "usage",
+    },
+  };
+}
 
 /** The live 0.144.5 sample: plan "plus" — primary IS the weekly window,
  * secondary is null. Labels must derive from window_minutes downstream. */
 const TOKEN_COUNT = {
-  agent: "codex",
-  event: {
+  type: "event_msg",
+  payload: {
     type: "token_count",
     info: {
       total_token_usage: {
@@ -37,7 +69,7 @@ const TOKEN_COUNT = {
 
 describe("normalizeCodexRollout", () => {
   it("maps a weekly-primary plan without inventing a 5h window", () => {
-    const result = normalizeCodexRollout(TOKEN_COUNT, AT);
+    const result = normalizeCodexRollout(tailed(TOKEN_COUNT), AT);
     expect(result?.account).toEqual({
       kind: "reported",
       reportedAt: AT,
@@ -72,7 +104,7 @@ describe("normalizeCodexRollout", () => {
 
   it("matches the Codex status line after excluding its fixed baseline", () => {
     const screenshot = structuredClone(TOKEN_COUNT);
-    screenshot.event.info.last_token_usage = {
+    screenshot.payload.info.last_token_usage = {
       input_tokens: 37_179,
       cached_input_tokens: 11_008,
       output_tokens: 517,
@@ -80,7 +112,7 @@ describe("normalizeCodexRollout", () => {
       total_tokens: 37_696,
     };
 
-    expect(normalizeCodexRollout(screenshot, AT)?.pane?.context).toEqual({
+    expect(normalizeCodexRollout(tailed(screenshot), AT)?.pane?.context).toEqual({
       usedPct: 10,
       windowTokens: 258_400,
     });
@@ -89,8 +121,8 @@ describe("normalizeCodexRollout", () => {
   it("reports no user-controlled usage inside the baseline and clamps overflow", () => {
     const reportAt = (totalTokens: number) => {
       const sample = structuredClone(TOKEN_COUNT);
-      sample.event.info.last_token_usage.total_tokens = totalTokens;
-      return normalizeCodexRollout(sample, AT)?.pane?.context?.usedPct;
+      sample.payload.info.last_token_usage.total_tokens = totalTokens;
+      return normalizeCodexRollout(tailed(sample), AT)?.pane?.context?.usedPct;
     };
 
     expect(reportAt(12_000)).toBe(0);
@@ -99,28 +131,31 @@ describe("normalizeCodexRollout", () => {
 
   it("keeps both windows when a plan has them", () => {
     const both = structuredClone(TOKEN_COUNT);
-    both.event.rate_limits = {
+    both.payload.rate_limits = {
       limit_id: "codex",
       primary: { used_percent: 20, window_minutes: 300, resets_at: 1_784_000_000 },
       secondary: { used_percent: 60, window_minutes: 10_080, resets_at: 1_784_834_810 },
       plan_type: "pro",
     } as never;
-    expect(normalizeCodexRollout(both, AT)?.account).toMatchObject({
+    expect(normalizeCodexRollout(tailed(both), AT)?.account).toMatchObject({
       windows: [{ windowMinutes: 300 }, { windowMinutes: 10_080 }],
     });
   });
 
   it("survives a null info (early/exec sessions) with limits intact", () => {
     const early = structuredClone(TOKEN_COUNT);
-    early.event.info = null as never;
-    const result = normalizeCodexRollout(early, AT);
+    early.payload.info = null as never;
+    const result = normalizeCodexRollout(tailed(early), AT);
     expect(result?.account).not.toBeNull();
     expect(result?.pane).toEqual({ agent: "codex", reportedAt: AT });
   });
 
   it("maps turn_context to the pane model with effort", () => {
     const result = normalizeCodexRollout(
-      { agent: "codex", event: { type: "turn_context", model: "gpt-5.6-sol", effort: "xhigh" } },
+      tailed({
+        type: "turn_context",
+        payload: { model: "gpt-5.6-sol", effort: "xhigh", cwd: "/x" },
+      }),
       AT,
     );
     expect(result?.pane).toEqual({

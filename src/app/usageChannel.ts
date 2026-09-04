@@ -64,7 +64,19 @@ export function createUsageChannel(
   };
 
   registerNormalizers();
-  const context = { deck, declarations, usage, attribution, bindings };
+  /** Read at ARM time rather than cached: a plugin can be toggled between a
+   * pane starting and its session binding landing, and a stale answer would
+   * arm a follower for a dialect that is no longer there. */
+  const tailOf = (agentId: string) =>
+    agents.list().find(({ entry }) => entry.id === agentId)?.entry.status?.tail;
+  const context = {
+    deck,
+    declarations,
+    usage,
+    attribution,
+    bindings,
+    tailOf,
+  };
   const lanes: UsageLane[] = [
     createUsageReportsLane(context),
     createUsageTailsLane(context),

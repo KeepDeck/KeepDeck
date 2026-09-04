@@ -75,10 +75,6 @@ function create() {
   const roots = new Set();
   /** The pane's conversation, once one is known. */
   let root;
-  /** Whether the pane's own turn is running. Assigned, never counted: an
-   * abort ends a turn with TWO idles about 19ms apart, and a counter would
-   * come out of that below zero. */
-  let turnInFlight = false;
 
   /** Record one hop the caller already knows — a `session.created` carrying
    * `parentID` is the server's own word, and needs no round trip. */
@@ -193,12 +189,6 @@ function create() {
     get bound() {
       return root !== undefined;
     },
-    get turnInFlight() {
-      return turnInFlight;
-    },
-    setTurnInFlight(running) {
-      turnInFlight = running;
-    },
     /**
      * Take a session as the pane's conversation, KEEPING what is known about
      * its ancestry.
@@ -232,7 +222,6 @@ function create() {
       parents.clear();
       roots.clear();
       root = sessionID;
-      turnInFlight = false;
       return true;
     },
     /**

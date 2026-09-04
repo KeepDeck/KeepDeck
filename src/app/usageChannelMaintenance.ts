@@ -1,6 +1,7 @@
+import type { TailWatch, UsageNormalizer } from "@keepdeck/plugin-api";
 import { paneAgentType } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
-import { latestCodexRollout } from "../ipc/usage";
+import { readStoreCold } from "../ipc/usage";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import {
   peekPaneSpawnSpec,
@@ -22,42 +23,68 @@ export function createUsageMaintenanceLane({
   attribution,
 }: UsageLaneContext): UsageLane {
   let disposed = false;
-  let sweptCodex = false;
+  const swept = new Set<string>();
   let membershipKey: string | null = null;
 
-  const sweepNewestCodex = () => {
-    if (sweptCodex || disposed) return;
-    const found = [...declarations.current()].find(
-      ([, declared]) => declared.tail === "codex",
-    );
-    if (!found) return;
-    sweptCodex = true;
-    const [agentId, declared] = found;
-    void latestCodexRollout()
-      .then((rollout) => {
-        if (disposed || !rollout) {
-          if (!rollout) {
-            log.debug(
-              "web:usage",
-              "boot sweep: no codex rollout carries usage",
-            );
-          }
-          return;
-        }
-        const receivedAt = Date.now();
+  /**
+   * The boot catch-up, over whichever agents asked for one.
+   *
+   * An agent that also runs outside KeepDeck can have spent quota this deck
+   * never saw, so its own files can know fresher account limits than the
+   * persisted snapshot. This used to find that agent BY NAME and ask a
+   * command that knew where it keeps its files; both facts went home, and
+   * what is left here is the part that was always the host's — reading
+   * candidates in order until a normalizer makes a claim, then stopping.
+   */
+  const sweepDeclaredStores = () => {
+    if (disposed) return;
+    for (const [agentId, declared] of declarations.current()) {
+      const sweep = declared.tail?.sweep;
+      if (!sweep || swept.has(agentId)) continue;
+      // Marked before the walk, not after: a sweep is once per session, and
+      // a reconcile firing mid-walk must not start a second one.
+      swept.add(agentId);
+      void sweepAgent(agentId, declared, sweep).catch((error) =>
+        log.debug(
+          "web:usage",
+          `${agentId} boot sweep failed: ${describeError(error)}`,
+        ),
+      );
+    }
+  };
+
+  const sweepAgent = async (
+    agentId: string,
+    declared: { normalize: UsageNormalizer; tail?: { watches: readonly TailWatch[] } },
+    sweep: () => Promise<readonly string[]>,
+  ) => {
+    const watches = declared.tail?.watches ?? [];
+    for (const path of await sweep()) {
+      if (disposed) return;
+      const read = await readStoreCold(path, watches);
+      // Nothing this agent asked for is in that file — an ordinary answer,
+      // and the reason a sweep hands back a LIST: a just-launched session
+      // writes its store before it has anything to say.
+      if (!read) continue;
+      const receivedAt = Date.now();
+      let claimed = false;
+      for (const record of read.records) {
         const sourceAt =
-          usageSourceTimestamp(rollout.sourceAt, receivedAt) ??
-          usageSourceTimestamp(rollout.mtimeMs, receivedAt) ??
+          usageSourceTimestamp(record.sourceAt, receivedAt) ??
+          usageSourceTimestamp(read.mtimeMs, receivedAt) ??
           0;
         const result = declared.normalize(
-          { agent: agentId, event: rollout.event, catchUp: true },
+          { agent: agentId, event: record.event, catchUp: true },
           sourceAt,
         );
-        if (result?.account) usage.setAccount(agentId, result.account);
-      })
-      .catch((error) =>
-        log.debug("web:usage", `codex boot sweep failed: ${error}`),
-      );
+        if (result?.account) {
+          usage.setAccount(agentId, result.account);
+          claimed = true;
+        }
+      }
+      if (claimed) return;
+    }
+    log.debug("web:usage", `boot sweep: no ${agentId} store carries an account`);
   };
 
   const retainLivePanes = () => {
@@ -128,10 +155,10 @@ export function createUsageMaintenanceLane({
   };
 
   const unsubscribeDeck = deck.subscribe(retainLivePanes);
-  const unsubscribeDeclarations = declarations.subscribe(sweepNewestCodex);
+  const unsubscribeDeclarations = declarations.subscribe(sweepDeclaredStores);
   const unsubscribeUsage = usage.subscribe(captureHistory);
   retainLivePanes();
-  sweepNewestCodex();
+  sweepDeclaredStores();
   captureHistory();
 
   return {

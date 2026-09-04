@@ -134,9 +134,10 @@ export function teamBriefing(
     'Write to one with the keepdeck mail.send tool — to: "<role>", plus kind and body.',
     // The briefing is the only text always in context; a tool's own
     // description is not loaded until the agent has decided the tool is
-    // worth loading. So the fact that costs a teammate its turn is said
-    // here too, and derived from the same predicate so the two cannot drift.
-    `The kind decides when it lands: ${kindGuidance(kinds)} Choose by what is true — an interrupt nobody needed is a teammate's turn spent for nothing.`,
+    // worth loading. So what a kind means is said here too — whole, and from
+    // the one function, because the half of this that was written out by hand
+    // is the half that went on promising an interrupt after it was gone.
+    kindGuidance(kinds),
     // No id to quote back. Correlating an answer with what it answers is the
     // deck's job now — it knows what this pane was handed — and asking the
     // agent for it bought nothing: nothing validated the id, nothing read it,
