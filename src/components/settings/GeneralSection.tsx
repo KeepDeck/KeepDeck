@@ -13,6 +13,7 @@ import {
   type DeckLayout,
   type DockMode,
 } from "../../domain/settings";
+import { McpServerRow } from "./McpServerRow";
 
 /** Label + one-line explanation for each deck layout, in picker order. */
 const LAYOUT_OPTIONS: Record<DeckLayout, { label: string; hint: string }> = {
@@ -73,10 +74,11 @@ const DOCK_OPTIONS: Record<DockMode, { label: string; hint: string }> = {
 /**
  * General preferences: the default agent ([F6]/[F1]), the deck layout, how a
  * minimized agent is presented in the grid layout, how the dock occupies the
- * window, and whether a restored deck comes back running or stopped. Fetches
- * the catalog
- * itself (per mount, like WorkspaceForm) — opening settings re-detects a
- * just-installed agent instead of showing the boot-time picture.
+ * window, and whether a restored deck comes back running or stopped — then
+ * the MCP server's row, which is not a preference but a fact about the
+ * running transport ([`McpServerRow`]). Fetches the catalog itself (per
+ * mount, like WorkspaceForm) — opening settings re-detects a just-installed
+ * agent instead of showing the boot-time picture.
  */
 export function GeneralSection() {
   const settings = useSettings();
@@ -232,6 +234,8 @@ export function GeneralSection() {
           ? "Restored agents wait, stopped — resume each one from its pane"
           : "Restored agents resume their sessions right away"}
       </span>
+
+      <McpServerRow />
     </>
   );
 }
