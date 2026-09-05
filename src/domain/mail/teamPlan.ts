@@ -219,7 +219,9 @@ export function teamPlanIsEmpty(plan: TeamPlan): boolean {
 export function planTeam(
   workspace: Workspace,
   draft: TeamDraft,
-  /** The team this draft is EDITING, when it edits one.
+  /** The team this draft is EDITING, when it edits one; null means the draft
+   * CREATES a team, and a name some other team holds is then refused rather
+   * than settled as an edit of that team.
    *
    * Who has left is a question about the team as it stands, not about what
    * it is being renamed to. Answered against the draft's new name, a rename
@@ -231,6 +233,27 @@ export function planTeam(
 ): Resolved<TeamPlan> {
   const name = draft.name.trim();
   if (!name) return { ok: false, message: "the team needs a name" };
+
+  // A name some OTHER team holds is refused. Settled as a create, the draft
+  // would read as an edit of that team and release every member it does not
+  // list; settled as a rename, it would merge two teams under one name with
+  // duplicate addresses — either way members evicted or mail misdelivered,
+  // with nobody re-briefed. Judged by key, so " API " is the team called
+  // "api"; the team being edited is not "other", so a re-spelling of its own
+  // name is the rename to nowhere it is, and `team.assign` names the team it
+  // joins as the one being edited, so joining is untouched. Enforced here and
+  // not only where the dialog draws it: an agent naming a team reads no dialog.
+  const key = teamNameKey(name);
+  const other = editing === null || teamNameKey(editing) !== key;
+  if (
+    other &&
+    workspace.panes.some((pane) => pane.team !== undefined && teamNameKey(pane.team.name) === key)
+  ) {
+    return {
+      ok: false,
+      message: `a team called “${name}” already exists — open it from an agent's badge to edit it`,
+    };
+  }
 
   const members = draft.members.map((member) => ({
     paneId: member.paneId,

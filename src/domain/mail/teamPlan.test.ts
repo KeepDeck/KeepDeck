@@ -70,7 +70,11 @@ describe("planTeam", () => {
       pane("pane-2", { name: "api", role: "impl-1" }),
       pane("pane-3", { name: "web", role: "lead" }),
     ]);
-    const result = planTeam(ws, draft({ members: [{ paneId: "pane-1", role: "lead" }] }));
+    const result = planTeam(
+      ws,
+      draft({ members: [{ paneId: "pane-1", role: "lead" }] }),
+      "api",
+    );
     expect(result.ok && result.value.released).toEqual(["pane-2"]);
     // A pane on ANOTHER team is not this team's business.
     expect(result.ok && result.value.released).not.toContain("pane-3");
@@ -107,7 +111,7 @@ describe("planTeam", () => {
 
   it("matches the team name however it was cased", () => {
     const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
-    const result = planTeam(ws, draft({ name: "API", members: [] }));
+    const result = planTeam(ws, draft({ name: "API", members: [] }), "api");
     expect(result.ok && result.value.released).toEqual(["pane-1"]);
   });
 
@@ -202,7 +206,7 @@ describe("planTeam", () => {
       { paneId: "pane-1", role: "lead" },
       { paneId: "pane-2", role: "impl-1" },
     ];
-    expect(planTeam(ws, draft({ name: "api", members })).ok).toBe(true);
+    expect(planTeam(ws, draft({ name: "api", members }), "api").ok).toBe(true);
     expect(planTeam(ws, draft({ name: "platform", members }), "api").ok).toBe(true);
   });
 
@@ -224,7 +228,8 @@ describe("planTeam", () => {
     // does — must not read as a pane colliding with itself.
     const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
     expect(
-      planTeam(ws, draft({ name: "api", members: [{ paneId: "pane-1", role: "lead" }] })).ok,
+      planTeam(ws, draft({ name: "api", members: [{ paneId: "pane-1", role: "lead" }] }), "api")
+        .ok,
     ).toBe(true);
   });
 
@@ -287,9 +292,57 @@ describe("planTeam", () => {
     // An empty roster is not a team missing its head — it is a team being
     // taken apart, and demanding a lead there would make that impossible.
     const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
-    const result = planTeam(ws, draft({ name: "api", members: [] }));
+    const result = planTeam(ws, draft({ name: "api", members: [] }), "api");
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.released).toEqual(["pane-1"]);
+  });
+
+  it("refuses to create or rename onto a name another team holds, however cased or padded", () => {
+    // As a create it would read as an edit of that team and evict the
+    // members the draft does not list; as a rename it would merge two teams
+    // under one name. Judged here, not only in the dialog: an agent naming a
+    // team over `team.assign` reads no dialog.
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: "web", role: "lead" }),
+      pane("pane-3"),
+    ]);
+    const create = planTeam(
+      ws,
+      draft({ name: " API ", members: [{ paneId: "pane-3", role: "lead" }] }),
+    );
+    expect(create.ok).toBe(false);
+    if (!create.ok) expect(create.message).toContain("already exists");
+    const rename = planTeam(
+      ws,
+      draft({ name: "Web", members: [{ paneId: "pane-1", role: "lead" }] }),
+      "api",
+    );
+    expect(rename.ok).toBe(false);
+    if (!rename.ok) expect(rename.message).toContain("already exists");
+  });
+
+  it("lets the team being edited keep its own name, and be joined under it", () => {
+    // Its own name back — re-spelled or not — is not another team's, and
+    // `team.assign` names the team it joins as the one being edited.
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" }), pane("pane-2")]);
+    expect(
+      planTeam(ws, draft({ name: "API", members: [{ paneId: "pane-1", role: "lead" }] }), "api")
+        .ok,
+    ).toBe(true);
+    expect(
+      planTeam(
+        ws,
+        draft({
+          name: "api",
+          members: [
+            { paneId: "pane-1", role: "lead" },
+            { paneId: "pane-2", role: "impl-1" },
+          ],
+        }),
+        "api",
+      ).ok,
+    ).toBe(true);
   });
 
   it("knows a plan that asks for nothing", () => {
