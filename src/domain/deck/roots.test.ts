@@ -4,6 +4,7 @@ import type { Workspace } from "./workspaces";
 import type { Pane } from "./panes";
 import {
   pathBelongsTo,
+  skillRootsOf,
   workspaceDirectories,
   withHistoricalDirectories,
 } from "./roots";
@@ -78,6 +79,32 @@ describe("workspaceDirectories", () => {
       }),
     );
     expect([...set]).toEqual(["/repo"]);
+  });
+});
+
+describe("skillRootsOf", () => {
+  it("names every directory a CLI starts in, once each, and none for a create in flight", () => {
+    // Bare and remote panes start in the workspace cwd; an attached pane in
+    // its worktree; a pane mid-create nowhere yet. Through the one formula,
+    // so the four answers cannot drift from the sweep's and the plan's.
+    const roots = skillRootsOf(
+      ws({
+        panes: [
+          { id: "bare" },
+          { id: "remote", location: { kind: "remote", endpoint: "ws://vps" } },
+          { id: "wt", location: { kind: "attached", cwd: "/wt/a" } },
+          { id: "wt-again", location: { kind: "attached", cwd: "/wt/a" } },
+          {
+            id: "pending",
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/b", index: 5 },
+            },
+          },
+        ],
+      }),
+    );
+    expect(roots).toEqual(["/repo", "/wt/a"]);
   });
 });
 
