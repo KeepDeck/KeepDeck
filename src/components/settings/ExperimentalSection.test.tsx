@@ -64,10 +64,6 @@ describe("ExperimentalSection", () => {
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       remoteAgents: true,
     });
-    act(() => rowButtons("Agent teams").get("On")!.click());
-    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
-      agentTeams: true,
-    });
     act(() => rowButtons("Fleet artifacts").get("On")!.click());
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
       artifacts: true,
@@ -75,47 +71,40 @@ describe("ExperimentalSection", () => {
   });
 
   it("marks the stored value active per row, not shared across rows", () => {
-    settings.current = { ...DEFAULT_SETTINGS, agentTeams: true };
+    settings.current = { ...DEFAULT_SETTINGS, artifacts: true };
     mount();
-    const teams = rowButtons("Agent teams");
-    expect(teams.get("On")!.className).toContain("form__type--active");
-    expect(teams.get("Off")!.className).not.toContain("form__type--active");
+    const artifacts = rowButtons("Fleet artifacts");
+    expect(artifacts.get("On")!.className).toContain("form__type--active");
+    expect(artifacts.get("Off")!.className).not.toContain("form__type--active");
     expect(rowButtons("Remote agents").get("Off")!.className).toContain(
       "form__type--active",
     );
   });
 
-  it("carries no MCP switch — the socket is not an experiment", () => {
+  it("lists only what is still an experiment", () => {
+    // The MCP socket and agent teams graduated: neither has a switch here.
     mount();
     const labels = Array.from(host.querySelectorAll(".form__label")).map(
       (label) => label.textContent,
     );
-    expect(labels).not.toContain("MCP server");
-    expect(host.querySelector(".settings__command")).toBeNull();
+    expect(labels).toEqual(["Remote agents", "Fleet artifacts"]);
   });
 
-  // The two features that ride the socket say so only while it is actually
-  // down, and only while they are on: the hint and the tool-registration
-  // gate key on the same confirmed status, so they agree on what "down"
-  // means.
-  for (const [key, phrase] of [
-    ["agentTeams", "never reply"],
-    ["artifacts", "cannot publish"],
-  ] as const) {
-    it(`${key}: says the socket is down only while it is, and only while on`, () => {
-      settings.current = { ...DEFAULT_SETTINGS, [key]: true };
-      mount();
-      expect(host.textContent).toContain("MCP socket is down");
-      expect(host.textContent).toContain(phrase);
+  it("says the socket is down only while it is, and only while artifacts are on", () => {
+    // The hint and the tool-registration gate key on the same confirmed
+    // status, so they agree on what "down" means.
+    settings.current = { ...DEFAULT_SETTINGS, artifacts: true };
+    mount();
+    expect(host.textContent).toContain("MCP socket is down");
+    expect(host.textContent).toContain("cannot publish");
 
-      mcpStatus.socket = "/home/mcp.sock";
-      mount();
-      expect(host.textContent).not.toContain("MCP socket is down");
+    mcpStatus.socket = "/home/mcp.sock";
+    mount();
+    expect(host.textContent).not.toContain("MCP socket is down");
 
-      mcpStatus.socket = null;
-      settings.current = { ...DEFAULT_SETTINGS, [key]: false };
-      mount();
-      expect(host.textContent).not.toContain(phrase);
-    });
-  }
+    mcpStatus.socket = null;
+    settings.current = { ...DEFAULT_SETTINGS, artifacts: false };
+    mount();
+    expect(host.textContent).not.toContain("cannot publish");
+  });
 });

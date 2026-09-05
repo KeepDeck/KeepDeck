@@ -137,8 +137,8 @@ interface DeckStageProps {
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
-  /** Open an existing team by name. Absent while the teams experiment is
-   * off, which is also when no pane wears a badge to click. */
+  /** Open an existing team by name — the way in to a team a pane's badge
+   * names, since the bar's button always starts a new one. */
   onOpenTeam?(name: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;

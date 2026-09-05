@@ -1,31 +1,26 @@
 /**
- * The feature, as one switchable thing — and as ONE thing to build.
+ * The feature, as ONE thing to build — and one thing to take down.
  *
  * Mail has two halves that fail differently: SENDING is a command an agent
- * calls, and DELIVERY is the deck writing into a pane. A gate over only the
- * first would leave a pane receiving messages it has no way to answer, which
- * is worse than the feature being off — so both halves hang off the same
- * owner here, and the toggle creates or destroys it whole.
+ * calls, and DELIVERY is the deck writing into a pane. Owned apart, a
+ * teardown could leave a pane receiving messages it has no way to answer —
+ * so both halves hang off the same owner here, built together for the life
+ * of the app and disposed whole.
  *
  * That is also why the commands are registered from here rather than added
  * to the core set: a registered command IS an MCP tool
- * (`src/app/mcp/index.ts` projects the registry), so leaving `mail.send`
- * registered-but-refusing would advertise a capability the deck has switched
- * off. Unregistering removes it from `tools/list` instead, which is what an
- * agent can actually act on.
+ * (`src/app/mcp/index.ts` projects the registry), and a tool must exist for
+ * exactly as long as the thing behind it — `mail.send` registered over a
+ * disposed manager would advertise a capability that refuses every call.
  *
  * Everything the feature is made of composes INSIDE this file: the queue
  * owner, the commands, the two delivery channels, the labelled channel's
  * reply memory, and the presence that re-states a pane's standing. The
  * composition root gets one create and one dispose. It held them all once —
  * two creates, two disposes, four registry lookups and a private fan-out —
- * and the cost was not tidiness: turning the feature off destroyed the
- * manager while a collaborator built beside it kept running, and nothing in
- * this directory could enforce otherwise, because the collaborator was not
- * its child.
- *
- * The live-toggle shape mirrors `createMcpService`: a policy that reads the
- * setting and reports changes, and an owner that settles to it.
+ * and the cost was not tidiness: a teardown destroyed the manager while a
+ * collaborator built beside it kept running, and nothing in this directory
+ * could enforce otherwise, because the collaborator was not its child.
  */
 import type { AgentStatus } from "@keepdeck/plugin-api";
 import type { CommandRegistry } from "../../domain/commands";
@@ -37,12 +32,6 @@ import { registerMailCommands, type MailCommandDeps } from "./mailCommands";
 import { createMailManager, type MailManager } from "./mailManager";
 import { createMailWake } from "./wakeChannel";
 import { createTeamPresence } from "./teamPresence";
-
-export interface MailPolicy {
-  /** The wish, or null while settings have not loaded. */
-  agentTeams(): boolean | null;
-  subscribe(listener: () => void): () => void;
-}
 
 /**
  * What mail cannot build for itself.
@@ -111,9 +100,9 @@ export interface MailServiceDeps {
 }
 
 export interface MailService {
-  /** The live manager, or null while the feature is off. The lifecycle
-   * owners (pane retire, close) reach it through this rather than holding a
-   * reference that outlives a toggle. */
+  /** The live manager, or null once disposed. The lifecycle owners (pane
+   * retire, close) reach it through this rather than holding a reference
+   * that outlives the service. */
   current(): MailManager | null;
   /** Answer one asking payload from a pane's reporter. Handed to the status
    * lane, which is where the question arrives. */
@@ -141,13 +130,7 @@ export interface MailService {
   dispose(): void;
 }
 
-export function createMailService(
-  policy: MailPolicy,
-  deps: MailServiceDeps,
-): MailService {
-  let manager: MailManager | null = null;
-  let unregister: (() => void) | null = null;
-  let presence: { dispose(): void } | null = null;
+export function createMailService(deps: MailServiceDeps): MailService {
   let disposed = false;
   /** Panes whose asking envelope is being answered RIGHT NOW — see
    * [`MailService.expectAsk`]. Never more than one at a time in practice:
@@ -209,9 +192,9 @@ export function createMailService(
   });
 
   // Re-states a pane's standing whenever its memory of it may have gone — a
-  // fresh conversation, or a compaction. Built by `settle` and torn down with
-  // everything else, so the feature being off means no subscription at all
-  // rather than a live one whose every announcement lands on a null manager.
+  // fresh conversation, or a compaction. Built below and torn down with
+  // everything else, so a disposed service leaves no subscription at all
+  // rather than a live one whose every announcement lands on a dead manager.
   const startPresence = () =>
     createTeamPresence({
       standingOf: (paneId) => {
@@ -231,7 +214,7 @@ export function createMailService(
         }
         return null;
       },
-      announce: (paneId, body) => manager?.announce(paneId, "team", body),
+      announce: (paneId, body) => manager.announce(paneId, "team", body),
       onSessionBegan: deps.onSessionBegan,
       onContextRebuilt: deps.status.onContextRebuilt,
       onCatalogChanged: deps.onRoleCatalogChanged,
@@ -244,95 +227,52 @@ export function createMailService(
           ),
     });
 
-  /**
-   * Take the feature down: everything `settle` built, in the one order that
-   * is safe.
-   *
-   * Written once because it was written twice — the toggle-off branch and
-   * `dispose` — with the orders already differing. The next step added to one
-   * and not the other is a leak or a call into a disposed manager, and
-   * nothing about two copies makes them stay in step.
-   *
-   * Commands FIRST: an in-flight call must not reach a manager that is
-   * already disposed, and unregistering is what makes the tool stop existing
-   * for anyone still holding a `tools/list` from a moment ago. Then the
-   * presence, so nothing announces into what is about to go. Then the
-   * manager itself.
-   */
-  function tearDown(): void {
-    unregister?.();
-    unregister = null;
-    presence?.dispose();
-    presence = null;
-    manager?.dispose();
-    manager = null;
-  }
+  const manager = createMailManager({
+    activityOf: deps.status.activityOf,
+    subscribeActivity: deps.status.subscribe,
+    subscribeChannels: deps.subscribeChannels,
+    wake: createMailWake({
+      channelOf: (paneId) => statusOfPane(paneId)?.wake,
+      // Refuse while this pane's own asking envelope is mid-answer: the
+      // words are already leaving through the hook, and a line typed now
+      // says nothing and stays. A refusal keeps the message queued, which
+      // is exactly where the hand-over is about to find it.
+      throughTerminal: (paneId) =>
+        answering.has(paneId) ? false : deps.terminal.wake(paneId),
+      throughBridge: deps.bridge.nudge,
+    }),
+    // A pane whose CLI plugin renders mail will come asking at its turn
+    // boundary, so a running turn is worth waiting out for the labelled
+    // channel.
+    asksAtTurnEnd: (paneId) => Boolean(statusOfPane(paneId)?.renderMail),
+  });
+  const unregister = registerMailCommands(deps.registry, {
+    workspaces: deps.deck.workspaces,
+    agents: deps.agents.labels,
+    setPaneTeam: deps.deck.setPaneTeam,
+    mail: manager,
+  });
+  const presence = startPresence();
+  learnLiveVersions();
 
-  function settle(): void {
-    if (disposed) return;
-    // `null` (settings still loading) is treated as off: starting the
-    // feature on a guess and tearing it down a moment later would deliver
-    // into panes the user may have meant to leave alone.
-    const wanted = policy.agentTeams() === true;
-    if (wanted === (manager !== null)) return;
-    if (wanted) {
-      manager = createMailManager({
-        activityOf: deps.status.activityOf,
-        subscribeActivity: deps.status.subscribe,
-        subscribeChannels: deps.subscribeChannels,
-        wake: createMailWake({
-          channelOf: (paneId) => statusOfPane(paneId)?.wake,
-          // Refuse while this pane's own asking envelope is mid-answer: the
-          // words are already leaving through the hook, and a line typed now
-          // says nothing and stays. A refusal keeps the message queued, which
-          // is exactly where the hand-over is about to find it.
-          throughTerminal: (paneId) =>
-            answering.has(paneId) ? false : deps.terminal.wake(paneId),
-          throughBridge: deps.bridge.nudge,
-        }),
-        // A pane whose CLI plugin renders mail will come asking at its turn
-        // boundary, so a running turn is worth waiting out for the labelled
-        // channel.
-        asksAtTurnEnd: (paneId) => Boolean(statusOfPane(paneId)?.renderMail),
-      });
-      unregister = registerMailCommands(deps.registry, {
-        workspaces: deps.deck.workspaces,
-        agents: deps.agents.labels,
-        setPaneTeam: deps.deck.setPaneTeam,
-        mail: manager,
-      });
-      presence = startPresence();
-      learnLiveVersions();
-      return;
-    }
-    tearDown();
-  }
-
-  const unsubscribeSettings = policy.subscribe(settle);
   // Swept on every deck change rather than at close: a pane can also leave by
-  // a workspace closing, and one sweep covers both. Cheap when the feature is
-  // off — there is no manager to sweep.
+  // a workspace closing, and one sweep covers both.
   const unsubscribePanes = deps.deck.subscribe(() => {
-    if (!manager) return;
     manager.retain(livePaneIds());
     // A pane that just appeared may run an agent nobody has asked about.
     learnLiveVersions();
   });
-  // The registry is EMPTY while the deck hydrates, so a boot-time walk finds
+  // The registry is EMPTY while the deck hydrates, so the walk above finds
   // nothing to ask about — and without this the answer was only ever learned
   // by the coincidence that waking a restored pane happens to write to the
   // deck. A Rescan is NOT this edge: it re-activates plugins that are already
   // active, which adds no contribution and notifies nobody. What covers a
   // Rescan is the port forgetting what it cached, so the next deck change
   // asks again.
-  const unsubscribeAgents = deps.agents.onAgentsChanged(() => {
-    if (!manager) return;
-    learnLiveVersions();
-  });
-  settle();
+  const unsubscribeAgents = deps.agents.onAgentsChanged(learnLiveVersions);
 
   return {
-    current: () => manager,
+    current: () => (disposed ? null : manager),
     answerAsk: hookReplies.answer,
     expectAsk(paneId, payload) {
       if (!correlationOf(payload)) return () => {};
@@ -344,18 +284,27 @@ export function createMailService(
         // usual case finds an empty queue and does nothing; the case that
         // matters is a hand-over that gave the messages back, which must not
         // sit on an idle pane until something else happens to drive a pass.
-        manager?.reconsider();
+        manager.reconsider();
       };
     },
+    /**
+     * Take the feature down, in the one order that is safe.
+     *
+     * The service's own subscriptions first, so nothing drives the manager
+     * while it goes. Then the commands: an in-flight call must not reach a
+     * manager that is already disposed, and unregistering is what makes the
+     * tool stop existing for anyone still holding a `tools/list` from a
+     * moment ago. Then the presence, so nothing announces into what is
+     * about to go. Then the manager itself.
+     */
     dispose() {
       if (disposed) return;
       disposed = true;
-      // The service's OWN subscriptions — the ones that exist whether the
-      // feature is on or off, and so are not `tearDown`'s business.
-      unsubscribeSettings();
       unsubscribePanes();
       unsubscribeAgents();
-      tearDown();
+      unregister();
+      presence.dispose();
+      manager.dispose();
     },
   };
 }

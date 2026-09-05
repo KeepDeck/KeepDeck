@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DownloadRequest } from "@keepdeck/plugin-api";
+import { createCommandRegistry } from "../domain/commands";
 import type { DownloadBackend } from "./downloadManager";
 import { createAppRuntime } from "./runtime";
 
@@ -22,8 +23,11 @@ describe("createAppRuntime", () => {
   it("owns an isolated dependency graph instead of a module singleton", () => {
     const firstBackend = backend();
     const secondBackend = backend();
-    const first = createAppRuntime(firstBackend);
-    const second = createAppRuntime(secondBackend);
+    // Each runtime contributes its commands (mail's, for its whole life) to
+    // the registry it is given; two runtimes sharing the process-wide one
+    // would collide on the first registration.
+    const first = createAppRuntime(firstBackend, createCommandRegistry());
+    const second = createAppRuntime(secondBackend, createCommandRegistry());
 
     expect(first).not.toBe(second);
     expect(first.downloads).not.toBe(second.downloads);
@@ -47,7 +51,7 @@ describe("createAppRuntime", () => {
   });
 
   it("exposes the session index owner and tears it down with the runtime", () => {
-    const runtime = createAppRuntime(backend());
+    const runtime = createAppRuntime(backend(), createCommandRegistry());
     // Fresh owner: idle, nothing scanned.
     expect(runtime.sessionIndex.snapshot()).toEqual({
       scanning: false,

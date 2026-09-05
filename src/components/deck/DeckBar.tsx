@@ -83,8 +83,7 @@ export interface DeckBarProps {
   addAgentTitle: string;
   onAddAgent(): void;
 
-  /** Opens a NEW team, or null while the teams experiment is off or no
-   *  workspace is active. */
+  /** Opens a NEW team, or null while no workspace is active. */
   onAddTeam: (() => void) | null;
 
   /** The dock toggle, or null when no plugin contributes a dock tab. */

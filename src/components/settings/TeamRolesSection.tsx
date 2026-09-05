@@ -4,16 +4,16 @@ import {
   saveStoredRole,
 } from "../../app/roleCatalogManager";
 import { useRoleCatalog } from "../../app/useRoleCatalog";
-import { useSettings } from "../../app/useSettings";
 import {
   builtInRoles,
+  leadRole,
+  peerRole,
   roleIdProblem,
   roleTextsProblem,
   teamRoles,
   type StoredRole,
   type TeamRole,
 } from "../../domain/mail";
-import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { describeError } from "../../ipc/log";
 import { noAutoCorrect } from "../../ui/inputProps";
 
@@ -60,8 +60,6 @@ const FRESH: RoleDraft = {
  * teams — nothing here does either.
  */
 export function TeamRolesSection() {
-  const settings = useSettings();
-  const agentTeams = settings?.agentTeams ?? DEFAULT_SETTINGS.agentTeams;
   const catalog = useRoleCatalog();
   const [selected, setSelected] = useState<Selection | null>(null);
   const [draft, setDraft] = useState<RoleDraft | null>(null);
@@ -178,12 +176,19 @@ export function TeamRolesSection() {
         is a file under KeepDeck's home, and deleting the file restores the
         default.
       </span>
-      {!agentTeams && (
-        <span className="settings__hint">
-          Agent teams is off (see Experimental) — roles take effect once it
-          is on.
-        </span>
-      )}
+      {/* Where to actually build a team. The gesture is in the workspace
+          bar and nothing else announces it, so the page about roles is the
+          one place guaranteed to be read by someone looking for it. */}
+      <span className="settings__hint">
+        To build a team: use the team button in the workspace bar. Name the
+        team, put agents on it, and give each a role —{" "}
+        {roles.map((role) => role.label).join(", ")}. The role says what a
+        member is for AND is the address teammates write to. A led team
+        needs exactly one {leadRole().label.toLowerCase()}, the member that
+        hands out the work — or make everyone a{" "}
+        {peerRole().label.toLowerCase()} for a flat team, where agents work
+        as equals and nobody assigns.
+      </span>
 
       {catalog.problems.length > 0 && (
         // The person reading this is the one who can fix the file, so the

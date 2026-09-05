@@ -28,8 +28,8 @@ export interface TeamFlowDeps {
   close(workspaceId: string, paneId: string): Promise<void>;
   /** Tell the person about a recruit that never started. */
   report(title: string, message: string): void;
-  /** Tell an AGENT where it now stands. Resolved per call: mail is an
-   * Experimental toggle, and it can go off between two applies. */
+  /** Tell an AGENT where it now stands. Resolved per call: the manager is
+   * the mail service's, and a disposed service has none. */
   announce(paneId: string, kind: "team", body: string): void;
 }
 

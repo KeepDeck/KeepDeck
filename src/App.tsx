@@ -196,12 +196,7 @@ function App() {
             onRestoreSuspendedPane={deck.restoreSuspendedPane}
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
-            // Only while the experiment is on — the same gate the bar's
-            // button answers to, and without it no pane wears a badge to
-            // click anyway.
-            {...(settings.agentTeams
-              ? { onOpenTeam: (name: string) => setTeamDialog({ editing: name }) }
-              : {})}
+            onOpenTeam={(name) => setTeamDialog({ editing: name })}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
             wakeFailed={runView.wakeFailed}

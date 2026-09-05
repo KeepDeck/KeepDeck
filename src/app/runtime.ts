@@ -24,6 +24,7 @@ import {
 } from "./downloadManager";
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
+import type { CommandRegistry } from "../domain/commands";
 import { commands } from "./commandRegistry";
 import { createMailService, wakePaneForMail } from "./mail";
 import { createMcpService } from "./mcp";
@@ -105,9 +106,15 @@ function agentCatalogPort(
   };
 }
 
-/** Application composition root and owner of app-lifetime services. */
+/** Application composition root and owner of app-lifetime services.
+ *
+ * `registry` is the command registry every owner below contributes to —
+ * the process-wide one by default, and a fresh one where two runtimes must
+ * coexist (a test): the mail commands are registered for a runtime's whole
+ * life, and one registry cannot hold two of them. */
 export function createAppRuntime(
   downloadBackend: DownloadBackend = tauriDownloadBackend,
+  registry: CommandRegistry = commands,
 ) {
   const downloads = new DownloadManager(downloadBackend);
   const plugins = createPluginManager(downloads);
@@ -123,6 +130,7 @@ export function createAppRuntime(
       .list()
       .map(({ entry }) => ({ id: entry.id, label: entry.label }));
   const mcp = createMcpService({
+    registry,
     panesIn: (cwd) => panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
     // kimi's config lands in a pane's cwd, so the owner of those directories
     // decides when it may. The closure exists only to break the construction
@@ -182,7 +190,7 @@ export function createAppRuntime(
       mcp.status().socket !== null;
     if (shouldRun && disposeArtifactCommands === null) {
       disposeArtifactCommands = registerArtifactCommands(
-        commands,
+        registry,
         {
           deck: () => deckStore.getSnapshot(),
           announce: (event) =>
@@ -258,11 +266,7 @@ export function createAppRuntime(
       .find(({ entry }) => entry.id === agentId)?.entry;
   const mail = createMailService(
     {
-      agentTeams: () => getSettings()?.agentTeams ?? null,
-      subscribe: subscribeSettings,
-    },
-    {
-      registry: commands,
+      registry,
       deck: {
         workspaces: () => deckStore.getSnapshot().workspaces,
         subscribe: deckStore.subscribe,
@@ -354,6 +358,7 @@ export function createAppRuntime(
     dropArtifacts: (wsId) => artifactDropWorkspace(wsId),
   });
   const application = createApplicationController({
+    registry,
     deck: deckStore,
     plugins,
     orchestrator,

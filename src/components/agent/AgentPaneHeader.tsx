@@ -36,8 +36,8 @@ export interface AgentPaneHeaderProps {
    * inline rename must not be left in flight underneath one. */
   keyboardFocusEnabled: boolean;
   onRename(name: string): void;
-  /** Open the team this pane is on. Absent while the feature is off, which
-   * is also when no badge is rendered — the two travel together. */
+  /** Open the team this pane is on. Optional for a header rendered without
+   * a way in — the badge then names the team without being a door. */
   onOpenTeam?(name: string): void;
   onMinimize?(): void;
   onToggleFocus(): void;

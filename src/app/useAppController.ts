@@ -150,8 +150,8 @@ export function useAppController() {
       });
     },
     report: pushAlert,
-    // Looked up per call: mail is an Experimental toggle, and with it off the
-    // roles are still recorded — there is simply nothing running to be told.
+    // Looked up per call: the manager is the service's, and a disposed
+    // service has none to tell.
     announce: (paneId, kind, body) =>
       runtime.mail.current()?.announce(paneId, kind, body),
   });
@@ -432,10 +432,7 @@ export function useAppController() {
     openArtifacts: artifactsDoorOpen(settings)
       ? () => void modal.openArtifacts()
       : null,
-    openTeamDialog:
-      settings?.agentTeams && active
-        ? () => setTeamDialog({ editing: null })
-        : null,
+    openTeamDialog: active ? () => setTeamDialog({ editing: null }) : null,
     dockControl:
       pluginDockTabs.length > 0
         ? {
