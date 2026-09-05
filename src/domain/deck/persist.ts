@@ -352,16 +352,16 @@ function readPane(value: unknown): Pane | null {
   if (typeof value.autoTitle === "string") pane.autoTitle = value.autoTitle;
   // BOTH halves or neither: a role with no team cannot be addressed and a
   // team with no role gives its holder no name, so a half-written entry is
-  // read as no membership rather than as a member nobody can reach.
+  // read as no membership rather than as a member nobody can reach. Trimmed
+  // on the way in, as planTeam trims on the way out: a hand-edited " api "
+  // is the team called "api" to every reader, and a name that is only space
+  // is no name. The trimmed form is what is stored, so the next save writes
+  // it — a document holding " api " beside "api" comes back as one team.
   const team = value.team;
-  if (
-    isRecord(team) &&
-    typeof team.name === "string" &&
-    team.name &&
-    typeof team.role === "string" &&
-    team.role
-  ) {
-    pane.team = { name: team.name, role: team.role };
+  if (isRecord(team) && typeof team.name === "string" && typeof team.role === "string") {
+    const name = team.name.trim();
+    const role = team.role.trim();
+    if (name && role) pane.team = { name, role };
   }
   const session = value.session;
   if (

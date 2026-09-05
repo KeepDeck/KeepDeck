@@ -384,13 +384,34 @@ describe("team membership across a restart", () => {
     // A role with no team cannot be addressed, and a team with no role
     // gives its holder no name — either way the pane is better off plainly
     // outside than present-but-unreachable.
-    for (const broken of ['{"name":"api"}', '{"role":"lead"}', '{"name":"","role":"x"}']) {
+    for (const broken of [
+      '{"name":"api"}',
+      '{"role":"lead"}',
+      '{"name":"","role":"x"}',
+      // Only space is no name, and no role: both halves or neither.
+      '{"name":"   ","role":"lead"}',
+      '{"name":"api","role":" "}',
+    ]) {
       const json = serializeDeck(teamState).replace(
         '{"name":"api","role":"lead"}',
         broken,
       );
       expect(okDeck(json).state.workspaces[0].panes[0].team).toBeUndefined();
     }
+  });
+
+  it("trims a hand-edited name and role on the way in, and saves them trimmed", () => {
+    // planTeam trims what it stores; a document edited by hand did not go
+    // through it. Read trimmed, " api " is the team called "api" to every
+    // reader — and the next save writes what was read, so the padding is
+    // gone from the file rather than kept as a second spelling.
+    const json = serializeDeck(teamState).replace(
+      '{"name":"api","role":"lead"}',
+      '{"name":" api ","role":" lead "}',
+    );
+    const restored = okDeck(json).state;
+    expect(restored.workspaces[0].panes[0].team).toEqual({ name: "api", role: "lead" });
+    expect(serializeDeck(restored)).toContain('{"name":"api","role":"lead"}');
   });
 });
 
