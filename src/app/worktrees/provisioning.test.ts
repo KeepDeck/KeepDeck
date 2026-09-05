@@ -121,22 +121,24 @@ describe("provision", () => {
     expect(worktree.createWorktree).not.toHaveBeenCalled();
   });
 
-  it("names the branch after the workspace it is handed — nothing on the card says", async () => {
+  it("names the branch after the workspace it is handed EACH time — a Retry after a rename lands on the new name", async () => {
     // The auto branch name is `kd/<workspace>/<n>`, and the workspace half
     // is read by the caller as it calls: a card carries the number it was
-    // born with and no name, so a Retry after a rename lands on the new one.
+    // born with and no name. The same runner, asked twice for the same card
+    // under two names, must not remember the first.
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
-    worktree.createWorktree.mockResolvedValue({ path: "/wt/pane-1", branch: "kd/renamed/1" });
+    worktree.createWorktree
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce({ path: "/wt/pane-1", branch: "kd/renamed/1" });
+    const cb = { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays };
 
-    await manager.provision(cards().slice(0, 1), "renamed", {
-      onResolved: vi.fn(),
-      onFailed: vi.fn(),
-      abandoned: stays,
-    });
+    await manager.provision(cards().slice(0, 1), "ws", cb); // create + fail
+    await manager.provision(cards().slice(0, 1), "renamed", cb); // Retry, renamed between
 
-    expect(worktree.createWorktree).toHaveBeenCalledWith(
-      expect.objectContaining({ workspace: "renamed", index: 1 }),
-    );
+    expect(worktree.createWorktree.mock.calls.map((c: any[]) => c[0].workspace)).toEqual([
+      "ws",
+      "renamed",
+    ]);
   });
 
   it("resolves the card as soon as the create lands", async () => {

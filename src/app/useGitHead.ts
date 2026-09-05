@@ -15,8 +15,8 @@ function samePosition(a: GitPosition | undefined, b: GitPosition | null): boolea
 }
 
 /**
- * Runtime git HEAD observations, keyed by the pane execution path derived from
- * deck domain state (`pane.cwd ?? ws.cwd`). The deck remains durable model state;
+ * Runtime git HEAD observations, keyed by the pane execution path that
+ * `gitWatchPaths` derives from deck domain state. The deck remains durable model state;
  * current branch/detached HEAD is an app-runtime observation used by UI badges
  * and close-time worktree cleanup.
  */

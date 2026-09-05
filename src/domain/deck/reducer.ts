@@ -100,6 +100,7 @@ function boundEventFor(
   session: PaneSession,
   transcriptPath?: string,
 ): JournalEvent {
+  const branch = paneBranch(pane);
   return {
     e: "bound",
     v: 1,
@@ -108,7 +109,7 @@ function boundEventFor(
       agent: paneAgentType(pane),
       sessionId: session.id,
       cwd: paneExecutionCwd(ws, pane) ?? ws.cwd,
-      ...(paneBranch(pane) !== undefined && { branch: paneBranch(pane) }),
+      ...(branch !== undefined && { branch }),
       ...(pane.yolo && { yolo: true }),
       ...(transcriptPath !== undefined && { transcriptPath }),
       boundAt: session.boundAt,
