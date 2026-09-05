@@ -131,11 +131,6 @@ export interface Settings {
    * come back parked and each starts on its own card. Applies at launch only:
    * flipping it never touches panes that are already running. */
   parkAgentsOnLaunch: boolean;
-  /** MCP server ([F6] → Experimental): expose the command registry to MCP
-   * clients over the local socket. A live switch, not a launch flag: On
-   * brings the socket up, Off tears it down and disconnects its clients.
-   * Default off; opt-in only while the feature is experimental. */
-  mcpServer: boolean;
   /** Agent teams ([F6] → Experimental): panes can be grouped into a team,
    * each holding a role, and teammates can write to each other by role.
    *
@@ -149,9 +144,9 @@ export interface Settings {
    * tools) AND stops delivery, or a pane could receive what it has no way
    * to answer.
    *
-   * Needs `mcpServer` to be useful: sending is an MCP call, and with the
-   * socket down nothing can make one. Default off; opt-in only while the
-   * feature is experimental. */
+   * Rides the deck's MCP socket, which has no switch of its own: sending is
+   * an MCP call, so while the socket is down a pane can receive but not
+   * answer. Default off; opt-in only while the feature is experimental. */
   agentTeams: boolean;
   /** Fleet artifacts ([F6] → Experimental): agents can publish presentation
    * pages (HTML/md) to a workspace-scoped store, served on localhost with
@@ -161,10 +156,10 @@ export interface Settings {
    * claim — and unregisters the artifact_* commands, so they stop being
    * MCP tools the same turn.
    *
-   * Needs `mcpServer` to be useful for the TOOL half (the commands are MCP
-   * projections) — the display server and any published artifacts keep
-   * serving with the transport off, only new publishes go dark. Default
-   * off; opt-in only while the feature is experimental. */
+   * The TOOL half rides the deck's MCP socket (the commands are MCP
+   * projections) — while it is down the display server and any published
+   * artifacts keep serving, only new publishes go dark. Default off; opt-in
+   * only while the feature is experimental. */
   artifacts: boolean;
   /** First publish of a NEW artifact opens it in the system browser (the
    * Claude Code artifacts UX; republish never re-opens — the open tab

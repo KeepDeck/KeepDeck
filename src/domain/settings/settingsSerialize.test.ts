@@ -60,14 +60,14 @@ describe("serializeSettings", () => {
   it("lists keys in table order, whatever order they were chosen in", () => {
     // A stable order keeps the hand-editable file readable and its diffs small.
     const out = serializeSettings(
-      chose({ mcpServer: true, defaultYolo: true, scrollback: 20_000 }),
+      chose({ agentTeams: true, defaultYolo: true, scrollback: 20_000 }),
     );
     expect(Object.keys(JSON.parse(out))).toEqual([
       "version",
       "minVersion",
       "defaultYolo",
       "scrollback",
-      "mcpServer",
+      "agentTeams",
     ]);
   });
 });
@@ -110,9 +110,9 @@ describe("a chosen value survives a change of default", () => {
   it("a value the file carried but we could not use is NOT written back", () => {
     // Re-writing garbage as a synthesized default would grow the file on every
     // load while recording no decision at all.
-    const out = serializeSettings(restore('{"dockMode":"sideways","mcpServer":"yes"}'));
+    const out = serializeSettings(restore('{"dockMode":"sideways","agentTeams":"yes"}'));
     expect(out).not.toContain("dockMode");
-    expect(out).not.toContain("mcpServer");
+    expect(out).not.toContain("agentTeams");
   });
 });
 

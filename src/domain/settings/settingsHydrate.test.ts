@@ -48,7 +48,7 @@ describe("hydrateSettings", () => {
       notifications: { enabled: false, mode: "system" },
       usageDisplay: "left",
       parkAgentsOnLaunch: true,
-      mcpServer: true,
+      agentTeams: true,
     };
     const doc = restore(JSON.stringify(stored));
     expect(doc.settings).toEqual({
@@ -64,13 +64,12 @@ describe("hydrateSettings", () => {
       usageDisplay: "left",
       remoteAgents: false,
       parkAgentsOnLaunch: true,
-      mcpServer: true,
-      agentTeams: false,
+      agentTeams: true,
       artifacts: false,
       artifactAutoOpen: true,
     });
-    // Everything the file said is a decision; `remoteAgents`, `agentTeams`,
-    // `artifacts` and `artifactAutoOpen`, which it did not mention, are not.
+    // Everything the file said is a decision; `remoteAgents`, `artifacts`
+    // and `artifactAutoOpen`, which it did not mention, are not.
     expect(Object.keys(doc.chosen).sort()).toEqual(
       Object.keys(stored)
         .filter((key) => key !== "version")
@@ -165,7 +164,7 @@ describe("hydrateSettings", () => {
     // Asserting `false` against a file that says `"yes"` proves nothing on its
     // own — `false` is the default, so deleting the reader outright would leave
     // it green. Each key is driven ON first, then corrupted.
-    for (const key of ["defaultYolo", "remoteAgents", "parkAgentsOnLaunch", "mcpServer"]) {
+    for (const key of ["defaultYolo", "remoteAgents", "parkAgentsOnLaunch", "agentTeams"]) {
       expect(restore(JSON.stringify({ [key]: true })).settings).toMatchObject({
         [key]: true,
       });
@@ -263,6 +262,19 @@ describe("hydrateSettings — the plugins bag", () => {
         "keepdeck.run"
       ],
     ).toBe(true);
+  });
+
+  it("v18 retirement: a stored mcpServer is consumed, whatever it said", () => {
+    // The transport is always on now. The key is neither a decision nor an
+    // extra (an extra would be rewritten forever), and not a degradation
+    // either: the file said nothing wrong, it said something nobody asks.
+    for (const value of [true, false, "yes"]) {
+      const hydrated = hydrateSettings(JSON.stringify({ mcpServer: value }));
+      expect(hydrated).not.toBeNull();
+      expect(hydrated!.doc.chosen).toEqual({});
+      expect(hydrated!.doc.extras).toEqual({});
+      expect(hydrated!.provenance.degraded).toEqual([]);
+    }
   });
 
   it("v5 graduation: an absent flag leaves the Run plugin unset (default off)", () => {

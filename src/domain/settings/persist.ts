@@ -31,6 +31,9 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "version",
   "minVersion",
   "experimentRunPresets",
+  // Retired in revision 18: the MCP transport lost its switch. Consumed for
+  // nothing — there is no longer anything to map a stored value onto.
+  "mcpServer",
   ...settingsCodecs().map(([key]) => key),
 ]);
 

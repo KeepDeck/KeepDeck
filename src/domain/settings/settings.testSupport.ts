@@ -51,7 +51,6 @@ export const NON_DEFAULT: { [K in SettingsKey]: Settings[K] } = {
   usageDisplay: "left",
   remoteAgents: true,
   parkAgentsOnLaunch: true,
-  mcpServer: true,
   agentTeams: true,
   artifacts: true,
   artifactAutoOpen: false,

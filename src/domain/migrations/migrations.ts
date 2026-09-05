@@ -207,14 +207,19 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       default) and its auto-open companion (first publish of a NEW
  *       artifact opens the browser; true by default, inert while
  *       artifacts is off).
+ * 18 — − mcpServer: the MCP transport lost its switch — the socket is up
+ *       from the page's start to its end. A stored value is CONSUMED: read
+ *       for nothing and never written back, so a file that carried it is
+ *       not rewritten forever; nothing maps onto it, because there is no
+ *       longer anything to choose.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
- * additive. The first step that changes a field's meaning gets a
- * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
- * floor.
+ * additive — a retired key is consumed, which is additive too. The first
+ * step that changes a field's meaning gets a `migrateSettingsFromV*toV*`
+ * here, a ladder like the deck's, and a raised floor.
  */
-export const SETTINGS_VERSION = 17;
+export const SETTINGS_VERSION = 18;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own
