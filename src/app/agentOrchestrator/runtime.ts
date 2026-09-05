@@ -405,6 +405,8 @@ export function createAgentOrchestratorRuntime(
             args: spec.args,
             env: spec.env,
             envDefaults: spec.envDefaults,
+            // Never null here, though the type allows it: a spec exists only
+            // for a pane the builder accepted, and it declines one mid-create.
             cwd: paneExecutionCwd(ws, pane),
             ...SPAWN_PLACEHOLDER_SIZE,
           });

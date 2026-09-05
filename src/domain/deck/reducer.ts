@@ -111,8 +111,10 @@ function boundEventFor(
       // The journal attributes a session to a directory, and a session is
       // bound only once the pane has a process — so the formula never answers
       // null on this path. The workspace cwd stands in rather than widening
-      // the journal schema to a nullable cwd for a branch that cannot run;
-      // the directory-formula guard test names this line as its one allowance.
+      // the journal schema to a nullable cwd for a branch that cannot run:
+      // the record's readers want a string (the session search lower-cases
+      // every field it has, the session list copies the cwd into its rows).
+      // The directory-formula guard test names this line as its one allowance.
       cwd: paneExecutionCwd(ws, pane) ?? ws.cwd,
       ...(branch !== undefined && { branch }),
       ...(pane.yolo && { yolo: true }),
