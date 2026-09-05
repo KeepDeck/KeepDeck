@@ -13,7 +13,7 @@ const journalWorkspace = (): Workspace => ({
   worktreeBaseDir: null,
   panes: [
     { id: "pane-1", agentType: "codex", name: "auth bug", yolo: true },
-    { id: "pane-2", cwd: "/repo/wt", branch: "kd/ws/2" },
+    { id: "pane-2", location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/2" } },
   ],
 });
 
@@ -313,8 +313,7 @@ describe("deckReducer journal claims on addAgentPane", () => {
         pane: {
           id: "pane-9",
           agentType: "kimi",
-          cwd: "/repo/wt",
-          branch: "kd/x/9",
+          location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x/9" },
           session: { id: "s-res", boundAt: AT },
         },
       },
@@ -357,7 +356,7 @@ describe("deckReducer journal claims on addAgentPane", () => {
       pane: {
         id: "pane-9",
         agentType: "kimi",
-        cwd: "/repo/wt",
+        location: { kind: "attached", cwd: "/repo/wt" },
         session: { id: "s-res", boundAt: AT },
       },
     });

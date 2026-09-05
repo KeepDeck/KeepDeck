@@ -65,10 +65,17 @@ export type PaneStopped =
   | { reason: "suspended"; at: string };
 
 /** A pane's worktree create captured as intent: everything needed to (re)issue
- * the `worktree_create` call. Kept on the pane while the create runs in the
- * background — and after a failure, so Retry can re-use it. A pane with this
- * set renders a status card instead of a terminal. */
-export interface PaneProvisioning {
+ * the `worktree_create` call, and nothing about how the last attempt went.
+ * Kept on the pane while the create runs in the background — and after a
+ * failure, so Retry re-issues exactly this. What a document stores of a
+ * provisioning pane, verbatim.
+ *
+ * The workspace's name used to be stored here and is read live now, so a
+ * document saved mid-create loses its in-flight card to an OLDER build: that
+ * reader required the name and drops the intent without it. Accepted rather
+ * than versioned — an unfinished create was never that build's to finish,
+ * and the pane comes back plain rather than not at all. */
+export interface WorktreeIntent {
   /** The repository (the workspace cwd) the worktree is created in. */
   repo: string;
   /** Where the worktree goes — resolved before the pane was ever built (the
@@ -82,18 +89,65 @@ export interface PaneProvisioning {
    * at create time. Part of the intent so Retry — and an interrupted create
    * restored after a restart — recreates from the same base, not a moved HEAD. */
   base?: string;
-  /** Workspace name and agent index — the auto branch-name inputs. */
-  workspace: string;
+  /** The pane's position among the workspace's agents when the dialog opened
+   * — the number in the auto branch name `kd/<workspace>/<index>`. A recorded
+   * decision, kept so a Retry lands on the same number. The workspace's NAME
+   * is the other input and is deliberately not here: it is read live when the
+   * create is issued, so a rename between a failure and its Retry names the
+   * branch after what the workspace is called now, not what a card remembered. */
   index: number;
-  /** Why the create failed; set flips the card from creating to failed. */
-  error?: string;
-  /** This card originates from a journal FORK — its store surgery runs as a
-   * post-provision step held only in memory. Runtime-only, NEVER persisted: a
-   * fork whose provisioning is interrupted by a restart is dropped rather than
-   * restored as a plain retryable card (which would Retry into a NON-fork
-   * pane, silently losing the fork) — the user re-forks from the journal. */
-  fork?: true;
 }
+
+/**
+ * Where a pane runs — ONE answer.
+ *
+ * Four optional fields used to say this (`cwd`, `branch`, `remoteEndpoint`,
+ * `provisioning`), and nothing in that shape said which combinations meant
+ * something; the invariant lived in the order transforms wrote them and in a
+ * guard at each reader. A union cannot hold a directory beside a create in
+ * flight, or an endpoint beside a directory, so neither the transitions nor
+ * the readers have to keep them apart.
+ */
+export type PaneLocation =
+  /** No directory of its own: the pane runs in the workspace cwd. `branch`
+   * is the branch the root checkout was on when this pane's session was
+   * recorded — a resumed session carries it — and nothing owns it: it names
+   * where the work was, not a worktree to clean up. */
+  | { kind: "main"; branch?: string }
+  /** A directory the pane owns or was attached to. `branch` is the worktree
+   * branch when one was created or named; a pane attached to a detached
+   * checkout, or resumed from a session that recorded only a directory, has
+   * none — and no consumer tells those two apart. Durable: worktree
+   * ownership and cleanup key off it; the header's branch badge is runtime
+   * state read from the directory, not this. */
+  | { kind: "attached"; cwd: string; branch?: string }
+  /** The worktree is still being created, or the create failed and waits for
+   * Retry. No terminal mounts until it resolves. The intent is what the
+   * create is (re)issued from; beside it sits the status of this attempt,
+   * which never reaches disk — hydration stamps its own. */
+  | {
+      kind: "provisioning";
+      intent: WorktreeIntent;
+      /** Why the create failed; set flips the card from creating to failed. */
+      error?: string;
+      /** This card originates from a journal FORK — its store surgery runs as
+       * a post-provision step held only in memory. Runtime-only, NEVER
+       * persisted: a fork whose provisioning is interrupted by a restart is
+       * dropped rather than restored as a plain retryable card (which would
+       * Retry into a NON-fork pane, silently losing the fork) — the user
+       * re-forks from the journal. */
+      fork?: true;
+    }
+  /** The agent runs against a REMOTE native-server endpoint — the local
+   * terminal is a thin client attached to a server on a VPS. A local
+   * directory would be meaningless, so none is carried. Fixed at creation
+   * from the spawn dialog's "Where: Remote" choice and persisted: a revive
+   * reconnects the client to the same endpoint. */
+  | { kind: "remote"; endpoint: string };
+
+/** The provisioning placement on its own — the card a pane wears while its
+ * worktree is created, in the shape the surfaces that draw it take. */
+export type PaneProvisioning = Extract<PaneLocation, { kind: "provisioning" }>;
 
 /** One agent pane in the grid. Each pane runs its own agent type; the display
  * title comes from `name` / the auto title / the derived "Agent N". */
@@ -101,38 +155,27 @@ export interface Pane {
   id: string;
   /** The coding agent this pane runs — per pane, NOT tied to the workspace. */
   agentType?: AgentType;
-  /** Per-agent working directory (its own git worktree) when the workspace runs
-   * in worktree mode; falls back to the workspace cwd when undefined. */
-  cwd?: string;
-  /** The owned git worktree branch created/attached for this pane. This is
-   * durable domain state used for worktree ownership and cleanup fallback; the
-   * header's current branch badge is runtime UI state derived from the pane's
-   * effective cwd, not stored here. */
-  branch?: string;
+  /** Where the pane runs — see [`PaneLocation`]. Absent means `main`: the
+   * pane runs in the workspace cwd, sparse like every other field here. On
+   * disk this is the four fields the union replaced, folded on the way in and
+   * unfolded on the way out, so no document changed shape. */
+  location?: PaneLocation;
   /** The agent runs with its permission prompts disabled (YOLO mode). Fixed
    * at creation from the dialog/form choice and persisted: a revive or resume
    * must come back in the mode the user created the pane with. */
   yolo?: boolean;
-  /** When set, the pane's agent runs against a REMOTE native-server endpoint
-   * (a local thin-client attached to a server on a VPS) instead of locally.
-   * Fixed at creation from the spawn dialog's "Where: Remote" choice and
-   * persisted — a revive/resume reconnects the client to the same endpoint. */
-  remoteEndpoint?: string;
   /** User-set display name; overrides everything ([F11] manual rename). */
   name?: string;
   /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
    * `name`; falls back to the derived "Agent N" ([F11] auto-naming). */
   autoTitle?: string;
   /** Set while there is no PTY behind this pane, saying WHY — see
-   * [`PaneIdle`]. Absent means the pane runs (or is provisioning/exited, both
-   * tracked outside the durable model). Cleared by the wake action; only the
-   * `suspended` reason survives a save ([F7]). */
+   * [`PaneIdle`]. Absent means the pane runs (or is exited, which is tracked
+   * outside the durable model; a create in flight is a `location`). Cleared
+   * by the wake action; only the `suspended` reason survives a save ([F7]). */
   idle?: PaneIdle;
   /** The recorded agent session this pane resumes on revive ([F7]/[F8]). */
   session?: PaneSession;
-  /** The in-flight (or failed) worktree create behind this pane — no terminal
-   * mounts until it resolves. */
-  provisioning?: PaneProvisioning;
   /** Which team this agent belongs to, and under what role. Durable: a team
    * describes a piece of work in progress, and a deck restored tomorrow
    * should come back with the same one. Absent = not in a team, which is

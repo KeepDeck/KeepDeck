@@ -10,7 +10,11 @@ const ws: Workspace = {
   cwd: "/repo",
   worktreeBaseDir: null,
   panes: [
-    { id: "p1", agentType: "claude", cwd: "/repo/wt", branch: "kd/x" },
+    {
+      id: "p1",
+      agentType: "claude",
+      location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x" },
+    },
     { id: "p2", autoTitle: "vitest --watch" },
     { id: "p3", name: "Named", autoTitle: "ignored" },
   ],

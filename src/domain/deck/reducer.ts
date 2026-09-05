@@ -1,5 +1,6 @@
 import {
   paneAgentType,
+  paneBranch,
   paneFrozenTitle,
   resolveFocus,
   type Pane,
@@ -99,6 +100,7 @@ function boundEventFor(
   session: PaneSession,
   transcriptPath?: string,
 ): JournalEvent {
+  const branch = paneBranch(pane);
   return {
     e: "bound",
     v: 1,
@@ -106,8 +108,15 @@ function boundEventFor(
     record: {
       agent: paneAgentType(pane),
       sessionId: session.id,
+      // The journal attributes a session to a directory, and a session is
+      // bound only once the pane has a process — so the formula never answers
+      // null on this path. The workspace cwd stands in rather than widening
+      // the journal schema to a nullable cwd for a branch that cannot run:
+      // the record's readers want a string (the session search lower-cases
+      // every field it has, the session list copies the cwd into its rows).
+      // The directory-formula guard test names this line as its one allowance.
       cwd: paneExecutionCwd(ws, pane) ?? ws.cwd,
-      ...(pane.branch !== undefined && { branch: pane.branch }),
+      ...(branch !== undefined && { branch }),
       ...(pane.yolo && { yolo: true }),
       ...(transcriptPath !== undefined && { transcriptPath }),
       boundAt: session.boundAt,
@@ -241,7 +250,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         viewByWs = setViewField(viewByWs, wsId, "select", (firstLive ?? remaining[0])?.id);
       }
       // Drop the closed pane from the minimized set so it can't linger as a
-      // stale chip/bar (partitionPanes ignores stale ids at render, but the
+      // stale chip/bar (the layout ignores stale ids at render, but the
       // stored set is kept tidy here, mirroring the focus/select cleanup).
       if (view?.minimized?.includes(paneId)) {
         const next = view.minimized.filter((id) => id !== paneId);

@@ -1,7 +1,14 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
-import type { Pane, PaneIdle, PaneProvisioning } from "./panes";
-import { paneIdleIsDurable, resolveFocus } from "./panes";
+import type { Pane, PaneIdle, PlacementFields, WorktreeIntent } from "./panes";
+import {
+  locationOf,
+  paneIdleIsDurable,
+  placementFromFields,
+  placementToFields,
+  provisioningCard,
+  resolveFocus,
+} from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
 import { nextIdSequence } from "../idSequence";
@@ -99,16 +106,23 @@ export function serializeDeck(
       // fork silently lost). The user re-forks from the journal; a RESOLVED
       // fork pane has no `provisioning` and persists normally.
       panes: ws.panes
-        .filter((p) => !p.provisioning?.fork)
-        .map((p) => ({
+        .filter((p) => !provisioningCard(p)?.fork)
+        .map((p) => {
+          // The location goes to disk as the four fields it replaced, in the
+          // slots they always held — so a document a pane round-trips
+          // through is the document it came from, byte for byte.
+          const placement = placementToFields(locationOf(p));
+          return {
           ...p.extras,
           id: p.id,
           ...(p.agentType !== undefined && { agentType: p.agentType }),
           // Sparse: only the armed mode hits disk.
           ...(p.yolo === true && { yolo: true }),
-          ...(p.remoteEndpoint !== undefined && { remoteEndpoint: p.remoteEndpoint }),
-          ...(p.cwd !== undefined && { cwd: p.cwd }),
-          ...(p.branch !== undefined && { branch: p.branch }),
+          ...(placement.remoteEndpoint !== undefined && {
+            remoteEndpoint: placement.remoteEndpoint,
+          }),
+          ...(placement.cwd !== undefined && { cwd: placement.cwd }),
+          ...(placement.branch !== undefined && { branch: placement.branch }),
           ...(p.name !== undefined && { name: p.name }),
           ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
           // A team describes a piece of work in progress, so it outlives a
@@ -121,12 +135,13 @@ export function serializeDeck(
           // a launch, so writing them would make every ordinary restart look
           // like a deliberate suspend on the NEXT one.
           ...(paneIdleIsDurable(p.idle) && { idle: p.idle }),
-          // The intent only: the error is runtime state, and hydration stamps
-          // its own ("interrupted") on whatever comes back.
-          ...(p.provisioning !== undefined && {
-            provisioning: stripRuntime(p.provisioning),
+          // The intent only — the unfold keeps a card's status back, and
+          // hydration stamps its own ("interrupted") on whatever comes back.
+          ...(placement.provisioning !== undefined && {
+            provisioning: placement.provisioning,
           }),
-        })),
+          };
+        }),
     })),
   };
   return JSON.stringify(persisted);
@@ -326,23 +341,27 @@ function readPane(value: unknown): Pane | null {
   // Strictly `true` — any other value degrades to the safe default (off),
   // matching the sparse write above.
   if (value.yolo === true) pane.yolo = true;
-  if (typeof value.remoteEndpoint === "string") pane.remoteEndpoint = value.remoteEndpoint;
-  if (typeof value.cwd === "string") pane.cwd = value.cwd;
-  if (typeof value.branch === "string") pane.branch = value.branch;
+  // The four placement fields are read as written and folded into ONE
+  // location below, once the card is known — the fold's own rule settles a
+  // document that holds combinations the model cannot.
+  const placement: PlacementFields = {};
+  if (typeof value.remoteEndpoint === "string") placement.remoteEndpoint = value.remoteEndpoint;
+  if (typeof value.cwd === "string") placement.cwd = value.cwd;
+  if (typeof value.branch === "string") placement.branch = value.branch;
   if (typeof value.name === "string") pane.name = value.name;
   if (typeof value.autoTitle === "string") pane.autoTitle = value.autoTitle;
   // BOTH halves or neither: a role with no team cannot be addressed and a
   // team with no role gives its holder no name, so a half-written entry is
-  // read as no membership rather than as a member nobody can reach.
+  // read as no membership rather than as a member nobody can reach. Trimmed
+  // on the way in, as planTeam trims on the way out: a hand-edited " api "
+  // is the team called "api" to every reader, and a name that is only space
+  // is no name. The trimmed form is what is stored, so the next save writes
+  // it — a document holding " api " beside "api" comes back as one team.
   const team = value.team;
-  if (
-    isRecord(team) &&
-    typeof team.name === "string" &&
-    team.name &&
-    typeof team.role === "string" &&
-    team.role
-  ) {
-    pane.team = { name: team.name, role: team.role };
+  if (isRecord(team) && typeof team.name === "string" && typeof team.role === "string") {
+    const name = team.name.trim();
+    const role = team.role.trim();
+    if (name && role) pane.team = { name, role };
   }
   const session = value.session;
   if (
@@ -353,12 +372,17 @@ function readPane(value: unknown): Pane | null {
     pane.session = { id: session.id, boundAt: session.boundAt };
   }
   const provisioning = readProvisioning(value.provisioning);
-  if (provisioning) {
+  if (provisioning) placement.provisioning = provisioning;
+  const location = placementFromFields(placement);
+  if (location.kind === "provisioning") {
     // The app quit mid-create: come back as the failed card — the intent
     // powers Retry, and the pane must NOT be idle or the revive flow would
     // spawn a terminal into a directory that may not exist.
     delete pane.idle;
-    pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
+    pane.location = { ...location, error: PROVISIONING_INTERRUPTED };
+  } else if (location.kind !== "main" || location.branch !== undefined) {
+    // A plain main pane stays sparse: no key, like the fields it replaced.
+    pane.location = location;
   }
   const extras = collectExtras(value, PANE_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) pane.extras = extras;
@@ -426,14 +450,17 @@ function readWorkspacePlugins(value: unknown): Record<string, unknown> | null {
 
 /** The persisted worktree-create intent, or `null` when absent/malformed —
  * a bad intent degrades the pane to a plain idle one instead of rejecting
- * the deck (mirrors the agentType degradation above). */
-function readProvisioning(
-  value: unknown,
-): Omit<PaneProvisioning, "error"> | null {
+ * the deck (mirrors the agentType degradation above).
+ *
+ * A `workspace` key — the name an older build wrote into every intent — is
+ * ignored: the branch name is built from the workspace's live name when the
+ * create is issued, so nothing on disk is a source for it. The key leaves the
+ * file on the next save; it is not kept as an extra, since extras are
+ * collected at the pane's top level and never inside a slot. */
+function readProvisioning(value: unknown): WorktreeIntent | null {
   if (!isRecord(value)) return null;
   if (
     typeof value.repo !== "string" ||
-    typeof value.workspace !== "string" ||
     typeof value.index !== "number" ||
     // A document written before agents arrived one at a time may hold a card
     // whose directory was the backend's to assign (`baseDir`, no `path`).
@@ -442,25 +469,15 @@ function readProvisioning(
     typeof value.path !== "string"
   )
     return null;
-  const intent: Omit<PaneProvisioning, "error" | "fork"> = {
+  // Built in the order the factory writes the fields, so a card that
+  // round-trips through a restart serializes byte for byte as it was saved.
+  // Reading them in another order was harmless JSON and a different file.
+  const intent: WorktreeIntent = {
     repo: value.repo,
-    workspace: value.workspace,
-    index: value.index,
     path: value.path,
+    ...(typeof value.branch === "string" && { branch: value.branch }),
+    ...(typeof value.base === "string" && { base: value.base }),
+    index: value.index,
   };
-  if (typeof value.branch === "string") intent.branch = value.branch;
-  if (typeof value.base === "string") intent.base = value.base;
-  return intent;
-}
-
-/** The provisioning intent without its runtime `error`/`fork` fields. A fork
- * card is dropped whole before this runs (see the serialize filter), so
- * excluding `fork` here is belt-and-suspenders: even if that filter were ever
- * weakened, the marker still never reaches disk — and the type stays honest
- * about the full runtime-only set. */
-function stripRuntime(
-  p: PaneProvisioning,
-): Omit<PaneProvisioning, "error" | "fork"> {
-  const { error: _error, fork: _fork, ...intent } = p;
   return intent;
 }

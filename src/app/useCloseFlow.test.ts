@@ -3,7 +3,7 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PathProbe } from "../domain/agents";
-import type { GitPosition } from "../domain/deck";
+import type { GitPosition, Pane } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
@@ -124,8 +124,18 @@ function seed(extra: { id: string; cwd: string; branch: string }[] = []) {
       worktreeBaseDir: null,
       panes: [
         { id: "pane-1", agentType: "claude" },
-        { id: "pane-2", agentType: "claude", cwd: "/wt/2", branch: "kd/ws/2" },
-        ...extra.map((p) => ({ ...p, agentType: "claude" })),
+        {
+          id: "pane-2",
+          agentType: "claude",
+          location: { kind: "attached", cwd: "/wt/2", branch: "kd/ws/2" },
+        },
+        ...extra.map(
+          (p): Pane => ({
+            id: p.id,
+            agentType: "claude",
+            location: { kind: "attached", cwd: p.cwd, branch: p.branch },
+          }),
+        ),
       ],
     });
   });
@@ -306,11 +316,9 @@ describe("useCloseFlow", () => {
           {
             id: "pane-9",
             agentType: "claude",
-            provisioning: {
-              repo: "/repo",
-              path: "/wt/two-1",
-              workspace: "two",
-              index: 1,
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/two-1", index: 1 },
             },
           },
         ],
@@ -345,11 +353,9 @@ describe("useCloseFlow", () => {
           {
             id: "pane-9",
             agentType: "claude",
-            provisioning: {
-              repo: "/repo",
-              path: "/wt/two-1",
-              workspace: "two",
-              index: 1,
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/two-1", index: 1 },
             },
           },
         ],
@@ -546,7 +552,7 @@ describe("useCloseFlow", () => {
             {
               id: "pane-r",
               agentType: "codex",
-              remoteEndpoint: "ws://vps:4500",
+              location: { kind: "remote", endpoint: "ws://vps:4500" },
             },
           ],
         });
@@ -686,7 +692,7 @@ describe("what the dialog promises is what confirming does", () => {
       deck.addAgentPane("ws-1", {
         id: "pane-remote",
         agentType: "claude",
-        remoteEndpoint: "ws://vps:4500",
+        location: { kind: "remote", endpoint: "ws://vps:4500" },
       }),
     );
     await act(async () => flow.requestCloseAgent(wsId, "pane-remote", "Remote"));
@@ -809,11 +815,9 @@ describe("what the dialog promises is what confirming does", () => {
           {
             id: "pane-9",
             agentType: "claude",
-            provisioning: {
-              repo: "/repo",
-              path: "/wt/ws2-1",
-              workspace: "ws2",
-              index: 1,
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/ws2-1", index: 1 },
             },
           },
         ],

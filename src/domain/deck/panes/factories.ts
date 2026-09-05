@@ -28,7 +28,7 @@ import type { Pane } from "./model";
 export function paneFromAgentRequest(
   id: string,
   request: AgentDialogResult,
-  ws: { cwd: string; name: string },
+  ws: { cwd: string },
   /** The pane's position for the auto branch name — captured when the dialog
    * opened, not recomputed here: the workspace may have gained panes since. */
   index: number,
@@ -45,27 +45,34 @@ export function paneFromAgentRequest(
   // Remote: a bare pane carrying the endpoint. The agent's cwd lives on the
   // box the server runs on, so the local location is moot — the pane's
   // terminal runs the local thin-client attached to the endpoint.
-  if (remoteEndpoint) return { ...base, remoteEndpoint };
+  if (remoteEndpoint) {
+    return { ...base, location: { kind: "remote", endpoint: remoteEndpoint } };
+  }
   // Main repo: a bare pane that runs in the workspace cwd.
   if (location.kind === "main") return base;
   // Existing worktree: attach in place, no git mutation ([F12]-lite).
   if (location.kind === "existing") {
     return {
       ...base,
-      cwd: location.path,
-      ...(location.branch && { branch: location.branch }),
+      location: {
+        kind: "attached",
+        cwd: location.path,
+        ...(location.branch && { branch: location.branch }),
+      },
     };
   }
   // New worktree AT the chosen path, created verbatim with no suffix.
   return {
     ...base,
-    provisioning: {
-      repo: ws.cwd,
-      path: location.path,
-      ...(location.branch && { branch: location.branch }),
-      ...(location.baseBranch && { base: location.baseBranch }),
-      workspace: ws.name,
-      index,
+    location: {
+      kind: "provisioning",
+      intent: {
+        repo: ws.cwd,
+        path: location.path,
+        ...(location.branch && { branch: location.branch }),
+        ...(location.baseBranch && { base: location.baseBranch }),
+        index,
+      },
     },
   };
 }

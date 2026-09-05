@@ -6,7 +6,13 @@ import {
   type AgentInfo,
 } from "../../domain/agents";
 import type { Pane, Workspace } from "../../domain/deck";
-import { baseName, paneAgentType, paneDisplayTitle } from "../../domain/deck";
+import {
+  attachedWorktree,
+  baseName,
+  paneAgentType,
+  paneBranch,
+  paneDisplayTitle,
+} from "../../domain/deck";
 import {
   defaultRoleFor,
   mintRoleAddress,
@@ -15,7 +21,7 @@ import {
   planDisband,
   planTeam,
   teamMembers,
-  teamNamesIn,
+  teamNameKey,
   roleById,
   teamBriefing,
   teamPlanIsEmpty,
@@ -71,8 +77,10 @@ function suggestAddress(taken: readonly string[]): string {
  * first — that is what an agent is actually working on — else the folder it
  * runs in. Empty when the pane has neither and the title is all there is. */
 function whereOf(pane: Pane): string {
-  if (pane.branch) return pane.branch;
-  return pane.cwd ? baseName(pane.cwd) : "";
+  const branch = paneBranch(pane);
+  if (branch) return branch;
+  const worktree = attachedWorktree(pane);
+  return worktree ? baseName(worktree.cwd) : "";
 }
 
 /** One pane's live status — the tray's own badge model, rendered small. Its
@@ -184,23 +192,13 @@ export function TeamDialog({
   // `editing` matters beyond seeding the form: who has LEFT is a question
   // about the team as it stands, so a rename must not make the members it
   // dropped invisible.
+  // A name some OTHER team holds is planTeam's refusal, not this form's:
+  // "+ Team" passes no `editing`, which is what tells it a create from an
+  // edit, and the refusal below is rendered from its words like every other.
   const planned = planTeam(workspace, draft, editing);
-  // "+ Team" is ALWAYS a new team, and a rename must stay a rename: a name
-  // some OTHER team holds would not create or rename anything. planTeam
-  // would settle it as an edit of that team (create), or silently MERGE
-  // two teams into one name with duplicate addresses (rename) — either
-  // way, members evicted or mail misdelivered with nobody re-briefed. So
-  // it is refused in words instead.
-  const trimmedName = name.trim().toLowerCase();
-  const nameTaken = teamNamesIn(workspace).some(
-    (existing) =>
-      existing.toLowerCase() === trimmedName &&
-      (editing === null ||
-        existing.toLowerCase() !== editing.trim().toLowerCase()),
-  );
   // Nothing to do is not an error, but it is not a confirmable form either:
   // a dialog that dispatches a no-op teaches people it did something.
-  const valid = planned.ok && !teamPlanIsEmpty(planned.value) && !nameTaken;
+  const valid = planned.ok && !teamPlanIsEmpty(planned.value);
 
   /** Whether a roles-map entry still names a pane the workspace holds. */
   const paneLives = (paneId: string) =>
@@ -334,7 +332,7 @@ export function TeamDialog({
     if (!entry.pane.team || paneIsOnTeam(entry.pane, currentTeam)) continue;
     const team = entry.pane.team.name;
     const group = spokenFor.find(
-      (candidate) => candidate.team.toLowerCase() === team.toLowerCase(),
+      (candidate) => teamNameKey(candidate.team) === teamNameKey(team),
     );
     if (group) group.members.push(entry);
     else spokenFor.push({ team, members: [entry] });
@@ -630,18 +628,13 @@ export function TeamDialog({
           </>
         )}
 
-        {touched && (nameTaken || !planned.ok) && (
+        {touched && !planned.ok && (
           // Its own style, not the git hint's: that one is green, and a
           // refusal rendered in the colour of a positive result is read as
           // one. Directly above the actions, where the disabled button that
           // it explains actually is.
           <p className="form__error team__error" role="alert">
-            ⚠{" "}
-            {nameTaken
-              ? `a team called “${name.trim()}” already exists — open it from an agent's badge to edit it`
-              : planned.ok
-                ? ""
-                : planned.message}
+            ⚠ {planned.message}
           </p>
         )}
 

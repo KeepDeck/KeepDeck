@@ -18,6 +18,9 @@ import {
   WORKSPACE_GONE_MESSAGE,
   type Pane,
   type Workspace,
+  locationOf,
+  paneBranch,
+  paneExecutionCwd,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
@@ -96,6 +99,15 @@ const DIALOG_BUSY_MESSAGE =
 
 
 /** The workspace a command acts on: the named one, else the active one. */
+/** The worktree a freshly recruited pane is heading for, as the recruit
+ * answer reports it — or null once (or when) there is no create in flight. */
+function worktreeAhead(pane: Pane): { path: string; branch: string | null } | null {
+  const location = locationOf(pane);
+  return location.kind === "provisioning"
+    ? { path: location.intent.path, branch: location.intent.branch ?? null }
+    : null;
+}
+
 function targetWorkspace(deck: Deck, ref: string | undefined): Workspace {
   if (ref) {
     const resolved = resolveWorkspaceRef(deck.workspaces, ref);
@@ -155,8 +167,11 @@ export function registerCoreCommands(
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
             agentType: paneAgentType(p),
-            branch: p.branch ?? null,
-            cwd: p.cwd ?? ws.cwd,
+            branch: paneBranch(p) ?? null,
+            // Null while the pane's worktree is still being created: the
+            // workspace cwd would name a directory the agent will never run
+            // in. Absent information, like `activity` below.
+            cwd: paneExecutionCwd(ws, p),
             // Null when nothing reports — a pane that is provisioning,
             // stopped, or running a CLI with no status reporter. Absent
             // information, not an absent pane.
@@ -294,12 +309,14 @@ export function registerCoreCommands(
           if (free) {
             pane = {
               ...pane,
-              provisioning: {
-                repo: current.workspace.cwd,
-                path: free.path,
-                branch: free.branch,
-                workspace: current.workspace.name,
-                index,
+              location: {
+                kind: "provisioning",
+                intent: {
+                  repo: current.workspace.cwd,
+                  path: free.path,
+                  branch: free.branch,
+                  index,
+                },
               },
             };
           }
@@ -343,9 +360,7 @@ export function registerCoreCommands(
           paneId: id,
           workspaceId: workspace.id,
           agentType,
-          worktree: pane.provisioning
-            ? { path: pane.provisioning.path, branch: pane.provisioning.branch ?? null }
-            : null,
+          worktree: worktreeAhead(pane),
           task: task ? "scheduled" : "none",
         };
       },

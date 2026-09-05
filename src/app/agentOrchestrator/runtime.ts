@@ -5,11 +5,12 @@ import {
   findWorkspace,
   paneAgentType,
   paneExecutionCwd,
-  paneIsRemoteFresh,
   paneRunIntent,
   paneWakeOrigin,
   type Pane,
   type Workspace,
+  locationOf,
+  paneBranch,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -269,7 +270,7 @@ export function createAgentOrchestratorRuntime(
             paneId: pane.id,
             workspace: { id: ws.id, instance: ws.instance },
             cwd: dir,
-            branch: pane.branch,
+            branch: paneBranch(pane),
             yolo: pane.yolo,
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
             mcpAccess,
@@ -404,6 +405,8 @@ export function createAgentOrchestratorRuntime(
             args: spec.args,
             env: spec.env,
             envDefaults: spec.envDefaults,
+            // Never null here, though the type allows it: a spec exists only
+            // for a pane the builder accepted, and it declines one mid-create.
             cwd: paneExecutionCwd(ws, pane),
             ...SPAWN_PLACEHOLDER_SIZE,
           });
@@ -432,18 +435,24 @@ export function createAgentOrchestratorRuntime(
           continue;
         }
         const sessionId = intent.resume?.sessionId ?? null;
+        // Where the pane runs, through the deck's one formula. Null means its
+        // worktree is still being created; the run intent already holds such
+        // a pane, and this keeps what the intent keeps in a form the compiler
+        // checks — a fallback to the workspace cwd would probe a directory
+        // that exists and wake the pane in the wrong place.
+        const dir = paneExecutionCwd(ws, pane);
+        if (dir === null) continue;
         inFlight.add(pane.id);
         // A remote pane's agent runs against a VPS endpoint — it has no local
         // working directory to probe (so a gone workspace cwd never blocks it)
         // and no recorded session to resume (fresh-session only). Wake it
         // straight to a fresh remote plan built by the spawn-spec sweep.
-        if (paneIsRemoteFresh(pane)) {
-          void wake(ws, pane, ws.cwd, sessionId).finally(() =>
+        if (locationOf(pane).kind === "remote") {
+          void wake(ws, pane, dir, sessionId).finally(() =>
             inFlight.delete(pane.id),
           );
           continue;
         }
-        const dir = pane.cwd ?? ws.cwd;
         void probe(dir)
           .then((probed) => {
             if (probed.exists) return wake(ws, pane, dir, sessionId);
@@ -509,7 +518,7 @@ export function createAgentOrchestratorRuntime(
     resume(wsId, paneId) {
       const pane = findPane(deck.getSnapshot().workspaces, wsId, paneId);
       if (!pane) return "gone";
-      if (pane.provisioning) return "provisioning";
+      if (locationOf(pane).kind === "provisioning") return "provisioning";
       if (!pane.idle) return "running";
       if (!agents.commands().has(paneAgentType(pane))) return "unavailable";
       if (runView.clearNotes(paneId)) publish();

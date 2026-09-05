@@ -57,6 +57,7 @@ describe("the ordering between arming and teardown", () => {
 
     await manager.provision(
       provisioningCards(1),
+      "ws",
       { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
     );
 
@@ -127,6 +128,7 @@ describe("the ordering between arming and teardown", () => {
     ]);
     const provisioning = manager.provision(
       provisioningCards(1),
+      "ws",
       { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
     );
     release();

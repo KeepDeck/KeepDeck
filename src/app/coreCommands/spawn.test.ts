@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   WORKSPACE_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
+  provisioningCard,
 } from "../../domain/deck";
 import { deliverTask } from "./deliverTask";
 import { registerPaneInput } from "../paneInput";
@@ -53,13 +54,10 @@ describe("agent.spawn", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const pane = deck.workspaces[0].panes[1];
-    expect(pane.provisioning).toMatchObject({
-      repo: "/repo",
-      branch: "kd/web/2",
-      workspace: "web",
-      index: 2,
+    expect(provisioningCard(pane)).toMatchObject({
+      intent: { repo: "/repo", branch: "kd/web/2", index: 2 },
     });
-    expect(pane.provisioning?.path?.endsWith("kd-web-2")).toBe(true);
+    expect(provisioningCard(pane)?.intent.path.endsWith("kd-web-2")).toBe(true);
   });
 
   it("reports a refusal instead of a paneId that was never added", async () => {

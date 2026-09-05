@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyJournal } from "../journal";
 import { createWorkspaceInstance } from "../workspaceInstance";
+import { provisioningCard, type Pane } from "./panes";
 import type { DeckState } from "./reducer";
 import {
   DECK_STATE_VERSION,
@@ -29,13 +30,15 @@ const state: DeckState = {
         {
           id: "pane-3",
           agentType: "claude",
-          cwd: "/repo/wt-3",
-          branch: "kd/ws/3",
+          location: { kind: "attached", cwd: "/repo/wt-3", branch: "kd/ws/3" },
           autoTitle: "fixing auth",
-          remoteEndpoint: "ws://vps:4500",
           session: { id: "abc-123", boundAt: "2026-07-02T00:00:00Z" },
         },
-        { id: "pane-7", agentType: "codex" },
+        {
+          id: "pane-7",
+          agentType: "codex",
+          location: { kind: "remote", endpoint: "ws://vps:4500" },
+        },
       ],
     },
     {
@@ -56,6 +59,49 @@ const state: DeckState = {
 describe("serializeDeck → hydrateDeck round-trip", () => {
   const restored = okDeck(serializeDeck(state));
 
+  it("gives back the document it was given, byte for byte, for every placement", () => {
+    // The location goes to disk as the four fields it replaced, in the
+    // slots they always held. A second serialize of the hydrated deck must
+    // therefore reproduce the first — key for key, in order — or the shape
+    // of somebody's deck.json would change the first time this build saved.
+    const placements: (Pane["location"] | undefined)[] = [
+      undefined,
+      { kind: "main", branch: "kd/root/1" },
+      { kind: "attached", cwd: "/repo/wt-a" },
+      { kind: "attached", cwd: "/repo/wt-b", branch: "kd/ws/2" },
+      {
+        kind: "provisioning",
+        intent: { repo: "/repo", path: "/repo/wt-c", base: "develop", index: 3 },
+      },
+      { kind: "remote", endpoint: "ws://vps:4500" },
+    ];
+    const doc: DeckState = {
+      ...state,
+      workspaces: [
+        {
+          ...state.workspaces[0],
+          panes: placements.map((location, i) => ({
+            id: `pane-${i}`,
+            agentType: "claude",
+            ...(location !== undefined && { location }),
+          })),
+        },
+      ],
+      // Only the durable half of the view survives a round-trip, and the
+      // active id is normalised to a workspace that exists — keep the input
+      // to what comes back.
+      activeId: "ws-2",
+      viewByWs: {},
+    };
+    const once = serializeDeck(doc);
+    const twice = serializeDeck(okDeck(once).state);
+    expect(twice).toBe(once);
+    // And the four fields really are what landed — not a `location` key.
+    expect(once).not.toContain('"location"');
+    expect(once).toContain('"cwd":"/repo/wt-a"');
+    expect(once).toContain('"remoteEndpoint":"ws://vps:4500"');
+  });
+
   it("restores workspaces, view state and the active id", () => {
     expect(restored.state.activeId).toBe("ws-5");
     // Only the durable half (focus/select) comes back; dock is session-only.
@@ -63,11 +109,10 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
       "ws-2": { focus: "pane-3", select: "pane-3" },
     });
     expect(restored.state.workspaces.map((w) => w.id)).toEqual(["ws-2", "ws-5"]);
-    const pane = restored.state.workspaces[0].panes[0];
-    expect(pane.cwd).toBe("/repo/wt-3");
-    expect(pane.branch).toBe("kd/ws/3");
+    const [pane, remote] = restored.state.workspaces[0].panes;
+    expect(pane.location).toEqual({ kind: "attached", cwd: "/repo/wt-3", branch: "kd/ws/3" });
     expect(pane.autoTitle).toBe("fixing auth");
-    expect(pane.remoteEndpoint).toBe("ws://vps:4500");
+    expect(remote.location).toEqual({ kind: "remote", endpoint: "ws://vps:4500" });
     expect(pane.session).toEqual({ id: "abc-123", boundAt: "2026-07-02T00:00:00Z" });
   });
 
@@ -339,13 +384,34 @@ describe("team membership across a restart", () => {
     // A role with no team cannot be addressed, and a team with no role
     // gives its holder no name — either way the pane is better off plainly
     // outside than present-but-unreachable.
-    for (const broken of ['{"name":"api"}', '{"role":"lead"}', '{"name":"","role":"x"}']) {
+    for (const broken of [
+      '{"name":"api"}',
+      '{"role":"lead"}',
+      '{"name":"","role":"x"}',
+      // Only space is no name, and no role: both halves or neither.
+      '{"name":"   ","role":"lead"}',
+      '{"name":"api","role":" "}',
+    ]) {
       const json = serializeDeck(teamState).replace(
         '{"name":"api","role":"lead"}',
         broken,
       );
       expect(okDeck(json).state.workspaces[0].panes[0].team).toBeUndefined();
     }
+  });
+
+  it("trims a hand-edited name and role on the way in, and saves them trimmed", () => {
+    // planTeam trims what it stores; a document edited by hand did not go
+    // through it. Read trimmed, " api " is the team called "api" to every
+    // reader — and the next save writes what was read, so the padding is
+    // gone from the file rather than kept as a second spelling.
+    const json = serializeDeck(teamState).replace(
+      '{"name":"api","role":"lead"}',
+      '{"name":" api ","role":" lead "}',
+    );
+    const restored = okDeck(json).state;
+    expect(restored.workspaces[0].panes[0].team).toEqual({ name: "api", role: "lead" });
+    expect(serializeDeck(restored)).toContain('{"name":"api","role":"lead"}');
   });
 });
 
@@ -359,7 +425,11 @@ describe("pane remote endpoint across a restart", () => {
         cwd: "/r",
         worktreeBaseDir: null,
         panes: [
-          { id: "pane-1", agentType: "codex", remoteEndpoint: "ws://vps:4500" },
+          {
+            id: "pane-1",
+            agentType: "codex",
+            location: { kind: "remote", endpoint: "ws://vps:4500" },
+          },
           { id: "pane-2", agentType: "claude" },
         ],
       },
@@ -374,8 +444,8 @@ describe("pane remote endpoint across a restart", () => {
     // Exactly one pane carries the key on disk — undefined never lands.
     expect(json.match(/"remoteEndpoint"/g)).toHaveLength(1);
     const [remote, local] = okDeck(json).state.workspaces[0].panes;
-    expect(remote.remoteEndpoint).toBe("ws://vps:4500");
-    expect(local.remoteEndpoint).toBeUndefined();
+    expect(remote.location).toEqual({ kind: "remote", endpoint: "ws://vps:4500" });
+    expect(local.location).toBeUndefined();
   });
 
   it("drops a non-string endpoint to absent (tolerant read)", () => {
@@ -384,7 +454,7 @@ describe("pane remote endpoint across a restart", () => {
       '"remoteEndpoint":123',
     );
     const [pane] = okDeck(json).state.workspaces[0].panes;
-    expect(pane.remoteEndpoint).toBeUndefined();
+    expect(pane.location).toBeUndefined();
   });
 });
 
@@ -576,12 +646,9 @@ describe("provisioning panes across a restart", () => {
           {
             id: "pane-1",
             agentType: "claude",
-            provisioning: {
-              repo: "/repo",
-              path: "/wt/deck-1",
-              base: "develop",
-              workspace: "deck",
-              index: 1,
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/deck-1", base: "develop", index: 1 },
               error: "fatal: mid-create failure",
             },
           },
@@ -597,14 +664,11 @@ describe("provisioning panes across a restart", () => {
     const json = serializeDeck(provisioningState);
     expect(json).not.toContain("mid-create failure");
     const pane = okDeck(json).state.workspaces[0].panes[0];
-    expect(pane.provisioning).toEqual({
-      repo: "/repo",
-      path: "/wt/deck-1",
+    expect(provisioningCard(pane)).toEqual({
+      kind: "provisioning",
       // The picked base survives the restart, so Retry recreates the worktree
       // from the same fork point instead of whatever HEAD moved to.
-      base: "develop",
-      workspace: "deck",
-      index: 1,
+      intent: { repo: "/repo", path: "/wt/deck-1", base: "develop", index: 1 },
       error: PROVISIONING_INTERRUPTED,
     });
     // NOT idle: the revive flow must leave it alone — there may be no
@@ -623,7 +687,23 @@ describe("provisioning panes across a restart", () => {
     };
     const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
     expect(pane.idle).toBeUndefined();
-    expect(pane.provisioning?.error).toBe(PROVISIONING_INTERRUPTED);
+    expect(provisioningCard(pane)?.error).toBe(PROVISIONING_INTERRUPTED);
+  });
+
+  it("reads an intent an older build saved with the workspace name inside, and drops it on the next save", () => {
+    // Every intent used to carry the workspace's name for the auto branch
+    // name. The name is read live at create time now, so the stored one is
+    // not a source for anything: it must neither reject the card nor come
+    // back as part of it — and it leaves the file the first time this build
+    // saves, rather than riding along as an extra.
+    const doc = JSON.parse(serializeDeck(provisioningState));
+    doc.workspaces[0].panes[0].provisioning.workspace = "deck";
+    const restored = okDeck(JSON.stringify(doc)).state;
+    const pane = restored.workspaces[0].panes[0];
+    expect(provisioningCard(pane)).not.toBeNull();
+    expect(provisioningCard(pane)?.intent).not.toHaveProperty("workspace");
+    expect(pane.extras).toBeUndefined();
+    expect(serializeDeck(restored)).not.toContain('"workspace":');
   });
 
   it("drops a FORK provisioning card entirely — never restores it as a plain retryable pane", () => {
@@ -639,12 +719,9 @@ describe("provisioning panes across a restart", () => {
             {
               id: "pane-1",
               agentType: "opencode",
-              provisioning: {
-                repo: "/repo",
-                path: "/wt/fork-1",
-                branch: "fork/x",
-                workspace: "deck",
-                index: 1,
+              location: {
+                kind: "provisioning",
+                intent: { repo: "/repo", path: "/wt/fork-1", branch: "fork/x", index: 1 },
                 fork: true,
               },
             },
@@ -663,16 +740,13 @@ describe("provisioning panes across a restart", () => {
         {
           ...provisioningState.workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "claude", cwd: "/repo" },
+            { id: "pane-1", agentType: "claude", location: { kind: "attached", cwd: "/repo" } },
             {
               id: "pane-2",
               agentType: "opencode",
-              provisioning: {
-                repo: "/repo",
-                path: "/wt/f2",
-                branch: "fork/y",
-                workspace: "deck",
-                index: 2,
+              location: {
+                kind: "provisioning",
+                intent: { repo: "/repo", path: "/wt/f2", branch: "fork/y", index: 2 },
                 fork: true,
               },
             },
@@ -682,7 +756,10 @@ describe("provisioning panes across a restart", () => {
     };
     const panes = okDeck(serializeDeck(mixed)).state.workspaces[0].panes;
     expect(panes.map((p) => p.id)).toEqual(["pane-1"]); // only the fork card is gone
-    expect(panes[0]).toMatchObject({ agentType: "claude", cwd: "/repo" });
+    expect(panes[0]).toMatchObject({
+      agentType: "claude",
+      location: { kind: "attached", cwd: "/repo" },
+    });
   });
 
   it("a RESOLVED fork pane (no provisioning) persists normally — the filter isn't over-broad", () => {
@@ -692,20 +769,27 @@ describe("provisioning panes across a restart", () => {
         {
           ...provisioningState.workspaces[0],
           panes: [
-            { id: "pane-1", agentType: "opencode", cwd: "/wt/fork-1", branch: "fork/z" },
+            {
+              id: "pane-1",
+              agentType: "opencode",
+              location: { kind: "attached", cwd: "/wt/fork-1", branch: "fork/z" },
+            },
           ],
         },
       ],
     };
     const pane = okDeck(serializeDeck(resolved)).state.workspaces[0].panes[0];
-    expect(pane).toMatchObject({ agentType: "opencode", cwd: "/wt/fork-1" });
+    expect(pane).toMatchObject({
+      agentType: "opencode",
+      location: { kind: "attached", cwd: "/wt/fork-1", branch: "fork/z" },
+    });
   });
 
   it("degrades a malformed intent to a plain idle pane instead of rejecting the deck", () => {
     const doc = JSON.parse(serializeDeck(provisioningState));
     doc.workspaces[0].panes[0].provisioning = { repo: 42 };
     const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
-    expect(pane.provisioning).toBeUndefined();
+    expect(pane.location).toBeUndefined();
     expect(pane.idle).toEqual({ reason: "waking", origin: "restore" });
   });
 });

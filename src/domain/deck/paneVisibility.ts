@@ -1,9 +1,5 @@
 import type { WorkspaceView } from "./workspaceView";
-import {
-  partitionPanes,
-  resolveFocus,
-  type Pane,
-} from "./panes";
+import { resolveFocus, type Pane } from "./panes";
 
 /** The view fields that determine whether a pane body participates in layout. */
 export type PaneVisibilityView = Pick<
@@ -11,16 +7,43 @@ export type PaneVisibilityView = Pick<
   "focus" | "select" | "minimized" | "suspendedTray"
 >;
 
-/** The panes on the grid: everything not minimized to the tray and not
- * placed there as suspended. */
+/**
+ * Why a pane is off the grid: minimized by hand, or placed in the tray by a
+ * suspend. Each is a list on the view and comes off by its own action, and a
+ * pane can carry both after a suspend from the grid. The maximize spotlight
+ * is deliberately NOT a reason: it hides nothing from layout — every live
+ * pane stays a participant and is merely covered on render — and calling it
+ * one would hand `resolveFocus` a single pane and lose the maximize.
+ */
+export type HideReason = "minimized" | "suspendedTray";
+
+/** Every reason, in the order they are reported — and removed. Exhaustive by
+ * construction: a reason added to the union without an entry here fails to
+ * compile, where a plain array would have let the layout go on showing the
+ * pane the new list hides. Minimized first on purpose: the tray restore drops
+ * the maximize only for a pane that is no longer minimized, so a reveal that
+ * walks this order leaves no stale spotlight for its re-read to find. */
+const HIDE_REASONS = { minimized: true, suspendedTray: true } satisfies Record<HideReason, true>;
+const REASONS_IN_ORDER = Object.keys(HIDE_REASONS) as HideReason[];
+
+/** Every reason `paneId` is off the grid; empty when it is on it. The one
+ * reading of the view's two lists: the layout keeps a pane with no reason,
+ * and a reveal removes each reason it finds by that reason's own action. */
+export function hiddenBy(
+  view: Pick<WorkspaceView, HideReason> | undefined,
+  paneId: string,
+): readonly HideReason[] {
+  return REASONS_IN_ORDER.filter((reason) => view?.[reason]?.includes(paneId) ?? false);
+}
+
+/** The panes on the grid: everything with no reason to be off it. The same
+ * array back when nothing is hidden, so a render keyed on it stays put. */
 export function visiblePanes(
   panes: Pane[],
   view: PaneVisibilityView | undefined,
 ): Pane[] {
-  return partitionPanes(panes, [
-    ...(view?.minimized ?? []),
-    ...(view?.suspendedTray ?? []),
-  ]).live;
+  const live = panes.filter((pane) => hiddenBy(view, pane.id).length === 0);
+  return live.length === panes.length ? panes : live;
 }
 
 /** Resolve the pane the UI is actually presenting as selected: the stored

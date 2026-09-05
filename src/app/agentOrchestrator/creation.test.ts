@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { provisioningCard } from "../../domain/deck";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -14,6 +15,7 @@ import {
   emptyJournal,
   ipc,
   peekPaneSpawnSpec,
+  provisionedAs,
   provisions,
   pty,
   resetPaneSpawnSpecs,
@@ -73,7 +75,10 @@ describe("agent orchestrator —what resume answers", () => {
     // Its own doc: telling the user a pane mid-create is already running is
     // simply false — it has never run, so there is no session to come back to.
     only({
-      provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+      location: {
+        kind: "provisioning",
+        intent: { repo: "/repo", path: "/wt/a", index: 1 },
+      },
     });
     await settle();
     expect(agentRun.resume("ws-1", "pane-1")).toBe("provisioning");
@@ -130,7 +135,10 @@ describe("agent orchestrator —a new pane arriving", () => {
   const card = (over: object = {}): Pane => ({
     id: "pane-9",
     agentType: "claude",
-    provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+    location: {
+      kind: "provisioning",
+      intent: { repo: "/repo", path: "/wt/a", index: 1 },
+    },
     ...over,
   });
 
@@ -158,6 +166,20 @@ describe("agent orchestrator —a new pane arriving", () => {
     });
     expect(provisions).toHaveLength(1);
     expect(provisions[0].map((p) => p.id)).toEqual(["pane-9"]);
+  });
+
+  it("issues the create under the workspace's name, read from the deck as it lands", async () => {
+    // The auto branch name's workspace half is not on the card: the landing
+    // reads it from the workspace the pane lands in, at that moment.
+    act(() => deck.hydrate(seed()));
+    act(() => deck.renameWorkspace("ws-1", "renamed"));
+    await act(async () => {
+      agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: card(),
+      });
+    });
+    expect(provisionedAs).toEqual(["renamed"]);
   });
 
   it("refuses a workspace whose id now names a REPLACEMENT", async () => {
@@ -401,13 +423,10 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
           {
             id: "pane-1",
             agentType: "claude",
-            provisioning: {
-              repo: "/repo",
-              path: "/repo-wt/x",
-              workspace: "ws-1",
-              index: 1,
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/repo-wt/x", index: 1, ...intent },
               error: "boom",
-              ...intent,
             },
           },
         ],
@@ -417,8 +436,19 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
   it("clears the error before re-issuing, so the card goes back to creating", () => {
     failedCard({ path: "/repo-wt/x", branch: "kd/x" });
     act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
-    expect(deck.workspaces[0].panes[0].provisioning?.error).toBeUndefined();
+    expect(provisioningCard(deck.workspaces[0].panes[0])?.error).toBeUndefined();
     expect(provisions).toHaveLength(1);
+  });
+
+  it("issues the Retry under the name the workspace has NOW, not the one the card was born with", () => {
+    // A rename between the failure and the Retry changes the auto branch
+    // name — on purpose. The card records only its number; a name written
+    // into it (as every intent once carried) would have named the branch
+    // after a workspace that no longer exists by that name.
+    failedCard({ path: "/repo-wt/x" });
+    act(() => deck.renameWorkspace("ws-1", "renamed"));
+    act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
+    expect(provisionedAs).toEqual(["renamed"]);
   });
 
   it("ignores a pane with no create intent, and one that is not there", () => {

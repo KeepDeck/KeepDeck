@@ -222,7 +222,7 @@ describe("createSessionBinding", () => {
     // The postback is still counted; only the binding is skipped.
     const { binding, dispatch } = mount(undefined, {
       agentType: "claude",
-      remoteEndpoint: "ws://vps:4500",
+      location: { kind: "remote", endpoint: "ws://vps:4500" },
     });
 
     emit(own({ sessionId: "ses-1" }));

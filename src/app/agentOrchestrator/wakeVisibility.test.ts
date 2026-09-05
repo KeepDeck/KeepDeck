@@ -180,7 +180,7 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
           {
             id: "pane-1",
             agentType: "claude",
-            cwd: "/repo/wt-1",
+            location: { kind: "attached", cwd: "/repo/wt-1" },
             session: { id: "s-1", boundAt: "t" },
             idle: { reason: "suspended", at: "2026-07-25T09:00:00.000Z" },
           },

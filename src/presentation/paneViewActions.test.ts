@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { initialDeckState, type WorkspaceView } from "../domain/deck";
+import {
+  hiddenBy,
+  initialDeckState,
+  paneOnScreen,
+  type HideReason,
+  type WorkspaceView,
+} from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createDeckStore } from "../app/deckStore";
 import { createPaneViewActions } from "./paneViewActions";
@@ -49,6 +55,34 @@ describe("PaneViewActions", () => {
       focus: "pane-2",
     });
   });
+
+  // One view per reason a pane can be off the grid. The Record is the point:
+  // a reason added to the domain without a fixture here fails to compile,
+  // and the reveal's exhaustive switch fails to compile without an action.
+  const hiddenViews: Record<HideReason, WorkspaceView> = {
+    minimized: { select: "pane-1", minimized: ["pane-2"] },
+    suspendedTray: { select: "pane-1", suspendedTray: ["pane-2"] },
+  };
+
+  it.each(Object.keys(hiddenViews) as HideReason[])(
+    "reveals a pane hidden by %s, and it is on screen afterwards",
+    (reason) => {
+      const deck = deckWith(hiddenViews[reason]);
+      const actions = createPaneViewActions(deck, { requestFocus: vi.fn() });
+
+      actions.revealPane("ws-1", "pane-2");
+
+      const after = deck.getSnapshot();
+      // The RAW marker is gone — checked on the list itself, not through the
+      // reading, so a reading that stopped seeing this reason cannot pass
+      // its own test.
+      expect(after.viewByWs["ws-1"]?.[reason] ?? []).not.toContain("pane-2");
+      expect(hiddenBy(after.viewByWs["ws-1"], "pane-2")).toEqual([]);
+      expect(paneOnScreen(after.workspaces[0].panes, after.viewByWs["ws-1"], "pane-2")).toBe(
+        true,
+      );
+    },
+  );
 
   it("removes every placement marker from an addressed pane", () => {
     const deck = deckWith({

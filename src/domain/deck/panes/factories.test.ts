@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AgentDialogResult } from "../../agents";
-import { paneFromAgentRequest } from ".";
+import { paneFromAgentRequest, provisioningCard } from ".";
 
 describe("paneFromAgentRequest", () => {
-  const workspace = { cwd: "/repo", name: "deck" };
+  const workspace = { cwd: "/repo" };
   const request = (over: Partial<AgentDialogResult> = {}): AgentDialogResult => ({
     agentType: "claude",
     name: "",
@@ -33,7 +33,7 @@ describe("paneFromAgentRequest", () => {
     ).toEqual({
       id: "pane-1",
       agentType: "claude",
-      remoteEndpoint: "wss://vps",
+      location: { kind: "remote", endpoint: "wss://vps" },
     });
   });
 
@@ -48,8 +48,7 @@ describe("paneFromAgentRequest", () => {
     ).toEqual({
       id: "pane-2",
       agentType: "claude",
-      cwd: "/wt/a",
-      branch: "kd/a",
+      location: { kind: "attached", cwd: "/wt/a", branch: "kd/a" },
     });
   });
 
@@ -71,13 +70,15 @@ describe("paneFromAgentRequest", () => {
     ).toEqual({
       id: "pane-3",
       agentType: "claude",
-      provisioning: {
-        repo: "/repo",
-        path: "/wt/kd-deck-3",
-        branch: "kd/deck/3",
-        base: "release",
-        workspace: "deck",
-        index: 3,
+      location: {
+        kind: "provisioning",
+        intent: {
+          repo: "/repo",
+          path: "/wt/kd-deck-3",
+          branch: "kd/deck/3",
+          base: "release",
+          index: 3,
+        },
       },
     });
   });
@@ -92,13 +93,8 @@ describe("paneFromAgentRequest", () => {
       workspace,
       1,
     );
-    expect(Object.keys(pane).sort()).toEqual(["agentType", "id", "provisioning"]);
-    expect(Object.keys(pane.provisioning!).sort()).toEqual([
-      "index",
-      "path",
-      "repo",
-      "workspace",
-    ]);
+    expect(Object.keys(pane).sort()).toEqual(["agentType", "id", "location"]);
+    expect(Object.keys(provisioningCard(pane)!.intent).sort()).toEqual(["index", "path", "repo"]);
   });
 
   it("trims the name and arms yolo only when asked", () => {

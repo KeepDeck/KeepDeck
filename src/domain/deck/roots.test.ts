@@ -4,6 +4,7 @@ import type { Workspace } from "./workspaces";
 import type { Pane } from "./panes";
 import {
   pathBelongsTo,
+  skillRootsOf,
   workspaceDirectories,
   withHistoricalDirectories,
 } from "./roots";
@@ -19,7 +20,7 @@ const ws = (over: Partial<Workspace>): Workspace => ({
 });
 
 const pane = (id: string, cwd: string | undefined): Pane =>
-  ({ id, ...(cwd !== undefined ? { cwd } : {}) }) as Pane;
+  cwd !== undefined ? { id, location: { kind: "attached", cwd } } : { id };
 
 describe("workspaceDirectories", () => {
   it("a shared base root brings no foreign folder in", () => {
@@ -69,12 +70,41 @@ describe("workspaceDirectories", () => {
         panes: [
           {
             id: "p1",
-            provisioning: { repo: "/repo", workspace: "a", index: 1 },
-          } as Pane,
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/a", index: 1 },
+            },
+          },
         ],
       }),
     );
     expect([...set]).toEqual(["/repo"]);
+  });
+});
+
+describe("skillRootsOf", () => {
+  it("names every directory a CLI starts in, once each, and none for a create in flight", () => {
+    // Bare and remote panes start in the workspace cwd; an attached pane in
+    // its worktree; a pane mid-create nowhere yet. Through the one formula,
+    // so the four answers cannot drift from the sweep's and the plan's.
+    const roots = skillRootsOf(
+      ws({
+        panes: [
+          { id: "bare" },
+          { id: "remote", location: { kind: "remote", endpoint: "ws://vps" } },
+          { id: "wt", location: { kind: "attached", cwd: "/wt/a" } },
+          { id: "wt-again", location: { kind: "attached", cwd: "/wt/a" } },
+          {
+            id: "pending",
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/b", index: 5 },
+            },
+          },
+        ],
+      }),
+    );
+    expect(roots).toEqual(["/repo", "/wt/a"]);
   });
 });
 

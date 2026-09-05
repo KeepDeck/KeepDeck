@@ -76,11 +76,13 @@ export const provisioningCards = (count: number): Pane[] =>
   Array.from({ length: count }, (_, i) => ({
     id: `pane-${i + 1}`,
     agentType: "claude" as const,
-    provisioning: {
-      repo: "/repo",
-      path: `/wt/pane-${i + 1}`,
-      workspace: "ws",
-      index: i + 1,
+    location: {
+      kind: "provisioning" as const,
+      intent: {
+        repo: "/repo",
+        path: `/wt/pane-${i + 1}`,
+        index: i + 1,
+      },
     },
   }));
 
@@ -130,7 +132,7 @@ function deckView(read: () => DeckEntry[]): WorktreeDeckView {
       panes: ws.roots.map((root, i) => ({
         id: `${ws.id}-p${i}`,
         agentType: "claude",
-        cwd: root,
+        location: { kind: "attached" as const, cwd: root },
       })),
     })),
   );

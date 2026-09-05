@@ -7,7 +7,7 @@ import type {
   WorkspaceInstance,
   WorkspaceRef,
 } from "../workspaceInstance";
-import { appendPane, removePane, type Pane } from "./panes";
+import { appendPane, locationOf, removePane, type Pane } from "./panes";
 
 /** What the create-workspace form submits: the spec a new workspace is
  * provisioned from. A workspace is born EMPTY, so nothing per-agent belongs
@@ -182,10 +182,15 @@ export function worktreeTargets(
 ): WorktreeTarget[] {
   const panes = paneId ? ws.panes.filter((p) => p.id === paneId) : ws.panes;
   return panes.flatMap((p) => {
-    if (!p.cwd) return [];
-    const observed = gitPositions?.get(p.cwd);
+    const location = locationOf(p);
+    if (location.kind !== "attached") return [];
+    const observed = gitPositions?.get(location.cwd);
     return [
-      { repo: ws.cwd, path: p.cwd, branch: observed ? observed.branch : p.branch },
+      {
+        repo: ws.cwd,
+        path: location.cwd,
+        branch: observed ? observed.branch : location.branch,
+      },
     ];
   });
 }
@@ -287,7 +292,7 @@ export function paneOccupyingPath(
   if (!wanted) return null;
   for (const ws of workspaces) {
     for (const [index, pane] of ws.panes.entries()) {
-      const held = pane.cwd ?? pane.provisioning?.path;
+      const held = heldPath(pane);
       if (held && normalizePath(held) === wanted) return { ws, pane, index };
     }
   }
@@ -304,7 +309,22 @@ export function pathOccupancy(
 ): Occupancy {
   const hit = paneOccupyingPath(workspaces, path);
   if (!hit) return null;
-  return hit.pane.cwd ? "worktree" : "provisioning";
+  return locationOf(hit.pane).kind === "attached" ? "worktree" : "provisioning";
+}
+
+/** The path a pane holds for occupancy: the directory it runs in, or the one
+ * its create is heading for. A bare or remote pane holds none. */
+function heldPath(pane: Pane): string | undefined {
+  const location = locationOf(pane);
+  switch (location.kind) {
+    case "attached":
+      return location.cwd;
+    case "provisioning":
+      return location.intent.path;
+    case "main":
+    case "remote":
+      return undefined;
+  }
 }
 
 /** One worktree branch/folder name suggestion (mirrors the Rust

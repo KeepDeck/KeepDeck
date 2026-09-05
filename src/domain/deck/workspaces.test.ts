@@ -23,6 +23,7 @@ import {
   clearPaneIdle,
   failPaneWake,
   parkPane,
+  provisioningCard,
   renamePane,
   requestPaneWake,
   resolvePaneProvisioning,
@@ -44,7 +45,10 @@ const ws = (id: string, paneNums: number[]): Workspace => ({
 
 describe("addAgentPane", () => {
   it("appends a provisioned pane (with worktree info) to the target only", () => {
-    const pane = { id: "a-p2", cwd: "/wt/a-p2", branch: "kd/a/2" };
+    const pane: Pane = {
+      id: "a-p2",
+      location: { kind: "attached", cwd: "/wt/a-p2", branch: "kd/a/2" },
+    };
     const after = addAgentPane([ws("a", [1]), ws("b", [])], "a", pane);
     expect(after[0].panes).toEqual([{ id: "a-p1" }, pane]);
     expect(after[1].panes).toHaveLength(0); // b untouched
@@ -173,8 +177,8 @@ describe("worktreeTargets", () => {
     cwd: "/repo",
     worktreeBaseDir: "/wt",
     panes: [
-      { id: "a-p1", cwd: "/wt/kd-a-1", branch: "kd/a/1" },
-      { id: "a-p2", cwd: "/wt/kd-a-2", branch: "kd/a/2" },
+      { id: "a-p1", location: { kind: "attached", cwd: "/wt/kd-a-1", branch: "kd/a/1" } },
+      { id: "a-p2", location: { kind: "attached", cwd: "/wt/kd-a-2", branch: "kd/a/2" } },
       { id: "a-p3" } as Pane, // create failed → runs in the cwd, nothing to delete
     ],
   };
@@ -203,7 +207,7 @@ describe("worktreeTargets", () => {
       name: "a",
       cwd: "/repo",
       worktreeBaseDir: "/wt",
-      panes: [{ id: "a-p1", cwd: "/wt/kd-a-1" }],
+      panes: [{ id: "a-p1", location: { kind: "attached", cwd: "/wt/kd-a-1" } }],
     };
     const targets = worktreeTargets(detached, "a-p1");
     expect(targets).toHaveLength(1);
@@ -299,9 +303,12 @@ describe("setPaneAutoTitle", () => {
 describe("paneExecutionCwd", () => {
   it("uses pane cwd when present, otherwise workspace cwd", () => {
     const workspace = ws("a", [1]);
-    expect(paneExecutionCwd(workspace, { id: "a-p1", cwd: "/wt/one" })).toBe(
-      "/wt/one",
-    );
+    expect(
+      paneExecutionCwd(workspace, {
+        id: "a-p1",
+        location: { kind: "attached", cwd: "/wt/one" },
+      }),
+    ).toBe("/wt/one");
     expect(paneExecutionCwd(workspace, { id: "a-p1" })).toBe("/tmp");
   });
 
@@ -310,7 +317,10 @@ describe("paneExecutionCwd", () => {
     expect(
       paneExecutionCwd(workspace, {
         id: "a-p1",
-        provisioning: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
+        location: {
+          kind: "provisioning",
+          intent: { repo: "/repo", path: "/wt/a-1", index: 1 },
+        },
       }),
     ).toBeNull();
   });
@@ -322,13 +332,13 @@ describe("gitWatchPaths", () => {
       {
         ...ws("a", []),
         panes: [
-          { id: "a-p1", cwd: "/wt/one", branch: "kd/a/1" },
+          { id: "a-p1", location: { kind: "attached", cwd: "/wt/one", branch: "kd/a/1" } },
           { id: "a-p2" }, // runs in the workspace folder
         ],
       },
       {
         ...ws("b", []),
-        panes: [{ id: "b-p1", cwd: "/wt/two", branch: "kd/b/1" }],
+        panes: [{ id: "b-p1", location: { kind: "attached", cwd: "/wt/two", branch: "kd/b/1" } }],
       },
     ];
     expect(gitWatchPaths(deck)).toEqual(new Set(["/wt/one", "/tmp", "/wt/two"]));
@@ -342,11 +352,9 @@ describe("gitWatchPaths", () => {
           panes: [
             {
               id: "a-p1",
-              provisioning: {
-                repo: "/repo",
-                path: "/wt/a-1",
-                workspace: "a",
-                index: 1,
+              location: {
+                kind: "provisioning",
+                intent: { repo: "/repo", path: "/wt/a-1", index: 1 },
               },
             },
           ],
@@ -366,9 +374,12 @@ describe("pane provisioning transforms", () => {
     panes: [
       {
         id: "a-p1",
-        provisioning: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
+        location: {
+          kind: "provisioning",
+          intent: { repo: "/repo", path: "/wt/a-1", index: 1 },
+        },
       },
-      { id: "a-p2", cwd: "/wt/live", branch: "kd/a/2" },
+      { id: "a-p2", location: { kind: "attached", cwd: "/wt/live", branch: "kd/a/2" } },
     ],
   });
 
@@ -379,8 +390,7 @@ describe("pane provisioning transforms", () => {
     });
     expect(next[0].panes[0]).toEqual({
       id: "a-p1",
-      cwd: "/wt/kd-a-1",
-      branch: "kd/a/1",
+      location: { kind: "attached", cwd: "/wt/kd-a-1", branch: "kd/a/1" },
     });
   });
 
@@ -402,13 +412,11 @@ describe("pane provisioning transforms", () => {
       "a-p1",
       "boom",
     );
-    expect(failed[0].panes[0].provisioning?.error).toBe("boom");
+    expect(provisioningCard(failed[0].panes[0])?.error).toBe("boom");
     const retrying = setPaneProvisioningError(failed, "a", "a-p1", null);
-    expect(retrying[0].panes[0].provisioning).toEqual({
-      repo: "/repo",
-      path: "/wt/a-1",
-      workspace: "a",
-      index: 1,
+    expect(provisioningCard(retrying[0].panes[0])).toEqual({
+      kind: "provisioning",
+      intent: { repo: "/repo", path: "/wt/a-1", index: 1 },
     });
   });
 
@@ -421,21 +429,18 @@ describe("pane provisioning transforms", () => {
       panes: [
         {
           id: "a-p1",
-          provisioning: {
-            repo: "/repo",
-            path: "/wt/f",
-            branch: "fork/x",
-            workspace: "a",
-            index: 1,
+          location: {
+            kind: "provisioning",
+            intent: { repo: "/repo", path: "/wt/f", branch: "fork/x", index: 1 },
             fork: true,
           },
         },
       ],
     };
     const failed = setPaneProvisioningError([forkWs], "a", "a-p1", "boom");
-    expect(failed[0].panes[0].provisioning?.fork).toBe(true);
+    expect(provisioningCard(failed[0].panes[0])?.fork).toBe(true);
     const retrying = setPaneProvisioningError(failed, "a", "a-p1", null);
-    expect(retrying[0].panes[0].provisioning?.fork).toBe(true);
+    expect(provisioningCard(retrying[0].panes[0])?.fork).toBe(true);
   });
 
   it("setPaneProvisioningError no-ops (same ref) on a non-provisioning pane and an unchanged error", () => {
@@ -454,7 +459,7 @@ describe("paneOccupyingPath", () => {
     {
       ...ws("a", []),
       panes: [
-        { id: "a-p1", cwd: "/wt/one", branch: "kd/a/1" },
+        { id: "a-p1", location: { kind: "attached", cwd: "/wt/one", branch: "kd/a/1" } },
         { id: "a-p2" }, // workspace-cwd pane — occupies no worktree
       ],
     },
@@ -464,8 +469,7 @@ describe("paneOccupyingPath", () => {
         {
           id: "b-p1",
           idle: { reason: "waking", origin: "restore" },
-          cwd: "/wt/two",
-          branch: "kd/b/2",
+          location: { kind: "attached", cwd: "/wt/two", branch: "kd/b/2" },
         },
       ],
     },
@@ -481,7 +485,7 @@ describe("paneOccupyingPath", () => {
   it("treats trailing slashes and whitespace as the same directory", () => {
     expect(paneOccupyingPath(deck, "  /wt/one/ ")?.pane.id).toBe("a-p1");
     const slashed: Workspace[] = [
-      { ...ws("c", []), panes: [{ id: "c-p1", cwd: "/wt/three/" }] },
+      { ...ws("c", []), panes: [{ id: "c-p1", location: { kind: "attached", cwd: "/wt/three/" } }] },
     ];
     expect(paneOccupyingPath(slashed, "/wt/three")?.pane.id).toBe("c-p1");
   });
@@ -497,7 +501,10 @@ describe("paneOccupyingPath", () => {
         panes: [
           {
             id: "c-p1",
-            provisioning: { repo: "/repo", path: "/wt/pending", workspace: "c", index: 1 },
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/pending", index: 1 },
+            },
           },
         ],
       },
@@ -517,10 +524,13 @@ describe("pathOccupancy", () => {
       {
         ...ws("a", []),
         panes: [
-          { id: "a-p1", cwd: "/wt/live", branch: "kd/a/1" },
+          { id: "a-p1", location: { kind: "attached", cwd: "/wt/live", branch: "kd/a/1" } },
           {
             id: "a-p2",
-            provisioning: { repo: "/r", path: "/wt/pending", workspace: "a", index: 2 },
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/r", path: "/wt/pending", index: 2 },
+            },
           },
         ],
       },
@@ -541,7 +551,12 @@ describe("firstFreeWorktree", () => {
   const holding = (...nums: number[]): Workspace[] => [
     {
       ...ws("a", []),
-      panes: nums.map((n) => ({ id: `a-p${n}`, cwd: `/base/kd-a-${n}` })),
+      panes: nums.map(
+        (n): Pane => ({
+          id: `a-p${n}`,
+          location: { kind: "attached", cwd: `/base/kd-a-${n}` },
+        }),
+      ),
     },
   ];
 
@@ -566,7 +581,10 @@ describe("firstFreeWorktree", () => {
         panes: [
           {
             id: "a-p1",
-            provisioning: { repo: "/r", path: "/base/kd-a-2", workspace: "a", index: 2 },
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/r", path: "/base/kd-a-2", index: 2 },
+            },
           },
         ],
       },
@@ -700,8 +718,7 @@ describe("suspendPane", () => {
     const start = withPanes([
       {
         id: "a-p1",
-        cwd: "/wt/one",
-        branch: "kd/a/1",
+        location: { kind: "attached", cwd: "/wt/one", branch: "kd/a/1" },
         session: { id: "s1", boundAt: "2026-07-25T09:00:00.000Z" },
       },
       { id: "a-p2" },
@@ -711,8 +728,7 @@ describe("suspendPane", () => {
     // suspending must not touch either.
     expect(after[0].panes[0]).toEqual({
       id: "a-p1",
-      cwd: "/wt/one",
-      branch: "kd/a/1",
+      location: { kind: "attached", cwd: "/wt/one", branch: "kd/a/1" },
       session: { id: "s1", boundAt: "2026-07-25T09:00:00.000Z" },
       idle: { reason: "suspended", at: AT },
     });
@@ -753,18 +769,24 @@ describe("suspendPane", () => {
     const creating = withPanes([
       {
         id: "a-p1",
-        provisioning: { repo: "/repo", path: "/wt/a-1", workspace: "a", index: 1 },
+        location: {
+          kind: "provisioning",
+          intent: { repo: "/repo", path: "/wt/a-1", index: 1 },
+        },
       },
     ]);
     expect(suspendPane(creating, "a", "a-p1", AT)).toBe(creating);
   });
 
   it("round-trips: suspend → ask → finish leaves a plain live pane", () => {
-    const start = withPanes([{ id: "a-p1", cwd: "/wt/one" }]);
+    const start = withPanes([{ id: "a-p1", location: { kind: "attached", cwd: "/wt/one" } }]);
     const suspended = suspendPane(start, "a", "a-p1", AT);
     const rising = requestPaneWake(suspended, "a", "a-p1");
     const woken = clearPaneIdle(rising, "a", "a-p1");
-    expect(woken[0].panes[0]).toEqual({ id: "a-p1", cwd: "/wt/one" });
+    expect(woken[0].panes[0]).toEqual({
+      id: "a-p1",
+      location: { kind: "attached", cwd: "/wt/one" },
+    });
   });
 
   it("a suspend landing mid-wake wins: the late finish finds nothing to do", () => {
@@ -780,7 +802,9 @@ describe("suspendPane", () => {
   it("refuses a REMOTE pane — the guard is the predicate, not a copy of it", () => {
     // The action is exported through the deck barrel, so a future "suspend
     // every agent here" must not park the panes the predicate protects.
-    const remote = withPanes([{ id: "a-p1", remoteEndpoint: "ws://vps:4500" }]);
+    const remote = withPanes([
+      { id: "a-p1", location: { kind: "remote", endpoint: "ws://vps:4500" } },
+    ]);
     expect(suspendPane(remote, "a", "a-p1", AT)).toBe(remote);
   });
 });

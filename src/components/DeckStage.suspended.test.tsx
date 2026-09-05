@@ -354,7 +354,10 @@ describe("DeckStage — suspended agents", () => {
         {
           ...suspended[0],
           panes: [
-            { ...suspended[0].panes[0], remoteEndpoint: "ws://vps:4500" },
+            {
+              ...suspended[0].panes[0],
+              location: { kind: "remote", endpoint: "ws://vps:4500" },
+            },
             suspended[0].panes[1],
           ],
         },

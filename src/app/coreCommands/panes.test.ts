@@ -64,7 +64,11 @@ describe("agent.focus / agent.close / pane.write", () => {
     const { registry, suspendAgent } = setup([
       workspace({
         panes: [
-          { id: "p1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
+          {
+            id: "p1",
+            agentType: "claude",
+            location: { kind: "remote", endpoint: "ws://vps:4500" },
+          },
         ],
       }),
     ]);

@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { attachedWorktree } from "../../domain/deck";
 import {
   Probe,
   agentRun,
@@ -62,8 +63,7 @@ describe("agent orchestrator —suspending an agent", () => {
           {
             id: "pane-1",
             agentType: "codex",
-            cwd: "/worktree",
-            branch: "feature/x",
+            location: { kind: "attached", cwd: "/worktree", branch: "feature/x" },
             session: { id: "s-1", boundAt: "2026-07-25T09:00:00.000Z" },
             ...over,
           },
@@ -81,8 +81,7 @@ describe("agent orchestrator —suspending an agent", () => {
     expect(pane()).toEqual({
       id: "pane-1",
       agentType: "codex",
-      cwd: "/worktree",
-      branch: "feature/x",
+      location: { kind: "attached", cwd: "/worktree", branch: "feature/x" },
       session: { id: "s-1", boundAt: "2026-07-25T09:00:00.000Z" },
       idle: { reason: "suspended", at: expect.any(String) },
     });
@@ -147,8 +146,13 @@ describe("agent orchestrator —suspending an agent", () => {
   it("names the reason it refuses, so every surface can say the same thing", async () => {
     // A bare `false` forced each caller to guess, and one guessed wrong: it
     // told a remote pane's user their running agent had no session to stop.
+    // A create in flight has no session yet, so the seed's goes.
     seed({
-      provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+      location: {
+        kind: "provisioning",
+        intent: { repo: "/repo", path: "/wt/a", index: 1 },
+      },
+      session: undefined,
     });
     expect(await act(async () => agentRun.suspend("ws-1", "pane-1"))).toBe(
       "provisioning",
@@ -177,7 +181,7 @@ describe("agent orchestrator —suspending an agent", () => {
   });
 
   it("refuses a REMOTE pane BY NAME — its session lives on the server", async () => {
-    seed({ remoteEndpoint: "ws://vps:4500" });
+    seed({ location: { kind: "remote", endpoint: "ws://vps:4500" } });
     expect(await act(async () => agentRun.suspend("ws-1", "pane-1"))).toBe(
       "remote",
     );
@@ -280,7 +284,11 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         worktreeBaseDir: null,
         panes: [
           { id: "pane-1", agentType: "claude" },
-          { id: "pane-2", agentType: "claude", cwd: "/wt/2", branch: "kd/ws/2" },
+          {
+            id: "pane-2",
+            agentType: "claude",
+            location: { kind: "attached", cwd: "/wt/2", branch: "kd/ws/2" },
+          },
         ],
       }),
     );
@@ -437,11 +445,9 @@ describe("agent orchestrator —closing panes and workspaces", () => {
           {
             id: "pane-9",
             agentType: "claude",
-            provisioning: {
-              repo: "/repo",
-              path: "/wt/two-1",
-              workspace: "two",
-              index: 1,
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/two-1", index: 1 },
             },
           },
         ],
@@ -454,7 +460,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         branch: "kd/ws/late",
       }),
     );
-    expect(deck.workspaces[1].panes[0].cwd).toBe("/wt/late");
+    expect(attachedWorktree(deck.workspaces[1].panes[0])?.cwd).toBe("/wt/late");
 
     await act(async () =>
       agentRun.close({

@@ -176,8 +176,10 @@ describe("TeamDialog", () => {
     // a row that cannot be used.
     const first = pane("pane-1");
     const second = pane("pane-2");
-    (first as { branch?: string }).branch = "kd/api/1";
-    (second as { cwd?: string }).cwd = "/repo/worktrees/kd-api-2";
+    // A pane on the root with a recorded branch names the branch; one on a
+    // worktree with no branch names the folder.
+    first.location = { kind: "main", branch: "kd/api/1" };
+    second.location = { kind: "attached", cwd: "/repo/worktrees/kd-api-2" };
     open(workspace([first, second]));
     expect(all(".team__row-where").map((el) => el.textContent)).toEqual([
       "kd/api/1",

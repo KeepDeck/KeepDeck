@@ -12,8 +12,10 @@
  * is what keeps that promise in one place.
  */
 import {
+  locationOf,
   paneCanPark,
   paneCanSuspend,
+  provisioningCard,
   type PaneIdle,
   type PaneSession,
   type PaneStopped,
@@ -265,22 +267,30 @@ export function setPaneSession(
 }
 
 /** Detach a pane from its (gone) worktree so it can start fresh in the
- * workspace cwd ([F7] restore reconcile): drops `cwd`/`branch` AND the
- * recorded session — a directory-bound session can't resume somewhere else.
- * Returns the SAME array when there's nothing to drop. */
+ * workspace cwd ([F7] restore reconcile): drops the directory and branch AND
+ * the recorded session — a directory-bound session can't resume somewhere
+ * else. A create in flight and a remote endpoint are not places to reset;
+ * they stay, and only the session goes. Returns the SAME array when there's
+ * nothing to drop. */
 export function resetPaneLocation(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane || (!pane.cwd && !pane.branch && !pane.session))
-    return workspaces;
+  if (!pane) return workspaces;
+  const location = locationOf(pane);
+  const holdsPlace =
+    location.kind === "attached" ||
+    (location.kind === "main" && location.branch !== undefined);
+  if (!holdsPlace && !pane.session) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId) return p;
-      const { cwd: _cwd, branch: _branch, session: _session, ...rest } = p;
-      return rest;
+      const { location: _place, session: _session, ...rest } = p;
+      return holdsPlace || p.location === undefined
+        ? rest
+        : { ...rest, location: p.location };
     }),
   );
 }
@@ -296,13 +306,16 @@ export function resolvePaneProvisioning(
   worktree: { cwd: string; branch: string },
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane?.provisioning) return workspaces;
+  if (!pane || locationOf(pane).kind !== "provisioning") return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
-    panes.map((p) => {
-      if (p.id !== paneId) return p;
-      const { provisioning: _done, ...rest } = p;
-      return { ...rest, cwd: worktree.cwd, branch: worktree.branch };
-    }),
+    panes.map((p) =>
+      p.id === paneId
+        ? {
+            ...p,
+            location: { kind: "attached", cwd: worktree.cwd, branch: worktree.branch },
+          }
+        : p,
+    ),
   );
 }
 
@@ -317,16 +330,17 @@ export function setPaneProvisioningError(
   error: string | null,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane?.provisioning) return workspaces;
-  if ((pane.provisioning.error ?? null) === error) return workspaces;
+  const card = pane ? provisioningCard(pane) : null;
+  if (!card) return workspaces;
+  if ((card.error ?? null) === error) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
-      if (p.id !== paneId || !p.provisioning) return p;
-      const { error: _old, ...intent } = p.provisioning;
-      return {
-        ...p,
-        provisioning: error === null ? intent : { ...intent, error },
-      };
+      if (p.id !== paneId) return p;
+      const current = provisioningCard(p);
+      if (!current) return p;
+      // The status changes; the intent and the fork marker ride along.
+      const { error: _old, ...rest } = current;
+      return { ...p, location: error === null ? rest : { ...rest, error } };
     }),
   );
 }

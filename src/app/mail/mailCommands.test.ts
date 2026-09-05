@@ -334,6 +334,34 @@ describe("team.assign", () => {
     expect(m.toPaneId).toBe("pane-2");
   });
 
+  it("joins a team by its name however it is cased or padded — one team, not a second", async () => {
+    // The name an agent types is compared by the same key the roster uses,
+    // and the team it joins is the one being settled — so a taken name is
+    // the team to join here, never a collision.
+    const { registry, mail } = setup();
+    const lead = from("pane-1", "ws-1", "Agent 1");
+    await run(registry, "team.assign", { agent: "pane-1", team: "api", role: "lead" }, lead);
+    const joined = await run(
+      registry,
+      "team.assign",
+      { agent: "pane-2", team: " API ", role: "impl-1" },
+      lead,
+    );
+    expect(joined.ok).toBe(true);
+    const sent = await run(
+      registry,
+      "mail.send",
+      { to: "impl-1", kind: "task", body: "take the parser" },
+      lead,
+    );
+    expect(sent.ok).toBe(true);
+    // The briefing and the task both land on pane-2 — the role resolved
+    // across the two spellings.
+    const delivered = mail.takeAtTurnEnd("pane-2");
+    expect(delivered.length).toBeGreaterThan(0);
+    expect(delivered.every((m) => m.toPaneId === "pane-2")).toBe(true);
+  });
+
   it("refuses a role another pane already answers to", async () => {
     const { registry } = setup();
     const lead = from("pane-1", "ws-1", "Agent 1");

@@ -1,4 +1,4 @@
-import { findWorkspaceOfPane, paneIsRemoteFresh } from "../domain/deck";
+import { findWorkspaceOfPane, locationOf } from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import { bumpPostback } from "./postbacks";
@@ -85,7 +85,7 @@ export function createSessionBinding(
       // Remote panes run a local thin-client whose reporter fires too, but a
       // remote pane is fresh-session only — it must NOT bind a resumable
       // LOCAL session.
-      if (pane && paneIsRemoteFresh(pane)) return;
+      if (pane && locationOf(pane).kind === "remote") return;
       // Recorded where the binding actually lands, not at the verdict: a
       // report that reaches no pane has claimed nothing, and a remote pane
       // that deliberately binds nothing must not read as already bound.

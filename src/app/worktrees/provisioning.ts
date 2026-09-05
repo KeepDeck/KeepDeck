@@ -7,7 +7,7 @@
  * a close racing the create needs the path long before the rest of this
  * finishes (see [`created`]).
  */
-import type { PaneProvisioning } from "../../domain/deck";
+import { locationOf, type WorktreeIntent } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createWorktree, inspectRepo } from "../../ipc/worktree";
 import type { ProvisionCallbacks } from "../provisioning";
@@ -40,7 +40,7 @@ export function createWorktreeProvisioning(
    * map — it cannot survive an app restart. So ANY pane that registers a step
    * MUST also be excluded from persistence, or its card restores as a plain
    * retryable card and Retry resolves a NON-fork pane. The journal fork does
-   * this via `PaneProvisioning.fork`, which `serializeDeck` drops; a future
+   * this via the location's `fork` marker, which `serializeDeck` drops; a future
    * second user of this map must add the equivalent.
    */
   const postProvisionSteps = new Map<
@@ -98,8 +98,9 @@ export function createWorktreeProvisioning(
    */
   async function provisionPane(
     paneId: string,
-    intent: PaneProvisioning,
+    intent: WorktreeIntent,
     batchBase: { commit?: string; branch?: string } | undefined,
+    workspaceName: string,
     cb: ProvisionCallbacks,
   ): Promise<void> {
     /**
@@ -143,7 +144,7 @@ export function createWorktreeProvisioning(
           // The intent's own picked base outranks the repo HEAD pinned below.
           base: intent.base ?? batchBase?.commit,
           ...(!intent.base && batchBase?.branch && { baseBranch: batchBase.branch }),
-          workspace: intent.workspace,
+          workspace: workspaceName,
           index: intent.index,
           path: intent.path,
         }),
@@ -197,13 +198,16 @@ export function createWorktreeProvisioning(
   }
 
   return {
-    async provision(panes, cb) {
-      const pending = panes.filter((p) => p.provisioning);
+    async provision(panes, workspaceName, cb) {
+      const pending = panes.flatMap((p) => {
+        const location = locationOf(p);
+        return location.kind === "provisioning" ? [{ id: p.id, intent: location.intent }] : [];
+      });
       if (pending.length === 0) return;
 
       let batchBase: { commit?: string; branch?: string } | undefined;
       try {
-        const inspected = await inspectRepo(pending[0].provisioning!.repo);
+        const inspected = await inspectRepo(pending[0].intent.repo);
         batchBase = {
           ...(inspected.head && { commit: inspected.head }),
           ...(inspected.branch && { branch: inspected.branch }),
@@ -213,7 +217,7 @@ export function createWorktreeProvisioning(
       }
 
       await Promise.all(
-        pending.map((p) => provisionPane(p.id, p.provisioning!, batchBase, cb)),
+        pending.map((p) => provisionPane(p.id, p.intent, batchBase, workspaceName, cb)),
       );
     },
 

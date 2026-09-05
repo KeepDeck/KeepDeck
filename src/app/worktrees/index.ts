@@ -92,8 +92,13 @@ export interface WorktreeProvisioner {
    * instead. Panes without an intent are ignored, so a retry can pass one pane
    * and a caller with several can pass them all. Never throws: a failure lands
    * on its pane's card via `onFailed`.
+   *
+   * `workspaceName` is what an auto branch name (`kd/<name>/<n>`) is built
+   * from, and it is read by the caller as it calls — never stored on a card —
+   * so a create issued after a rename, a Retry included, lands on the name
+   * the workspace has now.
    */
-  provision(panes: Pane[], report: ProvisionCallbacks): Promise<void>;
+  provision(panes: Pane[], workspaceName: string, report: ProvisionCallbacks): Promise<void>;
   /**
    * What `paneId`'s create made, waiting for the `git worktree add` to return
    * if it has not yet. Null when there is nothing outstanding — the pane

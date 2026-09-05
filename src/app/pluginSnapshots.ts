@@ -1,5 +1,10 @@
 import type { WorkspaceSnapshot } from "@keepdeck/plugin-api";
-import type { Pane, Workspace } from "../domain/deck";
+import {
+  attachedWorktree,
+  paneBranch,
+  type Pane,
+  type Workspace,
+} from "../domain/deck";
 
 /**
  * Project a deck workspace into the serializable snapshot plugins see.
@@ -18,13 +23,18 @@ export function toWorkspaceSnapshot(ws: Workspace): WorkspaceSnapshot {
 }
 
 function toPaneSnapshot(pane: Pane) {
+  // Sparse, as the snapshot contract promises: `cwd` is "absent while
+  // provisioning", and `branch` names the pane's work whether it owns a
+  // worktree for it or recorded it from the root.
+  const worktree = attachedWorktree(pane);
+  const branch = paneBranch(pane);
   return {
     id: pane.id,
     // The same precedence the pane header renders: manual name, auto title,
     // then the bare id — a plugin should never see a nameless pane.
     name: pane.name ?? pane.autoTitle ?? pane.id,
-    ...(pane.cwd !== undefined && { cwd: pane.cwd }),
-    ...(pane.branch !== undefined && { branch: pane.branch }),
+    ...(worktree !== null && { cwd: worktree.cwd }),
+    ...(branch !== undefined && { branch }),
     agentType: pane.agentType ?? "unknown",
   };
 }

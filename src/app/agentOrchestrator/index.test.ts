@@ -121,7 +121,11 @@ describe("agent orchestrator —session policy", () => {
     // Matching the newest session in the pane's cwd would resume a FOREIGN
     // conversation whenever panes share a cwd (the default — a worktree is
     // optional): unbound wakes fresh, with no resume spec.
-    act(() => deck.hydrate(restored({ agentType: "codex", cwd: "/repo" })));
+    act(() =>
+      deck.hydrate(
+        restored({ agentType: "codex", location: { kind: "attached", cwd: "/repo" } }),
+      ),
+    );
     await settle();
 
     expect(pane().idle).toBeUndefined();
@@ -138,7 +142,7 @@ describe("agent orchestrator —session policy", () => {
       deck.hydrate(
         restored({
           agentType: "codex",
-          remoteEndpoint: "ws://vps:4500",
+          location: { kind: "remote", endpoint: "ws://vps:4500" },
           session: { id: "stale", boundAt: "t" },
         }),
       ),
@@ -148,6 +152,28 @@ describe("agent orchestrator —session policy", () => {
     expect(pane().idle).toBeUndefined();
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
     expect(ipc.probeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("a pane mid-create is neither probed nor woken — there is no directory yet", async () => {
+    // The run intent holds such a pane, and the sweep's own directory read
+    // holds it too, in a form the compiler checks: a fallback to the
+    // workspace cwd would probe a directory that exists and wake the pane
+    // in the wrong one.
+    ipc.probeWorktree.mockClear();
+    act(() =>
+      deck.hydrate(
+        restored({
+          location: {
+            kind: "provisioning",
+            intent: { repo: "/repo", path: "/repo/wt-1", index: 1 },
+          },
+        }),
+      ),
+    );
+    await settle();
+
+    expect(ipc.probeWorktree).not.toHaveBeenCalled();
+    expect(pty.acquired).toEqual([]);
   });
 
   it("an agent no plugin provides stays idle — and KEEPS its binding", async () => {
@@ -182,7 +208,9 @@ describe("agent orchestrator —session policy", () => {
       empty: false,
       branch: null,
     });
-    act(() => deck.hydrate(restored({ cwd: "/repo/wt-gone" })));
+    act(() =>
+      deck.hydrate(restored({ location: { kind: "attached", cwd: "/repo/wt-gone" } })),
+    );
     await settle();
 
     expect(pane().idle).toEqual({ reason: "waking", origin: "restore" });
@@ -196,7 +224,9 @@ describe("agent orchestrator —session policy", () => {
       empty: false,
       branch: null,
     });
-    act(() => deck.hydrate(restored({ cwd: "/repo/wt-gone" })));
+    act(() =>
+      deck.hydrate(restored({ location: { kind: "attached", cwd: "/repo/wt-gone" } })),
+    );
     await settle();
     expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
 
@@ -221,8 +251,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
           {
             id: "pane-1",
             agentType: "claude",
-            cwd: "/repo/wt-1",
-            branch: "kd/ws/1",
+            location: { kind: "attached", cwd: "/repo/wt-1", branch: "kd/ws/1" },
             session: { id: "s-1", boundAt: "t" },
             idle: { reason: "suspended", at: "2026-07-25T09:00:00.000Z" },
             ...pane,
@@ -429,8 +458,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
 
     expect(agentRun.blocked).toEqual({});
     expect(pane().idle).toBeUndefined();
-    expect(pane().cwd).toBeUndefined();
-    expect(pane().branch).toBeUndefined();
+    expect(pane().location).toBeUndefined();
     expect(pane().session).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual([]);
   });
