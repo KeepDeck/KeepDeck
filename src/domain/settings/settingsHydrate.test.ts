@@ -38,7 +38,6 @@ describe("hydrateSettings", () => {
       defaultYolo: true,
       scrollback: 50_000,
       deckLayout: "list",
-      minimizeStyle: "strip",
       suspendedAgentPlacement: "tray",
       dockMode: "floating",
       plugins: {
@@ -56,7 +55,6 @@ describe("hydrateSettings", () => {
       defaultYolo: true,
       scrollback: 50_000,
       deckLayout: "list",
-      minimizeStyle: "strip",
       suspendedAgentPlacement: "tray",
       dockMode: "floating",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
@@ -116,21 +114,6 @@ describe("hydrateSettings", () => {
       );
     }
     expect(restore('{"deckLayout":"spiral"}').settings.deckLayout).toBe("grid");
-  });
-
-  it("accepts each known minimizeStyle and rejects an unknown one", () => {
-    for (const style of ["tray", "strip", "none"]) {
-      expect(
-        restore(JSON.stringify({ minimizeStyle: style })).settings.minimizeStyle,
-      ).toBe(style);
-    }
-    // A garbage value degrades to the default, on its own, like any other key.
-    // (`list` moved to deckLayout — it's no longer a minimize style.)
-    for (const bad of ["list", "mosaic", 3]) {
-      expect(
-        restore(JSON.stringify({ minimizeStyle: bad })).settings.minimizeStyle,
-      ).toBe("tray");
-    }
   });
 
   it("accepts tray placement for suspended agents and rejects malformed values", () => {
@@ -264,18 +247,25 @@ describe("hydrateSettings — the plugins bag", () => {
     ).toBe(true);
   });
 
-  it("v18 retirement: a stored mcpServer is consumed, whatever it said", () => {
-    // The transport is always on now. The key is neither a decision nor an
-    // extra (an extra would be rewritten forever), and not a degradation
-    // either: the file said nothing wrong, it said something nobody asks.
-    for (const value of [true, false, "yes"]) {
-      const hydrated = hydrateSettings(JSON.stringify({ mcpServer: value }));
-      expect(hydrated).not.toBeNull();
-      expect(hydrated!.doc.chosen).toEqual({});
-      expect(hydrated!.doc.extras).toEqual({});
-      expect(hydrated!.provenance.degraded).toEqual([]);
-    }
-  });
+  // A retired key is CONSUMED, whatever it said: neither a decision nor an
+  // extra (an extra would be rewritten forever), and not a degradation either
+  // — the file said nothing wrong, it said something nobody asks any more.
+  for (const [key, values] of [
+    // v18: the MCP transport lost its switch.
+    ["mcpServer", [true, false, "yes"]],
+    // v19: the tray became the only shape for a minimized agent.
+    ["minimizeStyle", ["tray", "strip", "none", "mosaic"]],
+  ] as const) {
+    it(`retired ${key} is consumed, whatever it said`, () => {
+      for (const value of values) {
+        const hydrated = hydrateSettings(JSON.stringify({ [key]: value }));
+        expect(hydrated).not.toBeNull();
+        expect(hydrated!.doc.chosen).toEqual({});
+        expect(hydrated!.doc.extras).toEqual({});
+        expect(hydrated!.provenance.degraded).toEqual([]);
+      }
+    });
+  }
 
   it("v5 graduation: an absent flag leaves the Run plugin unset (default off)", () => {
     expect(restore("{}").settings.plugins.enabled["keepdeck.run"]).toBeUndefined();

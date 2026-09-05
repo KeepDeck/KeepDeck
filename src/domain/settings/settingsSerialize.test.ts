@@ -86,25 +86,25 @@ describe("a chosen value survives a change of default", () => {
     // a file quietly shed the user's choices one launch at a time.
     const first = serializeSettings(
       restore(
-        '{"minimizeStyle":"tray","notifications":{"enabled":true,"mode":"system-and-app","mutedPlugins":[]},"plugins":{"enabled":{},"values":{},"consented":{}}}',
+        '{"dockMode":"docked","notifications":{"enabled":true,"mode":"system-and-app","mutedPlugins":[]},"plugins":{"enabled":{},"values":{},"consented":{}}}',
       ),
     );
     const second = serializeSettings(restore(first));
     expect(second).toBe(first);
     expect(JSON.parse(second)).toMatchObject({
-      minimizeStyle: "tray",
+      dockMode: "docked",
       notifications: { enabled: true, mode: "system-and-app", mutedPlugins: [] },
       plugins: { enabled: {}, values: {}, consented: {} },
     });
   });
 
   it("a later build that flips the default does NOT override the user", () => {
-    // Simulate tomorrow's release: the file chose `tray`, and `tray` is today's
-    // default. If the save dropped it, a build defaulting to `none` would
-    // silently change the user's deck.
-    const stored = serializeSettings(restore('{"minimizeStyle":"tray"}'));
-    expect(JSON.parse(stored).minimizeStyle).toBe("tray");
-    expect(restore(stored).settings.minimizeStyle).toBe("tray");
+    // Simulate tomorrow's release: the file chose `docked`, and `docked` is
+    // today's default. If the save dropped it, a build defaulting to
+    // `floating` would silently change the user's deck.
+    const stored = serializeSettings(restore('{"dockMode":"docked"}'));
+    expect(JSON.parse(stored).dockMode).toBe("docked");
+    expect(restore(stored).settings.dockMode).toBe("docked");
   });
 
   it("a value the file carried but we could not use is NOT written back", () => {

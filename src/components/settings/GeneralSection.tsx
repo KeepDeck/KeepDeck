@@ -3,12 +3,10 @@ import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { selectableAgents } from "../../domain/agents";
 import {
-  MINIMIZE_STYLES,
   SUSPENDED_AGENT_PLACEMENTS,
   DECK_LAYOUTS,
   DOCK_MODES,
   DEFAULT_SETTINGS,
-  type MinimizeStyle,
   type SuspendedAgentPlacement,
   type DeckLayout,
   type DockMode,
@@ -24,22 +22,6 @@ const LAYOUT_OPTIONS: Record<DeckLayout, { label: string; hint: string }> = {
   list: {
     label: "List",
     hint: "Agents stack in a list — open one at a time; the rest fold to bars.",
-  },
-};
-
-/** Label + one-line explanation for each minimize style, in picker order. */
-const MINIMIZE_OPTIONS: Record<MinimizeStyle, { label: string; hint: string }> = {
-  tray: {
-    label: "Tray",
-    hint: "Minimized agents dock as chips in a strip below the grid.",
-  },
-  strip: {
-    label: "Strip",
-    hint: "Minimized agents fold to their own header bar below the grid.",
-  },
-  none: {
-    label: "None",
-    hint: "Minimizing is off — every agent stays on the grid.",
   },
 };
 
@@ -72,9 +54,9 @@ const DOCK_OPTIONS: Record<DockMode, { label: string; hint: string }> = {
 };
 
 /**
- * General preferences: the default agent ([F6]/[F1]), the deck layout, how a
- * minimized agent is presented in the grid layout, how the dock occupies the
- * window, and whether a restored deck comes back running or stopped — then
+ * General preferences: the default agent ([F6]/[F1]), the deck layout, where
+ * a suspended agent stays, how the dock occupies the window, and whether a
+ * restored deck comes back running or stopped — then
  * the MCP server's row, which is not a preference but a fact about the
  * running transport ([`McpServerRow`]). Fetches the catalog itself (per
  * mount, like WorkspaceForm) — opening settings re-detects a just-installed
@@ -85,7 +67,6 @@ export function GeneralSection() {
   const defaultAgent = settings?.defaultAgent;
   const defaultYolo = settings?.defaultYolo ?? DEFAULT_SETTINGS.defaultYolo;
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
-  const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
   const suspendedAgentPlacement =
     settings?.suspendedAgentPlacement ??
     DEFAULT_SETTINGS.suspendedAgentPlacement;
@@ -146,32 +127,6 @@ export function GeneralSection() {
         ))}
       </div>
       <span className="settings__hint">{LAYOUT_OPTIONS[deckLayout].hint}</span>
-
-      <span className="form__label">Minimized agents</span>
-      <div
-        className="form__types"
-        role="group"
-        aria-label="Minimized agents"
-      >
-        {MINIMIZE_STYLES.map((style) => (
-          <button
-            key={style}
-            type="button"
-            className={`form__type${style === minimizeStyle ? " form__type--active" : ""}`}
-            disabled={deckLayout !== "grid"}
-            aria-label={`Minimized agents: ${MINIMIZE_OPTIONS[style].label}`}
-            aria-pressed={style === minimizeStyle}
-            onClick={() => updateSettings({ minimizeStyle: style })}
-          >
-            {MINIMIZE_OPTIONS[style].label}
-          </button>
-        ))}
-      </div>
-      <span className="settings__hint">
-        {deckLayout === "grid"
-          ? MINIMIZE_OPTIONS[minimizeStyle].hint
-          : "Applies to the grid layout."}
-      </span>
 
       <span className="form__label">Suspended agents</span>
       <div

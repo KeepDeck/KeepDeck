@@ -36,7 +36,6 @@ import { artifactsEnableStatus } from "./artifacts/enableStatus";
 import { announceArtifact } from "./artifacts/producers";
 import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc/artifacts";
 import { createPaneAttribution } from "./paneAttribution";
-import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
 import {
@@ -123,10 +122,6 @@ export function createAppRuntime(
     plugins.pluginRegistries.agents
       .list()
       .map(({ entry }) => ({ id: entry.id, label: entry.label }));
-  const minimizePolicy = createMinimizePolicy(deckStore, {
-    minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
-    subscribe: subscribeSettings,
-  });
   const mcp = createMcpService({
     panesIn: (cwd) => panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
     // kimi's config lands in a pane's cwd, so the owner of those directories
@@ -468,7 +463,6 @@ export function createAppRuntime(
       statusChannel?.dispose();
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
-      minimizePolicy.dispose();
       mail.dispose();
       disposeArtifactCommands?.();
       for (const stop of stopArtifactWiring) stop();

@@ -3,7 +3,6 @@ import { isRecord } from "../json";
 import {
   DECK_LAYOUTS,
   DOCK_MODES,
-  MINIMIZE_STYLES,
   NOTIFICATION_MODES,
   SCROLLBACK_MAX,
   SCROLLBACK_MIN,
@@ -192,7 +191,6 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   defaultYolo: { default: false, read: readBoolean },
   scrollback: { default: 10_000, read: readScrollback },
   deckLayout: { default: "grid", read: readOneOf(DECK_LAYOUTS) },
-  minimizeStyle: { default: "tray", read: readOneOf(MINIMIZE_STYLES) },
   suspendedAgentPlacement: {
     default: "pane",
     read: readOneOf(SUSPENDED_AGENT_PLACEMENTS),

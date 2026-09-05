@@ -328,20 +328,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
       return withView(state, viewByWs);
     }
-    case "clearMinimized": {
-      let viewByWs = state.viewByWs;
-      for (const wsId of Object.keys(viewByWs)) {
-        const current = viewByWs[wsId]?.minimized;
-        if (!current) continue;
-        viewByWs = setViewField(
-          viewByWs,
-          wsId,
-          "minimized",
-          undefined,
-        );
-      }
-      return withView(state, viewByWs);
-    }
     case "restoreSuspendedPane": {
       const { wsId, paneId } = action;
       const view = state.viewByWs[wsId];

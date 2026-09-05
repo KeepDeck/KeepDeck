@@ -16,19 +16,6 @@ export type DeckLayout = "grid" | "list";
 /** Every deck layout, in picker order; also the allow-list for a stored value. */
 export const DECK_LAYOUTS: readonly DeckLayout[] = ["grid", "list"];
 
-/** How a minimized agent is presented in the GRID layout:
- * - `tray`  — it docks as a chip in a strip along the bottom;
- * - `strip` — it folds to its own header bar, stacked below the grid;
- * - `none`  — minimizing is off (no control, no zone; every agent stays tiled).
- * For tray/strip the other agents stay on the grid and retile to fill the
- * space. The minimized SET is per-workspace runtime state
- * ([`WorkspaceView.minimized`]); this is only the presentation choice. */
-export type MinimizeStyle = "tray" | "strip" | "none";
-
-/** Every minimize style, in the order the settings picker lists them; also the
- * allow-list a stored value is validated against. */
-export const MINIMIZE_STYLES: readonly MinimizeStyle[] = ["tray", "strip", "none"];
-
 /** Where an agent the user suspended stays:
  * - `pane` — keep its tile in the deck and show the existing Resume card;
  * - `tray` — replace the tile with a stand-in in the bottom tray. Restoring
@@ -89,8 +76,6 @@ export interface Settings {
   scrollback: number;
   /** How a workspace's agents are laid out (grid / list). */
   deckLayout: DeckLayout;
-  /** How a minimized agent is presented in the grid layout (tray / strip). */
-  minimizeStyle: MinimizeStyle;
   /** Whether a suspended agent keeps its pane or moves to the bottom tray. */
   suspendedAgentPlacement: SuspendedAgentPlacement;
   /** Whether the dock takes a column beside the deck or floats over it. */

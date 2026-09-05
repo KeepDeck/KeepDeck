@@ -150,17 +150,4 @@ describe("GeneralSection — dock mode", () => {
     );
     expect(labels[labels.length - 1]).toBe("MCP server");
   });
-
-  it("gives the two Tray choices distinct accessible names and states", () => {
-    mount();
-    const minimizedTray = host.querySelector<HTMLButtonElement>(
-      "[aria-label='Minimized agents: Tray']",
-    )!;
-    const suspendedTray = host.querySelector<HTMLButtonElement>(
-      "[aria-label='Suspended agents: Tray']",
-    )!;
-    expect(minimizedTray).not.toBe(suspendedTray);
-    expect(minimizedTray.getAttribute("aria-pressed")).toBe("true");
-    expect(suspendedTray.getAttribute("aria-pressed")).toBe("false");
-  });
 });

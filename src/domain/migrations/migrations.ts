@@ -212,6 +212,8 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       for nothing and never written back, so a file that carried it is
  *       not rewritten forever; nothing maps onto it, because there is no
  *       longer anything to choose.
+ * 19 — − minimizeStyle: the tray became the only shape for a minimized
+ *       agent (strip and none are gone). Consumed like mcpServer.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -219,7 +221,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * step that changes a field's meaning gets a `migrateSettingsFromV*toV*`
  * here, a ladder like the deck's, and a raised floor.
  */
-export const SETTINGS_VERSION = 18;
+export const SETTINGS_VERSION = 19;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

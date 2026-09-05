@@ -31,9 +31,11 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "version",
   "minVersion",
   "experimentRunPresets",
-  // Retired in revision 18: the MCP transport lost its switch. Consumed for
-  // nothing — there is no longer anything to map a stored value onto.
+  // Retired keys, consumed for nothing — there is no longer anything to map
+  // a stored value onto: revision 18 (the MCP transport lost its switch)
+  // and revision 19 (the tray became the only shape for a minimized agent).
   "mcpServer",
+  "minimizeStyle",
   ...settingsCodecs().map(([key]) => key),
 ]);
 
