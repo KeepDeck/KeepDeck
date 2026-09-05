@@ -211,6 +211,16 @@
   resize: none;
 }
 
+/* A short block of lines — arguments, an environment, headers — one entry
+   per line: monospace so a pair reads as one, and tall enough for a few. */
+.library__lines {
+  min-height: 72px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 .library__hint {
   margin-top: 6px;
   color: #6b7280;

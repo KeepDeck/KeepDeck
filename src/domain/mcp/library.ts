@@ -41,6 +41,17 @@ export function mcpScopeOf(stored: {
 export const mcpScopeKey = (scope: McpScope): string =>
   scope.kind === "global" ? "global" : `ws:${scope.wsId}`;
 
+/** Which server a caller means: a library, and a name within it. */
+export interface McpServerRef {
+  scope: McpScope;
+  name: string;
+}
+
+/** Whether two references name the SAME server — identity, stated once, for
+ * every surface that looks a row up. */
+export const sameMcpRef = (a: McpServerRef, b: McpServerRef): boolean =>
+  a.name === b.name && sameMcpScope(a.scope, b.scope);
+
 /** A server the CLI spawns. `env` holds the literal values the process needs
  * — the library is the one place they are stored; how they reach the process
  * (never on argv) is the injection's business. */
