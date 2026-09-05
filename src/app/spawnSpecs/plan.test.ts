@@ -2,13 +2,14 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  AgentContribution,
-  Disposable,
-  McpServerSpec,
-  SpawnMcpInput,
-  SpawnSkillsInput,
-  WorkspaceRef,
+import {
+  MCP_HTTP_API,
+  type AgentContribution,
+  type Disposable,
+  type McpServerSpec,
+  type SpawnMcpInput,
+  type SpawnSkillsInput,
+  type WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import {
   BRIDGE_PROTOCOL_VERSION,
@@ -356,6 +357,46 @@ describe("building one plan through the agent hook", () => {
     );
     const expected = { servers: mcpState.servers };
     expect(inputs).toEqual([expected, expected]);
+  });
+
+  it("withholds remote servers from an external plugin whose floor predates them", async () => {
+    // That plugin's renderer throws on the arm, and a throwing spawn hook
+    // costs the pane EVERY server — so the local ones still reach it, and
+    // only the remote one is held back.
+    mcpState.servers = [
+      { name: "keepdeck", transport: "stdio", command: "/bin/keepdeck", args: [] },
+      { name: "github", transport: "http", url: "https://mcp.example/" },
+    ];
+    const inputs: Array<SpawnMcpInput | undefined> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          inputs.push(input.mcp);
+        },
+      },
+    });
+    const external = (minApiVersion: number) => ({
+      manifest: {
+        id: "test-plugin",
+        minApiVersion,
+        capabilities: [{ kind: "exec", commands: ["claude"] }],
+      },
+      source: "external",
+      status: { kind: "active" },
+    });
+
+    hostState.installed = [external(MCP_HTTP_API - 1)];
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(inputs).toEqual([{ servers: [mcpState.servers[0]] }]);
+
+    // A floor at the arm's revision, and everything reaches the hook.
+    dropPaneSpawnSpec("pane-1");
+    hostState.installed = [external(MCP_HTTP_API)];
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(inputs[1]).toEqual({ servers: mcpState.servers });
   });
 
   it("no MCP servers leaves the hook input sparse — nothing to tell apart", async () => {

@@ -3,14 +3,17 @@
  * facts that are not the hook's to decide (staged skills in, bridge arming
  * out).
  */
-import type {
-  AgentContribution,
-  ForkPlanInput,
-  McpServerSpec,
-  SpawnPlanInput,
-  SpawnPlanOutput,
+import {
+  isApiVersion,
+  MCP_HTTP_API,
+  type AgentContribution,
+  type ForkPlanInput,
+  type McpServerSpec,
+  type SpawnPlanInput,
+  type SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import type { ResumeOrigin } from "../../domain/agents";
+import type { InstalledPlugin } from "../../plugins/model/installed";
 import {
   BRIDGE_PROTOCOL_VERSION,
   type SpawnPlan,
@@ -87,6 +90,34 @@ export interface BuiltPlan {
   deliver(): Promise<void>;
 }
 
+/**
+ * The servers a plugin can be trusted to render.
+ *
+ * A plugin built against a contract older than the remote arm has a
+ * `mapMcpServers` that throws on it, and a throwing spawn hook degrades the
+ * pane to a bare spawn — so one remote server would cost an older plugin
+ * every server it DID know how to render. A built-in moves with the host; an
+ * external plugin is judged by its declared floor, and one with no usable
+ * floor counts as old (the gate fails closed, like the manifest gate does).
+ */
+function renderableBy(
+  servers: McpServerSpec[],
+  owner: Pick<InstalledPlugin, "source" | "manifest"> | undefined,
+  agentId: string,
+): McpServerSpec[] {
+  if (!owner || owner.source !== "external") return servers;
+  const floor = owner.manifest.minApiVersion;
+  if (isApiVersion(floor) && floor >= MCP_HTTP_API) return servers;
+  const withheld = servers.filter((server) => server.transport !== "stdio");
+  if (withheld.length > 0) {
+    log.warn(
+      "web:agents",
+      `${agentId}: ${owner.manifest.id} predates API ${MCP_HTTP_API} — remote MCP servers withheld: ${withheld.map((server) => server.name).join(", ")}`,
+    );
+  }
+  return servers.filter((server) => server.transport === "stdio");
+}
+
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
  * their session facts; the hook that runs is the variant's. */
 type PlanVariant =
@@ -144,7 +175,13 @@ export async function buildPlan(
         client: mcpToken,
       })
     : null;
-  const mcpServers = access?.servers ?? [];
+  // The hook's owner, looked up BEFORE the hook runs: its manifest bounds
+  // what the hook may be handed (the servers it can render) as well as what
+  // it may answer (the command clamp below).
+  const owner = plugins.pluginHost
+    .getInstalled()
+    .find((installed) => installed.manifest.id === pluginId);
+  const mcpServers = renderableBy(access?.servers ?? [], owner, entry.id);
   /** Owed by every exit that produces a plan, and by none that throws: a
    * rejected resume or fork must plant nothing. */
   const deliver = () => access?.deliver() ?? Promise.resolve();
@@ -210,9 +247,6 @@ export async function buildPlan(
   // warn for a trusted built-in (a bug to fix), CLAMP for an external
   // (falling back to the agent's own binary, which the registration gate
   // proved covered): a sandboxed plugin must not pick the program.
-  const owner = plugins.pluginHost
-    .getInstalled()
-    .find((installed) => installed.manifest.id === pluginId);
   if (
     owner &&
     !execCovers(owner.manifest.capabilities, output.command ?? "$SHELL")
