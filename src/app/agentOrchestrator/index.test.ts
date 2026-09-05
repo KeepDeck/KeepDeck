@@ -154,6 +154,28 @@ describe("agent orchestrator —session policy", () => {
     expect(ipc.probeWorktree).not.toHaveBeenCalled();
   });
 
+  it("a pane mid-create is neither probed nor woken — there is no directory yet", async () => {
+    // The run intent holds such a pane, and the sweep's own directory read
+    // holds it too, in a form the compiler checks: a fallback to the
+    // workspace cwd would probe a directory that exists and wake the pane
+    // in the wrong one.
+    ipc.probeWorktree.mockClear();
+    act(() =>
+      deck.hydrate(
+        restored({
+          location: {
+            kind: "provisioning",
+            intent: { repo: "/repo", path: "/repo/wt-1", index: 1 },
+          },
+        }),
+      ),
+    );
+    await settle();
+
+    expect(ipc.probeWorktree).not.toHaveBeenCalled();
+    expect(pty.acquired).toEqual([]);
+  });
+
   it("an agent no plugin provides stays idle — and KEEPS its binding", async () => {
     act(() =>
       deck.hydrate(

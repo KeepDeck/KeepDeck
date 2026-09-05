@@ -4,8 +4,8 @@ import {
   findWorkspaceByRef,
   paneAgentType,
   paneResumeSessionId,
-  attachedWorktree,
   paneBranch,
+  paneExecutionCwd,
 } from "../../domain/deck";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { decideRejectedResume } from "../../domain/agents";
@@ -115,22 +115,27 @@ export function createAgentOrchestratorRestart({
 }: RestartDeps): AgentOrchestratorRestart {
   const restarting = new Set<string>();
 
+  /** The pane as a restart sees it — or why there is nothing to restart: the
+   * pane is gone, or its worktree is still being created, in which case its
+   * card offers Retry and a restart has no directory to run in. */
   function targetOf(
     workspaceRef: string | WorkspaceRef,
     paneId: string,
-  ): RestartTarget | null {
+  ): RestartTarget | "gone" | "provisioning" {
     const workspaces = deck.getSnapshot().workspaces;
     const workspace =
       typeof workspaceRef === "string"
         ? findWorkspace(workspaces, workspaceRef)
         : findWorkspaceByRef(workspaces, workspaceRef);
     const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
-    if (!workspace || !pane) return null;
+    if (!workspace || !pane) return "gone";
+    const cwd = paneExecutionCwd(workspace, pane);
+    if (cwd === null) return "provisioning";
     return {
       workspace: { id: workspace.id, instance: workspace.instance },
       paneId,
       agentType: paneAgentType(pane),
-      cwd: attachedWorktree(pane)?.cwd ?? workspace.cwd,
+      cwd,
       branch: paneBranch(pane),
       yolo: pane.yolo,
       sessionId: paneResumeSessionId(pane),
@@ -151,7 +156,7 @@ export function createAgentOrchestratorRestart({
     dropPaneSpawnSpec(target.paneId);
     lifecycle.retire(target.paneId);
     await sessions.close(target.paneId);
-    if (!targetOf(target.workspace, target.paneId)) return "gone";
+    if (typeof targetOf(target.workspace, target.paneId) === "string") return "gone";
     if (stoppedNow(target)) return "stopped";
     actions.setPaneSession(target.workspace.id, target.paneId, null);
     bumpEpoch(target.paneId);
@@ -184,7 +189,7 @@ export function createAgentOrchestratorRestart({
     );
 
     const current = targetOf(target.workspace, target.paneId);
-    if (!current) {
+    if (typeof current === "string") {
       dropPaneSpawnSpec(target.paneId);
       return "gone";
     }
@@ -205,7 +210,7 @@ export function createAgentOrchestratorRestart({
 
     lifecycle.retire(target.paneId);
     await sessions.close(target.paneId);
-    if (!targetOf(target.workspace, target.paneId)) {
+    if (typeof targetOf(target.workspace, target.paneId) === "string") {
       dropPaneSpawnSpec(target.paneId);
       return "gone";
     }
@@ -224,7 +229,7 @@ export function createAgentOrchestratorRestart({
   ) => {
     if (restarting.has(paneId)) return "in-flight";
     const target = targetOf(wsId, paneId);
-    if (!target) return "gone";
+    if (typeof target === "string") return target;
     restarting.add(paneId);
     startOwed.add(paneId);
     try {
@@ -261,7 +266,7 @@ export function createAgentOrchestratorRestart({
       return false;
     }
     const target = targetOf(wsId, paneId);
-    if (!target) return false;
+    if (typeof target === "string") return false;
 
     // The pane is taken over the moment the registry question opens; the
     // synchronous answer ("I took it") is what keeps the crash
@@ -323,7 +328,7 @@ export function createAgentOrchestratorRestart({
           }
           lifecycle.retire(paneId);
           await sessions.close(paneId);
-          if (targetOf(target.workspace, paneId)) bumpEpoch(paneId);
+          if (typeof targetOf(target.workspace, paneId) !== "string") bumpEpoch(paneId);
           log.warn(
             "web:orchestrator",
             `${paneId}: resume of ${spec?.resumeOf} exited silently, registry says free — one quiet retry`,
@@ -341,7 +346,7 @@ export function createAgentOrchestratorRestart({
         dropPaneSpawnSpec(paneId);
         lifecycle.retire(paneId);
         await sessions.close(paneId);
-        if (targetOf(target.workspace, paneId)) bumpEpoch(paneId);
+        if (typeof targetOf(target.workspace, paneId) !== "string") bumpEpoch(paneId);
       } catch (error) {
         log.warn(
           "web:orchestrator",
@@ -361,7 +366,7 @@ export function createAgentOrchestratorRestart({
    * doing of it lives here once and each of them guards its own case. */
   async function forkBoundSession(wsId: string, paneId: string): Promise<void> {
     const target = targetOf(wsId, paneId);
-    if (!target?.sessionId) return;
+    if (typeof target === "string" || !target.sessionId) return;
     // Same directory by definition — neither offer chooses one. The record
     // carries no transcript path: the plugin's fork recipe owns its store
     // layout and locates the source itself.

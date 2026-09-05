@@ -469,6 +469,36 @@ describe("agent orchestrator —restarting an exited agent", () => {
       "gone",
     );
   });
+  it("refuses a pane whose worktree is still being created — its card offers Retry, not Restart", async () => {
+    // There is no directory to restart into yet. "gone" would be a lie the
+    // card cannot act on, and the workspace cwd would be a directory the
+    // pane never runs in.
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [
+          {
+            id: "pane-1",
+            agentType: "codex",
+            location: {
+              kind: "provisioning",
+              intent: { repo: "/repo", path: "/wt/ws-1", index: 1 },
+            },
+          },
+        ],
+      }),
+    );
+    await settle();
+    expect(await act(async () => agentRun.restart("ws-1", "pane-1", "fresh"))).toBe(
+      "provisioning",
+    );
+    expect(lifecycle.retire).not.toHaveBeenCalled();
+    expect(pty.acquired).toEqual([]);
+  });
   it("retryPlanBuild actually REBUILDS — the tile's retry is not just a reset", async () => {
     // Dropping the failed plan is half a retry. Nothing else was listening to
     // that cache, so the sweep never re-ran and the error tile turned into a

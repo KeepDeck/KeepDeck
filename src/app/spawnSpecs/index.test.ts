@@ -138,6 +138,26 @@ describe("the plan builders — live pane, resume, fork", () => {
 
 
 
+  it("builds no plan for a pane whose worktree is still being created", async () => {
+    // The plan plants a CLI's config in the directory it names. With no
+    // directory resolved yet, a plan built on the workspace cwd would put it
+    // in the project root — so there is no plan until the worktree exists.
+    register(adopting);
+    await mount(
+      ws([
+        {
+          id: "pane-1",
+          agentType: "claude",
+          location: {
+            kind: "provisioning",
+            intent: { repo: "/repo", path: "/wt/ws-1", index: 1 },
+          },
+        },
+      ]),
+    );
+    expect(seen).toEqual({});
+  });
+
   it("buildResumeSpec caches a resume plan the wake can read back", async () => {
     register(adopting);
     await buildResumeSpec(

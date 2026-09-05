@@ -9,7 +9,6 @@ import {
   paneWakeOrigin,
   type Pane,
   type Workspace,
-  attachedWorktree,
   locationOf,
   paneBranch,
 } from "../../domain/deck";
@@ -434,18 +433,24 @@ export function createAgentOrchestratorRuntime(
           continue;
         }
         const sessionId = intent.resume?.sessionId ?? null;
+        // Where the pane runs, through the deck's one formula. Null means its
+        // worktree is still being created; the run intent already holds such
+        // a pane, and this keeps what the intent keeps in a form the compiler
+        // checks — a fallback to the workspace cwd would probe a directory
+        // that exists and wake the pane in the wrong place.
+        const dir = paneExecutionCwd(ws, pane);
+        if (dir === null) continue;
         inFlight.add(pane.id);
         // A remote pane's agent runs against a VPS endpoint — it has no local
         // working directory to probe (so a gone workspace cwd never blocks it)
         // and no recorded session to resume (fresh-session only). Wake it
         // straight to a fresh remote plan built by the spawn-spec sweep.
         if (locationOf(pane).kind === "remote") {
-          void wake(ws, pane, ws.cwd, sessionId).finally(() =>
+          void wake(ws, pane, dir, sessionId).finally(() =>
             inFlight.delete(pane.id),
           );
           continue;
         }
-        const dir = attachedWorktree(pane)?.cwd ?? ws.cwd;
         void probe(dir)
           .then((probed) => {
             if (probed.exists) return wake(ws, pane, dir, sessionId);

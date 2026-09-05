@@ -150,7 +150,10 @@ export type RestartOutcome =
   | "restarted"
   | "in-flight"
   | "gone"
-  | "stopped";
+  | "stopped"
+  /** The pane's worktree is still being created: there is no directory to
+   * restart into, and its card offers Retry instead. */
+  | "provisioning";
 
 export type ResumeRequest =
   | "resuming"
