@@ -12,6 +12,7 @@ import {
   type Workspace,
   attachedWorktree,
   locationOf,
+  paneBranch,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import { createDeckActions, type DeckActions } from "../deckActions";
@@ -271,7 +272,7 @@ export function createAgentOrchestratorRuntime(
             paneId: pane.id,
             workspace: { id: ws.id, instance: ws.instance },
             cwd: dir,
-            branch: attachedWorktree(pane)?.branch,
+            branch: paneBranch(pane),
             yolo: pane.yolo,
             stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
             mcpAccess,

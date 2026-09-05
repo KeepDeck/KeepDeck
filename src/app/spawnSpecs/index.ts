@@ -13,6 +13,7 @@ import {
   type Pane,
   type Workspace,
   locationOf,
+  paneBranch,
 } from "../../domain/deck";
 import { describeError, log } from "../../ipc/log";
 import {
@@ -164,7 +165,7 @@ export async function buildLivePaneSpec(
           paneId: pane.id,
           workspace: { id: ws.id, instance: ws.instance },
           cwd: location.kind === "attached" ? location.cwd : ws.cwd,
-          branch: location.kind === "attached" ? location.branch : undefined,
+          branch: paneBranch(pane),
           yolo: pane.yolo,
           ...asks,
           ...(location.kind === "remote"

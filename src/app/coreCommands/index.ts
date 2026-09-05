@@ -20,6 +20,7 @@ import {
   type Workspace,
   attachedWorktree,
   locationOf,
+  paneBranch,
 } from "../../domain/deck";
 import { log } from "../../ipc/log";
 import { inspectRepo } from "../../ipc/worktree";
@@ -166,7 +167,7 @@ export function registerCoreCommands(
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
             agentType: paneAgentType(p),
-            branch: attachedWorktree(p)?.branch ?? null,
+            branch: paneBranch(p) ?? null,
             cwd: attachedWorktree(p)?.cwd ?? ws.cwd,
             // Null when nothing reports — a pane that is provisioning,
             // stopped, or running a CLI with no status reporter. Absent

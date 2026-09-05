@@ -18,8 +18,11 @@
 import type { Pane, PaneProvisioning } from "./model";
 
 export type PaneLocation =
-  /** No directory of its own: the pane runs in the workspace cwd. */
-  | { kind: "main" }
+  /** No directory of its own: the pane runs in the workspace cwd. `branch`
+   * is the branch the root checkout was on when this pane's session was
+   * recorded — a resumed session carries it — and nothing owns it: it names
+   * where the work was, not a worktree to clean up. */
+  | { kind: "main"; branch?: string }
   /** A directory the pane owns or was attached to. `branch` is the worktree
    * branch when one was created or named; a pane attached to a detached
    * checkout, or resumed from a session that recorded only a directory, has
@@ -54,9 +57,9 @@ export type PanePlacementFields = Pick<
  *     with a terminal rather than a card whose Retry would collide with the
  *     directory that exists.
  *  3. A card with no directory is a pane still provisioning.
- *  4. Anything else runs in the workspace cwd. A `branch` with no `cwd` is
- *     ignored — the reset transition drops the two together, so a branch
- *     alone is a remnant, not a placement.
+ *  4. Anything else runs in the workspace cwd, keeping a `branch` if one is
+ *     recorded: a session resumed from the workspace root arrives with the
+ *     branch it ran on and no directory, and surfaces still name it.
  */
 /** The worktree an attached pane runs in, or null for any other placement.
  * The projection five app-layer readers want — "the pane's own directory,
@@ -68,6 +71,13 @@ export function attachedWorktree(
   return location.kind === "attached" ? location : null;
 }
 
+/** The create card of a provisioning pane, or null for any other placement —
+ * what a surface that draws the card asks, in the shape its prop takes. */
+export function provisioningCard(pane: PanePlacementFields): PaneProvisioning | null {
+  const location = locationOf(pane);
+  return location.kind === "provisioning" ? location.card : null;
+}
+
 export function locationOf(pane: PanePlacementFields): PaneLocation {
   if (pane.remoteEndpoint) return { kind: "remote", endpoint: pane.remoteEndpoint };
   if (pane.cwd !== undefined) {
@@ -76,5 +86,22 @@ export function locationOf(pane: PanePlacementFields): PaneLocation {
       : { kind: "attached", cwd: pane.cwd };
   }
   if (pane.provisioning) return { kind: "provisioning", card: pane.provisioning };
-  return { kind: "main" };
+  return pane.branch !== undefined
+    ? { kind: "main", branch: pane.branch }
+    : { kind: "main" };
+}
+
+/** The branch a pane's work is on, whether it owns a worktree for it or
+ * recorded it from the workspace root — or nothing, for a pane whose create
+ * is in flight or whose agent runs elsewhere. */
+export function paneBranch(pane: PanePlacementFields): string | undefined {
+  const location = locationOf(pane);
+  switch (location.kind) {
+    case "main":
+    case "attached":
+      return location.branch;
+    case "provisioning":
+    case "remote":
+      return undefined;
+  }
 }

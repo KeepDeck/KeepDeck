@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attachedWorktree, locationOf } from "./location";
+import { attachedWorktree, locationOf, paneBranch, provisioningCard } from "./location";
 import type { PaneProvisioning } from "./model";
 
 const card: PaneProvisioning = {
@@ -68,8 +68,17 @@ describe("locationOf", () => {
       });
     });
 
-    it("ignores a branch with no directory beside it", () => {
-      expect(locationOf({ branch: "kd/ws/1" })).toEqual({ kind: "main" });
+    it("keeps a recorded branch on a bare pane — a session resumed from the root", () => {
+      expect(locationOf({ branch: "kd/ws/1" })).toEqual({ kind: "main", branch: "kd/ws/1" });
+    });
+
+    it("names the branch for a bare or attached pane and nothing otherwise", () => {
+      expect(paneBranch({ branch: "kd/ws/1" })).toBe("kd/ws/1");
+      expect(paneBranch({ cwd: "/repo/wt", branch: "kd/ws/2" })).toBe("kd/ws/2");
+      expect(paneBranch({ cwd: "/repo/wt" })).toBeUndefined();
+      expect(paneBranch({})).toBeUndefined();
+      expect(paneBranch({ provisioning: { ...card, branch: "planned" } })).toBeUndefined();
+      expect(paneBranch({ remoteEndpoint: "wss://vps", branch: "b" })).toBeUndefined();
     });
 
     it("projects the worktree of an attached pane and nothing for the rest", () => {
@@ -80,9 +89,16 @@ describe("locationOf", () => {
       expect(attachedWorktree({})).toBeNull();
       expect(attachedWorktree({ provisioning: card })).toBeNull();
       expect(attachedWorktree({ remoteEndpoint: "wss://vps" })).toBeNull();
-      // A branch with no directory is a remnant, so it projects to nothing —
-      // a reader that used to emit the branch alone stops doing so.
+      // A recorded branch with no directory is a bare pane, not a worktree.
       expect(attachedWorktree({ branch: "b" })).toBeNull();
+    });
+
+    it("projects the card of a provisioning pane and nothing for the rest", () => {
+      expect(provisioningCard({ provisioning: card })).toBe(card);
+      expect(provisioningCard({})).toBeNull();
+      expect(provisioningCard({ cwd: "/repo/wt" })).toBeNull();
+      // A card beside a directory is the create having landed — no card.
+      expect(provisioningCard({ cwd: "/repo/wt", provisioning: card })).toBeNull();
     });
 
     it("treats an empty endpoint as not remote, like the predicate it replaces", () => {
