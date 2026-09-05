@@ -46,7 +46,7 @@ import {
   resolveSelectedPaneId,
 } from "../domain/deck";
 import { fetchAppInfo, type AppInfo } from "../ipc/app";
-import { layering } from "../presentation/layering";
+import { layering, statsDeepLinkOnScreen } from "../presentation/layering";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
 import { bellDoorOpen, dockDoorOpen, teamDialogDoorOpen } from "./doors";
@@ -270,12 +270,7 @@ export function useAppController() {
         // The Stats dialog counts as "on screen" for its own deep links —
         // no OS banner while the user is looking at the tab that just lit
         // up — unless a confirm dialog is painted over it.
-        const { stats } = visibilityRef.current.windows;
-        return (
-          stats.open &&
-          !stats.covered &&
-          (source.tab === undefined || stats.tab === source.tab)
-        );
+        return statsDeepLinkOnScreen(visibilityRef.current.windows.stats, source.tab);
       }
       if (source.type !== "pane") return false;
       const now = visibilityRef.current;

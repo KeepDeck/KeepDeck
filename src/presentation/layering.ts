@@ -59,6 +59,20 @@ export interface WindowLayering {
   };
 }
 
+/**
+ * Whether a deep link into the stats dialog is already on screen: the dialog
+ * open, nothing painted over it, and the tab the link names — when it names
+ * one — the tab shown. The probe's stats branch, as a function the matrix can
+ * ask; the historical mistake it pins is reading "covered" as `modal`, which
+ * contains the stats dialog itself and silences the branch for good.
+ */
+export function statsDeepLinkOnScreen(
+  stats: WindowLayering["stats"],
+  tab: string | undefined,
+): boolean {
+  return stats.open && !stats.covered && (tab === undefined || stats.tab === tab);
+}
+
 export function layering(input: LayeringInput): WindowLayering {
   const formIsModalLayer = input.creating && input.workspaceCount > 0;
   const modal = formIsModalLayer || input.dialogOpen || input.anyDialogOpen;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layering, type LayeringInput } from "./layering";
+import { layering, statsDeepLinkOnScreen, type LayeringInput } from "./layering";
 
 /** Nothing up: one workspace, no form, no dialog, a docked dock with no tabs. */
 const quiet: LayeringInput = {
@@ -74,5 +74,33 @@ describe("layering", () => {
       tab: "usage",
       covered: false,
     });
+  });
+});
+
+describe("statsDeepLinkOnScreen — the probe's stats branch", () => {
+  const showing = (over: Partial<LayeringInput> = {}) =>
+    at({ statsOpen: true, statsTab: "limits", anyDialogOpen: true, ...over }).stats;
+
+  it("(i) sees the link when the dialog is open on that tab and nothing covers it", () => {
+    expect(statsDeepLinkOnScreen(showing(), "limits")).toBe(true);
+    // A link that names no tab is satisfied by the dialog being open at all.
+    expect(statsDeepLinkOnScreen(showing(), undefined)).toBe(true);
+  });
+
+  it("(ii) does not see it under a transaction painted over the dialog", () => {
+    expect(statsDeepLinkOnScreen(showing({ dialogOpen: true }), "limits")).toBe(false);
+  });
+
+  it("(iii) does not see a link into another tab", () => {
+    expect(statsDeepLinkOnScreen(showing(), "usage")).toBe(false);
+  });
+
+  it("(iv) still sees it while the router counts the open dialog as modal", () => {
+    // The historical mistake: `covered` read as `modal`. The router's own
+    // dialog being open makes `modal` true, and the link into the tab the
+    // user is looking at would raise an OS banner anyway.
+    const stats = showing();
+    expect(at({ statsOpen: true, anyDialogOpen: true }).modal).toBe(true);
+    expect(statsDeepLinkOnScreen(stats, "limits")).toBe(true);
   });
 });
