@@ -244,7 +244,7 @@ describe("deckReducer selection", () => {
       {
         type: "addAgentPane",
         id: "a",
-        pane: { id: "a-2", cwd: "/wt", branch: "kd/a/2" },
+        pane: { id: "a-2", location: { kind: "attached", cwd: "/wt", branch: "kd/a/2" } },
       },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-2"]);
@@ -261,7 +261,7 @@ describe("deckReducer selection", () => {
       {
         type: "addAgentPane",
         id: "a",
-        pane: { id: "a-2", cwd: "/wt", branch: "kd/a/2" },
+        pane: { id: "a-2", location: { kind: "attached", cwd: "/wt", branch: "kd/a/2" } },
       },
     );
     // Maximize dropped so the appended pane isn't left hidden; it's selected.

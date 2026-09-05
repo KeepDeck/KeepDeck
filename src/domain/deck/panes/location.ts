@@ -1,54 +1,38 @@
 /**
- * Where a pane runs — as ONE answer.
+ * Reading a pane's location, and folding the four on-disk fields into one.
  *
- * A pane records its placement in four optional fields (`cwd`, `branch`,
- * `remoteEndpoint`, `provisioning`), and nothing in that shape says which
- * combinations mean something. A card beside a directory, an endpoint beside
- * a directory — both type-check, and the invariant that keeps them apart is
- * enforced by the order in which transforms write and by a guard at each
- * consumer. The "+ Agent" request already arrives as a proper union of four
- * shapes; the factory unfolds it into the fields, and every reader folds it
- * back by hand.
- *
- * This is the fold, done once. Readers ask [`locationOf`] and match on
- * `kind`; a combination the fields allow but the meaning does not is settled
- * here by ONE rule, written down, rather than by whichever consumer happened
- * to look first.
+ * The model holds ONE location ([`PaneLocation`]); the document still holds
+ * the four fields it replaced, so that no deck on disk changed shape. This
+ * module is both halves of that: the accessor every reader uses, and the fold
+ * the persistence boundary applies on the way in — where a combination the
+ * fields allow but the meaning does not is settled by one written rule,
+ * rather than by whichever consumer happened to look first.
  */
-import type { Pane, PaneProvisioning } from "./model";
+import type { Pane, PaneLocation, PaneProvisioning } from "./model";
 
-export type PaneLocation =
-  /** No directory of its own: the pane runs in the workspace cwd. `branch`
-   * is the branch the root checkout was on when this pane's session was
-   * recorded — a resumed session carries it — and nothing owns it: it names
-   * where the work was, not a worktree to clean up. */
-  | { kind: "main"; branch?: string }
-  /** A directory the pane owns or was attached to. `branch` is the worktree
-   * branch when one was created or named; a pane attached to a detached
-   * checkout, or resumed from a session that recorded only a directory, has
-   * none — and no consumer tells those two apart. */
-  | { kind: "attached"; cwd: string; branch?: string }
-  /** The worktree is still being created (or the create failed and waits for
-   * Retry). The card is the whole intent plus its runtime status. */
-  | { kind: "provisioning"; card: PaneProvisioning }
-  /** The agent runs on another machine; the local terminal is a thin client.
-   * A local directory would be meaningless, so none is carried. */
-  | { kind: "remote"; endpoint: string };
+const MAIN: PaneLocation = { kind: "main" };
 
-/** The fields [`locationOf`] reads — the four the union replaces. */
-export type PanePlacementFields = Pick<
-  Pane,
-  "cwd" | "branch" | "remoteEndpoint" | "provisioning"
->;
+/** Where the pane runs. Absent on the model means `main`. */
+export function locationOf(pane: Pick<Pane, "location">): PaneLocation {
+  return pane.location ?? MAIN;
+}
+
+/** The four fields a document carries in place of a location. */
+export interface PlacementFields {
+  cwd?: string;
+  branch?: string;
+  remoteEndpoint?: string;
+  provisioning?: PaneProvisioning;
+}
 
 /**
- * Fold a pane's placement fields into its location.
+ * Fold the document's placement fields into a location.
  *
  * The rule, in order of precedence:
  *
  *  1. A truthy `remoteEndpoint` makes the pane remote, whatever else is set —
  *     "the local location is moot", as the factory puts it. Truthy rather
- *     than present, matching the predicate this replaces: an empty endpoint
+ *     than present, matching the predicate this replaced: an empty endpoint
  *     is the non-remote degenerate case.
  *  2. A `cwd` makes the pane attached. A provisioning card beside it is
  *     dropped: the resolve transition writes the directory and removes the
@@ -61,11 +45,62 @@ export type PanePlacementFields = Pick<
  *     recorded: a session resumed from the workspace root arrives with the
  *     branch it ran on and no directory, and surfaces still name it.
  */
+export function placementFromFields(fields: PlacementFields): PaneLocation {
+  if (fields.remoteEndpoint) return { kind: "remote", endpoint: fields.remoteEndpoint };
+  if (fields.cwd !== undefined) {
+    return fields.branch !== undefined
+      ? { kind: "attached", cwd: fields.cwd, branch: fields.branch }
+      : { kind: "attached", cwd: fields.cwd };
+  }
+  if (fields.provisioning) return { kind: "provisioning", card: fields.provisioning };
+  return fields.branch !== undefined ? { kind: "main", branch: fields.branch } : MAIN;
+}
+
+/**
+ * Where a pane resumed from a recorded session runs: its own directory when
+ * the record names one apart from the workspace cwd, else the workspace cwd
+ * with the branch the session ran on. Undefined for a plain main pane, so
+ * the caller can spread it sparsely like every other field.
+ *
+ * The rule used to live in the resume writer as two conditional spreads;
+ * it is a fact about what a recorded directory MEANS, so it lives with the
+ * location.
+ */
+export function placementOfRecorded(
+  record: { cwd: string; branch?: string },
+  workspaceCwd: string,
+): PaneLocation | undefined {
+  if (record.cwd !== workspaceCwd) {
+    return record.branch !== undefined
+      ? { kind: "attached", cwd: record.cwd, branch: record.branch }
+      : { kind: "attached", cwd: record.cwd };
+  }
+  return record.branch !== undefined ? { kind: "main", branch: record.branch } : undefined;
+}
+
+/** The inverse of [`placementFromFields`]: a location as the four fields a
+ * document carries. Sparse — only what the location holds lands. Round-trips
+ * every location the fold can produce. */
+export function placementToFields(location: PaneLocation): PlacementFields {
+  switch (location.kind) {
+    case "main":
+      return location.branch !== undefined ? { branch: location.branch } : {};
+    case "attached":
+      return location.branch !== undefined
+        ? { cwd: location.cwd, branch: location.branch }
+        : { cwd: location.cwd };
+    case "provisioning":
+      return { provisioning: location.card };
+    case "remote":
+      return { remoteEndpoint: location.endpoint };
+  }
+}
+
 /** The worktree an attached pane runs in, or null for any other placement.
  * The projection five app-layer readers want — "the pane's own directory,
  * if it has one" — so none of them spells the match out. */
 export function attachedWorktree(
-  pane: PanePlacementFields,
+  pane: Pick<Pane, "location">,
 ): { cwd: string; branch?: string } | null {
   const location = locationOf(pane);
   return location.kind === "attached" ? location : null;
@@ -73,28 +108,15 @@ export function attachedWorktree(
 
 /** The create card of a provisioning pane, or null for any other placement —
  * what a surface that draws the card asks, in the shape its prop takes. */
-export function provisioningCard(pane: PanePlacementFields): PaneProvisioning | null {
+export function provisioningCard(pane: Pick<Pane, "location">): PaneProvisioning | null {
   const location = locationOf(pane);
   return location.kind === "provisioning" ? location.card : null;
-}
-
-export function locationOf(pane: PanePlacementFields): PaneLocation {
-  if (pane.remoteEndpoint) return { kind: "remote", endpoint: pane.remoteEndpoint };
-  if (pane.cwd !== undefined) {
-    return pane.branch !== undefined
-      ? { kind: "attached", cwd: pane.cwd, branch: pane.branch }
-      : { kind: "attached", cwd: pane.cwd };
-  }
-  if (pane.provisioning) return { kind: "provisioning", card: pane.provisioning };
-  return pane.branch !== undefined
-    ? { kind: "main", branch: pane.branch }
-    : { kind: "main" };
 }
 
 /** The branch a pane's work is on, whether it owns a worktree for it or
  * recorded it from the workspace root — or nothing, for a pane whose create
  * is in flight or whose agent runs elsewhere. */
-export function paneBranch(pane: PanePlacementFields): string | undefined {
+export function paneBranch(pane: Pick<Pane, "location">): string | undefined {
   const location = locationOf(pane);
   switch (location.kind) {
     case "main":

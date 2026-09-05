@@ -95,44 +95,66 @@ export interface PaneProvisioning {
   fork?: true;
 }
 
+/**
+ * Where a pane runs — ONE answer.
+ *
+ * Four optional fields used to say this (`cwd`, `branch`, `remoteEndpoint`,
+ * `provisioning`), and nothing in that shape said which combinations meant
+ * something; the invariant lived in the order transforms wrote them and in a
+ * guard at each reader. A union cannot hold a directory beside a create in
+ * flight, or an endpoint beside a directory, so neither the transitions nor
+ * the readers have to keep them apart.
+ */
+export type PaneLocation =
+  /** No directory of its own: the pane runs in the workspace cwd. `branch`
+   * is the branch the root checkout was on when this pane's session was
+   * recorded — a resumed session carries it — and nothing owns it: it names
+   * where the work was, not a worktree to clean up. */
+  | { kind: "main"; branch?: string }
+  /** A directory the pane owns or was attached to. `branch` is the worktree
+   * branch when one was created or named; a pane attached to a detached
+   * checkout, or resumed from a session that recorded only a directory, has
+   * none — and no consumer tells those two apart. Durable: worktree
+   * ownership and cleanup key off it; the header's branch badge is runtime
+   * state read from the directory, not this. */
+  | { kind: "attached"; cwd: string; branch?: string }
+  /** The worktree is still being created (or the create failed and waits for
+   * Retry). No terminal mounts until it resolves. */
+  | { kind: "provisioning"; card: PaneProvisioning }
+  /** The agent runs against a REMOTE native-server endpoint — the local
+   * terminal is a thin client attached to a server on a VPS. A local
+   * directory would be meaningless, so none is carried. Fixed at creation
+   * from the spawn dialog's "Where: Remote" choice and persisted: a revive
+   * reconnects the client to the same endpoint. */
+  | { kind: "remote"; endpoint: string };
+
 /** One agent pane in the grid. Each pane runs its own agent type; the display
  * title comes from `name` / the auto title / the derived "Agent N". */
 export interface Pane {
   id: string;
   /** The coding agent this pane runs — per pane, NOT tied to the workspace. */
   agentType?: AgentType;
-  /** Per-agent working directory (its own git worktree) when the workspace runs
-   * in worktree mode; falls back to the workspace cwd when undefined. */
-  cwd?: string;
-  /** The owned git worktree branch created/attached for this pane. This is
-   * durable domain state used for worktree ownership and cleanup fallback; the
-   * header's current branch badge is runtime UI state derived from the pane's
-   * effective cwd, not stored here. */
-  branch?: string;
+  /** Where the pane runs — see [`PaneLocation`]. Absent means `main`: the
+   * pane runs in the workspace cwd, sparse like every other field here. On
+   * disk this is the four fields the union replaced, folded on the way in and
+   * unfolded on the way out, so no document changed shape. */
+  location?: PaneLocation;
   /** The agent runs with its permission prompts disabled (YOLO mode). Fixed
    * at creation from the dialog/form choice and persisted: a revive or resume
    * must come back in the mode the user created the pane with. */
   yolo?: boolean;
-  /** When set, the pane's agent runs against a REMOTE native-server endpoint
-   * (a local thin-client attached to a server on a VPS) instead of locally.
-   * Fixed at creation from the spawn dialog's "Where: Remote" choice and
-   * persisted — a revive/resume reconnects the client to the same endpoint. */
-  remoteEndpoint?: string;
   /** User-set display name; overrides everything ([F11] manual rename). */
   name?: string;
   /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
    * `name`; falls back to the derived "Agent N" ([F11] auto-naming). */
   autoTitle?: string;
   /** Set while there is no PTY behind this pane, saying WHY — see
-   * [`PaneIdle`]. Absent means the pane runs (or is provisioning/exited, both
-   * tracked outside the durable model). Cleared by the wake action; only the
-   * `suspended` reason survives a save ([F7]). */
+   * [`PaneIdle`]. Absent means the pane runs (or is exited, which is tracked
+   * outside the durable model; a create in flight is a `location`). Cleared
+   * by the wake action; only the `suspended` reason survives a save ([F7]). */
   idle?: PaneIdle;
   /** The recorded agent session this pane resumes on revive ([F7]/[F8]). */
   session?: PaneSession;
-  /** The in-flight (or failed) worktree create behind this pane — no terminal
-   * mounts until it resolves. */
-  provisioning?: PaneProvisioning;
   /** Which team this agent belongs to, and under what role. Durable: a team
    * describes a piece of work in progress, and a deck restored tomorrow
    * should come back with the same one. Absent = not in a team, which is

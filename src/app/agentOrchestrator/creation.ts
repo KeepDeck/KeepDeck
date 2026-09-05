@@ -114,7 +114,7 @@ export function createAgentOrchestratorCreation({
     const workspaces = deck.getSnapshot().workspaces;
     const workspace = findWorkspace(workspaces, wsId);
     const pane = findPane(workspaces, wsId, paneId);
-    if (!workspace || !pane?.provisioning) return;
+    if (!workspace || !pane || locationOf(pane).kind !== "provisioning") return;
     actions.setPaneProvisioningError(wsId, paneId, null);
     provisionPanes(wsId, [pane]);
   };

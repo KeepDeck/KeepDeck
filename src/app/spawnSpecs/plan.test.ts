@@ -254,7 +254,13 @@ describe("building one plan through the agent hook", () => {
       },
     });
     await mount(
-      ws([{ id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" }]),
+      ws([
+        {
+          id: "pane-1",
+          agentType: "claude",
+          location: { kind: "remote", endpoint: "ws://vps:4500" },
+        },
+      ]),
     );
     await settle();
     expect(targets).toEqual([
@@ -505,7 +511,10 @@ describe("building one plan through the agent hook", () => {
         {
           id: "pane-p",
           agentType: "claude",
-          provisioning: { repo: "/r", path: "/b/w-1", workspace: "w", index: 1 },
+          location: {
+            kind: "provisioning",
+            card: { repo: "/r", path: "/b/w-1", workspace: "w", index: 1 },
+          },
         },
         { id: "pane-u", agentType: "gemini" },
       ]),
@@ -550,7 +559,13 @@ describe("building one plan through the agent hook", () => {
       },
     });
     await mount(
-      ws([{ id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" }]),
+      ws([
+        {
+          id: "pane-1",
+          agentType: "claude",
+          location: { kind: "remote", endpoint: "ws://vps:4500" },
+        },
+      ]),
     );
     await settle();
 
@@ -576,7 +591,7 @@ describe("building one plan through the agent hook", () => {
       },
     });
     const workspaces = ws([
-      { id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
+      { id: "pane-1", agentType: "claude", location: { kind: "remote", endpoint: "ws://vps:4500" } },
     ]);
     const changed = await buildLivePaneSpec(
       runtime.plugins,

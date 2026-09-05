@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { provisioningCard } from "../../domain/deck";
 import {
   armDoubles,
   managerFor,
@@ -72,7 +73,7 @@ describe("provision", () => {
       }),
     );
     const panes = cards();
-    panes[0].provisioning!.base = "develop";
+    provisioningCard(panes[0])!.base = "develop";
 
     await manager.provision(panes, {
       onResolved: vi.fn(),

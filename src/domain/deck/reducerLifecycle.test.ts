@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { provisioningCard } from "./panes";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { deckReducer, initialDeckState } from "./reducer";
 import { deckState as state, workspace as ws } from "./reducer.testSupport";
@@ -330,8 +331,7 @@ describe("deckReducer restore actions ([F7])", () => {
         {
           id: "pane-1",
           idle: { reason: "waking", origin: "restore" },
-          cwd: "/repo/wt",
-          branch: "kd/ws/1",
+          location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/1" },
           session: { id: "s", boundAt: "2026-07-02T00:00:00Z" },
         },
         { id: "pane-2" },
@@ -421,8 +421,7 @@ describe("resetPaneLocation", () => {
         {
           id: "pane-1",
           idle: { reason: "waking", origin: "restore" },
-          cwd: "/repo/wt",
-          branch: "kd/ws/1",
+          location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/1" },
           session: { id: "s-1", boundAt: "2026-07-07T00:00:00Z" },
         },
       ],
@@ -452,11 +451,9 @@ describe("deckReducer provisioning actions", () => {
     panes: [
       {
         id: "pane-1",
-        provisioning: {
-          repo: "/repo",
-          path: "/wt/ws-1-1",
-          workspace: "ws-1",
-          index: 1,
+        location: {
+          kind: "provisioning",
+          card: { repo: "/repo", path: "/wt/ws-1-1", workspace: "ws-1", index: 1 },
         },
       },
     ],
@@ -473,8 +470,7 @@ describe("deckReducer provisioning actions", () => {
     });
     expect(next.workspaces[0].panes[0]).toEqual({
       id: "pane-1",
-      cwd: "/wt/kd-ws-1",
-      branch: "kd/ws-1/1",
+      location: { kind: "attached", cwd: "/wt/kd-ws-1", branch: "kd/ws-1/1" },
     });
   });
 
@@ -499,14 +495,14 @@ describe("deckReducer provisioning actions", () => {
       paneId: "pane-1",
       error: "fatal: oops",
     });
-    expect(failed.workspaces[0].panes[0].provisioning?.error).toBe("fatal: oops");
+    expect(provisioningCard(failed.workspaces[0].panes[0])?.error).toBe("fatal: oops");
     const retrying = deckReducer(failed, {
       type: "setPaneProvisioningError",
       wsId: "ws-1",
       paneId: "pane-1",
       error: null,
     });
-    expect(retrying.workspaces[0].panes[0].provisioning?.error).toBeUndefined();
+    expect(provisioningCard(retrying.workspaces[0].panes[0])?.error).toBeUndefined();
   });
 });
 

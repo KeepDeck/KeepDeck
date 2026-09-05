@@ -5,7 +5,6 @@ import {
   paneCanSuspend,
   paneHasProcess,
   paneIdleIsDurable,
-  paneIsRemoteFresh,
   idleReadsAsStopped,
   paneSuspendBlock,
   paneResumeSessionId,
@@ -14,18 +13,6 @@ import {
   sessionClaimant,
   type Pane,
 } from ".";
-
-describe("paneIsRemoteFresh", () => {
-  it("true only for a pane with a non-empty remote endpoint", () => {
-    expect(paneIsRemoteFresh({ id: "p", remoteEndpoint: "ws://vps:4500" })).toBe(true);
-    // Absent endpoint → local.
-    expect(paneIsRemoteFresh({ id: "p" })).toBe(false);
-    // Truthy, not `!== undefined`: an empty string is a non-remote degenerate
-    // case (hand-edit only — the dialog never sets "") so lifecycle + plan
-    // builder agree it's local.
-    expect(paneIsRemoteFresh({ id: "p", remoteEndpoint: "" })).toBe(false);
-  });
-});
 
 describe("paneHasProcess", () => {
   it("false for every reason a pane has none, true only for a plain pane", () => {
@@ -48,7 +35,10 @@ describe("paneHasProcess", () => {
     expect(
       paneHasProcess({
         id: "p",
-        provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+        location: {
+          kind: "provisioning",
+          card: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+        },
       }),
     ).toBe(false);
   });
@@ -98,12 +88,21 @@ describe("paneCanSuspend", () => {
     );
     expect(
       paneSuspendBlock(
-        { id: "p", provisioning: { repo: "/r", path: "/wt/a", workspace: "w", index: 1 } },
+        {
+          id: "p",
+          location: {
+            kind: "provisioning",
+            card: { repo: "/r", path: "/wt/a", workspace: "w", index: 1 },
+          },
+        },
         false,
       ),
     ).toBe("provisioning");
     expect(
-      paneSuspendBlock({ id: "p", remoteEndpoint: "ws://vps:4500" }, false),
+      paneSuspendBlock(
+        { id: "p", location: { kind: "remote", endpoint: "ws://vps:4500" } },
+        false,
+      ),
     ).toBe("remote");
     // Precedence matters: it decides which sentence the user reads.
     expect(
@@ -111,7 +110,7 @@ describe("paneCanSuspend", () => {
         {
           id: "p",
           idle: { reason: "parked" },
-          remoteEndpoint: "ws://vps:4500",
+          location: { kind: "remote", endpoint: "ws://vps:4500" },
         },
         false,
       ),
@@ -145,7 +144,13 @@ describe("paneCanSuspend", () => {
   it("false while a worktree create is in flight — no process to stop", () => {
     expect(
       paneCanSuspend(
-        { id: "p", provisioning: { repo: "/r", path: "/wt/a", workspace: "w", index: 1 } },
+        {
+          id: "p",
+          location: {
+            kind: "provisioning",
+            card: { repo: "/r", path: "/wt/a", workspace: "w", index: 1 },
+          },
+        },
         false,
       ),
     ).toBe(false);
@@ -153,7 +158,7 @@ describe("paneCanSuspend", () => {
 
   it("false for a REMOTE pane — its conversation lives on the server", () => {
     expect(
-      paneCanSuspend({ id: "p", remoteEndpoint: "ws://vps:4500" }, false),
+      paneCanSuspend({ id: "p", location: { kind: "remote", endpoint: "ws://vps:4500" } }, false),
     ).toBe(false);
   });
 });
@@ -247,7 +252,7 @@ describe("paneResumeSessionId", () => {
     expect(
       paneResumeSessionId({
         id: "p",
-        remoteEndpoint: "ws://vps:4500",
+        location: { kind: "remote", endpoint: "ws://vps:4500" },
         session: { id: "stale", boundAt: "t" },
       }),
     ).toBeNull();
@@ -265,7 +270,10 @@ describe("paneBlock — the head both ladders share", () => {
         {
           id: "p1",
           idle: { reason: "parked" },
-          provisioning: { repo: "/r", path: "/wt/a", workspace: "w", index: 1 },
+          location: {
+            kind: "provisioning",
+            card: { repo: "/r", path: "/wt/a", workspace: "w", index: 1 },
+          },
         },
         false,
       ),

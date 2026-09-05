@@ -112,7 +112,7 @@ describe("firstFreeAgentWorktree", () => {
   it("skips a location an open pane already runs in", async () => {
     const workspace = ws({
       worktreeBaseDir: "/wt",
-      panes: [{ id: "p1", cwd: "/wt/kd-deck-1" }],
+      panes: [{ id: "p1", location: { kind: "attached", cwd: "/wt/kd-deck-1" } }],
     });
     expect(await firstFreeAgentWorktree([workspace], workspace, 1)).toEqual({
       path: "/wt/kd-deck-2",

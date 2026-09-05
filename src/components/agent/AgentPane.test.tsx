@@ -111,7 +111,9 @@ function PaneUnderTest(
         paneBody(
           {
             id: props.paneId,
-            ...(props.provisioning ? { provisioning: props.provisioning } : {}),
+            ...(props.provisioning
+              ? { location: { kind: "provisioning", card: props.provisioning } }
+              : {}),
             ...(props.idle ? { idle: props.idle } : {}),
           },
           {

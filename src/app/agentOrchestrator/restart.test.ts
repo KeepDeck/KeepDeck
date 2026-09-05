@@ -68,8 +68,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
           {
             id: "pane-1",
             agentType: "codex",
-            cwd: "/worktree",
-            branch: "feature/restart",
+            location: { kind: "attached", cwd: "/worktree", branch: "feature/restart" },
             yolo: true,
             ...(sessionId
               ? { session: { id: sessionId, boundAt: "2026-07-11T00:00:00Z" } }
@@ -112,8 +111,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(lifecycle.retire).toHaveBeenCalledWith("pane-1");
     expect(epoch()).toBe(1);
     expect(pane()).toMatchObject({
-      cwd: "/worktree",
-      branch: "feature/restart",
+      location: { kind: "attached", cwd: "/worktree", branch: "feature/restart" },
       session: { id: "session-old" },
     });
     const calls = vi.mocked(buildResumeSpec).mock.calls;
@@ -130,8 +128,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(pty.closed).toEqual(["pane-1"]);
     expect(lifecycle.retire).toHaveBeenCalledWith("pane-1");
     expect(pane()).toMatchObject({
-      cwd: "/worktree",
-      branch: "feature/restart",
+      location: { kind: "attached", cwd: "/worktree", branch: "feature/restart" },
     });
     expect(pane().session).toBeUndefined();
     expect(epoch()).toBe(1);
@@ -203,7 +200,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     // null for a remote pane, so the restart falls through to fresh.
     seed();
     act(() => {
-      pane().remoteEndpoint = "ws://vps:4500";
+      pane().location = { kind: "remote", endpoint: "ws://vps:4500" };
     });
     await act(async () => agentRun.restart("ws-1", "pane-1", "resume"));
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();

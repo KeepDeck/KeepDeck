@@ -9,8 +9,6 @@ import { resetPaneLocation, type Pane } from ".";
  * `resolvePaneProvisioning` and `setPaneProvisioningError` are pinned in
  * `workspaces.test.ts` (their historical home); `resetPaneLocation` was only
  * ever exercised through the reducer, which checks the drop and nothing else.
- * The two guards below are what a change to how a pane records its placement
- * would silently move, so they get their own tests before that change lands.
  */
 
 const ws = (panes: Pane[]): Workspace => ({
@@ -28,8 +26,7 @@ describe("resetPaneLocation", () => {
       id: "pane-1",
       agentType: "claude",
       name: "kept",
-      cwd: "/repo/wt",
-      branch: "kd/ws/1",
+      location: { kind: "attached", cwd: "/repo/wt", branch: "kd/ws/1" },
       session: { id: "s-1", boundAt: "2026-07-07T00:00:00Z" },
       idle: { reason: "waking", origin: "restore" },
     };
@@ -51,8 +48,8 @@ describe("resetPaneLocation", () => {
     expect(next[0].panes[0]).toEqual({ id: "pane-1" });
   });
 
-  it("drops a branch that has no directory beside it", () => {
-    const pane: Pane = { id: "pane-1", branch: "kd/ws/1" };
+  it("drops a recorded branch that has no directory beside it", () => {
+    const pane: Pane = { id: "pane-1", location: { kind: "main", branch: "kd/ws/1" } };
     const next = resetPaneLocation([ws([pane])], "ws-1", "pane-1");
     expect(next[0].panes[0]).toEqual({ id: "pane-1" });
   });
@@ -64,7 +61,7 @@ describe("resetPaneLocation", () => {
   });
 
   it("returns the SAME array for an unknown pane or workspace", () => {
-    const workspaces = [ws([{ id: "pane-1", cwd: "/repo/wt" }])];
+    const workspaces = [ws([{ id: "pane-1", location: { kind: "attached", cwd: "/repo/wt" } }])];
     expect(resetPaneLocation(workspaces, "ws-1", "pane-9")).toBe(workspaces);
     expect(resetPaneLocation(workspaces, "ws-9", "pane-1")).toBe(workspaces);
   });
@@ -72,15 +69,31 @@ describe("resetPaneLocation", () => {
   it("leaves a provisioning card alone — a create in flight is not a location to reset", () => {
     const pane: Pane = {
       id: "pane-1",
-      provisioning: { repo: "/repo", path: "/repo/wt", workspace: "ws-1", index: 1 },
+      location: {
+        kind: "provisioning",
+        card: { repo: "/repo", path: "/repo/wt", workspace: "ws-1", index: 1 },
+      },
     };
     const workspaces = [ws([pane])];
     expect(resetPaneLocation(workspaces, "ws-1", "pane-1")).toBe(workspaces);
   });
 
+  it("keeps a remote endpoint and drops only the session", () => {
+    const pane: Pane = {
+      id: "pane-1",
+      location: { kind: "remote", endpoint: "wss://vps" },
+      session: { id: "s-1", boundAt: "2026-07-07T00:00:00Z" },
+    };
+    const next = resetPaneLocation([ws([pane])], "ws-1", "pane-1");
+    expect(next[0].panes[0]).toEqual({
+      id: "pane-1",
+      location: { kind: "remote", endpoint: "wss://vps" },
+    });
+  });
+
   it("touches only the named pane", () => {
-    const other: Pane = { id: "pane-2", cwd: "/repo/other" };
-    const target: Pane = { id: "pane-1", cwd: "/repo/wt" };
+    const other: Pane = { id: "pane-2", location: { kind: "attached", cwd: "/repo/other" } };
+    const target: Pane = { id: "pane-1", location: { kind: "attached", cwd: "/repo/wt" } };
     const next = resetPaneLocation([ws([target, other])], "ws-1", "pane-1");
     expect(next[0].panes[1]).toBe(other);
   });

@@ -5,7 +5,6 @@ import {
   findWorkspace,
   paneAgentType,
   paneExecutionCwd,
-  paneIsRemoteFresh,
   paneRunIntent,
   paneWakeOrigin,
   type Pane,
@@ -440,7 +439,7 @@ export function createAgentOrchestratorRuntime(
         // working directory to probe (so a gone workspace cwd never blocks it)
         // and no recorded session to resume (fresh-session only). Wake it
         // straight to a fresh remote plan built by the spawn-spec sweep.
-        if (paneIsRemoteFresh(pane)) {
+        if (locationOf(pane).kind === "remote") {
           void wake(ws, pane, ws.cwd, sessionId).finally(() =>
             inFlight.delete(pane.id),
           );

@@ -102,7 +102,7 @@ export interface ClosingPaneFacts {
 /** Read the pane's facts as one set, so no caller can take half of them. */
 function paneFactsOf(pane: Pane | undefined, blocked: boolean): ClosingPaneFacts {
   return {
-    provisioning: !!pane?.provisioning,
+    provisioning: !!pane && locationOf(pane).kind === "provisioning",
     rising: !!pane && paneWakesAutomatically(pane),
     stopped: !!pane && idleReadsAsStopped(pane.idle, blocked),
     canSuspend: !!pane && paneSuspendBlock(pane, blocked) === null,

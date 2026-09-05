@@ -306,12 +306,15 @@ export function registerCoreCommands(
           if (free) {
             pane = {
               ...pane,
-              provisioning: {
-                repo: current.workspace.cwd,
-                path: free.path,
-                branch: free.branch,
-                workspace: current.workspace.name,
-                index,
+              location: {
+                kind: "provisioning",
+                card: {
+                  repo: current.workspace.cwd,
+                  path: free.path,
+                  branch: free.branch,
+                  workspace: current.workspace.name,
+                  index,
+                },
               },
             };
           }

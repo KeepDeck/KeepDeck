@@ -17,18 +17,6 @@ export function paneAgentType(pane: Pane): AgentType {
   return pane.agentType ?? "claude";
 }
 
-/** A remote pane runs its agent against a VPS endpoint and is fresh-session
- *  only — it has no local working directory to probe and must NEVER be handed
- *  to a resume/restart/bind path, which would spawn locally and silently drop
- *  the endpoint. The single predicate every consume site consults so the
- *  invariant lives in one place (not copy-pasted at each call site). Truthy
- *  (not `!== undefined`): an empty-string endpoint is a non-remote degenerate
- *  case, matching spawnSpecs' own truthy target-builder and the inline checks
- *  this centralized. */
-export function paneIsRemoteFresh(pane: Pane): boolean {
-  return locationOf(pane).kind === "remote";
-}
-
 /** Whether this pane is one that HAS a process — the durable half of the
  *  question, which is all the model can answer: whether the process is
  *  currently alive is the session registry's half.
@@ -256,5 +244,8 @@ export function idleReadsAsStopped(
  *  null — its conversation lives on the server, so a local resume would be a
  *  different one. */
 export function paneResumeSessionId(pane: Pane): string | null {
-  return paneIsRemoteFresh(pane) ? null : (pane.session?.id ?? null);
+  // A remote pane is fresh-session only: its conversation lives on the
+  // server, and handing a resume path a local session id would spawn locally
+  // and silently drop the endpoint.
+  return locationOf(pane).kind === "remote" ? null : (pane.session?.id ?? null);
 }

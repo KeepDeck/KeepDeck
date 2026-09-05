@@ -19,7 +19,7 @@ const ws = (over: Partial<Workspace>): Workspace => ({
 });
 
 const pane = (id: string, cwd: string | undefined): Pane =>
-  ({ id, ...(cwd !== undefined ? { cwd } : {}) }) as Pane;
+  cwd !== undefined ? { id, location: { kind: "attached", cwd } } : { id };
 
 describe("workspaceDirectories", () => {
   it("a shared base root brings no foreign folder in", () => {
@@ -69,8 +69,11 @@ describe("workspaceDirectories", () => {
         panes: [
           {
             id: "p1",
-            provisioning: { repo: "/repo", workspace: "a", index: 1 },
-          } as Pane,
+            location: {
+              kind: "provisioning",
+              card: { repo: "/repo", path: "/wt/a", workspace: "a", index: 1 },
+            },
+          },
         ],
       }),
     );

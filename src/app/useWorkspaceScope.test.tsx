@@ -39,10 +39,16 @@ const pane = (over: {
   ({
     id: "pane-1",
     agentType: "claude",
-    ...(over.cwd !== null && { cwd: over.cwd }),
-    ...(over.provisioning && {
-      provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
-    }),
+    ...(over.provisioning
+      ? {
+          location: {
+            kind: "provisioning",
+            card: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+          },
+        }
+      : over.cwd !== null
+        ? { location: { kind: "attached", cwd: over.cwd } }
+        : {}),
   }) as Workspace["panes"][number];
 
 let dirs: ReadonlySet<string>;

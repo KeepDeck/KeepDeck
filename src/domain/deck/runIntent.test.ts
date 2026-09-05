@@ -50,7 +50,7 @@ describe("paneRunIntent — a process belongs here", () => {
       paneRunIntent(
         pane({
           idle: waking,
-          remoteEndpoint: "wss://vps",
+          location: { kind: "remote", endpoint: "wss://vps" },
           session: { id: "s-1", boundAt: "2026-07-26" },
         }),
         env(),
@@ -64,7 +64,10 @@ describe("paneRunIntent — reasons to stay down", () => {
     expect(
       paneRunIntent(
         pane({
-          provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+          location: {
+            kind: "provisioning",
+            card: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+          },
         }),
         env(),
       ),
@@ -245,7 +248,10 @@ describe("paneRunIntent — precedence", () => {
       paneRunIntent(
         pane({
           idle: { reason: "suspended", at: "2026-07-26T10:00:00.000Z" },
-          provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+          location: {
+            kind: "provisioning",
+            card: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+          },
         }),
         env({ agentAvailable: false, missingDir: "/gone" }),
       ),

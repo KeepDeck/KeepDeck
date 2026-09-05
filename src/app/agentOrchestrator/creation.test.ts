@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { provisioningCard } from "../../domain/deck";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -73,7 +74,10 @@ describe("agent orchestrator —what resume answers", () => {
     // Its own doc: telling the user a pane mid-create is already running is
     // simply false — it has never run, so there is no session to come back to.
     only({
-      provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+      location: {
+        kind: "provisioning",
+        card: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+      },
     });
     await settle();
     expect(agentRun.resume("ws-1", "pane-1")).toBe("provisioning");
@@ -130,7 +134,10 @@ describe("agent orchestrator —a new pane arriving", () => {
   const card = (over: object = {}): Pane => ({
     id: "pane-9",
     agentType: "claude",
-    provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+    location: {
+      kind: "provisioning",
+      card: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+    },
     ...over,
   });
 
@@ -401,13 +408,16 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
           {
             id: "pane-1",
             agentType: "claude",
-            provisioning: {
-              repo: "/repo",
-              path: "/repo-wt/x",
-              workspace: "ws-1",
-              index: 1,
-              error: "boom",
-              ...intent,
+            location: {
+              kind: "provisioning",
+              card: {
+                repo: "/repo",
+                path: "/repo-wt/x",
+                workspace: "ws-1",
+                index: 1,
+                error: "boom",
+                ...intent,
+              },
             },
           },
         ],
@@ -417,7 +427,7 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
   it("clears the error before re-issuing, so the card goes back to creating", () => {
     failedCard({ path: "/repo-wt/x", branch: "kd/x" });
     act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
-    expect(deck.workspaces[0].panes[0].provisioning?.error).toBeUndefined();
+    expect(provisioningCard(deck.workspaces[0].panes[0])?.error).toBeUndefined();
     expect(provisions).toHaveLength(1);
   });
 

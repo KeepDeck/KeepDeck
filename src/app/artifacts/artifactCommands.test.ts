@@ -32,7 +32,7 @@ const pane = (over: Partial<Workspace["panes"][number]> = {}) =>
   ({
     id: "pane-1",
     title: "support 1",
-    cwd: "/repo",
+    location: { kind: "attached", cwd: "/repo" },
     ...over,
   }) as Workspace["panes"][number];
 
@@ -154,11 +154,13 @@ describe("registerArtifactCommands", () => {
     // paneExecutionCwd answers null ONLY for a provisioning pane without
     // its own cwd (everything else falls back to ws.cwd) — that is the
     // rung-2 population.
-    const provisioning = {
+    const provisioning: Workspace["panes"][number] = {
       ...pane({ id: "pane-bare" }),
-      cwd: undefined,
-      provisioning: true,
-    } as unknown as Workspace["panes"][number];
+      location: {
+        kind: "provisioning",
+        card: { repo: "/repo", path: "/repo/wt", workspace: "ws", index: 1 },
+      },
+    };
     const { run } = setup([provisioning]);
     await expect(
       run(
@@ -243,10 +245,10 @@ describe("registerArtifactCommands", () => {
   });
 
   it("a remote pane's path arm is refused BY NAME, content passes", async () => {
-    const remotePane = {
+    const remotePane: Workspace["panes"][number] = {
       ...pane({ id: "pane-remote" }),
-      remoteEndpoint: "ssh://host",
-    } as unknown as Workspace["panes"][number];
+      location: { kind: "remote", endpoint: "ssh://host" },
+    };
     const { run } = setup([remotePane]);
     await expect(
       run(

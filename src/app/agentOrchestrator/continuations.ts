@@ -3,6 +3,7 @@ import {
   findWorkspace,
   MAX_PANES,
   paneId,
+  placementOfRecorded,
   sessionClaimant,
   WORKSPACE_FULL_MESSAGE,
 } from "../../domain/deck";
@@ -114,13 +115,13 @@ export function createAgentOrchestratorContinuations({
         return;
       }
       const name = opts?.name?.trim();
+      const location = placementOfRecorded(record, workspace.cwd);
       const outcome = creation.landPane({
         workspace: { id: workspace.id, instance: workspace.instance },
         pane: {
           id,
           agentType: record.agent,
-          ...(record.cwd !== workspace.cwd && { cwd: record.cwd }),
-          ...(record.branch !== undefined && { branch: record.branch }),
+          ...(location !== undefined && { location }),
           ...(yolo && { yolo: true }),
           ...(name && { name }),
           session: {
@@ -193,8 +194,13 @@ export function createAgentOrchestratorContinuations({
             pane: {
               id,
               agentType: record.agent,
-              ...(target.cwd !== workspace.cwd && { cwd: target.cwd }),
-              ...(opts?.branch && { branch: opts.branch }),
+              ...(() => {
+                const location = placementOfRecorded(
+                  { cwd: target.cwd, ...(opts?.branch && { branch: opts.branch }) },
+                  workspace.cwd,
+                );
+                return location !== undefined && { location };
+              })(),
               ...(yolo && { yolo: true }),
               ...(name && { name }),
             },
@@ -216,14 +222,17 @@ export function createAgentOrchestratorContinuations({
             agentType: record.agent,
             ...(yolo && { yolo: true }),
             ...(name && { name }),
-            provisioning: {
-              repo: workspace.cwd,
-              path: target.path,
-              branch: target.branch,
-              ...(target.base !== undefined && { base: target.base }),
-              workspace: workspace.name,
-              index: workspace.panes.length + 1,
-              fork: true,
+            location: {
+              kind: "provisioning",
+              card: {
+                repo: workspace.cwd,
+                path: target.path,
+                branch: target.branch,
+                ...(target.base !== undefined && { base: target.base }),
+                workspace: workspace.name,
+                index: workspace.panes.length + 1,
+                fork: true,
+              },
             },
           },
         }),

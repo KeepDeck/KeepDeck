@@ -4,6 +4,7 @@ import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckState, GitPosition } from "../domain/deck";
+import { paneBranch } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { WorktreeHead } from "../ipc/worktree";
 import type { Deck } from "./useDeck";
@@ -47,7 +48,7 @@ const restored = (): DeckState => ({
       cwd: "/repo",
       worktreeBaseDir: null,
       panes: [
-        { id: "pane-1", cwd: "/wt/one", branch: "kd/ws/1" },
+        { id: "pane-1", location: { kind: "attached", cwd: "/wt/one", branch: "kd/ws/1" } },
         { id: "pane-2" },
       ],
     },
@@ -106,7 +107,7 @@ describe("useGitHead", () => {
 
     act(() => emit({ path: "/wt/one", branch: "feature/x", head: null }));
     expect(heads.get("/wt/one")).toEqual({ branch: "feature/x" });
-    expect(pane().branch).toBe("kd/ws/1");
+    expect(paneBranch(pane())).toBe("kd/ws/1");
 
     const sha = "a".repeat(40);
     act(() => emit({ path: "/repo", branch: null, head: sha }));

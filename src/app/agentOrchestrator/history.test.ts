@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { provisioningCard } from "../../domain/deck";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -92,8 +93,8 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(panes).toHaveLength(1);
     expect(panes[0]).toMatchObject({
       agentType: "codex",
-      cwd: "/repo/wt", // foreign dir → pinned (the session's worktree)
-      branch: "kd/x/1",
+      // A foreign dir → pinned to the session's worktree.
+      location: { kind: "attached", cwd: "/repo/wt", branch: "kd/x/1" },
       yolo: true,
       session: { id: "s-1" },
     });
@@ -109,7 +110,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     await act(async () =>
       agentRun.resumeSession("ws-1", handle({ cwd: "/repo", branch: undefined })),
     );
-    expect(deck.workspaces[0].panes[0].cwd).toBeUndefined();
+    expect(deck.workspaces[0].panes[0].location).toBeUndefined();
   });
 
   it("refuses a session another pane already holds, LOUDLY", async () => {
@@ -160,7 +161,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
       deck.addAgentPane("ws-1", {
         id: "pane-77",
         agentType: "codex",
-        cwd: "/gone/worktree",
+        location: { kind: "attached", cwd: "/gone/worktree" },
         session: { id: "s-1", boundAt: "2026-07-19T00:00:00.000Z" },
       }),
     );
@@ -335,7 +336,10 @@ describe("agent orchestrator —forking a recorded session", () => {
     );
 
     const pane = deck.workspaces[0].panes[0];
-    expect(pane).toMatchObject({ agentType: "claude", cwd: "/elsewhere" });
+    expect(pane).toMatchObject({
+      agentType: "claude",
+      location: { kind: "attached", cwd: "/elsewhere" },
+    });
     // The fork's NEW session id arrives later, via the reporter.
     expect(pane.session).toBeUndefined();
     const call = vi.mocked(buildForkSpec).mock.calls[0];
@@ -358,7 +362,7 @@ describe("agent orchestrator —forking a recorded session", () => {
     await act(async () =>
       agentRun.forkSession("ws-1", forked(), { kind: "dir", cwd: "/repo" }),
     );
-    expect(deck.workspaces[0].panes[0].cwd).toBeUndefined();
+    expect(deck.workspaces[0].panes[0].location).toBeUndefined();
   });
 
   it("worktree target: a card first, and the surgery DEFERRED to a step", async () => {
@@ -371,13 +375,13 @@ describe("agent orchestrator —forking a recorded session", () => {
     );
 
     const pane = deck.workspaces[0].panes[0];
-    expect(pane.provisioning).toMatchObject({
+    expect(provisioningCard(pane)).toMatchObject({
       repo: "/repo",
       path: "/repo-wt/fork-1",
       branch: "fork/auth",
     });
     // The marker the whole restart-safety fix hinges on: serialize drops it.
-    expect(pane.provisioning?.fork).toBe(true);
+    expect(provisioningCard(pane)?.fork).toBe(true);
     expect(pane.yolo).toBe(true);
     // The worktree does not exist yet, so no surgery runs up front — a step
     // is registered and the ordinary create is kicked off behind the card.
