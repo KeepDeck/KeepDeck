@@ -135,6 +135,12 @@ describe("authoring", () => {
     await expect(
       library.create(GLOBAL, { name: "y", body: { transport: "http", url: "", headers: {} } }),
     ).rejects.toThrow("needs a URL");
+    await expect(
+      library.create(GLOBAL, {
+        name: "z",
+        body: { transport: "http", url: "https://x/", headers: { Authorization: "Basic a" }, bearerToken: "t" },
+      }),
+    ).rejects.toThrow("one credential");
     expect(storage.save).not.toHaveBeenCalled();
   });
 

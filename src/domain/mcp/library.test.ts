@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MCP_SPEC_SHAPE,
   composeMcpServerFile,
   isValidMcpServerName,
   mcpScopeKey,
@@ -83,6 +84,25 @@ describe("the body rule", () => {
     expect(mcpServerBodyProblem(stdio)).toBeNull();
     expect(mcpServerBodyProblem(http)).toBeNull();
   });
+
+  it("refuses a literal Authorization header beside a bearer token, whatever its case", () => {
+    // Two of the dialects fold the token into the header and two hand the
+    // CLI both; refused here so no dialect has to decide which wins.
+    expect(
+      mcpServerBodyProblem({ ...http, headers: { authorization: "Basic x" } }),
+    ).toBe("two-credentials");
+    expect(
+      mcpServerBodyProblem({ ...http, headers: { Authorization: "Basic x" }, bearerToken: undefined }),
+    ).toBeNull();
+  });
+});
+
+describe("the spec shape in words", () => {
+  it("names every key the codec accepts, per transport", () => {
+    expect(MCP_SPEC_SHAPE).toBe(
+      '{"transport":"stdio","command":…,"args":…,"env":…} or {"transport":"http","url":…,"headers":…,"bearerToken":…}',
+    );
+  });
 });
 
 describe("the summary a door may hand out", () => {
@@ -147,15 +167,31 @@ describe("the stored file", () => {
       ['{"transport":"stdio","command":"x","startup_timeout_sec":"30"}', 'unknown field "startup_timeout_sec"'],
       ['{"transport":"stdio"}', '"command" must be a non-empty string'],
       ['{"transport":"stdio","command":"x","args":"-y"}', '"args" must be an array of strings'],
+      ['{"transport":"stdio","command":"x","args":null}', '"args" must be an array of strings'],
       ['{"transport":"stdio","command":"x","env":{"A":1}}', '"env" must be an object of strings'],
       ['{"transport":"http"}', '"url" must be a non-empty string'],
       ['{"transport":"http","url":"u","headers":[]}', '"headers" must be an object of strings'],
       ['{"transport":"http","url":"u","bearerToken":""}', '"bearerToken" must be a non-empty string'],
+      [
+        '{"transport":"http","url":"u","headers":{"AUTHORIZATION":"Basic x"},"bearerToken":"t"}',
+        "one credential per server",
+      ],
     ];
     for (const [content, reason] of cases) {
       const verdict = parseMcpServerFile(content);
       expect(verdict.kind, content).toBe("malformed");
       if (verdict.kind === "malformed") expect(verdict.reason, content).toContain(reason);
+    }
+  });
+
+  it("never repeats the file's bytes in a reason", () => {
+    // V8 quotes the text around a JSON error; in this file that text may be
+    // a token, and the reason travels into the log and out through a command.
+    const verdict = parseMcpServerFile('{"transport":"http","url":"u","bearerToken":sk-live-SECRET}');
+    expect(verdict.kind).toBe("malformed");
+    if (verdict.kind === "malformed") {
+      expect(verdict.reason).toBe("not valid JSON");
+      expect(verdict.reason).not.toContain("SECRET");
     }
   });
 });

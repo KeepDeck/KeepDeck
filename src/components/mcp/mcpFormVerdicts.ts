@@ -8,6 +8,7 @@ import {
   mcpServerBodyProblem,
   mcpServerNameProblem,
   sameMcpScope,
+  type McpServerBodyProblem,
 } from "../../domain/mcp";
 import {
   libraryVerdicts,
@@ -35,8 +36,8 @@ export function mcpRowAt(
 }
 
 export interface McpFormVerdicts extends Omit<LibraryVerdicts, "retitled"> {
-  /** The field the body cannot do without, when it is missing. */
-  bodyProblem: "empty-command" | "empty-url" | null;
+  /** What the body cannot be saved with — a missing field, or two credentials. */
+  bodyProblem: McpServerBodyProblem;
   /** The first line of the environment (or headers) block that is not a
    * pair, when there is one — the save is refused rather than the line
    * silently dropped. */

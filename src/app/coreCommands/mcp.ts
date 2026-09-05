@@ -1,5 +1,5 @@
 import type { ArgSpec, CommandArgs, CommandRegistry, CommandSource } from "../../domain/commands";
-import { mcpServerSummary, parseMcpServerFile } from "../../domain/mcp";
+import { MCP_SPEC_SHAPE, mcpServerSummary, parseMcpServerFile } from "../../domain/mcp";
 import type { McpLibrary } from "../mcpLibrary";
 import type { Deck } from "../useDeck";
 import { requiredStr, text } from "./args";
@@ -40,8 +40,9 @@ const SPEC: ArgSpec = {
   name: "spec",
   type: "string",
   required: true,
-  description:
-    'The server as JSON. A process the agent spawns: {"transport":"stdio","command":"npx","args":["-y","@scope/server"],"env":{"API_TOKEN":"…"}}. An endpoint it reaches: {"transport":"http","url":"https://…","headers":{"X-Org":"…"},"bearerToken":"…"}. Values under env and bearerToken are stored privately and reach the server through its environment, never through a config file; nothing else is accepted.',
+  // The shape is the codec's own statement of itself, so a key added or
+  // dropped there changes this sentence with it.
+  description: `The server as JSON — ${MCP_SPEC_SHAPE}. "args" is a list of strings, "env" and "headers" are objects of strings. Values under env and bearerToken are stored privately and reach the server through its environment, never through a config file; nothing else is accepted.`,
 };
 
 /** The body a `spec` argument holds, read by the file's own codec — or the

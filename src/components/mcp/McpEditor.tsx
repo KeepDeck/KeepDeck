@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { MCP_SERVER_NAME_RULE } from "../../domain/mcp";
+import { MCP_SERVER_NAME_RULE, type McpServerBodyProblem } from "../../domain/mcp";
 import { EditorFrame } from "../library/EditorFrame";
 import type { McpForm } from "./mcpForm";
 
@@ -8,7 +8,7 @@ import type { McpForm } from "./mcpForm";
 export interface McpValidation {
   nameProblem: "empty" | "invalid" | null;
   nameTaken: boolean;
-  bodyProblem: "empty-command" | "empty-url" | null;
+  bodyProblem: McpServerBodyProblem;
   /** The first environment or header line that is not a pair. */
   badLine: string | null;
   vanished: boolean;
@@ -241,6 +241,11 @@ export function McpEditor({
               Sent as an Authorization header. Stored privately and referenced through the
               agent's environment — never written into a config.
             </div>
+            {validation.bodyProblem === "two-credentials" && (
+              <div className="form__error">
+                One credential per server — drop the Authorization header or the bearer token
+              </div>
+            )}
           </>
         )}
         {validation.badLine !== null && (

@@ -101,16 +101,30 @@ export function mcpServerNameProblem(name: string): "empty" | "invalid" | null {
   return isValidMcpServerName(name) ? null : "invalid";
 }
 
+/** Whether a remote server carries two credentials — a literal
+ * `Authorization` header AND a bearer token. Refused, in one place, because
+ * the dialects would otherwise disagree on which wins: two of them fold the
+ * token into the header, two hand the CLI both. */
+const carriesTwoCredentials = (body: McpHttpBody): boolean =>
+  body.bearerToken !== undefined &&
+  Object.keys(body.headers).some((key) => key.toLowerCase() === "authorization");
+
 /** What is wrong with a body a caller authored, or `null` when nothing is.
  * The stored-file reader refuses the same things; this is the authoring-time
  * verdict so a form can say which field. */
-export function mcpServerBodyProblem(
-  body: McpServerBody,
-): "empty-command" | "empty-url" | null {
+export type McpServerBodyProblem =
+  | "empty-command"
+  | "empty-url"
+  /** A literal `Authorization` header beside a bearer token. */
+  | "two-credentials"
+  | null;
+
+export function mcpServerBodyProblem(body: McpServerBody): McpServerBodyProblem {
   if (body.transport === "stdio") {
     return body.command.trim() === "" ? "empty-command" : null;
   }
-  return body.url.trim() === "" ? "empty-url" : null;
+  if (body.url.trim() === "") return "empty-url";
+  return carriesTwoCredentials(body) ? "two-credentials" : null;
 }
 
 /** A body as it may leave the app through a door that must not carry a
@@ -177,6 +191,18 @@ const KNOWN_KEYS: Record<McpServerBody["transport"], readonly string[]> = {
   http: ["transport", "url", "headers", "bearerToken"],
 };
 
+/** The stored shape in words, DERIVED from the keys the codec accepts — for
+ * whoever has to explain it (a command's argument description). A prose copy
+ * of the key lists would keep teaching the old shape the day one changed. */
+export const MCP_SPEC_SHAPE = (Object.keys(KNOWN_KEYS) as McpServerBody["transport"][])
+  .map(
+    (transport) =>
+      `{${KNOWN_KEYS[transport]
+        .map((key) => (key === "transport" ? `"transport":"${transport}"` : `"${key}":…`))
+        .join(",")}}`,
+  )
+  .join(" or ");
+
 /**
  * Read a stored file. Strict: a transport this build does not know, a field
  * of the wrong type, or a key no renderer would carry all make the file
@@ -186,8 +212,11 @@ export function parseMcpServerFile(content: string): McpServerVerdict {
   let raw: unknown;
   try {
     raw = JSON.parse(content);
-  } catch (e) {
-    return malformed(`not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+  } catch {
+    // The parser's own message is NOT repeated: V8 quotes the bytes around
+    // the error, and in this file those bytes may be a credential — the
+    // reason travels into the log and out through a command.
+    return malformed("not valid JSON");
   }
   if (!isRecord(raw)) return malformed("the file must hold a JSON object");
   const transport = raw.transport;
@@ -200,7 +229,8 @@ export function parseMcpServerFile(content: string): McpServerVerdict {
   if (transport === "stdio") {
     const command = requiredText(raw, "command");
     if ("reason" in command) return malformed(command.reason);
-    const args = raw.args ?? [];
+    // Absent means none; `null` is a wrong type like any other.
+    const args = raw.args === undefined ? [] : raw.args;
     if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
       return malformed('"args" must be an array of strings');
     }
@@ -220,15 +250,18 @@ export function parseMcpServerFile(content: string): McpServerVerdict {
   if (token !== undefined && (typeof token !== "string" || token === "")) {
     return malformed('"bearerToken" must be a non-empty string');
   }
-  return {
-    kind: "ok",
-    body: {
-      transport,
-      url: url.value,
-      headers: headers.value,
-      ...(typeof token === "string" ? { bearerToken: token } : {}),
-    },
+  const body: McpHttpBody = {
+    transport,
+    url: url.value,
+    headers: headers.value,
+    ...(typeof token === "string" ? { bearerToken: token } : {}),
   };
+  if (carriesTwoCredentials(body)) {
+    return malformed(
+      '"headers" carries Authorization while "bearerToken" is set — one credential per server',
+    );
+  }
+  return { kind: "ok", body };
 }
 
 /** Compose the stored file for a body: stable key order, an empty map left

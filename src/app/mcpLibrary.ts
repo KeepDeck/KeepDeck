@@ -183,6 +183,10 @@ export function createMcpLibrary(ports: McpLibraryPorts): McpLibrary {
         throw new Error("A local server needs a command to run");
       case "empty-url":
         throw new Error("A remote server needs a URL");
+      case "two-credentials":
+        throw new Error(
+          "A remote server takes one credential — drop the Authorization header or the bearer token",
+        );
     }
     return composeMcpServerFile(draft.body);
   }

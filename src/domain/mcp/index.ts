@@ -19,6 +19,7 @@ export {
 export { shellLine } from "./shellLine";
 export {
   MCP_SERVER_NAME_RULE,
+  MCP_SPEC_SHAPE,
   composeMcpServerFile,
   isValidMcpServerName,
   mcpScopeKey,
@@ -32,6 +33,7 @@ export {
   type McpHttpBody,
   type McpScope,
   type McpServerBody,
+  type McpServerBodyProblem,
   type McpServerDraft,
   type McpServerRef,
   type McpServerSummary,
