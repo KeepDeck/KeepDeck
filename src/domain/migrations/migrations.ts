@@ -216,6 +216,9 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       agent (strip and none are gone). Consumed like mcpServer.
  * 20 — − deckLayout: the grid became the only deck layout (the list
  *       accordion is gone). Consumed like mcpServer.
+ * 21 — − agentTeams: agent teams graduated from Experimental — roles,
+ *       addressing by role and mail between teammates are simply on.
+ *       Consumed like mcpServer.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -223,7 +226,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * step that changes a field's meaning gets a `migrateSettingsFromV*toV*`
  * here, a ladder like the deck's, and a raised floor.
  */
-export const SETTINGS_VERSION = 20;
+export const SETTINGS_VERSION = 21;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

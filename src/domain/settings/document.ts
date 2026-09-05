@@ -52,7 +52,7 @@ export function defaultSettingsDocument(): SettingsDocument {
  * where that decision has to survive a change of default.
  *
  * A key the table does not know is dropped, and so is an explicit `undefined`:
- * `Partial<Settings>` admits `{agentTeams: undefined}`, which would otherwise
+ * `Partial<Settings>` admits `{artifacts: undefined}`, which would otherwise
  * record a decision whose value `JSON.stringify` then omits — a key at once
  * chosen and erased.
  */

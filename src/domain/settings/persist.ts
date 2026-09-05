@@ -33,11 +33,12 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "experimentRunPresets",
   // Retired keys, consumed for nothing — there is no longer anything to map
   // a stored value onto: revision 18 (the MCP transport lost its switch),
-  // 19 (the tray became the only shape for a minimized agent) and 20 (the
-  // grid became the only deck layout).
+  // 19 (the tray became the only shape for a minimized agent), 20 (the
+  // grid became the only deck layout) and 21 (agent teams graduated).
   "mcpServer",
   "minimizeStyle",
   "deckLayout",
+  "agentTeams",
   ...settingsCodecs().map(([key]) => key),
 ]);
 

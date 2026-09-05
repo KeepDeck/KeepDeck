@@ -199,7 +199,6 @@ const SETTINGS_CODECS: { [K in SettingsKey]: SettingCodec<Settings[K]> } = {
   usageDisplay: { default: "used", read: readOneOf(USAGE_DISPLAYS) },
   remoteAgents: { default: false, read: readBoolean },
   parkAgentsOnLaunch: { default: false, read: readBoolean },
-  agentTeams: { default: false, read: readBoolean },
   artifacts: { default: false, read: readBoolean },
   artifactAutoOpen: { default: true, read: readBoolean },
 };

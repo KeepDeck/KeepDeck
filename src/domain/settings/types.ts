@@ -104,23 +104,6 @@ export interface Settings {
    * come back parked and each starts on its own card. Applies at launch only:
    * flipping it never touches panes that are already running. */
   parkAgentsOnLaunch: boolean;
-  /** Agent teams ([F6] → Experimental): panes can be grouped into a team,
-   * each holding a role, and teammates can write to each other by role.
-   *
-   * Named for the FEATURE rather than for its transport. Messaging is how
-   * teammates reach each other, but this flag also gates roles, addressing
-   * and `team.assign` — calling it "mail" would understate what turning it
-   * off takes away.
-   *
-   * A LIVE switch in both directions, and it gates the whole feature rather
-   * than half of it: Off unregisters the commands (so they stop being MCP
-   * tools) AND stops delivery, or a pane could receive what it has no way
-   * to answer.
-   *
-   * Rides the deck's MCP socket, which has no switch of its own: sending is
-   * an MCP call, so while the socket is down a pane can receive but not
-   * answer. Default off; opt-in only while the feature is experimental. */
-  agentTeams: boolean;
   /** Fleet artifacts ([F6] → Experimental): agents can publish presentation
    * pages (HTML/md) to a workspace-scoped store, served on localhost with
    * live refresh, shared as team review objects. A LIVE switch in both

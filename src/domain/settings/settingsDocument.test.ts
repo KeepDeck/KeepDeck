@@ -25,9 +25,9 @@ describe("withSettings", () => {
   });
 
   it("records a value that equals the default — choosing it IS a decision", () => {
-    const doc = withSettings(defaultSettingsDocument(), { agentTeams: false });
-    expect(doc.chosen).toEqual({ agentTeams: false });
-    expect(JSON.parse(serializeSettings(doc)).agentTeams).toBe(false);
+    const doc = withSettings(defaultSettingsDocument(), { artifacts: false });
+    expect(doc.chosen).toEqual({ artifacts: false });
+    expect(JSON.parse(serializeSettings(doc)).artifacts).toBe(false);
   });
 
   it("accumulates decisions and never mutates its input", () => {
@@ -47,15 +47,15 @@ describe("withSettings", () => {
   });
 
   it("drops an explicit undefined instead of recording an erased decision", () => {
-    // `Partial<Settings>` admits `{agentTeams: undefined}`, and JSON.stringify
+    // `Partial<Settings>` admits `{artifacts: undefined}`, and JSON.stringify
     // then omits the key — so recording it would mark a setting chosen and
     // erased at the same time.
     const doc = withSettings(defaultSettingsDocument(), {
-      agentTeams: undefined,
+      artifacts: undefined,
       dockMode: "floating",
     });
     expect(doc.chosen).toEqual({ dockMode: "floating" });
-    expect(doc.settings.agentTeams).toBe(false);
+    expect(doc.settings.artifacts).toBe(false);
   });
 
   it("drops a key the settings table does not know", () => {

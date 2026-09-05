@@ -46,7 +46,7 @@ describe("hydrateSettings", () => {
       notifications: { enabled: false, mode: "system" },
       usageDisplay: "left",
       parkAgentsOnLaunch: true,
-      agentTeams: true,
+      artifacts: true,
     };
     const doc = restore(JSON.stringify(stored));
     expect(doc.settings).toEqual({
@@ -60,12 +60,11 @@ describe("hydrateSettings", () => {
       usageDisplay: "left",
       remoteAgents: false,
       parkAgentsOnLaunch: true,
-      agentTeams: true,
-      artifacts: false,
+      artifacts: true,
       artifactAutoOpen: true,
     });
-    // Everything the file said is a decision; `remoteAgents`, `artifacts`
-    // and `artifactAutoOpen`, which it did not mention, are not.
+    // Everything the file said is a decision; `remoteAgents` and
+    // `artifactAutoOpen`, which it did not mention, are not.
     expect(Object.keys(doc.chosen).sort()).toEqual(
       Object.keys(stored)
         .filter((key) => key !== "version")
@@ -136,7 +135,7 @@ describe("hydrateSettings", () => {
     // Asserting `false` against a file that says `"yes"` proves nothing on its
     // own — `false` is the default, so deleting the reader outright would leave
     // it green. Each key is driven ON first, then corrupted.
-    for (const key of ["defaultYolo", "remoteAgents", "parkAgentsOnLaunch", "agentTeams"]) {
+    for (const key of ["defaultYolo", "remoteAgents", "parkAgentsOnLaunch", "artifacts"]) {
       expect(restore(JSON.stringify({ [key]: true })).settings).toMatchObject({
         [key]: true,
       });
@@ -246,6 +245,8 @@ describe("hydrateSettings — the plugins bag", () => {
     ["minimizeStyle", ["tray", "strip", "none", "mosaic"]],
     // v20: the grid became the only deck layout.
     ["deckLayout", ["grid", "list", "spiral"]],
+    // v21: agent teams graduated from Experimental.
+    ["agentTeams", [true, false, "yes"]],
   ] as const) {
     it(`retired ${key} is consumed, whatever it said`, () => {
       for (const value of values) {
