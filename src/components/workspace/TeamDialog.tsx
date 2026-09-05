@@ -22,7 +22,6 @@ import {
   planTeam,
   teamMembers,
   teamNameKey,
-  teamNamesIn,
   roleById,
   teamBriefing,
   teamPlanIsEmpty,
@@ -193,21 +192,13 @@ export function TeamDialog({
   // `editing` matters beyond seeding the form: who has LEFT is a question
   // about the team as it stands, so a rename must not make the members it
   // dropped invisible.
+  // A name some OTHER team holds is planTeam's refusal, not this form's:
+  // "+ Team" passes no `editing`, which is what tells it a create from an
+  // edit, and the refusal below is rendered from its words like every other.
   const planned = planTeam(workspace, draft, editing);
-  // "+ Team" is ALWAYS a new team, and a rename must stay a rename: a name
-  // some OTHER team holds would not create or rename anything. planTeam
-  // would settle it as an edit of that team (create), or silently MERGE
-  // two teams into one name with duplicate addresses (rename) — either
-  // way, members evicted or mail misdelivered with nobody re-briefed. So
-  // it is refused in words instead.
-  const nameTaken = teamNamesIn(workspace).some(
-    (existing) =>
-      teamNameKey(existing) === teamNameKey(name) &&
-      (editing === null || teamNameKey(existing) !== teamNameKey(editing)),
-  );
   // Nothing to do is not an error, but it is not a confirmable form either:
   // a dialog that dispatches a no-op teaches people it did something.
-  const valid = planned.ok && !teamPlanIsEmpty(planned.value) && !nameTaken;
+  const valid = planned.ok && !teamPlanIsEmpty(planned.value);
 
   /** Whether a roles-map entry still names a pane the workspace holds. */
   const paneLives = (paneId: string) =>
@@ -637,18 +628,13 @@ export function TeamDialog({
           </>
         )}
 
-        {touched && (nameTaken || !planned.ok) && (
+        {touched && !planned.ok && (
           // Its own style, not the git hint's: that one is green, and a
           // refusal rendered in the colour of a positive result is read as
           // one. Directly above the actions, where the disabled button that
           // it explains actually is.
           <p className="form__error team__error" role="alert">
-            ⚠{" "}
-            {nameTaken
-              ? `a team called “${name.trim()}” already exists — open it from an agent's badge to edit it`
-              : planned.ok
-                ? ""
-                : planned.message}
+            ⚠ {planned.message}
           </p>
         )}
 
