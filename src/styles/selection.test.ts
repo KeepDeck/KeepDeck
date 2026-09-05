@@ -167,7 +167,7 @@ describe("selection and cursor baseline", () => {
       <div class="modal-overlay">
         <div class="form">
           <input class="form__input" />
-          <textarea class="form__input skills__desc"></textarea>
+          <textarea class="form__input library__desc"></textarea>
           <button type="button" class="form__input dropdown__button">Pick one</button>
         </div>
       </div>

@@ -37,6 +37,7 @@ export function buildSkillGroups(
       label: "Global",
       scope: { kind: "global" },
       items: all.filter((s) => sameSkillScope(s.scope, { kind: "global" })),
+      canCreate: true,
     },
   ];
   if (activeWs) {
@@ -45,18 +46,21 @@ export function buildSkillGroups(
       label: activeWs.name,
       scope,
       items: all.filter((s) => sameSkillScope(s.scope, scope)),
+      canCreate: true,
     });
   }
   // The bundled tier LAST (user content outranks app content on the
   // user's machine) — rows render from the list, both a user-global and
   // the bundled same-name row visible side by side (namespaces at rest;
-  // resolution-by-name lives in staging alone).
+  // resolution-by-name lives in staging alone). Read-only: nothing is
+  // authored into it.
   const bundled = all.filter((s) => s.scope.kind === "bundled");
   if (bundled.length > 0) {
     built.push({
       label: "Bundled",
       scope: { kind: "bundled" },
       items: bundled,
+      canCreate: false,
     });
   }
   return built;

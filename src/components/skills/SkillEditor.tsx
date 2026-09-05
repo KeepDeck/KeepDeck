@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { SKILL_NAME_RULE, type SkillDraft } from "../../domain/skills";
-import { DestructiveButton } from "../../ui/DestructiveButton";
-import { Chip } from "../../ui/Chip";
+import { EditorFrame } from "../library/EditorFrame";
 
 /** What the dialog decided about the current draft — the editor renders
  * verdicts, it never re-derives them. */
@@ -37,9 +36,6 @@ interface SkillEditorProps {
   dirty: boolean;
   validation: SkillValidation;
   canSave: boolean;
-  /** A write is in flight. Both buttons go quiet — a delete racing a save can
-   * re-create the skill the user just confirmed deleting, and the guard has to
-   * be visible rather than silently swallowing the click. */
   busy: boolean;
   error: string | null;
   onField(key: "name" | "description" | "body", value: string): void;
@@ -47,9 +43,9 @@ interface SkillEditorProps {
   onDelete(): void;
 }
 
-/** The editor panel — deliberately a CONTROLLED form (not an autonomous
- * SettingsDialog-style section): the dialog's state machine owns every
- * decision; this component only renders it. */
+/** The skill editor's fields inside the shared frame — deliberately a
+ * CONTROLLED form: the dialog's state machine owns every decision; this
+ * component only renders it. */
 export function SkillEditor({
   creating,
   savedName,
@@ -77,25 +73,26 @@ export function SkillEditor({
   }, [creating]);
 
   return (
-    <>
-      {readOnlyNotice && (
-        <p className="skills__readonly-note">{readOnlyNotice}</p>
-      )}
-      <div className="skills__editor-head">
-        <h3 className="skills__editor-title">
-          {creating ? "New skill" : savedName}
-          {!readOnly && dirty && (
-            <span
-              className="skills__dirty"
-              title="Unsaved changes"
-              aria-label="Unsaved changes"
-            />
-          )}
-        </h3>
-        <Chip size="inline" className="skills__scope" label={scopeLabel} />
-      </div>
-
-      <div className="skills__meta">
+    <EditorFrame
+      creating={creating}
+      newTitle="New skill"
+      savedName={savedName}
+      scopeLabel={scopeLabel}
+      readOnly={readOnly}
+      readOnlyNotice={readOnlyNotice}
+      dirty={dirty}
+      vanishedMessage={
+        validation.vanished
+          ? "This skill was removed or renamed elsewhere. Copy anything you want to keep — saving it here would recreate a skill someone deleted."
+          : null
+      }
+      error={error}
+      canSave={canSave}
+      busy={busy}
+      onSubmit={onSubmit}
+      onDelete={onDelete}
+    >
+      <div className="library__meta">
         <label className="form__label" htmlFor="skill-name">
           Name
         </label>
@@ -134,7 +131,7 @@ export function SkillEditor({
             here and the dialog folds pasted newlines to spaces. */}
         <textarea
           id="skill-description"
-          className="form__input skills__desc"
+          className="form__input library__desc"
           rows={3}
           value={form.description}
           onChange={(e) => {
@@ -148,11 +145,9 @@ export function SkillEditor({
           placeholder="When should an agent reach for this skill"
           spellCheck={false}
         />
-        {readOnlyHint && (
-          <p className="skills__readonly-hint">{readOnlyHint}</p>
-        )}
+        {readOnlyHint && <p className="library__readonly-hint">{readOnlyHint}</p>}
         {validation.descriptionProblem === "empty" && (
-          <div className="skills__hint">
+          <div className="library__hint">
             Required — agents pick skills by description, and some silently
             drop a skill without one
           </div>
@@ -164,12 +159,12 @@ export function SkillEditor({
         )}
       </div>
 
-      <label className="form__label skills__body-label" htmlFor="skill-body">
+      <label className="form__label library__body-label" htmlFor="skill-body">
         Instructions · Markdown
       </label>
       <textarea
         id="skill-body"
-        className="skills__text"
+        className="library__text"
         value={form.body}
         onChange={(e) => {
           if (!readOnly) onField("body", e.target.value);
@@ -179,36 +174,6 @@ export function SkillEditor({
         placeholder="What the agent reads when the skill triggers"
         spellCheck={false}
       />
-
-      {!readOnly && validation.vanished && (
-        <div className="form__error">
-          This skill was removed or renamed elsewhere. Copy anything you want to
-          keep — saving it here would recreate a skill someone deleted.
-        </div>
-      )}
-      {/* Backend text, not authored copy — selectable so it can be copied into
-          a bug report, unlike the fixed guidance in the fields above. */}
-      {!readOnly && error && (
-        <div className="form__error kd-selectable">{error}</div>
-      )}
-      {!readOnly && (
-        <div className="skills__actions">
-          {!creating && (
-            <DestructiveButton onClick={onDelete} disabled={busy}>
-              Delete
-            </DestructiveButton>
-          )}
-          <span className="skills__actions-gap" />
-          <button
-            type="button"
-            className="form__create"
-            onClick={onSubmit}
-            disabled={!canSave || busy}
-          >
-            {creating ? "Create" : "Save"}
-          </button>
-        </div>
-      )}
-    </>
+    </EditorFrame>
   );
 }

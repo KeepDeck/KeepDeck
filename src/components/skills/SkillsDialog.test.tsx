@@ -85,8 +85,8 @@ const skill = (
 
 const row = (name: string) =>
   Array.from(
-    document.querySelectorAll<HTMLButtonElement>(".skills__item"),
-  ).find((b) => b.querySelector(".skills__item-name")?.textContent === name);
+    document.querySelectorAll<HTMLButtonElement>(".library__item"),
+  ).find((b) => b.querySelector(".library__item-name")?.textContent === name);
 const button = (text: string) =>
   Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === text,
@@ -222,10 +222,10 @@ describe("SkillsDialog", () => {
     await mount({ id: "ws-1", name: "My project" });
 
     act(() => row("mine")!.click());
-    expect(document.querySelector(".skills__scope")!.textContent).toBe("My project");
+    expect(document.querySelector(".library__scope")!.textContent).toBe("My project");
 
     act(() => row("shared")!.click());
-    expect(document.querySelector(".skills__scope")!.textContent).toBe("Global");
+    expect(document.querySelector(".library__scope")!.textContent).toBe("Global");
   });
 
   it("keeps the editor's own DOM across a save that re-anchors the selection", async () => {
@@ -420,7 +420,7 @@ describe("SkillsDialog", () => {
     act(() => row("review")!.click());
 
     expect(
-      document.querySelector(".skills__editor-title")!.textContent,
+      document.querySelector(".library__editor-title")!.textContent,
     ).toContain("review");
     expect(input("skill-name").value).toBe("review");
     expect(input("skill-name").disabled).toBe(false);
@@ -502,7 +502,7 @@ describe("SkillsDialog", () => {
     });
     // The confirm's own handler dismisses it; this dialog must not have
     // claimed the same press, or one Escape would close both.
-    expect(document.querySelector(".skills")).not.toBeNull();
+    expect(document.querySelector(".library")).not.toBeNull();
 
     const own = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
     await act(async () => {
@@ -534,7 +534,7 @@ describe("SkillsDialog", () => {
     await mount();
     act(() => button("Discard")!.click());
 
-    expect(document.querySelector(".skills__editor-title")).toBeNull();
+    expect(document.querySelector(".library__editor-title")).toBeNull();
     expect(document.body.textContent).toContain("One skill, every agent");
   });
 
@@ -559,7 +559,7 @@ describe("SkillsDialog", () => {
     lib.skills = [skill("review")];
     await mount();
     expect(
-      document.querySelector(".skills__item-desc")!.textContent,
+      document.querySelector(".library__item-desc")!.textContent,
     ).toBe("About review");
   });
 
@@ -653,13 +653,13 @@ describe("SkillsDialog", () => {
     act(() => row("deploy")!.click());
     act(() => button("Discard")!.click());
     expect(
-      document.querySelector(".skills__editor-title")!.textContent,
+      document.querySelector(".library__editor-title")!.textContent,
     ).toContain("deploy");
 
     await act(async () => releaseSave(true));
     // The completed submit must NOT pull the selection back to "review".
     expect(
-      document.querySelector(".skills__editor-title")!.textContent,
+      document.querySelector(".library__editor-title")!.textContent,
     ).toContain("deploy");
     expect(input("skill-description").value).toBe("About deploy");
   });
@@ -800,11 +800,11 @@ it("renders the Bundled group LAST with both same-name rows visible (namespaces 
   ];
   await mount();
   const labels = Array.from(
-    document.querySelectorAll(".skills__group-label"),
+    document.querySelectorAll(".library__group-label"),
   ).map((el) => el.textContent);
   expect(labels).toEqual(["Global", "My project", "Bundled"]);
   // The UNION: both rows present — the user's and the shipped one.
-  expect(document.querySelectorAll(".skills__item")).toHaveLength(2);
+  expect(document.querySelectorAll(".library__item")).toHaveLength(2);
 });
 
 it("a bundled row uses the common editor UI, read-only — no Save, no Delete", async () => {
@@ -817,11 +817,11 @@ it("a bundled row uses the common editor UI, read-only — no Save, no Delete", 
   });
   // Bundled uses the same panel markup as Global and Workspace, plus its
   // ships-with note. Read-only preserves selection/copy without write controls.
-  expect(document.querySelector(".skills__editor-head")).not.toBeNull();
+  expect(document.querySelector(".library__editor-head")).not.toBeNull();
   expect(
-    document.querySelector(".skills__readonly-note")?.textContent,
+    document.querySelector(".library__readonly-note")?.textContent,
   ).toContain("copy any part");
-  expect(document.querySelector(".skills__scope")?.textContent).toBe("Bundled");
+  expect(document.querySelector(".library__scope")?.textContent).toBe("Bundled");
   expect(input("skill-name").readOnly).toBe(true);
   expect(document.querySelector<HTMLTextAreaElement>("#skill-description")?.readOnly).toBe(true);
   expect(textarea().readOnly).toBe(true);
@@ -831,7 +831,7 @@ it("a bundled row uses the common editor UI, read-only — no Save, no Delete", 
   expect(input("skill-name").value).toBe("artifacts");
   expect(textarea().value).toContain("Body of artifacts");
   // The write machine is absent — no actions, no Save button.
-  expect(document.querySelector(".skills__actions")).toBeNull();
+  expect(document.querySelector(".library__actions")).toBeNull();
   expect(button("Save")).toBeUndefined();
   expect(button("Delete")).toBeUndefined();
 });
@@ -872,16 +872,16 @@ it("opening the BUNDLED row in the union highlights exactly one row", async () =
     await mount();
     // Open the BUNDLED row (the last one carrying the name).
     const rows = Array.from(
-      document.querySelectorAll<HTMLButtonElement>(".skills__item"),
+      document.querySelectorAll<HTMLButtonElement>(".library__item"),
     );
     const bundledRow = rows.reverse().find(
-      (b) => b.querySelector(".skills__item-name")?.textContent === "artifacts",
+      (b) => b.querySelector(".library__item-name")?.textContent === "artifacts",
     )!;
     await act(async () => {
       bundledRow.click();
     });
-    expect(document.querySelector(".skills__editor-head")).not.toBeNull();
-    const active = document.querySelectorAll(".skills__item--active");
+    expect(document.querySelector(".library__editor-head")).not.toBeNull();
+    const active = document.querySelectorAll(".library__item--active");
     expect(active).toHaveLength(1);
   });
 
@@ -903,7 +903,7 @@ it("the unlock hint shows while the artifacts setting is off, absent while on", 
         createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
       );
     });
-    const hint = document.querySelector(".skills__readonly-hint");
+    const hint = document.querySelector(".library__readonly-hint");
     expect(hint?.textContent).toContain("Fleet artifacts");
 
     // Setting ON: absent.
@@ -913,7 +913,7 @@ it("the unlock hint shows while the artifacts setting is off, absent while on", 
         createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
       );
     });
-    expect(document.querySelector(".skills__readonly-hint")).toBeNull();
+    expect(document.querySelector(".library__readonly-hint")).toBeNull();
 
     // Boot-unknown (null): no hint on unknown.
     settingsState.current = null;
@@ -922,7 +922,7 @@ it("the unlock hint shows while the artifacts setting is off, absent while on", 
         createElement(SkillsDialog, { activeWs: { id: "ws-1", name: "My project" }, onClose: () => closed++ }),
       );
     });
-    expect(document.querySelector(".skills__readonly-hint")).toBeNull();
+    expect(document.querySelector(".library__readonly-hint")).toBeNull();
   });
 
   it("the bundled group carries no + New button (the teaching is the affordance)", async () => {

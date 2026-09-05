@@ -1,7 +1,7 @@
 /* Skills dialog ([skills]) — the full-screen library editor: a .form card
    stretched to the viewport, library nav on the left (name + description
    preview per row), the controlled editor panel filling the rest. */
-.skills {
+.library {
   display: flex;
   flex-direction: column;
   width: min(1080px, 94vw);
@@ -9,7 +9,7 @@
   height: min(760px, 90vh);
 }
 
-.skills__body {
+.library__body {
   display: grid;
   grid-template-columns: 240px 1fr;
   gap: 24px;
@@ -19,7 +19,7 @@
 
 /* ---- Library nav ---- */
 
-.skills__nav {
+.library__nav {
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -28,13 +28,13 @@
   overflow-y: auto;
 }
 
-.skills__group {
+.library__group {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.skills__group-head {
+.library__group-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -45,13 +45,13 @@
   text-transform: uppercase;
 }
 
-.skills__group-label {
+.library__group-label {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.skills__new {
+.library__new {
   flex: none;
   padding: 2px 6px;
   border: none;
@@ -63,14 +63,14 @@
   cursor: pointer;
 }
 
-.skills__new:hover {
+.library__new:hover {
   background-color: #1c2230;
   color: #c5c8c6;
 }
 
 /* A library row: the name with its description under it — the list should
    answer "what does this one do" without opening anything. */
-.skills__item {
+.library__item {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -83,11 +83,11 @@
   cursor: pointer;
 }
 
-.skills__item:hover {
+.library__item:hover {
   background-color: #161c28;
 }
 
-.skills__item--active {
+.library__item--active {
   background-color: #1c2230;
 }
 
@@ -95,18 +95,18 @@
    constrain a button's flex children to the button itself, so without it the
    nowrap description lays out at content width and its ellipsis never
    triggers — the row just clips at the nav edge. */
-.skills__item-name {
+.library__item-name {
   max-width: 100%;
   color: #9aa0a6;
   font-size: 13px;
 }
 
-.skills__item--active .skills__item-name,
-.skills__item:hover .skills__item-name {
+.library__item--active .library__item-name,
+.library__item:hover .library__item-name {
   color: #c5c8c6;
 }
 
-.skills__item-desc {
+.library__item-desc {
   max-width: 100%;
   overflow: hidden;
   color: #565e6b;
@@ -115,7 +115,7 @@
   text-overflow: ellipsis;
 }
 
-.skills__empty-group {
+.library__empty-group {
   padding: 4px 10px;
   color: #4b5563;
   font-size: 12px;
@@ -124,13 +124,13 @@
 
 /* ---- Editor ---- */
 
-.skills__editor {
+.library__editor {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.skills__placeholder {
+.library__placeholder {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -143,18 +143,18 @@
   text-align: center;
 }
 
-.skills__placeholder-title {
+.library__placeholder-title {
   color: #9aa0a6;
   font-size: 15px;
   font-weight: 600;
 }
 
-.skills__placeholder span:not(.skills__placeholder-title) {
+.library__placeholder span:not(.library__placeholder-title) {
   max-width: 380px;
   line-height: 1.5;
 }
 
-.skills__editor-head {
+.library__editor-head {
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -166,7 +166,7 @@
    nothing once squeezed, while a skill name is the user's and can be any
    length. Without the floor and the ellipsis it kept its longest word and
    pushed the chip off the row instead. */
-.skills__editor-title {
+.library__editor-title {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -181,14 +181,14 @@
 }
 
 /* The unsaved-changes dot — state, not decoration. */
-.skills__dirty {
+.library__dirty {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background-color: #eab308;
 }
 
-.skills__scope {
+.library__scope {
   padding: 2px 8px;
   border-color: #262d3d;
   background-color: transparent;
@@ -198,7 +198,7 @@
 /* Name/description stretch the full editor width, same as the instructions
    editor below. A column so labels and inputs stack and stretch exactly
    like direct children of the editor column would. */
-.skills__meta {
+.library__meta {
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -206,12 +206,12 @@
 
 /* The description textarea reads like the inputs around it — it wraps
    purely for display, so no manual resize. */
-.skills__desc {
+.library__desc {
   line-height: 1.45;
   resize: none;
 }
 
-.skills__hint {
+.library__hint {
   margin-top: 6px;
   color: #6b7280;
   font-size: 12px;
@@ -220,11 +220,11 @@
 
 /* ---- Instructions + actions ---- */
 
-.skills__body-label {
+.library__body-label {
   margin-top: 16px;
 }
 
-.skills__text {
+.library__text {
   flex: 1;
   min-height: 0;
   padding: 10px 12px;
@@ -238,12 +238,12 @@
   resize: none;
 }
 
-.skills__text:focus {
+.library__text:focus {
   border-color: #3b82f6;
   outline: none;
 }
 
-.skills__actions {
+.library__actions {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -252,18 +252,18 @@
   border-top: 1px solid #1c2230;
 }
 
-.skills__actions-gap {
+.library__actions-gap {
   flex: 1;
 }
 
-.skills__readonly-note {
+.library__readonly-note {
   margin: 0 0 14px;
   color: #8b93a7;
   font-size: 12px;
   line-height: 1.5;
 }
 
-.skills__readonly-hint {
+.library__readonly-hint {
   margin: 6px 0 0;
   padding: 8px 12px;
   border: 1px solid #3a3320;
@@ -279,7 +279,7 @@
    the directories they could not get to — a different subject, and one
    the user can act on. Dismissless, because there is nothing to
    acknowledge: it goes when their own file does. */
-.skills__refusals {
+.library__refusals {
   margin: 0 16px 12px;
   padding: 10px 12px;
   border: 1px solid #4a4030;
@@ -289,7 +289,7 @@
   color: #c5c8c6;
 }
 
-.skills__refusals-title {
+.library__refusals-title {
   display: block;
   margin-bottom: 6px;
 }
@@ -297,7 +297,7 @@
 /* One refused folder and why — a block per entry, like the settings
    surface's: run together they read as one sentence about the wrong
    folder. */
-.skills__refusals li {
+.library__refusals li {
   display: block;
   margin-top: 4px;
   overflow-wrap: anywhere;

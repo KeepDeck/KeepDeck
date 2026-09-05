@@ -57,7 +57,7 @@ export function SkillsDialog({
 
   return (
     <ModalOverlay>
-      <div className="form skills" role="dialog" aria-modal="true" aria-label="Skills">
+      <div className="form library" role="dialog" aria-modal="true" aria-label="Skills">
         <div className="settings__head">
           <h2 className="form__title settings__title">Skills</h2>
           <CloseButton
@@ -67,8 +67,8 @@ export function SkillsDialog({
         </div>
 
         {refusals.length > 0 && (
-          <div className="skills__refusals" role="status">
-            <span className="skills__refusals-title">
+          <div className="library__refusals" role="status">
+            <span className="library__refusals-title">
               Some directories kept their own <code>.agents</code>, so skills
               were not planted there:
             </span>
@@ -82,7 +82,7 @@ export function SkillsDialog({
           </div>
         )}
 
-        <div className="skills__body">
+        <div className="library__body">
           <SkillsNav
             groups={groups}
             // Until the first read lands, an empty group must not claim the
@@ -108,9 +108,9 @@ export function SkillsDialog({
             onCreate={(scope) => editor.navigate({ mode: "create", scope })}
           />
 
-          <section className="skills__editor">
+          <section className="library__editor">
             {selection === null ? (
-              <div className="skills__placeholder">
+              <div className="library__placeholder">
                 {skills === null ? (
                   "Loading…"
                 ) : error !== null ? (
@@ -119,14 +119,14 @@ export function SkillsDialog({
                   // place an error appears — is not mounted. Without this the
                   // dialog claims you simply have no skills.
                   <span
-                    className="skills__placeholder-title kd-selectable"
+                    className="library__placeholder-title kd-selectable"
                     role="alert"
                   >
                     {error}
                   </span>
                 ) : (
                   <>
-                    <span className="skills__placeholder-title">
+                    <span className="library__placeholder-title">
                       One skill, every agent
                     </span>
                     <span>
