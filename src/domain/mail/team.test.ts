@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Pane, Workspace } from "../deck";
 import { createWorkspaceInstance } from "../workspaceInstance";
-import { resolveMailTarget, teamMembers, teamOf } from "./team";
+import { paneIsOnTeam, resolveMailTarget, teamMembers, teamNameKey, teamOf } from "./team";
 
 const AGENTS = [{ id: "claude", label: "Claude" }];
 
@@ -27,6 +27,26 @@ describe("teamMembers", () => {
       pane("pane-4"),
     ]);
     expect(teamMembers(ws, "api").map((p) => p.id)).toEqual(["pane-1", "pane-2"]);
+  });
+});
+
+describe("teamNameKey", () => {
+  it("folds case and surrounding space, and nothing else", () => {
+    expect(teamNameKey(" API ")).toBe("api");
+    expect(teamNameKey("api")).toBe("api");
+    expect(teamNameKey("Api Team")).toBe("api team");
+  });
+});
+
+describe("paneIsOnTeam", () => {
+  it("matches a name however it was cased or padded, on either side", () => {
+    // A hand-edited document can hold " API "; the person typing "api"
+    // means that team. Both sides go through the one key.
+    const member = pane("pane-1", { name: " API ", role: "lead" });
+    expect(paneIsOnTeam(member, "api")).toBe(true);
+    expect(paneIsOnTeam(member, "  Api")).toBe(true);
+    expect(paneIsOnTeam(member, "web")).toBe(false);
+    expect(paneIsOnTeam(pane("pane-2"), "api")).toBe(false);
   });
 });
 

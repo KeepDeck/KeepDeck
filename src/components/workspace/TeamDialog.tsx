@@ -21,6 +21,7 @@ import {
   planDisband,
   planTeam,
   teamMembers,
+  teamNameKey,
   teamNamesIn,
   roleById,
   teamBriefing,
@@ -199,12 +200,10 @@ export function TeamDialog({
   // two teams into one name with duplicate addresses (rename) — either
   // way, members evicted or mail misdelivered with nobody re-briefed. So
   // it is refused in words instead.
-  const trimmedName = name.trim().toLowerCase();
   const nameTaken = teamNamesIn(workspace).some(
     (existing) =>
-      existing.toLowerCase() === trimmedName &&
-      (editing === null ||
-        existing.toLowerCase() !== editing.trim().toLowerCase()),
+      teamNameKey(existing) === teamNameKey(name) &&
+      (editing === null || teamNameKey(existing) !== teamNameKey(editing)),
   );
   // Nothing to do is not an error, but it is not a confirmable form either:
   // a dialog that dispatches a no-op teaches people it did something.
@@ -342,7 +341,7 @@ export function TeamDialog({
     if (!entry.pane.team || paneIsOnTeam(entry.pane, currentTeam)) continue;
     const team = entry.pane.team.name;
     const group = spokenFor.find(
-      (candidate) => candidate.team.toLowerCase() === team.toLowerCase(),
+      (candidate) => teamNameKey(candidate.team) === teamNameKey(team),
     );
     if (group) group.members.push(entry);
     else spokenFor.push({ team, members: [entry] });

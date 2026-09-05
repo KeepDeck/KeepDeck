@@ -28,19 +28,31 @@ export function teamMembers(workspace: Workspace, name: string): Pane[] {
 }
 
 /**
+ * The key two team names are compared by: trimmed, lower-cased.
+ *
+ * A name is a badge, stored as the person wrote it; the KEY is how every
+ * question about it — membership, uniqueness, "is this a rename" — is
+ * answered, and it is answered here once. Comparison and storage are
+ * different questions: the sites that spelled the comparison inline had
+ * already drifted (one trimmed, one did not) by the time this was named, and
+ * a hand-edited document with " api " beside "api" read as two teams to one
+ * of them and one team to the other.
+ */
+export function teamNameKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/**
  * Whether this pane holds that team's name.
  *
  * One comparison, in one place. Membership is "the pane claims the name",
- * matched case- and space-insensitively for the same reason roles are: the
- * person typing "API" means the team they called "api". Three sites spelled
- * that out inline with three slightly different normalisations — they cannot
- * disagree while every stored name has been trimmed on the way in, but the
- * moment membership stops being a name comparison (an id, a pane on two
- * teams, a folding rule) the ones that were missed keep answering the old
- * question.
+ * matched by [`teamNameKey`] for the same reason roles are: the person typing
+ * "API" means the team they called "api". The moment membership stops being
+ * a name comparison (an id, a pane on two teams, a folding rule) this is the
+ * one site that changes.
  */
 export function paneIsOnTeam(pane: Pane, name: string): boolean {
-  return pane.team?.name.trim().toLowerCase() === name.trim().toLowerCase();
+  return pane.team !== undefined && teamNameKey(pane.team.name) === teamNameKey(name);
 }
 
 /**

@@ -267,6 +267,22 @@ describe("planTeam", () => {
     expect(result.ok && result.value.formerName).toBe("api");
   });
 
+  it("does not call a re-spelling of the same name a rename", () => {
+    // The key decides: " API " is the team called "api", so nobody is
+    // released and no former name is reported — a farewell would otherwise
+    // have named a team that never changed.
+    const ws = workspace([pane("pane-1", { name: "api", role: "lead" })]);
+    const result = planTeam(
+      ws,
+      draft({ name: " API ", members: [{ paneId: "pane-1", role: "lead" }] }),
+      "api",
+    );
+    expect(result.ok && result.value.formerName).toBeUndefined();
+    expect(result.ok && result.value.released).toEqual([]);
+    // The badge keeps the spelling the person chose; only the key folds.
+    expect(result.ok && result.value.name).toBe("API");
+  });
+
   it("disbands without demanding a lead for the empty roster it leaves", () => {
     // An empty roster is not a team missing its head — it is a team being
     // taken apart, and demanding a lead there would make that impossible.
@@ -349,6 +365,14 @@ describe("teamNamesIn", () => {
     const ws = workspace([
       pane("pane-1", { name: "api", role: "lead" }),
       pane("pane-2", { name: "API", role: "impl-1" }),
+    ]);
+    expect(teamNamesIn(ws)).toEqual(["api"]);
+  });
+
+  it("counts a name once however it was padded — a document's \" API \" is the same team", () => {
+    const ws = workspace([
+      pane("pane-1", { name: "api", role: "lead" }),
+      pane("pane-2", { name: " API ", role: "impl-1" }),
     ]);
     expect(teamNamesIn(ws)).toEqual(["api"]);
   });

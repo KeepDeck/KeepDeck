@@ -26,7 +26,7 @@ import {
   peerRole,
   type RoleStanding,
 } from "./roles";
-import { paneIsOnTeam, teamMembers } from "./team";
+import { paneIsOnTeam, teamMembers, teamNameKey } from "./team";
 
 /** An existing pane taking a role. */
 export interface TeamMemberDraft {
@@ -190,7 +190,7 @@ export function teamNamesIn(workspace: Workspace): string[] {
   for (const pane of workspace.panes) {
     const name = pane.team?.name;
     if (!name) continue;
-    const key = name.toLowerCase();
+    const key = teamNameKey(name);
     if (seen.has(key)) continue;
     seen.add(key);
     names.push(name);
@@ -329,8 +329,7 @@ export function planTeam(
 
   // Never any: settling a roster is an edit. Ending an agent is asked for
   // separately, by the one gesture that means it.
-  const renamed =
-    editing !== null && editing.trim().toLowerCase() !== name.toLowerCase();
+  const renamed = editing !== null && teamNameKey(editing) !== teamNameKey(name);
   return {
     ok: true,
     value: {
