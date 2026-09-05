@@ -53,11 +53,13 @@ const stagedSkills = () => Promise.resolve(skillsState.views);
 // whole point of it being separate from the answer.
 const mcpState = vi.hoisted(() => ({
   servers: [] as McpServerSpec[],
+  env: [] as [string, string][],
   delivered: [] as string[],
 }));
 const mcpAccess = (target: { paneId?: string; cwd: string }) =>
   Promise.resolve({
     servers: mcpState.servers,
+    env: mcpState.env,
     deliver: async () => {
       mcpState.delivered.push(target.cwd);
     },
@@ -126,6 +128,7 @@ describe("building one plan through the agent hook", () => {
     hostState.installed = [];
     skillsState.views = null;
     mcpState.servers = [];
+    mcpState.env = [];
     mcpState.delivered = [];
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -397,6 +400,32 @@ describe("building one plan through the agent hook", () => {
     await mount(ws([{ id: "pane-1", agentType: "claude" }]));
     await settle();
     expect(inputs[1]).toEqual({ servers: mcpState.servers });
+  });
+
+  it("what the servers need in the environment reaches the plan — even a bare one", async () => {
+    // The values a spec only NAMES live nowhere but here, and a file-fed CLI
+    // reads its servers from its cwd whatever argv it got: a hook that threw
+    // still yields a plan whose environment carries them.
+    mcpState.env = [["GH_TOKEN", "ghp_secret"]];
+    register(adopting);
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(seen["pane-1"].env).toContainEqual(["GH_TOKEN", "ghp_secret"]);
+
+    dropPaneSpawnSpec("pane-1");
+    registered.forEach((d) => d.dispose());
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("hook broke");
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(seen["pane-1"].args).toEqual([]);
+    expect(seen["pane-1"].env).toContainEqual(["GH_TOKEN", "ghp_secret"]);
   });
 
   it("no MCP servers leaves the hook input sparse — nothing to tell apart", async () => {

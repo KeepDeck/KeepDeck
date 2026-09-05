@@ -31,6 +31,9 @@ import type { SpawnPluginAccess } from "./index";
  * this plan builder import the feature module. */
 export interface McpAccess {
   servers: McpServerSpec[];
+  /** What the pane's environment must carry for those servers — the values
+   * their specs only NAME, kept off argv by design. */
+  env: [string, string][];
   deliver(): Promise<void>;
 }
 
@@ -182,6 +185,10 @@ export async function buildPlan(
     .getInstalled()
     .find((installed) => installed.manifest.id === pluginId);
   const mcpServers = renderableBy(access?.servers ?? [], owner, entry.id);
+  // Owed by every plan, the bare one included: a file-fed CLI reads its
+  // servers from its cwd whatever argv it was given, and their values live
+  // nowhere but here.
+  const mcpEnv = access?.env ?? [];
   /** Owed by every exit that produces a plan, and by none that throws: a
    * rejected resume or fork must plant nothing. */
   const deliver = () => access?.deliver() ?? Promise.resolve();
@@ -239,7 +246,7 @@ export async function buildPlan(
     // secret rides along for the same reason — the planted config names it,
     // and dropping it would resolve that pane's every call to nobody.
     return {
-      plan: { command: entry.detect.bin, args: [], env: [], mcpToken },
+      plan: { command: entry.detect.bin, args: [], env: mcpEnv, mcpToken },
       deliver,
     };
   }
@@ -289,10 +296,9 @@ export async function buildPlan(
   //
   // Whole, not a port: assembling an address means knowing the route, and a
   // reporter that knew it would have to be told when the route moves.
-  const env: [string, string][] =
+  const bridge: [string, string][] =
     token && paneDir && ctx.bridgeUrl
       ? [
-          ...output.env,
           [
             "KEEPDECK_BRIDGE",
             JSON.stringify({
@@ -304,7 +310,8 @@ export async function buildPlan(
             }),
           ],
         ]
-      : output.env;
+      : [];
+  const env: [string, string][] = [...output.env, ...mcpEnv, ...bridge];
   return {
     plan: {
       command: output.command,

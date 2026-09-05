@@ -419,7 +419,7 @@ export function Probe() {
           pluginRegistries: { agents: { list: () => [] } },
         } as unknown as SpawnPluginAccess,
         probe: ipc.probeWorktree,
-        mcpAccess: async () => ({ servers: [], deliver: async () => {} }),
+        mcpAccess: async () => ({ servers: [], env: [], deliver: async () => {} }),
         lifecycle,
         worktrees: {
           provision: (requests, workspaceName) => {
