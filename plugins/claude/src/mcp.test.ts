@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { SpawnMcpInput } from "@keepdeck/plugin-api";
+import type { McpStdioServerSpec } from "@keepdeck/plugin-api";
 import { mcpArgs } from "./mcp";
 
-const server = (name: string): SpawnMcpInput["servers"][number] => ({
+const server = (name: string): McpStdioServerSpec => ({
   name,
   transport: "stdio",
   command: "/bin/keepdeck",
@@ -47,5 +47,49 @@ describe("claude --mcp-config", () => {
   it("adds nothing when there is nothing to inject", () => {
     expect(mcpArgs(undefined)).toEqual([]);
     expect(mcpArgs({ servers: [] })).toEqual([]);
+  });
+
+  it("keeps a passthrough name OUT of the config — claude inherits", () => {
+    // The value is in the pane's environment already; naming the variable
+    // in the config would add nothing, and an `env` entry would need a value
+    // this renderer must never see.
+    const args = mcpArgs({
+      servers: [{ ...server("gh"), envPassthrough: ["GH_TOKEN"] }],
+    });
+    expect(JSON.parse(args[1]!).mcpServers.gh).toEqual({
+      command: "/bin/keepdeck",
+      args: ["--mcp-shim", "/home/mcp.sock"],
+    });
+  });
+
+  it("declares a remote server as type http, token referenced as ${VAR}", () => {
+    // claude expands `${VAR}` from its own environment — the pane's — so the
+    // token never enters the argument `ps` can read.
+    const args = mcpArgs({
+      servers: [
+        {
+          name: "github",
+          transport: "http",
+          url: "https://api.githubcopilot.com/mcp/",
+          headers: { "X-Org": "keepdeck" },
+          bearerTokenEnv: "GH_TOKEN",
+        },
+      ],
+    });
+    expect(JSON.parse(args[1]!).mcpServers.github).toEqual({
+      type: "http",
+      url: "https://api.githubcopilot.com/mcp/",
+      headers: { "X-Org": "keepdeck", Authorization: "Bearer ${GH_TOKEN}" },
+    });
+  });
+
+  it("leaves headers out of a remote server that sends none", () => {
+    const args = mcpArgs({
+      servers: [{ name: "plain", transport: "http", url: "https://mcp.example/" }],
+    });
+    expect(JSON.parse(args[1]!).mcpServers.plain).toEqual({
+      type: "http",
+      url: "https://mcp.example/",
+    });
   });
 });

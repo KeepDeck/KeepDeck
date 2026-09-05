@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type { SpawnMcpInput } from "@keepdeck/plugin-api";
+import type { McpStdioServerSpec, SpawnMcpInput } from "@keepdeck/plugin-api";
 import { mcpArgs } from "./mcp";
 
 const input = (...servers: SpawnMcpInput["servers"]): SpawnMcpInput => ({
   servers,
 });
 
-const server = (name: string): SpawnMcpInput["servers"][number] => ({
+const server = (name: string): McpStdioServerSpec => ({
   name,
   transport: "stdio",
   command: "/bin/keepdeck",
@@ -108,5 +108,44 @@ describe("codex MCP overrides", () => {
   it("adds nothing when there is nothing to inject", () => {
     expect(mcpArgs(undefined)).toEqual([]);
     expect(mcpArgs(input())).toEqual([]);
+  });
+
+  it("forwards a passthrough name through env_vars — the allowlist's own door", () => {
+    // The value is in the pane's environment; `env_vars` is how codex is told
+    // to let it through to the child. It never appears in the override.
+    const passthrough = { ...server("gh"), envPassthrough: ["GH_TOKEN", "GH_HOST"] };
+    expect(mcpArgs(input(passthrough))[1]).toBe(
+      'mcp_servers.gh={command="/bin/keepdeck",args=["--mcp-shim","/home/mcp.sock"],' +
+        'env_vars=["GH_TOKEN","GH_HOST"]}',
+    );
+  });
+
+  it("renders a remote server with url, its token-from-env field and headers", () => {
+    // codex's own vocabulary: `bearer_token_env_var` names the variable,
+    // `http_headers` carries the literal ones. No `${VAR}` — codex does not
+    // expand it, and the native field is what keeps the token off argv.
+    const remote = input({
+      name: "github",
+      transport: "http",
+      url: "https://api.githubcopilot.com/mcp/",
+      headers: { "X-Org": "keepdeck" },
+      bearerTokenEnv: "GH_TOKEN",
+    });
+    expect(mcpArgs(remote)).toEqual([
+      "-c",
+      'mcp_servers.github={url="https://api.githubcopilot.com/mcp/",' +
+        'bearer_token_env_var="GH_TOKEN",http_headers={"X-Org"="keepdeck"}}',
+    ]);
+  });
+
+  it("holds a remote server to the same name rule as a local one", () => {
+    const warn = vi.fn();
+    expect(
+      mcpArgs(
+        input({ name: "my.remote", transport: "http", url: "https://mcp.example/" }),
+        { warn },
+      ),
+    ).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("my.remote"));
   });
 });

@@ -1,4 +1,8 @@
-import { mapMcpServers, type SpawnMcpInput } from "@keepdeck/plugin-api";
+import {
+  mapMcpServers,
+  mcpHttpHeaders,
+  type SpawnMcpInput,
+} from "@keepdeck/plugin-api";
 
 /**
  * The injected MCP servers as an opencode config fragment.
@@ -9,15 +13,23 @@ import { mapMcpServers, type SpawnMcpInput } from "@keepdeck/plugin-api";
  * door, file or directory is involved.
  *
  * `command` is one array of program + arguments here, which is opencode's own
- * shape for a local server; `environment` is its name for the env map.
+ * shape for a local server; `environment` is its name for the env map. A
+ * remote server is `type: "remote"` with its url and headers; the bearer token
+ * is referenced as `{env:VAR}`, opencode's own substitution syntax for a value
+ * read from its environment — the pane's — so the token never enters the
+ * config. A stdio server's `envPassthrough` renders nothing: opencode hands
+ * its MCP children its whole environment (probe-verified on 1.18.10).
  */
+/** One `mcp` entry: the name, and the body in opencode's shape. */
+type Entry = [string, Record<string, unknown>];
+
 export function mcpConfigFragment(
   mcp: SpawnMcpInput | undefined,
 ): { mcp: Record<string, unknown> } | null {
   if (!mcp || mcp.servers.length === 0) return null;
   return {
     mcp: Object.fromEntries(
-      mapMcpServers(mcp.servers, {
+      mapMcpServers<Entry>(mcp.servers, {
         stdio: (server) => [
           server.name,
           {
@@ -27,6 +39,18 @@ export function mcpConfigFragment(
             ...(server.env ? { environment: server.env } : {}),
           },
         ],
+        http: (server) => {
+          const headers = mcpHttpHeaders(server, (name) => `{env:${name}}`);
+          return [
+            server.name,
+            {
+              type: "remote",
+              url: server.url,
+              enabled: true,
+              ...(headers ? { headers } : {}),
+            },
+          ];
+        },
       }),
     ),
   };

@@ -19,13 +19,14 @@ export type {
   Shortfall,
   SpawnPlanInput,
   SpawnPlanOutput,
+  McpHttpServerSpec,
   McpServerSpec,
   McpStdioServerSpec,
   SpawnMcpInput,
   SpawnSkillsInput,
   SpawnTarget,
 } from "./agents.ts";
-export { mapMcpServers } from "./agents.ts";
+export { MCP_HTTP_API, mapMcpServers, mcpHttpHeaders } from "./agents.ts";
 export type {
   AgentStatus,
   AgentStatusEvent,
