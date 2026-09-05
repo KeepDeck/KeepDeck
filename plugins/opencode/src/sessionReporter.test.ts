@@ -13,6 +13,10 @@ import reporter from "../resources/session-reporter.js";
 // and which makes a suite of many panes in one process need a fresh start.
 // @ts-expect-error untyped resource module
 import { paneSession, resetPaneSession } from "../resources/pane-session.js";
+// The wire's own word for "everything handed over has landed" — see
+// `envelopes` below for why silence is not it.
+// @ts-expect-error untyped resource module
+import { drained } from "../resources/keepdeck-bridge.js";
 
 /** An opencode `session.created` event; `parentID` marks a CHILD session. */
 const created = (id: string, parentID?: string) => ({
@@ -84,9 +88,14 @@ describe("opencode session reporter", () => {
    * Async, and that is the shape of the change: this reporter fires and
    * forgets, and it used to forget a synchronous file write. A post is still
    * in flight when the call returns, so reading what was reported means
-   * waiting for it to land.
+   * waiting for it to land — for the WIRE to say so, not for silence. The
+   * posts queue one behind another, and on a loaded machine the gap between
+   * two of them ran past the deck's idea of quiet: `idle` returned with one
+   * envelope of two, and the suite read as a flake. The wire's drain is the
+   * fact; the quiet wait stays only for the cases that assert nothing came.
    */
   const envelopes = async (): Promise<any[]> => {
+    await drained();
     await deck.idle();
     return deck.envelopes as any[];
   };

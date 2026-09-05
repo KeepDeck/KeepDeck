@@ -140,6 +140,16 @@ export function publish(bridge, envelope) {
   outbound = outbound.then(() => sendEnvelope(bridge, envelope)).catch(() => {});
 }
 
+/** Settles once every envelope handed to `publish` so far has been sent, or
+ * failed and been swallowed. For a reader that wants what was reported
+ * without guessing at quiet: the handler returns before the post, and this
+ * chain is the only thing that knows when the post landed. A test that waited
+ * for silence instead read one envelope of two whenever the machine paused
+ * between them for longer than its idea of silence. */
+export function drained() {
+  return outbound;
+}
+
 /** How long to give the whole round trip, matching the shell reporters'
  * `SEND_MAX`: one number for one rule, so no two lanes disagree about it.
  *
