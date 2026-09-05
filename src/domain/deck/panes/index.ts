@@ -11,3 +11,4 @@ export * from "./factories";
 export * from "./lifecycle";
 export * from "./titles";
 export * from "./transforms";
+export * from "./location";
