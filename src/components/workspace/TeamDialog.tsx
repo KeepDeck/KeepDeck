@@ -210,12 +210,20 @@ export function TeamDialog({
   const liveRoleValues = (held: ReadonlyMap<string, string>): string[] =>
     [...held].filter(([paneId]) => paneLives(paneId)).map(([, role]) => role);
 
+  /** Every address the roster holds — the live members' and the recruits'.
+   * ONE list, because two paths mint against it: a role picked for a row,
+   * and a fresh recruit. Takes the recruits explicitly rather than closing
+   * over state, so a functional update can hand it the rows it is about to
+   * commit rather than the ones of the last render. */
+  const heldAddresses = (
+    held: ReadonlyMap<string, string>,
+    rows: readonly TeamRecruitDraft[],
+  ): string[] => [...liveRoleValues(held), ...rows.map((row) => row.role)];
+
   /** Every address the roster holds, apart from one row's own — what a fresh
    * address has to avoid. */
   const addressesBesides = (mine: string): string[] =>
-    [...liveRoleValues(roles), ...recruits.map((recruit) => recruit.role)].filter(
-      (address) => address !== mine,
-    );
+    heldAddresses(roles, recruits).filter((address) => address !== mine);
 
   /** The address for a chosen ROLE. The picker answers with a catalog id; the
    * roster stores an address, because two implementers need telling apart.
@@ -547,10 +555,7 @@ export function TeamDialog({
                 ...current,
                 {
                   agentType: canRecruit[0].id,
-                  role: suggestAddress([
-                    ...liveRoleValues(roles),
-                    ...current.map((row) => row.role),
-                  ]),
+                  role: suggestAddress(heldAddresses(roles, current)),
                   // Seeded from the global preference, like every other
                   // spawn surface, and changeable per row from there.
                   yolo: defaultYolo,
