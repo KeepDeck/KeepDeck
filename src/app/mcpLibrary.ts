@@ -27,6 +27,7 @@ import {
   type McpServerVerdict,
 } from "../domain/mcp";
 import { log } from "../ipc/log";
+import { createLibraryNotifier } from "./libraryNotifier";
 import { injectableOf } from "./mcp/injectable";
 import type { McpInjectable, McpServerSource } from "./mcp/injection";
 
@@ -103,8 +104,7 @@ const describeScope = (scope: McpScope): string =>
   scope.kind === "global" ? "the global library" : "this workspace's library";
 
 export function createMcpLibrary(ports: McpLibraryPorts): McpLibrary {
-  const listeners = new Set<() => void>();
-  let notifying = false;
+  const notifier = createLibraryNotifier();
 
   /** THE scope filter — asked by every read, answered once here. */
   async function rows(scope?: McpScope): Promise<LibraryMcpServer[]> {
@@ -139,22 +139,7 @@ export function createMcpLibrary(ports: McpLibraryPorts): McpLibrary {
     try {
       await write();
     } finally {
-      // Not re-entrant: a listener that writes would be notified by its own
-      // write, and nothing would bound the chain.
-      if (!notifying) {
-        notifying = true;
-        try {
-          for (const listener of [...listeners]) {
-            try {
-              listener();
-            } catch {
-              // A view's refresh is not this write's problem.
-            }
-          }
-        } finally {
-          notifying = false;
-        }
-      }
+      notifier.notify();
     }
   }
 
@@ -241,35 +226,37 @@ export function createMcpLibrary(ports: McpLibraryPorts): McpLibrary {
 
     forgetWorkspace: (wsId) => writeThenNotify(() => ports.storage.forgetWorkspace(wsId)),
 
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribe: notifier.subscribe,
 
     /**
      * The workspace's effective set: every global server, then the
      * workspace's own, a workspace entry replacing a global one of the same
      * name — the library's precedence rule, decided once here. A file the
      * codec cannot read is skipped with a warning rather than failing the
-     * spawn: one broken server must not cost a pane the rest.
+     * spawn — and skipped BEFORE the merge, so a broken workspace twin does
+     * not also cost the pane the global server it was meant to replace.
      */
     serversFor: async (workspaceId) => {
       const all = await rows();
-      const scoped = (kind: McpScope) => all.filter((row) => sameMcpScope(row.scope, kind));
-      const effective = new Map<string, LibraryMcpServer>();
-      for (const row of scoped({ kind: "global" })) effective.set(row.name, row);
-      for (const row of scoped({ kind: "workspace", wsId: workspaceId })) {
-        effective.set(row.name, row);
+      const readable = (scope: McpScope) =>
+        all
+          .filter((row) => sameMcpScope(row.scope, scope))
+          .flatMap((row) => {
+            const verdict = parseMcpServerFile(row.content);
+            if (verdict.kind === "malformed") {
+              log.warn("web:mcp", `library server "${row.name}" not injected: ${verdict.reason}`);
+              return [];
+            }
+            return [{ name: row.name, body: verdict.body }];
+          });
+      const effective = new Map<string, McpServerDraft>();
+      for (const server of readable({ kind: "global" })) effective.set(server.name, server);
+      for (const server of readable({ kind: "workspace", wsId: workspaceId })) {
+        effective.set(server.name, server);
       }
-      const servers: McpInjectable[] = [];
-      for (const row of effective.values()) {
-        const verdict = parseMcpServerFile(row.content);
-        if (verdict.kind === "malformed") {
-          log.warn("web:mcp", `library server "${row.name}" not injected: ${verdict.reason}`);
-          continue;
-        }
-        servers.push(injectableOf(row.name, verdict.body));
-      }
+      const servers: McpInjectable[] = [...effective.values()].map((server) =>
+        injectableOf(server.name, server.body),
+      );
       // Two servers naming one variable would leave the pane with whichever
       // value was written last — worth a line in the log, since the losing
       // server will simply fail to authenticate.

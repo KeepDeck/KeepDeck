@@ -217,6 +217,23 @@ describe("what a workspace gets", () => {
     );
   });
 
+  it("a broken workspace twin does not cost the pane the global server it meant to replace", async () => {
+    // Judged BEFORE the merge: merged first and skipped after, the malformed
+    // workspace `fs` would have displaced the global one and then vanished,
+    // leaving the pane with neither.
+    const { library } = libraryOver({
+      fetch: async () => [
+        row(GLOBAL, "fs", composeMcpServerFile({ transport: "stdio", command: "mcp-fs", args: [], env: {} })),
+        row(WS, "fs", "{not json"),
+      ],
+    });
+    const servers = await library.serversFor("ws-1");
+    expect(servers.map((s) => s.spec)).toEqual([
+      { name: "fs", transport: "stdio", command: "mcp-fs", args: [] },
+    ]);
+    expect(log.warn).toHaveBeenCalledWith("web:mcp", expect.stringContaining('"fs" not injected'));
+  });
+
   it("warns when two servers fight over one variable", async () => {
     const { library } = libraryOver({
       fetch: async () => [
