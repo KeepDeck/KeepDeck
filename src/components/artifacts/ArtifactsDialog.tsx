@@ -1,6 +1,9 @@
 import { useRef } from "react";
 import { formatAge } from "../../domain/usage";
-import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import type {
+  ArtifactMetaRow,
+  ArtifactsRegistryReadPort,
+} from "../../app/artifacts/registryRead";
 import { Button } from "../../ui/Button";
 import { CloseButton } from "../../ui/CloseButton";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
@@ -20,6 +23,9 @@ interface ArtifactsDialogProps {
   /** The workspace whose artifacts these are; `null` when no workspace is
    * open — the store is workspace-scoped, so there is nothing to list. */
   activeWs: { id: string; name: string } | null;
+  /** The store as this surface may read it — bound once at the composition
+   * root and handed down as the same object. */
+  reads: ArtifactsRegistryReadPort;
   onClose(): void;
   /** False while a transaction is stacked over this dialog: `onClose`
    * refuses then, so Escape must not be claimed either. */
@@ -40,10 +46,11 @@ interface ArtifactsDialogProps {
  */
 export function ArtifactsDialog({
   activeWs,
+  reads,
   onClose,
   canClose = true,
 }: ArtifactsDialogProps) {
-  const registry = useArtifactsRegistry(activeWs?.id ?? null);
+  const registry = useArtifactsRegistry(activeWs?.id ?? null, reads);
   const { view, busyId, confirm, expanded, query } = registry;
   // Escape belongs to the confirm while one is stacked over this dialog:
   // the handlers stack, so a single press would answer the question AND

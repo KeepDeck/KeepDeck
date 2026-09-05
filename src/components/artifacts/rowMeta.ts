@@ -2,7 +2,7 @@ import { formatAge } from "../../domain/usage";
 import type {
   ArtifactMetaRow,
   ArtifactVersionRow,
-} from "../../ipc/artifacts";
+} from "../../app/artifacts/registryRead";
 
 /**
  * A history reads newest first, while the store writes it oldest first —

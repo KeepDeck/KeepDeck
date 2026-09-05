@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { artifactChanges } from "../../app/artifacts/changes";
-import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
 import {
   installResizeObserver,
   pinListViewport,
@@ -19,25 +19,22 @@ import { ArtifactsDialog } from "./ArtifactsDialog";
 // open-by-identity ladder all run for real, which is the seam worth
 // covering — a row on screen has to reach the browser.
 vi.mock("../../ipc/artifacts", () => ({
-  artifactList: vi.fn(),
   artifactResolveUrls: vi.fn(),
   artifactDelete: vi.fn(),
-  artifactVersions: vi.fn(),
 }));
 vi.mock("../../ipc/app", () => ({ openUrl: vi.fn() }));
 
 import { openUrl } from "../../ipc/app";
-import {
-  artifactDelete,
-  artifactList,
-  artifactResolveUrls,
-  artifactVersions,
-} from "../../ipc/artifacts";
+import { artifactDelete, artifactResolveUrls } from "../../ipc/artifacts";
+import type { ArtifactsRegistryReadPort } from "../../app/artifacts/registryRead";
 
-const listed = vi.mocked(artifactList);
+// The reads are a port the dialog is handed, doubled as one object for the
+// whole file — the machine keys its list effect on it.
+const listed = vi.fn<ArtifactsRegistryReadPort["list"]>();
+const history = vi.fn<ArtifactsRegistryReadPort["versions"]>();
+const reads: ArtifactsRegistryReadPort = { list: listed, versions: history };
 const resolved = vi.mocked(artifactResolveUrls);
 const removed = vi.mocked(artifactDelete);
-const history = vi.mocked(artifactVersions);
 const opened = vi.mocked(openUrl);
 
 const row = (id: string, over: Partial<ArtifactMetaRow> = {}): ArtifactMetaRow => ({
@@ -71,7 +68,7 @@ const render = (
   activeWs: { id: string; name: string } | null = { id: "ws-1", name: "KeepDeck" },
 ) => {
   act(() =>
-    root.render(createElement(ArtifactsDialog, { activeWs, onClose: () => {} })),
+    root.render(createElement(ArtifactsDialog, { activeWs, reads, onClose: () => {} })),
   );
 };
 const settle = () => act(async () => {});

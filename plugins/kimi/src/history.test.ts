@@ -314,7 +314,11 @@ describe("kimi history", () => {
     expect(await history.content(wire)).toContain("held");
   });
 
-  it("a page cut short by the budget says so in bytes", async () => {
+  // Its own time budget, not the suite's: the ~9 MB fixture has to exceed the
+  // host's 8 MiB read budget, and walking it is this test's own cost — on a
+  // machine running other suites at once it has taken 5–8 s and read as a
+  // flake. Twenty seconds names the cost; a page that never comes back still fails.
+  it("a page cut short by the budget says so in bytes", { timeout: 20_000 }, async () => {
     // kimi is the store where a cut can land INSIDE an emitted turn: the
     // dialect accumulates fragments across lines, so the tail turn is short
     // and looks whole. That specific loss is unprovable from the held bytes,

@@ -10,7 +10,6 @@ import {
   paneGrid,
   paneGridTrackColumns,
   idleReadsAsStopped,
-  paneIsSuspended,
   paneResumeSessionId,
   resolveFocus,
   visiblePanes,
@@ -26,6 +25,7 @@ import { teamNamesIn } from "../domain/mail";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedTray, type MinimizedTrayEntry } from "./deck/MinimizedTray";
+import { emptyGridMessage, trayView, type ShelfEntry } from "../presentation/trayView";
 import {
   journalRows,
   type JournalRecords,
@@ -299,13 +299,6 @@ export function DeckStage({
         // ── Per-pane layout, resolved once per workspace. ─────────────────
         // The live (not minimized) panes tile; the minimized ones are hidden
         // but stay in the grid mounted.
-        const suspendedTrayPanes = ws.panes.filter(
-          (pane) => view?.suspendedTray?.includes(pane.id),
-        );
-        const suspendedTrayIds = new Set(
-          suspendedTrayPanes.map((pane) => pane.id),
-        );
-        const manuallyMinimizedSet = new Set(view?.minimized ?? []);
         const live = visiblePanes(ws.panes, view);
         const liveIndex = new Map(live.map((p, i) => [p.id, i] as const));
         const focusedHere = resolveFocus(live, view?.focus);
@@ -358,32 +351,30 @@ export function DeckStage({
         };
 
         // ── Tray entries. ─────────────────────────────────────────────────
-        // While a pane is maximized, the panes it hides count as minimized
-        // too — otherwise a fullscreen grid gives no sign the others exist.
-        // Purely a render-time derivation: the session's minimized set stays
-        // untouched, so un-maximizing brings the grid back exactly as it was.
-        const restoreById = new Map<string, () => void>();
-        for (const pane of ws.panes) {
-          if (
-            manuallyMinimizedSet.has(pane.id) &&
-            !suspendedTrayIds.has(pane.id)
-          ) {
-            restoreById.set(pane.id, () =>
-              onToggleMinimize(ws.id, pane.id),
-            );
+        // Who is on the shelf and why is the projection's answer; what each
+        // reason DOES is this component's, because it owns the callbacks. The
+        // switch is exhaustive: a reason the shelf learns to report cannot be
+        // one the stage forgets to honour.
+        const shelf = trayView(ws.panes, view, focusedHere);
+        const restoreFor = (entry: ShelfEntry): (() => void) => {
+          switch (entry.reason) {
+            case "minimized":
+              return () => onToggleMinimize(ws.id, entry.paneId);
+            case "suspendedTray":
+              return () => onRestoreSuspendedPane(ws.id, entry.paneId);
+            case "maximized":
+              // Not the minimized-restore (that exits maximize): switch the
+              // spotlight to this pane, keeping the fullscreen mode.
+              return () => {
+                onSelectPane(ws.id, entry.paneId);
+                onToggleFocus(ws.id, entry.paneId);
+              };
+            default: {
+              const unhandled: never = entry.reason;
+              throw new Error(`unhandled shelf reason: ${String(unhandled)}`);
+            }
           }
-        }
-        if (focusedHere !== null) {
-          for (const pane of live) {
-            if (pane.id === focusedHere) continue;
-            // Not the minimized-restore (that exits maximize): switch the
-            // spotlight to this pane, keeping the fullscreen mode.
-            restoreById.set(pane.id, () => {
-              onSelectPane(ws.id, pane.id);
-              onToggleFocus(ws.id, pane.id);
-            });
-          }
-        }
+        };
         // "Reads as stopped", decided once per pane and shared by the tile and
         // the tray stand-in. A pane on its way up is excluded (it resolves in
         // milliseconds and would only flicker) — but one BLOCKED on a missing
@@ -415,38 +406,12 @@ export function DeckStage({
             onRestore,
           };
         };
-        const minimizeEntries = ws.panes
-          .filter((pane) => restoreById.has(pane.id))
-          .map((pane) =>
-            entryOf(pane, "Restore", restoreById.get(pane.id)!),
-          );
-        const suspendedEntries = suspendedTrayPanes.map((pane) =>
-          entryOf(pane, "Restore", () =>
-            onRestoreSuspendedPane(ws.id, pane.id),
-          ),
+        const paneById = new Map(ws.panes.map((pane) => [pane.id, pane]));
+        const trayEntries = shelf.entries.map((entry) =>
+          entryOf(paneById.get(entry.paneId)!, "Restore", restoreFor(entry)),
         );
-        const minimizeEntryById = new Map(
-          minimizeEntries.map((entry) => [entry.id, entry]),
-        );
-        const suspendedEntryById = new Map(
-          suspendedEntries.map((entry) => [entry.id, entry]),
-        );
-        // Minimized and suspended agents share one physical shelf. Pane
-        // order remains stable and a mixed shelf is named Hidden rather than
-        // mislabeling stopped agents as merely minimized.
-        const trayEntries = ws.panes.flatMap((pane) => {
-          const entry =
-            suspendedEntryById.get(pane.id) ?? minimizeEntryById.get(pane.id);
-          return entry ? [entry] : [];
-        });
-        const trayStateLabel =
-          suspendedEntries.length > 0 && minimizeEntries.length > 0
-            ? "Hidden"
-            : suspendedTrayPanes.some((pane) => !paneIsSuspended(pane))
-              ? "Hidden"
-              : suspendedEntries.length > 0
-              ? "Suspended"
-              : "Minimized";
+        const trayStateLabel = shelf.stateLabel;
+        const emptyGrid = live.length === 0 ? emptyGridMessage(ws.panes, view) : null;
 
         // Asked once for the deck, not once per pane: a role is only an
         // identity while ONE team holds it, and with a second team running
@@ -556,28 +521,10 @@ export function DeckStage({
               >
                 {ws.panes.map(renderPane)}
               </div>
-              {live.length === 0 && (
+              {emptyGrid !== null && (
                 <div className="deck__grid-empty" role="status">
-                  <span className="deck__grid-empty-title">
-                    {suspendedTrayPanes.length === ws.panes.length
-                      ? suspendedTrayPanes.every(paneIsSuspended)
-                        ? "Every agent is suspended"
-                        : "Every agent is in the tray"
-                      : suspendedTrayPanes.length > 0 &&
-                          minimizeEntries.length > 0
-                        ? "Every agent is hidden"
-                        : suspendedTrayPanes.length > 0
-                        ? "Every agent is in the tray"
-                        : "Every agent is minimized"}
-                  </span>
-                  <span className="deck__grid-empty-sub">
-                    {/* "They keep running" is only true while none of them is
-                        stopped — a deck of suspended agents would otherwise be
-                        told the opposite of what it is. */}
-                    {suspendedTrayPanes.length > 0
-                      ? "Restore one below to inspect it"
-                      : "They keep running — restore one below to bring it back"}
-                  </span>
+                  <span className="deck__grid-empty-title">{emptyGrid.title}</span>
+                  <span className="deck__grid-empty-sub">{emptyGrid.sub}</span>
                 </div>
               )}
             </div>

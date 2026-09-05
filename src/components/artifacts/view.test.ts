@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ArtifactMetaRow } from "../../ipc/artifacts";
+import type { ArtifactMetaRow } from "../../app/artifacts/registryRead";
 import { matching, viewOf } from "./view";
 
 const row = (id: string): ArtifactMetaRow => ({

@@ -320,7 +320,12 @@ describe("claude history", () => {
     expect(page.map((e) => e.role)).toEqual(["user", "user", "user", "assistant"]);
   });
 
-  it("a page cut short by the budget says so in bytes", async () => {
+  // Its own time budget, not the suite's: the fixture has to exceed the host's
+  // 8 MiB read budget, so it is ~9 MB, and encoding and walking that is this
+  // test's own cost. On a machine running other suites at the same time it
+  // has taken 5–8 s and read as a flake; twenty seconds names the cost
+  // without hiding a regression — a page that never comes back still fails.
+  it("a page cut short by the budget says so in bytes", { timeout: 20_000 }, async () => {
     // The other half of the flag's journey. It has ridden in from Rust since
     // before this stage, and until the shortfall landed nobody read it — the
     // plugins all wrote `file.text ?? ""` and moved on. This is the assertion

@@ -166,7 +166,11 @@ describe("codex history", () => {
     });
   });
 
-  it("a page cut short by the budget says so in bytes", async () => {
+  // Its own time budget, not the suite's: the ~9 MB fixture has to exceed the
+  // host's 8 MiB read budget, and walking it is this test's own cost — on a
+  // machine running other suites at once it has taken 5–8 s and read as a
+  // flake. Twenty seconds names the cost; a page that never comes back still fails.
+  it("a page cut short by the budget says so in bytes", { timeout: 20_000 }, async () => {
     // The flag has ridden in from Rust since before this stage and nobody read
     // it — every plugin wrote `file.text ?? ""` and moved on. This is the
     // assertion that the reading speaks about itself, in the measure a file
