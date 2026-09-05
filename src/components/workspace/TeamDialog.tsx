@@ -240,14 +240,7 @@ export function TeamDialog({
       const next = new Map(current);
       // Its EXISTING role when it has one — re-adding a member of the team
       // being edited must not silently rename it — else the next suggestion.
-      next.set(
-        pane.id,
-        pane.team?.role ??
-          suggestAddress([
-            ...liveRoleValues(next),
-            ...recruits.map((r) => r.role),
-          ]),
-      );
+      next.set(pane.id, pane.team?.role ?? suggestAddress(heldAddresses(next, recruits)));
       return next;
     });
 
