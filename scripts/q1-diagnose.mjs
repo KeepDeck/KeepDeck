@@ -12,13 +12,18 @@
  *   node scripts/q1-diagnose.mjs            # all four probes
  *   Q1_SEED=85 Q1_REPS=20 node scripts/q1-diagnose.mjs C   # one probe, tuned
  *
- * Probes:
- *   A  the three history suites, parallel forks, three workers   (expected red)
- *   B  the same three, one file at a time, one worker            (expected green)
- *   C  the reporter suite alone, N repetitions                   (frequency)
- *   D  all four together, parallel and then serial               (cross-file effect)
- *   E  the WHOLE suite, N times, default pool — the only setting that has
- *      actually flaked; reports which of the four timed out each time
+ * Probes — diagnostic, not oracles: on an idle host every one of them has
+ * been green, and the only trigger confirmed so far is other suites running
+ * on the same machine at the same time. A red cell means "under THIS load";
+ * a green one means nothing about a loaded host.
+ *   A  the three history suites, parallel forks, three workers, shuffled
+ *   B  the same three, one file at a time, one worker
+ *   C  the reporter suite alone, N repetitions
+ *   D  all four together, parallel (shuffled) and then serial
+ *   E  the WHOLE suite, N times, shuffled — the setting that has flaked
+ *
+ * The seed applies only where files are shuffled (A, D-parallel, E); vitest
+ * ignores it otherwise, so a serial cell is in its fixed default order.
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -40,11 +45,13 @@ const outDir = join(".agents", "q1", new Date().toISOString().replace(/[:.]/g, "
 mkdirSync(outDir, { recursive: true });
 
 const vitest = spawnSync("npx", ["vitest", "--version"], { encoding: "utf8" }).stdout.trim();
-console.log(`q1-diagnose · node ${process.version} · ${vitest} · seed ${seed} · logs in ${outDir}`);
+console.log(
+  `q1-diagnose · node ${process.version} · ${vitest} · seed ${seed} (shuffled cells only) · logs in ${outDir}`,
+);
 
 /** One vitest run; prints one line and keeps the whole output. */
 function run(label, files, flags) {
-  const argv = ["vitest", "run", ...files, `--sequence.seed=${seed}`, ...flags];
+  const argv = ["vitest", "run", ...files, ...flags];
   const started = Date.now();
   const result = spawnSync("npx", argv, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
@@ -63,7 +70,9 @@ function run(label, files, flags) {
   return result.status;
 }
 
-const parallel = ["--pool=forks", "--maxWorkers=3"];
+/** Files shuffled under the seed, so a cell can be re-run in the same order. */
+const shuffled = ["--sequence.shuffle", `--sequence.seed=${seed}`];
+const parallel = ["--pool=forks", "--maxWorkers=3", "--fileParallelism", ...shuffled];
 const serial = ["--no-file-parallelism", "--maxWorkers=1"];
 
 if (wants("A")) run("A-parallel", HISTORY, parallel);
@@ -83,7 +92,7 @@ if (wants("E")) {
   const fullReps = Number(process.env.Q1_FULL_REPS ?? "3");
   let failures = 0;
   for (let i = 1; i <= fullReps; i += 1) {
-    if (run(`E-full${String(i).padStart(2, "0")}`, [], []) !== 0) failures += 1;
+    if (run(`E-full${String(i).padStart(2, "0")}`, [], shuffled) !== 0) failures += 1;
   }
   console.log(`E              ${failures}/${fullReps} full runs failed`);
 }
