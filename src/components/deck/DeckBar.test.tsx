@@ -36,6 +36,7 @@ const BASE: DeckBarProps = {
   canOpenDialog: true,
   onOpenStats: () => {},
   onOpenSkills: () => {},
+  onOpenMcp: () => {},
   onOpenArtifacts: null,
   onOpenSettings: () => {},
   notifications: null,
@@ -155,6 +156,7 @@ describe("DeckBar", () => {
       level: { kind: "teams", onAddTeam: () => calls.push("team") },
       onOpenStats: () => calls.push("stats"),
       onOpenSkills: () => calls.push("skills"),
+      onOpenMcp: () => calls.push("mcp"),
       onOpenArtifacts: () => calls.push("artifacts"),
       onOpenSettings: () => calls.push("settings"),
       dock: { open: false, onToggle: () => calls.push("dock") },
@@ -164,6 +166,7 @@ describe("DeckBar", () => {
     act(() => byLabel("Toggle dock panel")?.click());
     act(() => byLabel("Open statistics")?.click());
     act(() => byLabel("Open skills")?.click());
+    act(() => byLabel("Open MCP servers")?.click());
     act(() => byLabel("Open artifacts")?.click());
     act(() => byLabel("Open settings")?.click());
     expect(calls).toEqual([
@@ -172,6 +175,7 @@ describe("DeckBar", () => {
       "dock",
       "stats",
       "skills",
+      "mcp",
       "artifacts",
       "settings",
     ]);

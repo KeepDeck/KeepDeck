@@ -117,3 +117,25 @@ export function SidebarIcon() {
     </svg>
   );
 }
+
+export function McpIcon() {
+  // A plug — a server the agents connect to.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M9 2v5" />
+      <path d="M15 2v5" />
+      <path d="M6 7h12v4a6 6 0 0 1-12 0z" />
+      <path d="M12 17v5" />
+    </svg>
+  );
+}

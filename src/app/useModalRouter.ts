@@ -2,8 +2,8 @@ import { useState } from "react";
 import { isStatsTab, type StatsTab } from "../domain/usage/statsTabs";
 
 /**
- * THE owner of the app-surface dialog layer: which of the four exclusive
- * dialogs (settings, statistics, skills, artifacts) is open, and every verb that
+ * THE owner of the app-surface dialog layer: which of the five exclusive
+ * dialogs (settings, statistics, skills, MCP servers, artifacts) is open, and every verb that
  * opens, closes or retargets one. All entry points — toolbar, hotkey,
  * update banner, notification deep link, future command — speak these
  * verbs, so the gate ("one dialog at a time, never over a transaction")
@@ -25,12 +25,13 @@ export function useModalRouter({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<string | undefined>();
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [mcpOpen, setMcpOpen] = useState(false);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsTab, setStatsTab] = useState<StatsTab>("overview");
 
   const anyDialogOpen =
-    settingsOpen || statsOpen || skillsOpen || artifactsOpen;
+    settingsOpen || statsOpen || skillsOpen || mcpOpen || artifactsOpen;
   const canOpenDialog = !transactionOpen && !anyDialogOpen;
 
   const openSettings = (sectionId?: string): boolean => {
@@ -53,6 +54,16 @@ export function useModalRouter({
   const closeSkills = () => {
     if (transactionOpen) return;
     setSkillsOpen(false);
+  };
+
+  const openMcp = (): boolean => {
+    if (!canOpenDialog) return false;
+    setMcpOpen(true);
+    return true;
+  };
+  const closeMcp = () => {
+    if (transactionOpen) return;
+    setMcpOpen(false);
   };
 
   const openArtifacts = (): boolean => {
@@ -102,6 +113,9 @@ export function useModalRouter({
     skillsOpen,
     openSkills,
     closeSkills,
+    mcpOpen,
+    openMcp,
+    closeMcp,
     artifactsOpen,
     openArtifacts,
     closeArtifacts,

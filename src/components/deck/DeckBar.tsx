@@ -54,6 +54,7 @@ import {
   ArtifactsIcon,
   DockIcon,
   GearIcon,
+  McpIcon,
   SidebarIcon,
   SkillsIcon,
   StatsIcon,
@@ -114,6 +115,7 @@ export interface DeckBarProps {
   canOpenDialog: boolean;
   onOpenStats(): void;
   onOpenSkills(): void;
+  onOpenMcp(): void;
   /** The artifacts registry, or null while Fleet artifacts are off — a door
    * to a feature that is not running is a door to a refusal. */
   onOpenArtifacts: (() => void) | null;
@@ -141,6 +143,7 @@ export function DeckBar({
   canOpenDialog,
   onOpenStats,
   onOpenSkills,
+  onOpenMcp,
   onOpenArtifacts,
   onOpenSettings,
   notifications,
@@ -347,6 +350,15 @@ export function DeckBar({
             disabled={!canOpenDialog}
           >
             <SkillsIcon />
+          </TipButton>
+          <TipButton
+            variant="ghost"
+            size="sm"
+            tip="Open MCP servers"
+            onClick={onOpenMcp}
+            disabled={!canOpenDialog}
+          >
+            <McpIcon />
           </TipButton>
           {onOpenArtifacts && (
             <TipButton
