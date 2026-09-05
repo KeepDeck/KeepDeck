@@ -17,11 +17,14 @@ export type PaneVisibilityView = Pick<
  */
 export type HideReason = "minimized" | "suspendedTray";
 
-/** Every reason, in the order they are reported — and removed. Minimized
- * first on purpose: the tray restore drops the maximize only for a pane that
- * is no longer minimized, so a reveal that walks this order leaves no stale
- * spotlight for its re-read to find. */
-const HIDE_REASONS: readonly HideReason[] = ["minimized", "suspendedTray"];
+/** Every reason, in the order they are reported — and removed. Exhaustive by
+ * construction: a reason added to the union without an entry here fails to
+ * compile, where a plain array would have let the layout go on showing the
+ * pane the new list hides. Minimized first on purpose: the tray restore drops
+ * the maximize only for a pane that is no longer minimized, so a reveal that
+ * walks this order leaves no stale spotlight for its re-read to find. */
+const HIDE_REASONS = { minimized: true, suspendedTray: true } satisfies Record<HideReason, true>;
+const REASONS_IN_ORDER = Object.keys(HIDE_REASONS) as HideReason[];
 
 /** Every reason `paneId` is off the grid; empty when it is on it. The one
  * reading of the view's two lists: the layout keeps a pane with no reason,
@@ -30,7 +33,7 @@ export function hiddenBy(
   view: Pick<WorkspaceView, HideReason> | undefined,
   paneId: string,
 ): readonly HideReason[] {
-  return HIDE_REASONS.filter((reason) => view?.[reason]?.includes(paneId) ?? false);
+  return REASONS_IN_ORDER.filter((reason) => view?.[reason]?.includes(paneId) ?? false);
 }
 
 /** The panes on the grid: everything with no reason to be off it. The same
