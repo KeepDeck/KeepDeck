@@ -170,7 +170,7 @@
 /* One workspace's layer, stacked over the stage. Only the active one is
    visible; inactive ones keep their size (so xterm needs no refit) and stay
    mounted (so live panes keep running). A column: the grid on top, a
-   minimized-agents zone (tray/strip) below it when present. */
+   minimized-agents tray below it when present. */
 .deck__workspace {
   position: absolute;
   inset: 0;

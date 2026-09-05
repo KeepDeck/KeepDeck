@@ -77,7 +77,6 @@ function App() {
     handleCreateWorkspace,
     handleSelectWorkspace,
     info,
-    minimizeStyle,
     openNotification,
     orchestrator,
     paneViewActions,
@@ -181,7 +180,6 @@ function App() {
             selectedPaneId={selectedPaneId}
             keyboardFocusEnabled={keyboardFocusEnabled}
             deckLayout={deckLayout}
-            minimizeStyle={minimizeStyle}
             agents={agents}
             agentsReady={!agentsLoading}
             unavailableAgentReasons={unavailableReasons}

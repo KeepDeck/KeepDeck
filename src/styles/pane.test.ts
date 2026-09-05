@@ -105,7 +105,6 @@ function renderStandIn(): void {
           } as unknown as AppRuntime,
         },
         createElement(MinimizedItem, {
-          variant: "chip",
           paneId: "pane-1",
           title: "A deliberately long agent title that has to yield",
           gitBadge: { label: LONG_BRANCH, title: LONG_BRANCH },

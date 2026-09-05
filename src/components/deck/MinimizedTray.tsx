@@ -257,7 +257,6 @@ function MinimizedOverflow({
         {entries.map((entry) => (
           <MinimizedItem
             key={entry.id}
-            variant="chip"
             paneId={entry.id}
             title={entry.title}
             icon={entry.icon}
@@ -390,7 +389,6 @@ export function MinimizedTray({
         {visibleEntries.map((entry) => (
           <MinimizedItem
             key={entry.id}
-            variant="chip"
             paneId={entry.id}
             title={entry.title}
             icon={entry.icon}

@@ -11,9 +11,6 @@ import { MinimizedDetailsTooltip } from "./MinimizedDetailsTooltip";
 export const MINIMIZED_TOOLTIP_DELAY_MS = 600;
 
 interface MinimizedItemProps {
-  /** `chip` = a compact pill for the tray; `bar` = a full-width header bar for
-   * the strip. */
-  variant: "chip" | "bar";
   /** The pane this stand-in fronts — the key its live activity is read by. */
   paneId: string;
   title: string;
@@ -81,12 +78,11 @@ export function MinimizedItemContent({
 }
 
 /**
- * The stand-in a minimized agent shows below the grid — a tray chip or a folded
- * strip bar. It carries no terminal; the real pane is hidden but still mounted
- * in the grid, so restoring is instant (no re-attach, no scrollback replay).
+ * The stand-in a minimized agent shows below the grid — a compact chip in the
+ * tray. It carries no terminal; the real pane is hidden but still mounted in
+ * the grid, so restoring is instant (no re-attach, no scrollback replay).
  */
 export function MinimizedItem({
-  variant,
   paneId,
   title,
   icon,
@@ -136,7 +132,7 @@ export function MinimizedItem({
       <button
         ref={buttonRef}
         type="button"
-        className={`minimized minimized--${variant}${frame === "none" ? "" : ` minimized--frame-${frame}`}`}
+        className={`minimized minimized--chip${frame === "none" ? "" : ` minimized--frame-${frame}`}`}
         onMouseEnter={() => {
           if (!active) return;
           cancelHover();

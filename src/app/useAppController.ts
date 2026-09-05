@@ -18,7 +18,6 @@ import { useDeck } from "./useDeck";
 import { useDragDrop } from "./useDragDrop";
 import { useGitHead } from "./useGitHead";
 import { useMenuHotkeys } from "./useMenuHotkeys";
-import { useMinimizeMode } from "./useMinimizeMode";
 import { useModalRouter } from "./useModalRouter";
 import { setSourceVisibilityProbe } from "./notificationCenter";
 import { useActivityNotifications } from "./useActivityNotifications";
@@ -75,9 +74,10 @@ export function useAppController() {
   );
   const settings = useSettings();
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
-  const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
   const dockMode = settings?.dockMode ?? DEFAULT_SETTINGS.dockMode;
-  const minimizeOn = useMinimizeMode(deckLayout, minimizeStyle);
+  // Minimizing is a grid-only affordance: the list layout shows every agent
+  // in place, so a minimized set is ignored there rather than cleared.
+  const minimizeOn = deckLayout === "grid";
   const { restoring, frozen } = usePersistence(runtime.deckPersistence);
   const [frozenAck, setFrozenAck] = useState(false);
   const spawnCtx = useSpawnContext(runtime.spawnContext);
@@ -426,7 +426,6 @@ export function useAppController() {
     handleCreateWorkspace,
     handleSelectWorkspace,
     info,
-    minimizeStyle,
     openNotification,
     orchestrator,
     paneViewActions,

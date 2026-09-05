@@ -342,7 +342,7 @@ describe("MinimizedTray", () => {
     requestFrame.mockRestore();
   });
 
-  it("moves focus to the Strip stand-in that replaces a tray chip", () => {
+  it("moves focus to the stand-in that replaces a restored tray chip", () => {
     let frame: FrameRequestCallback | null = null;
     const requestFrame = vi
       .spyOn(window, "requestAnimationFrame")
@@ -363,10 +363,9 @@ describe("MinimizedTray", () => {
         <MinimizedTray entries={[entry]} active />
       ) : (
         <MinimizedItem
-          variant="bar"
           paneId="shared-pane"
           title="Shared agent"
-          label="Restore shared agent from strip"
+          label="Restore shared agent from elsewhere"
           active
           restorePaneId="shared-pane"
           onClick={() => {}}
