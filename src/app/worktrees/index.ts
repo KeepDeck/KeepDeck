@@ -192,9 +192,6 @@ export interface McpPlanting {
     root: string,
     content: string,
   ): Promise<McpPlantingReport>;
-  /** Take our MCP configs back out of `roots` — every one of them, live or
-   * not: this is the transport going down, not a directory leaving. */
-  retractMcp(roots: string[]): Promise<boolean>;
 }
 
 /**
@@ -282,7 +279,6 @@ export function createWorktreeManager(
     invalidateSkills: plantings.invalidateSkills,
     sweep: plantings.sweep,
     plantMcp: plantings.plantMcp,
-    retractMcp: plantings.retractMcp,
     remove: teardown.remove,
   };
 }

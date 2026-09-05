@@ -247,19 +247,6 @@ describe("the MCP config planted in a pane's cwd", () => {
       { root: "/wt/landing", content: "{}" },
     ]);
   });
-
-  it("takes its configs back from LIVE roots — that is what Off means", async () => {
-    // Unlike a teardown's disarm, nothing is leaving here: the socket those
-    // configs name is gone, so the panes still running in those directories
-    // are exactly the ones now pointing at nothing.
-    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
-
-    expect(await manager.retractMcp(["/wt/a"])).toBe(true);
-
-    expect(mcpArming.mcpDisarm).toHaveBeenCalledWith(["/wt/a"]);
-    // And only the MCP half: the skills symlink has nothing to do with it.
-    expect(skills.disarmSkills).not.toHaveBeenCalled();
-  });
 });
 
 describe("sweep", () => {

@@ -38,7 +38,6 @@ function harness() {
     pumpPorts,
     panesIn: () => 1,
     plant: async () => ({ armed: [], refused: [] }),
-    retract: async () => true,
     identitySource: () =>
       Promise.resolve({ name: "KeepDeck", version: "9.9.9" }),
     connection: vi.fn(() =>

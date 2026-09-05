@@ -130,12 +130,11 @@ export function createAppRuntime(
   const mcp = createMcpService({
     panesIn: (cwd) => panesRunningIn(deckStore.getSnapshot().workspaces, cwd),
     // kimi's config lands in a pane's cwd, so the owner of those directories
-    // decides when it may. These two exist only to break the construction
-    // cycle between the two owners — `worktrees` is built below and neither
-    // is called before a spawn, long after.
+    // decides when it may. The closure exists only to break the construction
+    // cycle between the two owners — `worktrees` is built below and this is
+    // not called before a spawn, long after.
     plant: (workspaceId, root, content) =>
       worktrees.plantMcp(workspaceId, root, content),
-    retract: (roots) => worktrees.retractMcp(roots),
     identify: createPaneIdentity({
       workspaces: () => deckStore.getSnapshot().workspaces,
       paneOf: paneIdBySpawnSecret,
