@@ -6,7 +6,13 @@ import {
   type AgentInfo,
 } from "../../domain/agents";
 import type { Pane, Workspace } from "../../domain/deck";
-import { baseName, paneAgentType, paneDisplayTitle } from "../../domain/deck";
+import {
+  attachedWorktree,
+  baseName,
+  paneAgentType,
+  paneBranch,
+  paneDisplayTitle,
+} from "../../domain/deck";
 import {
   defaultRoleFor,
   mintRoleAddress,
@@ -71,8 +77,10 @@ function suggestAddress(taken: readonly string[]): string {
  * first — that is what an agent is actually working on — else the folder it
  * runs in. Empty when the pane has neither and the title is all there is. */
 function whereOf(pane: Pane): string {
-  if (pane.branch) return pane.branch;
-  return pane.cwd ? baseName(pane.cwd) : "";
+  const branch = paneBranch(pane);
+  if (branch) return branch;
+  const worktree = attachedWorktree(pane);
+  return worktree ? baseName(worktree.cwd) : "";
 }
 
 /** One pane's live status — the tray's own badge model, rendered small. Its

@@ -19,6 +19,7 @@ import {
   type Workspace,
   type WorkspaceView,
   paneBody,
+  provisioningCard,
 } from "../domain/deck";
 import type { PaneFramePlace } from "../domain/status";
 import { teamNamesIn } from "../domain/mail";
@@ -517,7 +518,7 @@ export function DeckStage({
               onDismissOccupied={() => onDismissOccupied(pane.id)}
               startup={startupPanes[pane.id] ?? null}
               onForkStalled={() => onForkStalled(ws.id, pane.id)}
-              provisioning={pane.provisioning}
+              provisioning={provisioningCard(pane)}
               unavailableAgent={unavailableAgent}
               colSpan={layout.colSpan}
               onSelect={() => onSelectPane(ws.id, pane.id)}
