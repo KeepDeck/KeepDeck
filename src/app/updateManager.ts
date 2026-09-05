@@ -1,4 +1,4 @@
-import { fetchAppInfo } from "../ipc/app";
+import { readAppInfo, resetAppInfo } from "./appInfo";
 import { describeError, log } from "../ipc/log";
 import {
   checkForUpdate,
@@ -98,7 +98,7 @@ export function initUpdates(
   intervalMs = CHECK_INTERVAL_MS,
 ): Promise<void> {
   downloads = manager;
-  boot ??= fetchAppInfo()
+  boot ??= readAppInfo()
     .then((info) => {
       currentVersion = info.version;
       if (!info.updater) {
@@ -119,7 +119,7 @@ export function initUpdates(
 /** Manual "Check for updates" from settings. A no-op while anything is in
  * flight or already found — those states have their own actions. Awaits boot
  * first so `currentVersion` is captured before `runCheck` slices the
- * changelog; without that, a click racing `initUpdates`' fetchAppInfo would
+ * changelog; without that, a click racing `initUpdates`' app-info read would
  * slice with `currentVersion=""` and surface notes for versions the user
  * already runs. */
 export async function checkForUpdatesNow(): Promise<void> {
@@ -319,5 +319,6 @@ export function resetUpdateManager(): void {
   if (timer) clearInterval(timer);
   timer = null;
   boot = null;
+  resetAppInfo();
   listeners.clear();
 }

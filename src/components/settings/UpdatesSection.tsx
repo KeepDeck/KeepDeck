@@ -10,7 +10,7 @@ import {
 } from "../../app/updateManager";
 import { downloadPercent } from "@keepdeck/plugin-api";
 import { useUpdate } from "../../app/useUpdate";
-import { fetchAppInfo } from "../../ipc/app";
+import { readAppInfo } from "../../app/appInfo";
 import { UpdateChangelog } from "./UpdateChangelog";
 
 /** The status line for each update phase — one honest sentence, no spinners. */
@@ -121,11 +121,11 @@ export function UpdatesSection() {
   const update = useUpdate();
   const [version, setVersion] = useState<string | null>(null);
 
-  // Per mount, like GeneralSection fetches the agent catalog: the version
-  // cannot change without a restart, but the fetch is cheap and mount-scoped.
+  // One read per process, shared with the bar and the update manager; the
+  // version cannot change without a restart, so the shell is asked once.
   useEffect(() => {
     let mounted = true;
-    fetchAppInfo()
+    readAppInfo()
       .then((info) => {
         if (mounted) setVersion(info.version);
       })

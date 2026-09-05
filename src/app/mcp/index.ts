@@ -4,7 +4,7 @@ import {
   type McpCommandPort,
   type McpServerIdentity,
 } from "../../domain/mcp";
-import { fetchAppInfo } from "../../ipc/app";
+import { readAppInfo } from "../appInfo";
 import { describeError } from "../../ipc/log";
 import {
   mcpConnectionCommand,
@@ -204,7 +204,7 @@ export function createMcpService(deps: McpServiceDeps): McpService {
    * must clear (the user moved their file away). */
   const armedRoots = new Set<string>();
   let identity: McpServerIdentity = { name: "KeepDeck", version: "unknown" };
-  void (deps.identitySource ?? fetchAppInfo)()
+  void (deps.identitySource ?? readAppInfo)()
     .then((info) => {
       identity = { name: info.name, version: info.version };
     })

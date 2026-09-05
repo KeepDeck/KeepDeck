@@ -45,7 +45,8 @@ import {
   paneOnScreen,
   resolveSelectedPaneId,
 } from "../domain/deck";
-import { fetchAppInfo, type AppInfo } from "../ipc/app";
+import type { AppInfo } from "../ipc/app";
+import { readAppInfo } from "./appInfo";
 import { layering, statsDeepLinkOnScreen } from "../presentation/layering";
 import { describeError, log } from "../ipc/log";
 import { pluginCrashes, subscribePluginCrashes } from "./pluginHealth";
@@ -59,7 +60,7 @@ export function useAppController() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const updateState = useUpdate();
   useEffect(() => {
-    fetchAppInfo()
+    readAppInfo()
       .then(setInfo)
       .catch((e) => {
         log.warn("web:app", `app_info failed: ${describeError(e)}`);
